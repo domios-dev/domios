@@ -1,0 +1,190 @@
+use std::io::{BufRead, BufReader, Write};
+
+use interprocess::local_socket::{prelude::*, GenericNamespaced};
+use serde::{Deserialize, Serialize};
+
+/// A JSON-RPC client that connects to the CodeTerm socket API.
+pub struct SocketClient {
+    reader: BufReader<interprocess::local_socket::Stream>,
+    next_id: u64,
+}
+
+#[derive(Serialize)]
+struct JsonRpcRequest<'a> {
+    jsonrpc: &'static str,
+    id: u64,
+    method: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    params: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct JsonRpcResponse {
+    #[allow(dead_code)]
+    jsonrpc: String,
+    #[allow(dead_code)]
+    id: Option<serde_json::Value>,
+    result: Option<serde_json::Value>,
+    error: Option<JsonRpcError>,
+}
+
+#[derive(Deserialize)]
+struct JsonRpcError {
+    code: i32,
+    message: String,
+}
+
+impl SocketClient {
+    /// Connect to the CodeTerm socket at the given path.
+    ///
+    /// On Windows, `socket_path` should be the namespaced name (e.g. `codeterm-1234`),
+    /// NOT the full `\\.\pipe\codeterm-1234` path.
+    pub fn connect(socket_path: &str) -> Result<Self, String> {
+        let name = socket_path
+            .to_ns_name::<GenericNamespaced>()
+            .map_err(|e| format!("Invalid socket name '{}': {}", socket_path, e))?;
+
+        let stream = interprocess::local_socket::Stream::connect(name)
+            .map_err(|e| format!("Failed to connect to '{}': {}", socket_path, e))?;
+
+        Ok(Self {
+            reader: BufReader::new(stream),
+            next_id: 1,
+        })
+    }
+
+    /// Send a JSON-RPC call and return the result value.
+    pub fn call(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, String> {
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0",
+            id: self.next_id,
+            method,
+            params,
+        };
+        self.next_id += 1;
+
+        let payload =
+            serde_json::to_string(&req).map_err(|e| format!("Serialize error: {}", e))?;
+
+        // Write request line
+        let writer = self.reader.get_mut();
+        writer
+            .write_all(payload.as_bytes())
+            .map_err(|e| format!("Write error: {}", e))?;
+        writer
+            .write_all(b"\n")
+            .map_err(|e| format!("Write error: {}", e))?;
+        writer.flush().map_err(|e| format!("Flush error: {}", e))?;
+
+        // Read response line
+        let mut line = String::new();
+        self.reader
+            .read_line(&mut line)
+            .map_err(|e| format!("Read error: {}", e))?;
+
+        let resp: JsonRpcResponse =
+            serde_json::from_str(line.trim()).map_err(|e| format!("Parse response error: {}", e))?;
+
+        if let Some(err) = resp.error {
+            return Err(format!("RPC error {}: {}", err.code, err.message));
+        }
+
+        Ok(resp.result.unwrap_or(serde_json::Value::Null))
+    }
+}
+
+/// Discover the CodeTerm socket path.
+///
+/// 1. Check `CODETERM_SOCKET_PATH` env var
+/// 2. On Windows, scan `\\.\pipe\` for pipes matching `codeterm-*`
+/// 3. On Unix, scan `/tmp/` for `codeterm-*.sock`
+pub fn discover_socket() -> Result<String, String> {
+    // Check env var first
+    if let Ok(path) = std::env::var("CODETERM_SOCKET_PATH") {
+        if !path.is_empty() {
+            // The env var contains the display path (e.g. \\.\pipe\codeterm-1234).
+            // We need to extract just the namespaced name for interprocess.
+            return Ok(normalize_socket_path(&path));
+        }
+    }
+
+    // Auto-discovery
+    #[cfg(target_os = "windows")]
+    {
+        discover_windows_pipe()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        discover_unix_socket()
+    }
+}
+
+/// Normalize a socket path: strip the \\.\pipe\ prefix on Windows if present,
+/// or return as-is on Unix.
+fn normalize_socket_path(path: &str) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        // Strip Windows named pipe prefix if present
+        if let Some(name) = path.strip_prefix("\\\\.\\pipe\\") {
+            return name.to_string();
+        }
+        if let Some(name) = path.strip_prefix("//./pipe/") {
+            return name.to_string();
+        }
+        path.to_string()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        path.to_string()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn discover_windows_pipe() -> Result<String, String> {
+    // Scan \\.\pipe\ directory for codeterm-* pipes
+    use std::fs;
+    let pipe_dir = "\\\\.\\pipe";
+    match fs::read_dir(pipe_dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.starts_with("codeterm-") {
+                        return Ok(name.to_string());
+                    }
+                }
+            }
+            Err("No CodeTerm socket found. Is CodeTerm running?".to_string())
+        }
+        Err(_) => {
+            // Fallback: try to list pipes via a different method.
+            // On some Windows versions, read_dir on \\.\pipe may not work.
+            // Try common PIDs approach — not reliable, so just error.
+            Err("Cannot scan named pipes. Set CODETERM_SOCKET_PATH env var.".to_string())
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn discover_unix_socket() -> Result<String, String> {
+    use std::fs;
+    let tmp = "/tmp";
+    match fs::read_dir(tmp) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.starts_with("codeterm-") && name.ends_with(".sock") {
+                        return Ok(format!("/tmp/{}", name));
+                    }
+                }
+            }
+            Err("No CodeTerm socket found. Is CodeTerm running?".to_string())
+        }
+        Err(e) => Err(format!("Cannot scan /tmp: {}", e)),
+    }
+}

@@ -1,0 +1,112 @@
+# CodeTerm — Build Guide
+
+## Prerequisites
+
+### Windows
+- **Rust** 1.93+ (`rustup install stable`)
+- **Node.js** 22+ with **pnpm** (`npm install -g pnpm`)
+- **MSVC Build Tools** — Visual Studio 2022 Build Tools with:
+  - `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`
+  - `Microsoft.VisualStudio.Component.Windows11SDK.22621`
+- **WebView2** — comes with Windows 11, install separately on Windows 10
+
+### macOS
+- Xcode Command Line Tools
+- Rust, Node.js, pnpm
+
+### Linux
+- `build-essential`, `libwebkit2gtk-4.1-dev`, `libssl-dev`, `libgtk-3-dev`
+- Rust, Node.js, pnpm
+
+## Quick Start
+
+```bash
+# Clone
+git clone <repo-url> codeterm
+cd codeterm
+
+# Install frontend dependencies
+pnpm install
+
+# Development mode (hot-reload)
+npx tauri dev
+
+# Production build
+npx tauri build
+```
+
+## Build Output
+
+After `npx tauri build`:
+
+| File | Location |
+|------|----------|
+| **Portable exe** | `src-tauri/target/release/codeterm.exe` |
+| **NSIS installer** | `src-tauri/target/release/bundle/nsis/CodeTerm_0.1.0_x64-setup.exe` |
+| **MSI installer** | `src-tauri/target/release/bundle/msi/CodeTerm_0.1.0_x64_en-US.msi` |
+| **CLI binary** | `cli/target/release/codeterm.exe` (build separately) |
+
+## Building CLI separately
+
+```bash
+cargo build --release --manifest-path cli/Cargo.toml
+```
+
+CLI binary: `cli/target/release/codeterm.exe`
+
+## Running Tests
+
+```bash
+# Rust unit + integration tests (46 tests)
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# Frontend type check
+npx tsc --noEmit
+
+# E2E tests (requires running app)
+npx tauri dev &
+sleep 90
+bash tests/final_e2e.sh
+```
+
+## Windows MSVC Notes
+
+If build fails with `link.exe` errors, ensure MSVC is properly configured. The project includes `.cargo/config.toml` with MSVC paths. You may need to update paths if your MSVC version differs.
+
+Check your MSVC installation:
+```powershell
+& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+```
+
+## Project Structure
+
+```
+codeterm/
+├── src-tauri/          # Rust backend (Tauri v2)
+│   ├── src/
+│   │   ├── lib.rs      # App entry, state setup
+│   │   ├── commands.rs  # PTY Tauri commands
+│   │   ├── pty/         # PTY manager (portable-pty)
+│   │   ├── multiplexer/ # Workspace/Tab/Pane state
+│   │   ├── agent/       # Agent detection, git info
+│   │   ├── socket/      # JSON-RPC socket server
+│   │   ├── api/         # REST API (Axum)
+│   │   ├── notification/# Notification store
+│   │   ├── config/      # TOML config + themes
+│   │   └── session/     # Session persistence
+│   └── Cargo.toml
+├── src/                # React frontend
+│   ├── App.tsx
+│   ├── components/
+│   │   ├── Terminal/    # xterm.js, splits
+│   │   ├── Sidebar/     # Workspace/tab list
+│   │   ├── Titlebar/    # Custom titlebar
+│   │   ├── Notifications/
+│   │   └── Settings/
+│   ├── store/           # React context state
+│   └── hooks/
+├── cli/                # CLI binary
+├── skills/             # Claude Code skills
+├── tests/              # E2E tests
+└── docs/               # Documentation
+```
