@@ -1,0 +1,36 @@
+[package]
+name = "codeterm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
+portable-pty = { path = "pty-fork" }
+conpty = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+log = "0.4"
+env_logger = "0.11"
+parking_lot = "0.12"
+base64 = "0.22"
+interprocess = "2"
+sha2 = "0.10"
+toml = "0.8"
+dirs = "6"
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+git2 = "0.19"
+reqwest = { version = "0.12", features = ["json"] }
+async-stream = "0.3"
+futures-core = "0.3"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[lib]
+name = "codeterm_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]

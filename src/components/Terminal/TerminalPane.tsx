@@ -1,0 +1,635 @@
+import { useEffect, useRef, useCallback, useState } from "react";
+import { Terminal } from "@xterm/xterm";
+// WebGL disabled — causes blank screen with TUI apps like Claude Code
+// import { WebglAddon } from "@xterm/addon-webgl";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { SearchAddon } from "@xterm/addon-search";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { useMultiplexer } from "../../store/multiplexer";
+import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
+import { SearchBar } from "./SearchBar";
+import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+
+const STATUS_COLORS: Record<PaneStatus, string> = {
+  Working: "#7ee787",
+  Waiting: "#d29922",
+  Idle: "#484f58",
+  Dead: "#f85149",
+};
+
+interface TerminalPaneProps {
+  paneId: string;
+  ptyId?: string | null;
+  isFocused?: boolean;
+  onFocus?: (paneId: string) => void;
+  onPtySpawned?: (paneId: string, ptyId: string) => void;
+  theme?: ThemeConfig;
+  fontConfig?: FontConfig;
+  terminalConfig?: TerminalConfigSettings;
+}
+
+/** Map config cursor_style string to xterm CursorStyle */
+function mapCursorStyle(style?: string): "block" | "underline" | "bar" {
+  if (style === "underline") return "underline";
+  if (style === "bar") return "bar";
+  return "block";
+}
+
+/** Build xterm ITheme from ThemeConfig */
+function buildXtermTheme(theme?: ThemeConfig) {
+  if (!theme) {
+    return {
+      background: "#0d1117",
+      foreground: "#c9d1d9",
+      cursor: "#58a6ff",
+      selectionBackground: "#264f78",
+      black: "#0d1117",
+      red: "#ff7b72",
+      green: "#7ee787",
+      yellow: "#d29922",
+      blue: "#58a6ff",
+      magenta: "#bc8cff",
+      cyan: "#39d353",
+      white: "#c9d1d9",
+      brightBlack: "#484f58",
+      brightRed: "#ffa198",
+      brightGreen: "#56d364",
+      brightYellow: "#e3b341",
+      brightBlue: "#79c0ff",
+      brightMagenta: "#d2a8ff",
+      brightCyan: "#56d364",
+      brightWhite: "#f0f6fc",
+    };
+  }
+  return {
+    background: theme.background,
+    foreground: theme.foreground,
+    cursor: theme.cursor,
+    selectionBackground: theme.selection,
+    black: theme.black,
+    red: theme.red,
+    green: theme.green,
+    yellow: theme.yellow,
+    blue: theme.blue,
+    magenta: theme.magenta,
+    cyan: theme.cyan,
+    white: theme.white,
+    brightBlack: theme.bright_black,
+    brightRed: theme.bright_red,
+    brightGreen: theme.bright_green,
+    brightYellow: theme.bright_yellow,
+    brightBlue: theme.bright_blue,
+    brightMagenta: theme.bright_magenta,
+    brightCyan: theme.bright_cyan,
+    brightWhite: theme.bright_white,
+  };
+}
+
+export function TerminalPane({
+  paneId,
+  ptyId,
+  isFocused = false,
+  onFocus,
+  onPtySpawned,
+  theme,
+  fontConfig,
+  terminalConfig,
+}: TerminalPaneProps) {
+  const termRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const searchAddonRef = useRef<SearchAddon | null>(null);
+  const connectedPtyRef = useRef<string | null>(null);
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+
+  // Search bar state
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  // Visual bell state
+  const [bellFlash, setBellFlash] = useState(false);
+
+  const { state, updatePaneStatus, setPaneTitle, setAgentType, splitPane, closePane } = useMultiplexer();
+  const paneStatus = state.paneStatuses[paneId] as PaneStatus | undefined;
+
+  const handleClick = useCallback(() => {
+    onFocus?.(paneId);
+    // Focus xterm textarea, then fallback to container
+    xtermRef.current?.focus();
+    // Also focus the container div as fallback for keyboard capture
+    termRef.current?.focus();
+  }, [onFocus, paneId]);
+
+  // --- Copy helper ---
+  const copySelection = useCallback(() => {
+    const selection = xtermRef.current?.getSelection();
+    if (selection) {
+      navigator.clipboard.writeText(selection).catch(() => {});
+    }
+  }, []);
+
+  // --- Paste helper ---
+  const pasteFromClipboard = useCallback(() => {
+    const currentPtyId = connectedPtyRef.current;
+    if (!currentPtyId) return;
+    navigator.clipboard.readText().then((text) => {
+      if (text) {
+        invoke("write_pty_string", { ptyId: currentPtyId, data: text });
+      }
+    }).catch(() => {});
+  }, []);
+
+  // --- Clear terminal helper ---
+  const clearTerminal = useCallback(() => {
+    xtermRef.current?.clear();
+  }, []);
+
+  // --- Context menu handler ---
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  // Build context menu actions
+  const contextMenuActions: ContextMenuAction[] = [
+    { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection },
+    { label: "Paste", shortcut: "Ctrl+Shift+V", onClick: pasteFromClipboard },
+    { label: "Clear", onClick: clearTerminal, separator: true },
+    {
+      label: "Split Right",
+      shortcut: "Ctrl+Shift+D",
+      onClick: () => splitPane(paneId, "Horizontal"),
+      separator: true,
+    },
+    {
+      label: "Split Down",
+      shortcut: "Ctrl+Shift+E",
+      onClick: () => splitPane(paneId, "Vertical"),
+    },
+    {
+      label: "Close Pane",
+      shortcut: "Ctrl+Shift+Q",
+      onClick: () => closePane(paneId),
+      separator: true,
+    },
+  ];
+
+  // Listen for pane-specific status events
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    listen<{ status: PaneStatus }>(
+      `pane-status-${paneId}`,
+      (event) => {
+        if (!cancelled) {
+          updatePaneStatus(paneId, event.payload.status);
+        }
+      },
+    ).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [paneId, updatePaneStatus]);
+
+  // Listen for screen capture requests from API
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen<{ pane_id: string }>("screen-capture-request", (event) => {
+      if (event.payload.pane_id !== paneId) return;
+      const term = xtermRef.current;
+      if (!term) return;
+      // Read all visible lines from terminal buffer
+      const lines: string[] = [];
+      const buf = term.buffer.active;
+      for (let i = 0; i < buf.length; i++) {
+        const line = buf.getLine(i);
+        if (line) lines.push(line.translateToString(true));
+      }
+      // Trim trailing empty lines
+      while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
+      const text = lines.join("\n");
+      import("@tauri-apps/api/core").then(({ invoke }) => {
+        // Emit response back to backend
+        import("@tauri-apps/api/event").then(({ emit }) => {
+          emit(`screen-capture-response-${paneId}`, { text });
+        });
+      });
+    }).then((fn) => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, [paneId]);
+
+  // Initialize xterm
+  useEffect(() => {
+    if (!termRef.current) return;
+
+    const term = new Terminal({
+      cursorBlink: terminalConfig?.cursor_blink ?? true,
+      cursorStyle: mapCursorStyle(terminalConfig?.cursor_style),
+      fontSize: fontConfig?.size ?? 14,
+      fontFamily: fontConfig?.family ??
+        "'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace",
+      scrollback: terminalConfig?.scrollback ?? 10000,
+      theme: buildXtermTheme(theme),
+      allowProposedApi: true,
+      // Critical for ConPTY on Windows — enables proper raw mode + cursor key handling
+      windowsPty: {
+        backend: "conpty",
+        buildNumber: 19041,
+      },
+    });
+
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.loadAddon(new WebLinksAddon());
+
+    // Search addon
+    const searchAddon = new SearchAddon();
+    term.loadAddon(searchAddon);
+    searchAddonRef.current = searchAddon;
+
+    term.open(termRef.current);
+
+    // WebGL disabled — causes rendering issues with heavy TUI apps (Claude Code)
+    // Canvas renderer is more reliable for complex escape sequences
+    // try {
+    //   term.loadAddon(new WebglAddon());
+    // } catch (e) {
+    //   console.warn("WebGL addon failed, using canvas renderer", e);
+    // }
+
+    // Copy on select — auto-copy selected text to clipboard
+    term.onSelectionChange(() => {
+      const selection = term.getSelection();
+      if (selection) {
+        navigator.clipboard.writeText(selection).catch(() => {});
+      }
+    });
+
+    // Visual bell — flash pane border on BEL character
+    term.onBell(() => {
+      setBellFlash(true);
+      setTimeout(() => setBellFlash(false), 200);
+    });
+
+    // Auto-name tab from terminal title (OSC 0/2 sequences)
+    // Shells set CWD, Claude Code sets task description
+    term.onTitleChange((title) => {
+      if (title) {
+        setPaneTitle(paneId, title);
+        // Detect Claude Code from OSC title
+        if (/claude/i.test(title)) {
+          setAgentType(paneId, "claude");
+        }
+      }
+    });
+
+    fitAddon.fit();
+    term.focus();
+    xtermRef.current = term;
+    fitAddonRef.current = fitAddon;
+
+    // Observe container resize to refit terminal
+    const resizeObserver = new ResizeObserver(() => {
+      requestAnimationFrame(() => {
+        if (fitAddonRef.current) {
+          try {
+            fitAddonRef.current.fit();
+          } catch {
+            // ignore fit errors during teardown
+          }
+        }
+      });
+    });
+    resizeObserver.observe(termRef.current);
+
+    return () => {
+      resizeObserver.disconnect();
+      term.dispose();
+      xtermRef.current = null;
+      fitAddonRef.current = null;
+      searchAddonRef.current = null;
+    };
+  }, []);
+
+  // Hot-reload theme, font, and terminal config changes
+  useEffect(() => {
+    const term = xtermRef.current;
+    if (!term) return;
+
+    term.options.theme = buildXtermTheme(theme);
+    term.options.fontSize = fontConfig?.size ?? 14;
+    term.options.fontFamily = fontConfig?.family ??
+      "'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace";
+    term.options.cursorBlink = terminalConfig?.cursor_blink ?? true;
+    term.options.cursorStyle = mapCursorStyle(terminalConfig?.cursor_style);
+    term.options.scrollback = terminalConfig?.scrollback ?? 10000;
+
+    // Refit after font/theme changes
+    requestAnimationFrame(() => {
+      try {
+        fitAddonRef.current?.fit();
+      } catch {
+        // ignore
+      }
+    });
+  }, [theme, fontConfig, terminalConfig]);
+
+  // Connect to PTY — spawn if needed, always set up listeners BEFORE spawning
+  useEffect(() => {
+    const term = xtermRef.current;
+    if (!term) return;
+
+    // Already connected to a PTY
+    if (connectedPtyRef.current !== null) {
+      if (ptyId && connectedPtyRef.current !== ptyId) {
+        // ptyId changed, will reconnect below
+      } else {
+        return;
+      }
+    }
+
+    let cleanupFns: (() => void)[] = [];
+    let disposed = false;
+
+    const setupAndConnect = async () => {
+      // Generate a predictable PTY ID so we can listen BEFORE spawning
+      const predictedId = ptyId || crypto.randomUUID();
+      connectedPtyRef.current = predictedId;
+
+      // Restore output buffer for existing PTY connections (e.g. after split remount)
+      if (ptyId) {
+        try {
+          const output = await invoke<string>("get_pane_output", { paneId });
+          if (output) {
+            term.write(output);
+          }
+        } catch {
+          // ignore — pane might not have output yet
+        }
+      }
+
+      // Poll PTY output — sequential: wait for each read to complete before next
+      let reading = true;
+      let firstData = true;
+      const readLoop = async () => {
+        while (reading) {
+          try {
+            // This blocks until data available (spawn_blocking on backend)
+            const data = await invoke<number[]>("read_pty", { ptyId: predictedId });
+            if (data && data.length > 0) {
+              term.write(new Uint8Array(data));
+              if (firstData) {
+                firstData = false;
+                requestAnimationFrame(() => {
+                  try {
+                    fitAddonRef.current?.fit();
+                    term.refresh(0, term.rows - 1);
+                  } catch { /* ignore */ }
+                });
+              }
+            }
+          } catch {
+            if (reading) {
+              term.writeln("\r\n\x1b[90m[Process exited]\x1b[0m");
+            }
+            break;
+          }
+        }
+      };
+      readLoop(); // Start — no RAF, just sequential async loop
+      cleanupFns.push(() => { reading = false; });
+
+      // Primary: xterm.js onData captures keyboard when textarea is focused
+      const onDataDisposable = term.onData((data) => {
+        invoke("write_pty_string", { ptyId: predictedId, data });
+      });
+      cleanupFns.push(() => onDataDisposable.dispose());
+
+      // Fallback: capture keyboard at container level for when xterm textarea loses focus
+      const containerEl = termRef.current;
+      if (containerEl) {
+        const handleKeyDown = (e: KeyboardEvent) => {
+          // Don't handle if xterm textarea is focused (onData handles it)
+          const active = document.activeElement;
+          if (active?.classList.contains("xterm-helper-textarea")) return;
+
+          // Don't capture modifier-only keys or shortcuts
+          if (e.ctrlKey && e.shiftKey) return;
+          if (e.altKey) return;
+          if (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta") return;
+
+          e.preventDefault();
+          e.stopPropagation();
+
+          let data = "";
+          if (e.ctrlKey) {
+            // Ctrl+letter = control code
+            const code = e.key.toUpperCase().charCodeAt(0) - 64;
+            if (code > 0 && code < 32) data = String.fromCharCode(code);
+          } else if (e.key === "Enter") {
+            data = "\r";
+          } else if (e.key === "Backspace") {
+            data = "\x7f";
+          } else if (e.key === "Tab") {
+            data = "\t";
+          } else if (e.key === "Escape") {
+            data = "\x1b";
+          } else if (e.key === "ArrowUp") {
+            data = "\x1b[A";
+          } else if (e.key === "ArrowDown") {
+            data = "\x1b[B";
+          } else if (e.key === "ArrowRight") {
+            data = "\x1b[C";
+          } else if (e.key === "ArrowLeft") {
+            data = "\x1b[D";
+          } else if (e.key.length === 1) {
+            data = e.key;
+          }
+
+          if (data) {
+            invoke("write_pty_string", { ptyId: predictedId, data });
+          }
+        };
+        containerEl.addEventListener("keydown", handleKeyDown, true);
+        cleanupFns.push(() => containerEl.removeEventListener("keydown", handleKeyDown, true));
+
+        // Make container focusable
+        containerEl.tabIndex = 0;
+      }
+
+      const onResizeDisposable = term.onResize(({ cols, rows }) => {
+        invoke("resize_pty", { ptyId: predictedId, cols, rows });
+      });
+      cleanupFns.push(() => onResizeDisposable.dispose());
+
+      // 2. NOW spawn PTY if needed (listeners are ready to catch output)
+      if (!ptyId) {
+        // Ensure minimum size (hidden tabs may report 0)
+        const cols = Math.max(term.cols, 80);
+        const rows = Math.max(term.rows, 24);
+        const spawnedId = await invoke<string>("spawn_pty", {
+          cols, rows, predictedId,
+        });
+        if (disposed) {
+          invoke("kill_pty", { ptyId: spawnedId }).catch(() => {});
+          return;
+        }
+        // Link PTY to pane in backend
+        await invoke("mux_link_pty", { paneId, ptyId: spawnedId });
+        onPtySpawned?.(paneId, spawnedId);
+
+        // Sync PTY size with actual xterm dimensions after connection
+        requestAnimationFrame(() => {
+          try {
+            fitAddonRef.current?.fit();
+            const actualCols = term.cols;
+            const actualRows = term.rows;
+            if (actualCols > 0 && actualRows > 0) {
+              invoke("resize_pty", { ptyId: predictedId, cols: actualCols, rows: actualRows });
+            }
+          } catch { /* ignore */ }
+        });
+      }
+    };
+
+    setupAndConnect().catch((e) => {
+      console.warn("Failed to setup PTY:", e);
+      term.writeln("\x1b[31m[Failed to connect to PTY]\x1b[0m");
+    });
+
+    return () => {
+      disposed = true;
+      for (const fn of cleanupFns) {
+        fn();
+      }
+      connectedPtyRef.current = null;
+    };
+  }, [ptyId, paneId, onPtySpawned]);
+
+  // Refit + focus xterm when pane becomes focused
+  useEffect(() => {
+    if (isFocused) {
+      requestAnimationFrame(() => {
+        try {
+          fitAddonRef.current?.fit();
+          xtermRef.current?.focus();
+        } catch {
+          // ignore
+        }
+      });
+    }
+  }, [isFocused]);
+
+  // Expose searchOpen toggle for keyboard shortcut from App
+  useEffect(() => {
+    const el = termRef.current?.closest("[data-pane-id]");
+    if (el) {
+      (el as HTMLElement).dataset.paneId = paneId;
+    }
+  }, [paneId]);
+
+  // Listen for search toggle event on this pane
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.paneId === paneId) {
+        setSearchOpen((v) => !v);
+      }
+    };
+    window.addEventListener("codeterm-toggle-search", handler);
+    return () => window.removeEventListener("codeterm-toggle-search", handler);
+  }, [paneId]);
+
+  // Listen for pane resize events (triggered after divider drag ends)
+  useEffect(() => {
+    const handler = () => {
+      requestAnimationFrame(() => {
+        try {
+          fitAddonRef.current?.fit();
+          // Also sync PTY size after refit
+          const term = xtermRef.current;
+          const currentPtyId = connectedPtyRef.current;
+          if (term && currentPtyId && term.cols > 0 && term.rows > 0) {
+            invoke("resize_pty", { ptyId: currentPtyId, cols: term.cols, rows: term.rows });
+          }
+        } catch {
+          // ignore fit errors
+        }
+      });
+    };
+    window.addEventListener("codeterm-pane-resize", handler);
+    return () => window.removeEventListener("codeterm-pane-resize", handler);
+  }, []);
+
+  const borderColor = bellFlash
+    ? (theme?.yellow ?? "#d29922")
+    : isFocused
+      ? (theme?.blue ?? "#1f6feb")
+      : "transparent";
+
+  return (
+    <div
+      className="w-full h-full relative"
+      data-pane-id={paneId}
+      style={{
+        boxSizing: "border-box",
+        border: `2px solid ${borderColor}`,
+        transition: bellFlash ? "border-color 0.1s ease-in" : "border-color 0.15s ease-out",
+      }}
+      onMouseDown={handleClick}
+      onContextMenu={handleContextMenu}
+    >
+      {/* Search bar */}
+      {searchOpen && (
+        <SearchBar
+          searchAddon={searchAddonRef.current}
+          onClose={() => {
+            setSearchOpen(false);
+            xtermRef.current?.focus();
+          }}
+        />
+      )}
+
+      <div
+        ref={termRef}
+        className="w-full h-full"
+        style={{ padding: "4px" }}
+        onClick={() => xtermRef.current?.focus()}
+      />
+      {/* Pane status indicator */}
+      {paneStatus && (
+        <div
+          className="absolute top-1.5 right-1.5 flex items-center gap-1 pointer-events-none"
+          title={paneStatus}
+        >
+          <span
+            className={`inline-block w-2 h-2 rounded-full ${paneStatus === "Working" ? "animate-pulse" : ""}`}
+            style={{ backgroundColor: STATUS_COLORS[paneStatus] }}
+          />
+        </div>
+      )}
+
+      {/* Context menu */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          actions={contextMenuActions}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+    </div>
+  );
+}

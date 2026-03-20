@@ -1,0 +1,81 @@
+@import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
+
+:root {
+  font-family: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas,
+    "Liberation Mono", Menlo, Courier, monospace;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0d1117;
+  color: #c9d1d9;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+/* xterm overrides */
+.xterm {
+  padding: 0;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 4px;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+/* Prevent text selection outside terminal */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.xterm {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Ensure xterm textarea can receive focus for keyboard input */
+.xterm-helper-textarea {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  opacity: 0 !important;
+  position: absolute !important;
+  pointer-events: auto !important;
+}
