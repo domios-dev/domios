@@ -239,12 +239,13 @@ pub fn mux_set_pane_agent_type(
 }
 
 /// Detect Claude Code session IDs for a given working directory.
-/// Returns all session UUIDs sorted by modified time (newest first).
-/// The `exclude` parameter allows skipping already-assigned session IDs.
+/// Returns the newest session UUID that was created/modified within `max_age_secs`
+/// (default 120s). The `exclude` list skips already-assigned IDs.
 #[tauri::command]
 pub fn detect_claude_session_id(
     cwd: String,
     exclude: Option<Vec<String>>,
+    max_age_secs: Option<u64>,
 ) -> Result<Option<String>, String> {
     let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
     let encoded: String = cwd.chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
@@ -255,6 +256,8 @@ pub fn detect_claude_session_id(
     }
 
     let excluded = exclude.unwrap_or_default();
+    let max_age = std::time::Duration::from_secs(max_age_secs.unwrap_or(300));
+    let now = std::time::SystemTime::now();
     let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
 
     if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
@@ -264,8 +267,15 @@ pub fn detect_claude_session_id(
                 let stem = name.trim_end_matches(".jsonl");
                 if stem.len() >= 32 && stem.contains('-') && !excluded.contains(&stem.to_string()) {
                     if let Ok(meta) = entry.metadata() {
-                        if let Ok(modified) = meta.modified() {
-                            sessions.push((stem.to_string(), modified));
+                        // Use creation time if available, fall back to modified time
+                        let time = meta.created().or_else(|_| meta.modified());
+                        if let Ok(t) = time {
+                            // Only consider sessions created within max_age window
+                            if let Ok(age) = now.duration_since(t) {
+                                if age <= max_age {
+                                    sessions.push((stem.to_string(), t));
+                                }
+                            }
                         }
                     }
                 }
