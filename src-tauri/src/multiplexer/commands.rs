@@ -176,14 +176,14 @@ pub fn mux_close_pane(
     pty_state: State<'_, PtyState>,
     pane_id: String,
 ) -> Result<(), String> {
-    let pty_id = {
+    let pty_ids = {
         let mut mux = state.lock();
         mux.close_pane(&pane_id)?
     };
 
-    if let Some(id) = pty_id {
+    {
         let mut manager = pty_state.lock();
-        let _ = manager.kill(&id);
+        for id in &pty_ids { let _ = manager.kill(id); }
     }
 
     Ok(())
