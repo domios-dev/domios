@@ -199,20 +199,49 @@ pub enum AgentEvent {
 }
 
 /// Scan text for Claude Code specific events.
+/// Uses patterns from agent-viewer, ccmanager, and tmux-agent-indicator projects.
 pub fn detect_claude_events(text: &str) -> Vec<AgentEvent> {
     let mut events = Vec::new();
+    let lower = text.to_lowercase();
 
-    // Permission/approval — Claude Code specific patterns (not generic shell prompts)
-    if text.contains("Do you want to proceed?")
-        || (text.contains("1. Yes") && text.contains("2. Yes, and"))
+    // ── Permission / waiting for input ──
+    // Claude Code TUI permission patterns
+    if lower.contains("allow once")
+        || lower.contains("allow always")
+        || (lower.contains("1. yes") && lower.contains("2. yes, and"))
+        || lower.contains("do you want to proceed")
+        || lower.contains("shall i proceed")
+        || lower.contains("should i proceed")
+        || lower.contains("may i proceed")
+        || lower.contains("enter to confirm")
+        || (lower.contains("approve") && lower.contains("deny"))
+        || lower.contains("(y/n)")
+        // Claude Code elicitation / selection UI
+        || (lower.contains("enter to select") && lower.contains("esc to cancel"))
+        || (lower.contains("to navigate") && lower.contains("esc to cancel"))
+        || lower.contains("ctrl+g to edit")
     {
         events.push(AgentEvent::PermissionRequest);
     }
 
-    // Task completion — only specific Claude Code cost/timing patterns
-    if text.contains("Cogitated for")
-        || text.contains("Brewed for")
-        || text.contains("Reasoned for")
+    // ── Task completion ──
+    // Claude's status bar shows "esc to interrupt" while RUNNING.
+    // When it disappears and we see the prompt "❯" or cost summary, task is done.
+    // Cost/timing patterns (the thinking verb changes randomly):
+    if lower.contains("cogitated for")
+        || lower.contains("brewed for")
+        || lower.contains("reasoned for")
+        || lower.contains("pondered for")
+        || lower.contains("thought for")
+        || lower.contains("analyzed for")
+        || lower.contains("processed for")
+        || lower.contains("computed for")
+        || lower.contains("considered for")
+        || lower.contains("reflected for")
+        || lower.contains("deliberated for")
+        || lower.contains("total cost:")
+        // Idle prompt after work — empty prompt with shortcuts hint
+        || (text.contains("? for shortcuts") && text.contains("hold Space"))
     {
         events.push(AgentEvent::TaskComplete);
     }
