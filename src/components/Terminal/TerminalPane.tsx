@@ -455,35 +455,17 @@ export function TerminalPane({
 
       // Primary: xterm.js onData — with paste fix + Tab completion
       const onDataDisposable = term.onData((data) => {
-        // Ctrl+V sends \x16 — smart paste: image → save as temp file + paste path, text → paste text
+        // Ctrl+V: paste text from clipboard. If no text (image only), pass \x16 to PTY.
         if (data === "\x16") {
-          navigator.clipboard.read().then(async (items) => {
-            // Check for image in clipboard
-            for (const item of items) {
-              const imageType = item.types.find((t) => t.startsWith("image/"));
-              if (imageType) {
-                const blob = await item.getType(imageType);
-                const ext = imageType.split("/")[1] === "jpeg" ? "jpg" : imageType.split("/")[1] || "png";
-                // Save to temp file via Tauri command
-                const arrayBuf = await blob.arrayBuffer();
-                const bytes = Array.from(new Uint8Array(arrayBuf));
-                const path = await invoke<string>("save_clipboard_image", { bytes, ext });
-                // Paste the file path into terminal — Claude Code will detect and attach it
-                if (path) invoke("write_pty_string", { ptyId: predictedId, data: path + " " });
-                return;
-              }
-            }
-            // No image — paste text
-            const textItem = items.find((item) => item.types.includes("text/plain"));
-            if (textItem) {
-              const blob = await textItem.getType("text/plain");
-              const text = await blob.text();
-              if (text) invoke("write_pty_string", { ptyId: predictedId, data: text });
+          navigator.clipboard.readText().then((text) => {
+            if (text) {
+              invoke("write_pty_string", { ptyId: predictedId, data: text });
+            } else {
+              // No text in clipboard (probably image) — pass through to PTY
+              invoke("write_pty_string", { ptyId: predictedId, data: "\x16" });
             }
           }).catch(() => {
-            navigator.clipboard.readText().then((text) => {
-              if (text) invoke("write_pty_string", { ptyId: predictedId, data: text });
-            }).catch(() => {});
+            invoke("write_pty_string", { ptyId: predictedId, data: "\x16" });
           });
           return;
         }
@@ -703,15 +685,51 @@ export function TerminalPane({
       onMouseDown={handleClick}
       onContextMenu={handleContextMenu}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-      onDrop={(e) => {
+      onDrop={async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        // Drag-and-drop files — paste file paths into terminal
-        const files = Array.from(e.dataTransfer.files);
-        if (files.length > 0) {
-          const paths = files.map((f) => (f as any).path || f.name).join(" ");
-          const ptyId = connectedPtyRef.current;
-          if (ptyId && paths) invoke("write_pty_string", { ptyId, data: paths + " " });
+        const ptyId = connectedPtyRef.current;
+        if (!ptyId) return;
+
+        const files = Array.from(e.dataTransfer.files || []);
+        if (files.length === 0) {
+          const text = e.dataTransfer.getData("text/plain");
+          if (text) {
+            // Text drop — copy to clipboard + paste via \x16
+            await navigator.clipboard.writeText(text);
+            invoke("write_pty_string", { ptyId, data: "\x16" });
+          }
+          return;
+        }
+
+        for (const file of files) {
+          const name = file.name.toLowerCase();
+          const isImage = /\.(png|jpg|jpeg|gif|webp|bmp|svg)$/.test(name);
+
+          if (isImage) {
+            // Image: save to temp → paste path (Claude Code reads images from file paths)
+            try {
+              const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+              const ext = name.split(".").pop() || "png";
+              const path = await invoke<string>("save_clipboard_image", { bytes, ext });
+              // Copy path to clipboard and paste via \x16
+              await navigator.clipboard.writeText(path);
+              invoke("write_pty_string", { ptyId, data: "\x16" });
+            } catch (err) {
+              console.error("[drop] Image error:", err);
+            }
+          } else {
+            // Any other file: read as text → copy to clipboard → Ctrl+V
+            try {
+              const text = await file.text();
+              await navigator.clipboard.writeText(text);
+              invoke("write_pty_string", { ptyId, data: "\x16" });
+            } catch {
+              // Binary file or read error — paste filename
+              const path = (file as any).path || file.name;
+              invoke("write_pty_string", { ptyId, data: path + " " });
+            }
+          }
         }
       }}
     >
