@@ -6,7 +6,9 @@ export class InputTracker {
 
   /** Feed keystroke data (same data going to PTY via onData). */
   feed(data: string): void {
-    for (const ch of data) {
+    let i = 0;
+    while (i < data.length) {
+      const ch = data[i];
       const code = ch.charCodeAt(0);
 
       if (ch === "\r" || ch === "\n") {
@@ -17,8 +19,23 @@ export class InputTracker {
         // Backspace — remove last char
         this.line = this.line.slice(0, -1);
       } else if (ch === "\x1b") {
-        // Escape sequence start — lose confidence (arrows, history, etc.)
-        this.confident = false;
+        // Escape sequence — skip entirely
+        i++;
+        if (i < data.length && data[i] === "[") {
+          // CSI sequence: ESC [ ... (letter)
+          i++;
+          while (i < data.length && !(/[a-zA-Z~]/).test(data[i])) i++;
+          // skip the terminating letter
+        } else if (i < data.length && data[i] === "O") {
+          // SS3 sequence: ESC O (letter) — function keys
+          i++;
+        } else if (i < data.length) {
+          // Other ESC + char — skip one
+        }
+        // Don't lose confidence on escape sequences — they come from
+        // terminal focus events, PSReadLine syntax highlighting, etc.
+        // Only arrow keys (history) should lose confidence, but we can't
+        // reliably distinguish, so keep confident and rely on feedOutput reset.
       } else if (ch === "\x03" || ch === "\x04") {
         // Ctrl+C / Ctrl+D — reset
         this.line = "";
@@ -31,6 +48,7 @@ export class InputTracker {
         this.line += ch;
       }
       // Ignore other control chars
+      i++;
     }
   }
 
