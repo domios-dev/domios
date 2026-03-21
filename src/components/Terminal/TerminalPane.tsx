@@ -455,17 +455,37 @@ export function TerminalPane({
 
       // Primary: xterm.js onData — with paste fix + Tab completion
       const onDataDisposable = term.onData((data) => {
-        // Ctrl+V: paste text from clipboard. If no text (image only), pass \x16 to PTY.
+        // Ctrl+V: text → paste text, image → save temp file + paste path
         if (data === "\x16") {
-          navigator.clipboard.readText().then((text) => {
-            if (text) {
-              invoke("write_pty_string", { ptyId: predictedId, data: text });
-            } else {
-              // No text in clipboard (probably image) — pass through to PTY
-              invoke("write_pty_string", { ptyId: predictedId, data: "\x16" });
+          navigator.clipboard.read().then(async (items) => {
+            // Try text first
+            const textItem = items.find((item) => item.types.includes("text/plain"));
+            if (textItem) {
+              const blob = await textItem.getType("text/plain");
+              const text = await blob.text();
+              if (text) {
+                invoke("write_pty_string", { ptyId: predictedId, data: text });
+                return;
+              }
+            }
+            // No text — check for image
+            for (const item of items) {
+              const imageType = item.types.find((t) => t.startsWith("image/"));
+              if (imageType) {
+                const blob = await item.getType(imageType);
+                const ext = imageType === "image/jpeg" ? "jpg" : "png";
+                const arrayBuf = await blob.arrayBuffer();
+                const bytes = Array.from(new Uint8Array(arrayBuf));
+                const path = await invoke<string>("save_clipboard_image", { bytes, ext });
+                if (path) invoke("write_pty_string", { ptyId: predictedId, data: path });
+                return;
+              }
             }
           }).catch(() => {
-            invoke("write_pty_string", { ptyId: predictedId, data: "\x16" });
+            // Fallback to readText
+            navigator.clipboard.readText().then((text) => {
+              if (text) invoke("write_pty_string", { ptyId: predictedId, data: text });
+            }).catch(() => {});
           });
           return;
         }
