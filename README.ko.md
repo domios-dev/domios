@@ -93,10 +93,22 @@ CodeTerm은 AI 지원 개발을 위해 처음부터 설계된 크로스 플랫�
 ### 소스에서 빌드하기
 
 **사전 요구사항:**
-- [Node.js](https://nodejs.org/) 18+
-- [pnpm](https://pnpm.io/) 10+
-- [Rust](https://rustup.rs/) 1.75+
-- 플랫폼별 빌드 도구 (Windows: Visual Studio Build Tools, macOS: Xcode)
+- Node.js 18+
+- pnpm 10+
+- Rust 1.75+
+
+**Windows:**
+- "C++를 사용한 데스크톱 개발" 워크로드가 포함된 Visual Studio Build Tools 2022 이상
+- WebView2 (Windows 10 1803 이상 및 Windows 11에 사전 설치됨)
+
+**macOS:**
+- Xcode 커맨드 라인 도구: `xcode-select --install`
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
 
 ```bash
 git clone https://github.com/rollacode/codeterm.git

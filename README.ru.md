@@ -96,8 +96,21 @@ CodeTerm — это кроссплатформенный терминальны�
 - [Node.js](https://nodejs.org/) 18+
 - [pnpm](https://pnpm.io/) 10+
 - [Rust](https://rustup.rs/) 1.75+
-- Платформо-зависимые инструменты сборки (Visual Studio Build Tools для Windows, Xcode для macOS)
 
+**Windows:**
+- [Visual Studio Build Tools 2022+](https://visualstudio.microsoft.com/visual-cpp-build-tools/) с компонентом «Разработка классических приложений на C++»
+- WebView2 (предустановлен в Windows 10 1803+ и Windows 11)
+
+**macOS:**
+- Xcode Command Line Tools: `xcode-select --install`
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
+
+**Сборка:**
 ```bash
 git clone https://github.com/rollacode/codeterm.git
 cd codeterm

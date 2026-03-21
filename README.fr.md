@@ -96,7 +96,19 @@ Des binaires pré-compilés seront disponibles sur la page [Releases](https://gi
 - [Node.js](https://nodejs.org/) 18+
 - [pnpm](https://pnpm.io/) 10+
 - [Rust](https://rustup.rs/) 1.75+
-- Outils de compilation spécifiques à la plateforme (Visual Studio Build Tools sous Windows, Xcode sous macOS)
+
+**Windows :**
+- Visual Studio Build Tools 2022+ avec la charge de travail « Développement Desktop en C++ »
+- WebView2 (préinstallé sur Windows 10 1803+ et Windows 11)
+
+**macOS :**
+- Outils en ligne de commande Xcode : `xcode-select --install`
+
+**Linux (Debian/Ubuntu) :**
+```bash
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
 
 ```bash
 git clone https://github.com/rollacode/codeterm.git

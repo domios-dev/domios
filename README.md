@@ -96,8 +96,21 @@ Pre-built binaries will be available on the [Releases](https://github.com/rollac
 - [Node.js](https://nodejs.org/) 18+
 - [pnpm](https://pnpm.io/) 10+
 - [Rust](https://rustup.rs/) 1.75+
-- Platform-specific build tools (Visual Studio Build Tools on Windows, Xcode on macOS)
 
+**Windows:**
+- [Visual Studio Build Tools 2022+](https://visualstudio.microsoft.com/visual-cpp-build-tools/) with "Desktop development with C++" workload
+- WebView2 (pre-installed on Windows 10 1803+ and Windows 11)
+
+**macOS:**
+- Xcode Command Line Tools: `xcode-select --install`
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
+
+**Build:**
 ```bash
 git clone https://github.com/rollacode/codeterm.git
 cd codeterm
