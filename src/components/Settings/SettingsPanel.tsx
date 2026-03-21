@@ -310,25 +310,7 @@ export function SettingsPanel({
                   />
                 </Group>
 
-                <Group title="Agent Events">
-                  <div className="text-xs text-[var(--ct-muted-fg)] mb-1">
-                    Automatically notify when Claude Code or other agents need attention.
-                  </div>
-                  <Toggle
-                    label="Permission requests"
-                    checked={localConfig.notifications.desktop}
-                    onChange={(v) => update("notifications", { desktop: v })}
-                  />
-                  <Toggle
-                    label="Task completion"
-                    checked={localConfig.notifications.desktop}
-                    onChange={(v) => update("notifications", { desktop: v })}
-                  />
-                  <div className="text-[10px] text-[var(--ct-muted)] mt-1 space-y-1">
-                    <p><strong className="text-[var(--ct-muted-fg)]">Permission requests</strong> — when Claude Code asks "Do you want to proceed?" or needs tool approval</p>
-                    <p><strong className="text-[var(--ct-muted-fg)]">Task completion</strong> — when Claude Code finishes working and returns to the prompt</p>
-                  </div>
-                </Group>
+                <ClaudeHooksGroup />
 
                 <Group title="In-app Toast">
                   <div className="text-xs text-[var(--ct-muted-fg)] mb-1">
@@ -625,6 +607,20 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
   const [skillUpdate, setSkillUpdate] = useState(false);
   const [ruleInstalled, setRuleInstalled] = useState(false);
   const [ruleUpdate, setRuleUpdate] = useState(false);
+  const [skillJustDone, setSkillJustDone] = useState(false);
+  const [ruleJustDone, setRuleJustDone] = useState(false);
+
+  useEffect(() => {
+    if (!skillJustDone) return;
+    const t = setTimeout(() => setSkillJustDone(false), 2000);
+    return () => clearTimeout(t);
+  }, [skillJustDone]);
+
+  useEffect(() => {
+    if (!ruleJustDone) return;
+    const t = setTimeout(() => setRuleJustDone(false), 2000);
+    return () => clearTimeout(t);
+  }, [ruleJustDone]);
 
   useEffect(() => {
     invoke<{ id: string; installed: boolean; update_available: boolean }[]>("list_skills").then((s) => {
@@ -681,7 +677,7 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
         <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]">
           <span>~/.claude/skills/codeterm/</span>
           <button
-            onClick={() => openFolder("~/.claude/skills/codeterm")}
+            onClick={() => openFolder("~/.claude/skills")}
             className="text-[var(--ct-accent)] hover:underline"
           >Open folder</button>
         </div>
@@ -690,16 +686,20 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
             await invoke("install_skill", { skillId: "codeterm" });
             setSkillInstalled(true);
             setSkillUpdate(false);
+            setSkillJustDone(true);
           }}
-          className={`w-full py-1.5 text-xs rounded font-medium transition-colors ${
-            skillUpdate
-              ? "bg-[var(--ct-accent)] text-white hover:brightness-110"
-              : skillInstalled
-                ? "border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
-                : "bg-[var(--ct-green)] text-white hover:brightness-110"
+          disabled={skillJustDone}
+          className={`w-full py-1.5 text-xs rounded font-medium transition-all duration-300 ${
+            skillJustDone
+              ? "bg-[var(--ct-green)] text-white"
+              : skillUpdate
+                ? "bg-[var(--ct-accent)] text-white hover:brightness-110"
+                : skillInstalled
+                  ? "border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+                  : "bg-[var(--ct-green)] text-white hover:brightness-110"
           }`}
         >
-          {skillUpdate ? "Update Available" : skillInstalled ? "Reinstall" : "Install"}
+          {skillJustDone ? "\u2713 Installed" : skillUpdate ? "Update Available" : skillInstalled ? "Reinstall" : "Install"}
         </button>
       </div>
 
@@ -726,16 +726,20 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
             await invoke("install_project_rules");
             setRuleInstalled(true);
             setRuleUpdate(false);
+            setRuleJustDone(true);
           }}
-          className={`w-full py-1.5 text-xs rounded font-medium transition-colors ${
-            ruleUpdate
-              ? "bg-[var(--ct-accent)] text-white hover:brightness-110"
-              : ruleInstalled
-                ? "border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
-                : "bg-[var(--ct-green)] text-white hover:brightness-110"
+          disabled={ruleJustDone}
+          className={`w-full py-1.5 text-xs rounded font-medium transition-all duration-300 ${
+            ruleJustDone
+              ? "bg-[var(--ct-green)] text-white"
+              : ruleUpdate
+                ? "bg-[var(--ct-accent)] text-white hover:brightness-110"
+                : ruleInstalled
+                  ? "border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+                  : "bg-[var(--ct-green)] text-white hover:brightness-110"
           }`}
         >
-          {ruleUpdate ? "Update Available" : ruleInstalled ? "Reinstall" : "Install"}
+          {ruleJustDone ? "\u2713 Installed" : ruleUpdate ? "Update Available" : ruleInstalled ? "Reinstall" : "Install"}
         </button>
       </div>
 
@@ -743,6 +747,104 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
         Restart Claude Code after installing.
       </div>
     </div>
+  );
+}
+
+function ClaudeHooksGroup() {
+  const [status, setStatus] = useState<{
+    settings_exists: boolean;
+    hooks_installed: boolean;
+    notification_hook: boolean;
+    stop_hook: boolean;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    invoke<typeof status>("check_claude_hooks").then(setStatus).catch(() => {});
+  }, []);
+
+  const handleInstall = useCallback(async () => {
+    setLoading(true);
+    try {
+      await invoke("install_claude_hooks", {});
+      const s = await invoke<typeof status>("check_claude_hooks");
+      setStatus(s);
+    } catch (e) {
+      console.error("Failed to install hooks:", e);
+    }
+    setLoading(false);
+  }, []);
+
+  const handleUninstall = useCallback(async () => {
+    setLoading(true);
+    try {
+      await invoke("uninstall_claude_hooks");
+      const s = await invoke<typeof status>("check_claude_hooks");
+      setStatus(s);
+    } catch (e) {
+      console.error("Failed to uninstall hooks:", e);
+    }
+    setLoading(false);
+  }, []);
+
+  return (
+    <Group title="Claude Code Notifications">
+      <div className="text-xs text-[var(--ct-muted-fg)] mb-2">
+        Get notified when Claude Code needs permission or finishes a task.
+        This installs hooks into <span className="font-mono text-[var(--ct-fg)]">~/.claude/settings.json</span>.
+      </div>
+
+      {status === null ? (
+        <div className="text-xs text-[var(--ct-muted)]">Checking...</div>
+      ) : status.hooks_installed ? (
+        <>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="w-2 h-2 rounded-full bg-[var(--ct-green)]" />
+            <span className="text-xs text-[var(--ct-fg)]">Hooks installed</span>
+          </div>
+          <div className="text-[10px] text-[var(--ct-muted)] space-y-0.5 mb-2">
+            <div className="flex items-center gap-1.5">
+              <span>{status.notification_hook ? "\u2713" : "\u2717"}</span>
+              <span>Permission requests</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span>{status.stop_hook ? "\u2713" : "\u2717"}</span>
+              <span>Task completion</span>
+            </div>
+          </div>
+          <button
+            onClick={handleUninstall}
+            disabled={loading}
+            className="w-full py-1.5 text-xs rounded font-medium border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+          >
+            {loading ? "..." : "Uninstall Hooks"}
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="w-2 h-2 rounded-full bg-[var(--ct-muted)]" />
+            <span className="text-xs text-[var(--ct-muted-fg)]">Hooks not installed</span>
+          </div>
+          <div className="text-[10px] text-[var(--ct-muted)] mb-2">
+            {!status.settings_exists
+              ? "~/.claude/settings.json does not exist yet. It will be created."
+              : "CodeTerm hooks will be added to your existing Claude Code settings."}
+          </div>
+          <button
+            onClick={handleInstall}
+            disabled={loading}
+            className="w-full py-1.5 text-xs rounded font-medium bg-[var(--ct-accent)] text-white hover:brightness-110 transition-colors"
+          >
+            {loading ? "Installing..." : "Install Claude Hooks"}
+          </button>
+        </>
+      )}
+
+      <div className="text-[10px] text-[var(--ct-muted)] mt-2">
+        Restart Claude Code after changes for hooks to take effect.
+      </div>
+    </Group>
   );
 }
 

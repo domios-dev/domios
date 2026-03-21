@@ -573,6 +573,186 @@ pub fn open_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Claude Code hooks management
+// ---------------------------------------------------------------------------
+
+fn claude_settings_path() -> Result<std::path::PathBuf, String> {
+    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
+    Ok(home.join(".claude").join("settings.json"))
+}
+
+const CODETERM_HOOK_MARKER: &str = "codeterm-hook";
+
+/// Check if Claude Code hooks are installed for CodeTerm notifications.
+#[tauri::command]
+pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
+    let path = claude_settings_path()?;
+    if !path.exists() {
+        return Ok(ClaudeHooksStatus {
+            settings_exists: false,
+            hooks_installed: false,
+            notification_hook: false,
+            stop_hook: false,
+        });
+    }
+
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse settings.json: {}", e))?;
+
+    let has_marker = content.contains(CODETERM_HOOK_MARKER);
+    let notification_hook = json.pointer("/hooks/Notification")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(|h| {
+            h.get("hooks").and_then(|hs| hs.as_array())
+                .map(|hs| hs.iter().any(|h| h.get("command").and_then(|c| c.as_str()).unwrap_or("").contains("codeterm")))
+                .unwrap_or(false)
+        }))
+        .unwrap_or(false);
+    let stop_hook = json.pointer("/hooks/Stop")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(|h| {
+            h.get("hooks").and_then(|hs| hs.as_array())
+                .map(|hs| hs.iter().any(|h| h.get("command").and_then(|c| c.as_str()).unwrap_or("").contains("codeterm")))
+                .unwrap_or(false)
+        }))
+        .unwrap_or(false);
+
+    Ok(ClaudeHooksStatus {
+        settings_exists: true,
+        hooks_installed: has_marker || (notification_hook && stop_hook),
+        notification_hook,
+        stop_hook,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct ClaudeHooksStatus {
+    pub settings_exists: bool,
+    pub hooks_installed: bool,
+    pub notification_hook: bool,
+    pub stop_hook: bool,
+}
+
+/// Install Claude Code hooks that notify CodeTerm on permission requests and task completion.
+#[tauri::command]
+pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
+    let path = claude_settings_path()?;
+    let port = api_port.unwrap_or(7685);
+
+    // Ensure ~/.claude/ directory exists
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    // Read existing settings or create empty
+    let mut json: serde_json::Value = if path.exists() {
+        let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse settings.json: {}", e))?
+    } else {
+        serde_json::json!({})
+    };
+
+    // Build hook commands
+    let notify_cmd = format!(
+        r#"curl -s -X POST http://localhost:{}/api/notifications -H "Content-Type: application/json" -d "{{\\"title\\":\\"Claude Code\\",\\"body\\":\\"$CLAUDE_NOTIFICATION_MESSAGE\\",\\"level\\":\\"warning\\"}}" > /dev/null 2>&1 || true"#,
+        port
+    );
+    let stop_cmd = format!(
+        r#"curl -s -X POST http://localhost:{}/api/notifications -H "Content-Type: application/json" -d "{{\\"title\\":\\"Claude Code\\",\\"body\\":\\"Task complete\\",\\"level\\":\\"info\\"}}" > /dev/null 2>&1 || true"#,
+        port
+    );
+
+    // Ensure hooks object exists
+    if json.get("hooks").is_none() {
+        json["hooks"] = serde_json::json!({});
+    }
+
+    // Notification hook (permission_prompt)
+    let notif_hook = serde_json::json!({
+        "matcher": "permission_prompt",
+        "hooks": [{
+            "type": "command",
+            "command": notify_cmd,
+            "timeout": 5000,
+            "_source": CODETERM_HOOK_MARKER
+        }]
+    });
+
+    // Stop hook (task complete)
+    let stop_hook = serde_json::json!({
+        "matcher": "",
+        "hooks": [{
+            "type": "command",
+            "command": stop_cmd,
+            "timeout": 5000,
+            "_source": CODETERM_HOOK_MARKER
+        }]
+    });
+
+    // Add to existing hooks arrays (don't overwrite user's hooks)
+    let hooks = json["hooks"].as_object_mut()
+        .ok_or("hooks is not an object")?;
+
+    // Remove old codeterm hooks first
+    for key in &["Notification", "Stop"] {
+        if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
+            arr.retain(|h| {
+                !h.get("hooks").and_then(|hs| hs.as_array())
+                    .map(|hs| hs.iter().any(|h| h.get("_source").and_then(|s| s.as_str()) == Some(CODETERM_HOOK_MARKER)))
+                    .unwrap_or(false)
+            });
+        }
+    }
+
+    // Add new hooks
+    if !hooks.contains_key("Notification") {
+        hooks.insert("Notification".into(), serde_json::json!([]));
+    }
+    hooks["Notification"].as_array_mut().unwrap().push(notif_hook);
+
+    if !hooks.contains_key("Stop") {
+        hooks.insert("Stop".into(), serde_json::json!([]));
+    }
+    hooks["Stop"].as_array_mut().unwrap().push(stop_hook);
+
+    // Write back
+    let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
+    log::info!("Claude Code hooks installed at {:?}", path);
+    Ok(())
+}
+
+/// Remove CodeTerm hooks from Claude Code settings.
+#[tauri::command]
+pub fn uninstall_claude_hooks() -> Result<(), String> {
+    let path = claude_settings_path()?;
+    if !path.exists() { return Ok(()); }
+
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse settings.json: {}", e))?;
+
+    if let Some(hooks) = json.get_mut("hooks").and_then(|v| v.as_object_mut()) {
+        for key in &["Notification", "Stop"] {
+            if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
+                arr.retain(|h| {
+                    !h.get("hooks").and_then(|hs| hs.as_array())
+                        .map(|hs| hs.iter().any(|h| h.get("_source").and_then(|s| s.as_str()) == Some(CODETERM_HOOK_MARKER)))
+                        .unwrap_or(false)
+                });
+            }
+        }
+    }
+
+    let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
+    log::info!("Claude Code hooks removed");
+    Ok(())
+}
+
 /// Save clipboard image bytes to a temp file, return the path.
 /// Old images are cleaned up (keep last 20).
 #[tauri::command]
