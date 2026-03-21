@@ -96,7 +96,19 @@ CodeTerm 是一款从零开始为 AI 辅助开发而设计的跨平台终端复�
 - [Node.js](https://nodejs.org/) 18+
 - [pnpm](https://pnpm.io/) 10+
 - [Rust](https://rustup.rs/) 1.75+
-- 平台特定的构建工具（Windows 上为 Visual Studio Build Tools，macOS 上为 Xcode）
+
+**Windows：**
+- Visual Studio Build Tools 2022+，需勾选「使用 C++ 的桌面开发」工作负载
+- WebView2（Windows 10 1803+ 及 Windows 11 已预装）
+
+**macOS：**
+- Xcode 命令行工具：`xcode-select --install`
+
+**Linux（Debian/Ubuntu）：**
+```bash
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
 
 ```bash
 git clone https://github.com/rollacode/codeterm.git

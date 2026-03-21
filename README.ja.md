@@ -96,7 +96,19 @@ CodeTermは、AI支援開発のためにゼロから設計されたクロスプ�
 - [Node.js](https://nodejs.org/) 18+
 - [pnpm](https://pnpm.io/) 10+
 - [Rust](https://rustup.rs/) 1.75+
-- プラットフォーム固有のビルドツール（WindowsではVisual Studio Build Tools、macOSではXcode）
+
+**Windows：**
+- Visual Studio Build Tools 2022以降（「C++によるデスクトップ開発」ワークロードを含む）
+- WebView2（Windows 10 1803以降およびWindows 11にプリインストール済み）
+
+**macOS：**
+- Xcode コマンドラインツール：`xcode-select --install`
+
+**Linux（Debian/Ubuntu）：**
+```bash
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
 
 ```bash
 git clone https://github.com/rollacode/codeterm.git

@@ -96,7 +96,19 @@ Vorgefertigte Binärdateien werden auf der [Releases](https://github.com/rollaco
 - [Node.js](https://nodejs.org/) 18+
 - [pnpm](https://pnpm.io/) 10+
 - [Rust](https://rustup.rs/) 1.75+
-- Plattformspezifische Build-Tools (Visual Studio Build Tools unter Windows, Xcode unter macOS)
+
+**Windows:**
+- Visual Studio Build Tools 2022+ mit der Workload „Desktopentwicklung mit C++"
+- WebView2 (vorinstalliert unter Windows 10 1803+ und Windows 11)
+
+**macOS:**
+- Xcode Command Line Tools: `xcode-select --install`
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
 
 ```bash
 git clone https://github.com/rollacode/codeterm.git
