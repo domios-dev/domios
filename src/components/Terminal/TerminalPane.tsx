@@ -603,38 +603,7 @@ export function TerminalPane({
         if (data === "\t" && tracker) {
           const parsed = tracker.getCursorWord();
           if (parsed) {
-            // 1. cd command — fuzzy directory completion from filesystem
-            if (parsed.command === "cd") {
-              const paneData = state.panes[paneId];
-              const cwd = paneData?.cwd || ".";
-              invoke<{ name: string; score: number }[]>("list_dir_completions", {
-                cwd, prefix: parsed.currentArg,
-              }).then((dirs) => {
-                if (dirs.length === 1) {
-                  const eraseCount = parsed.currentArg.length;
-                  const erase = "\x7f".repeat(eraseCount);
-                  // Add .\ prefix for PowerShell on Windows
-                  const insert = (navigator.platform.startsWith("Win") ? ".\\" : "") + dirs[0].name + " ";
-                  invoke("write_pty_string", { ptyId: predictedId, data: erase + insert });
-                  tracker.feed(erase + insert);
-                } else if (dirs.length > 1) {
-                  const rect = termRef.current?.getBoundingClientRect();
-                  setCompletionItems(dirs.map((d) => ({
-                    text: d.name,
-                    display: d.name,
-                    description: d.score === 0 ? "prefix" : d.score === 1 ? "contains" : "fuzzy",
-                    kind: "subcommand" as const,
-                  })));
-                  setCompletionAnchor({
-                    x: (rect?.left ?? 0) + 100,
-                    y: (rect?.top ?? 0) + (term.buffer.active.cursorY + 1) * 18,
-                  });
-                }
-              }).catch(() => {});
-              return;
-            }
-
-            // 2. Static definitions (claude, codeterm, etc.)
+            // Static definitions (claude, codeterm, etc.)
             if (engine && engine.hasDefinition(parsed.command)) {
               const items = engine.getCompletions(parsed);
               if (items.length === 1) {
