@@ -9,7 +9,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMultiplexer } from "../../store/multiplexer";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
+import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
+import { InputTracker } from "../../lib/completions/inputTracker";
+import { CompletionEngine } from "../../lib/completions/engine";
+import { defaultDefinitions } from "../../lib/completions/definitions";
+import type { CompletionItem } from "../../lib/completions/types";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 
 const STATUS_COLORS: Record<PaneStatus, string> = {
@@ -111,6 +116,21 @@ export function TerminalPane({
 
   // Visual bell state
   const [bellFlash, setBellFlash] = useState(false);
+
+  // Completion state
+  const [completionItems, setCompletionItems] = useState<CompletionItem[]>([]);
+  const [completionAnchor, setCompletionAnchor] = useState({ x: 0, y: 0 });
+  const trackerRef = useRef<InputTracker | null>(null);
+  const engineRef = useRef<CompletionEngine | null>(null);
+
+  // Init completion engine once
+  useEffect(() => {
+    const tracker = new InputTracker();
+    const engine = new CompletionEngine();
+    for (const def of defaultDefinitions) engine.register(def);
+    trackerRef.current = tracker;
+    engineRef.current = engine;
+  }, []);
 
   const { state, updatePaneStatus, setPaneTitle, setAgentType, splitPane, closePane } = useMultiplexer();
   const paneStatus = state.paneStatuses[paneId] as PaneStatus | undefined;
@@ -411,8 +431,75 @@ export function TerminalPane({
       readLoop(); // Start — no RAF, just sequential async loop
       cleanupFns.push(() => { reading = false; });
 
-      // Primary: xterm.js onData captures keyboard when textarea is focused
+      // Smart Ctrl+C / Cmd+C: copy if text selected, interrupt if not
+      const isMac = navigator.platform.toUpperCase().includes("MAC");
+      term.attachCustomKeyEventHandler((e) => {
+        if (e.type !== "keydown") return true;
+        const mod = isMac ? e.metaKey : e.ctrlKey;
+        if (!mod || e.shiftKey || e.altKey) return true;
+        if (isMac && e.ctrlKey) return true;
+
+        // Ctrl+C: copy if text selected, otherwise interrupt
+        if (e.code === "KeyC") {
+          const sel = term.getSelection();
+          if (sel) {
+            navigator.clipboard.writeText(sel).catch(() => {});
+            term.clearSelection();
+            return false;
+          }
+          return true;
+        }
+
+        return true;
+      });
+
+      // Primary: xterm.js onData — with paste fix + Tab completion
       const onDataDisposable = term.onData((data) => {
+        // Ctrl+V sends \x16 — intercept and paste clipboard text instead
+        if (data === "\x16") {
+          navigator.clipboard.readText().then((text) => {
+            if (text) invoke("write_pty_string", { ptyId: predictedId, data: text });
+          }).catch(() => {});
+          return; // don't send \x16 to PTY
+        }
+
+        const tracker = trackerRef.current;
+        const engine = engineRef.current;
+
+        // Tab key — try custom completion
+        if (data === "\t" && tracker && engine) {
+          const parsed = tracker.getCursorWord();
+          if (parsed && engine.hasDefinition(parsed.command)) {
+            const items = engine.getCompletions(parsed);
+            if (items.length === 1) {
+              // Single match — auto-complete inline
+              const suffix = items[0].text.slice(parsed.currentArg.length);
+              if (suffix) {
+                invoke("write_pty_string", { ptyId: predictedId, data: suffix + " " });
+                tracker.feed(suffix + " ");
+              }
+              return;
+            }
+            if (items.length > 1) {
+              // Multiple matches — show popup
+              const rect = termRef.current?.getBoundingClientRect();
+              setCompletionItems(items);
+              setCompletionAnchor({
+                x: (rect?.left ?? 0) + 100,
+                y: (rect?.top ?? 0) + (term.buffer.active.cursorY + 1) * 18,
+              });
+              return;
+            }
+          }
+        }
+
+        // Dismiss completion popup on any non-Tab input
+        if (data !== "\t") {
+          setCompletionItems([]);
+        }
+
+        // Track input + forward to PTY
+        tracker?.feed(data);
         invoke("write_pty_string", { ptyId: predictedId, data });
       });
       cleanupFns.push(() => onDataDisposable.dispose());
@@ -608,18 +695,6 @@ export function TerminalPane({
         style={{ padding: "4px" }}
         onClick={() => xtermRef.current?.focus()}
       />
-      {/* Pane status indicator */}
-      {paneStatus && (
-        <div
-          className="absolute top-1.5 right-1.5 flex items-center gap-1 pointer-events-none"
-          title={paneStatus}
-        >
-          <span
-            className={`inline-block w-2 h-2 rounded-full ${paneStatus === "Working" ? "animate-pulse" : ""}`}
-            style={{ backgroundColor: STATUS_COLORS[paneStatus] }}
-          />
-        </div>
-      )}
 
       {/* Context menu */}
       {contextMenu && (
@@ -628,6 +703,27 @@ export function TerminalPane({
           y={contextMenu.y}
           actions={contextMenuActions}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {/* Tab completion popup */}
+      {completionItems.length > 0 && (
+        <CompletionPopup
+          items={completionItems}
+          anchorX={completionAnchor.x}
+          anchorY={completionAnchor.y}
+          onAccept={(item) => {
+            const tracker = trackerRef.current;
+            const parsed = tracker?.getCursorWord();
+            const suffix = parsed ? item.text.slice(parsed.currentArg.length) : item.text;
+            if (suffix) {
+              const ptyId = connectedPtyRef.current;
+              if (ptyId) invoke("write_pty_string", { ptyId, data: suffix + " " });
+              tracker?.feed(suffix + " ");
+            }
+            setCompletionItems([]);
+          }}
+          onDismiss={() => setCompletionItems([])}
         />
       )}
     </div>

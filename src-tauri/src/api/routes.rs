@@ -50,7 +50,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/exec", post(exec_in_pane))
         .route("/api/panes/{id}/resize", post(resize_pane))
         .route("/api/browser/open", post(open_browser))
-        .route("/api/screenshot", get(take_screenshot))
         .route("/api/serve-file", get(serve_file))
         .route("/api/notifications", get(list_notifications).post(create_notification))
         .route("/api/notifications/clear", post(clear_notifications))
@@ -93,7 +92,7 @@ async fn identify(
         "name": "CodeTerm",
         "version": env!("CARGO_PKG_VERSION"),
         "platform": std::env::consts::OS,
-        "features": ["multiplexer", "agent-detection", "notifications", "rest-api", "browser", "screenshot"]
+        "features": ["multiplexer", "agent-detection", "notifications", "rest-api", "browser"]
     })))
 }
 

@@ -66,8 +66,8 @@ export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
         top: y,
         zIndex: 9999,
         minWidth: 180,
-        backgroundColor: "#1c2128",
-        border: "1px solid #30363d",
+        backgroundColor: "var(--ct-surface)",
+        border: "1px solid var(--ct-border)",
         borderRadius: 6,
         padding: "4px 0",
         boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
@@ -79,7 +79,7 @@ export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
             <div
               style={{
                 height: 1,
-                backgroundColor: "#30363d",
+                backgroundColor: "var(--ct-border)",
                 margin: "4px 0",
               }}
             />
@@ -97,14 +97,14 @@ export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
               padding: "6px 12px",
               border: "none",
               background: "none",
-              color: "#c9d1d9",
+              color: "var(--ct-fg)",
               fontSize: 13,
               fontFamily: "inherit",
               cursor: "pointer",
               textAlign: "left",
             }}
             onMouseEnter={(e) => {
-              (e.target as HTMLElement).style.backgroundColor = "#264f78";
+              (e.target as HTMLElement).style.backgroundColor = "var(--ct-active)";
             }}
             onMouseLeave={(e) => {
               (e.target as HTMLElement).style.backgroundColor = "transparent";
@@ -112,7 +112,7 @@ export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
           >
             <span>{action.label}</span>
             {action.shortcut && (
-              <span style={{ color: "#484f58", fontSize: 12, marginLeft: 16 }}>
+              <span style={{ color: "var(--ct-muted)", fontSize: 12, marginLeft: 16 }}>
                 {action.shortcut}
               </span>
             )}

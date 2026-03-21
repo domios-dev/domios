@@ -59,14 +59,14 @@ export function Divider({ orientation, onDrag, onDragStart, onDragEnd, onDoubleC
         width: isHorizontal ? "4px" : "100%",
         height: isHorizontal ? "100%" : "4px",
         cursor: isHorizontal ? "col-resize" : "row-resize",
-        background: "#30363d",
+        background: "var(--ct-border)",
         zIndex: 10,
       }}
       onMouseEnter={(e) => {
-        (e.currentTarget as HTMLElement).style.background = "#58a6ff";
+        (e.currentTarget as HTMLElement).style.background = "var(--ct-accent)";
       }}
       onMouseLeave={(e) => {
-        (e.currentTarget as HTMLElement).style.background = "#30363d";
+        (e.currentTarget as HTMLElement).style.background = "var(--ct-border)";
       }}
     />
   );

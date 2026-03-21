@@ -22,21 +22,37 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-fg": theme.foreground,
     "--ct-cursor": theme.cursor,
     "--ct-selection": theme.selection,
-    "--ct-sidebar-bg": adjustBrightness(theme.background, 8),
-    "--ct-titlebar-bg": adjustBrightness(theme.background, 8),
-    "--ct-border": adjustBrightness(theme.background, 20),
+    "--ct-sidebar-bg": deriveColor(theme.background, 10),
+    "--ct-titlebar-bg": deriveColor(theme.background, 10),
+    "--ct-border": deriveColor(theme.background, 37),
+    "--ct-hover": deriveColor(theme.background, 16),
+    "--ct-active": deriveColor(theme.background, 27),
+    "--ct-surface": deriveColor(theme.background, 12),
     "--ct-muted": theme.bright_black,
+    "--ct-muted-fg": deriveColor(theme.bright_black, 60),
     "--ct-accent": theme.blue,
+    "--ct-red": theme.red,
+    "--ct-green": theme.green,
+    "--ct-yellow": theme.yellow,
+    "--ct-orange": theme.red, // fallback for agent indicator
   };
 }
 
-/** Lighten or darken a hex color by a fixed amount. */
-function adjustBrightness(hex: string, amount: number): string {
+/**
+ * Derive a color from a base by adjusting brightness.
+ * Automatically lightens dark colors and darkens light ones.
+ */
+function deriveColor(hex: string, amount: number): string {
   const clean = hex.replace("#", "");
-  const r = Math.min(255, Math.max(0, parseInt(clean.substring(0, 2), 16) + amount));
-  const g = Math.min(255, Math.max(0, parseInt(clean.substring(2, 4), 16) + amount));
-  const b = Math.min(255, Math.max(0, parseInt(clean.substring(4, 6), 16) + amount));
-  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  const brightness = (r + g + b) / 3;
+  const dir = brightness > 128 ? -1 : 1;
+  const nr = Math.min(255, Math.max(0, r + amount * dir));
+  const ng = Math.min(255, Math.max(0, g + amount * dir));
+  const nb = Math.min(255, Math.max(0, b + amount * dir));
+  return `#${nr.toString(16).padStart(2, "0")}${ng.toString(16).padStart(2, "0")}${nb.toString(16).padStart(2, "0")}`;
 }
 
 function AppInner() {
