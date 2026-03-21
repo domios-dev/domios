@@ -117,7 +117,7 @@ pub async fn read_pty(
                                         "pane_id": &pid,
                                         "workspace_id": serde_json::Value::Null,
                                     }));
-                                    crate::api::routes::send_os_notification_if_unfocused(
+                                    crate::api::routes::send_os_notification(
                                         &app, &notif_title, Some("Agent is waiting for your permission"),
                                     );
                                     // Broadcast to webhooks + websockets
@@ -142,7 +142,7 @@ pub async fn read_pty(
                                             "pane_id": &pid,
                                             "workspace_id": serde_json::Value::Null,
                                         }));
-                                        crate::api::routes::send_os_notification_if_unfocused(
+                                        crate::api::routes::send_os_notification(
                                             &app, &notif_title, Some("Task complete"),
                                         );
                                         events.broadcast("agent.task_complete", serde_json::json!({
