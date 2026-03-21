@@ -284,6 +284,33 @@ enum AgentAction {
         #[arg(long)]
         pane: Option<String>,
     },
+    /// Spawn a new agent (creates tab, sets role, launches agent, sends task)
+    Spawn {
+        /// Agent to run: claude, aider, goose, or any command
+        #[arg(default_value = "claude")]
+        agent: String,
+        /// Tab title
+        #[arg(long)]
+        title: Option<String>,
+        /// Working directory
+        #[arg(long)]
+        cwd: Option<String>,
+        /// Role: Conductor, Worker, SubWorker
+        #[arg(long)]
+        role: Option<String>,
+        /// Parent pane ID (for Worker/SubWorker)
+        #[arg(long)]
+        parent: Option<String>,
+        /// Allow spawning children
+        #[arg(long)]
+        can_spawn: bool,
+        /// Task to send after agent starts
+        #[arg(long)]
+        task: Option<String>,
+        /// Extra args for the agent
+        #[arg(long, num_args = 1..)]
+        args: Option<Vec<String>>,
+    },
 }
 
 /// Resolve pane ID: use provided value or fetch the current focused pane.
@@ -637,6 +664,39 @@ fn main() {
                                 println!("{}", serde_json::to_string_pretty(&val).unwrap());
                             } else {
                                 print_object(&val);
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Spawn { agent, title, cwd, role, parent, can_spawn, task, args } => {
+                    let mut body = serde_json::json!({
+                        "agent": agent,
+                    });
+                    if let Some(t) = title { body["title"] = serde_json::json!(t); }
+                    if let Some(c) = cwd { body["cwd"] = serde_json::json!(c); }
+                    if let Some(r) = role { body["role"] = serde_json::json!(r); }
+                    if let Some(p) = parent { body["parent_pane_id"] = serde_json::json!(p); }
+                    if can_spawn { body["can_spawn"] = serde_json::json!(true); }
+                    if let Some(t) = task { body["task"] = serde_json::json!(t); }
+                    if let Some(a) = args { body["args"] = serde_json::json!(a); }
+                    match http.post(format!("{}/api/agents/spawn", base))
+                        .json(&body)
+                        .send()
+                    {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                if let Some(pid) = val.get("pane_id").and_then(|v| v.as_str()) {
+                                    println!("Spawned: {} (pane {})", val.get("title").and_then(|v| v.as_str()).unwrap_or("?"), pid);
+                                } else if let Some(err) = val.get("error").or_else(|| val.get("message")) {
+                                    eprintln!("Error: {}", err);
+                                } else {
+                                    print_object(&val);
+                                }
                             }
                             return;
                         }
