@@ -595,12 +595,12 @@ export function TerminalPane({
           if (parsed && engine.hasDefinition(parsed.command)) {
             const items = engine.getCompletions(parsed);
             if (items.length === 1) {
-              // Single match — auto-complete inline
-              const suffix = items[0].text.slice(parsed.currentArg.length);
-              if (suffix) {
-                invoke("write_pty_string", { ptyId: predictedId, data: suffix + " " });
-                tracker.feed(suffix + " ");
-              }
+              // Single match — erase current arg, insert full completion
+              const eraseCount = parsed.currentArg.length;
+              const erase = "\x7f".repeat(eraseCount); // backspace to remove typed prefix
+              const insert = items[0].text + " ";
+              invoke("write_pty_string", { ptyId: predictedId, data: erase + insert });
+              tracker.feed(erase + insert);
               return;
             }
             if (items.length > 1) {
