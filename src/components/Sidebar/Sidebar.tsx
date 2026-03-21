@@ -546,6 +546,33 @@ interface TabItemProps {
   onRename?: (title: string) => void;
 }
 
+function ConfirmStopDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
+      <div
+        className="bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-xl px-6 py-5 max-w-sm text-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-sm text-[var(--ct-fg)] mb-4">Are you sure you want to stop the process?</p>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={onCancel}
+            className="px-4 py-1.5 text-xs rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-1.5 text-xs rounded bg-[var(--ct-red)] hover:opacity-80 text-white font-medium transition-colors"
+          >
+            Stop
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TabItem({
   tab,
   isActive,
@@ -561,89 +588,120 @@ function TabItem({
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
+
+  const handleClose = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (hasAgent) {
+      setConfirmClose(true);
+    } else {
+      onClose();
+    }
+  }, [hasAgent, onClose]);
+
   return (
-    <div
-      onClick={onClick}
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData("text/plain", JSON.stringify({
-          tabId: tab.id,
-          fromWorkspaceId: workspaceId,
-        }));
-        e.dataTransfer.effectAllowed = "move";
-      }}
-      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-      className={`
-        group flex items-center justify-between pl-8 pr-3 py-1 cursor-pointer transition-colors
-        ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
-      `}
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        {/* Icon — orange sparkle for Claude Code (spins when working), terminal icon otherwise */}
-        {hasAgent ? (
-          <span
-            className={`shrink-0 text-[11px] leading-none text-[#f0883e] ${status === "Working" ? "animate-spin" : ""}`}
-            style={status === "Working" ? { animationDuration: "1.5s" } : undefined}
-            title={status === "Working" ? "Claude Code working..." : status === "Waiting" ? "Claude Code — waiting for input" : "Claude Code"}
-          >&#10035;</span>
-        ) : (
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
-            <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z" />
-          </svg>
-        )}
-        {editing ? (
-          <input
-            autoFocus
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            onBlur={() => { const t = editName.trim(); if (t && t !== tab.title) onRename?.(t); setEditing(false); }}
-            onKeyDown={(e) => { if (e.key === "Enter") { const t = editName.trim(); if (t && t !== tab.title) onRename?.(t); setEditing(false); } if (e.key === "Escape") setEditing(false); }}
-            onClick={(e) => e.stopPropagation()}
-            className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
-          />
-        ) : (
-          <span className="text-xs truncate">
-            {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
-          </span>
-        )}
-        {paneCount > 1 && (
-          <span className="flex items-center gap-0.5 text-[var(--ct-muted)]" title={`${paneCount} panes`}>
-            <svg width="12" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1">
-              {paneCount === 2 ? (
-                /* Two panes side by side */
-                <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /></>
-              ) : paneCount === 3 ? (
-                /* Three panes: one left, two right stacked */
-                <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="7" y1="5" x2="13.5" y2="5" /></>
-              ) : (
-                /* Four+ panes: grid */
-                <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="0.5" y1="5" x2="13.5" y2="5" /></>
-              )}
+    <>
+      <div
+        onClick={onClick}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", JSON.stringify({
+            tabId: tab.id,
+            fromWorkspaceId: workspaceId,
+          }));
+          e.dataTransfer.effectAllowed = "move";
+        }}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
+        className={`
+          group flex items-center justify-between pl-8 pr-2 py-1 cursor-pointer transition-colors
+          ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
+        `}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Icon — orange sparkle for Claude Code (spins when working), terminal icon otherwise */}
+          {hasAgent ? (
+            <span
+              className={`shrink-0 text-[11px] leading-none text-[#f0883e] ${status === "Working" ? "animate-spin" : ""}`}
+              style={status === "Working" ? { animationDuration: "1.5s" } : undefined}
+              title={status === "Working" ? "Claude Code working..." : status === "Waiting" ? "Claude Code — waiting for input" : "Claude Code"}
+            >&#10035;</span>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
+              <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z" />
             </svg>
-          </span>
+          )}
+          {editing ? (
+            <input
+              autoFocus
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onBlur={() => { const t = editName.trim(); if (t && t !== tab.title) onRename?.(t); setEditing(false); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { const t = editName.trim(); if (t && t !== tab.title) onRename?.(t); setEditing(false); } if (e.key === "Escape") setEditing(false); }}
+              onClick={(e) => e.stopPropagation()}
+              className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
+            />
+          ) : (
+            <span className="text-xs truncate">
+              {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
+            </span>
+          )}
+          {paneCount > 1 && (
+            <span className="flex items-center gap-0.5 text-[var(--ct-muted)]" title={`${paneCount} panes`}>
+              <svg width="12" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1">
+                {paneCount === 2 ? (
+                  /* Two panes side by side */
+                  <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /></>
+                ) : paneCount === 3 ? (
+                  /* Three panes: one left, two right stacked */
+                  <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="7" y1="5" x2="13.5" y2="5" /></>
+                ) : (
+                  /* Four+ panes: grid */
+                  <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="0.5" y1="5" x2="13.5" y2="5" /></>
+                )}
+              </svg>
+            </span>
+          )}
+        </div>
+        {/* Close button — visible on hover */}
+        {canClose && (
+          <button
+            onClick={handleClose}
+            className="shrink-0 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-all"
+            title="Close tab"
+          >
+            <svg width="7" height="7" viewBox="0 0 10 10" fill="currentColor">
+              <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
+            </svg>
+          </button>
+        )}
+        {/* Context menu */}
+        {ctxMenu && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
+            <div
+              className="fixed z-50 w-36 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1"
+              style={{ left: ctxMenu.x, top: ctxMenu.y }}
+            >
+              <button
+                onClick={() => { setCtxMenu(null); setEditName(tab.title); setEditing(true); }}
+                className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
+              >Rename</button>
+              {canClose && (
+                <button
+                  onClick={(e) => { setCtxMenu(null); handleClose(e); }}
+                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)]"
+                >Close</button>
+              )}
+            </div>
+          </>
         )}
       </div>
-      {/* Context menu */}
-      {ctxMenu && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
-          <div
-            className="fixed z-50 w-36 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1"
-            style={{ left: ctxMenu.x, top: ctxMenu.y }}
-          >
-            <button
-              onClick={() => { setCtxMenu(null); setEditName(tab.title); setEditing(true); }}
-              className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
-            >Rename</button>
-            {canClose && (
-              <button
-                onClick={() => { setCtxMenu(null); onClose(); }}
-                className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)]"
-              >Close</button>
-            )}
-          </div>
-        </>
+      {confirmClose && (
+        <ConfirmStopDialog
+          onConfirm={() => { onClose(); setConfirmClose(false); }}
+          onCancel={() => setConfirmClose(false)}
+        />
       )}
-    </div>
+    </>
   );
 }
