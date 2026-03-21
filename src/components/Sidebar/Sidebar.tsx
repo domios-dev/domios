@@ -410,6 +410,7 @@ function WorkspaceItem({
   const [dragOver, setDragOver] = useState(false);
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -509,9 +510,9 @@ function WorkspaceItem({
           </span>
         )}
       </div>
-      {/* Close button — visible on hover */}
+      {/* Close button — visible on hover, always confirms */}
       <button
-        onClick={(e) => { e.stopPropagation(); onClose(); }}
+        onClick={(e) => { e.stopPropagation(); setConfirmClose(true); }}
         className="shrink-0 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-all"
         title="Close workspace"
       >
@@ -532,11 +533,18 @@ function WorkspaceItem({
               className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
             >Rename</button>
             <button
-              onClick={() => { setCtxMenu(null); onClose(); }}
+              onClick={() => { setCtxMenu(null); setConfirmClose(true); }}
               className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)]"
             >Close</button>
           </div>
         </>
+      )}
+      {confirmClose && (
+        <ConfirmStopDialog
+          message={`Close workspace "${workspace.name}"?`}
+          onConfirm={() => { onClose(); setConfirmClose(false); }}
+          onCancel={() => setConfirmClose(false)}
+        />
       )}
     </div>
   );
@@ -556,14 +564,14 @@ interface TabItemProps {
   onRename?: (title: string) => void;
 }
 
-function ConfirmStopDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+function ConfirmStopDialog({ onConfirm, onCancel, message }: { onConfirm: () => void; onCancel: () => void; message?: string }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
       <div
         className="bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-xl px-6 py-5 max-w-sm text-center"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="text-sm text-[var(--ct-fg)] mb-4">Are you sure you want to stop the process?</p>
+        <p className="text-sm text-[var(--ct-fg)] mb-4">{message || "Are you sure you want to stop the process?"}</p>
         <div className="flex items-center justify-center gap-3">
           <button
             onClick={onCancel}
