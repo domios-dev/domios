@@ -29,8 +29,9 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-<!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
-<!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+<p align="center">
+  <img src="assets/screenshot.png" alt="CodeTerm Screenshot" width="800" />
+</p>
 
 ---
 
