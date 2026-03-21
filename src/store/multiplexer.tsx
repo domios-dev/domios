@@ -722,11 +722,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     [state.workspaces],
   );
 
-  const createWorkspace = useCallback((name: string) => {
-    const pane = makePane();
-    const tab = makeTab(pane);
-    const workspace = makeWorkspace(name, tab);
-    dispatch({ type: "ADD_WORKSPACE", workspace, pane });
+  const createWorkspace = useCallback(async (name: string) => {
+    try {
+      await invoke("mux_create_workspace", { name });
+      const s = await invoke<MultiplexerState>("mux_get_state");
+      if (s && s.workspaces.length > 0) dispatch({ type: "SET_STATE", state: s });
+    } catch (e) {
+      console.error("Failed to create workspace:", e);
+    }
   }, []);
 
   const setActiveWorkspace = useCallback((id: string) => {
@@ -745,6 +748,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           }
         }
       }
+      invoke("mux_close_workspace", { workspaceId: id }).catch(() => {});
       dispatch({ type: "CLOSE_WORKSPACE", id });
     },
     [state],
