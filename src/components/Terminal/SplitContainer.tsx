@@ -131,6 +131,33 @@ interface SplitViewProps {
   children: React.ReactNode[];
 }
 
+function ConfirmStopDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
+      <div
+        className="bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-xl px-6 py-5 max-w-sm text-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-sm text-[var(--ct-fg)] mb-4">Are you sure you want to stop the process?</p>
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={onCancel}
+            className="px-4 py-1.5 text-xs rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-1.5 text-xs rounded bg-[var(--ct-red)] hover:opacity-80 text-white font-medium transition-colors"
+          >
+            Stop
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PaneToolbar({
   paneId,
   hasAgent,
@@ -147,51 +174,33 @@ function PaneToolbar({
   const [confirmClose, setConfirmClose] = useState(false);
 
   return (
-    <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover/pane:opacity-70 hover:!opacity-100 transition-opacity z-10">
-      <button
-        onClick={(e) => { e.stopPropagation(); onSplitH(); }}
-        className="w-6 h-6 flex items-center justify-center rounded bg-[var(--ct-border)]/80 hover:bg-[var(--ct-muted)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
-        title="Split right"
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
-          <rect x="1" y="1" width="10" height="10" rx="1" />
-          <line x1="6" y1="1" x2="6" y2="11" />
-        </svg>
-      </button>
-      <button
-        onClick={(e) => { e.stopPropagation(); onSplitV(); }}
-        className="w-6 h-6 flex items-center justify-center rounded bg-[var(--ct-border)]/80 hover:bg-[var(--ct-muted)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
-        title="Split down"
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
-          <rect x="1" y="1" width="10" height="10" rx="1" />
-          <line x1="1" y1="6" x2="11" y2="6" />
-        </svg>
-      </button>
-
-      {/* Close — expand to confirm if agent running */}
-      {confirmClose ? (
-        <div className="flex items-center gap-0.5 animate-in slide-in-from-right">
-          <button
-            onClick={(e) => { e.stopPropagation(); setConfirmClose(false); }}
-            className="h-6 px-1.5 flex items-center justify-center rounded bg-[var(--ct-border)]/80 hover:bg-[var(--ct-muted)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] text-[9px] transition-colors"
-          >
-            No
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onClose(); setConfirmClose(false); }}
-            className="h-6 px-1.5 flex items-center justify-center rounded bg-[var(--ct-red)] hover:bg-[var(--ct-red)]/80 text-white text-[9px] font-medium transition-colors"
-          >
-            Kill
-          </button>
-        </div>
-      ) : (
+    <>
+      <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover/pane:opacity-70 hover:!opacity-100 transition-opacity z-10">
+        <button
+          onClick={(e) => { e.stopPropagation(); onSplitH(); }}
+          className="w-6 h-6 flex items-center justify-center rounded bg-[var(--ct-border)]/80 hover:bg-[var(--ct-muted)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+          title="Split right"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
+            <rect x="1" y="1" width="10" height="10" rx="1" />
+            <line x1="6" y1="1" x2="6" y2="11" />
+          </svg>
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onSplitV(); }}
+          className="w-6 h-6 flex items-center justify-center rounded bg-[var(--ct-border)]/80 hover:bg-[var(--ct-muted)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+          title="Split down"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
+            <rect x="1" y="1" width="10" height="10" rx="1" />
+            <line x1="1" y1="6" x2="11" y2="6" />
+          </svg>
+        </button>
         <button
           onClick={(e) => {
             e.stopPropagation();
             if (hasAgent) {
               setConfirmClose(true);
-              setTimeout(() => setConfirmClose(false), 3000);
             } else {
               onClose();
             }
@@ -207,8 +216,14 @@ function PaneToolbar({
             <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
           </svg>
         </button>
+      </div>
+      {confirmClose && (
+        <ConfirmStopDialog
+          onConfirm={() => { onClose(); setConfirmClose(false); }}
+          onCancel={() => setConfirmClose(false)}
+        />
       )}
-    </div>
+    </>
   );
 }
 

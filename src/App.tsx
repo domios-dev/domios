@@ -35,6 +35,8 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-green": theme.green,
     "--ct-yellow": theme.yellow,
     "--ct-orange": theme.red, // fallback for agent indicator
+    // CRT glow color for Pip-Boy and similar themes
+    ...(theme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy" ? { "--ct-glow": theme.green + "99" } : {}),
   };
 }
 
@@ -375,10 +377,11 @@ function AppInner() {
 
   // Compute CSS vars from theme
   const themeStyles = useMemo(() => themeToCSS(theme), [theme]);
+  const isCRT = theme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
 
   return (
     <div
-      className="flex flex-col w-screen h-screen overflow-hidden"
+      className={`flex flex-col w-screen h-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{
         ...themeStyles,
         backgroundColor: theme.background,

@@ -707,28 +707,19 @@ export function TerminalPane({
           const isImage = /\.(png|jpg|jpeg|gif|webp|bmp|svg)$/.test(name);
 
           if (isImage) {
-            // Image: save to temp → paste path (Claude Code reads images from file paths)
+            // Image: save to temp → write path directly (don't touch clipboard!)
             try {
               const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
               const ext = name.split(".").pop() || "png";
               const path = await invoke<string>("save_clipboard_image", { bytes, ext });
-              // Copy path to clipboard and paste via \x16
-              await navigator.clipboard.writeText(path);
-              invoke("write_pty_string", { ptyId, data: "\x16" });
+              invoke("write_pty_string", { ptyId, data: path });
             } catch (err) {
               console.error("[drop] Image error:", err);
             }
           } else {
-            // Any other file: read as text → copy to clipboard → Ctrl+V
-            try {
-              const text = await file.text();
-              await navigator.clipboard.writeText(text);
-              invoke("write_pty_string", { ptyId, data: "\x16" });
-            } catch {
-              // Binary file or read error — paste filename
-              const path = (file as any).path || file.name;
-              invoke("write_pty_string", { ptyId, data: path + " " });
-            }
+            // Other files: write path directly (don't touch clipboard!)
+            const path = (file as any).path || file.name;
+            invoke("write_pty_string", { ptyId, data: path });
           }
         }
       }}
