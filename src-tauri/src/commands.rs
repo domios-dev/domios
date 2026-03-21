@@ -656,13 +656,13 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
     };
 
     // Build hook commands
+    // Single quotes around JSON body prevent shell from interpreting the content.
+    // The \" inside are JSON escapes in the settings.json file — they become " at runtime.
     let notify_cmd = format!(
-        r#"curl -s -X POST http://localhost:{}/api/notifications -H "Content-Type: application/json" -d "{{\\"title\\":\\"Claude Code\\",\\"body\\":\\"$CLAUDE_NOTIFICATION_MESSAGE\\",\\"level\\":\\"warning\\"}}" > /dev/null 2>&1 || true"#,
-        port
+        r#"curl -s -X POST http://localhost:{port}/api/notifications -H 'Content-Type: application/json' -d '{{"title":"Claude Code","body":"Needs permission","level":"warning"}}' > /dev/null 2>&1 || true"#
     );
     let stop_cmd = format!(
-        r#"curl -s -X POST http://localhost:{}/api/notifications -H "Content-Type: application/json" -d "{{\\"title\\":\\"Claude Code\\",\\"body\\":\\"Task complete\\",\\"level\\":\\"info\\"}}" > /dev/null 2>&1 || true"#,
-        port
+        r#"curl -s -X POST http://localhost:{port}/api/notifications -H 'Content-Type: application/json' -d '{{"title":"Claude Code","body":"Task complete","level":"info"}}' > /dev/null 2>&1 || true"#
     );
 
     // Ensure hooks object exists
