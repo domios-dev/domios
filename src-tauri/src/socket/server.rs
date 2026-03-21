@@ -373,16 +373,16 @@ fn dispatch(
 
         "pane.close" => {
             let id = get_string_param(&params, "pane_id")?;
-            let pty_id = {
+            let pty_ids = {
                 let mut mux = mux.lock();
                 mux.close_pane(&id).map_err(|e| JsonRpcError {
                     code: -32602,
                     message: e,
                 })?
             };
-            if let Some(pty_id) = pty_id {
+            {
                 let mut pty_mgr = _pty.lock();
-                let _ = pty_mgr.kill(&pty_id);
+                for pid in &pty_ids { let _ = pty_mgr.kill(pid); }
             }
             let _ = app.emit("mux-state-changed", ());
             Ok(serde_json::json!({"ok": true}))

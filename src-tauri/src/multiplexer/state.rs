@@ -486,37 +486,61 @@ impl MultiplexerState {
     }
 
     /// Close a pane: remove from split tree and pane registry.
-    /// Returns the pty_id that should be killed (if the pane had one).
-    pub fn close_pane(&mut self, pane_id: &str) -> Result<Option<String>, String> {
+    /// Cascade-closes all children. Returns all pty_ids that should be killed.
+    pub fn close_pane(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
+        let mut pty_ids = Vec::new();
+
+        // Collect children to cascade-close BEFORE removing this pane
+        let child_ids = self.get_children_ids(pane_id);
+
         // Get the PTY ID before removing
-        let pty_id = self
-            .panes
-            .get(pane_id)
-            .and_then(|p| p.pty_id.clone());
-
-        // Remove from the split tree
-        let found = self.workspaces.iter_mut().any(|ws| {
-            ws.tabs
-                .iter_mut()
-                .any(|tab| tab.split_tree.remove_leaf(pane_id))
-        });
-
-        if !found {
-            return Err(format!("Pane {} not found in any split tree", pane_id));
+        if let Some(pty_id) = self.panes.get(pane_id).and_then(|p| p.pty_id.clone()) {
+            pty_ids.push(pty_id);
         }
+
+        // Remove from the split tree (and remove tabs that become empty)
+        self.remove_pane_from_tree(pane_id)?;
 
         // Remove from pane registry
         self.panes.remove(pane_id);
-
-        // Orphan any children that pointed to this pane
-        self.orphan_children(pane_id);
 
         // Clear focus if this was the focused pane
         if self.focused_pane_id.as_deref() == Some(pane_id) {
             self.focused_pane_id = None;
         }
 
-        Ok(pty_id)
+        // Cascade-close all children (recursively)
+        for cid in child_ids {
+            if let Ok(child_ptys) = self.close_pane(&cid) {
+                pty_ids.extend(child_ptys);
+            }
+        }
+
+        Ok(pty_ids)
+    }
+
+    /// Remove a pane from its tab's split tree. Removes the tab entirely if it was the only leaf.
+    fn remove_pane_from_tree(&mut self, pane_id: &str) -> Result<(), String> {
+        for ws in &mut self.workspaces {
+            // If tab's root leaf IS this pane, remove the whole tab
+            let tab_idx = ws.tabs.iter().position(|tab| {
+                matches!(&tab.split_tree, SplitNode::Leaf { pane_id: pid } if pid == pane_id)
+            });
+            if let Some(idx) = tab_idx {
+                ws.tabs.remove(idx);
+                if !ws.tabs.is_empty() {
+                    ws.active_tab_id = Some(ws.tabs.last().unwrap().id.clone());
+                } else {
+                    ws.active_tab_id = None;
+                }
+                return Ok(());
+            }
+            // Otherwise remove from splits within tabs
+            if ws.tabs.iter_mut().any(|tab| tab.split_tree.remove_leaf(pane_id)) {
+                return Ok(());
+            }
+        }
+        Err(format!("Pane {} not found in any split tree", pane_id))
     }
 
     /// Link a pane to a PTY instance.
@@ -943,7 +967,7 @@ mod tests {
         state.link_pty(&new_pane_id, "pty-123".to_string());
 
         let result = state.close_pane(&new_pane_id).unwrap();
-        assert_eq!(result, Some("pty-123".to_string()));
+        assert_eq!(result, vec!["pty-123".to_string()]);
     }
 
     #[test]

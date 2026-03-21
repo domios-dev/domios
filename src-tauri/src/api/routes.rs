@@ -512,13 +512,14 @@ async fn close_pane(
     Path(pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let pty_id = state
+    let pty_ids = state
         .mux
         .lock()
         .close_pane(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
-    if let Some(pty_id) = pty_id {
-        let _ = state.pty.lock().kill(&pty_id);
+    {
+        let mut pty = state.pty.lock();
+        for pid in &pty_ids { let _ = pty.kill(pid); }
     }
     let _ = state.app_handle.emit("mux-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
@@ -1055,11 +1056,11 @@ async fn spawn_agent(
     let pty_for_task = pty_state.clone();
 
     tokio::spawn(async move {
-        // cd to working directory
+        // cd to working directory + clear screen to hide prompt noise
         if let Some(ref dir) = cwd {
-            let cd_cmd = format!("cd {}\r", dir.replace('\\', "/"));
+            let cd_cmd = format!("cd {}; cls\r", dir.replace('\\', "/"));
             let _ = pty.lock().write(&pid, cd_cmd.as_bytes());
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
         }
 
         // Launch agent
