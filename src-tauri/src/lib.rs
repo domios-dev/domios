@@ -79,6 +79,7 @@ pub fn run() {
             commands::uninstall_skill,
             commands::get_skills_prompt,
             commands::get_network_info,
+            commands::save_clipboard_image,
             commands::install_project_rules,
             commands::check_rule_installed,
             commands::open_folder,

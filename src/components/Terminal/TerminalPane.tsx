@@ -455,12 +455,37 @@ export function TerminalPane({
 
       // Primary: xterm.js onData — with paste fix + Tab completion
       const onDataDisposable = term.onData((data) => {
-        // Ctrl+V sends \x16 — intercept and paste clipboard text instead
+        // Ctrl+V sends \x16 — smart paste: image → save as temp file + paste path, text → paste text
         if (data === "\x16") {
-          navigator.clipboard.readText().then((text) => {
-            if (text) invoke("write_pty_string", { ptyId: predictedId, data: text });
-          }).catch(() => {});
-          return; // don't send \x16 to PTY
+          navigator.clipboard.read().then(async (items) => {
+            // Check for image in clipboard
+            for (const item of items) {
+              const imageType = item.types.find((t) => t.startsWith("image/"));
+              if (imageType) {
+                const blob = await item.getType(imageType);
+                const ext = imageType.split("/")[1] === "jpeg" ? "jpg" : imageType.split("/")[1] || "png";
+                // Save to temp file via Tauri command
+                const arrayBuf = await blob.arrayBuffer();
+                const bytes = Array.from(new Uint8Array(arrayBuf));
+                const path = await invoke<string>("save_clipboard_image", { bytes, ext });
+                // Paste the file path into terminal — Claude Code will detect and attach it
+                if (path) invoke("write_pty_string", { ptyId: predictedId, data: path + " " });
+                return;
+              }
+            }
+            // No image — paste text
+            const textItem = items.find((item) => item.types.includes("text/plain"));
+            if (textItem) {
+              const blob = await textItem.getType("text/plain");
+              const text = await blob.text();
+              if (text) invoke("write_pty_string", { ptyId: predictedId, data: text });
+            }
+          }).catch(() => {
+            navigator.clipboard.readText().then((text) => {
+              if (text) invoke("write_pty_string", { ptyId: predictedId, data: text });
+            }).catch(() => {});
+          });
+          return;
         }
 
         const tracker = trackerRef.current;
@@ -677,6 +702,18 @@ export function TerminalPane({
       }}
       onMouseDown={handleClick}
       onContextMenu={handleContextMenu}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // Drag-and-drop files — paste file paths into terminal
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length > 0) {
+          const paths = files.map((f) => (f as any).path || f.name).join(" ");
+          const ptyId = connectedPtyRef.current;
+          if (ptyId && paths) invoke("write_pty_string", { ptyId, data: paths + " " });
+        }
+      }}
     >
       {/* Search bar */}
       {searchOpen && (
