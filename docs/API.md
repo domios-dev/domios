@@ -150,10 +150,10 @@ curl http://host:7685/api/health
 # Create workspace + tab
 WS=$(curl -s -X POST http://host:7685/api/workspaces \
   -H "Content-Type: application/json" \
-  -d '{"name":"my-project"}' | jq -r '.id')
+  -d '{"name":"my-project"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
 
 # Get pane and run command
-PANE=$(curl -s http://host:7685/api/panes | jq -r '.[-1].id')
+PANE=$(curl -s http://host:7685/api/panes | python3 -c "import sys,json;print(json.load(sys.stdin)[-1]['id'])")
 curl -X POST "http://host:7685/api/panes/$PANE/exec" \
   -H "Content-Type: application/json" \
   -d '{"command": "npm test", "timeout_ms": 30000}'
@@ -217,12 +217,15 @@ Newline-delimited JSON:
 
 ## CLI
 
+Most pane commands default to the **current focused pane** when no ID is given.
+
 ```bash
 codeterm identify                               # System info
 codeterm capabilities                           # List API methods
 
 # Workspaces
 codeterm workspace list                         # List workspaces
+codeterm workspace current                      # Get current workspace ID
 codeterm workspace create "Name"                # Create workspace
 codeterm workspace focus ID                     # Switch workspace
 codeterm workspace rename ID "New Name"         # Rename
@@ -231,14 +234,16 @@ codeterm workspace move-tab TAB --from WS --to WS  # Move tab
 
 # Panes
 codeterm pane list                              # List panes
+codeterm pane current                           # Get current pane ID
+codeterm pane current --last                    # Get last pane ID
 codeterm pane focus ID                          # Focus pane
 codeterm pane close ID                          # Close pane
-codeterm pane split ID [--direction right|down] # Split
-codeterm pane rename ID "title"                 # Rename tab
+codeterm pane split [--id ID] [--direction right|down]  # Split (default: current)
+codeterm pane rename "title" [--id ID]          # Rename tab (default: current)
 
 # Terminal I/O
-codeterm send-text PANE_ID "command"            # Send text
-codeterm get-output PANE_ID [--lines 50]        # Read output
+codeterm send-text "command" [--pane ID]        # Send text (default: current)
+codeterm get-output [--pane ID] [--lines 50]    # Read output (default: current)
 
 # Browser
 codeterm browser open URL                       # Open browser panel
@@ -247,6 +252,13 @@ codeterm browser open URL                       # Open browser panel
 codeterm notify "Title" [--body "..."] [--level info|warning|error]
 codeterm notifications [--unread]               # List
 codeterm notifications clear                    # Clear all
+
+# Themes
+codeterm theme list                             # List all themes
+codeterm theme apply NAME                       # Apply a theme
+codeterm theme save ID FILE [--apply]           # Save custom theme (+ apply)
+codeterm theme delete ID                        # Delete custom theme
+codeterm theme dir                              # Show themes directory
 ```
 
 Add `--json` flag for machine-readable output.
@@ -288,4 +300,4 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

@@ -12,28 +12,33 @@ You are running inside CodeTerm, an AI-first terminal multiplexer. CLI: `C:/tool
 
 **Immediately rename your tab** based on the user's first message/task:
 ```bash
-PANE_ID=$(C:/tools/codeterm.exe pane list --json | jq -r '.[0].id')
-C:/tools/codeterm.exe pane rename "$PANE_ID" "fix login bug"
+C:/tools/codeterm.exe pane rename "fix login bug"
 ```
 
 ## Terminal Management
+
+Commands default to the **current focused pane** when no ID is given.
+
 ```
 codeterm pane list                              # List panes
-codeterm pane split PANE_ID --direction right   # Split horizontal
-codeterm pane split PANE_ID --direction down    # Split vertical
+codeterm pane current                           # Get current pane ID
+codeterm pane current --last                    # Get last pane ID
+codeterm pane split                             # Split current pane right
+codeterm pane split --direction down            # Split current pane down
+codeterm pane split --id PANE_ID                # Split specific pane
+codeterm pane rename "title"                    # Rename current tab
 codeterm pane focus PANE_ID                     # Focus pane
 codeterm pane close PANE_ID                     # Close pane
-codeterm pane rename PANE_ID "title"            # Rename tab
-codeterm pane resize PANE_ID --cols 120 --rows 40  # Resize terminal
-codeterm send-text PANE_ID "command"            # Send to terminal
-codeterm send-text PANE_ID "command" --enter    # Send + press Enter (default: true)
-codeterm send-text PANE_ID "cmd1" "cmd2" "cmd3" # Batch: send multiple commands
-codeterm get-output PANE_ID                     # Read output
+codeterm send-text "command"                    # Send to current pane
+codeterm send-text "command" --pane PANE_ID     # Send to specific pane
+codeterm get-output                             # Read current pane output
+codeterm get-output --pane PANE_ID              # Read specific pane output
 ```
 
 ## Workspace Management
 ```
 codeterm workspace list                         # List workspaces
+codeterm workspace current                      # Get current workspace ID
 codeterm workspace create "Name"                # Create workspace
 codeterm workspace focus ID                     # Switch workspace
 codeterm workspace rename ID "New Name"         # Rename
@@ -72,16 +77,13 @@ Levels: `info` (blue), `warning` (yellow), `error` (red)
 
 ### Side-by-side
 ```bash
-PANE=$(codeterm pane list --json | jq -r '.[0].id')
-codeterm pane split $PANE --direction right
+codeterm pane split
 ```
 
 ### Three-panel
 ```bash
-PANE=$(codeterm pane list --json | jq -r '.[0].id')
-codeterm pane split $PANE --direction right
-RIGHT=$(codeterm pane list --json | jq -r '.[-1].id')
-codeterm pane split $RIGHT --direction down
+codeterm pane split
+codeterm pane split --id $(codeterm pane current --last) --direction down
 ```
 
 ## Multi-agent Workflow
@@ -145,8 +147,7 @@ bright_cyan = "#7dcfff"
 bright_white = "#c0caf5"
 EOF
 
-codeterm theme save my-theme /tmp/my-theme.toml
-codeterm theme apply my-theme
+codeterm theme save my-theme /tmp/my-theme.toml --apply
 ```
 
 The UI colors (borders, sidebar, surfaces) are automatically derived from the background color. Light themes (bright background) get darkened borders; dark themes get lightened ones.
@@ -157,4 +158,4 @@ codeterm identify        # Version & features
 codeterm capabilities    # All API methods
 ```
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

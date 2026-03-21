@@ -15,6 +15,12 @@ Core API:
 - POST /api/panes/:id/rename {title} — rename tab
 - POST /api/panes/:id/resize {cols, rows} — resize terminal
 
+Themes:
+- GET  /api/themes — list all themes
+- POST /api/themes {id, toml} — save custom theme
+- DELETE /api/themes/:id — delete custom theme
+- POST /api/themes/apply {name} — apply theme
+
 Integration:
 - POST /api/browser/open {url} — open browser panel
 - POST /api/notifications {title, body, level} — send notification
@@ -39,4 +45,4 @@ Orchestrator workflow:
   - Example — launching Claude Code: `{"batch": [{"text": "claude", "enter": true}, {"text": "", "enter": true, "delay_ms": 8000}]}`
 - For async tasks: register a one-shot webhook with `once: true` and `pane_id` to get notified when a specific pane's task completes. The webhook fires once and auto-deletes — like a Promise. Prefer this over polling with timeout.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

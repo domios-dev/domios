@@ -69,6 +69,40 @@ sleep 90
 bash tests/final_e2e.sh
 ```
 
+## Icons
+
+Icon source files: `src-tauri/icons/`
+
+| File | Size | Usage |
+|------|------|-------|
+| `icon.png` | 512x512 | Window icon, installer |
+| `256x256.png` | 256x256 | High-DPI displays |
+| `32x32.png` | 32x32 | System tray |
+| `icon.ico` | 256x256 | Windows executable |
+
+**Bundle icons** (`tauri.conf.json` → `bundle.icon`) are embedded into the built installer/exe.
+
+**Runtime icons** are set programmatically in `src/lib.rs` setup — needed for dev mode and custom title bar:
+- Window icon: decoded from `icon.png` via `png` crate → `window.set_icon()`
+- Tray icon: decoded from `32x32.png` → `TrayIconBuilder::icon()`
+
+### Regenerating icons
+
+1. Edit SVG source or create new design
+2. Render to PNG at multiple sizes using `sharp` (Node.js) or ImageMagick
+3. Replace files in `src-tauri/icons/`
+4. Rebuild — icons are embedded at compile time via `include_bytes!()`
+
+### Windows icon cache
+
+If the icon doesn't update after rebuild, clear Windows icon cache:
+```bash
+rm -f "$LOCALAPPDATA/IconCache.db"
+rm -rf "$LOCALAPPDATA/Microsoft/Windows/Explorer/iconcache*"
+rm -rf "$LOCALAPPDATA/Microsoft/Windows/Explorer/thumbcache*"
+taskkill /F /IM explorer.exe && start explorer.exe
+```
+
 ## Windows MSVC Notes
 
 If build fails with `link.exe` errors, ensure MSVC is properly configured. The project includes `.cargo/config.toml` with MSVC paths. You may need to update paths if your MSVC version differs.

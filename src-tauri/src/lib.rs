@@ -146,6 +146,19 @@ pub fn run() {
             session::load_session,
         ])
         .setup(move |app| {
+            // Set window icon (decode PNG → RGBA for Tauri)
+            if let Some(window) = app.get_webview_window("main") {
+                let icon_bytes = include_bytes!("../icons/icon.png");
+                if let Ok(mut reader) = png::Decoder::new(std::io::Cursor::new(icon_bytes)).read_info() {
+                    let info = reader.info().clone();
+                    let mut rgba = vec![0u8; reader.output_buffer_size()];
+                    if reader.next_frame(&mut rgba).is_ok() {
+                        let icon = tauri::image::Image::new_owned(rgba, info.width, info.height);
+                        let _ = window.set_icon(icon);
+                    }
+                }
+            }
+
             // Start socket server
             let app_handle = app.handle().clone();
             if let Err(e) = socket::server::SocketServer::start(
@@ -211,8 +224,19 @@ pub fn run() {
                     .item(&quit)
                     .build()?;
 
+                let tray_icon = {
+                    let bytes = include_bytes!("../icons/32x32.png");
+                    let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
+                        .read_info().expect("Failed to decode tray icon PNG");
+                    let info = reader.info().clone();
+                    let mut rgba = vec![0u8; reader.output_buffer_size()];
+                    reader.next_frame(&mut rgba).expect("Failed to read tray icon frame");
+                    tauri::image::Image::new_owned(rgba, info.width, info.height)
+                };
+
                 let _tray = TrayIconBuilder::new()
                     .tooltip("CodeTerm")
+                    .icon(tray_icon)
                     .menu(&menu)
                     .on_menu_event(move |app, event| {
                         match event.id().as_ref() {
