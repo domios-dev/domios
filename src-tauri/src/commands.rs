@@ -321,6 +321,31 @@ pub struct SkillInfo {
     pub name: String,
     pub description: String,
     pub installed: bool,
+    /// Current revision from bundled skill
+    pub revision: u32,
+    /// Installed revision (0 if not installed)
+    pub installed_revision: u32,
+    /// True if installed version is outdated
+    pub update_available: bool,
+}
+
+/// Extract revision number from file content.
+/// Looks for `<!-- revision: N -->` pattern.
+fn extract_revision(content: &str) -> u32 {
+    content.lines()
+        .find_map(|l| {
+            let trimmed = l.trim();
+            if trimmed.starts_with("<!-- revision:") && trimmed.ends_with("-->") {
+                let inner = trimmed
+                    .trim_start_matches("<!-- revision:")
+                    .trim_end_matches("-->")
+                    .trim();
+                inner.parse().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0)
 }
 
 /// Resolve skills source directory. Checks (in order):
@@ -370,8 +395,19 @@ fn scan_skills() -> Vec<SkillInfo> {
             .map(|l| l.trim_start_matches("description:").trim().to_string())
             .unwrap_or_default();
 
-        let installed = installed_dir.join(&id).exists();
-        skills.push(SkillInfo { id, name, description, installed });
+        let revision = extract_revision(&content);
+        let installed_path = installed_dir.join(&id);
+        let installed = installed_path.exists();
+        let installed_revision = if installed {
+            let installed_skill = installed_path.join("SKILL.md");
+            std::fs::read_to_string(&installed_skill)
+                .map(|c| extract_revision(&c))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        let update_available = installed && installed_revision < revision;
+        skills.push(SkillInfo { id, name, description, installed, revision, installed_revision, update_available });
     }
     skills
 }
@@ -463,6 +499,8 @@ C:/tools/codeterm.exe pane rename "$PANE_ID" "short task name"
 
 - Do NOT use `start` or `open` for browser — use `codeterm browser open`
 - Do NOT create filesystem directories when user says "create project" — create a workspace
+
+<!-- revision: 3 -->
 "#;
 
 /// Install CodeTerm rule to ~/.claude/rules/codeterm.md
@@ -477,15 +515,41 @@ pub fn install_project_rules() -> Result<(), String> {
     Ok(())
 }
 
-/// Check if codeterm rule is installed in ~/.claude/rules/
+/// Check if codeterm rule is installed and up to date.
+/// Returns: { installed: bool, update_available: bool, revision: u32, installed_revision: u32 }
 #[tauri::command]
-pub fn check_rule_installed() -> Result<bool, String> {
+pub fn check_rule_installed() -> Result<RuleStatus, String> {
     let path = dirs::home_dir()
         .ok_or("Cannot find home directory")?
         .join(".claude")
         .join("rules")
         .join("codeterm.md");
-    Ok(path.exists())
+    let bundled_revision = extract_revision(CODETERM_RULE);
+    if path.exists() {
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        let installed_revision = extract_revision(&content);
+        Ok(RuleStatus {
+            installed: true,
+            update_available: installed_revision < bundled_revision,
+            revision: bundled_revision,
+            installed_revision,
+        })
+    } else {
+        Ok(RuleStatus {
+            installed: false,
+            update_available: false,
+            revision: bundled_revision,
+            installed_revision: 0,
+        })
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct RuleStatus {
+    pub installed: bool,
+    pub update_available: bool,
+    pub revision: u32,
+    pub installed_revision: u32,
 }
 
 /// Open a folder in the system file explorer.

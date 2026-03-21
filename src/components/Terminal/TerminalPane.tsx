@@ -18,10 +18,10 @@ import type { CompletionItem } from "../../lib/completions/types";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 
 const STATUS_COLORS: Record<PaneStatus, string> = {
-  Working: "#7ee787",
-  Waiting: "#d29922",
-  Idle: "#484f58",
-  Dead: "#f85149",
+  Working: "var(--ct-green, #7ee787)",
+  Waiting: "var(--ct-yellow, #d29922)",
+  Idle: "var(--ct-muted, #484f58)",
+  Dead: "var(--ct-red, #f85149)",
 };
 
 interface TerminalPaneProps {
@@ -673,12 +673,18 @@ export function TerminalPane({
 
         // If this pane had Claude Code running and we know the session ID, resume it
         if (paneData?.agent_type === "claude" && paneData?.claude_session_id) {
-          setTimeout(() => {
-            invoke("write_pty_string", {
-              ptyId: spawnedId,
-              data: `claude --resume ${paneData.claude_session_id}\r`,
-            }).catch(() => {});
-          }, 1500); // Wait for prompt injection + cls to finish
+          invoke<{ agent: { resume_sessions: boolean; resume_skip_permissions: boolean } }>("get_config")
+            .then((cfg) => {
+              if (!cfg.agent.resume_sessions) return;
+              const skipFlag = cfg.agent.resume_skip_permissions ? " --dangerously-skip-permissions" : "";
+              setTimeout(() => {
+                invoke("write_pty_string", {
+                  ptyId: spawnedId,
+                  data: `claude --resume ${paneData.claude_session_id}${skipFlag}\r`,
+                }).catch(() => {});
+              }, 1500);
+            })
+            .catch(() => {});
         }
 
         // Sync PTY size with actual xterm dimensions after connection
@@ -765,7 +771,7 @@ export function TerminalPane({
   }, []);
 
   const topAccent = bellFlash
-    ? (theme?.yellow ?? "#d29922")
+    ? "var(--ct-yellow, #d29922)"
     : isFocused
       ? "var(--ct-muted-fg, #8b949e)"
       : "transparent";

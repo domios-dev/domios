@@ -47,18 +47,22 @@ export function SettingsPanel({
   const [localConfig, setLocalConfig] = useState<AppConfig>(config);
   const [themes, setThemes] = useState<string[]>([]);
   const [configPath, setConfigPath] = useState<string>("");
+  const [themesDir, setThemesDir] = useState<string>("");
+
+  const builtinThemes = ["github-dark", "dracula", "catppuccin-mocha", "one-dark", "nord", "github-light", "solarized-light", "pip-boy"];
+
+  const refreshThemes = useCallback(() => {
+    invoke<string[]>("list_themes").then(setThemes).catch(() => setThemes(builtinThemes));
+  }, []);
 
   useEffect(() => {
     setLocalConfig(config);
   }, [config]);
 
   useEffect(() => {
-    invoke<string[]>("list_themes")
-      .then(setThemes)
-      .catch(() => setThemes(["github-dark"]));
-    invoke<string>("get_config_path")
-      .then(setConfigPath)
-      .catch(() => {});
+    refreshThemes();
+    invoke<string>("get_config_path").then(setConfigPath).catch(() => {});
+    invoke<string>("get_themes_dir").then(setThemesDir).catch(() => {});
   }, []);
 
   const update = useCallback(
@@ -121,28 +125,65 @@ export function SettingsPanel({
                       onChange={(e) => update("theme", { name: e.target.value })}
                       className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                     >
-                      {themes.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
+                      <optgroup label="Built-in">
+                        {themes.filter(t => builtinThemes.includes(t)).map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </optgroup>
+                      {themes.some(t => !builtinThemes.includes(t)) && (
+                        <optgroup label="Custom">
+                          {themes.filter(t => !builtinThemes.includes(t)).map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </Label>
-                  <div className="flex gap-1 mt-1">
-                    {[
-                      localConfig.theme.red,
-                      localConfig.theme.green,
-                      localConfig.theme.yellow,
-                      localConfig.theme.blue,
-                      localConfig.theme.magenta,
-                      localConfig.theme.cyan,
-                    ].map((color, i) => (
-                      <div
-                        key={i}
-                        className="w-5 h-5 rounded"
-                        style={{ backgroundColor: color }}
-                        title={color}
-                      />
-                    ))}
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="flex gap-1 flex-1">
+                      {[
+                        localConfig.theme.background,
+                        localConfig.theme.foreground,
+                        localConfig.theme.red,
+                        localConfig.theme.green,
+                        localConfig.theme.yellow,
+                        localConfig.theme.blue,
+                        localConfig.theme.magenta,
+                        localConfig.theme.cyan,
+                      ].map((color, i) => (
+                        <div
+                          key={i}
+                          className="w-5 h-5 rounded border border-[var(--ct-border)]"
+                          style={{ backgroundColor: color }}
+                          title={color}
+                        />
+                      ))}
+                    </div>
+                    {themesDir && (
+                      <button
+                        onClick={() => invoke("open_folder", { path: themesDir })}
+                        className="text-[10px] text-[var(--ct-accent)] hover:underline shrink-0"
+                        title={`Open ${themesDir}`}
+                      >
+                        Open themes folder
+                      </button>
+                    )}
                   </div>
+                  {!builtinThemes.includes(localConfig.theme.name) && (
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-[10px] text-[var(--ct-muted-fg)]">Custom theme</span>
+                      <button
+                        onClick={async () => {
+                          await invoke("delete_custom_theme", { themeId: localConfig.theme.name });
+                          update("theme", { name: "github-dark" });
+                          refreshThemes();
+                        }}
+                        className="text-[10px] text-[var(--ct-red)] hover:underline"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
                 </Group>
 
                 <Group title="Font">
@@ -303,7 +344,7 @@ export function SettingsPanel({
             )}
 
             {activeTab === SettingsTab.Agents && (
-              <AgentsTab />
+              <AgentsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
             )}
 
             {activeTab === SettingsTab.Network && (
@@ -371,7 +412,7 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-          checked ? "bg-[#238636]" : "bg-[var(--ct-border)]"
+          checked ? "bg-[var(--ct-green)]" : "bg-[var(--ct-border)]"
         }`}
       >
         <span
@@ -579,16 +620,21 @@ function NetworkTab({
   );
 }
 
-function AgentsTab() {
+function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
   const [skillInstalled, setSkillInstalled] = useState(false);
+  const [skillUpdate, setSkillUpdate] = useState(false);
   const [ruleInstalled, setRuleInstalled] = useState(false);
+  const [ruleUpdate, setRuleUpdate] = useState(false);
 
   useEffect(() => {
-    invoke<{ id: string; installed: boolean }[]>("list_skills").then((s) => {
+    invoke<{ id: string; installed: boolean; update_available: boolean }[]>("list_skills").then((s) => {
       setSkillInstalled(s.some((x) => x.installed));
+      setSkillUpdate(s.some((x) => x.update_available));
     }).catch(() => {});
-    // Check if rule exists
-    invoke<boolean>("check_rule_installed").then(setRuleInstalled).catch(() => {});
+    invoke<{ installed: boolean; update_available: boolean }>("check_rule_installed").then((r) => {
+      setRuleInstalled(r.installed);
+      setRuleUpdate(r.update_available);
+    }).catch(() => {});
   }, []);
 
   const openFolder = useCallback((path: string) => {
@@ -597,12 +643,36 @@ function AgentsTab() {
 
   return (
     <div className="space-y-5">
+      {/* Session resume settings */}
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+        <div className="text-sm font-medium text-[var(--ct-fg)]">Session Resume</div>
+        <div className="text-xs text-[var(--ct-muted-fg)]">
+          Automatically resume Claude Code sessions when CodeTerm restarts.
+        </div>
+        <Toggle
+          label="Resume previous sessions"
+          checked={config.agent.resume_sessions}
+          onChange={(v) => onUpdate("agent", { resume_sessions: v })}
+        />
+        <Toggle
+          label="Resume with --dangerously-skip-permissions"
+          checked={config.agent.resume_skip_permissions}
+          onChange={(v) => onUpdate("agent", { resume_skip_permissions: v })}
+        />
+        {config.agent.resume_skip_permissions && (
+          <div className="text-[10px] text-[var(--ct-yellow)] flex items-center gap-1.5">
+            <span>⚠</span>
+            <span>Claude Code will run without asking for tool approvals. Use with caution.</span>
+          </div>
+        )}
+      </div>
+
       {/* Skill card */}
       <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="text-sm font-medium text-[var(--ct-fg)]">Skill</div>
           {skillInstalled && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#238636]/20 text-[#7ee787]">installed</span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">installed</span>
           )}
         </div>
         <div className="text-xs text-[var(--ct-muted-fg)]">
@@ -619,14 +689,17 @@ function AgentsTab() {
           onClick={async () => {
             await invoke("install_skill", { skillId: "codeterm" });
             setSkillInstalled(true);
+            setSkillUpdate(false);
           }}
           className={`w-full py-1.5 text-xs rounded font-medium transition-colors ${
-            skillInstalled
-              ? "border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
-              : "bg-[#238636] text-white hover:bg-[#2ea043]"
+            skillUpdate
+              ? "bg-[var(--ct-accent)] text-white hover:brightness-110"
+              : skillInstalled
+                ? "border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+                : "bg-[var(--ct-green)] text-white hover:brightness-110"
           }`}
         >
-          {skillInstalled ? "Reinstall" : "Install"}
+          {skillUpdate ? "Update Available" : skillInstalled ? "Reinstall" : "Install"}
         </button>
       </div>
 
@@ -635,7 +708,7 @@ function AgentsTab() {
         <div className="flex items-center justify-between">
           <div className="text-sm font-medium text-[var(--ct-fg)]">Rule</div>
           {ruleInstalled && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#238636]/20 text-[#7ee787]">installed</span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">installed</span>
           )}
         </div>
         <div className="text-xs text-[var(--ct-muted-fg)]">
@@ -652,14 +725,17 @@ function AgentsTab() {
           onClick={async () => {
             await invoke("install_project_rules");
             setRuleInstalled(true);
+            setRuleUpdate(false);
           }}
           className={`w-full py-1.5 text-xs rounded font-medium transition-colors ${
-            ruleInstalled
-              ? "border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
-              : "bg-[#238636] text-white hover:bg-[#2ea043]"
+            ruleUpdate
+              ? "bg-[var(--ct-accent)] text-white hover:brightness-110"
+              : ruleInstalled
+                ? "border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+                : "bg-[var(--ct-green)] text-white hover:brightness-110"
           }`}
         >
-          {ruleInstalled ? "Reinstall" : "Install"}
+          {ruleUpdate ? "Update Available" : ruleInstalled ? "Reinstall" : "Install"}
         </button>
       </div>
 
@@ -692,7 +768,7 @@ function Collapsible({ title, children }: { title: string; children: React.React
 
 function EndpointGroup({ title, endpoints }: { title: string; endpoints: [string, string, string][] }) {
   const methodColors: Record<string, string> = {
-    GET: "text-[#7ee787]",
+    GET: "text-[var(--ct-green)]",
     POST: "text-[var(--ct-accent)]",
     PUT: "text-[var(--ct-yellow)]",
     DELETE: "text-[var(--ct-red)]",
