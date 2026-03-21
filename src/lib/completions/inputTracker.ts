@@ -36,17 +36,30 @@ export class InputTracker {
 
   /** Feed PTY output to detect prompt and re-sync. */
   feedOutput(text: string): void {
-    // If output ends with a prompt-like pattern, re-sync
-    const trimmed = text.trimEnd();
+    // Strip ANSI escape sequences before checking for prompt
+    const clean = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
+                      .replace(/\x1b\][^\x07]*\x07/g, "")  // OSC sequences
+                      .replace(/\x1b[()][0-9A-Z]/g, "")    // charset sequences
+                      .replace(/[\r\x00-\x08\x0e-\x1f]/g, ""); // control chars
+
+    // Only reset on actual new prompt — must contain newline + prompt char at end
+    // This avoids resetting mid-typing when shell sends syntax highlighting
+    if (!clean.includes("\n")) return;
+
+    const lastLine = clean.split("\n").pop()?.trimEnd() || "";
     if (
-      trimmed.endsWith(">") ||
-      trimmed.endsWith("$") ||
-      trimmed.endsWith("#") ||
-      trimmed.endsWith("%") ||
-      trimmed.endsWith("\u{276f}") // ❯
+      lastLine.endsWith(">") ||
+      lastLine.endsWith("$") ||
+      lastLine.endsWith("#") ||
+      lastLine.endsWith("%") ||
+      lastLine.endsWith("\u{276f}") // ❯
     ) {
-      this.line = "";
-      this.confident = true;
+      // Only reset if user hasn't typed anything recently
+      // (prompt after command execution, not inline syntax highlight refresh)
+      if (this.line === "" || clean.includes("\r\n") || clean.includes("\n\n")) {
+        this.line = "";
+        this.confident = true;
+      }
     }
   }
 

@@ -120,6 +120,17 @@ export function TerminalPane({
   // Visual bell state
   const [bellFlash, setBellFlash] = useState(false);
 
+  // Loading overlay — hide shell startup noise until first prompt
+  const [shellReady, setShellReady] = useState(!!ptyId); // existing PTY = already ready
+  const [overlayVisible, setOverlayVisible] = useState(!ptyId);
+
+  useEffect(() => {
+    if (shellReady && overlayVisible) {
+      const t = setTimeout(() => setOverlayVisible(false), 500);
+      return () => clearTimeout(t);
+    }
+  }, [shellReady, overlayVisible]);
+
   // Completion state
   const [completionItems, setCompletionItems] = useState<CompletionItem[]>([]);
   const [completionAnchor, setCompletionAnchor] = useState({ x: 0, y: 0 });
@@ -441,22 +452,65 @@ export function TerminalPane({
         }
       }
 
-      // Poll PTY output — sequential: wait for each read to complete before next
+      // Poll PTY output — batch writes into single animation frame for smooth scrolling
       let reading = true;
       let firstData = true;
+      let pendingChunks: Uint8Array[] = [];
+      let rafScheduled = false;
+
+      const flushToTerminal = () => {
+        rafScheduled = false;
+        if (pendingChunks.length === 0) return;
+        // Merge all pending chunks into one write
+        if (pendingChunks.length === 1) {
+          term.write(pendingChunks[0]);
+        } else {
+          const total = pendingChunks.reduce((s, c) => s + c.length, 0);
+          const merged = new Uint8Array(total);
+          let offset = 0;
+          for (const chunk of pendingChunks) {
+            merged.set(chunk, offset);
+            offset += chunk.length;
+          }
+          term.write(merged);
+        }
+        pendingChunks = [];
+      };
+
+      const scheduleFlush = () => {
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(flushToTerminal);
+        }
+      };
+
       const readLoop = async () => {
         while (reading) {
           try {
-            // This blocks until data available (spawn_blocking on backend)
             const data = await invoke<number[]>("read_pty", { ptyId: predictedId });
             if (data && data.length > 0) {
-              term.write(new Uint8Array(data));
+              pendingChunks.push(new Uint8Array(data));
+              scheduleFlush();
+              // Feed last ~200 bytes to input tracker for prompt detection
+              const tail = data.length > 200 ? data.slice(-200) : data;
+              try {
+                const text = new TextDecoder().decode(new Uint8Array(tail));
+                trackerRef.current?.feedOutput(text);
+                // Unix: detect shell ready via prompt pattern (Windows uses timer after cls)
+                if (!shellReady && !navigator.platform.startsWith("Win")) {
+                  const clean = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
+                                    .replace(/\x1b\][^\x07]*\x07/g, "")
+                                    .trimEnd();
+                  if (clean.endsWith("$") || clean.endsWith("#") || clean.endsWith("%") || clean.endsWith("\u276f")) {
+                    setShellReady(true);
+                  }
+                }
+              } catch { /* ignore decode errors */ }
               if (firstData) {
                 firstData = false;
                 requestAnimationFrame(() => {
                   try {
                     fitAddonRef.current?.fit();
-                    term.refresh(0, term.rows - 1);
                   } catch { /* ignore */ }
                 });
               }
@@ -469,7 +523,7 @@ export function TerminalPane({
           }
         }
       };
-      readLoop(); // Start — no RAF, just sequential async loop
+      readLoop();
       cleanupFns.push(() => { reading = false; });
 
       // Smart Ctrl+C / Cmd+C: copy if text selected, interrupt if not
@@ -537,6 +591,7 @@ export function TerminalPane({
         // Tab key — try custom completion
         if (data === "\t" && tracker && engine) {
           const parsed = tracker.getCursorWord();
+          console.log("[completion] Tab pressed, line:", JSON.stringify(tracker.getLine()), "confident:", tracker.isConfident(), "parsed:", parsed);
           if (parsed && engine.hasDefinition(parsed.command)) {
             const items = engine.getCompletions(parsed);
             if (items.length === 1) {
@@ -661,14 +716,19 @@ export function TerminalPane({
         // Windows PowerShell needs explicit injection; macOS/Linux shells usually emit OSC 7 natively
         if (navigator.platform.startsWith("Win")) {
           setTimeout(() => {
-            invoke("write_pty_string", { ptyId: spawnedId, data: "$e=[char]27;$b=[char]7\r" }).catch(() => {});
-            setTimeout(() => {
-              invoke("write_pty_string", { ptyId: spawnedId, data: "function prompt{$f=$pwd.Path.Replace('\\','/');\"$e]7;file:///$f$b\"+\"PS $pwd> \"}\r" }).catch(() => {});
-              setTimeout(() => {
-                invoke("write_pty_string", { ptyId: spawnedId, data: "cls\r" }).catch(() => {});
-              }, 200);
-            }, 200);
-          }, 500);
+            // Single command: define ESC/BEL vars, override prompt, then clear screen — all at once
+            invoke("write_pty_string", {
+              ptyId: spawnedId,
+              data: "$e=[char]27;$b=[char]7;function prompt{$f=$pwd.Path.Replace('\\','/');\"$e]7;file:///$f$b\"+\"PS $pwd> \"};cls\r",
+            }).then(() => {
+              // Shell init done — reveal terminal after cls executes
+              setTimeout(() => setShellReady(true), 400);
+            }).catch(() => {
+              setShellReady(true);
+            });
+          }, 800);
+        } else {
+          // Unix: no injection needed, rely on prompt detection from feedOutput
         }
 
         // If this pane had Claude Code running and we know the session ID, resume it
@@ -862,9 +922,16 @@ export function TerminalPane({
       <div
         ref={termRef}
         className="w-full h-full"
-        style={{ padding: "4px" }}
+        style={{ padding: "4px", opacity: overlayVisible ? 0 : 1, transition: "opacity 0.3s ease-in" }}
         onClick={() => xtermRef.current?.focus()}
       />
+
+      {/* Loading overlay — hides shell startup noise */}
+      {overlayVisible && (
+        <div className="absolute inset-0" style={{ background: "var(--ct-bg, #0d1117)", opacity: shellReady ? 0 : 1, transition: "opacity 0.3s ease-out" }}>
+          <div style={{ color: "var(--ct-fg, #c9d1d9)", fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace", fontSize: fontConfig?.size ?? 14, padding: "4px 6px" }}>Starting...</div>
+        </div>
+      )}
 
       {/* Context menu */}
       {contextMenu && (
