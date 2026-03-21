@@ -22,6 +22,13 @@ Integration:
 - GET  /api/network — connection info (local IP, Tailscale IP)
 Webhook events: agent.permission_request, agent.task_complete
 
+Pane fields:
+- `cwd` — current working directory (tracked via OSC 7)
+- `agent_type` — `"claude"` when Claude Code is detected in the pane
+- `claude_session_id` — session ID for resume (see below)
+
+Claude session resume: when Claude Code is detected in a pane, CodeTerm saves its session ID. On restart, CodeTerm automatically runs `claude --resume <session-id>` to restore the conversation.
+
 Workflow: create workspace → create tab → exec commands → monitor output via offset polling or SSE stream → receive webhook events when agents need attention.
 
 Orchestrator workflow:
@@ -32,4 +39,4 @@ Orchestrator workflow:
   - Example — launching Claude Code: `{"batch": [{"text": "claude", "enter": true}, {"text": "", "enter": true, "delay_ms": 8000}]}`
 - For async tasks: register a one-shot webhook with `once: true` and `pane_id` to get notified when a specific pane's task completes. The webhook fires once and auto-deletes — like a Promise. Prefer this over polling with timeout.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

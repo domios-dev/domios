@@ -55,6 +55,21 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/rename` | `{title}` | Rename pane/tab (pinned) |
 | POST | `/api/panes/{id}/resize` | `{cols, rows}` | Resize terminal |
 
+### Pane Fields
+
+Fields returned by `GET /api/panes` for each pane:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | Unique pane UUID |
+| `pty_id` | `string` | Associated PTY process ID |
+| `pane_type` | `string` | `"terminal"` or `"browser"` |
+| `title` | `string` | Display title (user-pinned or auto-detected) |
+| `cwd` | `string?` | Current working directory (updated via OSC 7) |
+| `url` | `string?` | URL for browser panes |
+| `agent_type` | `string?` | Agent running in pane, e.g. `"claude"` |
+| `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
+
 #### Browser
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -226,6 +241,18 @@ codeterm notifications clear                    # Clear all
 
 Add `--json` flag for machine-readable output.
 
+### Internal Tauri Commands
+
+These are Tauri IPC commands (invoked from frontend via `invoke()`), not REST endpoints.
+
+| Command | Params | Description |
+|---------|--------|-------------|
+| `mux_update_pane_cwd` | `pane_id, cwd` | Updates pane's current working directory (called by OSC 7 handler in frontend) |
+| `mux_set_pane_agent_type` | `pane_id, agent_type` | Marks pane as running an agent (e.g. `"claude"`) |
+| `detect_claude_session_id` | `cwd, exclude?, max_age_secs?` | Finds Claude Code session ID by scanning `~/.claude/projects/` directory structure |
+| `mux_set_claude_session_id` | `pane_id, session_id` | Links pane to a Claude Code session for `--resume` support |
+| `get_default_cwd` | — | Returns the application's current working directory |
+
 ## Environment Variables
 
 Set automatically in every PTY spawned by CodeTerm:
@@ -251,4 +278,4 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

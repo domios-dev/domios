@@ -98,15 +98,19 @@ Light theme matching GitHub's light mode.
 Ethan Schoonover's warm light color scheme.
 
 ### Pip-Boy
-Retro green-on-black Fallout terminal theme.
+Retro green-on-black Fallout terminal theme. Selecting this theme automatically activates CRT effects: scanlines, phosphor glow, and screen vignette.
 
 ## Session Persistence
 
-Sessions auto-save when you close the window. Saved to:
+Sessions auto-save every 30 seconds and when you close the window. Saved to:
 - **Windows:** `%APPDATA%/codeterm/sessions/last.json`
 - **Linux:** `~/.config/codeterm/sessions/last.json`
 - **macOS:** `~/Library/Application Support/codeterm/sessions/last.json`
 
 Contains workspace layout, tab arrangement, and split tree structure.
 
-<!-- revision: 2 -->
+## CWD Tracking
+
+CodeTerm tracks the current working directory of each pane via OSC 7 escape sequences. On macOS and Linux this works automatically (most shells emit OSC 7 by default). On Windows, CodeTerm injects an OSC 7 prompt hook into PowerShell sessions so CWD updates are reported transparently.
+
+<!-- revision: 3 -->

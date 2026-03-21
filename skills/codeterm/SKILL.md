@@ -91,6 +91,10 @@ codeterm workspace create "backend"
 # Each workspace gets its own Claude Code instance
 ```
 
+## Session Persistence
+
+Sessions auto-save every 30s. CWD is tracked via OSC 7 and restored per pane. Claude Code sessions are detected and auto-resumed with `--resume`.
+
 ## System
 ```
 codeterm identify        # Version & features

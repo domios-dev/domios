@@ -67,4 +67,12 @@ curl -X POST http://localhost:7685/api/notifications \
   -d '{"title":"Build complete","level":"info"}'
 ```
 
-<!-- revision: 2 -->
+## Session Persistence
+
+CodeTerm tracks and restores terminal state across sessions:
+
+- **CWD tracking**: Working directory is tracked via OSC 7 escape sequences and saved/restored per pane on restart.
+- **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`, so context is preserved across restarts.
+- **Auto-save**: Session state is persisted every 30 seconds.
+
+<!-- revision: 3 -->
