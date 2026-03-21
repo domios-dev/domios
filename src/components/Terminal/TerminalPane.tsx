@@ -764,10 +764,10 @@ export function TerminalPane({
     return () => window.removeEventListener("codeterm-pane-resize", handler);
   }, []);
 
-  const borderColor = bellFlash
+  const topAccent = bellFlash
     ? (theme?.yellow ?? "#d29922")
     : isFocused
-      ? (theme?.blue ?? "#1f6feb")
+      ? "var(--ct-muted-fg, #8b949e)"
       : "transparent";
 
   return (
@@ -776,7 +776,7 @@ export function TerminalPane({
       data-pane-id={paneId}
       style={{
         boxSizing: "border-box",
-        border: `2px solid ${borderColor}`,
+        borderTop: `1px solid ${topAccent}`,
         transition: bellFlash ? "border-color 0.1s ease-in" : "border-color 0.15s ease-out",
       }}
       onMouseDown={handleClick}
