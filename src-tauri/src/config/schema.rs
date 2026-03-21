@@ -230,6 +230,8 @@ impl Default for SocketConfig {
 pub struct AgentConfig {
     pub poll_interval_ms: u32,
     pub idle_timeout_s: u32,
+    pub resume_sessions: bool,
+    pub resume_skip_permissions: bool,
 }
 
 impl Default for AgentConfig {
@@ -237,6 +239,8 @@ impl Default for AgentConfig {
         Self {
             poll_interval_ms: 500,
             idle_timeout_s: 30,
+            resume_sessions: true,
+            resume_skip_permissions: false,
         }
     }
 }
@@ -298,4 +302,46 @@ pub fn get_builtin_theme(name: &str) -> Option<ThemeConfig> {
 /// List all available built-in theme IDs.
 pub fn list_builtin_theme_ids() -> Vec<String> {
     BUILTIN_THEMES.iter().map(|t| t.id.to_string()).collect()
+}
+
+/// Directory for user custom themes.
+pub fn user_themes_dir() -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|d| d.join("codeterm").join("themes"))
+}
+
+/// Load a custom theme from the user themes directory.
+pub fn get_custom_theme(name: &str) -> Option<ThemeConfig> {
+    let dir = user_themes_dir()?;
+    let path = dir.join(format!("{}.toml", name));
+    if path.exists() {
+        let content = std::fs::read_to_string(&path).ok()?;
+        parse_builtin_theme(&content).ok()
+    } else {
+        None
+    }
+}
+
+/// List all custom theme IDs from the user themes directory.
+pub fn list_custom_theme_ids() -> Vec<String> {
+    let Some(dir) = user_themes_dir() else { return vec![] };
+    let Ok(entries) = std::fs::read_dir(&dir) else { return vec![] };
+    entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            name.strip_suffix(".toml").map(|s| s.to_string())
+        })
+        .collect()
+}
+
+/// Get a theme by name — checks builtins first, then user custom themes.
+pub fn get_any_theme(name: &str) -> Option<ThemeConfig> {
+    get_builtin_theme(name).or_else(|| get_custom_theme(name))
+}
+
+/// List all theme IDs (builtins + custom).
+pub fn list_all_theme_ids() -> Vec<String> {
+    let mut ids = list_builtin_theme_ids();
+    ids.extend(list_custom_theme_ids());
+    ids
 }

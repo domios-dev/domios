@@ -127,6 +127,9 @@ pub fn run() {
             config::get_theme,
             config::list_themes,
             config::get_config_path,
+            config::save_custom_theme,
+            config::delete_custom_theme,
+            config::get_themes_dir,
             // Screenshot commands
             screenshot::capture_screenshot,
             screenshot::submit_screenshot,

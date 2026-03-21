@@ -13,6 +13,10 @@ pub type ConfigState = Arc<Mutex<AppConfig>>;
 /// Get the config file path.
 /// Windows: %APPDATA%/codeterm/config.toml
 /// Linux/macOS: ~/.config/codeterm/config.toml
+pub fn config_path_pub() -> Result<PathBuf, String> {
+    config_path()
+}
+
 fn config_path() -> Result<PathBuf, String> {
     let dir = dirs::config_dir()
         .ok_or_else(|| "Could not determine config directory".to_string())?;
@@ -64,6 +68,8 @@ close_pane = "Ctrl+Shift+Q"
 [agent]
 poll_interval_ms = 500
 idle_timeout_s = 30
+resume_sessions = true
+resume_skip_permissions = false
 
 [api]
 enabled = true
@@ -126,7 +132,7 @@ pub fn load_config() -> AppConfig {
 /// then apply any user-specified color overrides on top.
 fn resolve_theme(config: &mut AppConfig) {
     let theme_name = config.theme.name.clone();
-    if let Some(base) = schema::get_builtin_theme(&theme_name) {
+    if let Some(base) = schema::get_any_theme(&theme_name) {
         // For each color field, if the user didn't specify it (i.e., it's the
         // default empty or matches the schema default), use the built-in theme color.
         // Since we parse the TOML, user values that are explicitly set will already
@@ -195,6 +201,10 @@ fn apply_theme_with_overrides(
 }
 
 /// Save the current config to disk.
+pub fn save_config_pub(config: &AppConfig) -> Result<(), String> {
+    save_config(config)
+}
+
 fn save_config(config: &AppConfig) -> Result<(), String> {
     let path = config_path()?;
     if let Some(parent) = path.parent() {
@@ -232,7 +242,7 @@ pub async fn update_config(
     let current_name = state.lock().theme.name.clone();
     if resolved.theme.name != current_name {
         let requested_name = resolved.theme.name.clone();
-        if let Some(mut builtin) = schema::get_builtin_theme(&requested_name) {
+        if let Some(mut builtin) = schema::get_any_theme(&requested_name) {
             builtin.name = requested_name;
             resolved.theme = builtin;
         }
@@ -255,10 +265,46 @@ pub async fn get_theme(state: tauri::State<'_, ConfigState>) -> Result<ThemeConf
 
 #[tauri::command]
 pub async fn list_themes() -> Result<Vec<String>, String> {
-    Ok(schema::list_builtin_theme_ids())
+    Ok(schema::list_all_theme_ids())
 }
 
 #[tauri::command]
 pub async fn get_config_path() -> Result<String, String> {
     config_path().map(|p| p.to_string_lossy().to_string())
+}
+
+/// Save a custom theme TOML file to the user themes directory.
+#[tauri::command]
+pub async fn save_custom_theme(theme_id: String, toml_content: String) -> Result<(), String> {
+    let dir = schema::user_themes_dir()
+        .ok_or_else(|| "Cannot determine themes directory".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create themes dir: {}", e))?;
+    let path = dir.join(format!("{}.toml", theme_id));
+    // Validate the TOML parses as a theme before saving
+    schema::parse_builtin_theme(&toml_content)?;
+    std::fs::write(&path, &toml_content)
+        .map_err(|e| format!("Failed to write theme: {}", e))?;
+    log::info!("Custom theme saved: {} at {:?}", theme_id, path);
+    Ok(())
+}
+
+/// Delete a custom theme.
+#[tauri::command]
+pub async fn delete_custom_theme(theme_id: String) -> Result<(), String> {
+    let dir = schema::user_themes_dir()
+        .ok_or_else(|| "Cannot determine themes directory".to_string())?;
+    let path = dir.join(format!("{}.toml", theme_id));
+    if path.exists() {
+        std::fs::remove_file(&path)
+            .map_err(|e| format!("Failed to delete theme: {}", e))?;
+    }
+    Ok(())
+}
+
+/// Get the user themes directory path.
+#[tauri::command]
+pub async fn get_themes_dir() -> Result<String, String> {
+    schema::user_themes_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| "Cannot determine themes directory".to_string())
 }

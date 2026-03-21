@@ -379,6 +379,16 @@ function AppInner() {
   const themeStyles = useMemo(() => themeToCSS(theme), [theme]);
   const isCRT = theme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy";
 
+  // Set color-scheme for browser defaults (scrollbars, form controls)
+  useEffect(() => {
+    const hex = theme.background.replace("#", "");
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    const isLight = (r + g + b) / 3 > 128;
+    document.documentElement.style.colorScheme = isLight ? "light" : "dark";
+  }, [theme.background]);
+
   return (
     <div
       className={`flex flex-col w-screen h-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}

@@ -153,6 +153,8 @@ export interface SocketConfigSettings {
 export interface AgentConfig {
   poll_interval_ms: number;
   idle_timeout_s: number;
+  resume_sessions: boolean;
+  resume_skip_permissions: boolean;
 }
 
 export interface ApiConfig {
