@@ -282,64 +282,71 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                 />
                 {isExpanded ? (
                   <>
-                    {ws.tabs.map((tab, index) => {
-                      const tabPids = collectPaneIds(tab.split_tree);
-                      const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
-                      const childPanes = firstPane?.role
-                        ? Object.values(state.panes).filter((p) => p.parent_pane_id === firstPane.id)
-                        : [];
-                      return (
-                        <div key={tab.id}>
-                          <TabItem
-                            tab={tab}
-                            index={index}
-                            isActive={isActive && tab.id === ws.active_tab_id}
-                            onClick={() => {
-                              setActiveWorkspace(ws.id);
-                              setActiveTab(ws.id, tab.id);
-                            }}
-                            onClose={() => closeTab(ws.id, tab.id)}
-                            canClose={true}
-                            paneCount={tabPids.length}
-                            workspaceId={ws.id}
-                            hasAgent={tabPids.some(
-                              (pid) => state.panes[pid]?.agent_type === "claude"
-                            )}
-                            status={aggregateStatus(tabPids, state.paneStatuses)}
-                            onRename={(title) => {
-                              if (tabPids[0]) setPaneTitle(tabPids[0], title, true);
-                            }}
-                            pane={firstPane}
-                            conductors={wsConductors}
-                          />
-                          {childPanes.length > 0 && (
-                            <HierarchyTree
-                              nodes={childPanes.map((cp) => ({
-                                pane: cp,
-                                children: Object.values(state.panes)
-                                  .filter((p) => p.parent_pane_id === cp.id)
-                                  .map((sp) => ({ pane: sp, children: [], status: state.paneStatuses[sp.id] ?? null })),
-                                status: state.paneStatuses[cp.id] ?? null,
-                              }))}
-                              depth={1}
-                              onJumpToPane={(paneId) => {
-                                for (const w of state.workspaces) {
-                                  for (const t of w.tabs) {
-                                    if (collectPaneIds(t.split_tree).includes(paneId)) {
-                                      setActiveWorkspace(w.id);
-                                      setActiveTab(w.id, t.id);
-                                      setFocusedPane(paneId);
-                                      return;
-                                    }
-                                  }
-                                }
+                    {(() => {
+                      // Build pane→tab lookup and find which tabs are children
+                      const paneToTab: Record<string, typeof ws.tabs[0]> = {};
+                      for (const tab of ws.tabs) {
+                        const pids = collectPaneIds(tab.split_tree);
+                        if (pids[0]) paneToTab[pids[0]] = tab;
+                      }
+                      // Set of pane IDs that are children (have a parent) — skip at top level
+                      const childPaneIds = new Set<string>();
+                      for (const tab of ws.tabs) {
+                        const pids = collectPaneIds(tab.split_tree);
+                        const pane = pids[0] ? state.panes[pids[0]] : null;
+                        if (pane?.parent_pane_id) childPaneIds.add(pids[0]);
+                      }
+
+                      // Render a tab + its children recursively
+                      const renderTab = (tab: Tab, index: number, depth: number): React.ReactNode => {
+                        const tabPids = collectPaneIds(tab.split_tree);
+                        const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
+                        // Find child tabs (tabs whose pane.parent_pane_id === this pane)
+                        const childTabs = firstPane
+                          ? ws.tabs.filter((t) => {
+                              const tPids = collectPaneIds(t.split_tree);
+                              const tPane = tPids[0] ? state.panes[tPids[0]] : null;
+                              return tPane?.parent_pane_id === firstPane.id;
+                            })
+                          : [];
+
+                        return (
+                          <div key={tab.id} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
+                            <TabItem
+                              tab={tab}
+                              index={index}
+                              isActive={isActive && tab.id === ws.active_tab_id}
+                              onClick={() => {
+                                setActiveWorkspace(ws.id);
+                                setActiveTab(ws.id, tab.id);
                               }}
-                              reportCounts={reportCounts}
+                              onClose={() => closeTab(ws.id, tab.id)}
+                              canClose={true}
+                              paneCount={tabPids.length}
+                              workspaceId={ws.id}
+                              hasAgent={tabPids.some(
+                                (pid) => state.panes[pid]?.agent_type === "claude"
+                              )}
+                              status={aggregateStatus(tabPids, state.paneStatuses)}
+                              onRename={(title) => {
+                                if (tabPids[0]) setPaneTitle(tabPids[0], title, true);
+                              }}
+                              pane={firstPane}
+                              conductors={wsConductors}
                             />
-                          )}
-                        </div>
-                      );
-                    })}
+                            {childTabs.map((ct, ci) => renderTab(ct, ci, depth + 1))}
+                          </div>
+                        );
+                      };
+
+                      // Only render top-level tabs (not children of other tabs)
+                      return ws.tabs
+                        .filter((tab) => {
+                          const pids = collectPaneIds(tab.split_tree);
+                          return !childPaneIds.has(pids[0]);
+                        })
+                        .map((tab, index) => renderTab(tab, index, 0));
+                    })()}
                     {/* Add tab button inside folder */}
                     <button
                       onClick={() => createTab(ws.id)}

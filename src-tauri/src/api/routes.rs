@@ -1005,17 +1005,16 @@ async fn spawn_agent(
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Timeout waiting for PTY".to_string()))?;
 
-    // 4. Rename pane (frontend syncs tab title from pane)
+    // 4. Rename pane + tab (pinned so OSC auto-rename won't overwrite)
     {
         let mut mux = state.mux.lock();
-        if let Some(pane) = mux.get_pane_mut(&pane_id) {
-            pane.title = title.clone();
-        }
+        let _ = mux.rename_pane(&pane_id, &title);
     }
     let _ = state.app_handle.emit("pane-title-pinned", serde_json::json!({
         "pane_id": &pane_id,
         "title": &title,
     }));
+    let _ = state.app_handle.emit("mux-state-changed", ());
 
     // 5. Set role (if provided)
     if let Some(ref role_str) = body.role {
