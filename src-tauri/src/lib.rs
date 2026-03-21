@@ -48,8 +48,21 @@ pub fn run() {
     let agent_tracker: AgentTrackerState = Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
     let event_broadcaster: api::events::EventBroadcasterState = Arc::new(api::events::EventBroadcaster::new());
 
-    // Create multiplexer state with default workspace, tab, and pane (no PTY yet).
-    let (mux_state_inner, _initial_pane_id) = MultiplexerState::new();
+    // Try to restore last session, fallback to default workspace
+    let mux_state_inner = {
+        let last = session_state.lock().load_last();
+        match last {
+            Ok(Some(snapshot)) if !snapshot.workspaces.is_empty() => {
+                log::info!("Restoring session with {} workspaces", snapshot.workspaces.len());
+                MultiplexerState::from_session_snapshot(&snapshot)
+            }
+            _ => {
+                log::info!("No saved session, creating default workspace");
+                let (state, _) = MultiplexerState::new();
+                state
+            }
+        }
+    };
     let mux_state: MuxState = Arc::new(Mutex::new(mux_state_inner));
 
     tauri::Builder::default()
@@ -231,9 +244,7 @@ pub fn run() {
                     }
                 }
 
-                // Hide window instead of closing (minimize to tray)
-                let _ = window.hide();
-                api.prevent_close();
+                // Let the window close normally
             }
         })
         .run(tauri::generate_context!())

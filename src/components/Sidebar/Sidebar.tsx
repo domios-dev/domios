@@ -54,16 +54,18 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
   );
 
-  // Auto-expand active workspace when it changes
+  // Auto-expand active workspace and any new workspaces
   useMemo(() => {
-    if (state.active_workspace_id) {
-      setExpandedWorkspaces((prev) => {
-        const next = new Set(prev);
-        next.add(state.active_workspace_id!);
-        return next;
-      });
-    }
-  }, [state.active_workspace_id]);
+    setExpandedWorkspaces((prev) => {
+      const next = new Set(prev);
+      if (state.active_workspace_id) next.add(state.active_workspace_id);
+      // Expand all workspaces not yet tracked (newly created)
+      for (const ws of state.workspaces) {
+        if (!prev.has(ws.id)) next.add(ws.id);
+      }
+      return next;
+    });
+  }, [state.active_workspace_id, state.workspaces]);
 
   const gitInfo = useGitInfo(state.focused_pane_id);
 
@@ -239,7 +241,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                   onToggleExpand={() => toggleExpanded(ws.id)}
                   onClose={() => closeWorkspace(ws.id)}
                   onRename={(name) => renameWorkspace(ws.id, name)}
-                  canClose={state.workspaces.length > 1}
+                  canClose={true}
                   status={wsStatus}
                   hasWaiting={hasWaiting}
                   onDragOver={(e) => e.preventDefault()}
@@ -266,7 +268,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                           setActiveTab(ws.id, tab.id);
                         }}
                         onClose={() => closeTab(ws.id, tab.id)}
-                        canClose={ws.tabs.length > 1}
+                        canClose={true}
                         paneCount={collectPaneIds(tab.split_tree).length}
                         workspaceId={ws.id}
                         hasAgent={collectPaneIds(tab.split_tree).some(
@@ -303,7 +305,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                         isActive={true}
                         onClick={() => setActiveTab(ws.id, activeTab.id)}
                         onClose={() => closeTab(ws.id, activeTab.id)}
-                        canClose={ws.tabs.length > 1}
+                        canClose={true}
                         paneCount={collectPaneIds(activeTab.split_tree).length}
                         workspaceId={ws.id}
                         hasAgent={collectPaneIds(activeTab.split_tree).some(
@@ -359,7 +361,7 @@ const STATUS_COLORS: Record<PaneStatus, string> = {
 };
 
 function StatusDot({ status, animate }: { status: PaneStatus | null; animate?: boolean }) {
-  if (!status) return null;
+  if (!status || status === "Idle") return null;
   const color = STATUS_COLORS[status];
   return (
     <span
@@ -507,6 +509,16 @@ function WorkspaceItem({
           </span>
         )}
       </div>
+      {/* Close button — visible on hover */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
+        className="shrink-0 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-all"
+        title="Close workspace"
+      >
+        <svg width="7" height="7" viewBox="0 0 10 10" fill="currentColor">
+          <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
+        </svg>
+      </button>
       {/* Context menu */}
       {ctxMenu && (
         <>
@@ -519,12 +531,10 @@ function WorkspaceItem({
               onClick={() => { setCtxMenu(null); setEditName(workspace.name); setEditing(true); }}
               className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
             >Rename</button>
-            {canClose && (
-              <button
-                onClick={() => { setCtxMenu(null); onClose(); }}
-                className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)]"
-              >Close</button>
-            )}
+            <button
+              onClick={() => { setCtxMenu(null); onClose(); }}
+              className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)]"
+            >Close</button>
           </div>
         </>
       )}

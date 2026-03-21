@@ -568,6 +568,63 @@ impl MultiplexerState {
             active_workspace_id: self.active_workspace_id.clone(),
         }
     }
+
+    /// Restore state from a session snapshot. Creates workspaces/tabs/panes
+    /// without PTYs — frontend will spawn PTYs when panes become visible.
+    pub fn from_session_snapshot(snapshot: &crate::session::store::SessionSnapshot) -> Self {
+        use crate::session::store::*;
+
+        fn snapshot_to_split(node: &SplitNodeSnapshot, panes: &mut HashMap<String, Pane>) -> SplitNode {
+            match node {
+                SplitNodeSnapshot::Leaf { pane_id, cwd } => {
+                    panes.insert(pane_id.clone(), Pane {
+                        id: pane_id.clone(),
+                        pty_id: None,
+                        pane_type: PaneType::Terminal,
+                        title: "Terminal".to_string(),
+                        cwd: cwd.clone(),
+                        url: None,
+                    });
+                    SplitNode::Leaf { pane_id: pane_id.clone() }
+                }
+                SplitNodeSnapshot::Split { orientation, ratio, children } => {
+                    let orient = if orientation == "Vertical" {
+                        Orientation::Vertical
+                    } else {
+                        Orientation::Horizontal
+                    };
+                    SplitNode::Split {
+                        orientation: orient,
+                        ratio: *ratio,
+                        children: children.iter().map(|c| snapshot_to_split(c, panes)).collect(),
+                    }
+                }
+            }
+        }
+
+        let mut panes = HashMap::new();
+        let workspaces: Vec<Workspace> = snapshot.workspaces.iter().map(|ws| {
+            Workspace {
+                id: ws.id.clone(),
+                name: ws.name.clone(),
+                active_tab_id: ws.active_tab_id.clone(),
+                tabs: ws.tabs.iter().map(|tab| {
+                    Tab {
+                        id: tab.id.clone(),
+                        title: tab.title.clone(),
+                        split_tree: snapshot_to_split(&tab.split_tree, &mut panes),
+                    }
+                }).collect(),
+            }
+        }).collect();
+
+        MultiplexerState {
+            workspaces,
+            panes,
+            active_workspace_id: snapshot.active_workspace_id.clone(),
+            focused_pane_id: None,
+        }
+    }
 }
 
 /// Full state snapshot for frontend hydration.

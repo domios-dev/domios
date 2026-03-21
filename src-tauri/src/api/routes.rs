@@ -952,12 +952,101 @@ pub fn send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, bo
         .unwrap_or(true);
 
     if !is_focused {
-        use tauri_plugin_notification::NotificationExt;
-        let mut builder = app.notification().builder()
-            .title(title);
-        if let Some(b) = body {
-            builder = builder.body(b);
+        send_os_notification(app, title, body);
+    }
+}
+
+/// Send notification as a popup window in bottom-right corner.
+pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
+    use tauri::{Manager, Listener};
+
+    let title = title.to_string();
+    let body = body.unwrap_or("").to_string();
+    let app = app.clone();
+
+    std::thread::spawn(move || {
+        let (screen_w, screen_h) = get_screen_size();
+        let win_w = 320.0;
+        let win_h = 80.0;
+        let margin = 16.0;
+
+        let html = format!(
+            r#"<!DOCTYPE html><html><head><style>
+            *{{margin:0;padding:0;box-sizing:border-box}}
+            body{{background:#1c2128;color:#c9d1d9;font-family:'Segoe UI',sans-serif;
+                  padding:12px 16px;border:1px solid #30363d;border-radius:8px;
+                  overflow:hidden;cursor:pointer}}
+            body:hover{{background:#21262d}}
+            .t{{font-size:13px;font-weight:600;color:#f0f6fc;margin-bottom:4px}}
+            .b{{font-size:12px;color:#8b949e}}
+            .i{{float:left;margin-right:10px;font-size:18px;color:#f0883e}}
+            </style></head><body>
+            <span class="i">&#10035;</span>
+            <div class="t">{}</div>
+            <div class="b">{}</div>
+            </body></html>"#,
+            title.replace('<', "&lt;").replace('>', "&gt;"),
+            body.replace('<', "&lt;").replace('>', "&gt;"),
+        );
+
+        let label = format!("notif-{}", uuid::Uuid::new_v4());
+
+        if let Ok(win) = tauri::WebviewWindowBuilder::new(
+            &app,
+            &label,
+            tauri::WebviewUrl::App("about:blank".into()),
+        )
+        .title("")
+        .inner_size(win_w, win_h)
+        .position(screen_w - win_w - margin, screen_h - win_h - margin - 48.0)
+        .decorations(false)
+        .resizable(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .build()
+        {
+            let _ = win.eval(&format!(
+                "document.open();document.write({});document.close();",
+                serde_json::to_string(&html).unwrap_or_default()
+            ));
+
+            // Auto-close after 4 seconds
+            let label_clone = label.clone();
+            let app_clone = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(4));
+                if let Some(w) = app_clone.get_webview_window(&label_clone) {
+                    let _ = w.close();
+                }
+            });
+
+            // Close on click
+            let label_clone2 = label.clone();
+            let app_clone2 = app.clone();
+            let _ = app.listen(format!("notif-close-{}", label), move |_| {
+                if let Some(w) = app_clone2.get_webview_window(&label_clone2) {
+                    let _ = w.close();
+                }
+            });
         }
-        let _ = builder.show();
+    });
+}
+
+fn get_screen_size() -> (f64, f64) {
+    #[cfg(target_os = "windows")]
+    {
+        #[link(name = "user32")]
+        extern "system" {
+            fn GetSystemMetrics(index: i32) -> i32;
+        }
+        unsafe {
+            let w = GetSystemMetrics(0) as f64;
+            let h = GetSystemMetrics(1) as f64;
+            (w, h)
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        (1920.0, 1080.0)
     }
 }
