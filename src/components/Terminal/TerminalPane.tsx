@@ -741,9 +741,30 @@ export function TerminalPane({
               console.error("[drop] Image error:", err);
             }
           } else {
-            // Other files: write path directly (don't touch clipboard!)
-            const path = (file as any).path || file.name;
-            invoke("write_pty_string", { ptyId, data: path });
+            // Text files: read content and paste via bracketed paste mode
+            // Binary/large files: paste path
+            const isText = /\.(txt|md|ts|tsx|js|jsx|py|rs|go|java|c|cpp|h|hpp|json|toml|yaml|yml|html|css|scss|sh|bat|ps1|csv|xml|sql|log|env|conf|cfg|ini|rb|php|swift|kt|dart|lua|r|m|pl|ex|exs|hs|clj|scala)$/i.test(name);
+            if (isText) {
+              try {
+                const text = await file.text();
+                if (text.length < 100000) {
+                  // Bracketed paste: \x1b[200~ ... \x1b[201~ — Claude Code shows as pasted block
+                  const bracketedPaste = `\x1b[200~${text}\x1b[201~`;
+                  invoke("write_pty_string", { ptyId, data: bracketedPaste });
+                } else {
+                  // Too large — paste path with @ reference
+                  const path = (file as any).path || file.name;
+                  invoke("write_pty_string", { ptyId, data: `@${path}` });
+                }
+              } catch {
+                const path = (file as any).path || file.name;
+                invoke("write_pty_string", { ptyId, data: path });
+              }
+            } else {
+              // Binary files: paste path
+              const path = (file as any).path || file.name;
+              invoke("write_pty_string", { ptyId, data: path });
+            }
           }
         }
       }}
