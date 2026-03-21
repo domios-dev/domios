@@ -481,6 +481,17 @@ pub fn open_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Save clipboard image bytes to a temp file, return the path.
+#[tauri::command]
+pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String, String> {
+    let temp_dir = std::env::temp_dir().join("codeterm-images");
+    std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    let filename = format!("clipboard-{}.{}", uuid::Uuid::new_v4(), ext);
+    let path = temp_dir.join(&filename);
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// Get network info (local IP, Tailscale IP, API URL).
 #[tauri::command]
 pub fn get_network_info() -> Result<serde_json::Value, String> {
