@@ -323,7 +323,7 @@ export function TerminalPane({
             .filter((id): id is string => !!id);
           const paneCwd = state.panes[paneId]?.cwd;
           if (paneCwd) {
-            invoke<string | null>("detect_claude_session_id", { cwd: paneCwd, exclude: excludeIds, maxAgeSecs: 300 })
+            invoke<string | null>("detect_claude_session_id", { cwd: paneCwd, exclude: excludeIds })
               .then((sessionId) => {
                 if (sessionId) {
                   invoke("mux_set_claude_session_id", { paneId, sessionId }).catch(() => {});
