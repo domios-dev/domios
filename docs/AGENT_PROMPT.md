@@ -20,8 +20,6 @@ Integration:
 - POST /api/notifications {title, body, level} — send notification
 - POST /api/webhooks {url, events?, once?, pane_id?, headers?, payload_extra?} — register webhook for real-time events
 - GET  /api/network — connection info (local IP, Tailscale IP)
-- GET  /api/screenshot — capture window screenshot
-
 Webhook events: agent.permission_request, agent.task_complete
 
 Workflow: create workspace → create tab → exec commands → monitor output via offset polling or SSE stream → receive webhook events when agents need attention.
@@ -33,3 +31,5 @@ Orchestrator workflow:
   - `batch` sends sequential commands with delays: `[{text, enter, delay_ms}]`.
   - Example — launching Claude Code: `{"batch": [{"text": "claude", "enter": true}, {"text": "", "enter": true, "delay_ms": 8000}]}`
 - For async tasks: register a one-shot webhook with `once: true` and `pane_id` to get notified when a specific pane's task completes. The webhook fires once and auto-deletes — like a Promise. Prefer this over polling with timeout.
+
+<!-- revision: 2 -->

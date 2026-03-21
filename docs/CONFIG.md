@@ -11,7 +11,7 @@ Auto-created on first run with defaults.
 
 [theme]
 name = "github-dark"
-# Available: github-dark, dracula, catppuccin-mocha, one-dark, nord
+# Available: github-dark, github-light, dracula, catppuccin-mocha, one-dark, nord, solarized-light, pip-boy
 # Override individual colors:
 # background = "#0d1117"
 # foreground = "#c9d1d9"
@@ -34,25 +34,41 @@ sound = false
 toast_duration = 5  # seconds
 
 [keybindings]
-# Default keybindings (not yet customizable):
-# Ctrl+Shift+T  = New tab
-# Ctrl+Shift+W  = Close tab
-# Ctrl+Shift+D  = Split right
-# Ctrl+Shift+E  = Split down
-# Ctrl+Shift+Q  = Close pane
-# Ctrl+1-9      = Switch tab
-# Ctrl+,        = Settings
+new_tab = "Ctrl+Shift+T"
+close_tab = "Ctrl+Shift+W"
+next_tab = "Ctrl+Tab"
+prev_tab = "Ctrl+Shift+Tab"
+split_right = "Ctrl+Shift+D"
+split_down = "Ctrl+Shift+E"
+close_pane = "Ctrl+Shift+Q"
+focus_pane_left = "Ctrl+Alt+Left"
+focus_pane_right = "Ctrl+Alt+Right"
+focus_pane_up = "Ctrl+Alt+Up"
+focus_pane_down = "Ctrl+Alt+Down"
+new_workspace = "Ctrl+Shift+N"
+copy = "Ctrl+Shift+C"
+paste = "Ctrl+Shift+V"
+search = "Ctrl+Shift+F"
+zoom_in = "Ctrl+="
+zoom_out = "Ctrl+-"
+zoom_reset = "Ctrl+0"
+open_browser = "Ctrl+Shift+B"
+open_settings = "Ctrl+,"
 
 [socket]
 # Auto-generated, override if needed:
 # path = "\\\\.\\pipe\\codeterm-custom"
 
 [agent]
+# Agent config controls AI agent integration (e.g. Claude Code).
+# poll_interval_ms: how often the agent polls for new commands.
+# idle_timeout_s: disconnect agent after this many seconds of inactivity.
 poll_interval_ms = 500
 idle_timeout_s = 30
 
 [api]
 enabled = true
+host = "0.0.0.0"
 port = 7685
 # token = "your-secret-token"  # Uncomment to require auth
 cors = true
@@ -75,9 +91,22 @@ Atom-inspired dark theme.
 ### Nord
 Arctic blue-tinted theme.
 
+### GitHub Light
+Light theme matching GitHub's light mode.
+
+### Solarized Light
+Ethan Schoonover's warm light color scheme.
+
+### Pip-Boy
+Retro green-on-black Fallout terminal theme.
+
 ## Session Persistence
 
 Sessions auto-save when you close the window. Saved to:
-- `%APPDATA%/codeterm/sessions/last.json`
+- **Windows:** `%APPDATA%/codeterm/sessions/last.json`
+- **Linux:** `~/.config/codeterm/sessions/last.json`
+- **macOS:** `~/Library/Application Support/codeterm/sessions/last.json`
 
 Contains workspace layout, tab arrangement, and split tree structure.
+
+<!-- revision: 2 -->

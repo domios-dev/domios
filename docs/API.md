@@ -27,7 +27,7 @@ Then: `Authorization: Bearer your-secret-token`
 | GET | `/api/health` | — | Health check |
 | GET | `/api/identify` | — | Version, platform, features |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
-| GET | `/api/screenshot` | `?format=json\|png` | Capture window screenshot (dev-only) |
+
 
 #### Workspaces
 | Method | Path | Body | Description |
@@ -250,3 +250,5 @@ CodeTerm automatically detects Claude Code and other agents:
 - **Pinned tab names** — manual rename blocks OSC auto-rename
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
+
+<!-- revision: 2 -->
