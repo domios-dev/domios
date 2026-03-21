@@ -80,6 +80,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/can-spawn", post(set_can_spawn))
         .route("/api/agents", get(list_agents))
         .route("/api/agents/hierarchy", get(get_hierarchy))
+        .route("/api/agents/spawn", post(spawn_agent))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -925,6 +926,174 @@ pub fn detect_tailscale_ip() -> Option<String> {
         if !ip.is_empty() { return Some(ip); }
     }
     None
+}
+
+// ── Agent Spawn ─────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SpawnAgentBody {
+    /// Agent command to run (e.g. "claude", "aider", "goose"). Default: "claude"
+    agent: Option<String>,
+    /// Extra args for the agent (e.g. ["--dangerously-skip-permissions", "--agent", "architect"])
+    args: Option<Vec<String>>,
+    /// Working directory
+    cwd: Option<String>,
+    /// Tab title (default: agent name)
+    title: Option<String>,
+    /// Role to assign: "Conductor", "Worker", "SubWorker"
+    role: Option<String>,
+    /// Parent pane ID (required for Worker/SubWorker)
+    parent_pane_id: Option<String>,
+    /// Allow this agent to spawn children
+    can_spawn: Option<bool>,
+    /// Task to send after agent starts (optional)
+    task: Option<String>,
+    /// Workspace ID (default: active workspace)
+    workspace_id: Option<String>,
+}
+
+async fn spawn_agent(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SpawnAgentBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+
+    let agent_cmd = body.agent.as_deref().unwrap_or("claude");
+    let title = body.title.clone().unwrap_or_else(|| agent_cmd.to_string());
+
+    // 1. Find workspace
+    let ws_id = {
+        let mux = state.mux.lock();
+        let snap = mux.snapshot();
+        body.workspace_id.clone().or_else(|| snap.active_workspace_id.clone())
+            .ok_or((StatusCode::BAD_REQUEST, "No workspace found".to_string()))?
+    };
+
+    // 2. Create tab + pane
+    let (tab_id, pane_id) = {
+        let mut mux = state.mux.lock();
+        mux.create_tab(&ws_id)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?
+    };
+    {
+        let mut mux = state.mux.lock();
+        let _ = mux.set_active_tab(&ws_id, &tab_id);
+    }
+    let _ = state.app_handle.emit("mux-state-changed", ());
+
+    // 3. Wait for PTY to be assigned by frontend (poll up to 10s)
+    let pty_state = state.pty.clone();
+    let mux_state = state.mux.clone();
+    let pane_id_clone = pane_id.clone();
+    let pty_id = tokio::time::timeout(
+        tokio::time::Duration::from_secs(10),
+        async {
+            loop {
+                {
+                    let mux = mux_state.lock();
+                    if let Some(pane) = mux.get_pane(&pane_id_clone) {
+                        if let Some(ref pid) = pane.pty_id {
+                            return pid.clone();
+                        }
+                    }
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            }
+        },
+    )
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Timeout waiting for PTY".to_string()))?;
+
+    // 4. Rename pane (frontend syncs tab title from pane)
+    {
+        let mut mux = state.mux.lock();
+        if let Some(pane) = mux.get_pane_mut(&pane_id) {
+            pane.title = title.clone();
+        }
+    }
+    let _ = state.app_handle.emit("pane-title-pinned", serde_json::json!({
+        "pane_id": &pane_id,
+        "title": &title,
+    }));
+
+    // 5. Set role (if provided)
+    if let Some(ref role_str) = body.role {
+        use crate::multiplexer::types::AgentRole;
+        let role = match role_str.as_str() {
+            "Conductor" => AgentRole::Conductor,
+            "Worker" => AgentRole::Worker,
+            "SubWorker" => AgentRole::SubWorker,
+            _ => return Err((StatusCode::BAD_REQUEST, format!("Invalid role: {}", role_str))),
+        };
+        let mut mux = state.mux.lock();
+        mux.set_pane_role(&pane_id, role, body.parent_pane_id.as_deref())
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        if let Some(cs) = body.can_spawn {
+            let _ = mux.set_can_spawn(&pane_id, cs);
+        }
+    }
+    let _ = state.app_handle.emit("mux-state-changed", ());
+
+    // 6. Build agent launch command
+    let cwd = body.cwd.clone();
+    let mut cmd_parts = vec![agent_cmd.to_string()];
+    // Default args for known agents
+    if agent_cmd == "claude" {
+        cmd_parts.push("--dangerously-skip-permissions".to_string());
+    }
+    if let Some(ref extra) = body.args {
+        cmd_parts.extend(extra.iter().cloned());
+    }
+    let agent_launch = cmd_parts.join(" ");
+
+    // 7. Send cd + agent launch via batch
+    let pty = pty_state.clone();
+    let pid = pty_id.clone();
+    let task = body.task.clone();
+    let pane_id_for_task = pane_id.clone();
+    let mux_for_task = state.mux.clone();
+    let pty_for_task = pty_state.clone();
+
+    tokio::spawn(async move {
+        // cd to working directory
+        if let Some(ref dir) = cwd {
+            let cd_cmd = format!("cd {}\r", dir.replace('\\', "/"));
+            let _ = pty.lock().write(&pid, cd_cmd.as_bytes());
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+
+        // Launch agent
+        let launch = format!("{}\r", agent_launch);
+        let _ = pty.lock().write(&pid, launch.as_bytes());
+
+        // If task provided, wait for agent to be ready then send
+        if let Some(task_text) = task {
+            // Wait for agent to initialize (poll for readiness)
+            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+
+            // Send task
+            let task_cmd = format!("{}\r", task_text);
+            // Re-resolve pty_id in case it changed
+            let current_pty = {
+                let mux = mux_for_task.lock();
+                mux.get_pane(&pane_id_for_task)
+                    .and_then(|p| p.pty_id.clone())
+            };
+            if let Some(ref cpid) = current_pty {
+                let _ = pty_for_task.lock().write(cpid, task_cmd.as_bytes());
+            }
+        }
+    });
+
+    Ok(Json(serde_json::json!({
+        "pane_id": pane_id,
+        "tab_id": tab_id,
+        "pty_id": pty_id,
+        "agent": agent_cmd,
+        "title": title,
+        "role": body.role,
+    })))
 }
 
 // ── Agent Hierarchy Endpoints ────────────────────────────────────────

@@ -188,38 +188,6 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
           </div>
         )}
 
-        {/* Agent hierarchy (when roles exist) */}
-        {!isCompact && hasHierarchy && (
-          <div className="border-b border-[var(--ct-border)]">
-            <div className="px-2 py-1.5 flex items-center gap-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ct-muted-fg)]">
-                Hierarchy
-              </span>
-            </div>
-            <div className="px-1 pb-1.5">
-              <HierarchyTree
-                nodes={hierarchyTree}
-                depth={0}
-                onJumpToPane={(paneId) => {
-                  // Find workspace containing this pane and switch to it
-                  for (const ws of state.workspaces) {
-                    for (const tab of ws.tabs) {
-                      const paneIds = collectPaneIds(tab.split_tree);
-                      if (paneIds.includes(paneId)) {
-                        setActiveWorkspace(ws.id);
-                        setActiveTab(ws.id, tab.id);
-                        setFocusedPane(paneId);
-                        return;
-                      }
-                    }
-                  }
-                }}
-                reportCounts={reportCounts}
-              />
-            </div>
-          </div>
-        )}
-
         {/* Workspace tree */}
         <div className="flex-1 overflow-y-auto">
           {isCompact ? (
@@ -317,30 +285,59 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                     {ws.tabs.map((tab, index) => {
                       const tabPids = collectPaneIds(tab.split_tree);
                       const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
+                      const childPanes = firstPane?.role
+                        ? Object.values(state.panes).filter((p) => p.parent_pane_id === firstPane.id)
+                        : [];
                       return (
-                        <TabItem
-                          key={tab.id}
-                          tab={tab}
-                          index={index}
-                          isActive={isActive && tab.id === ws.active_tab_id}
-                          onClick={() => {
-                            setActiveWorkspace(ws.id);
-                            setActiveTab(ws.id, tab.id);
-                          }}
-                          onClose={() => closeTab(ws.id, tab.id)}
-                          canClose={true}
-                          paneCount={tabPids.length}
-                          workspaceId={ws.id}
-                          hasAgent={tabPids.some(
-                            (pid) => state.panes[pid]?.agent_type === "claude"
+                        <div key={tab.id}>
+                          <TabItem
+                            tab={tab}
+                            index={index}
+                            isActive={isActive && tab.id === ws.active_tab_id}
+                            onClick={() => {
+                              setActiveWorkspace(ws.id);
+                              setActiveTab(ws.id, tab.id);
+                            }}
+                            onClose={() => closeTab(ws.id, tab.id)}
+                            canClose={true}
+                            paneCount={tabPids.length}
+                            workspaceId={ws.id}
+                            hasAgent={tabPids.some(
+                              (pid) => state.panes[pid]?.agent_type === "claude"
+                            )}
+                            status={aggregateStatus(tabPids, state.paneStatuses)}
+                            onRename={(title) => {
+                              if (tabPids[0]) setPaneTitle(tabPids[0], title, true);
+                            }}
+                            pane={firstPane}
+                            conductors={wsConductors}
+                          />
+                          {childPanes.length > 0 && (
+                            <HierarchyTree
+                              nodes={childPanes.map((cp) => ({
+                                pane: cp,
+                                children: Object.values(state.panes)
+                                  .filter((p) => p.parent_pane_id === cp.id)
+                                  .map((sp) => ({ pane: sp, children: [], status: state.paneStatuses[sp.id] ?? null })),
+                                status: state.paneStatuses[cp.id] ?? null,
+                              }))}
+                              depth={1}
+                              onJumpToPane={(paneId) => {
+                                for (const w of state.workspaces) {
+                                  for (const t of w.tabs) {
+                                    if (collectPaneIds(t.split_tree).includes(paneId)) {
+                                      setActiveWorkspace(w.id);
+                                      setActiveTab(w.id, t.id);
+                                      setFocusedPane(paneId);
+                                      return;
+                                    }
+                                  }
+                                }
+                              }}
+                              reportCounts={reportCounts}
+                            />
                           )}
-                          status={aggregateStatus(tabPids, state.paneStatuses)}
-                          onRename={(title) => {
-                            if (tabPids[0]) setPaneTitle(tabPids[0], title, true);
-                          }}
-                          pane={firstPane}
-                          conductors={wsConductors}
-                        />
+                        </div>
                       );
                     })}
                     {/* Add tab button inside folder */}
