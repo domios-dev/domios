@@ -17,6 +17,8 @@ export type SplitNode =
 
 export type Orientation = "Horizontal" | "Vertical";
 
+export type AgentRole = "Conductor" | "Worker" | "SubWorker";
+
 export interface Pane {
   id: string;
   pty_id: string | null;
@@ -27,6 +29,10 @@ export interface Pane {
   pinned_title?: boolean;
   agent_type?: "claude" | null;
   claude_session_id?: string | null;
+  role?: AgentRole | null;
+  parent_pane_id?: string | null;
+  can_spawn?: boolean;
+  depth?: number;
 }
 
 export interface MultiplexerState {

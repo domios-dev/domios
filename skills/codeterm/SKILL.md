@@ -86,6 +86,43 @@ codeterm pane split
 codeterm pane split --id $(codeterm pane current --last) --direction down
 ```
 
+## Agent Hierarchy
+
+CodeTerm supports a 3-level hierarchy: Conductor -> Worker -> SubWorker (max depth 3).
+
+```
+codeterm agent list                            # List all agent panes
+codeterm agent hierarchy                       # Show full hierarchy tree
+codeterm agent set-conductor [--pane ID]       # Mark as conductor (depth 1)
+codeterm agent link --parent ID [--pane ID]    # Link as worker under parent
+codeterm agent unlink [--pane ID]              # Clear role
+codeterm agent children [--pane ID]            # List children
+codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
+codeterm agent report MESSAGE [--pane ID]      # Send report to parent
+codeterm agent reports [--pane ID]             # Read reports (as conductor)
+codeterm agent status [--pane ID]              # Detailed status + role
+```
+
+### Orchestrator pattern
+```bash
+# 1. Mark self as conductor
+codeterm agent set-conductor
+
+# 2. Split and assign workers
+codeterm pane split
+WORKER=$(codeterm pane current --last)
+codeterm agent link --parent $(codeterm pane current) --pane $WORKER
+
+# 3. Send work to worker pane
+codeterm send-text "npm test" --pane $WORKER
+
+# 4. Worker reports back
+codeterm agent report "tests passed" --pane $WORKER
+
+# 5. Conductor reads reports
+codeterm agent reports
+```
+
 ## Multi-agent Workflow
 ```bash
 codeterm workspace create "frontend"
@@ -158,4 +195,4 @@ codeterm identify        # Version & features
 codeterm capabilities    # All API methods
 ```
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

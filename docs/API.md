@@ -55,6 +55,19 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/rename` | `{title}` | Rename pane/tab (pinned) |
 | POST | `/api/panes/{id}/resize` | `{cols, rows}` | Resize terminal |
 
+#### Agent Hierarchy
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| POST | `/api/panes/{id}/role` | `{role, parent_pane_id?, can_spawn?}` | Set pane role (`Conductor`, `Worker`, `SubWorker`) |
+| DELETE | `/api/panes/{id}/role` | — | Clear role (orphans children) |
+| GET | `/api/panes/{id}/status` | — | Pane status + role + children info |
+| GET | `/api/panes/{id}/children` | — | List child panes |
+| POST | `/api/panes/{id}/report` | `{message}` | Worker sends report to parent conductor |
+| GET | `/api/panes/{id}/reports` | `?clear=true` | Conductor reads reports (optionally clearing them) |
+| POST | `/api/panes/{id}/can-spawn` | `{can_spawn: bool}` | Toggle whether pane can spawn children |
+| GET | `/api/agents` | — | List all panes that have roles |
+| GET | `/api/agents/hierarchy` | — | Full hierarchy tree |
+
 ### Pane Fields
 
 Fields returned by `GET /api/panes` for each pane:
@@ -69,6 +82,10 @@ Fields returned by `GET /api/panes` for each pane:
 | `url` | `string?` | URL for browser panes |
 | `agent_type` | `string?` | Agent running in pane, e.g. `"claude"` |
 | `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
+| `role` | `string?` | `"Conductor"`, `"Worker"`, `"SubWorker"`, or `null` |
+| `parent_pane_id` | `string?` | Parent pane ID in hierarchy, or `null` |
+| `can_spawn` | `bool` | Whether this pane can spawn child workers |
+| `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Conductor), 2 (Worker), 3 (SubWorker) |
 
 #### Browser
 | Method | Path | Body | Description |
@@ -90,7 +107,7 @@ Fields returned by `GET /api/panes` for each pane:
 | POST | `/api/webhooks` | `{url, events?, once?, pane_id?, headers?, payload_extra?}` | Register webhook |
 | DELETE | `/api/webhooks/{id}` | — | Unregister webhook |
 
-Webhook events: `agent.permission_request`, `agent.task_complete`
+Webhook events: `agent.permission_request`, `agent.task_complete`, `agent.report`
 
 #### Themes
 | Method | Path | Body | Description |
@@ -259,6 +276,18 @@ codeterm theme apply NAME                       # Apply a theme
 codeterm theme save ID FILE [--apply]           # Save custom theme (+ apply)
 codeterm theme delete ID                        # Delete custom theme
 codeterm theme dir                              # Show themes directory
+
+# Agent Hierarchy
+codeterm agent list                            # List all panes with roles
+codeterm agent hierarchy                       # Show full hierarchy tree
+codeterm agent set-conductor [--pane ID]       # Mark pane as conductor
+codeterm agent link --parent ID [--pane ID]    # Link pane as worker under parent
+codeterm agent unlink [--pane ID]              # Clear role
+codeterm agent children [--pane ID]            # List children of pane
+codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
+codeterm agent report MESSAGE [--pane ID]      # Send report to parent conductor
+codeterm agent reports [--pane ID]             # Read reports (as conductor)
+codeterm agent status [--pane ID]              # Get detailed status + role
 ```
 
 Add `--json` flag for machine-readable output.
@@ -300,4 +329,4 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
