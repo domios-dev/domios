@@ -89,6 +89,9 @@ function buildXtermTheme(theme?: ThemeConfig) {
     brightMagenta: theme.bright_magenta,
     brightCyan: theme.bright_cyan,
     brightWhite: theme.bright_white,
+    scrollbarSliderBackground: "rgba(128, 128, 128, 0.25)",
+    scrollbarSliderHoverBackground: "rgba(128, 128, 128, 0.4)",
+    scrollbarSliderActiveBackground: "rgba(128, 128, 128, 0.5)",
   };
 }
 
@@ -262,6 +265,7 @@ export function TerminalPane({
         "'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace",
       scrollback: terminalConfig?.scrollback ?? 10000,
       theme: buildXtermTheme(theme),
+      overviewRulerWidth: 5,
       allowProposedApi: true,
       // Critical for ConPTY on Windows — enables proper raw mode + cursor key handling
       windowsPty: {
