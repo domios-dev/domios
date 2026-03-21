@@ -102,20 +102,9 @@ pub async fn read_pty(
                 let prev = t.get_status(&pty_id);
                 t.update_output(&pty_id, &data);
 
-                // Detect Claude Code events from recent output buffer (not just current chunk)
-                // This ensures patterns that span chunk boundaries are still detected.
-                let recent_text = {
-                    let ob_lock = output_buf.lock();
-                    ob_lock.get(&pty_id)
-                        .and_then(|buf| {
-                            // Check last 2KB of output for patterns
-                            let start = if buf.len() > 2048 { buf.len() - 2048 } else { 0 };
-                            std::str::from_utf8(&buf[start..]).ok().map(|s| s.to_string())
-                        })
-                        .unwrap_or_default()
-                };
-                let text = crate::api::routes::strip_ansi_codes(&recent_text);
-                {
+                // Detect Claude Code events from output text (strip ANSI first)
+                if let Ok(raw) = std::str::from_utf8(&data) {
+                    let text = crate::api::routes::strip_ansi_codes(raw);
                     let agent_events = detector::detect_claude_events(&text);
                     if !agent_events.is_empty() {
                         log::debug!("[agent] Events detected: {:?} for pty {}", agent_events, &pty_id[..8]);
@@ -166,28 +155,28 @@ pub async fn read_pty(
                                 }
                             }
                             detector::AgentEvent::TaskComplete => {
-                                // Fire regardless of previous status — the pattern
-                                // match is specific enough to avoid false positives.
-                                let info = mux.lock().snapshot().panes.iter()
-                                    .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
-                                    .map(|(id, p)| (id.clone(), p.title.clone()));
-                                if let Some((pid, title)) = info {
-                                    let notif_title = format!("{} finished", title);
-                                    use tauri::Emitter;
-                                    let _ = app.emit("notification-created", serde_json::json!({
-                                        "id": uuid::Uuid::new_v4().to_string(),
-                                        "title": &notif_title,
-                                        "body": "Task complete",
-                                        "level": "Info",
-                                        "pane_id": &pid,
-                                        "workspace_id": serde_json::Value::Null,
-                                    }));
-                                    crate::api::routes::send_os_notification_if_unfocused(
-                                        &app, &notif_title, Some("Task complete"),
-                                    );
-                                    events.broadcast("agent.task_complete", serde_json::json!({
-                                        "pane_id": &pid, "title": &title,
-                                    }));
+                                if prev == crate::agent::status::PaneStatus::Working {
+                                    let info = mux.lock().snapshot().panes.iter()
+                                        .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
+                                        .map(|(id, p)| (id.clone(), p.title.clone()));
+                                    if let Some((pid, title)) = info {
+                                        let notif_title = format!("{} finished", title);
+                                        use tauri::Emitter;
+                                        let _ = app.emit("notification-created", serde_json::json!({
+                                            "id": uuid::Uuid::new_v4().to_string(),
+                                            "title": &notif_title,
+                                            "body": "Task complete",
+                                            "level": "Info",
+                                            "pane_id": &pid,
+                                            "workspace_id": serde_json::Value::Null,
+                                        }));
+                                        crate::api::routes::send_os_notification_if_unfocused(
+                                            &app, &notif_title, Some("Task complete"),
+                                        );
+                                        events.broadcast("agent.task_complete", serde_json::json!({
+                                            "pane_id": &pid, "title": &title,
+                                        }));
+                                    }
                                 }
                             }
                         }
@@ -573,15 +562,9 @@ pub fn open_folder(path: String) -> Result<(), String> {
     } else {
         std::path::PathBuf::from(&path)
     };
-    log::info!("open_folder: input={:?} resolved={:?} exists={}", path, resolved, resolved.exists());
     if resolved.exists() {
         #[cfg(target_os = "windows")]
-        {
-            // Use /select, to ensure explorer opens the folder (not a file)
-            let _ = std::process::Command::new("explorer")
-                .arg(resolved.to_string_lossy().replace('/', "\\"))
-                .spawn();
-        }
+        { let _ = std::process::Command::new("explorer").arg(&resolved).spawn(); }
         #[cfg(target_os = "macos")]
         { let _ = std::process::Command::new("open").arg(&resolved).spawn(); }
         #[cfg(target_os = "linux")]
