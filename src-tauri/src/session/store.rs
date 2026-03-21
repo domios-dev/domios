@@ -36,6 +36,18 @@ pub enum SplitNodeSnapshot {
         /// Claude Code session ID for --resume
         #[serde(skip_serializing_if = "Option::is_none")]
         claude_session_id: Option<String>,
+        /// Orchestration role.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        role: Option<String>,
+        /// Parent pane ID in hierarchy.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        parent_pane_id: Option<String>,
+        /// Can spawn children.
+        #[serde(default)]
+        can_spawn: bool,
+        /// Hierarchy depth (0=none, 1=conductor, 2=worker, 3=sub-worker).
+        #[serde(default)]
+        depth: u8,
     },
     Split {
         orientation: String,

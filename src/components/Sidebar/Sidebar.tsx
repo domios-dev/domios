@@ -1,9 +1,11 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useMultiplexer } from "../../store/multiplexer";
 import { useGitInfo } from "../../hooks/useGitInfo";
 import { NotificationBadge } from "../Notifications/NotificationBadge";
 import { NotificationPanel } from "../Notifications/NotificationPanel";
-import type { Workspace, Tab, SplitNode, PaneStatus } from "../../lib/types";
+import type { Workspace, Tab, SplitNode, PaneStatus, Pane, AgentRole } from "../../lib/types";
 
 function collectPaneIds(node: SplitNode): string[] {
   if (node.type === "Leaf") return [node.pane_id];
@@ -73,6 +75,25 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     () => state.notifications.filter((n) => !n.read).length,
     [state.notifications],
   );
+
+  // Agent hierarchy tree
+  const hierarchyTree = useMemo(
+    () => buildHierarchyTree(state.panes, state.paneStatuses),
+    [state.panes, state.paneStatuses],
+  );
+  const hasHierarchy = hierarchyTree.length > 0;
+
+  // Track report counts per conductor
+  const [reportCounts, setReportCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    const unlisten = listen<{ conductor_pane_id: string }>("agent-report", (event) => {
+      setReportCounts((prev) => ({
+        ...prev,
+        [event.payload.conductor_pane_id]: (prev[event.payload.conductor_pane_id] || 0) + 1,
+      }));
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
 
   const handleNewWorkspace = useCallback(() => {
     const n = state.workspaces.length + 1;
@@ -167,6 +188,38 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
           </div>
         )}
 
+        {/* Agent hierarchy (when roles exist) */}
+        {!isCompact && hasHierarchy && (
+          <div className="border-b border-[var(--ct-border)]">
+            <div className="px-2 py-1.5 flex items-center gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ct-muted-fg)]">
+                Hierarchy
+              </span>
+            </div>
+            <div className="px-1 pb-1.5">
+              <HierarchyTree
+                nodes={hierarchyTree}
+                depth={0}
+                onJumpToPane={(paneId) => {
+                  // Find workspace containing this pane and switch to it
+                  for (const ws of state.workspaces) {
+                    for (const tab of ws.tabs) {
+                      const paneIds = collectPaneIds(tab.split_tree);
+                      if (paneIds.includes(paneId)) {
+                        setActiveWorkspace(ws.id);
+                        setActiveTab(ws.id, tab.id);
+                        setFocusedPane(paneId);
+                        return;
+                      }
+                    }
+                  }
+                }}
+                reportCounts={reportCounts}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Workspace tree */}
         <div className="flex-1 overflow-y-auto">
           {isCompact ? (
@@ -230,6 +283,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
             );
             const isActive = ws.id === state.active_workspace_id;
             const isExpanded = expandedWorkspaces.has(ws.id);
+            // Conductors available for linking (across all workspaces)
+            const wsConductors = Object.values(state.panes).filter(
+              (p) => p.role === "Conductor" || (p.role === "Worker" && p.can_spawn),
+            );
 
             return (
               <div key={ws.id}>
@@ -257,30 +314,35 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                 />
                 {isExpanded ? (
                   <>
-                    {ws.tabs.map((tab, index) => (
-                      <TabItem
-                        key={tab.id}
-                        tab={tab}
-                        index={index}
-                        isActive={isActive && tab.id === ws.active_tab_id}
-                        onClick={() => {
-                          setActiveWorkspace(ws.id);
-                          setActiveTab(ws.id, tab.id);
-                        }}
-                        onClose={() => closeTab(ws.id, tab.id)}
-                        canClose={true}
-                        paneCount={collectPaneIds(tab.split_tree).length}
-                        workspaceId={ws.id}
-                        hasAgent={collectPaneIds(tab.split_tree).some(
-                          (pid) => state.panes[pid]?.agent_type === "claude"
-                        )}
-                        status={aggregateStatus(collectPaneIds(tab.split_tree), state.paneStatuses)}
-                        onRename={(title) => {
-                          const pids = collectPaneIds(tab.split_tree);
-                          if (pids[0]) setPaneTitle(pids[0], title, true);
-                        }}
-                      />
-                    ))}
+                    {ws.tabs.map((tab, index) => {
+                      const tabPids = collectPaneIds(tab.split_tree);
+                      const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
+                      return (
+                        <TabItem
+                          key={tab.id}
+                          tab={tab}
+                          index={index}
+                          isActive={isActive && tab.id === ws.active_tab_id}
+                          onClick={() => {
+                            setActiveWorkspace(ws.id);
+                            setActiveTab(ws.id, tab.id);
+                          }}
+                          onClose={() => closeTab(ws.id, tab.id)}
+                          canClose={true}
+                          paneCount={tabPids.length}
+                          workspaceId={ws.id}
+                          hasAgent={tabPids.some(
+                            (pid) => state.panes[pid]?.agent_type === "claude"
+                          )}
+                          status={aggregateStatus(tabPids, state.paneStatuses)}
+                          onRename={(title) => {
+                            if (tabPids[0]) setPaneTitle(tabPids[0], title, true);
+                          }}
+                          pane={firstPane}
+                          conductors={wsConductors}
+                        />
+                      );
+                    })}
                     {/* Add tab button inside folder */}
                     <button
                       onClick={() => createTab(ws.id)}
@@ -298,6 +360,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                   (() => {
                     const activeTab = ws.tabs.find((t) => t.id === ws.active_tab_id);
                     if (!activeTab) return null;
+                    const atPids = collectPaneIds(activeTab.split_tree);
+                    const atFirstPane = atPids[0] ? state.panes[atPids[0]] : null;
                     return (
                       <TabItem
                         tab={activeTab}
@@ -306,16 +370,17 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                         onClick={() => setActiveTab(ws.id, activeTab.id)}
                         onClose={() => closeTab(ws.id, activeTab.id)}
                         canClose={true}
-                        paneCount={collectPaneIds(activeTab.split_tree).length}
+                        paneCount={atPids.length}
                         workspaceId={ws.id}
-                        hasAgent={collectPaneIds(activeTab.split_tree).some(
+                        hasAgent={atPids.some(
                           (pid) => state.panes[pid]?.agent_type === "claude"
                         )}
-                        status={aggregateStatus(collectPaneIds(activeTab.split_tree), state.paneStatuses)}
+                        status={aggregateStatus(atPids, state.paneStatuses)}
                         onRename={(title) => {
-                          const pids = collectPaneIds(activeTab.split_tree);
-                          if (pids[0]) setPaneTitle(pids[0], title);
+                          if (atPids[0]) setPaneTitle(atPids[0], title);
                         }}
+                        pane={atFirstPane}
+                        conductors={wsConductors}
                       />
                     );
                   })()
@@ -346,6 +411,98 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       </aside>
 
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Role icons & helpers
+// ---------------------------------------------------------------------------
+
+const ROLE_ICONS: Record<string, string> = {
+  Conductor: "\u2605", // ★
+  Worker: "\u2699",    // ⚙
+  SubWorker: "\u25E6", // ◦
+};
+
+function RoleIcon({ role }: { role: AgentRole }) {
+  return (
+    <span className="shrink-0 text-[10px] leading-none" title={role}>
+      {ROLE_ICONS[role] || "·"}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hierarchy tree (rendered inside workspace when roles exist)
+// ---------------------------------------------------------------------------
+
+interface HierarchyNodeData {
+  pane: Pane;
+  children: HierarchyNodeData[];
+  status: PaneStatus | null;
+}
+
+function buildHierarchyTree(
+  panes: Record<string, Pane>,
+  statuses: Record<string, PaneStatus>,
+): HierarchyNodeData[] {
+  // Find conductors
+  const conductors = Object.values(panes).filter(
+    (p) => p.role === "Conductor",
+  );
+  function buildNode(pane: Pane): HierarchyNodeData {
+    const children = Object.values(panes)
+      .filter((p) => p.parent_pane_id === pane.id)
+      .map(buildNode);
+    return { pane, children, status: statuses[pane.id] ?? null };
+  }
+  return conductors.map(buildNode);
+}
+
+function HierarchyTree({
+  nodes,
+  depth,
+  onJumpToPane,
+  reportCounts,
+}: {
+  nodes: HierarchyNodeData[];
+  depth: number;
+  onJumpToPane: (paneId: string) => void;
+  reportCounts: Record<string, number>;
+}) {
+  if (nodes.length === 0) return null;
+  return (
+    <div className={depth > 0 ? "ml-3 border-l border-[var(--ct-border)]" : ""}>
+      {nodes.map((node) => {
+        const rc = reportCounts[node.pane.id] || 0;
+        return (
+          <div key={node.pane.id}>
+            <button
+              onClick={() => onJumpToPane(node.pane.id)}
+              className="flex items-center gap-1.5 w-full pl-2 pr-2 py-0.5 text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] transition-colors text-xs truncate"
+              title={`${node.pane.title} (${node.pane.role})`}
+            >
+              {node.pane.role && <RoleIcon role={node.pane.role} />}
+              <span className={`truncate ${node.pane.role === "Conductor" ? "font-semibold" : ""}`}>
+                {node.pane.title}
+              </span>
+              <StatusDot status={node.status} animate />
+              {rc > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] text-[9px] font-bold leading-none">
+                  {rc}
+                </span>
+              )}
+            </button>
+            <HierarchyTree
+              nodes={node.children}
+              depth={depth + 1}
+              onJumpToPane={onJumpToPane}
+              reportCounts={reportCounts}
+            />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -562,6 +719,8 @@ interface TabItemProps {
   hasAgent?: boolean;
   status?: PaneStatus | null;
   onRename?: (title: string) => void;
+  pane?: Pane | null;
+  conductors?: Pane[];
 }
 
 function ConfirmStopDialog({ onConfirm, onCancel, message }: { onConfirm: () => void; onCancel: () => void; message?: string }) {
@@ -602,6 +761,8 @@ function TabItem({
   hasAgent,
   status,
   onRename,
+  pane,
+  conductors,
 }: TabItemProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
@@ -636,8 +797,13 @@ function TabItem({
         `}
       >
         <div className="flex items-center gap-2 min-w-0">
-          {/* Icon — orange sparkle for Claude Code (spins when working), terminal icon otherwise */}
-          {hasAgent ? (
+          {/* Icon — role icon > orange sparkle for Claude Code (spins when working) > terminal icon */}
+          {pane?.role ? (
+            <span
+              className={`shrink-0 text-[11px] leading-none ${pane.role === "Conductor" ? "text-[var(--ct-yellow)]" : "text-[var(--ct-muted-fg)]"} ${status === "Working" ? "animate-pulse" : ""}`}
+              title={`${pane.role}${status === "Working" ? " — working" : ""}`}
+            >{ROLE_ICONS[pane.role]}</span>
+          ) : hasAgent ? (
             <span
               className={`shrink-0 text-[11px] leading-none text-[#f0883e] ${status === "Working" ? "animate-spin" : ""}`}
               style={status === "Working" ? { animationDuration: "1.5s" } : undefined}
@@ -704,6 +870,50 @@ function TabItem({
                 onClick={() => { setCtxMenu(null); setEditName(tab.title); setEditing(true); }}
                 className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
               >Rename</button>
+              {/* Hierarchy actions */}
+              {hasAgent && !pane?.role && (
+                <button
+                  onClick={() => {
+                    setCtxMenu(null);
+                    if (pane) invoke("mux_set_pane_role", { paneId: pane.id, role: "Conductor", parentPaneId: null });
+                  }}
+                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
+                >{ROLE_ICONS.Conductor} Set as Conductor</button>
+              )}
+              {hasAgent && !pane?.role && conductors && conductors.length > 0 && (
+                conductors.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      setCtxMenu(null);
+                      if (pane) {
+                        const role = c.role === "Conductor" ? "Worker" : "SubWorker";
+                        invoke("mux_set_pane_role", { paneId: pane.id, role, parentPaneId: c.id });
+                      }
+                    }}
+                    className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
+                  >{ROLE_ICONS.Worker} Link to {c.title.substring(0, 20)}</button>
+                ))
+              )}
+              {pane?.role && (
+                <button
+                  onClick={() => {
+                    setCtxMenu(null);
+                    if (pane) invoke("mux_clear_pane_role", { paneId: pane.id });
+                  }}
+                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-yellow)] hover:bg-[var(--ct-border)]"
+                >Remove Role</button>
+              )}
+              {pane?.role && (pane.role === "Conductor" || pane.role === "Worker") && (
+                <button
+                  onClick={() => {
+                    setCtxMenu(null);
+                    if (pane) invoke("mux_set_can_spawn", { paneId: pane.id, canSpawn: !pane.can_spawn });
+                  }}
+                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
+                >{pane.can_spawn ? "Disallow Spawning" : "Allow Spawning"}</button>
+              )}
+              <div className="h-px bg-[var(--ct-border)] my-0.5" />
               {canClose && (
                 <button
                   onClick={(e) => { setCtxMenu(null); handleClose(e); }}

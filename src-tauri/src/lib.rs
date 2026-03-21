@@ -27,6 +27,7 @@ use session::store::SessionStore;
 pub type PtyState = Arc<Mutex<PtyManager>>;
 pub type OutputBufferState = Arc<Mutex<OutputBuffer>>;
 pub type AgentTrackerState = Arc<Mutex<agent::status::PaneStatusTracker>>;
+pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -46,6 +47,7 @@ pub fn run() {
     let output_buffer: OutputBufferState = Arc::new(Mutex::new(OutputBuffer::new(65536)));
     let screenshot_state: ScreenshotState = Arc::new(Mutex::new(ScreenshotChannel::new()));
     let agent_tracker: AgentTrackerState = Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
+    let report_store: ReportStoreState = Arc::new(Mutex::new(agent::reports::ReportStore::new(200)));
     let event_broadcaster: api::events::EventBroadcasterState = Arc::new(api::events::EventBroadcaster::new());
 
     // Try to restore last session, fallback to default workspace
@@ -75,6 +77,7 @@ pub fn run() {
         .manage(session_state.clone())
         .manage(output_buffer.clone())
         .manage(agent_tracker.clone())
+        .manage(report_store.clone())
         .manage(event_broadcaster.clone())
         .manage(screenshot_state.clone())
         .invoke_handler(tauri::generate_handler![
@@ -116,6 +119,9 @@ pub fn run() {
             multiplexer::commands::mux_set_pane_agent_type,
             multiplexer::commands::detect_claude_session_id,
             multiplexer::commands::mux_set_claude_session_id,
+            multiplexer::commands::mux_set_pane_role,
+            multiplexer::commands::mux_clear_pane_role,
+            multiplexer::commands::mux_set_can_spawn,
             // Notification commands
             notification::notify,
             notification::list_notifications,
@@ -184,6 +190,8 @@ pub fn run() {
                         events: event_broadcaster.clone(),
                         app_handle: app_handle.clone(),
                         token: api_config.token.clone(),
+                        agent_tracker: agent_tracker.clone(),
+                        report_store: report_store.clone(),
                     };
                     let router = api::routes::create_router(api_state);
                     let host = api_config.host.clone();
@@ -276,6 +284,46 @@ pub fn run() {
                             let snapshot = mux.lock().to_session_snapshot();
                             if let Err(e) = session.lock().save(&snapshot) {
                                 log::warn!("Auto-save failed: {}", e);
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Agent idle check loop — transitions Working → Idle after timeout
+            {
+                let tracker = agent_tracker.clone();
+                let mux = mux_state.clone();
+                let idle_timeout = {
+                    let cfg = config_state.lock();
+                    std::time::Duration::from_secs(cfg.agent.idle_timeout_s as u64)
+                };
+                let poll_interval = {
+                    let cfg = config_state.lock();
+                    std::time::Duration::from_millis(cfg.agent.poll_interval_ms as u64)
+                };
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    loop {
+                        std::thread::sleep(poll_interval);
+                        let mut t = tracker.lock();
+                        let pty_ids = t.all_ids();
+                        for pty_id in pty_ids {
+                            let prev = t.get_status(&pty_id);
+                            t.check_idle(&pty_id, idle_timeout);
+                            let now = t.get_status(&pty_id);
+                            if now != prev {
+                                // Resolve pane_id from pty_id
+                                let pane_id = mux.lock().snapshot().panes.iter()
+                                    .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
+                                    .map(|(id, _)| id.clone());
+                                if let Some(pid) = pane_id {
+                                    use tauri::Emitter;
+                                    let _ = app_handle.emit("pane-status-changed", serde_json::json!({
+                                        "pane_id": pid,
+                                        "status": format!("{:?}", now),
+                                    }));
+                                }
                             }
                         }
                     }

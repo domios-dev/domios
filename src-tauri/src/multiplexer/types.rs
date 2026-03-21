@@ -116,6 +116,17 @@ pub enum Orientation {
     Vertical,
 }
 
+/// Agent role in the orchestration hierarchy.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum AgentRole {
+    /// Top-level orchestrator (depth 1).
+    Conductor,
+    /// Worker spawned by a conductor (depth 2).
+    Worker,
+    /// Sub-worker spawned by a worker (depth 3, max).
+    SubWorker,
+}
+
 /// A pane represents a single terminal or browser panel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pane {
@@ -134,6 +145,18 @@ pub struct Pane {
     /// Claude Code session ID for resume.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub claude_session_id: Option<String>,
+    /// Orchestration role (conductor / worker / sub-worker).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub role: Option<AgentRole>,
+    /// Parent pane ID in the orchestration hierarchy.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub parent_pane_id: Option<String>,
+    /// Whether this pane can spawn child agents.
+    #[serde(default)]
+    pub can_spawn: bool,
+    /// Depth in hierarchy: 0=none, 1=conductor, 2=worker, 3=sub-worker.
+    #[serde(default)]
+    pub depth: u8,
 }
 
 /// Type of content displayed in a pane.

@@ -301,6 +301,51 @@ pub fn mux_set_claude_session_id(
     Ok(())
 }
 
+// ── Agent Hierarchy Commands ─────────────────────────────────────────
+
+/// Set a pane's orchestration role.
+#[tauri::command]
+pub fn mux_set_pane_role(
+    state: State<'_, MuxState>,
+    pane_id: String,
+    role: String,
+    parent_pane_id: Option<String>,
+) -> Result<(), String> {
+    use super::types::AgentRole;
+    let parsed_role = match role.as_str() {
+        "Conductor" => AgentRole::Conductor,
+        "Worker" => AgentRole::Worker,
+        "SubWorker" => AgentRole::SubWorker,
+        _ => return Err(format!("Invalid role: {}", role)),
+    };
+    let mut mux = state.lock();
+    mux.set_pane_role(&pane_id, parsed_role, parent_pane_id.as_deref())?;
+    Ok(())
+}
+
+/// Clear a pane's orchestration role (also orphans children).
+#[tauri::command]
+pub fn mux_clear_pane_role(
+    state: State<'_, MuxState>,
+    pane_id: String,
+) -> Result<(), String> {
+    let mut mux = state.lock();
+    mux.clear_pane_role(&pane_id)?;
+    Ok(())
+}
+
+/// Toggle whether a pane can spawn child agents.
+#[tauri::command]
+pub fn mux_set_can_spawn(
+    state: State<'_, MuxState>,
+    pane_id: String,
+    can_spawn: bool,
+) -> Result<(), String> {
+    let mut mux = state.lock();
+    mux.set_can_spawn(&pane_id, can_spawn)?;
+    Ok(())
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /// Kill a list of PTYs by their IDs. Ignores errors for already-exited PTYs.

@@ -14,7 +14,7 @@ use crate::api::events::{EventBroadcasterState, WebhookRegistration};
 use crate::multiplexer::commands::MuxState;
 use crate::notification::NotifState;
 use crate::screenshot::ScreenshotState;
-use crate::{OutputBufferState, PtyState};
+use crate::{AgentTrackerState, OutputBufferState, PtyState, ReportStoreState};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -26,6 +26,8 @@ pub struct AppState {
     pub events: EventBroadcasterState,
     pub app_handle: tauri::AppHandle,
     pub token: Option<String>,
+    pub agent_tracker: AgentTrackerState,
+    pub report_store: ReportStoreState,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -69,6 +71,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/setup/hooks", get(check_hooks_api))
         .route("/api/setup/hooks/install", post(install_hooks_api))
         .route("/api/setup/hooks/uninstall", post(uninstall_hooks_api))
+        // Agent hierarchy
+        .route("/api/panes/{id}/role", post(set_pane_role).delete(clear_pane_role))
+        .route("/api/panes/{id}/status", get(get_pane_status))
+        .route("/api/panes/{id}/children", get(get_pane_children))
+        .route("/api/panes/{id}/report", post(submit_report))
+        .route("/api/panes/{id}/reports", get(get_reports))
+        .route("/api/panes/{id}/can-spawn", post(set_can_spawn))
+        .route("/api/agents", get(list_agents))
+        .route("/api/agents/hierarchy", get(get_hierarchy))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -914,6 +925,268 @@ pub fn detect_tailscale_ip() -> Option<String> {
         if !ip.is_empty() { return Some(ip); }
     }
     None
+}
+
+// ── Agent Hierarchy Endpoints ────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SetRoleBody {
+    role: String,
+    parent_pane_id: Option<String>,
+    can_spawn: Option<bool>,
+}
+
+async fn set_pane_role(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<SetRoleBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    use crate::multiplexer::types::AgentRole;
+    let role = match body.role.as_str() {
+        "Conductor" => AgentRole::Conductor,
+        "Worker" => AgentRole::Worker,
+        "SubWorker" => AgentRole::SubWorker,
+        _ => return Err((StatusCode::BAD_REQUEST, format!("Invalid role: {}", body.role))),
+    };
+    let mut mux = state.mux.lock();
+    mux.set_pane_role(&id, role, body.parent_pane_id.as_deref())
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    if let Some(cs) = body.can_spawn {
+        let _ = mux.set_can_spawn(&id, cs);
+    }
+    let _ = state.app_handle.emit("mux-state-changed", ());
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn clear_pane_role(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let mut mux = state.mux.lock();
+    mux.clear_pane_role(&id).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let _ = state.app_handle.emit("mux-state-changed", ());
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn get_pane_status(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let mux = state.mux.lock();
+    let pane = mux.get_pane(&id).ok_or((StatusCode::NOT_FOUND, "Pane not found".to_string()))?;
+
+    // Get status from tracker (lookup by pty_id)
+    let status = if let Some(ref pty_id) = pane.pty_id {
+        let tracker = state.agent_tracker.lock();
+        format!("{:?}", tracker.get_status(pty_id))
+    } else {
+        "Idle".to_string()
+    };
+
+    let children = mux.get_children_ids(&id);
+
+    Ok(Json(serde_json::json!({
+        "pane_id": pane.id,
+        "status": status,
+        "agent_type": pane.agent_type,
+        "role": pane.role,
+        "parent_pane_id": pane.parent_pane_id,
+        "can_spawn": pane.can_spawn,
+        "depth": pane.depth,
+        "children": children,
+        "cwd": pane.cwd,
+        "title": pane.title,
+    })))
+}
+
+async fn get_pane_children(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let mux = state.mux.lock();
+    let child_ids = mux.get_children_ids(&id);
+    let children: Vec<serde_json::Value> = child_ids.iter().filter_map(|cid| {
+        let p = mux.get_pane(cid)?;
+        Some(serde_json::json!({
+            "pane_id": p.id,
+            "title": p.title,
+            "role": p.role,
+            "depth": p.depth,
+            "agent_type": p.agent_type,
+        }))
+    }).collect();
+    Ok(Json(serde_json::json!(children)))
+}
+
+#[derive(Deserialize)]
+struct ReportBody {
+    message: String,
+}
+
+async fn submit_report(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<ReportBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+
+    // Find this pane and walk up to find the conductor
+    let (from_title, conductor_id) = {
+        let mux = state.mux.lock();
+        let pane = mux.get_pane(&id)
+            .ok_or((StatusCode::NOT_FOUND, "Pane not found".to_string()))?;
+        let title = pane.title.clone();
+
+        // Walk up the hierarchy to find the conductor
+        let mut current_id = id.clone();
+        let mut conductor = None;
+        for _ in 0..3 {
+            let p = mux.get_pane(&current_id);
+            match p {
+                Some(p) if p.role == Some(crate::multiplexer::types::AgentRole::Conductor) => {
+                    conductor = Some(current_id.clone());
+                    break;
+                }
+                Some(p) if p.parent_pane_id.is_some() => {
+                    current_id = p.parent_pane_id.clone().unwrap();
+                }
+                _ => break,
+            }
+        }
+        let conductor_id = conductor
+            .ok_or((StatusCode::BAD_REQUEST, "No conductor found in hierarchy".to_string()))?;
+        (title, conductor_id)
+    };
+
+    let report = state.report_store.lock().add(&conductor_id, &id, &from_title, &body.message);
+
+    // Emit event
+    state.events.broadcast("agent.report", serde_json::json!({
+        "conductor_pane_id": conductor_id,
+        "report": report,
+    }));
+    let _ = state.app_handle.emit("agent-report", serde_json::json!({
+        "conductor_pane_id": conductor_id,
+        "from_pane_id": id,
+        "from_title": from_title,
+        "message": body.message,
+    }));
+
+    Ok(Json(serde_json::json!({"ok": true, "report_id": report.id})))
+}
+
+#[derive(Deserialize)]
+struct ReportsQuery {
+    clear: Option<bool>,
+}
+
+async fn get_reports(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(query): Query<ReportsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let clear = query.clear.unwrap_or(false);
+    let reports = state.report_store.lock().get(&id, clear);
+    Ok(Json(serde_json::to_value(&reports).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+struct CanSpawnBody {
+    can_spawn: bool,
+}
+
+async fn set_can_spawn(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<CanSpawnBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let mut mux = state.mux.lock();
+    mux.set_can_spawn(&id, body.can_spawn)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let _ = state.app_handle.emit("mux-state-changed", ());
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn list_agents(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let mux = state.mux.lock();
+    let tracker = state.agent_tracker.lock();
+    let snap = mux.snapshot();
+    let agents: Vec<serde_json::Value> = snap.panes.values()
+        .filter(|p| p.role.is_some() || p.agent_type.is_some())
+        .map(|p| {
+            let status = p.pty_id.as_ref()
+                .map(|pid| format!("{:?}", tracker.get_status(pid)))
+                .unwrap_or_else(|| "Idle".to_string());
+            serde_json::json!({
+                "pane_id": p.id,
+                "title": p.title,
+                "agent_type": p.agent_type,
+                "role": p.role,
+                "parent_pane_id": p.parent_pane_id,
+                "can_spawn": p.can_spawn,
+                "depth": p.depth,
+                "status": status,
+                "cwd": p.cwd,
+            })
+        })
+        .collect();
+    Ok(Json(serde_json::json!(agents)))
+}
+
+async fn get_hierarchy(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let mux = state.mux.lock();
+    let tracker = state.agent_tracker.lock();
+    let snap = mux.snapshot();
+
+    // Build tree: find conductors, then their children recursively
+    fn build_node(pane_id: &str, snap: &crate::multiplexer::state::MultiplexerSnapshot, tracker: &crate::agent::status::PaneStatusTracker) -> Option<serde_json::Value> {
+        let pane = snap.panes.get(pane_id)?;
+        let status = pane.pty_id.as_ref()
+            .map(|pid| format!("{:?}", tracker.get_status(pid)))
+            .unwrap_or_else(|| "Idle".to_string());
+        let children: Vec<serde_json::Value> = snap.panes.values()
+            .filter(|p| p.parent_pane_id.as_deref() == Some(pane_id))
+            .filter_map(|p| build_node(&p.id, snap, tracker))
+            .collect();
+        Some(serde_json::json!({
+            "pane_id": pane.id,
+            "title": pane.title,
+            "role": pane.role,
+            "depth": pane.depth,
+            "status": status,
+            "agent_type": pane.agent_type,
+            "can_spawn": pane.can_spawn,
+            "children": children,
+        }))
+    }
+
+    let conductors: Vec<serde_json::Value> = snap.panes.values()
+        .filter(|p| p.role == Some(crate::multiplexer::types::AgentRole::Conductor))
+        .filter_map(|p| build_node(&p.id, &snap, &tracker))
+        .collect();
+
+    Ok(Json(serde_json::json!(conductors)))
 }
 
 /// Strip ANSI escape codes from terminal output.

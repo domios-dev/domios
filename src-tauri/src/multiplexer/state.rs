@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::types::{Orientation, Pane, PaneType, SplitNode, Tab, Workspace};
+use super::types::{AgentRole, Orientation, Pane, PaneType, SplitNode, Tab, Workspace};
 
 /// Lightweight workspace summary for listing.
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +39,10 @@ impl MultiplexerState {
             url: None,
             agent_type: None,
             claude_session_id: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: false,
+            depth: 0,
         };
 
         let tab = Tab {
@@ -338,6 +342,10 @@ impl MultiplexerState {
             url: None,
             agent_type: None,
             claude_session_id: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: false,
+            depth: 0,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -355,6 +363,10 @@ impl MultiplexerState {
             url,
             agent_type: None,
             claude_session_id: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: false,
+            depth: 0,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -496,6 +508,9 @@ impl MultiplexerState {
         // Remove from pane registry
         self.panes.remove(pane_id);
 
+        // Orphan any children that pointed to this pane
+        self.orphan_children(pane_id);
+
         // Clear focus if this was the focused pane
         if self.focused_pane_id.as_deref() == Some(pane_id) {
             self.focused_pane_id = None;
@@ -508,6 +523,123 @@ impl MultiplexerState {
     pub fn link_pty(&mut self, pane_id: &str, pty_id: String) {
         if let Some(pane) = self.panes.get_mut(pane_id) {
             pane.pty_id = Some(pty_id);
+        }
+    }
+
+    // ── Agent Hierarchy ──────────────────────────────────────────────
+
+    /// Set a pane's orchestration role with validation.
+    pub fn set_pane_role(
+        &mut self,
+        pane_id: &str,
+        role: AgentRole,
+        parent_pane_id: Option<&str>,
+    ) -> Result<(), String> {
+        // Pane must exist
+        if !self.panes.contains_key(pane_id) {
+            return Err(format!("Pane {} not found", pane_id));
+        }
+
+        match role {
+            AgentRole::Conductor => {
+                // Conductor: no parent, depth 1
+                if parent_pane_id.is_some() {
+                    return Err("Conductor cannot have a parent".to_string());
+                }
+                let pane = self.panes.get_mut(pane_id).unwrap();
+                pane.role = Some(AgentRole::Conductor);
+                pane.parent_pane_id = None;
+                pane.can_spawn = true;
+                pane.depth = 1;
+            }
+            AgentRole::Worker => {
+                let parent_id = parent_pane_id
+                    .ok_or("Worker requires a parent_pane_id")?;
+                let parent = self.panes.get(parent_id)
+                    .ok_or(format!("Parent pane {} not found", parent_id))?;
+                if parent.role != Some(AgentRole::Conductor) {
+                    return Err("Worker's parent must be a Conductor".to_string());
+                }
+                if !parent.can_spawn {
+                    return Err("Parent conductor does not allow spawning".to_string());
+                }
+                let pane = self.panes.get_mut(pane_id).unwrap();
+                pane.role = Some(AgentRole::Worker);
+                pane.parent_pane_id = Some(parent_id.to_string());
+                pane.can_spawn = false;
+                pane.depth = 2;
+            }
+            AgentRole::SubWorker => {
+                let parent_id = parent_pane_id
+                    .ok_or("SubWorker requires a parent_pane_id")?;
+                let parent = self.panes.get(parent_id)
+                    .ok_or(format!("Parent pane {} not found", parent_id))?;
+                if parent.role != Some(AgentRole::Worker) {
+                    return Err("SubWorker's parent must be a Worker".to_string());
+                }
+                if !parent.can_spawn {
+                    return Err("Parent worker does not allow spawning".to_string());
+                }
+                let pane = self.panes.get_mut(pane_id).unwrap();
+                pane.role = Some(AgentRole::SubWorker);
+                pane.parent_pane_id = Some(parent_id.to_string());
+                pane.can_spawn = false;
+                pane.depth = 3;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Clear a pane's orchestration role and orphan its children.
+    pub fn clear_pane_role(&mut self, pane_id: &str) -> Result<(), String> {
+        let pane = self.panes.get_mut(pane_id)
+            .ok_or(format!("Pane {} not found", pane_id))?;
+        pane.role = None;
+        pane.parent_pane_id = None;
+        pane.can_spawn = false;
+        pane.depth = 0;
+        self.orphan_children(pane_id);
+        Ok(())
+    }
+
+    /// Set whether a pane can spawn child agents.
+    pub fn set_can_spawn(&mut self, pane_id: &str, can_spawn: bool) -> Result<(), String> {
+        let pane = self.panes.get_mut(pane_id)
+            .ok_or(format!("Pane {} not found", pane_id))?;
+        if pane.role.is_none() {
+            return Err("Pane has no role".to_string());
+        }
+        // Only conductors and workers can spawn
+        match pane.role {
+            Some(AgentRole::Conductor) | Some(AgentRole::Worker) => {
+                pane.can_spawn = can_spawn;
+                Ok(())
+            }
+            _ => Err("Only Conductor or Worker can spawn children".to_string()),
+        }
+    }
+
+    /// Get IDs of direct children of a pane.
+    pub fn get_children_ids(&self, pane_id: &str) -> Vec<String> {
+        self.panes.values()
+            .filter(|p| p.parent_pane_id.as_deref() == Some(pane_id))
+            .map(|p| p.id.clone())
+            .collect()
+    }
+
+    /// Remove role/parent from all children that point to the given pane.
+    fn orphan_children(&mut self, pane_id: &str) {
+        let child_ids: Vec<String> = self.get_children_ids(pane_id);
+        for cid in &child_ids {
+            // Recursively orphan grandchildren first
+            self.orphan_children(cid);
+            if let Some(child) = self.panes.get_mut(cid) {
+                child.role = None;
+                child.parent_pane_id = None;
+                child.can_spawn = false;
+                child.depth = 0;
+            }
         }
     }
 
@@ -537,11 +669,19 @@ impl MultiplexerState {
                     let cwd = pane.and_then(|p| p.cwd.clone());
                     let agent_type = pane.and_then(|p| p.agent_type.clone());
                     let claude_session_id = pane.and_then(|p| p.claude_session_id.clone());
+                    let role = pane.and_then(|p| p.role.map(|r| format!("{:?}", r)));
+                    let parent_pane_id = pane.and_then(|p| p.parent_pane_id.clone());
+                    let can_spawn = pane.map(|p| p.can_spawn).unwrap_or(false);
+                    let depth = pane.map(|p| p.depth).unwrap_or(0);
                     SplitNodeSnapshot::Leaf {
                         pane_id: pane_id.clone(),
                         cwd,
                         agent_type,
                         claude_session_id,
+                        role,
+                        parent_pane_id,
+                        can_spawn,
+                        depth,
                     }
                 }
                 SplitNode::Split { orientation, ratio, children } => SplitNodeSnapshot::Split {
@@ -587,7 +727,13 @@ impl MultiplexerState {
 
         fn snapshot_to_split(node: &SplitNodeSnapshot, panes: &mut HashMap<String, Pane>) -> SplitNode {
             match node {
-                SplitNodeSnapshot::Leaf { pane_id, cwd, agent_type, claude_session_id } => {
+                SplitNodeSnapshot::Leaf { pane_id, cwd, agent_type, claude_session_id, role, parent_pane_id, can_spawn, depth } => {
+                    let parsed_role = role.as_deref().and_then(|r| match r {
+                        "Conductor" => Some(crate::multiplexer::types::AgentRole::Conductor),
+                        "Worker" => Some(crate::multiplexer::types::AgentRole::Worker),
+                        "SubWorker" => Some(crate::multiplexer::types::AgentRole::SubWorker),
+                        _ => None,
+                    });
                     panes.insert(pane_id.clone(), Pane {
                         id: pane_id.clone(),
                         pty_id: None,
@@ -597,6 +743,10 @@ impl MultiplexerState {
                         url: None,
                         agent_type: agent_type.clone(),
                         claude_session_id: claude_session_id.clone(),
+                        role: parsed_role,
+                        parent_pane_id: parent_pane_id.clone(),
+                        can_spawn: *can_spawn,
+                        depth: *depth,
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }

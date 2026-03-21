@@ -88,4 +88,9 @@ impl PaneStatusTracker {
     pub fn remove(&mut self, pane_id: &str) {
         self.pane_statuses.remove(pane_id);
     }
+
+    /// Returns all tracked pane/pty IDs.
+    pub fn all_ids(&self) -> Vec<String> {
+        self.pane_statuses.keys().cloned().collect()
+    }
 }

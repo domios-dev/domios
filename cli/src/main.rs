@@ -90,6 +90,12 @@ enum Commands {
         #[command(subcommand)]
         action: ThemeAction,
     },
+
+    /// Agent hierarchy management
+    Agent {
+        #[command(subcommand)]
+        action: AgentAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -211,6 +217,73 @@ enum ThemeAction {
     },
     /// Show the custom themes directory path
     Dir,
+}
+
+#[derive(Subcommand)]
+enum AgentAction {
+    /// List all agent panes (with roles)
+    List,
+    /// Show full hierarchy tree
+    Hierarchy,
+    /// Mark a pane as conductor
+    SetConductor {
+        /// Pane ID (default: current focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+    },
+    /// Link a pane as worker under a parent
+    Link {
+        /// Parent pane ID (conductor or worker)
+        #[arg(long)]
+        parent: String,
+        /// Pane ID to link (default: current focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+    },
+    /// Remove a pane's role (also orphans children)
+    Unlink {
+        /// Pane ID (default: current focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+    },
+    /// List children of a pane
+    Children {
+        /// Pane ID (default: current focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+    },
+    /// Toggle whether a pane can spawn children
+    AllowSpawn {
+        /// Pane ID (default: current focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+        /// Enable or disable spawning
+        #[arg(long, default_value = "true")]
+        enable: bool,
+    },
+    /// Send a report to the hierarchy's conductor
+    Report {
+        /// Report message
+        message: String,
+        /// Pane ID (default: current focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+    },
+    /// Read reports (for conductor panes)
+    Reports {
+        /// Pane ID (default: current focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+        /// Clear reports after reading
+        #[arg(long)]
+        clear: bool,
+    },
+    /// Get detailed status of a pane
+    Status {
+        /// Pane ID (default: current focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+    },
 }
 
 /// Resolve pane ID: use provided value or fetch the current focused pane.
@@ -401,6 +474,177 @@ fn main() {
                 Some(serde_json::json!({ "unread_only": unread })),
             ),
         },
+
+        Commands::Agent { action } => {
+            let base = "http://127.0.0.1:7685";
+            let http = reqwest::blocking::Client::new();
+            match action {
+                AgentAction::List => {
+                    match http.get(format!("{}/api/agents", base)).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if let Some(arr) = val.as_array() {
+                                if arr.is_empty() { println!("No agents found."); }
+                                for a in arr { print_object(a); println!(); }
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Hierarchy => {
+                    match http.get(format!("{}/api/agents/hierarchy", base)).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                fn print_tree(node: &serde_json::Value, indent: usize) {
+                                    let prefix = "  ".repeat(indent);
+                                    let role = node.get("role").and_then(|v| v.as_str()).unwrap_or("?");
+                                    let title = node.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+                                    let status = node.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+                                    let icon = match role {
+                                        "Conductor" => "★",
+                                        "Worker" => "⚙",
+                                        "SubWorker" => "◦",
+                                        _ => "·",
+                                    };
+                                    println!("{}{} {} [{}] ({})", prefix, icon, title, status, role);
+                                    if let Some(children) = node.get("children").and_then(|v| v.as_array()) {
+                                        for c in children { print_tree(c, indent + 1); }
+                                    }
+                                }
+                                if let Some(arr) = val.as_array() {
+                                    if arr.is_empty() { println!("No hierarchy found."); }
+                                    for c in arr { print_tree(c, 0); }
+                                }
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::SetConductor { pane } => {
+                    let pane_id = resolve_pane(&mut client, pane);
+                    match http.post(format!("{}/api/panes/{}/role", base, pane_id))
+                        .json(&serde_json::json!({"role": "Conductor"}))
+                        .send()
+                    {
+                        Ok(resp) => { let v: serde_json::Value = resp.json().unwrap_or_default(); println!("{}", serde_json::to_string_pretty(&v).unwrap()); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Link { parent, pane } => {
+                    let pane_id = resolve_pane(&mut client, pane);
+                    // Determine role based on parent's role
+                    let parent_resp = http.get(format!("{}/api/panes/{}/status", base, parent)).send();
+                    let role = match parent_resp {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            match val.get("role").and_then(|v| v.as_str()) {
+                                Some("Conductor") => "Worker",
+                                Some("Worker") => "SubWorker",
+                                _ => { eprintln!("Parent must be Conductor or Worker"); std::process::exit(1); }
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    };
+                    match http.post(format!("{}/api/panes/{}/role", base, pane_id))
+                        .json(&serde_json::json!({"role": role, "parent_pane_id": parent}))
+                        .send()
+                    {
+                        Ok(resp) => { let v: serde_json::Value = resp.json().unwrap_or_default(); println!("{}", serde_json::to_string_pretty(&v).unwrap()); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Unlink { pane } => {
+                    let pane_id = resolve_pane(&mut client, pane);
+                    match http.delete(format!("{}/api/panes/{}/role", base, pane_id)).send() {
+                        Ok(resp) => { let v: serde_json::Value = resp.json().unwrap_or_default(); println!("{}", serde_json::to_string_pretty(&v).unwrap()); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Children { pane } => {
+                    let pane_id = resolve_pane(&mut client, pane);
+                    match http.get(format!("{}/api/panes/{}/children", base, pane_id)).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if let Some(arr) = val.as_array() {
+                                if arr.is_empty() { println!("No children."); }
+                                for c in arr { print_object(c); println!(); }
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::AllowSpawn { pane, enable } => {
+                    let pane_id = resolve_pane(&mut client, pane);
+                    match http.post(format!("{}/api/panes/{}/can-spawn", base, pane_id))
+                        .json(&serde_json::json!({"can_spawn": enable}))
+                        .send()
+                    {
+                        Ok(resp) => { let v: serde_json::Value = resp.json().unwrap_or_default(); println!("{}", serde_json::to_string_pretty(&v).unwrap()); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Report { message, pane } => {
+                    let pane_id = resolve_pane(&mut client, pane);
+                    match http.post(format!("{}/api/panes/{}/report", base, pane_id))
+                        .json(&serde_json::json!({"message": message}))
+                        .send()
+                    {
+                        Ok(resp) => { let v: serde_json::Value = resp.json().unwrap_or_default(); println!("{}", serde_json::to_string_pretty(&v).unwrap()); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Reports { pane, clear } => {
+                    let pane_id = resolve_pane(&mut client, pane);
+                    let url = if clear {
+                        format!("{}/api/panes/{}/reports?clear=true", base, pane_id)
+                    } else {
+                        format!("{}/api/panes/{}/reports", base, pane_id)
+                    };
+                    match http.get(&url).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if let Some(arr) = val.as_array() {
+                                if arr.is_empty() { println!("No reports."); }
+                                for r in arr {
+                                    let from = r.get("from_title").and_then(|v| v.as_str()).unwrap_or("?");
+                                    let msg = r.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                                    println!("[{}] {}", from, msg);
+                                }
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Status { pane } => {
+                    let pane_id = resolve_pane(&mut client, pane);
+                    match http.get(format!("{}/api/panes/{}/status", base, pane_id)).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                print_object(&val);
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+            }
+        }
 
         Commands::Theme { action } => {
             // Theme commands use REST API (port 7685)
