@@ -79,6 +79,7 @@ pub fn run() {
         .manage(screenshot_state.clone())
         .invoke_handler(tauri::generate_handler![
             // PTY commands
+            commands::get_default_cwd,
             commands::spawn_pty,
             commands::read_pty,
             commands::write_pty,
@@ -111,6 +112,10 @@ pub fn run() {
             multiplexer::commands::mux_close_pane,
             multiplexer::commands::mux_set_focused_pane,
             multiplexer::commands::mux_link_pty,
+            multiplexer::commands::mux_update_pane_cwd,
+            multiplexer::commands::mux_set_pane_agent_type,
+            multiplexer::commands::detect_claude_session_id,
+            multiplexer::commands::mux_set_claude_session_id,
             // Notification commands
             notification::notify,
             notification::list_notifications,
@@ -225,12 +230,32 @@ pub fn run() {
                     .build(app)?;
             }
 
+            // Auto-save session every 30 seconds
+            {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(30));
+                        if let (Some(mux), Some(session)) = (
+                            app_handle.try_state::<MuxState>(),
+                            app_handle.try_state::<SessionState>(),
+                        ) {
+                            let snapshot = mux.lock().to_session_snapshot();
+                            if let Err(e) = session.lock().save(&snapshot) {
+                                log::warn!("Auto-save failed: {}", e);
+                            }
+                        }
+                    }
+                });
+            }
+
             // PTY read loops are started by spawn_pty command (initiated by frontend)
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Save session on close
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                // Only save session for main window, not notification popups
+                if window.label() != "main" { return; }
                 let app = window.app_handle();
                 if let (Some(mux), Some(session)) = (
                     app.try_state::<MuxState>(),

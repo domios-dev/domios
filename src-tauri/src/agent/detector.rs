@@ -202,26 +202,17 @@ pub enum AgentEvent {
 pub fn detect_claude_events(text: &str) -> Vec<AgentEvent> {
     let mut events = Vec::new();
 
-    // Permission/approval request patterns
+    // Permission/approval — Claude Code specific patterns (not generic shell prompts)
     if text.contains("Do you want to proceed?")
-        || text.contains("Yes, and don't ask again")
-        || text.contains("Enter to confirm")
         || (text.contains("1. Yes") && text.contains("2. Yes, and"))
-        || (text.contains("1.") && text.contains("No") && text.contains("Yes"))
     {
         events.push(AgentEvent::PermissionRequest);
     }
 
-    // Task completion — Claude Code returned to idle prompt.
-    // After ANSI stripping, these patterns indicate ready state:
-    // - "? for shortcuts" — bottom bar of Claude Code TUI
-    // - "for shortcuts" — partial match
-    // - The ❯ prompt character at line start (Claude Code prompt)
-    // - "Cogitated" / "Brewed" / cost summary lines indicate task just finished
-    if text.contains("for shortcuts")
-        || text.contains("\u{276f}") // ❯ prompt
-        || text.contains("Cogitated for")
+    // Task completion — only specific Claude Code cost/timing patterns
+    if text.contains("Cogitated for")
         || text.contains("Brewed for")
+        || text.contains("Reasoned for")
     {
         events.push(AgentEvent::TaskComplete);
     }

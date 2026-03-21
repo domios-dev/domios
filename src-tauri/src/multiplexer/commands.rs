@@ -210,6 +210,88 @@ pub fn mux_link_pty(
     Ok(())
 }
 
+/// Update the working directory of a pane (called from OSC 7 handler).
+#[tauri::command]
+pub fn mux_update_pane_cwd(
+    state: State<'_, MuxState>,
+    pane_id: String,
+    cwd: String,
+) -> Result<(), String> {
+    let mut mux = state.lock();
+    if let Some(pane) = mux.get_pane_mut(&pane_id) {
+        pane.cwd = Some(cwd);
+    }
+    Ok(())
+}
+
+/// Update the agent type of a pane (called when Claude Code is detected).
+#[tauri::command]
+pub fn mux_set_pane_agent_type(
+    state: State<'_, MuxState>,
+    pane_id: String,
+    agent_type: Option<String>,
+) -> Result<(), String> {
+    let mut mux = state.lock();
+    if let Some(pane) = mux.get_pane_mut(&pane_id) {
+        pane.agent_type = agent_type;
+    }
+    Ok(())
+}
+
+/// Detect Claude Code session IDs for a given working directory.
+/// Returns all session UUIDs sorted by modified time (newest first).
+/// The `exclude` parameter allows skipping already-assigned session IDs.
+#[tauri::command]
+pub fn detect_claude_session_id(
+    cwd: String,
+    exclude: Option<Vec<String>>,
+) -> Result<Option<String>, String> {
+    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+    let encoded: String = cwd.chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
+    let sessions_dir = home.join(".claude").join("projects").join(&encoded);
+
+    if !sessions_dir.exists() {
+        return Ok(None);
+    }
+
+    let excluded = exclude.unwrap_or_default();
+    let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
+
+    if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".jsonl") {
+                let stem = name.trim_end_matches(".jsonl");
+                if stem.len() >= 32 && stem.contains('-') && !excluded.contains(&stem.to_string()) {
+                    if let Ok(meta) = entry.metadata() {
+                        if let Ok(modified) = meta.modified() {
+                            sessions.push((stem.to_string(), modified));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort newest first
+    sessions.sort_by(|a, b| b.1.cmp(&a.1));
+    Ok(sessions.first().map(|(id, _)| id.clone()))
+}
+
+/// Store a detected Claude session ID on a pane.
+#[tauri::command]
+pub fn mux_set_claude_session_id(
+    state: State<'_, MuxState>,
+    pane_id: String,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    let mut mux = state.lock();
+    if let Some(pane) = mux.get_pane_mut(&pane_id) {
+        pane.claude_session_id = session_id;
+    }
+    Ok(())
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /// Kill a list of PTYs by their IDs. Ignores errors for already-exited PTYs.

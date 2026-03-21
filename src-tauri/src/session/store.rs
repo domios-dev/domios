@@ -31,6 +31,11 @@ pub enum SplitNodeSnapshot {
     Leaf {
         pane_id: String,
         cwd: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agent_type: Option<String>,
+        /// Claude Code session ID for --resume
+        #[serde(skip_serializing_if = "Option::is_none")]
+        claude_session_id: Option<String>,
     },
     Split {
         orientation: String,
