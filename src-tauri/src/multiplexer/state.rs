@@ -37,6 +37,8 @@ impl MultiplexerState {
             title: "Terminal".to_string(),
             cwd: None,
             url: None,
+            agent_type: None,
+            claude_session_id: None,
         };
 
         let tab = Tab {
@@ -334,6 +336,8 @@ impl MultiplexerState {
             title: "Terminal".to_string(),
             cwd: None,
             url: None,
+            agent_type: None,
+            claude_session_id: None,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -349,6 +353,8 @@ impl MultiplexerState {
             title: "Browser".to_string(),
             cwd: None,
             url,
+            agent_type: None,
+            claude_session_id: None,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -527,10 +533,15 @@ impl MultiplexerState {
         fn split_to_snapshot(node: &SplitNode, panes: &HashMap<String, Pane>) -> SplitNodeSnapshot {
             match node {
                 SplitNode::Leaf { pane_id } => {
-                    let cwd = panes.get(pane_id).and_then(|p| p.cwd.clone());
+                    let pane = panes.get(pane_id);
+                    let cwd = pane.and_then(|p| p.cwd.clone());
+                    let agent_type = pane.and_then(|p| p.agent_type.clone());
+                    let claude_session_id = pane.and_then(|p| p.claude_session_id.clone());
                     SplitNodeSnapshot::Leaf {
                         pane_id: pane_id.clone(),
                         cwd,
+                        agent_type,
+                        claude_session_id,
                     }
                 }
                 SplitNode::Split { orientation, ratio, children } => SplitNodeSnapshot::Split {
@@ -576,7 +587,7 @@ impl MultiplexerState {
 
         fn snapshot_to_split(node: &SplitNodeSnapshot, panes: &mut HashMap<String, Pane>) -> SplitNode {
             match node {
-                SplitNodeSnapshot::Leaf { pane_id, cwd } => {
+                SplitNodeSnapshot::Leaf { pane_id, cwd, agent_type, claude_session_id } => {
                     panes.insert(pane_id.clone(), Pane {
                         id: pane_id.clone(),
                         pty_id: None,
@@ -584,6 +595,8 @@ impl MultiplexerState {
                         title: "Terminal".to_string(),
                         cwd: cwd.clone(),
                         url: None,
+                        agent_type: agent_type.clone(),
+                        claude_session_id: claude_session_id.clone(),
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }

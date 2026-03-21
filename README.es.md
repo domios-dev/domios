@@ -1,0 +1,283 @@
+<p align="center">
+  <img src="assets/logo.png" alt="CodeTerm" width="128" />
+</p>
+
+<h1 align="center">CodeTerm</h1>
+
+<p align="center">
+  <strong>Multiplexor de terminal orientado a IA</strong><br>
+  Diseñado para desarrolladores que utilizan agentes de codificación con IA como parte de su flujo de trabajo.
+</p>
+
+<p align="center">
+  <a href="#características">Características</a> &bull;
+  <a href="#instalación">Instalación</a> &bull;
+  <a href="#atajos-de-teclado">Atajos</a> &bull;
+  <a href="#api">API</a> &bull;
+  <a href="#configuración">Configuración</a> &bull;
+  <a href="#compilación-desde-el-código-fuente">Compilar</a>
+</p>
+
+<p align="center">
+  <a href="README.md">English</a> &bull;
+  <a href="README.zh.md">中文</a> &bull;
+  <a href="README.ja.md">日本語</a> &bull;
+  <a href="README.ko.md">한국어</a> &bull;
+  <a href="README.de.md">Deutsch</a> &bull;
+  <a href="README.fr.md">Français</a> &bull;
+  <a href="README.pt.md">Português</a> &bull;
+  <a href="README.ru.md">Русский</a>
+</p>
+
+<!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
+<!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+
+---
+
+## ¿Qué es CodeTerm?
+
+CodeTerm es un multiplexor de terminal multiplataforma diseñado desde cero para el desarrollo asistido por IA. Combina la potencia de un multiplexor de terminal (como tmux) con soporte nativo para agentes de codificación con IA como Claude Code.
+
+**Diferencia clave con otros terminales:** CodeTerm expone una API REST completa, CLI y API de sockets — para que los agentes de IA puedan crear espacios de trabajo, dividir paneles, ejecutar comandos, leer la salida y gestionar todo el terminal de forma programática. Tu asistente de IA se convierte en un ciudadano de primera clase en tu flujo de trabajo en la terminal.
+
+Construido con **Tauri v2** (Rust) + **React** + **xterm.js**.
+
+## Características
+
+### Multiplexor de Terminal
+- **Espacios de trabajo y pestañas** — organiza proyectos en espacios de trabajo separados, cada uno con múltiples pestañas
+- **División de paneles** — divide horizontal y verticalmente con separadores arrastrables
+- **Persistencia de sesión** — los espacios de trabajo, pestañas, diseño de paneles y directorios de trabajo se guardan y restauran entre reinicios
+- **Navegación espacial de paneles** — muévete entre paneles con Alt+Flechas
+
+### Integración con Agentes de IA
+- **Detección de agentes** — detecta automáticamente Claude Code ejecutándose en un panel (indicador naranja)
+- **Reanudación de sesión** — guarda los IDs de sesión de Claude Code y los reanuda al reiniciar con `--resume`
+- **Notificaciones de permisos** — muestra las solicitudes de permisos de Claude Code como notificaciones de escritorio
+- **Sistema de webhooks** — registra webhooks para eventos de agentes (solicitudes de permisos, finalización de tareas)
+- **Control programático** — los agentes pueden crear paneles, ejecutar comandos y leer la salida a través de la API
+
+### API Completa
+- **API REST** — más de 30 endpoints para control total del terminal (puerto 7685)
+- **Herramienta CLI** — herramienta de línea de comandos `codeterm` para scripting y automatización
+- **API de sockets** — JSON-RPC v2 a través de named pipes (Windows) / sockets Unix
+- **Streaming en tiempo real** — endpoint SSE para salida del terminal en vivo
+- **Captura de salida** — paginación basada en cursor, eliminación de ANSI, capturas de pantalla
+
+### Temas
+- **8 temas integrados** — GitHub Dark, Dracula, Catppuccin Mocha, One Dark, Nord, GitHub Light, Solarized Light, Pip-Boy
+- **Modo CRT Pip-Boy** — líneas de escaneo, brillo de fósforo, parpadeo de pantalla (se activa automáticamente)
+- **Tematización completa de la interfaz** — los temas se aplican a toda la interfaz, no solo a la terminal
+- **Colores personalizados** — modifica colores individuales en `config.toml`
+- **Soporte para temas claros** — la derivación automática de colores funciona tanto para temas claros como oscuros
+
+### Navegador Integrado
+- **Paneles de navegador** — abre páginas web junto a tu terminal
+- **Servicio de archivos locales** — renderiza HTML/visualizaciones locales en paneles de navegador
+- **Controles de navegación** — atrás, adelante, actualizar, barra de URL
+
+### Experiencia de Desarrollo
+- **Barras de desplazamiento estilo macOS** — finas, redondeadas, discretas
+- **Arrastrar y soltar** — arrastra archivos a la terminal (los archivos de texto pegan el contenido, las imágenes se guardan en disco)
+- **Autocompletado de pestañas** — motor de completado de shell integrado
+- **Búsqueda** — Ctrl+Shift+F para buscar en la salida del terminal
+- **Campanilla visual** — destello de pantalla en lugar de audio
+- **Seguimiento de CWD** — rastrea el directorio de trabajo mediante secuencias de escape OSC 7
+
+## Instalación
+
+### Descarga
+
+Los binarios precompilados estarán disponibles en la página de [Releases](https://github.com/rollacode/codeterm/releases).
+
+### Compilación desde el Código Fuente
+
+**Prerrequisitos:**
+- [Node.js](https://nodejs.org/) 18+
+- [pnpm](https://pnpm.io/) 10+
+- [Rust](https://rustup.rs/) 1.75+
+- Herramientas de compilación específicas de la plataforma (Visual Studio Build Tools en Windows, Xcode en macOS)
+
+```bash
+git clone https://github.com/rollacode/codeterm.git
+cd codeterm
+pnpm install
+
+# Desarrollo
+pnpm tauri dev
+
+# Compilación de producción
+pnpm tauri build
+
+# Herramienta CLI
+cd cli && cargo build --release
+```
+
+## Atajos de Teclado
+
+| Atajo | Acción |
+|-------|--------|
+| `Ctrl+Shift+T` | Nueva pestaña |
+| `Ctrl+Shift+W` | Cerrar pestaña |
+| `Ctrl+Shift+D` | Dividir a la derecha |
+| `Ctrl+Shift+E` | Dividir hacia abajo |
+| `Ctrl+Shift+Q` | Cerrar panel |
+| `Ctrl+Shift+N` | Nuevo espacio de trabajo |
+| `Ctrl+Shift+B` | Abrir panel de navegador |
+| `Ctrl+Shift+F` | Buscar en la terminal |
+| `Ctrl+Shift+C` | Copiar |
+| `Ctrl+Shift+V` | Pegar |
+| `Ctrl+Tab` | Siguiente pestaña |
+| `Ctrl+Shift+Tab` | Pestaña anterior |
+| `Ctrl+1-9` | Cambiar a pestaña N |
+| `Ctrl+,` | Configuración |
+| `Ctrl+=` / `Ctrl+-` | Acercar/alejar |
+| `Ctrl+0` | Restablecer zoom |
+| `Alt+Flechas` | Navegar entre paneles |
+
+## API
+
+CodeTerm expone tres APIs para integración:
+
+### API REST (puerto 7685)
+
+```bash
+# Listar paneles
+curl http://localhost:7685/api/panes
+
+# Ejecutar un comando y obtener la salida
+curl -X POST http://localhost:7685/api/panes/{id}/exec \
+  -H "Content-Type: application/json" \
+  -d '{"command": "git status"}'
+
+# Enviar texto a la terminal
+curl -X POST http://localhost:7685/api/panes/{id}/send \
+  -H "Content-Type: application/json" \
+  -d '{"text": "npm test", "enter": true}'
+
+# Crear espacio de trabajo
+curl -X POST http://localhost:7685/api/workspaces \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Mi Proyecto"}'
+
+# Dividir panel
+curl -X POST http://localhost:7685/api/panes/{id}/split \
+  -H "Content-Type: application/json" \
+  -d '{"direction": "right"}'
+
+# Streaming de salida en tiempo real (SSE)
+curl http://localhost:7685/api/panes/{id}/output/stream
+```
+
+### Herramienta CLI
+
+```bash
+# Gestión de espacios de trabajo
+codeterm workspace list
+codeterm workspace create "Project"
+
+# Control de la terminal
+codeterm pane list
+codeterm pane split PANE_ID --direction right
+codeterm send-text PANE_ID "npm run build"
+codeterm get-output PANE_ID --lines 50
+
+# Notificaciones
+codeterm notify "Build complete" --level info
+
+# Navegador
+codeterm browser open "http://localhost:3000"
+```
+
+### Variables de Entorno
+
+CodeTerm establece estas variables en cada sesión PTY:
+
+| Variable | Descripción |
+|----------|-------------|
+| `CODETERM` | Siempre `1` — detecta si se ejecuta dentro de CodeTerm |
+| `CODETERM_PANE_ID` | UUID del panel actual |
+| `CODETERM_SOCKET_PATH` | Ruta del socket para la API JSON-RPC |
+| `TERM_PROGRAM` | `CodeTerm` |
+
+Consulta la [Referencia de API](docs/API.md) para la documentación completa de endpoints.
+
+## Configuración
+
+Archivo de configuración: `%APPDATA%/codeterm/config.toml` (Windows) o `~/.config/codeterm/config.toml`
+
+```toml
+[theme]
+name = "github-dark"
+# Disponibles: github-dark, dracula, catppuccin-mocha, one-dark, nord,
+#              github-light, solarized-light, pip-boy
+
+[font]
+family = "JetBrains Mono, Cascadia Code, Fira Code, Consolas, monospace"
+size = 14
+ligatures = true
+
+[terminal]
+cursor_style = "block"    # block, underline, bar
+cursor_blink = true
+scrollback = 10000
+copy_on_select = false
+
+[api]
+enabled = true
+port = 7685
+# token = "your-secret-token"
+```
+
+Consulta la [Guía de Configuración](docs/CONFIG.md) para todas las opciones.
+
+## Arquitectura
+
+```
+┌─────────────────────────────────────────────┐
+│                  CodeTerm                    │
+│  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
+│  │ React UI │  │ xterm.js │  │  Browser   │  │
+│  │ Sidebar  │  │ Terminal │  │   Panes    │  │
+│  └────┬─────┘  └────┬─────┘  └─────┬─────┘  │
+│       │              │              │        │
+│  ┌────┴──────────────┴──────────────┴────┐   │
+│  │           Tauri v2 (Rust)             │   │
+│  │  ┌────────┐ ┌─────┐ ┌─────────────┐  │   │
+│  │  │  Mux   │ │ PTY │ │  REST API   │  │   │
+│  │  │ State  │ │ Mgr │ │  (Axum)     │  │   │
+│  │  └────────┘ └─────┘ └─────────────┘  │   │
+│  │  ┌────────┐ ┌─────────┐ ┌─────────┐  │   │
+│  │  │Session │ │  Agent  │ │ Socket  │  │   │
+│  │  │Persist │ │Detector │ │JSON-RPC │  │   │
+│  │  └────────┘ └─────────┘ └─────────┘  │   │
+│  └───────────────────────────────────────┘   │
+└─────────────────────────────────────────────┘
+```
+
+## Stack Tecnológico
+
+| Capa | Tecnología |
+|------|-----------|
+| Framework | Tauri v2 |
+| Backend | Rust, Axum, tokio |
+| Frontend | React 19, TypeScript, Tailwind CSS 4 |
+| Terminal | xterm.js 6 (renderizador WebGL) |
+| PTY | portable-pty, ConPTY (Windows) |
+| Compilación | pnpm, Cargo |
+
+## Plataformas
+
+| Plataforma | Estado |
+|------------|--------|
+| Windows | Soportado |
+| macOS | Soportado |
+| Linux | Soportado |
+
+## Licencia
+
+MIT
+
+## Contribuciones
+
+Las contribuciones son bienvenidas. Por favor, abre un issue primero para discutir lo que te gustaría cambiar.

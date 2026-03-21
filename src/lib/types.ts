@@ -26,6 +26,7 @@ export interface Pane {
   url?: string;
   pinned_title?: boolean;
   agent_type?: "claude" | null;
+  claude_session_id?: string | null;
 }
 
 export interface MultiplexerState {

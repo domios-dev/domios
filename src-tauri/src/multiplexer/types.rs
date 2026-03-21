@@ -128,6 +128,12 @@ pub struct Pane {
     /// URL for browser panes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Agent type (e.g. "claude") — set by frontend when detected.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_type: Option<String>,
+    /// Claude Code session ID for resume.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub claude_session_id: Option<String>,
 }
 
 /// Type of content displayed in a pane.

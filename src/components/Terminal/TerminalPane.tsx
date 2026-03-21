@@ -265,7 +265,7 @@ export function TerminalPane({
         "'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace",
       scrollback: terminalConfig?.scrollback ?? 10000,
       theme: buildXtermTheme(theme),
-      overviewRulerWidth: 5,
+      overviewRuler: { width: 5 },
       allowProposedApi: true,
       // Critical for ConPTY on Windows — enables proper raw mode + cursor key handling
       windowsPty: {
@@ -315,8 +315,45 @@ export function TerminalPane({
         // Detect Claude Code from OSC title
         if (/claude/i.test(title)) {
           setAgentType(paneId, "claude");
+          invoke("mux_set_pane_agent_type", { paneId, agentType: "claude" }).catch(() => {});
+          // Detect and save the Claude session ID for future resume
+          // Collect already-assigned session IDs to avoid duplicates
+          const excludeIds = Object.values(state.panes)
+            .map((p) => p.claude_session_id)
+            .filter((id): id is string => !!id);
+          const paneCwd = state.panes[paneId]?.cwd;
+          if (paneCwd) {
+            invoke<string | null>("detect_claude_session_id", { cwd: paneCwd, exclude: excludeIds })
+              .then((sessionId) => {
+                if (sessionId) {
+                  invoke("mux_set_claude_session_id", { paneId, sessionId }).catch(() => {});
+                }
+              })
+              .catch(() => {});
+          }
         }
       }
+    });
+
+    // OSC 7: track working directory changes
+    // Format: ESC ] 7 ; file://HOST/PATH ST
+    term.parser.registerOscHandler(7, (data) => {
+      try {
+        const url = new URL(data);
+        let dir = decodeURIComponent(url.pathname);
+        // Windows: /C:/Users/... → C:/Users/...
+        if (/^\/[A-Z]:/i.test(dir)) dir = dir.slice(1);
+        // Only update if we got a real path (not empty)
+        if (dir && dir.length > 2) {
+          invoke("mux_update_pane_cwd", { paneId, cwd: dir }).catch(() => {});
+        }
+      } catch {
+        // Some shells send just a path without file:// scheme
+        if (data && data.length > 2) {
+          invoke("mux_update_pane_cwd", { paneId, cwd: data }).catch(() => {});
+        }
+      }
+      return true;
     });
 
     fitAddon.fit();
@@ -597,8 +634,11 @@ export function TerminalPane({
         // Ensure minimum size (hidden tabs may report 0)
         const cols = Math.max(term.cols, 80);
         const rows = Math.max(term.rows, 24);
+        // Pass saved CWD from pane data (session restore)
+        const paneData = state.panes[paneId];
+        const cwd = paneData?.cwd || undefined;
         const spawnedId = await invoke<string>("spawn_pty", {
-          cols, rows, predictedId,
+          cols, rows, predictedId, cwd,
         });
         if (disposed) {
           invoke("kill_pty", { ptyId: spawnedId }).catch(() => {});
@@ -607,6 +647,40 @@ export function TerminalPane({
         // Link PTY to pane in backend
         await invoke("mux_link_pty", { paneId, ptyId: spawnedId });
         onPtySpawned?.(paneId, spawnedId);
+
+        // Save initial CWD on the pane (if not already set from session restore)
+        if (!paneData?.cwd) {
+          // Default CWD is the app's working directory
+          const defaultCwd = await invoke<string>("get_default_cwd").catch(() => null);
+          if (defaultCwd) {
+            invoke("mux_update_pane_cwd", { paneId, cwd: defaultCwd }).catch(() => {});
+          }
+        }
+
+        // Inject OSC 7 CWD reporting into shell prompt
+        // First set helper variables, then define the function (avoids line wrapping)
+        setTimeout(() => {
+          // Set ESC and BEL as PowerShell variables first
+          invoke("write_pty_string", { ptyId: spawnedId, data: "$e=[char]27;$b=[char]7\r" }).catch(() => {});
+          setTimeout(() => {
+            // Define prompt function using the variables
+            invoke("write_pty_string", { ptyId: spawnedId, data: "function prompt{$f=$pwd.Path.Replace('\\','/');\"$e]7;file:///$f$b\"+\"PS $pwd> \"}\r" }).catch(() => {});
+            setTimeout(() => {
+              invoke("write_pty_string", { ptyId: spawnedId, data: "cls\r" }).catch(() => {});
+            }, 200);
+          }, 200);
+        }, 500);
+
+        // If this pane had Claude Code running, resume after prompt is ready
+        if (paneData?.agent_type === "claude") {
+          const claudeSessionId = paneData?.claude_session_id;
+          const resumeCmd = claudeSessionId
+            ? `claude --resume ${claudeSessionId}`
+            : `claude --continue`;
+          setTimeout(() => {
+            invoke("write_pty_string", { ptyId: spawnedId, data: resumeCmd + "\r" }).catch(() => {});
+          }, 1500); // Wait for prompt injection + cls to finish
+        }
 
         // Sync PTY size with actual xterm dimensions after connection
         requestAnimationFrame(() => {

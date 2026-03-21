@@ -956,49 +956,59 @@ pub fn send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, bo
     }
 }
 
-/// Send notification as a popup window in bottom-right corner.
+/// Single notification popup — reuses existing window, auto-closes after 4s.
 pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
-    use tauri::{Manager, Listener};
+    use tauri::Manager;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static NOTIF_ACTIVE: AtomicBool = AtomicBool::new(false);
+    static LAST_MSG: parking_lot::Mutex<String> = parking_lot::Mutex::new(String::new());
+
+    let msg = format!("{}: {}", title, body.unwrap_or(""));
+
+    // Skip duplicate
+    {
+        let last = LAST_MSG.lock();
+        if *last == msg && NOTIF_ACTIVE.load(Ordering::Relaxed) {
+            return;
+        }
+    }
+    *LAST_MSG.lock() = msg.clone();
 
     let title = title.to_string();
     let body = body.unwrap_or("").to_string();
     let app = app.clone();
 
+    // If notification already showing, update its content
+    if NOTIF_ACTIVE.load(Ordering::Relaxed) {
+        if let Some(win) = app.get_webview_window("codeterm-notif") {
+            let html = build_notif_html(&title, &body);
+            let _ = win.eval(&format!(
+                "document.open();document.write({});document.close();",
+                serde_json::to_string(&html).unwrap_or_default()
+            ));
+            return;
+        }
+    }
+
+    NOTIF_ACTIVE.store(true, Ordering::Relaxed);
+
     std::thread::spawn(move || {
-        let (screen_w, screen_h) = get_screen_size();
+        let (wa_x, wa_y, wa_w, wa_h) = get_workarea();
         let win_w = 320.0;
         let win_h = 80.0;
         let margin = 16.0;
 
-        let html = format!(
-            r#"<!DOCTYPE html><html><head><style>
-            *{{margin:0;padding:0;box-sizing:border-box}}
-            body{{background:#1c2128;color:#c9d1d9;font-family:'Segoe UI',sans-serif;
-                  padding:12px 16px;border:1px solid #30363d;border-radius:8px;
-                  overflow:hidden;cursor:pointer}}
-            body:hover{{background:#21262d}}
-            .t{{font-size:13px;font-weight:600;color:#f0f6fc;margin-bottom:4px}}
-            .b{{font-size:12px;color:#8b949e}}
-            .i{{float:left;margin-right:10px;font-size:18px;color:#f0883e}}
-            </style></head><body>
-            <span class="i">&#10035;</span>
-            <div class="t">{}</div>
-            <div class="b">{}</div>
-            </body></html>"#,
-            title.replace('<', "&lt;").replace('>', "&gt;"),
-            body.replace('<', "&lt;").replace('>', "&gt;"),
-        );
-
-        let label = format!("notif-{}", uuid::Uuid::new_v4());
+        let html = build_notif_html(&title, &body);
 
         if let Ok(win) = tauri::WebviewWindowBuilder::new(
             &app,
-            &label,
+            "codeterm-notif",
             tauri::WebviewUrl::App("about:blank".into()),
         )
         .title("")
         .inner_size(win_w, win_h)
-        .position(screen_w - win_w - margin, screen_h - win_h - margin - 48.0)
+        .position(wa_x + wa_w - win_w - margin, wa_y + wa_h - win_h - margin)
         .decorations(false)
         .resizable(false)
         .always_on_top(true)
@@ -1011,42 +1021,70 @@ pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&s
             ));
 
             // Auto-close after 4 seconds
-            let label_clone = label.clone();
             let app_clone = app.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(4));
-                if let Some(w) = app_clone.get_webview_window(&label_clone) {
+                if let Some(w) = app_clone.get_webview_window("codeterm-notif") {
                     let _ = w.close();
                 }
+                NOTIF_ACTIVE.store(false, Ordering::Relaxed);
             });
-
-            // Close on click
-            let label_clone2 = label.clone();
-            let app_clone2 = app.clone();
-            let _ = app.listen(format!("notif-close-{}", label), move |_| {
-                if let Some(w) = app_clone2.get_webview_window(&label_clone2) {
-                    let _ = w.close();
-                }
-            });
+        } else {
+            NOTIF_ACTIVE.store(false, Ordering::Relaxed);
         }
     });
 }
 
-fn get_screen_size() -> (f64, f64) {
+fn build_notif_html(title: &str, body: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html><html><head><style>
+        *{{margin:0;padding:0;box-sizing:border-box}}
+        body{{background:#1c2128;color:#c9d1d9;font-family:'Segoe UI',sans-serif;
+              padding:12px 16px;border:1px solid #30363d;border-radius:8px;
+              overflow:hidden;cursor:pointer}}
+        body:hover{{background:#21262d}}
+        .t{{font-size:13px;font-weight:600;color:#f0f6fc;margin-bottom:4px}}
+        .b{{font-size:12px;color:#8b949e}}
+        .i{{float:left;margin-right:10px;font-size:18px;color:#f0883e}}
+        </style></head><body>
+        <span class="i">&#10035;</span>
+        <div class="t">{}</div>
+        <div class="b">{}</div>
+        </body></html>"#,
+        title.replace('<', "&lt;").replace('>', "&gt;"),
+        body.replace('<', "&lt;").replace('>', "&gt;"),
+    )
+}
+
+/// Returns workarea (x, y, width, height) — desktop minus taskbar.
+fn get_workarea() -> (f64, f64, f64, f64) {
     #[cfg(target_os = "windows")]
     {
+        #[repr(C)]
+        struct RECT { left: i32, top: i32, right: i32, bottom: i32 }
         #[link(name = "user32")]
         extern "system" {
-            fn GetSystemMetrics(index: i32) -> i32;
+            fn SystemParametersInfoW(action: u32, param: u32, pvparam: *mut RECT, winini: u32) -> i32;
         }
         unsafe {
-            let w = GetSystemMetrics(0) as f64;
-            let h = GetSystemMetrics(1) as f64;
-            (w, h)
+            let mut rect = RECT { left: 0, top: 0, right: 1920, bottom: 1080 };
+            SystemParametersInfoW(0x0030, 0, &mut rect, 0);
+            // Divide by DPI scale — Tauri uses logical pixels
+            let dpi = {
+                #[link(name = "user32")]
+                extern "system" { fn GetDpiForSystem() -> u32; }
+                unsafe { GetDpiForSystem() }
+            };
+            let scale = dpi as f64 / 96.0;
+            let x = rect.left as f64 / scale;
+            let y = rect.top as f64 / scale;
+            let w = (rect.right - rect.left) as f64 / scale;
+            let h = (rect.bottom - rect.top) as f64 / scale;
+            (x, y, w, h)
         }
     }
     #[cfg(not(target_os = "windows"))]
     {
-        (1920.0, 1080.0)
+        (0.0, 0.0, 1920.0, 1080.0)
     }
 }

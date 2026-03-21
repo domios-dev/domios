@@ -12,6 +12,13 @@ use crate::{AgentTrackerState, OutputBufferState, PtyState};
 /// Spawn a new PTY. Returns the PTY ID.
 /// NO background thread — frontend polls via read_pty command.
 #[tauri::command]
+pub fn get_default_cwd() -> Result<String, String> {
+    std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn spawn_pty(
     state: tauri::State<'_, PtyState>,
     _app: AppHandle,
@@ -99,7 +106,28 @@ pub async fn read_pty(
                 if let Ok(raw) = std::str::from_utf8(&data) {
                     let text = crate::api::routes::strip_ansi_codes(raw);
                     let agent_events = detector::detect_claude_events(&text);
+                    if !agent_events.is_empty() {
+                        log::debug!("[agent] Events detected: {:?} for pty {}", agent_events, &pty_id[..8]);
+                    }
+
+                    // Cooldown: skip if same event type fired within last 10s
+                    use std::sync::Mutex as StdMutex;
+                    use std::collections::HashMap;
+                    static LAST_NOTIF: std::sync::LazyLock<StdMutex<HashMap<(String, String), std::time::Instant>>> =
+                        std::sync::LazyLock::new(|| StdMutex::new(HashMap::new()));
+
                     for event in &agent_events {
+                        let event_key = (pty_id.clone(), format!("{:?}", event));
+                        {
+                            let mut map = LAST_NOTIF.lock().unwrap();
+                            let now = std::time::Instant::now();
+                            if let Some(last) = map.get(&event_key) {
+                                if now.duration_since(*last).as_secs() < 10 {
+                                    continue;
+                                }
+                            }
+                            map.insert(event_key, now);
+                        }
                         match event {
                             detector::AgentEvent::PermissionRequest => {
                                 t.set_waiting(&pty_id);
@@ -117,7 +145,7 @@ pub async fn read_pty(
                                         "pane_id": &pid,
                                         "workspace_id": serde_json::Value::Null,
                                     }));
-                                    crate::api::routes::send_os_notification(
+                                    crate::api::routes::send_os_notification_if_unfocused(
                                         &app, &notif_title, Some("Agent is waiting for your permission"),
                                     );
                                     // Broadcast to webhooks + websockets
@@ -142,7 +170,7 @@ pub async fn read_pty(
                                             "pane_id": &pid,
                                             "workspace_id": serde_json::Value::Null,
                                         }));
-                                        crate::api::routes::send_os_notification(
+                                        crate::api::routes::send_os_notification_if_unfocused(
                                             &app, &notif_title, Some("Task complete"),
                                         );
                                         events.broadcast("agent.task_complete", serde_json::json!({
