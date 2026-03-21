@@ -169,11 +169,12 @@ pub fn mux_split_pane(
     })
 }
 
-/// Close a pane and kill its PTY.
+/// Close a pane and kill its PTY (cascade-closes children).
 #[tauri::command]
 pub fn mux_close_pane(
     state: State<'_, MuxState>,
     pty_state: State<'_, PtyState>,
+    app: AppHandle,
     pane_id: String,
 ) -> Result<(), String> {
     let pty_ids = {
@@ -186,6 +187,8 @@ pub fn mux_close_pane(
         for id in &pty_ids { let _ = manager.kill(id); }
     }
 
+    use tauri::Emitter;
+    let _ = app.emit("mux-state-changed", ());
     Ok(())
 }
 
