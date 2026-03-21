@@ -357,11 +357,22 @@ export function TerminalPane({
         // Only update if we got a real path (not empty)
         if (dir && dir.length > 2) {
           invoke("mux_update_pane_cwd", { paneId, cwd: dir }).catch(() => {});
+          // Auto-rename tab to directory name (if not manually pinned)
+          const pane = state.panes[paneId];
+          if (pane && !pane.pinned_title) {
+            const dirName = dir.split("/").pop() || dir;
+            if (dirName) setPaneTitle(paneId, dirName);
+          }
         }
       } catch {
         // Some shells send just a path without file:// scheme
         if (data && data.length > 2) {
           invoke("mux_update_pane_cwd", { paneId, cwd: data }).catch(() => {});
+          const pane = state.panes[paneId];
+          if (pane && !pane.pinned_title) {
+            const dirName = data.split("/").pop() || data;
+            if (dirName) setPaneTitle(paneId, dirName);
+          }
         }
       }
       return true;

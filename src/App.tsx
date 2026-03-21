@@ -327,9 +327,11 @@ function AppInner() {
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
       // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY
+      // But NOT if user is typing in an input/textarea (e.g. rename, settings, search)
       const active = document.activeElement;
       const isXtermFocused = active?.classList.contains("xterm-helper-textarea");
-      if (!isXtermFocused && stateRef.current.focused_pane_id) {
+      const isInputFocused = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || active?.getAttribute("contenteditable") === "true";
+      if (!isXtermFocused && !isInputFocused && stateRef.current.focused_pane_id) {
         const pane = stateRef.current.panes[stateRef.current.focused_pane_id];
         if (pane?.pty_id) {
           let data = "";
