@@ -34,22 +34,25 @@ enum Commands {
         action: PaneAction,
     },
 
-    /// Get terminal output from a pane
+    /// Get terminal output from a pane (default: current pane)
     GetOutput {
-        /// Target pane ID
-        pane_id: String,
+        /// Target pane ID (default: current focused pane)
+        #[arg(long)]
+        pane: Option<String>,
 
         /// Maximum number of lines to return (approximate)
         #[arg(long, default_value = "50")]
         lines: u32,
     },
 
-    /// Send text to a pane
+    /// Send text to a pane (default: current pane)
     SendText {
-        /// Target pane ID
-        pane_id: String,
         /// Text to send
         text: String,
+
+        /// Target pane ID (default: current focused pane)
+        #[arg(long)]
+        pane: Option<String>,
     },
 
     /// Open a browser panel
@@ -93,6 +96,8 @@ enum Commands {
 enum WorkspaceAction {
     /// List all workspaces
     List,
+    /// Print the current (focused) workspace ID
+    Current,
     /// Create a new workspace
     Create {
         /// Workspace name
@@ -130,6 +135,12 @@ enum WorkspaceAction {
 enum PaneAction {
     /// List all panes
     List,
+    /// Print the current (focused) pane ID — no JSON parsing needed
+    Current {
+        /// Return the last pane instead of the focused one
+        #[arg(long)]
+        last: bool,
+    },
     /// Focus a pane by ID
     Focus {
         /// Pane ID
@@ -140,20 +151,22 @@ enum PaneAction {
         /// Pane ID
         id: String,
     },
-    /// Split a pane
+    /// Split a pane (default: current pane)
     Split {
-        /// Pane ID to split
-        id: String,
+        /// Pane ID to split (default: current focused pane)
+        #[arg(long)]
+        id: Option<String>,
         /// Split direction: right or down
         #[arg(long, default_value = "right")]
         direction: String,
     },
-    /// Rename a pane (updates tab title)
+    /// Rename a pane tab (default: current pane)
     Rename {
-        /// Pane ID to rename
-        id: String,
         /// New title
         title: String,
+        /// Pane ID to rename (default: current focused pane)
+        #[arg(long)]
+        id: Option<String>,
     },
 }
 
@@ -187,6 +200,9 @@ enum ThemeAction {
         id: String,
         /// Path to theme TOML file
         file: String,
+        /// Apply the theme immediately after saving
+        #[arg(long)]
+        apply: bool,
     },
     /// Delete a custom theme
     Delete {
@@ -195,6 +211,31 @@ enum ThemeAction {
     },
     /// Show the custom themes directory path
     Dir,
+}
+
+/// Resolve pane ID: use provided value or fetch the current focused pane.
+fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
+    if let Some(id) = id {
+        return id;
+    }
+    match client.call("pane.list", None) {
+        Ok(value) => {
+            if let Some(arr) = value.as_array() {
+                let pane = arr.iter()
+                    .find(|p| p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
+                    .or_else(|| arr.first());
+                if let Some(id) = pane.and_then(|p| p.get("id").and_then(|v| v.as_str())) {
+                    return id.to_string();
+                }
+            }
+            eprintln!("Error: no panes found");
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 fn main() {
@@ -223,6 +264,24 @@ fn main() {
 
         Commands::Workspace { action } => match action {
             WorkspaceAction::List => client.call("workspace.list", None),
+            WorkspaceAction::Current => {
+                let result = client.call("workspace.list", None);
+                match result {
+                    Ok(value) => {
+                        if let Some(arr) = value.as_array() {
+                            let id = arr.iter()
+                                .find(|w| w.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
+                                .or_else(|| arr.first())
+                                .and_then(|w| w.get("id").and_then(|v| v.as_str()));
+                            if let Some(id) = id {
+                                println!("{}", id);
+                            }
+                        }
+                        return;
+                    }
+                    Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                }
+            }
             WorkspaceAction::Create { name } => {
                 client.call("workspace.create", Some(serde_json::json!({ "name": name })))
             }
@@ -252,6 +311,27 @@ fn main() {
 
         Commands::Pane { action } => match action {
             PaneAction::List => client.call("pane.list", None),
+            PaneAction::Current { last } => {
+                let result = client.call("pane.list", None);
+                match result {
+                    Ok(value) => {
+                        if let Some(arr) = value.as_array() {
+                            let pane = if last {
+                                arr.last()
+                            } else {
+                                arr.iter()
+                                    .find(|p| p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
+                                    .or_else(|| arr.first())
+                            };
+                            if let Some(id) = pane.and_then(|p| p.get("id").and_then(|v| v.as_str())) {
+                                println!("{}", id);
+                            }
+                        }
+                        return;
+                    }
+                    Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                }
+            }
             PaneAction::Focus { id } => {
                 client.call("pane.focus", Some(serde_json::json!({ "pane_id": id })))
             }
@@ -259,20 +339,23 @@ fn main() {
                 client.call("pane.close", Some(serde_json::json!({ "pane_id": id })))
             }
             PaneAction::Split { id, direction } => {
+                let pane_id = resolve_pane(&mut client, id);
                 client.call(
                     "pane.split",
-                    Some(serde_json::json!({ "pane_id": id, "direction": direction })),
+                    Some(serde_json::json!({ "pane_id": pane_id, "direction": direction })),
                 )
             }
             PaneAction::Rename { id, title } => {
+                let pane_id = resolve_pane(&mut client, id);
                 client.call(
                     "pane.rename",
-                    Some(serde_json::json!({ "pane_id": id, "title": title })),
+                    Some(serde_json::json!({ "pane_id": pane_id, "title": title })),
                 )
             }
         },
 
-        Commands::GetOutput { pane_id, lines } => {
+        Commands::GetOutput { pane, lines } => {
+            let pane_id = resolve_pane(&mut client, pane);
             // Approximate: ~80 bytes per line
             let max_bytes = (lines as u64) * 80;
             let result = client.call(
@@ -295,7 +378,8 @@ fn main() {
             }
         }
 
-        Commands::SendText { pane_id, text } => {
+        Commands::SendText { pane, text } => {
+            let pane_id = resolve_pane(&mut client, pane);
             client.call(
                 "pane.send_text",
                 Some(serde_json::json!({ "pane_id": pane_id, "text": text })),
@@ -346,7 +430,7 @@ fn main() {
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
                 }
-                ThemeAction::Save { id, file } => {
+                ThemeAction::Save { id, file, apply } => {
                     let toml = match std::fs::read_to_string(&file) {
                         Ok(c) => c,
                         Err(e) => { eprintln!("Error reading {}: {}", file, e); std::process::exit(1); }
@@ -361,6 +445,15 @@ fn main() {
                                 println!("Theme saved: {}", path);
                             } else {
                                 println!("Theme saved: {}", id);
+                            }
+                            if apply {
+                                match http.post(format!("{}/api/themes/apply", base))
+                                    .json(&serde_json::json!({ "name": id }))
+                                    .send()
+                                {
+                                    Ok(_) => println!("Theme applied: {}", id),
+                                    Err(e) => eprintln!("Theme saved but failed to apply: {}", e),
+                                }
                             }
                             return;
                         }

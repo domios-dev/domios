@@ -26,11 +26,13 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 
 Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in CodeTerm (via `CODETERM=1` env var), it can use the `codeterm` CLI to:
 
-1. **Split panes**: `codeterm pane split $PANE_ID --direction right`
-2. **Send commands**: `codeterm send-text $PANE_ID "npm test"` (text is sent as-is, newline appended automatically)
+1. **Split panes**: `codeterm pane split` (splits current pane)
+2. **Send commands**: `codeterm send-text "npm test"` (sends to current pane, newline appended automatically)
 3. **Send notifications**: `codeterm notify "Done" --level info`
 4. **Create workspaces**: `codeterm workspace create "Feature X"`
-5. **Read output**: `codeterm get-output $PANE_ID`
+5. **Read output**: `codeterm get-output` (reads from current pane)
+6. **Rename tab**: `codeterm pane rename "my task"` (renames current tab)
+7. **Create theme**: `codeterm theme save my-theme /tmp/theme.toml --apply`
 
 ## CLI Flags
 
@@ -75,4 +77,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`, so context is preserved across restarts.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

@@ -55,6 +55,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/notifications/clear", post(clear_notifications))
         .route("/api/webhooks", get(list_webhooks).post(register_webhook))
         .route("/api/webhooks/{id}", axum::routing::delete(unregister_webhook))
+        .route("/api/screenshot", get(take_screenshot))
         .route("/api/network", get(network_info))
         .route("/api/themes", get(list_themes_api).post(save_theme_api))
         .route("/api/themes/{id}", axum::routing::delete(delete_theme_api))
