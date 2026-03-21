@@ -74,13 +74,13 @@ export function SettingsPanel({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-[720px] h-[520px] bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl flex flex-col overflow-hidden">
+      <div className="w-[720px] h-[520px] bg-[var(--ct-sidebar-bg)] border border-[var(--ct-border)] rounded-lg shadow-xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#30363d]">
-          <h2 className="text-sm font-semibold text-[#c9d1d9]">Settings</h2>
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--ct-border)]">
+          <h2 className="text-sm font-semibold text-[var(--ct-fg)]">Settings</h2>
           <button
             onClick={onClose}
-            className="flex items-center justify-center w-6 h-6 rounded hover:bg-[#30363d] text-[#8b949e] hover:text-[#c9d1d9] transition-colors"
+            className="flex items-center justify-center w-6 h-6 rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
               <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
@@ -91,15 +91,15 @@ export function SettingsPanel({
         {/* Body: sidebar tabs + content */}
         <div className="flex flex-1 min-h-0">
           {/* Tab sidebar */}
-          <div className="w-[170px] shrink-0 border-r border-[#30363d] py-2 flex flex-col gap-0.5">
+          <div className="w-[170px] shrink-0 border-r border-[var(--ct-border)] py-2 flex flex-col gap-0.5">
             {TABS.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-2 px-4 py-1.5 text-xs transition-colors ${
                   activeTab === tab.id
-                    ? "bg-[#1f2937] text-[#c9d1d9] border-r-2 border-[#58a6ff]"
-                    : "text-[#8b949e] hover:bg-[#1c2128] hover:text-[#c9d1d9]"
+                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)] border-r-2 border-[var(--ct-accent)]"
+                    : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
                 }`}
               >
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-70">
@@ -119,7 +119,7 @@ export function SettingsPanel({
                     <select
                       value={localConfig.theme.name}
                       onChange={(e) => update("theme", { name: e.target.value })}
-                      className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5 text-xs text-[#c9d1d9] focus:border-[#58a6ff] focus:outline-none"
+                      className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                     >
                       {themes.map((t) => (
                         <option key={t} value={t}>{t}</option>
@@ -151,7 +151,7 @@ export function SettingsPanel({
                       type="text"
                       value={localConfig.font.family}
                       onChange={(e) => update("font", { family: e.target.value })}
-                      className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5 text-xs text-[#c9d1d9] focus:border-[#58a6ff] focus:outline-none"
+                      className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                     />
                   </Label>
                   <Label text={`Size: ${localConfig.font.size}px`}>
@@ -161,7 +161,7 @@ export function SettingsPanel({
                       max={28}
                       value={localConfig.font.size}
                       onChange={(e) => update("font", { size: parseInt(e.target.value, 10) })}
-                      className="w-full accent-[#58a6ff]"
+                      className="w-full accent-[var(--ct-accent)]"
                     />
                   </Label>
                   <Toggle
@@ -180,7 +180,7 @@ export function SettingsPanel({
                     <select
                       value={localConfig.terminal.cursor_style}
                       onChange={(e) => update("terminal", { cursor_style: e.target.value })}
-                      className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5 text-xs text-[#c9d1d9] focus:border-[#58a6ff] focus:outline-none"
+                      className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                     >
                       <option value="block">Block</option>
                       <option value="underline">Underline</option>
@@ -203,7 +203,7 @@ export function SettingsPanel({
                       step={1000}
                       value={localConfig.terminal.scrollback}
                       onChange={(e) => update("terminal", { scrollback: parseInt(e.target.value, 10) })}
-                      className="w-full accent-[#58a6ff]"
+                      className="w-full accent-[var(--ct-accent)]"
                     />
                   </Label>
                 </Group>
@@ -254,7 +254,7 @@ export function SettingsPanel({
             {activeTab === SettingsTab.Notifications && (
               <div className="space-y-6">
                 <Group title="Windows Notifications">
-                  <div className="text-xs text-[#8b949e] mb-1">
+                  <div className="text-xs text-[var(--ct-muted-fg)] mb-1">
                     Show OS-level toast notifications when CodeTerm window is not focused.
                   </div>
                   <Toggle
@@ -270,7 +270,7 @@ export function SettingsPanel({
                 </Group>
 
                 <Group title="Agent Events">
-                  <div className="text-xs text-[#8b949e] mb-1">
+                  <div className="text-xs text-[var(--ct-muted-fg)] mb-1">
                     Automatically notify when Claude Code or other agents need attention.
                   </div>
                   <Toggle
@@ -283,14 +283,14 @@ export function SettingsPanel({
                     checked={localConfig.notifications.desktop}
                     onChange={(v) => update("notifications", { desktop: v })}
                   />
-                  <div className="text-[10px] text-[#484f58] mt-1 space-y-1">
-                    <p><strong className="text-[#8b949e]">Permission requests</strong> — when Claude Code asks "Do you want to proceed?" or needs tool approval</p>
-                    <p><strong className="text-[#8b949e]">Task completion</strong> — when Claude Code finishes working and returns to the prompt</p>
+                  <div className="text-[10px] text-[var(--ct-muted)] mt-1 space-y-1">
+                    <p><strong className="text-[var(--ct-muted-fg)]">Permission requests</strong> — when Claude Code asks "Do you want to proceed?" or needs tool approval</p>
+                    <p><strong className="text-[var(--ct-muted-fg)]">Task completion</strong> — when Claude Code finishes working and returns to the prompt</p>
                   </div>
                 </Group>
 
                 <Group title="In-app Toast">
-                  <div className="text-xs text-[#8b949e] mb-1">
+                  <div className="text-xs text-[var(--ct-muted-fg)] mb-1">
                     Toast notifications appear inside CodeTerm for 5 seconds.
                   </div>
                   <Toggle
@@ -317,8 +317,8 @@ export function SettingsPanel({
             {activeTab === SettingsTab.About && (
               <div className="space-y-4">
                 <div className="text-center py-4">
-                  <div className="text-2xl font-bold text-[#c9d1d9]">CodeTerm</div>
-                  <div className="text-xs text-[#8b949e] mt-1">AI-first terminal multiplexer</div>
+                  <div className="text-2xl font-bold text-[var(--ct-fg)]">CodeTerm</div>
+                  <div className="text-xs text-[var(--ct-muted-fg)] mt-1">AI-first terminal multiplexer</div>
                 </div>
                 <Group title="Info">
                   <InfoRow label="Version" value="0.1.0" />
@@ -346,7 +346,7 @@ export function SettingsPanel({
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[#484f58] mb-2">{title}</h3>
+      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ct-muted)] mb-2">{title}</h3>
       <div className="space-y-2.5">{children}</div>
     </div>
   );
@@ -355,7 +355,7 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
 function Label({ text, children }: { text: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="block text-xs text-[#8b949e] mb-1">{text}</span>
+      <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">{text}</span>
       {children}
     </label>
   );
@@ -364,14 +364,14 @@ function Label({ text, children }: { text: string; children: React.ReactNode }) 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center justify-between cursor-pointer">
-      <span className="text-xs text-[#8b949e]">{label}</span>
+      <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
       <button
         type="button"
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-          checked ? "bg-[#238636]" : "bg-[#30363d]"
+          checked ? "bg-[#238636]" : "bg-[var(--ct-border)]"
         }`}
       >
         <span
@@ -388,9 +388,9 @@ function CopyRow({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex items-center justify-between text-xs gap-2">
-      <span className="text-[#484f58] shrink-0">{label}</span>
+      <span className="text-[var(--ct-muted)] shrink-0">{label}</span>
       <div className="flex items-center gap-1 min-w-0">
-        <code className="bg-[#0d1117] px-1.5 py-0.5 rounded text-[#c9d1d9] text-[10px] truncate">{value}</code>
+        <code className="bg-[var(--ct-bg)] px-1.5 py-0.5 rounded text-[var(--ct-fg)] text-[10px] truncate">{value}</code>
         <button
           onClick={() => {
             navigator.clipboard.writeText(value).then(() => {
@@ -398,7 +398,7 @@ function CopyRow({ label, value }: { label: string; value: string }) {
               setTimeout(() => setCopied(false), 1500);
             });
           }}
-          className="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-[#30363d] text-[#484f58] hover:text-[#c9d1d9] transition-colors"
+          className="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
           title="Copy"
         >
           {copied ? (
@@ -415,13 +415,13 @@ function CopyRow({ label, value }: { label: string; value: string }) {
 function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-center justify-between text-xs">
-      <span className="text-[#484f58]">{label}</span>
+      <span className="text-[var(--ct-muted)]">{label}</span>
       {mono ? (
-        <code className="bg-[#0d1117] px-1.5 py-0.5 rounded text-[#c9d1d9] text-[10px] max-w-[280px] truncate">
+        <code className="bg-[var(--ct-bg)] px-1.5 py-0.5 rounded text-[var(--ct-fg)] text-[10px] max-w-[280px] truncate">
           {value}
         </code>
       ) : (
-        <span className="text-[#c9d1d9]">{value}</span>
+        <span className="text-[var(--ct-fg)]">{value}</span>
       )}
     </div>
   );
@@ -443,7 +443,7 @@ function KeybindGroup({
       <div className="space-y-1">
         {bindings.map(([key, label]) => (
           <div key={key} className="flex items-center justify-between">
-            <span className="text-xs text-[#8b949e]">{label}</span>
+            <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
             <input
               type="text"
               value={(config.keybindings as Record<string, string>)[key] || ""}
@@ -454,7 +454,7 @@ function KeybindGroup({
                 };
                 onUpdate(next);
               }}
-              className="w-32 bg-[#0d1117] border border-[#30363d] rounded px-2 py-0.5 text-[11px] text-[#c9d1d9] focus:border-[#58a6ff] focus:outline-none text-right font-mono"
+              className="w-32 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-0.5 text-[11px] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none text-right font-mono"
             />
           </div>
         ))}
@@ -498,7 +498,7 @@ function NetworkTab({
           checked={cfg.api?.enabled ?? true}
           onChange={(v) => onUpdate("api", { enabled: v })}
         />
-        <div className="text-[10px] text-[#484f58] -mt-1">
+        <div className="text-[10px] text-[var(--ct-muted)] -mt-1">
           Requires restart to take effect.
         </div>
         <div className="space-y-1.5 mt-2">
@@ -510,21 +510,21 @@ function NetworkTab({
       </Group>
 
       <Group title="Webhooks">
-        <div className="text-xs text-[#8b949e] space-y-1">
+        <div className="text-xs text-[var(--ct-muted-fg)] space-y-1">
           <p>Register webhooks to receive real-time agent events. External orchestrators get instant feedback when agents need attention.</p>
           <CopyRow label="Endpoint" value="POST /api/webhooks" />
-          <div className="text-[10px] text-[#484f58]">
-            Body: <code className="bg-[#0d1117] px-1 rounded">{"{ url, events? }"}</code>
+          <div className="text-[10px] text-[var(--ct-muted)]">
+            Body: <code className="bg-[var(--ct-bg)] px-1 rounded">{"{ url, events? }"}</code>
           </div>
         </div>
       </Group>
 
       <Group title="OpenClaw / External Orchestrator">
-        <div className="text-xs text-[#8b949e] mb-2">
+        <div className="text-xs text-[var(--ct-muted-fg)] mb-2">
           Copy this prompt and give it to your external orchestrator (OpenClaw, etc.) so it knows how to control CodeTerm:
         </div>
         <div className="relative">
-          <pre className="bg-[#0d1117] border border-[#30363d] rounded p-3 text-[10px] text-[#8b949e] font-mono whitespace-pre-wrap max-h-[160px] overflow-y-auto leading-relaxed">
+          <pre className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded p-3 text-[10px] text-[var(--ct-muted-fg)] font-mono whitespace-pre-wrap max-h-[160px] overflow-y-auto leading-relaxed">
             {openclawPrompt || "Loading..."}
           </pre>
           <button
@@ -534,7 +534,7 @@ function NetworkTab({
                 setTimeout(() => setCopiedPrompt(false), 2000);
               });
             }}
-            className="absolute top-2 right-2 px-2 py-1 text-[10px] rounded bg-[#30363d] text-[#c9d1d9] hover:bg-[#484f58] transition-colors"
+            className="absolute top-2 right-2 px-2 py-1 text-[10px] rounded bg-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-muted)] transition-colors"
           >
             {copiedPrompt ? "Copied!" : "Copy"}
           </button>
@@ -598,21 +598,21 @@ function AgentsTab() {
   return (
     <div className="space-y-5">
       {/* Skill card */}
-      <div className="rounded-lg border border-[#30363d] bg-[#0d1117]/50 p-4 space-y-3">
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-[#c9d1d9]">Skill</div>
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Skill</div>
           {skillInstalled && (
             <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#238636]/20 text-[#7ee787]">installed</span>
           )}
         </div>
-        <div className="text-xs text-[#8b949e]">
+        <div className="text-xs text-[var(--ct-muted-fg)]">
           Gives Claude Code CLI commands to control CodeTerm — create workspaces, split panes, open browser panels, send notifications, rename tabs.
         </div>
-        <div className="flex items-center justify-between text-[10px] text-[#484f58]">
+        <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]">
           <span>~/.claude/skills/codeterm/</span>
           <button
             onClick={() => openFolder("~/.claude/skills/codeterm")}
-            className="text-[#58a6ff] hover:underline"
+            className="text-[var(--ct-accent)] hover:underline"
           >Open folder</button>
         </div>
         <button
@@ -622,7 +622,7 @@ function AgentsTab() {
           }}
           className={`w-full py-1.5 text-xs rounded font-medium transition-colors ${
             skillInstalled
-              ? "border border-[#30363d] text-[#8b949e] hover:text-[#c9d1d9]"
+              ? "border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
               : "bg-[#238636] text-white hover:bg-[#2ea043]"
           }`}
         >
@@ -631,21 +631,21 @@ function AgentsTab() {
       </div>
 
       {/* Rule card */}
-      <div className="rounded-lg border border-[#30363d] bg-[#0d1117]/50 p-4 space-y-3">
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-[#c9d1d9]">Rule</div>
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Rule</div>
           {ruleInstalled && (
             <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#238636]/20 text-[#7ee787]">installed</span>
           )}
         </div>
-        <div className="text-xs text-[#8b949e]">
+        <div className="text-xs text-[var(--ct-muted-fg)]">
           Teaches Claude Code when and how to use CodeTerm — auto-rename tabs, use workspaces instead of mkdir, open browser panel instead of external browser.
         </div>
-        <div className="flex items-center justify-between text-[10px] text-[#484f58]">
+        <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]">
           <span>~/.claude/rules/codeterm.md</span>
           <button
             onClick={() => openFolder("~/.claude/rules")}
-            className="text-[#58a6ff] hover:underline"
+            className="text-[var(--ct-accent)] hover:underline"
           >Open folder</button>
         </div>
         <button
@@ -655,7 +655,7 @@ function AgentsTab() {
           }}
           className={`w-full py-1.5 text-xs rounded font-medium transition-colors ${
             ruleInstalled
-              ? "border border-[#30363d] text-[#8b949e] hover:text-[#c9d1d9]"
+              ? "border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
               : "bg-[#238636] text-white hover:bg-[#2ea043]"
           }`}
         >
@@ -663,7 +663,7 @@ function AgentsTab() {
         </button>
       </div>
 
-      <div className="text-[10px] text-[#484f58] text-center">
+      <div className="text-[10px] text-[var(--ct-muted)] text-center">
         Restart Claude Code after installing.
       </div>
     </div>
@@ -673,16 +673,16 @@ function AgentsTab() {
 function Collapsible({ title, children }: { title: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="border border-[#30363d] rounded-md overflow-hidden">
+    <div className="border border-[var(--ct-border)] rounded-md overflow-hidden">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center justify-between w-full px-3 py-2 text-xs font-medium text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#1c2128] transition-colors"
+        className="flex items-center justify-between w-full px-3 py-2 text-xs font-medium text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors"
       >
         <span>{title}</span>
         <span className="text-[10px]">{open ? "\u25B4" : "\u25BE"}</span>
       </button>
       {open && (
-        <div className="px-3 py-2 border-t border-[#30363d] bg-[#0d1117]/50">
+        <div className="px-3 py-2 border-t border-[var(--ct-border)] bg-[var(--ct-bg)]/50">
           {children}
         </div>
       )}
@@ -693,19 +693,19 @@ function Collapsible({ title, children }: { title: string; children: React.React
 function EndpointGroup({ title, endpoints }: { title: string; endpoints: [string, string, string][] }) {
   const methodColors: Record<string, string> = {
     GET: "text-[#7ee787]",
-    POST: "text-[#58a6ff]",
-    PUT: "text-[#d29922]",
-    DELETE: "text-[#f85149]",
+    POST: "text-[var(--ct-accent)]",
+    PUT: "text-[var(--ct-yellow)]",
+    DELETE: "text-[var(--ct-red)]",
   };
   return (
     <div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-[#484f58] mb-1">{title}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ct-muted)] mb-1">{title}</div>
       <div className="space-y-0.5">
         {endpoints.map(([method, path, desc], i) => (
           <div key={i} className="flex items-start gap-2 text-[10px] font-mono leading-relaxed">
-            <span className={`shrink-0 w-8 font-bold ${methodColors[method] || "text-[#8b949e]"}`}>{method}</span>
-            <span className="text-[#c9d1d9] shrink-0">{path}</span>
-            <span className="text-[#484f58] truncate">{desc}</span>
+            <span className={`shrink-0 w-8 font-bold ${methodColors[method] || "text-[var(--ct-muted-fg)]"}`}>{method}</span>
+            <span className="text-[var(--ct-fg)] shrink-0">{path}</span>
+            <span className="text-[var(--ct-muted)] truncate">{desc}</span>
           </div>
         ))}
       </div>

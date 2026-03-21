@@ -225,7 +225,21 @@ pub async fn update_config(
     config: AppConfig,
 ) -> Result<(), String> {
     let mut resolved = config;
-    resolve_theme(&mut resolved);
+
+    // If the theme name changed, load the builtin theme fresh instead of
+    // trying to detect overrides (the frontend sends old colors with the new
+    // name, so override detection breaks after the first switch).
+    let current_name = state.lock().theme.name.clone();
+    if resolved.theme.name != current_name {
+        let requested_name = resolved.theme.name.clone();
+        if let Some(mut builtin) = schema::get_builtin_theme(&requested_name) {
+            builtin.name = requested_name;
+            resolved.theme = builtin;
+        }
+    } else {
+        resolve_theme(&mut resolved);
+    }
+
     save_config(&resolved)?;
     *state.lock() = resolved.clone();
     // Emit config-changed event for live reload

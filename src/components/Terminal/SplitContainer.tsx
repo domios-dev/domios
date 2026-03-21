@@ -44,9 +44,19 @@ export function SplitContainer({
     const pane = panes[node.pane_id];
     if (!pane) return null;
 
+    const splitButtons = (
+      <PaneToolbar
+        paneId={pane.id}
+        hasAgent={pane.agent_type === "claude"}
+        onSplitH={() => onSplitPane(pane.id, "Horizontal")}
+        onSplitV={() => onSplitPane(pane.id, "Vertical")}
+        onClose={() => onClosePane(pane.id)}
+      />
+    );
+
     if (pane.pane_type === "Browser") {
       return (
-        <div data-pane-id={pane.id} className="w-full h-full">
+        <div data-pane-id={pane.id} className="w-full h-full relative group/pane">
           <BrowserPane
             key={pane.id}
             paneId={pane.id}
@@ -54,12 +64,13 @@ export function SplitContainer({
             isFocused={focusedPaneId === pane.id}
             onFocus={onFocusPane}
           />
+          {splitButtons}
         </div>
       );
     }
 
     return (
-      <div data-pane-id={pane.id} className="w-full h-full">
+      <div data-pane-id={pane.id} className="w-full h-full relative group/pane">
         <TerminalPane
           key={pane.id}
           paneId={pane.id}
@@ -71,6 +82,7 @@ export function SplitContainer({
           fontConfig={fontConfig}
           terminalConfig={terminalConfig}
         />
+        {splitButtons}
       </div>
     );
   }
@@ -119,6 +131,87 @@ interface SplitViewProps {
   children: React.ReactNode[];
 }
 
+function PaneToolbar({
+  paneId,
+  hasAgent,
+  onSplitH,
+  onSplitV,
+  onClose,
+}: {
+  paneId: string;
+  hasAgent: boolean;
+  onSplitH: () => void;
+  onSplitV: () => void;
+  onClose: () => void;
+}) {
+  const [confirmClose, setConfirmClose] = useState(false);
+
+  return (
+    <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover/pane:opacity-70 hover:!opacity-100 transition-opacity z-10">
+      <button
+        onClick={(e) => { e.stopPropagation(); onSplitH(); }}
+        className="w-6 h-6 flex items-center justify-center rounded bg-[var(--ct-border)]/80 hover:bg-[var(--ct-muted)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+        title="Split right"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
+          <rect x="1" y="1" width="10" height="10" rx="1" />
+          <line x1="6" y1="1" x2="6" y2="11" />
+        </svg>
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); onSplitV(); }}
+        className="w-6 h-6 flex items-center justify-center rounded bg-[var(--ct-border)]/80 hover:bg-[var(--ct-muted)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+        title="Split down"
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
+          <rect x="1" y="1" width="10" height="10" rx="1" />
+          <line x1="1" y1="6" x2="11" y2="6" />
+        </svg>
+      </button>
+
+      {/* Close — expand to confirm if agent running */}
+      {confirmClose ? (
+        <div className="flex items-center gap-0.5 animate-in slide-in-from-right">
+          <button
+            onClick={(e) => { e.stopPropagation(); setConfirmClose(false); }}
+            className="h-6 px-1.5 flex items-center justify-center rounded bg-[var(--ct-border)]/80 hover:bg-[var(--ct-muted)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] text-[9px] transition-colors"
+          >
+            No
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onClose(); setConfirmClose(false); }}
+            className="h-6 px-1.5 flex items-center justify-center rounded bg-[var(--ct-red)] hover:bg-[var(--ct-red)]/80 text-white text-[9px] font-medium transition-colors"
+          >
+            Kill
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (hasAgent) {
+              setConfirmClose(true);
+              setTimeout(() => setConfirmClose(false), 3000);
+            } else {
+              onClose();
+            }
+          }}
+          className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
+            hasAgent
+              ? "bg-[var(--ct-yellow)]/30 hover:bg-[var(--ct-red)]/80 text-[var(--ct-yellow)] hover:text-white"
+              : "bg-[var(--ct-border)]/80 hover:bg-[var(--ct-red)]/80 text-[var(--ct-muted-fg)] hover:text-white"
+          }`}
+          title={hasAgent ? "Close (agent running)" : "Close pane"}
+        >
+          <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
+            <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 function SplitView({
   isHorizontal,
   ratio,
@@ -128,16 +221,26 @@ function SplitView({
 }: SplitViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [localRatio, setLocalRatio] = useState<number | null>(null);
+  const localRatioRef = useRef<number | null>(null);
+  const activeRatio = localRatio ?? ratio;
 
   const handleDragStart = useCallback(() => {
     setIsDragging(true);
-  }, []);
+    setLocalRatio(ratio);
+    localRatioRef.current = ratio;
+  }, [ratio]);
 
   const handleDragEnd = useCallback(() => {
     setIsDragging(false);
-    // Dispatch custom event to trigger terminal refit after drag ends
+    const final = localRatioRef.current;
+    if (final !== null) {
+      onUpdateRatio(path, final);
+    }
+    setLocalRatio(null);
+    localRatioRef.current = null;
     window.dispatchEvent(new CustomEvent("codeterm-pane-resize"));
-  }, []);
+  }, [path, onUpdateRatio]);
 
   const handleDrag = useCallback(
     (delta: number) => {
@@ -147,21 +250,21 @@ function SplitView({
       if (totalSize <= 0) return;
 
       const deltaRatio = delta / totalSize;
-      let newRatio = ratio + deltaRatio;
-
-      // Enforce minimum pane size
-      const minRatio = MIN_PANE_SIZE / totalSize;
-      const maxRatio = 1 - minRatio;
-      newRatio = Math.max(minRatio, Math.min(maxRatio, newRatio));
-
-      onUpdateRatio(path, newRatio);
+      setLocalRatio((prev) => {
+        const current = prev ?? ratio;
+        const minRatio = MIN_PANE_SIZE / totalSize;
+        const maxRatio = 1 - minRatio;
+        const next = Math.max(minRatio, Math.min(maxRatio, current + deltaRatio));
+        localRatioRef.current = next;
+        return next;
+      });
     },
-    [isHorizontal, ratio, path, onUpdateRatio],
+    [isHorizontal, ratio],
   );
 
   const handleDoubleClick = useCallback(() => {
     onUpdateRatio(path, 0.5);
-    // Trigger refit after reset to 50/50
+    setLocalRatio(null);
     requestAnimationFrame(() => {
       window.dispatchEvent(new CustomEvent("codeterm-pane-resize"));
     });
@@ -170,9 +273,8 @@ function SplitView({
   const first = children[0];
   const second = children[1];
 
-  // For 2 children: first gets `ratio`, second gets `1-ratio`
-  const firstPercent = `${(ratio * 100).toFixed(4)}%`;
-  const secondPercent = `${((1 - ratio) * 100).toFixed(4)}%`;
+  const firstPercent = `${(activeRatio * 100).toFixed(4)}%`;
+  const secondPercent = `${((1 - activeRatio) * 100).toFixed(4)}%`;
 
   return (
     <div

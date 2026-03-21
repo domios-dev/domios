@@ -7,8 +7,8 @@ import type { PaneStatus, ThemeConfig } from "../../lib/types";
 const STATUS_COLORS: Record<PaneStatus, string> = {
   Working: "#7ee787",
   Waiting: "#d29922",
-  Idle: "#484f58",
-  Dead: "#f85149",
+  Idle: "var(--ct-muted)",
+  Dead: "var(--ct-red)",
 };
 
 interface TitlebarProps {
@@ -55,14 +55,14 @@ export function Titlebar({
 
   return (
     <div
-      className="flex items-center h-8 bg-[#161b22] border-b border-[#30363d] select-none shrink-0"
+      className="flex items-center h-8 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] select-none shrink-0"
       data-tauri-drag-region
     >
       {/* Left: sidebar toggle + title */}
       <div className="flex items-center gap-2 pl-3" data-tauri-drag-region>
         <button
           onClick={onToggleSidebar}
-          className="flex items-center justify-center w-6 h-6 rounded hover:bg-[#30363d] text-[#8b949e] hover:text-[#c9d1d9] transition-colors"
+          className="flex items-center justify-center w-6 h-6 rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
           title="Toggle sidebar"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -70,7 +70,7 @@ export function Titlebar({
           </svg>
         </button>
         <span
-          className="text-xs font-semibold text-[#8b949e] tracking-wide"
+          className="text-xs font-semibold text-[var(--ct-muted-fg)] tracking-wide"
           data-tauri-drag-region
         >
           CodeTerm
@@ -78,9 +78,9 @@ export function Titlebar({
 
         {workspaceName && (
           <>
-            <span className="text-[10px] text-[#484f58]" data-tauri-drag-region>/</span>
+            <span className="text-[10px] text-[var(--ct-muted)]" data-tauri-drag-region>/</span>
             <span
-              className="text-xs text-[#8b949e]"
+              className="text-xs text-[var(--ct-muted-fg)]"
               data-tauri-drag-region
             >
               {workspaceName}
@@ -89,9 +89,9 @@ export function Titlebar({
         )}
         {tabTitle && (
           <>
-            <span className="text-[10px] text-[#484f58]" data-tauri-drag-region>/</span>
+            <span className="text-[10px] text-[var(--ct-muted)]" data-tauri-drag-region>/</span>
             <span
-              className="text-xs text-[#c9d1d9]"
+              className="text-xs text-[var(--ct-fg)]"
               data-tauri-drag-region
             >
               {tabTitle}
@@ -107,7 +107,7 @@ export function Titlebar({
       <div className="flex items-center h-full">
         <button
           onClick={handleMinimize}
-          className="inline-flex items-center justify-center w-12 h-full hover:bg-[#30363d] text-[#8b949e] hover:text-[#c9d1d9] transition-colors"
+          className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
           title="Minimize"
         >
           <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
@@ -116,7 +116,7 @@ export function Titlebar({
         </button>
         <button
           onClick={handleMaximize}
-          className="inline-flex items-center justify-center w-12 h-full hover:bg-[#30363d] text-[#8b949e] hover:text-[#c9d1d9] transition-colors"
+          className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
           title="Maximize"
         >
           <svg
@@ -132,7 +132,7 @@ export function Titlebar({
         </button>
         <button
           onClick={handleClose}
-          className="inline-flex items-center justify-center w-12 h-full hover:bg-[#e3242b] text-[#8b949e] hover:text-white transition-colors"
+          className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-red)] text-[var(--ct-muted-fg)] hover:text-white transition-colors"
           title="Close"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">

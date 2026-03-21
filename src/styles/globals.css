@@ -15,8 +15,8 @@ body,
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #0d1117;
-  color: #c9d1d9;
+  background: var(--ct-bg, #0d1117);
+  color: var(--ct-fg, #c9d1d9);
 }
 
 /* Custom scrollbar */
@@ -26,16 +26,16 @@ body,
 }
 
 ::-webkit-scrollbar-track {
-  background: #0d1117;
+  background: var(--ct-bg, #0d1117);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #30363d;
+  background: var(--ct-border, #30363d);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #484f58;
+  background: var(--ct-muted, #484f58);
 }
 
 /* xterm overrides */
@@ -48,16 +48,16 @@ body,
 }
 
 .xterm-viewport::-webkit-scrollbar-track {
-  background: #0d1117;
+  background: var(--ct-bg, #0d1117);
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb {
-  background: #30363d;
+  background: var(--ct-border, #30363d);
   border-radius: 4px;
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: #484f58;
+  background: var(--ct-muted, #484f58);
 }
 
 /* Prevent text selection outside terminal */

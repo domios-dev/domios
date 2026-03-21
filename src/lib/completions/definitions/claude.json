@@ -1,0 +1,36 @@
+{
+  "command": "claude",
+  "flags": [
+    { "name": "--dangerously-skip-permissions", "description": "Skip all permission prompts" },
+    { "name": "--model", "short": "-m", "description": "Model to use", "takesValue": true },
+    { "name": "--print", "short": "-p", "description": "Print mode (non-interactive)" },
+    { "name": "--output-format", "description": "Output format", "takesValue": true, "values": ["text", "json", "stream-json"] },
+    { "name": "--verbose", "description": "Enable verbose output" },
+    { "name": "--max-turns", "description": "Max conversation turns", "takesValue": true },
+    { "name": "--system-prompt", "description": "System prompt", "takesValue": true },
+    { "name": "--append-system-prompt", "description": "Append to system prompt", "takesValue": true },
+    { "name": "--allowedTools", "description": "Allowed tools list", "takesValue": true },
+    { "name": "--disallowedTools", "description": "Disallowed tools list", "takesValue": true },
+    { "name": "--permission-prompt-tool", "description": "Permission prompt tool", "takesValue": true },
+    { "name": "--input-format", "description": "Input format", "takesValue": true, "values": ["text", "stream-json"] },
+    { "name": "--no-markdown", "description": "Disable markdown rendering" },
+    { "name": "--continue", "short": "-c", "description": "Continue last conversation" },
+    { "name": "--resume", "short": "-r", "description": "Resume specific conversation", "takesValue": true },
+    { "name": "--help", "short": "-h", "description": "Show help" },
+    { "name": "--version", "description": "Show version" }
+  ],
+  "subcommands": [
+    { "name": "config", "description": "Manage configuration", "subcommands": [
+      { "name": "set", "description": "Set config value" },
+      { "name": "get", "description": "Get config value" },
+      { "name": "list", "description": "List all config" }
+    ]},
+    { "name": "mcp", "description": "Manage MCP servers", "subcommands": [
+      { "name": "add", "description": "Add MCP server" },
+      { "name": "remove", "description": "Remove MCP server" },
+      { "name": "list", "description": "List MCP servers" }
+    ]},
+    { "name": "update", "description": "Update Claude Code" },
+    { "name": "doctor", "description": "Run diagnostics" }
+  ]
+}

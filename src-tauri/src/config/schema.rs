@@ -268,6 +268,14 @@ pub const BUILTIN_THEMES: &[BuiltinTheme] = &[
         id: "nord",
         toml_str: include_str!("../../themes/nord.toml"),
     },
+    BuiltinTheme {
+        id: "github-light",
+        toml_str: include_str!("../../themes/github-light.toml"),
+    },
+    BuiltinTheme {
+        id: "solarized-light",
+        toml_str: include_str!("../../themes/solarized-light.toml"),
+    },
 ];
 
 /// Parse a built-in theme TOML string into a ThemeConfig.

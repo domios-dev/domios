@@ -1,0 +1,36 @@
+{
+  "command": "codeterm",
+  "subcommands": [
+    { "name": "identify", "description": "Show version and system info" },
+    { "name": "capabilities", "description": "List all API methods" },
+    { "name": "workspace", "description": "Workspace management", "subcommands": [
+      { "name": "list", "description": "List workspaces" },
+      { "name": "create", "description": "Create workspace" },
+      { "name": "focus", "description": "Switch workspace" },
+      { "name": "rename", "description": "Rename workspace" },
+      { "name": "close", "description": "Close workspace" },
+      { "name": "move-tab", "description": "Move tab between workspaces" }
+    ]},
+    { "name": "pane", "description": "Pane management", "subcommands": [
+      { "name": "list", "description": "List panes" },
+      { "name": "focus", "description": "Focus pane" },
+      { "name": "close", "description": "Close pane" },
+      { "name": "split", "description": "Split pane" },
+      { "name": "rename", "description": "Rename pane/tab" },
+      { "name": "resize", "description": "Resize terminal" }
+    ]},
+    { "name": "send-text", "description": "Send text to pane" },
+    { "name": "get-output", "description": "Read terminal output" },
+    { "name": "browser", "description": "Browser panel", "subcommands": [
+      { "name": "open", "description": "Open URL" }
+    ]},
+    { "name": "notify", "description": "Send notification" },
+    { "name": "notifications", "description": "List notifications", "subcommands": [
+      { "name": "clear", "description": "Clear all" }
+    ]}
+  ],
+  "flags": [
+    { "name": "--json", "description": "Output raw JSON" },
+    { "name": "--help", "short": "-h", "description": "Show help" }
+  ]
+}

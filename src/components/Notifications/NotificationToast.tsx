@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import type { Notification } from "../../lib/types";
 
 const LEVEL_STYLES: Record<Notification["level"], { border: string; icon: string }> = {
-  Info: { border: "border-l-[#58a6ff]", icon: "text-[#58a6ff]" },
-  Warning: { border: "border-l-[#d29922]", icon: "text-[#d29922]" },
-  Error: { border: "border-l-[#f85149]", icon: "text-[#f85149]" },
+  Info: { border: "border-l-[var(--ct-accent)]", icon: "text-[var(--ct-accent)]" },
+  Warning: { border: "border-l-[var(--ct-yellow)]", icon: "text-[var(--ct-yellow)]" },
+  Error: { border: "border-l-[var(--ct-red)]", icon: "text-[var(--ct-red)]" },
 };
 
 interface ToastItemProps {
@@ -36,7 +36,7 @@ function ToastItem({ notification, onDismiss }: ToastItemProps) {
         setTimeout(() => onDismiss(notification.id), 200);
       }}
       className={`
-        border-l-2 ${styles.border} bg-[#161b22] rounded-r shadow-lg
+        border-l-2 ${styles.border} bg-[var(--ct-sidebar-bg)] rounded-r shadow-lg
         px-3 py-2 cursor-pointer max-w-[320px] min-w-[240px]
         transition-all duration-200 ease-out
         ${visible ? "opacity-100 translate-x-0" : "opacity-0 translate-x-4"}
@@ -45,11 +45,11 @@ function ToastItem({ notification, onDismiss }: ToastItemProps) {
       <div className="flex items-start gap-2">
         <LevelIcon level={notification.level} className={`shrink-0 mt-0.5 ${styles.icon}`} />
         <div className="min-w-0">
-          <div className="text-xs font-medium text-[#c9d1d9] truncate">
+          <div className="text-xs font-medium text-[var(--ct-fg)] truncate">
             {notification.title}
           </div>
           {notification.body && (
-            <div className="text-[11px] text-[#8b949e] mt-0.5 line-clamp-2">
+            <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5 line-clamp-2">
               {notification.body}
             </div>
           )}
