@@ -20,9 +20,14 @@ body,
 }
 
 /* Thin macOS-style scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ct-muted, #484f58) transparent;
+}
+
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 3px;
+  height: 3px;
 }
 
 ::-webkit-scrollbar-track {
@@ -30,13 +35,12 @@ body,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--ct-muted, #484f58);
+  background: rgba(128, 128, 128, 0.3);
   border-radius: 99px;
-  opacity: 0.5;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--ct-muted-fg, #8b949e);
+  background: rgba(128, 128, 128, 0.5);
 }
 
 ::-webkit-scrollbar-corner {
@@ -48,21 +52,28 @@ body,
   padding: 0;
 }
 
-.xterm-viewport::-webkit-scrollbar {
-  width: 5px;
+.xterm .xterm-viewport {
+  background-color: transparent !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(128, 128, 128, 0.3) transparent !important;
 }
 
-.xterm-viewport::-webkit-scrollbar-track {
-  background: transparent;
+div.xterm div.xterm-viewport::-webkit-scrollbar {
+  width: 3px !important;
+  background: transparent !important;
 }
 
-.xterm-viewport::-webkit-scrollbar-thumb {
-  background: var(--ct-muted, #484f58);
-  border-radius: 99px;
+div.xterm div.xterm-viewport::-webkit-scrollbar-track {
+  background: transparent !important;
 }
 
-.xterm-viewport::-webkit-scrollbar-thumb:hover {
-  background: var(--ct-muted-fg, #8b949e);
+div.xterm div.xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.3) !important;
+  border-radius: 99px !important;
+}
+
+div.xterm div.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.5) !important;
 }
 
 /* Prevent text selection outside terminal */
