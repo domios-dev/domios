@@ -130,6 +130,8 @@ pub fn run() {
             config::save_custom_theme,
             config::delete_custom_theme,
             config::get_themes_dir,
+            // Directory completion
+            commands::list_dir_completions,
             // Claude hooks commands
             commands::check_claude_hooks,
             commands::install_claude_hooks,
