@@ -671,14 +671,13 @@ export function TerminalPane({
           }, 200);
         }, 500);
 
-        // If this pane had Claude Code running, resume after prompt is ready
-        if (paneData?.agent_type === "claude") {
-          const claudeSessionId = paneData?.claude_session_id;
-          const resumeCmd = claudeSessionId
-            ? `claude --resume ${claudeSessionId}`
-            : `claude --continue`;
+        // If this pane had Claude Code running and we know the session ID, resume it
+        if (paneData?.agent_type === "claude" && paneData?.claude_session_id) {
           setTimeout(() => {
-            invoke("write_pty_string", { ptyId: spawnedId, data: resumeCmd + "\r" }).catch(() => {});
+            invoke("write_pty_string", {
+              ptyId: spawnedId,
+              data: `claude --resume ${paneData.claude_session_id}\r`,
+            }).catch(() => {});
           }, 1500); // Wait for prompt injection + cls to finish
         }
 
