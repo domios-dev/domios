@@ -277,7 +277,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                         status={aggregateStatus(collectPaneIds(tab.split_tree), state.paneStatuses)}
                         onRename={(title) => {
                           const pids = collectPaneIds(tab.split_tree);
-                          if (pids[0]) setPaneTitle(pids[0], title);
+                          if (pids[0]) setPaneTitle(pids[0], title, true);
                         }}
                       />
                     ))}

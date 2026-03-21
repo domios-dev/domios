@@ -581,7 +581,7 @@ interface MultiplexerContextType {
   clearNotifications: () => void;
   dismissToast: (id: string) => void;
   // Pane title (from terminal OSC sequences)
-  setPaneTitle: (paneId: string, title: string) => void;
+  setPaneTitle: (paneId: string, title: string, pinned?: boolean) => void;
   setAgentType: (paneId: string, agentType: "claude" | null) => void;
   // Pane status
   updatePaneStatus: (paneId: string, status: PaneStatus) => void;
@@ -780,7 +780,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId });
       // 2. Set active tab in backend
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
-      // 3. Refresh frontend — TerminalPane will see ptyId=null and spawn PTY itself
+      // 3. Optimistically switch to the new tab before refresh
+      dispatch({
+        type: "SET_ACTIVE_TAB",
+        workspaceId,
+        tabId: tabInfo.id,
+      });
+      // 4. Refresh frontend — TerminalPane will see ptyId=null and spawn PTY itself
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to create tab:", e);
@@ -963,8 +969,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "DISMISS_TOAST", id });
   }, []);
 
-  const setPaneTitle = useCallback((paneId: string, title: string) => {
-    dispatch({ type: "SET_PANE_TITLE", paneId, title });
+  const setPaneTitle = useCallback((paneId: string, title: string, pinned?: boolean) => {
+    dispatch({ type: "SET_PANE_TITLE", paneId, title, pinned });
   }, []);
 
   const setAgentType = useCallback((paneId: string, agentType: "claude" | null) => {
