@@ -658,18 +658,18 @@ export function TerminalPane({
         }
 
         // Inject OSC 7 CWD reporting into shell prompt
-        // First set helper variables, then define the function (avoids line wrapping)
-        setTimeout(() => {
-          // Set ESC and BEL as PowerShell variables first
-          invoke("write_pty_string", { ptyId: spawnedId, data: "$e=[char]27;$b=[char]7\r" }).catch(() => {});
+        // Windows PowerShell needs explicit injection; macOS/Linux shells usually emit OSC 7 natively
+        if (navigator.platform.startsWith("Win")) {
           setTimeout(() => {
-            // Define prompt function using the variables
-            invoke("write_pty_string", { ptyId: spawnedId, data: "function prompt{$f=$pwd.Path.Replace('\\','/');\"$e]7;file:///$f$b\"+\"PS $pwd> \"}\r" }).catch(() => {});
+            invoke("write_pty_string", { ptyId: spawnedId, data: "$e=[char]27;$b=[char]7\r" }).catch(() => {});
             setTimeout(() => {
-              invoke("write_pty_string", { ptyId: spawnedId, data: "cls\r" }).catch(() => {});
+              invoke("write_pty_string", { ptyId: spawnedId, data: "function prompt{$f=$pwd.Path.Replace('\\','/');\"$e]7;file:///$f$b\"+\"PS $pwd> \"}\r" }).catch(() => {});
+              setTimeout(() => {
+                invoke("write_pty_string", { ptyId: spawnedId, data: "cls\r" }).catch(() => {});
+              }, 200);
             }, 200);
-          }, 200);
-        }, 500);
+          }, 500);
+        }
 
         // If this pane had Claude Code running and we know the session ID, resume it
         if (paneData?.agent_type === "claude" && paneData?.claude_session_id) {
