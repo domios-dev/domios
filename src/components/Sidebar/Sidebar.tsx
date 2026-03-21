@@ -354,10 +354,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
 // ---------------------------------------------------------------------------
 
 const STATUS_COLORS: Record<PaneStatus, string> = {
-  Working: "#7ee787",
-  Waiting: "#d29922",
-  Idle: "#484f58",
-  Dead: "#f85149",
+  Working: "var(--ct-green, #7ee787)",
+  Waiting: "var(--ct-yellow, #d29922)",
+  Idle: "var(--ct-muted, #484f58)",
+  Dead: "var(--ct-red, #f85149)",
 };
 
 function StatusDot({ status, animate }: { status: PaneStatus | null; animate?: boolean }) {

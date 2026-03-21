@@ -56,6 +56,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/webhooks", get(list_webhooks).post(register_webhook))
         .route("/api/webhooks/{id}", axum::routing::delete(unregister_webhook))
         .route("/api/network", get(network_info))
+        .route("/api/themes", get(list_themes_api).post(save_theme_api))
+        .route("/api/themes/{id}", axum::routing::delete(delete_theme_api))
+        .route("/api/themes/apply", post(apply_theme_api))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -941,6 +944,83 @@ pub fn strip_ansi_codes(s: &str) -> String {
         }
     }
     result
+}
+
+// ── Theme API ──────────────────────────────────────────────────────────
+
+async fn list_themes_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let ids = crate::config::schema::list_all_theme_ids();
+    Ok(Json(serde_json::json!({ "themes": ids })))
+}
+
+#[derive(Deserialize)]
+struct SaveThemeBody {
+    id: String,
+    toml: String,
+}
+
+async fn save_theme_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SaveThemeBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let dir = crate::config::schema::user_themes_dir()
+        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "Cannot determine themes directory"))?;
+    std::fs::create_dir_all(&dir).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create themes dir"))?;
+    crate::config::schema::parse_builtin_theme(&body.toml)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid theme TOML"))?;
+    let path = dir.join(format!("{}.toml", body.id));
+    std::fs::write(&path, &body.toml)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write theme file"))?;
+    Ok(Json(serde_json::json!({ "ok": true, "path": path.to_string_lossy() })))
+}
+
+async fn delete_theme_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    if let Some(dir) = crate::config::schema::user_themes_dir() {
+        let path = dir.join(format!("{}.toml", id));
+        if path.exists() {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+struct ApplyThemeBody {
+    name: String,
+}
+
+async fn apply_theme_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ApplyThemeBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    use tauri::{Emitter, Manager};
+
+    // Get the managed ConfigState from the app handle
+    let config_state = state.app_handle.state::<crate::config::ConfigState>();
+    let mut config = config_state.lock().clone();
+    config.theme.name = body.name.clone();
+    if let Some(mut theme) = crate::config::schema::get_any_theme(&body.name) {
+        theme.name = body.name;
+        config.theme = theme;
+    }
+    crate::config::save_config_pub(&config)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to save config"))?;
+    *config_state.lock() = config.clone();
+    let _ = state.app_handle.emit("config-changed", &config);
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 /// Send an OS-level toast notification if the CodeTerm window is not focused.

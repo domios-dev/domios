@@ -92,6 +92,16 @@ Fields returned by `GET /api/panes` for each pane:
 
 Webhook events: `agent.permission_request`, `agent.task_complete`
 
+#### Themes
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| GET | `/api/themes` | — | List all themes (builtin + custom) |
+| POST | `/api/themes` | `{id, toml}` | Save a custom theme |
+| DELETE | `/api/themes/{id}` | — | Delete a custom theme |
+| POST | `/api/themes/apply` | `{name}` | Apply a theme by name |
+
+Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/.config/codeterm/themes/` (macOS/Linux).
+
 ### Output Cursor Pattern
 
 Use `offset` parameter for efficient polling without fetching the full buffer:

@@ -81,6 +81,12 @@ enum Commands {
         #[arg(long)]
         unread: bool,
     },
+
+    /// Theme management
+    Theme {
+        #[command(subcommand)]
+        action: ThemeAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -164,6 +170,31 @@ enum BrowserAction {
 enum NotificationAction {
     /// Clear all notifications
     Clear,
+}
+
+#[derive(Subcommand)]
+enum ThemeAction {
+    /// List available themes
+    List,
+    /// Apply a theme by name
+    Apply {
+        /// Theme name (builtin or custom)
+        name: String,
+    },
+    /// Save a custom theme from a TOML file
+    Save {
+        /// Theme ID (filename without .toml)
+        id: String,
+        /// Path to theme TOML file
+        file: String,
+    },
+    /// Delete a custom theme
+    Delete {
+        /// Theme ID to delete
+        id: String,
+    },
+    /// Show the custom themes directory path
+    Dir,
 }
 
 fn main() {
@@ -286,6 +317,71 @@ fn main() {
                 Some(serde_json::json!({ "unread_only": unread })),
             ),
         },
+
+        Commands::Theme { action } => {
+            // Theme commands use REST API (port 7685)
+            let base = "http://127.0.0.1:7685";
+            let http = reqwest::blocking::Client::new();
+            match action {
+                ThemeAction::List => {
+                    match http.get(format!("{}/api/themes", base)).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if let Some(themes) = val.get("themes").and_then(|v| v.as_array()) {
+                                for t in themes {
+                                    println!("{}", t.as_str().unwrap_or("?"));
+                                }
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                ThemeAction::Apply { name } => {
+                    match http.post(format!("{}/api/themes/apply", base))
+                        .json(&serde_json::json!({ "name": name }))
+                        .send()
+                    {
+                        Ok(_) => { println!("Theme applied: {}", name); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                ThemeAction::Save { id, file } => {
+                    let toml = match std::fs::read_to_string(&file) {
+                        Ok(c) => c,
+                        Err(e) => { eprintln!("Error reading {}: {}", file, e); std::process::exit(1); }
+                    };
+                    match http.post(format!("{}/api/themes", base))
+                        .json(&serde_json::json!({ "id": id, "toml": toml }))
+                        .send()
+                    {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if let Some(path) = val.get("path").and_then(|v| v.as_str()) {
+                                println!("Theme saved: {}", path);
+                            } else {
+                                println!("Theme saved: {}", id);
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                ThemeAction::Delete { id } => {
+                    match http.delete(format!("{}/api/themes/{}", base, id)).send() {
+                        Ok(_) => { println!("Theme deleted: {}", id); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                ThemeAction::Dir => {
+                    let dir = dirs::config_dir()
+                        .map(|d| d.join("codeterm").join("themes"))
+                        .unwrap_or_default();
+                    println!("{}", dir.display());
+                    return;
+                }
+            }
+        }
     };
 
     match result {

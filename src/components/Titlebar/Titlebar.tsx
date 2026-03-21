@@ -5,10 +5,10 @@ import { NotificationBadge } from "../Notifications/NotificationBadge";
 import type { PaneStatus, ThemeConfig } from "../../lib/types";
 
 const STATUS_COLORS: Record<PaneStatus, string> = {
-  Working: "#7ee787",
-  Waiting: "#d29922",
-  Idle: "var(--ct-muted)",
-  Dead: "var(--ct-red)",
+  Working: "var(--ct-green, #7ee787)",
+  Waiting: "var(--ct-yellow, #d29922)",
+  Idle: "var(--ct-muted, #484f58)",
+  Dead: "var(--ct-red, #f85149)",
 };
 
 interface TitlebarProps {
