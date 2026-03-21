@@ -799,17 +799,26 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const tab = ws?.tabs.find((t) => t.id === tabId);
       if (!tab) return;
       const removedPaneIds = collectPaneIds(tab.split_tree);
+      // close_pane cascade-kills children PTYs and removes child tabs
       for (const pid of removedPaneIds) {
-        const pane = state.panes[pid];
-        if (pane?.pty_id) {
-          invoke("kill_pty", { ptyId: pane.pty_id }).catch(() => {});
-        }
+        invoke("mux_close_pane", { paneId: pid }).catch(() => {});
       }
-      // Also remove tab from backend state so closed panes don't reappear
-      invoke("mux_close_tab", { workspaceId, tabId }).catch(() => {});
-      dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedPaneIds });
+      // Collect all cascaded child pane IDs for frontend cleanup
+      const allRemoved = new Set(removedPaneIds);
+      const collectChildren = (parentId: string) => {
+        for (const [id, p] of Object.entries(state.panes)) {
+          if (p.parent_pane_id === parentId && !allRemoved.has(id)) {
+            allRemoved.add(id);
+            collectChildren(id);
+          }
+        }
+      };
+      for (const pid of removedPaneIds) collectChildren(pid);
+      dispatch({ type: "CLOSE_TAB", workspaceId, tabId, removedPaneIds: [...allRemoved] });
+      // Refresh from backend to sync all cascade-closed tabs
+      refreshFromBackend();
     },
-    [state],
+    [state, refreshFromBackend],
   );
 
   const setActiveTab = useCallback((workspaceId: string, tabId: string) => {
