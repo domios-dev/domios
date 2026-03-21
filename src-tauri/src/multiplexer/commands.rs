@@ -256,7 +256,7 @@ pub fn detect_claude_session_id(
     }
 
     let excluded = exclude.unwrap_or_default();
-    let max_age = std::time::Duration::from_secs(max_age_secs.unwrap_or(300));
+    let max_age = max_age_secs.map(|s| std::time::Duration::from_secs(s));
     let now = std::time::SystemTime::now();
     let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
 
@@ -267,15 +267,14 @@ pub fn detect_claude_session_id(
                 let stem = name.trim_end_matches(".jsonl");
                 if stem.len() >= 32 && stem.contains('-') && !excluded.contains(&stem.to_string()) {
                     if let Ok(meta) = entry.metadata() {
-                        // Use creation time if available, fall back to modified time
-                        let time = meta.created().or_else(|_| meta.modified());
-                        if let Ok(t) = time {
-                            // Only consider sessions created within max_age window
-                            if let Ok(age) = now.duration_since(t) {
-                                if age <= max_age {
-                                    sessions.push((stem.to_string(), t));
+                        if let Ok(modified) = meta.modified() {
+                            // If max_age is set, filter by it
+                            if let Some(max) = max_age {
+                                if let Ok(age) = now.duration_since(modified) {
+                                    if age > max { continue; }
                                 }
                             }
+                            sessions.push((stem.to_string(), modified));
                         }
                     }
                 }
