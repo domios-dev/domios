@@ -80,6 +80,7 @@ pub fn run() {
             commands::get_skills_prompt,
             commands::get_network_info,
             commands::save_clipboard_image,
+            commands::copy_image_to_clipboard,
             commands::install_project_rules,
             commands::check_rule_installed,
             commands::open_folder,

@@ -482,14 +482,61 @@ pub fn open_folder(path: String) -> Result<(), String> {
 }
 
 /// Save clipboard image bytes to a temp file, return the path.
+/// Old images are cleaned up (keep last 20).
 #[tauri::command]
 pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String, String> {
     let temp_dir = std::env::temp_dir().join("codeterm-images");
     std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+    // Cleanup old files (keep last 20)
+    if let Ok(entries) = std::fs::read_dir(&temp_dir) {
+        let mut files: Vec<_> = entries.flatten()
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            .collect();
+        if files.len() > 20 {
+            files.sort_by_key(|e| e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH));
+            for old in &files[..files.len() - 20] {
+                let _ = std::fs::remove_file(old.path());
+            }
+        }
+    }
     let filename = format!("clipboard-{}.{}", uuid::Uuid::new_v4(), ext);
     let path = temp_dir.join(&filename);
     std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
+}
+
+/// Copy image file to Windows clipboard as PNG so Claude Code can read it via Ctrl+V.
+#[tauri::command]
+pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        // Use PowerShell to copy image as both Image and PNG stream to clipboard
+        let ps_script = format!(
+            r#"
+            Add-Type -AssemblyName System.Windows.Forms
+            Add-Type -AssemblyName System.Drawing
+            $img = [System.Drawing.Image]::FromFile('{}')
+            $data = New-Object System.Windows.Forms.DataObject
+            $data.SetImage($img)
+            $ms = New-Object System.IO.MemoryStream
+            $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+            $ms.Position = 0
+            $data.SetData('PNG', $false, $ms)
+            [System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
+            $img.Dispose()
+            "#,
+            path.replace("'", "''").replace('\\', "\\\\")
+        );
+        let output = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-STA", "-Command", &ps_script])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Clipboard copy failed: {}", stderr));
+        }
+    }
+    Ok(())
 }
 
 /// Get network info (local IP, Tailscale IP, API URL).
