@@ -59,6 +59,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/themes", get(list_themes_api).post(save_theme_api))
         .route("/api/themes/{id}", axum::routing::delete(delete_theme_api))
         .route("/api/themes/apply", post(apply_theme_api))
+        // Setup endpoints — skills, rules, hooks
+        .route("/api/setup/skills", get(list_skills_api))
+        .route("/api/setup/skills/{id}/install", post(install_skill_api))
+        .route("/api/setup/skills/{id}/uninstall", post(uninstall_skill_api))
+        .route("/api/setup/rules", get(check_rules_api))
+        .route("/api/setup/rules/install", post(install_rules_api))
+        .route("/api/setup/hooks", get(check_hooks_api))
+        .route("/api/setup/hooks/install", post(install_hooks_api))
+        .route("/api/setup/hooks/uninstall", post(uninstall_hooks_api))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -1020,6 +1029,92 @@ async fn apply_theme_api(
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to save config"))?;
     *config_state.lock() = config.clone();
     let _ = state.app_handle.emit("config-changed", &config);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+// ---------------------------------------------------------------------------
+// Setup endpoints — skills, rules, hooks
+// ---------------------------------------------------------------------------
+
+async fn list_skills_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let skills = crate::commands::list_skills()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list skills"))?;
+    Ok(Json(serde_json::to_value(skills).unwrap_or_default()))
+}
+
+async fn install_skill_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    crate::commands::install_skill(id)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to install skill"))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+async fn uninstall_skill_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    crate::commands::uninstall_skill(id)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to uninstall skill"))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+async fn check_rules_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let status = crate::commands::check_rule_installed()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to check rules"))?;
+    Ok(Json(serde_json::to_value(status).unwrap_or_default()))
+}
+
+async fn install_rules_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    crate::commands::install_project_rules()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to install rules"))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+async fn check_hooks_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let status = crate::commands::check_claude_hooks()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to check hooks"))?;
+    Ok(Json(serde_json::to_value(status).unwrap_or_default()))
+}
+
+async fn install_hooks_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    crate::commands::install_claude_hooks(None)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to install hooks"))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+async fn uninstall_hooks_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    crate::commands::uninstall_claude_hooks()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to uninstall hooks"))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

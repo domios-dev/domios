@@ -606,7 +606,7 @@ pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(|h| {
             h.get("hooks").and_then(|hs| hs.as_array())
-                .map(|hs| hs.iter().any(|h| h.get("command").and_then(|c| c.as_str()).unwrap_or("").contains("codeterm")))
+                .map(|hs| hs.iter().any(|h| h.get("_source").and_then(|s| s.as_str()) == Some(CODETERM_HOOK_MARKER)))
                 .unwrap_or(false)
         }))
         .unwrap_or(false);
@@ -614,7 +614,7 @@ pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(|h| {
             h.get("hooks").and_then(|hs| hs.as_array())
-                .map(|hs| hs.iter().any(|h| h.get("command").and_then(|c| c.as_str()).unwrap_or("").contains("codeterm")))
+                .map(|hs| hs.iter().any(|h| h.get("_source").and_then(|s| s.as_str()) == Some(CODETERM_HOOK_MARKER)))
                 .unwrap_or(false)
         }))
         .unwrap_or(false);
