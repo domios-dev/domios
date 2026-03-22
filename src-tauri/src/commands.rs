@@ -357,14 +357,26 @@ fn extract_revision(content: &str) -> u32 {
 /// 2. Project root /skills (dev mode — exe in target/debug)
 fn find_skills_dir() -> std::path::PathBuf {
     if let Ok(exe) = std::env::current_exe() {
+        let exe_dir = exe.parent().unwrap_or(std::path::Path::new("."));
+
         // Production: skills/ next to exe
-        let adjacent = exe.parent().unwrap_or(std::path::Path::new(".")).join("skills");
+        let adjacent = exe_dir.join("skills");
         if adjacent.exists() { return adjacent; }
 
-        // Dev: exe is in src-tauri/target/debug — project root is 3 levels up
-        let dev = exe.parent().unwrap_or(std::path::Path::new("."))
-            .join("../../../skills");
+        // macOS .app bundle: Contents/MacOS/../Resources/skills
+        #[cfg(target_os = "macos")]
+        {
+            let resources = exe_dir.join("../Resources/skills");
+            if resources.exists() { return resources.canonicalize().unwrap_or(resources); }
+        }
+
+        // Dev: exe is in src-tauri/target/{debug,release} — project root is 3 levels up
+        let dev = exe_dir.join("../../../skills");
         if dev.exists() { return dev.canonicalize().unwrap_or(dev); }
+
+        // Dev on macOS: exe might be deeper in .app bundle during dev
+        let dev_deep = exe_dir.join("../../../../skills");
+        if dev_deep.exists() { return dev_deep.canonicalize().unwrap_or(dev_deep); }
     }
     std::path::PathBuf::from("skills")
 }
@@ -903,5 +915,85 @@ pub fn get_pane_git_info(
     match pane.and_then(|p| p.cwd.as_ref()) {
         Some(cwd) => Ok(git_info::get_git_info(cwd)),
         None => Ok(None),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_extract_revision_valid() {
+        assert_eq!(extract_revision("some content\n<!-- revision: 10 -->"), 10);
+    }
+
+    #[test]
+    fn test_extract_revision_missing() {
+        assert_eq!(extract_revision("no revision here"), 0);
+    }
+
+    #[test]
+    fn test_extract_revision_whitespace() {
+        assert_eq!(extract_revision("<!-- revision:   42   -->"), 42);
+    }
+
+    #[test]
+    fn test_extract_revision_invalid_number() {
+        assert_eq!(extract_revision("<!-- revision: abc -->"), 0);
+    }
+
+    #[test]
+    fn test_claude_skills_dir_is_under_home() {
+        let dir = claude_skills_dir();
+        let home = dirs::home_dir().unwrap();
+        assert!(dir.starts_with(&home));
+        assert!(dir.ends_with(".claude/skills"));
+    }
+
+    #[test]
+    fn test_scan_skills_with_temp_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let skill_dir = tmp.path().join("test-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: test\ndescription: A test skill\n---\n\n<!-- revision: 3 -->\n",
+        ).unwrap();
+
+        // scan_skills uses find_skills_dir which we can't override easily,
+        // but we can test the extract_revision and parse logic directly
+        let content = fs::read_to_string(skill_dir.join("SKILL.md")).unwrap();
+        let name = content.lines()
+            .find(|l| l.starts_with("name:"))
+            .map(|l| l.trim_start_matches("name:").trim().to_string())
+            .unwrap();
+        let desc = content.lines()
+            .find(|l| l.starts_with("description:"))
+            .map(|l| l.trim_start_matches("description:").trim().to_string())
+            .unwrap();
+        let rev = extract_revision(&content);
+
+        assert_eq!(name, "test");
+        assert_eq!(desc, "A test skill");
+        assert_eq!(rev, 3);
+    }
+
+    #[test]
+    fn test_install_skill_nonexistent() {
+        let result = install_skill("nonexistent-skill-xyz-12345".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Skill not found"));
+    }
+
+    #[test]
+    fn test_uninstall_skill_nonexistent_is_ok() {
+        // Uninstalling a skill that doesn't exist should succeed silently
+        let result = uninstall_skill("nonexistent-skill-xyz-12345".to_string());
+        assert!(result.is_ok());
     }
 }

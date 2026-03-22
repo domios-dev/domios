@@ -25,16 +25,6 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makePane(ptyId: string | null = null): Pane {
-  return {
-    id: uid(),
-    pty_id: ptyId,
-    pane_type: "Terminal",
-    title: "Terminal",
-    cwd: null,
-  };
-}
-
 function makeBrowserPane(url: string): Pane {
   return {
     id: uid(),
@@ -54,14 +44,6 @@ function makeTab(pane: Pane): Tab {
   };
 }
 
-function makeWorkspace(name: string, tab: Tab): Workspace {
-  return {
-    id: uid(),
-    name,
-    tabs: [tab],
-    active_tab_id: tab.id,
-  };
-}
 
 function collectPaneIds(node: SplitNode): string[] {
   if (node.type === "Leaf") return [node.pane_id];

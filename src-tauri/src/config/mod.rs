@@ -200,6 +200,91 @@ fn apply_theme_with_overrides(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config_parses() {
+        let toml_str = default_config_toml();
+        let config: AppConfig = toml::from_str(&toml_str).expect("default TOML should parse");
+        assert_eq!(config.font.size, 14);
+        assert_eq!(config.terminal.scrollback, 10000);
+        assert_eq!(config.api.port, 7685);
+    }
+
+    #[test]
+    fn test_config_roundtrip() {
+        let config = AppConfig::default();
+        let serialized = toml::to_string_pretty(&config).expect("serialize");
+        let deserialized: AppConfig = toml::from_str(&serialized).expect("deserialize");
+        assert_eq!(config.theme.name, deserialized.theme.name);
+        assert_eq!(config.font.family, deserialized.font.family);
+        assert_eq!(config.keybindings.new_tab, deserialized.keybindings.new_tab);
+        assert_eq!(config.api.port, deserialized.api.port);
+    }
+
+    #[test]
+    fn test_config_partial_toml_uses_defaults() {
+        let partial = r#"
+[theme]
+name = "dracula"
+
+[font]
+size = 16
+"#;
+        let config: AppConfig = toml::from_str(partial).expect("partial TOML should parse");
+        assert_eq!(config.theme.name, "dracula");
+        assert_eq!(config.font.size, 16);
+        // Defaults for fields not specified
+        assert_eq!(config.terminal.scrollback, 10000);
+        assert!(config.api.enabled);
+        assert_eq!(config.keybindings.new_tab, "Ctrl+Shift+T");
+    }
+
+    #[test]
+    fn test_resolve_theme_applies_builtin() {
+        let mut config = AppConfig::default();
+        config.theme.name = "dracula".to_string();
+        resolve_theme(&mut config);
+        // Dracula background should NOT be github-dark default
+        assert_ne!(config.theme.background, "#0d1117");
+        assert_eq!(config.theme.name, "dracula");
+    }
+
+    #[test]
+    fn test_save_and_load_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+
+        let mut config = AppConfig::default();
+        config.font.size = 18;
+        config.api.port = 9999;
+
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        std::fs::write(&path, &toml_str).unwrap();
+
+        let loaded: AppConfig = toml::from_str(
+            &std::fs::read_to_string(&path).unwrap()
+        ).unwrap();
+        assert_eq!(loaded.font.size, 18);
+        assert_eq!(loaded.api.port, 9999);
+    }
+
+    #[test]
+    fn test_config_path_is_valid() {
+        let path = config_path();
+        assert!(path.is_ok());
+        let p = path.unwrap();
+        assert!(p.to_string_lossy().contains("codeterm"));
+        assert!(p.to_string_lossy().contains("config.toml"));
+    }
+}
+
 /// Save the current config to disk.
 pub fn save_config_pub(config: &AppConfig) -> Result<(), String> {
     save_config(config)

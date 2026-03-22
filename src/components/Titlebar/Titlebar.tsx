@@ -1,7 +1,8 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useMultiplexer } from "../../store/multiplexer";
-import type { PaneStatus, ThemeConfig } from "../../lib/types";
+import type { ThemeConfig } from "../../lib/types";
+
+const isMac = navigator.platform.toUpperCase().includes("MAC");
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -19,13 +20,6 @@ export function Titlebar({
 }: TitlebarProps) {
   void _theme;
   const appWindow = getCurrentWindow();
-  const { state } = useMultiplexer();
-
-  const focusedStatus: PaneStatus | undefined =
-    state.focused_pane_id
-      ? state.paneStatuses[state.focused_pane_id]
-      : undefined;
-
   const handleMinimize = useCallback(() => appWindow.minimize(), [appWindow]);
   const handleMaximize = useCallback(() => appWindow.toggleMaximize(), [appWindow]);
   const handleClose = useCallback(() => appWindow.close(), [appWindow]);
@@ -35,6 +29,15 @@ export function Titlebar({
       className="flex items-center h-9 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] select-none shrink-0"
       data-tauri-drag-region
     >
+      {/* macOS: traffic lights on the left */}
+      {isMac && (
+        <MacTrafficLights
+          onClose={handleClose}
+          onMinimize={handleMinimize}
+          onMaximize={handleMaximize}
+        />
+      )}
+
       {/* Left: sidebar toggle + breadcrumb */}
       <div className="flex items-center gap-1.5 pl-3" data-tauri-drag-region>
         <button
@@ -74,46 +77,142 @@ export function Titlebar({
       {/* Spacer — drag region */}
       <div className="flex-1" data-tauri-drag-region />
 
-      {/* Window controls */}
-      <div className="flex items-center h-full">
-        <button
-          onClick={handleMinimize}
-          className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
-          title="Minimize"
-        >
-          <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
-            <rect width="10" height="1" />
-          </svg>
-        </button>
-        <button
-          onClick={handleMaximize}
-          className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
-          title="Maximize"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
-            <rect x="0.5" y="0.5" width="9" height="9" />
-          </svg>
-        </button>
-        <button
-          onClick={handleClose}
-          className="inline-flex items-center justify-center w-12 h-full hover:bg-[#e81123] text-[var(--ct-muted)] hover:text-white transition-colors"
-          title="Close"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-            <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
-          </svg>
-        </button>
-      </div>
+      {/* Windows/Linux: controls on the right */}
+      {!isMac && (
+        <WindowsControls
+          onClose={handleClose}
+          onMinimize={handleMinimize}
+          onMaximize={handleMaximize}
+        />
+      )}
     </div>
   );
 }
 
-const STATUS_COLORS: Record<PaneStatus, string> = {
-  Working: "var(--ct-green)",
-  Waiting: "var(--ct-yellow)",
-  Idle: "var(--ct-muted)",
-  Dead: "var(--ct-red)",
-};
+// ── macOS Traffic Lights ──────────────────────────────────────────────
+
+function MacTrafficLights({
+  onClose,
+  onMinimize,
+  onMaximize,
+}: {
+  onClose: () => void;
+  onMinimize: () => void;
+  onMaximize: () => void;
+}) {
+  const [hover, setHover] = useState(false);
+
+  // Track window focus for dimming
+  const [focused, setFocused] = useState(true);
+  useEffect(() => {
+    const onFocus = () => setFocused(true);
+    const onBlur = () => setFocused(false);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
+
+  const dim = !focused && !hover;
+
+  return (
+    <div
+      className="flex items-center gap-2 pl-3.5 pr-1 h-full"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      {/* Close — red */}
+      <button
+        onClick={onClose}
+        className="w-3 h-3 rounded-full flex items-center justify-center transition-colors"
+        style={{ backgroundColor: dim ? "var(--ct-muted)" : "#ff5f57" }}
+        title="Close"
+      >
+        {hover && (
+          <svg width="6" height="6" viewBox="0 0 6 6" fill="none" stroke="#4d0000" strokeWidth="1.2" strokeLinecap="round">
+            <line x1="1" y1="1" x2="5" y2="5" />
+            <line x1="5" y1="1" x2="1" y2="5" />
+          </svg>
+        )}
+      </button>
+      {/* Minimize — yellow */}
+      <button
+        onClick={onMinimize}
+        className="w-3 h-3 rounded-full flex items-center justify-center transition-colors"
+        style={{ backgroundColor: dim ? "var(--ct-muted)" : "#febc2e" }}
+        title="Minimize"
+      >
+        {hover && (
+          <svg width="6" height="2" viewBox="0 0 6 2" fill="none" stroke="#995700" strokeWidth="1.2" strokeLinecap="round">
+            <line x1="1" y1="1" x2="5" y2="1" />
+          </svg>
+        )}
+      </button>
+      {/* Maximize — green */}
+      <button
+        onClick={onMaximize}
+        className="w-3 h-3 rounded-full flex items-center justify-center transition-colors"
+        style={{ backgroundColor: dim ? "var(--ct-muted)" : "#28c840" }}
+        title="Maximize"
+      >
+        {hover && (
+          <svg width="6" height="6" viewBox="0 0 6 6" fill="none" stroke="#006500" strokeWidth="1.1" strokeLinecap="round">
+            <polyline points="1,3.5 1,1 3.5,1" />
+            <polyline points="5,2.5 5,5 2.5,5" />
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
+// ── Windows/Linux Controls ────────────────────────────────────────────
+
+function WindowsControls({
+  onClose,
+  onMinimize,
+  onMaximize,
+}: {
+  onClose: () => void;
+  onMinimize: () => void;
+  onMaximize: () => void;
+}) {
+  return (
+    <div className="flex items-center h-full">
+      <button
+        onClick={onMinimize}
+        className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+        title="Minimize"
+      >
+        <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
+          <rect width="10" height="1" />
+        </svg>
+      </button>
+      <button
+        onClick={onMaximize}
+        className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+        title="Maximize"
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
+          <rect x="0.5" y="0.5" width="9" height="9" />
+        </svg>
+      </button>
+      <button
+        onClick={onClose}
+        className="inline-flex items-center justify-center w-12 h-full hover:bg-[#e81123] text-[var(--ct-muted)] hover:text-white transition-colors"
+        title="Close"
+      >
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+          <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+// ── Shared ────────────────────────────────────────────────────────────
 
 function Chevron() {
   return (

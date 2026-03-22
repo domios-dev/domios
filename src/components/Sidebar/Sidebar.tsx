@@ -1,10 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { useMultiplexer } from "../../store/multiplexer";
-import { useGitInfo } from "../../hooks/useGitInfo";
-import { NotificationBadge } from "../Notifications/NotificationBadge";
-import { NotificationPanel } from "../Notifications/NotificationPanel";
 import type { Workspace, Tab, SplitNode, PaneStatus, Pane, AgentRole } from "../../lib/types";
 
 function collectPaneIds(node: SplitNode): string[] {
@@ -45,13 +41,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     closeTab,
     setActiveTab,
     setPaneTitle,
-    markRead,
-    markAllRead,
-    clearNotifications,
-    setFocusedPane,
   } = useMultiplexer();
 
-  const [panelOpen, setPanelOpen] = useState(false);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
   );
@@ -69,32 +60,6 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     });
   }, [state.active_workspace_id, state.workspaces]);
 
-  const gitInfo = useGitInfo(state.focused_pane_id);
-
-  const unreadCount = useMemo(
-    () => state.notifications.filter((n) => !n.read).length,
-    [state.notifications],
-  );
-
-  // Agent hierarchy tree
-  const hierarchyTree = useMemo(
-    () => buildHierarchyTree(state.panes, state.paneStatuses),
-    [state.panes, state.paneStatuses],
-  );
-  const hasHierarchy = hierarchyTree.length > 0;
-
-  // Track report counts per conductor
-  const [reportCounts, setReportCounts] = useState<Record<string, number>>({});
-  useEffect(() => {
-    const unlisten = listen<{ conductor_pane_id: string }>("agent-report", (event) => {
-      setReportCounts((prev) => ({
-        ...prev,
-        [event.payload.conductor_pane_id]: (prev[event.payload.conductor_pane_id] || 0) + 1,
-      }));
-    });
-    return () => { unlisten.then((fn) => fn()); };
-  }, []);
-
   const handleNewWorkspace = useCallback(() => {
     const n = state.workspaces.length + 1;
     createWorkspace(`Workspace ${n}`);
@@ -111,17 +76,6 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       return next;
     });
   }, []);
-
-  const handleJumpToPane = useCallback(
-    (paneId: string, workspaceId: string | null) => {
-      if (workspaceId) {
-        setActiveWorkspace(workspaceId);
-      }
-      setFocusedPane(paneId);
-      setPanelOpen(false);
-    },
-    [setActiveWorkspace, setFocusedPane],
-  );
 
   const [sidebarWidth, setSidebarWidth] = useState(220);
   const sidebarDragging = useRef(false);
@@ -435,7 +389,7 @@ interface HierarchyNodeData {
   status: PaneStatus | null;
 }
 
-function buildHierarchyTree(
+export function buildHierarchyTree(
   panes: Record<string, Pane>,
   statuses: Record<string, PaneStatus>,
 ): HierarchyNodeData[] {
@@ -452,7 +406,7 @@ function buildHierarchyTree(
   return conductors.map(buildNode);
 }
 
-function HierarchyTree({
+export function HierarchyTree({
   nodes,
   depth,
   onJumpToPane,
@@ -549,8 +503,8 @@ function WorkspaceItem({
   onToggleExpand,
   onClose,
   onRename,
-  canClose,
-  status,
+  canClose: _canClose,
+  status: _status,
   hasWaiting,
   onDragOver,
   onDrop,

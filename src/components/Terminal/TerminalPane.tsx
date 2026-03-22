@@ -17,13 +17,6 @@ import { defaultDefinitions } from "../../lib/completions/definitions";
 import type { CompletionItem } from "../../lib/completions/types";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 
-const STATUS_COLORS: Record<PaneStatus, string> = {
-  Working: "var(--ct-green, #7ee787)",
-  Waiting: "var(--ct-yellow, #d29922)",
-  Idle: "var(--ct-muted, #484f58)",
-  Dead: "var(--ct-red, #f85149)",
-};
-
 interface TerminalPaneProps {
   paneId: string;
   ptyId?: string | null;
@@ -148,8 +141,6 @@ export function TerminalPane({
   }, []);
 
   const { state, updatePaneStatus, setPaneTitle, setAgentType, splitPane, closePane } = useMultiplexer();
-  const paneStatus = state.paneStatuses[paneId] as PaneStatus | undefined;
-
   const handleClick = useCallback(() => {
     onFocus?.(paneId);
     // Focus xterm textarea, then fallback to container
@@ -255,11 +246,8 @@ export function TerminalPane({
       // Trim trailing empty lines
       while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
       const text = lines.join("\n");
-      import("@tauri-apps/api/core").then(({ invoke }) => {
-        // Emit response back to backend
-        import("@tauri-apps/api/event").then(({ emit }) => {
-          emit(`screen-capture-response-${paneId}`, { text });
-        });
+      import("@tauri-apps/api/event").then(({ emit }) => {
+        emit(`screen-capture-response-${paneId}`, { text });
       });
     }).then((fn) => { unlisten = fn; });
     return () => { unlisten?.(); };
