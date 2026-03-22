@@ -233,8 +233,9 @@ impl ServiceContext {
         // 6. Build launch command (without task for interactive mode)
         let launch_cmd = build_agent_command(agent_cmd, &params);
 
-        // 7. Wait for shell prompt, then launch
-        self.wait_for_shell_prompt(&pty_id, 10).await;
+        // 7. Wait for shell prompt (30s — accounts for slow shell init).
+        //    If timeout, command queues in PTY input buffer.
+        self.wait_for_shell_prompt(&pty_id, 30).await;
         self.pty
             .lock()
             .write(&pty_id, format!("{}\r", launch_cmd).as_bytes())

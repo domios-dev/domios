@@ -74,27 +74,37 @@ impl ServiceContext {
     }
 
     /// Wait for shell prompt to appear in output buffer.
+    ///
+    /// Checks output buffer for common shell prompt markers. If timeout
+    /// is reached without finding a prompt, proceeds anyway — the command
+    /// will queue in the PTY input buffer until the shell is ready.
     pub async fn wait_for_shell_prompt(&self, pty_id: &str, timeout_secs: u64) {
         let ob = self.output_buf.clone();
         let pid = pty_id.to_string();
-        let _ = tokio::time::timeout(
+        let result = tokio::time::timeout(
             tokio::time::Duration::from_secs(timeout_secs),
             async move {
                 loop {
                     let ready = {
                         let buf = ob.lock();
                         buf.get_text(&pid)
-                            .map(|t| t.contains("PS ") || t.contains("> ") || t.contains("$ ") || t.contains("% "))
+                            .map(|t| {
+                                t.contains("PS ") || t.contains("> ")
+                                    || t.contains("$ ") || t.contains("% ")
+                            })
                             .unwrap_or(false)
                     };
                     if ready {
                         return;
                     }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
                 }
             },
         )
         .await;
+        if result.is_err() {
+            log::warn!("wait_for_shell_prompt: timeout for PTY {}, proceeding anyway", pty_id);
+        }
     }
 
     /// Wait for output buffer to grow by at least `min_bytes`.
