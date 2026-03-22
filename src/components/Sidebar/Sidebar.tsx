@@ -162,7 +162,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         {/* Workspaces header */}
         <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
           {!isCompact && (
-            <span className="text-[11px] text-[var(--ct-muted)] truncate">
+            <span className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate">
               Workspaces
             </span>
           )}
@@ -352,11 +352,11 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                     {/* Add tab button inside folder */}
                     <button
                       onClick={() => createTab(ws.id)}
-                      className="flex items-center gap-2 w-full pl-7 pr-3 py-1.5 text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+                      className="flex items-center gap-2 w-full pl-7 pr-3 py-1.5 text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors opacity-50 hover:opacity-80"
                       title="New tab in this workspace"
                     >
                       <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                        <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        <path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeDasharray="2 2" />
                       </svg>
                       <span className="text-[11px]">New tab</span>
                     </button>
@@ -658,7 +658,7 @@ function WorkspaceItem({
               className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
             />
           ) : (
-            <span className="text-xs truncate" onDoubleClick={handleDoubleClick}>
+            <span className="text-xs font-medium truncate" onDoubleClick={handleDoubleClick}>
               {workspace.name}
             </span>
           )}
@@ -831,7 +831,7 @@ function TabItem({
               className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
             />
           ) : (
-            <span className="text-xs truncate">
+            <span className={`text-xs truncate ${isActive ? "font-medium" : ""}`}>
               {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
             </span>
           )}

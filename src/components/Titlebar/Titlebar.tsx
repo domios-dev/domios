@@ -71,7 +71,7 @@ export function Titlebar({
           {/* Status dot */}
           {focusedStatus && focusedStatus !== "Idle" && (
             <span
-              className="ml-1 w-1.5 h-1.5 rounded-full shrink-0"
+              className={`ml-1.5 w-2 h-2 rounded-full shrink-0 ${focusedStatus === "Working" ? "animate-pulse" : ""}`}
               style={{ backgroundColor: STATUS_COLORS[focusedStatus] }}
               title={focusedStatus}
             />
