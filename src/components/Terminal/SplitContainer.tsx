@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { TerminalPane } from "./TerminalPane";
 import { BrowserPane } from "../Browser/BrowserPane";
 import { Divider } from "./Divider";
+import { useMultiplexer } from "../../store/multiplexer";
 import type { SplitNode, Pane, Orientation, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 
 interface SplitContainerProps {
@@ -172,45 +173,65 @@ function PaneToolbar({
   onClose: () => void;
 }) {
   const [confirmClose, setConfirmClose] = useState(false);
+  const { openBrowser } = useMultiplexer();
+
+  const btnBase = "w-6 h-6 flex items-center justify-center rounded-md transition-all duration-150";
+  const btnNormal = `${btnBase} bg-[var(--ct-bg)]/90 backdrop-blur-sm border border-[var(--ct-border)]/60 text-[var(--ct-muted)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-muted)] hover:bg-[var(--ct-surface)]`;
 
   return (
     <>
-      <div className="absolute top-1 right-1 flex items-center gap-0.5 opacity-0 group-hover/pane:opacity-70 hover:!opacity-100 transition-opacity z-10">
+      <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover/pane:opacity-100 transition-opacity duration-200 z-10">
+        {/* Split right */}
         <button
           onClick={(e) => { e.stopPropagation(); onSplitH(); }}
-          className="w-6 h-6 flex items-center justify-center rounded bg-[var(--ct-border)]/80 hover:bg-[var(--ct-muted)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
-          title="Split right"
+          className={btnNormal}
+          title="Split right (Ctrl+Shift+D)"
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
-            <rect x="1" y="1" width="10" height="10" rx="1" />
-            <line x1="6" y1="1" x2="6" y2="11" />
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+            <rect x="1" y="1" width="10" height="10" rx="1.5" />
+            <line x1="6" y1="1.5" x2="6" y2="10.5" />
           </svg>
         </button>
+        {/* Split down */}
         <button
           onClick={(e) => { e.stopPropagation(); onSplitV(); }}
-          className="w-6 h-6 flex items-center justify-center rounded bg-[var(--ct-border)]/80 hover:bg-[var(--ct-muted)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
-          title="Split down"
+          className={btnNormal}
+          title="Split down (Ctrl+Shift+E)"
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2">
-            <rect x="1" y="1" width="10" height="10" rx="1" />
-            <line x1="1" y1="6" x2="11" y2="6" />
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
+            <rect x="1" y="1" width="10" height="10" rx="1.5" />
+            <line x1="1.5" y1="6" x2="10.5" y2="6" />
           </svg>
         </button>
+        {/* Browser */}
+        <button
+          onClick={(e) => { e.stopPropagation(); openBrowser("about:blank"); }}
+          className={btnNormal}
+          title="Open browser panel"
+        >
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+            <circle cx="8" cy="8" r="6.5" />
+            <ellipse cx="8" cy="8" rx="3" ry="6.5" />
+            <line x1="1.5" y1="8" x2="14.5" y2="8" />
+          </svg>
+        </button>
+
+        {/* Separator */}
+        <div className="w-px h-3 bg-[var(--ct-border)]/50 mx-0.5" />
+
+        {/* Close */}
         <button
           onClick={(e) => {
             e.stopPropagation();
-            if (hasAgent) {
-              setConfirmClose(true);
-            } else {
-              onClose();
-            }
+            if (hasAgent) setConfirmClose(true);
+            else onClose();
           }}
-          className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
+          className={`${btnBase} ${
             hasAgent
-              ? "bg-[var(--ct-yellow)]/30 hover:bg-[var(--ct-red)]/80 text-[var(--ct-yellow)] hover:text-white"
-              : "bg-[var(--ct-border)]/80 hover:bg-[var(--ct-red)]/80 text-[var(--ct-muted-fg)] hover:text-white"
-          }`}
-          title={hasAgent ? "Close (agent running)" : "Close pane"}
+              ? "bg-[var(--ct-yellow)]/15 border border-[var(--ct-yellow)]/30 text-[var(--ct-yellow)] hover:bg-[var(--ct-red)]/80 hover:border-[var(--ct-red)] hover:text-white"
+              : "bg-[var(--ct-bg)]/90 backdrop-blur-sm border border-[var(--ct-border)]/60 text-[var(--ct-muted)] hover:bg-[var(--ct-red)]/80 hover:border-[var(--ct-red)] hover:text-white"
+          } transition-all duration-150`}
+          title={hasAgent ? "Close (agent running)" : "Close pane (Ctrl+Shift+Q)"}
         >
           <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
             <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
