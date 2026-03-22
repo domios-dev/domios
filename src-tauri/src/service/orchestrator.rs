@@ -178,7 +178,11 @@ impl SpawnAgentParams {
 }
 
 impl ServiceContext {
-    /// One-call agent spawn: create tab → wait PTY → set role → launch → send task.
+    /// One-call agent spawn: create tab → wait PTY → set role → launch agent.
+    ///
+    /// For Claude Code: uses `-p` flag to send the task inline (no polling needed).
+    /// Unsets CLAUDECODE env var so nested sessions work.
+    /// Uses a single shell command to avoid sequential waits.
     pub async fn spawn_agent(&self, params: SpawnAgentParams) -> Result<SpawnResult, String> {
         let agent_cmd = params.agent.as_deref().unwrap_or("claude");
         let title = params
@@ -211,10 +215,10 @@ impl ServiceContext {
         // 3. Wait for PTY
         let pty_id = self.wait_for_pty(&pane_id, 10).await?;
 
-        // 4. Rename
+        // 4. Rename tab
         self.rename_pane(&pane_id, title)?;
 
-        // 5. Set role
+        // 5. Set role in hierarchy
         if let Some(ref role_str) = params.role {
             self.set_pane_role(
                 &pane_id,
@@ -224,47 +228,15 @@ impl ServiceContext {
             )?;
         }
 
-        // 6. Build launch command
-        let mut cmd_parts = vec![agent_cmd.to_string()];
-        if agent_cmd == "claude" {
-            cmd_parts.push("--dangerously-skip-permissions".to_string());
-            if let Some(ref name) = params.agent_name {
-                cmd_parts.push("--agent".to_string());
-                cmd_parts.push(name.clone());
-            }
-        }
-        if let Some(ref extra) = params.args {
-            cmd_parts.extend(extra.iter().cloned());
-        }
-        let agent_launch = cmd_parts.join(" ");
+        // 6. Build the launch command
+        let launch_cmd = build_agent_command(agent_cmd, &params);
 
-        // 7. Wait for shell prompt
+        // 7. Wait for shell prompt, then send everything as one command
         self.wait_for_shell_prompt(&pty_id, 10).await;
-
-        // 8. Clear screen + unset nested-session guard, wait, launch
-        #[cfg(target_os = "windows")]
-        let clear_cmd = "cls\r";
-        #[cfg(not(target_os = "windows"))]
-        let clear_cmd = "clear\r";
-        let _ = self.pty.lock().write(&pty_id, clear_cmd.as_bytes());
-        self.wait_for_output_growth(&pty_id, 5, 3).await;
-
-        // Unset CLAUDECODE so nested Claude Code sessions can launch
-        if agent_cmd == "claude" {
-            let _ = self.pty.lock().write(&pty_id, b"unset CLAUDECODE\r");
-            self.wait_for_output_growth(&pty_id, 5, 2).await;
-        }
-
-        let cmd = format!("{}\r", agent_launch);
         self.pty
             .lock()
-            .write(&pty_id, cmd.as_bytes())
+            .write(&pty_id, format!("{}\r", launch_cmd).as_bytes())
             .map_err(|e| e.to_string())?;
-
-        // 9. Send task after agent ready
-        if let Some(task_text) = params.task.clone() {
-            self.spawn_task_sender(pty_id.clone(), task_text);
-        }
 
         Ok(SpawnResult {
             pane_id,
@@ -274,5 +246,154 @@ impl ServiceContext {
             title: title.to_string(),
             role: params.role,
         })
+    }
+}
+
+/// Build a single shell command that launches the agent.
+///
+/// For Claude Code:
+///   `unset CLAUDECODE && claude --dangerously-skip-permissions [-p "task"]`
+/// The `-p` flag passes the task as a prompt argument — no polling or
+/// delayed send needed. CLAUDECODE is unset so nested sessions work.
+///
+/// For other agents:
+///   `agent [args]`
+fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    if agent_cmd == "claude" {
+        // Unset the nested-session guard env var
+        parts.push("unset CLAUDECODE &&".to_string());
+
+        parts.push("claude".to_string());
+        parts.push("--dangerously-skip-permissions".to_string());
+
+        // Use --agent flag for named agent definitions
+        if let Some(ref name) = params.agent_name {
+            parts.push("--agent".to_string());
+            parts.push(shell_quote(name));
+        }
+
+        // Pass task inline via -p flag — instant start, no polling
+        if let Some(ref task) = params.task {
+            parts.push("-p".to_string());
+            parts.push(shell_quote(task));
+        }
+    } else {
+        parts.push(agent_cmd.to_string());
+    }
+
+    // Extra args
+    if let Some(ref extra) = params.args {
+        parts.extend(extra.iter().cloned());
+    }
+
+    parts.join(" ")
+}
+
+/// Shell-quote a string: wrap in single quotes, escape internal single quotes.
+fn shell_quote(s: &str) -> String {
+    if s.contains('\'') {
+        // Replace ' with '\'' (end quote, escaped quote, start quote)
+        format!("'{}'", s.replace('\'', "'\\''"))
+    } else {
+        format!("'{}'", s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_claude_command_with_task() {
+        let params = SpawnAgentParams {
+            agent: Some("claude".to_string()),
+            task: Some("count files".to_string()),
+            agent_name: None,
+            args: None,
+            cwd: None,
+            title: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: None,
+            workspace_id: None,
+        };
+        let cmd = build_agent_command("claude", &params);
+        assert!(cmd.starts_with("unset CLAUDECODE &&"));
+        assert!(cmd.contains("--dangerously-skip-permissions"));
+        assert!(cmd.contains("-p 'count files'"));
+    }
+
+    #[test]
+    fn test_build_claude_command_no_task() {
+        let params = SpawnAgentParams {
+            agent: Some("claude".to_string()),
+            task: None,
+            agent_name: None,
+            args: None,
+            cwd: None,
+            title: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: None,
+            workspace_id: None,
+        };
+        let cmd = build_agent_command("claude", &params);
+        assert_eq!(cmd, "unset CLAUDECODE && claude --dangerously-skip-permissions");
+    }
+
+    #[test]
+    fn test_build_claude_command_with_agent_name() {
+        let params = SpawnAgentParams {
+            agent: Some("claude".to_string()),
+            task: Some("review code".to_string()),
+            agent_name: Some("architect".to_string()),
+            args: None,
+            cwd: None,
+            title: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: None,
+            workspace_id: None,
+        };
+        let cmd = build_agent_command("claude", &params);
+        assert!(cmd.contains("--agent 'architect'"));
+        assert!(cmd.contains("-p 'review code'"));
+    }
+
+    #[test]
+    fn test_build_other_agent() {
+        let params = SpawnAgentParams {
+            agent: Some("aider".to_string()),
+            task: None,
+            agent_name: None,
+            args: Some(vec!["--model".to_string(), "gpt-4".to_string()]),
+            cwd: None,
+            title: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: None,
+            workspace_id: None,
+        };
+        let cmd = build_agent_command("aider", &params);
+        assert_eq!(cmd, "aider --model gpt-4");
+        // No CLAUDECODE unset for non-claude agents
+        assert!(!cmd.contains("CLAUDECODE"));
+    }
+
+    #[test]
+    fn test_shell_quote_simple() {
+        assert_eq!(shell_quote("hello"), "'hello'");
+    }
+
+    #[test]
+    fn test_shell_quote_with_single_quotes() {
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn test_shell_quote_with_spaces_and_special() {
+        assert_eq!(shell_quote("count *.tsx files"), "'count *.tsx files'");
     }
 }
