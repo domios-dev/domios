@@ -349,14 +349,14 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                         })
                         .map((tab, index) => renderTab(tab, index, 0));
                     })()}
-                    {/* Add tab button inside folder */}
+                    {/* Add tab button */}
                     <button
                       onClick={() => createTab(ws.id)}
-                      className="flex items-center gap-2 w-full pl-7 pr-3 py-1.5 text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors opacity-50 hover:opacity-80"
+                      className="flex items-center gap-2 mx-2 mt-1 mb-0.5 px-5 py-1 rounded-md border border-dashed border-[var(--ct-border)] text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:border-[var(--ct-muted)] hover:bg-[var(--ct-hover)] transition-colors"
                       title="New tab in this workspace"
                     >
-                      <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                        <path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeDasharray="2 2" />
+                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                        <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                       </svg>
                       <span className="text-[11px]">New tab</span>
                     </button>
