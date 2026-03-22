@@ -22,7 +22,7 @@ Themes:
 - POST /api/themes/apply {name} — apply theme
 
 Integration:
-- POST /api/browser/open {url} — open browser panel
+- POST /api/browser/open {url} — open canvas panel (localhost, data URLs, HTML visualizations)
 - POST /api/notifications {title, body, level} — send notification
 - POST /api/webhooks {url, events?, once?, pane_id?, headers?, payload_extra?} — register webhook for real-time events
 - GET  /api/network — connection info (local IP, Tailscale IP)

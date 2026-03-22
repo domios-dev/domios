@@ -87,10 +87,10 @@ Fields returned by `GET /api/panes` for each pane:
 |-------|------|-------------|
 | `id` | `string` | Unique pane UUID |
 | `pty_id` | `string` | Associated PTY process ID |
-| `pane_type` | `string` | `"terminal"` or `"browser"` |
+| `pane_type` | `string` | `"Terminal"` or `"Browser"` (canvas for visualizations) |
 | `title` | `string` | Display title (user-pinned or auto-detected) |
 | `cwd` | `string?` | Current working directory (updated via OSC 7) |
-| `url` | `string?` | URL for browser panes |
+| `url` | `string?` | URL for canvas panes (localhost, data URLs) |
 | `agent_type` | `string?` | Agent running in pane, e.g. `"claude"` |
 | `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
 | `role` | `string?` | `"Conductor"`, `"Worker"`, `"SubWorker"`, or `null` |
@@ -98,11 +98,11 @@ Fields returned by `GET /api/panes` for each pane:
 | `can_spawn` | `bool` | Whether this pane can spawn child workers |
 | `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Conductor), 2 (Worker), 3 (SubWorker) |
 
-#### Browser
+#### Canvas (Visualizations)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| POST | `/api/browser/open` | `{url}` | Open URL in browser panel |
-| GET | `/api/serve-file` | `?path=...` | Serve local file (for iframe) |
+| POST | `/api/browser/open` | `{url}` | Open canvas panel (localhost, data URLs, HTML) |
+| GET | `/api/serve-file` | `?path=...` | Serve local file for canvas |
 
 #### Notifications
 | Method | Path | Body | Description |
@@ -341,7 +341,7 @@ Newline-delimited JSON:
 | `pane.get_output` | `{pane_id, max_bytes?}` | Read terminal output |
 | `pane.split` | `{pane_id, direction?}` | Split pane |
 | `pane.rename` | `{pane_id, title}` | Rename pane (pinned) |
-| `browser.open` | `{url}` | Open browser panel |
+| `browser.open` | `{url}` | Open canvas panel (localhost, data URLs) |
 | `notification.create` | `{title, body?, level?, pane_id?}` | Create notification |
 | `notification.list` | `{unread_only?}` | List notifications |
 | `notification.clear` | `{id?}` | Clear notifications |
@@ -376,8 +376,8 @@ codeterm pane rename "title" [--id ID]          # Rename tab (default: current)
 codeterm send-text "command" [--pane ID]        # Send text (default: current)
 codeterm get-output [--pane ID] [--lines 50]    # Read output (default: current)
 
-# Browser
-codeterm browser open URL                       # Open browser panel
+# Canvas (visualizations)
+codeterm browser open URL                       # Open canvas panel (localhost, data URLs)
 
 # Notifications
 codeterm notify "Title" [--body "..."] [--level info|warning|error]
