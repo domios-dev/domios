@@ -383,20 +383,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
           })}
         </div>
 
-        {/* Bottom bar: git branch + settings */}
-        <div className={`border-t border-[var(--ct-border)] ${isCompact ? "px-1 py-1.5 flex flex-col items-center gap-1" : "px-3 py-1.5"}`}>
-          {/* Git branch — thin status line */}
-          {!isCompact && gitInfo?.branch && (
-            <div className="flex items-center gap-1.5 text-[10px] text-[var(--ct-muted)] mb-1">
-              <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-50">
-                <path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z" />
-              </svg>
-              <span className="truncate">{gitInfo.branch}</span>
-              {gitInfo.is_dirty && (
-                <span className="inline-block w-1 h-1 rounded-full bg-[var(--ct-yellow)] shrink-0" title="Uncommitted changes" />
-              )}
-            </div>
-          )}
+        {/* Settings button at bottom */}
+        <div className={`border-t border-[var(--ct-border)] ${isCompact ? "px-1 py-2.5 flex justify-center" : "px-3 py-2.5"}`}>
           <button
             onClick={onOpenSettings}
             className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] transition-colors`}
