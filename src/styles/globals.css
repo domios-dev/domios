@@ -62,10 +62,13 @@ body,
   display: none;
 }
 
-/* Overview ruler (minimap bar on right edge) */
-.xterm .xterm-overview-ruler {
+/* Overview ruler (minimap bar on right edge) — kill all borders */
+.xterm .xterm-overview-ruler,
+.xterm canvas.xterm-decoration-overview-ruler {
   border: none !important;
   outline: none !important;
+  border-left: none !important;
+  border-right: none !important;
   right: 1px !important;
   width: 4px !important;
   border-radius: 2px;
