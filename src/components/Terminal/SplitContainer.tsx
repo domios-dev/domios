@@ -48,6 +48,7 @@ export function SplitContainer({
     const splitButtons = (
       <PaneToolbar
         paneId={pane.id}
+        paneType={pane.pane_type}
         hasAgent={pane.agent_type === "claude"}
         onSplitH={() => onSplitPane(pane.id, "Horizontal")}
         onSplitV={() => onSplitPane(pane.id, "Vertical")}
@@ -161,19 +162,21 @@ function ConfirmStopDialog({ onConfirm, onCancel }: { onConfirm: () => void; onC
 
 function PaneToolbar({
   paneId,
+  paneType,
   hasAgent,
   onSplitH,
   onSplitV,
   onClose,
 }: {
   paneId: string;
+  paneType: "Terminal" | "Browser";
   hasAgent: boolean;
   onSplitH: () => void;
   onSplitV: () => void;
   onClose: () => void;
 }) {
   const [confirmClose, setConfirmClose] = useState(false);
-  const { openBrowser } = useMultiplexer();
+  const { convertPaneType } = useMultiplexer();
 
   const btnBase = "w-6 h-6 flex items-center justify-center rounded-md transition-all duration-150";
   const btnNormal = `${btnBase} bg-[var(--ct-bg)]/90 backdrop-blur-sm border border-[var(--ct-border)]/60 text-[var(--ct-muted)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-muted)] hover:bg-[var(--ct-surface)]`;
@@ -203,18 +206,30 @@ function PaneToolbar({
             <line x1="1.5" y1="6" x2="10.5" y2="6" />
           </svg>
         </button>
-        {/* Browser */}
-        <button
-          onClick={(e) => { e.stopPropagation(); openBrowser("about:blank"); }}
-          className={btnNormal}
-          title="Open browser panel"
-        >
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
-            <circle cx="8" cy="8" r="6.5" />
-            <ellipse cx="8" cy="8" rx="3" ry="6.5" />
-            <line x1="1.5" y1="8" x2="14.5" y2="8" />
-          </svg>
-        </button>
+        {/* Toggle: Browser ↔ Terminal */}
+        {paneType === "Terminal" ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); convertPaneType(paneId, "Browser"); }}
+            className={btnNormal}
+            title="Replace with browser"
+          >
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+              <circle cx="8" cy="8" r="6.5" />
+              <ellipse cx="8" cy="8" rx="3" ry="6.5" />
+              <line x1="1.5" y1="8" x2="14.5" y2="8" />
+            </svg>
+          </button>
+        ) : (
+          <button
+            onClick={(e) => { e.stopPropagation(); convertPaneType(paneId, "Terminal"); }}
+            className={btnNormal}
+            title="Replace with terminal"
+          >
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5Z" />
+            </svg>
+          </button>
+        )}
 
         {/* Separator */}
         <div className="w-px h-3 bg-[var(--ct-border)]/50 mx-0.5" />
