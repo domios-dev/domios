@@ -187,6 +187,8 @@ type Action =
   | { type: "MARK_ALL_READ" }
   | { type: "CLEAR_NOTIFICATIONS" }
   | { type: "DISMISS_TOAST"; id: string }
+  // Convert pane type (Terminal ↔ Browser)
+  | { type: "CONVERT_PANE_TYPE"; paneId: string; toType: "Terminal" | "Browser"; url?: string }
   // Pane title — pinned=true from API/CLI rename (blocks OSC auto-rename)
   | { type: "SET_PANE_TITLE"; paneId: string; title: string; pinned?: boolean }
   // Agent detection
@@ -540,6 +542,24 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
       };
     }
 
+    // -- Pane type conversion (Terminal ↔ Browser) --
+
+    case "CONVERT_PANE_TYPE": {
+      const cvtPane = state.panes[action.paneId];
+      if (!cvtPane) return state;
+      const converted: Pane = {
+        ...cvtPane,
+        pane_type: action.toType,
+        url: action.toType === "Browser" ? (action.url || "about:blank") : undefined,
+        pty_id: action.toType === "Browser" ? null : cvtPane.pty_id,
+        title: action.toType === "Browser" ? "Browser" : "Terminal",
+      };
+      return {
+        ...state,
+        panes: { ...state.panes, [action.paneId]: converted },
+      };
+    }
+
     // -- Pane status reducer --
 
     case "UPDATE_PANE_STATUS":
@@ -587,6 +607,8 @@ interface MultiplexerContextType {
   setAgentType: (paneId: string, agentType: "claude" | null) => void;
   // Pane status
   updatePaneStatus: (paneId: string, status: PaneStatus) => void;
+  // Convert pane type
+  convertPaneType: (paneId: string, toType: "Terminal" | "Browser", url?: string) => void;
 }
 
 const MultiplexerContext = createContext<MultiplexerContextType | null>(null);
@@ -1037,6 +1059,16 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "UPDATE_PANE_STATUS", paneId, status });
   }, []);
 
+  const convertPaneType = useCallback((paneId: string, toType: "Terminal" | "Browser", url?: string) => {
+    const pane = state.panes[paneId];
+    if (!pane) return;
+    // Kill PTY if converting terminal → browser
+    if (pane.pane_type === "Terminal" && pane.pty_id && toType === "Browser") {
+      invoke("kill_pty", { ptyId: pane.pty_id }).catch(() => {});
+    }
+    dispatch({ type: "CONVERT_PANE_TYPE", paneId, toType, url });
+  }, [state.panes]);
+
   const value: MultiplexerContextType = {
     state,
     createWorkspace,
@@ -1061,6 +1093,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     setPaneTitle,
     setAgentType,
     updatePaneStatus,
+    convertPaneType,
   };
 
   return (
