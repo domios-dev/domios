@@ -52,15 +52,36 @@ body,
   padding: 0;
 }
 
+/* Kill the ugly default border on xterm viewport */
+.xterm .xterm-viewport {
+  border: none !important;
+  outline: none !important;
+  scrollbar-width: none; /* hide native scrollbar — using div-based */
+}
+.xterm .xterm-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+/* Overview ruler (minimap bar on right edge) */
+.xterm .xterm-overview-ruler {
+  border: none !important;
+  outline: none !important;
+  right: 1px !important;
+  width: 4px !important;
+  border-radius: 2px;
+  opacity: 0.5;
+}
+
 /* xterm v6 custom scrollbar widget (div-based, not native) */
 .xterm .xterm-scrollable-element > .scrollbar.vertical {
-  width: 5px !important;
+  width: 6px !important;
+  right: 1px !important;
 }
 
 .xterm .xterm-scrollable-element > .scrollbar > .slider {
   border-radius: 99px !important;
-  left: 0 !important;
-  width: 5px !important;
+  left: 1px !important;
+  width: 4px !important;
 }
 
 /* Prevent text selection outside terminal */

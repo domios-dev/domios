@@ -276,7 +276,7 @@ export function TerminalPane({
         "'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace",
       scrollback: terminalConfig?.scrollback ?? 10000,
       theme: buildXtermTheme(theme),
-      overviewRuler: { width: 5 },
+      overviewRuler: { width: 4 },
       allowProposedApi: true,
       // Critical for ConPTY on Windows — enables proper raw mode + cursor key handling
       windowsPty: {
