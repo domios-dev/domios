@@ -338,20 +338,35 @@ export function SettingsPanel({
 
 
             {activeTab === SettingsTab.About && (
-              <div className="space-y-4">
+              <div className="space-y-6">
+                {/* Logo + tagline */}
                 <div className="text-center py-4">
-                  <div className="text-2xl font-bold text-[var(--ct-fg)]">CodeTerm</div>
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl mb-3" style={{ backgroundColor: "var(--ct-accent)", opacity: 0.15 }}>
+                    <span className="text-xl font-mono font-bold" style={{ color: "var(--ct-accent)" }}>{"</>"}</span>
+                  </div>
+                  <div className="text-xl font-bold text-[var(--ct-fg)]">CodeTerm</div>
                   <div className="text-xs text-[var(--ct-muted-fg)] mt-1">AI-first terminal multiplexer</div>
                 </div>
+
                 <Group title="Info">
                   <InfoRow label="Version" value="0.1.0" />
                   <InfoRow label="Platform" value={navigator.platform} />
-                  <InfoRow
-                    label="Config"
-                    value={configPath || "loading..."}
-                    mono
-                  />
+                  <InfoRow label="Config" value={configPath || "loading..."} mono />
                 </Group>
+
+                {/* Creator */}
+                <Group title="Created by">
+                  <div className="text-sm text-[var(--ct-fg)]">Andrey Kovalev</div>
+                  <div className="flex flex-wrap gap-3 mt-2">
+                    <AboutLink href="https://github.com/rollacode" label="GitHub" icon="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z" />
+                    <AboutLink href="https://rollacode.org" label="Website" icon="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" />
+                    <AboutLink href="https://www.linkedin.com/in/rollacode" label="LinkedIn" icon="M12.225 12.225h-1.778V9.44c0-.664-.012-1.519-.925-1.519-.926 0-1.068.724-1.068 1.47v2.834H6.676V6.498h1.707v.783h.024c.348-.594.996-.95 1.684-.925 1.802 0 2.135 1.185 2.135 2.728ZM3.56 5.715a1.03 1.03 0 1 1 0-2.06 1.03 1.03 0 0 1 0 2.06Zm.889 6.51H2.67V6.498h1.779ZM13.11 2H2.885A.88.88 0 0 0 2 2.866v10.268a.88.88 0 0 0 .885.866h10.226a.882.882 0 0 0 .889-.866V2.865A.88.88 0 0 0 13.111 2Z" />
+                  </div>
+                </Group>
+
+                <div className="text-center pt-2">
+                  <span className="text-xs text-[var(--ct-muted)]">Let&apos;s build something great :)</span>
+                </div>
               </div>
             )}
           </div>
@@ -447,6 +462,22 @@ function InfoRow({ label, value, mono }: { label: string; value: string; mono?: 
         <span className="text-[var(--ct-fg)]">{value}</span>
       )}
     </div>
+  );
+}
+
+function AboutLink({ href, label, icon }: { href: string; label: string; icon: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
+        <path d={icon} />
+      </svg>
+      <span>{label}</span>
+    </a>
   );
 }
 
