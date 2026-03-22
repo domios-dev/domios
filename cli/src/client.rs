@@ -173,18 +173,40 @@ fn discover_windows_pipe() -> Result<String, String> {
 #[cfg(not(target_os = "windows"))]
 fn discover_unix_socket() -> Result<String, String> {
     use std::fs;
-    let tmp = "/tmp";
-    match fs::read_dir(tmp) {
-        Ok(entries) => {
-            for entry in entries.flatten() {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.starts_with("codeterm-") && name.ends_with(".sock") {
-                        return Ok(format!("/tmp/{}", name));
-                    }
+
+    // First: scan /tmp for codeterm-*.sock files (traditional Unix sockets)
+    if let Ok(entries) = fs::read_dir("/tmp") {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                if name.starts_with("codeterm-") && name.ends_with(".sock") {
+                    return Ok(format!("/tmp/{}", name));
                 }
             }
-            Err("No CodeTerm socket found. Is CodeTerm running?".to_string())
         }
-        Err(e) => Err(format!("Cannot scan /tmp: {}", e)),
     }
+
+    // Fallback: try connecting with GenericNamespaced using known PID patterns.
+    // interprocess may use abstract sockets or platform-specific paths.
+    // Try to find a running CodeTerm process and construct the socket name.
+    if let Ok(output) = std::process::Command::new("pgrep").arg("-f").arg("codeterm").output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if let Ok(pid) = line.trim().parse::<u32>() {
+                let sock_name = format!("/tmp/codeterm-{}.sock", pid);
+                // Try to connect — if it works, we found it
+                let test_name = sock_name.clone();
+                let test = test_name
+                    .to_ns_name::<GenericNamespaced>()
+                    .ok()
+                    .and_then(|name| {
+                        interprocess::local_socket::Stream::connect(name).ok()
+                    });
+                if test.is_some() {
+                    return Ok(sock_name);
+                }
+            }
+        }
+    }
+
+    Err("No CodeTerm socket found. Is CodeTerm running?".to_string())
 }
