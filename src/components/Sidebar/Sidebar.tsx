@@ -653,7 +653,6 @@ function WorkspaceItem({
         <span className="text-[10px] text-[var(--ct-muted)]">
           {workspace.tabs.length}
         </span>
-        {!isExpanded && <StatusDot status={status} animate />}
         {hasWaiting && (
           <span className="inline-flex items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)] text-[9px] font-bold leading-none">
             !
