@@ -60,6 +60,14 @@ const DEFAULT_CONFIG: AppConfig = {
     resume_sessions: true,
     resume_skip_permissions: false,
   },
+  api: {
+    enabled: true,
+    host: "0.0.0.0",
+    port: 7685,
+    token: null,
+    cors: true,
+  },
+  onboarding_completed: false,
 };
 
 export function useConfig() {
