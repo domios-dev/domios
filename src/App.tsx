@@ -250,11 +250,6 @@ function AppInner() {
             e.preventDefault();
             handleCloseFocusedPane();
             return;
-          case "B":
-          case "b":
-            e.preventDefault();
-            openBrowser("about:blank");
-            return;
           case "N":
           case "n": {
             e.preventDefault();
