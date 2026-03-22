@@ -241,9 +241,20 @@ impl ServiceContext {
         // 7. Wait for shell prompt
         self.wait_for_shell_prompt(&pty_id, 10).await;
 
-        // 8. Clear screen, wait, launch
-        let _ = self.pty.lock().write(&pty_id, b"cls\r");
+        // 8. Clear screen + unset nested-session guard, wait, launch
+        #[cfg(target_os = "windows")]
+        let clear_cmd = "cls\r";
+        #[cfg(not(target_os = "windows"))]
+        let clear_cmd = "clear\r";
+        let _ = self.pty.lock().write(&pty_id, clear_cmd.as_bytes());
         self.wait_for_output_growth(&pty_id, 5, 3).await;
+
+        // Unset CLAUDECODE so nested Claude Code sessions can launch
+        if agent_cmd == "claude" {
+            let _ = self.pty.lock().write(&pty_id, b"unset CLAUDECODE\r");
+            self.wait_for_output_growth(&pty_id, 5, 2).await;
+        }
+
         let cmd = format!("{}\r", agent_launch);
         self.pty
             .lock()
