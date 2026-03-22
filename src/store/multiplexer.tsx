@@ -802,6 +802,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setActiveWorkspace = useCallback((id: string) => {
+    invoke("mux_set_active_workspace", { workspaceId: id }).catch(() => {});
     dispatch({ type: "SET_ACTIVE_WORKSPACE", id });
   }, []);
 
