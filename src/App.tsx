@@ -490,6 +490,7 @@ function AppInner() {
           <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
         )}
 
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative">
           {state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
@@ -534,12 +535,8 @@ function AppInner() {
             </div>
           )}
         </main>
-      </div>
-
-      {/* Status bar — inside main area, right of sidebar */}
-      <div className="flex shrink-0 border-t border-[var(--ct-border)]">
-        {sidebarOpen && <div className="w-[220px] shrink-0" />}
-        <div className="flex-1 flex items-center h-5 px-3 bg-[var(--ct-titlebar-bg)] text-[10px] text-[var(--ct-muted)] gap-3 select-none">
+        {/* Status bar — below panes, right of sidebar */}
+        <div className="flex items-center h-5 shrink-0 px-3 border-t border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] text-[10px] text-[var(--ct-muted)] gap-3 select-none">
           {gitInfo?.repo_root && (
             <span className="opacity-60">{gitInfo.repo_root.split(/[/\\]/).pop()}</span>
           )}
@@ -551,6 +548,7 @@ function AppInner() {
               <span>{gitInfo.branch}</span>
             </div>
           )}
+        </div>
         </div>
       </div>
 
