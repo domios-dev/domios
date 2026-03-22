@@ -122,37 +122,61 @@ impl ServiceContext {
         .await;
     }
 
-    /// Spawn a background thread that polls for Claude readiness, then sends task.
+    /// Spawn a background thread that polls for Claude Code readiness, then sends task.
+    ///
+    /// Detects readiness by looking for Claude Code UI markers in the terminal
+    /// output buffer tail. Handles auto-updates by continuing to poll until
+    /// the interactive prompt appears.
     pub fn spawn_task_sender(&self, pty_id: String, task: String) {
         let ob = self.output_buf.clone();
         let pty = self.pty.clone();
         std::thread::spawn(move || {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(90);
+            // 3 minutes: accounts for auto-updates, slow networks, large project indexing
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+            let mut last_len = 0usize;
+
             loop {
                 if std::time::Instant::now() > deadline {
+                    log::warn!("spawn_task_sender: timeout waiting for agent readiness ({})", pty_id);
                     break;
                 }
                 {
                     let buf = ob.lock();
                     if let Some(data) = buf.get_text(&pty_id) {
-                        let tail = if data.len() > 500 {
-                            &data[data.len() - 500..]
-                        } else {
-                            &data
-                        };
-                        if tail.contains("hold Space")
-                            || tail.contains("shift+tab")
-                            || tail.contains("esc to interrupt")
-                        {
-                            let _ = pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
-                            return;
+                        let cur_len = data.len();
+                        // Only check when new output arrives
+                        if cur_len > last_len {
+                            last_len = cur_len;
+                            let tail = if data.len() > 1000 {
+                                &data[data.len() - 1000..]
+                            } else {
+                                &data
+                            };
+                            // Claude Code readiness markers (any of these means prompt is active)
+                            if is_claude_ready(tail) {
+                                // Small delay to ensure UI is fully rendered
+                                drop(buf);
+                                std::thread::sleep(std::time::Duration::from_millis(300));
+                                let _ = pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
+                                log::info!("spawn_task_sender: task sent to {}", pty_id);
+                                return;
+                            }
                         }
                     }
                 }
-                std::thread::sleep(std::time::Duration::from_millis(500));
+                std::thread::sleep(std::time::Duration::from_millis(250));
             }
         });
     }
+}
+
+/// Check if Claude Code interactive prompt is ready for input.
+fn is_claude_ready(output_tail: &str) -> bool {
+    // These markers appear in the Claude Code TUI when the input prompt is active
+    output_tail.contains("shift+tab")
+        || output_tail.contains("hold Space")
+        || output_tail.contains("esc to interrupt")
+        || output_tail.contains("ctrl+g to edit")
 }
 
 #[derive(Debug, Clone, Deserialize)]
