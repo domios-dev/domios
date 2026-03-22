@@ -68,7 +68,7 @@ export function SettingsPanel({
   const update = useCallback(
     <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => {
       setLocalConfig((prev) => {
-        const next = { ...prev, [section]: { ...prev[section], ...patch } };
+        const next = { ...prev, [section]: Object.assign({}, prev[section], patch) };
         onUpdateConfig(next).catch(() => {});
         return next;
       });
@@ -509,7 +509,7 @@ function KeybindGroup({
             <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
             <input
               type="text"
-              value={(config.keybindings as Record<string, string>)[key] || ""}
+              value={(config.keybindings as unknown as Record<string, string>)[key] || ""}
               onChange={(e) => {
                 const next = {
                   ...config,
@@ -723,10 +723,14 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
         </div>
         <button
           onClick={async () => {
-            await invoke("install_skill", { skillId: "codeterm" });
-            setSkillInstalled(true);
-            setSkillUpdate(false);
-            setSkillJustDone(true);
+            try {
+              await invoke("install_skill", { skillId: "codeterm" });
+              setSkillInstalled(true);
+              setSkillUpdate(false);
+              setSkillJustDone(true);
+            } catch (e) {
+              console.error("Skill install failed:", e);
+            }
           }}
           disabled={skillJustDone}
           className={`w-full py-1.5 text-xs rounded font-medium transition-all duration-300 ${

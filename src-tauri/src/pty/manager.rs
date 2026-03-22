@@ -97,6 +97,15 @@ impl PtyManager {
         cmd.env("TERM_PROGRAM", "CodeTerm");
         cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
 
+        // Ensure UTF-8 locale for proper Unicode/Cyrillic support (Unix only)
+        #[cfg(not(target_os = "windows"))]
+        {
+            if std::env::var("LANG").map_or(true, |v| v.is_empty()) {
+                cmd.env("LANG", "en_US.UTF-8");
+            }
+            cmd.env("LC_CTYPE", "UTF-8");
+        }
+
         for (key, value) in &env_vars {
             cmd.env(key, value);
         }

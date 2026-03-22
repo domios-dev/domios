@@ -145,7 +145,6 @@ function AppInner() {
   const {
     state,
     createWorkspace,
-    setActiveWorkspace,
     createTab,
     closeTab,
     setActiveTab,

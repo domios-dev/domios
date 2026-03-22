@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { AppConfig, ThemeConfig } from "../../lib/types";
 
+const isMacPlatform = navigator.platform.toUpperCase().includes("MAC");
+
 interface OnboardingProps {
   config: AppConfig;
   theme: ThemeConfig;
@@ -118,6 +120,9 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
           data-tauri-drag-region
           style={{ backgroundColor: "transparent" }}
         >
+          {/* macOS: traffic lights on the left */}
+          {isMacPlatform && <OnboardingMacLights c={c} />}
+
           {/* Left: progress */}
           <div className="flex items-center gap-3 pl-4" data-tauri-drag-region>
             <span
@@ -138,8 +143,8 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
           {/* Center spacer — drag region */}
           <div className="flex-1" data-tauri-drag-region />
 
-          {/* Window controls */}
-          <WindowControls c={c} />
+          {/* Windows/Linux: controls on the right */}
+          {!isMacPlatform && <WindowControls c={c} />}
         </div>
 
         {/* Main content — centered, full height */}
@@ -510,7 +515,36 @@ function ShortcutRow({ c, keys, action }: { c: C; keys: string; action: string }
   );
 }
 
-// ── Window controls ─────────────────────────────────────────────────
+// ── macOS traffic lights (onboarding) ───────────────────────────────
+
+function OnboardingMacLights({ c }: { c: C }) {
+  const appWindow = getCurrentWindow();
+  const close = useCallback(() => appWindow.close(), [appWindow]);
+  const minimize = useCallback(() => appWindow.minimize(), [appWindow]);
+  const maximize = useCallback(() => appWindow.toggleMaximize(), [appWindow]);
+  const [hover, setHover] = useState(false);
+
+  void c;
+  return (
+    <div
+      className="flex items-center gap-2 pl-3.5 pr-1 h-full"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <button onClick={close} className="w-3 h-3 rounded-full flex items-center justify-center" style={{ backgroundColor: "#ff5f57" }} title="Close">
+        {hover && <svg width="6" height="6" viewBox="0 0 6 6" fill="none" stroke="#4d0000" strokeWidth="1.2" strokeLinecap="round"><line x1="1" y1="1" x2="5" y2="5" /><line x1="5" y1="1" x2="1" y2="5" /></svg>}
+      </button>
+      <button onClick={minimize} className="w-3 h-3 rounded-full flex items-center justify-center" style={{ backgroundColor: "#febc2e" }} title="Minimize">
+        {hover && <svg width="6" height="2" viewBox="0 0 6 2" fill="none" stroke="#995700" strokeWidth="1.2" strokeLinecap="round"><line x1="1" y1="1" x2="5" y2="1" /></svg>}
+      </button>
+      <button onClick={maximize} className="w-3 h-3 rounded-full flex items-center justify-center" style={{ backgroundColor: "#28c840" }} title="Maximize">
+        {hover && <svg width="6" height="6" viewBox="0 0 6 6" fill="none" stroke="#006500" strokeWidth="1.1" strokeLinecap="round"><polyline points="1,3.5 1,1 3.5,1" /><polyline points="5,2.5 5,5 2.5,5" /></svg>}
+      </button>
+    </div>
+  );
+}
+
+// ── Window controls (Windows/Linux) ─────────────────────────────────
 
 function WindowControls({ c }: { c: C }) {
   const appWindow = getCurrentWindow();

@@ -6,13 +6,13 @@ version: 0.2.0
 
 # CodeTerm — AI Terminal Control
 
-You are running inside CodeTerm, an AI-first terminal multiplexer. CLI: `C:/tools/codeterm.exe`
+You are running inside CodeTerm, an AI-first terminal multiplexer. CLI: `codeterm`
 
 ## Auto-name your tab on session start
 
 **Immediately rename your tab** based on the user's first message/task:
 ```bash
-C:/tools/codeterm.exe pane rename "fix login bug"
+codeterm pane rename "fix login bug"
 ```
 
 ## Terminal Management
@@ -58,7 +58,7 @@ cat > /tmp/viz.html << 'EOF'
 body { background: #0d1117; color: #c9d1d9; font-family: sans-serif; padding: 20px; }
 </style></head><body><h1>Hello</h1></body></html>
 EOF
-C:/tools/codeterm.exe browser open file:///tmp/viz.html
+codeterm browser open file:///tmp/viz.html
 ```
 
 Also works with: `data:text/html,<h1>Hello</h1>`, `http://localhost:PORT`
@@ -130,7 +130,7 @@ curl -X POST http://localhost:7685/api/batch \
   -H "Content-Type: application/json" \
   -d '{
     "commands": [
-      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Conductor", "can_spawn": true, "cwd": "C:/project"}},
+      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Conductor", "can_spawn": true, "cwd": "/path/to/project"}},
       {"method": "spawn", "params": {"title": "W1", "role": "Worker", "parent_pane_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
       {"method": "spawn", "params": {"title": "W2", "role": "Worker", "parent_pane_id": "$boss", "task": "run tests"}},
       {"method": "notify", "params": {"title": "Ready", "body": "Hierarchy spawned"}}
@@ -253,4 +253,11 @@ codeterm identify        # Version & features
 codeterm capabilities    # All API methods
 ```
 
-<!-- revision: 9 -->
+## Platform Notes
+
+- **Screenshots (macOS):** Requires Screen Recording permission. If capture fails, guide the user to System Settings → Privacy & Security → Screen Recording.
+- **Screenshots (Windows):** Works out of the box, no extra permissions needed.
+- **Paths:** Use forward slashes in commands. The CLI handles path normalization.
+- **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
+
+<!-- revision: 10 -->

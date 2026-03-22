@@ -240,7 +240,7 @@ fn capture_macos(app: &AppHandle) -> Result<RawCapture, String> {
 
     // NSWindow.windowNumber is an NSInteger — get it via objc
     let window_id: i64 = unsafe {
-        let ptr = ns_window.0 as *const std::ffi::c_void;
+        let ptr = ns_window as *const std::ffi::c_void;
         // objc_msgSend(ns_window, sel_registerName("windowNumber"))
         type MsgSendFn = unsafe extern "C" fn(*const std::ffi::c_void, *const std::ffi::c_void) -> i64;
         #[link(name = "objc")]
@@ -261,7 +261,25 @@ fn capture_macos(app: &AppHandle) -> Result<RawCapture, String> {
         .map_err(|e| format!("screencapture failed: {}", e))?;
 
     if !output.status.success() {
-        return Err(format!("screencapture exit code: {}", output.status));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("denied") || stderr.contains("permission") || output.status.code() == Some(1) {
+            return Err(
+                "Screen Recording permission required. \
+                 Grant access in System Settings → Privacy & Security → Screen Recording, \
+                 then restart CodeTerm."
+                    .to_string(),
+            );
+        }
+        return Err(format!("screencapture exit code: {} ({})", output.status, stderr.trim()));
+    }
+
+    // Verify the file was actually created (permission denial can produce empty/missing files)
+    if !tmp.exists() || std::fs::metadata(&tmp).map_or(true, |m| m.len() == 0) {
+        return Err(
+            "Screenshot capture failed — likely missing Screen Recording permission. \
+             Grant access in System Settings → Privacy & Security → Screen Recording."
+                .to_string(),
+        );
     }
 
     // Read PNG, decode to RGBA
