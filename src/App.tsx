@@ -491,7 +491,7 @@ function AppInner() {
         )}
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-        <main className="flex-1 min-w-0 min-h-0 relative">
+        <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
           {state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
