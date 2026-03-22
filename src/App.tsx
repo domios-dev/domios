@@ -111,7 +111,6 @@ function AppInner() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const { config, updateConfig, theme, loading } = useConfig();
-  const gitInfo = useGitInfo(state.focused_pane_id);
 
   // Show onboarding only after config loads from backend (not from defaults)
   useEffect(() => {
@@ -158,6 +157,8 @@ function AppInner() {
     updateSplitRatio,
     dismissToast,
   } = useMultiplexer();
+
+  const gitInfo = useGitInfo(state.focused_pane_id);
 
   // Keep ref to latest state for keyboard handler closure
   const stateRef = useRef(state);
