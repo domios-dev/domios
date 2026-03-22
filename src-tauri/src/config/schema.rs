@@ -11,6 +11,9 @@ pub struct AppConfig {
     pub socket: SocketConfig,
     pub agent: AgentConfig,
     pub api: ApiConfig,
+    /// Whether onboarding wizard has been completed.
+    #[serde(default)]
+    pub onboarding_completed: bool,
 }
 
 impl Default for AppConfig {
@@ -24,6 +27,7 @@ impl Default for AppConfig {
             socket: SocketConfig::default(),
             agent: AgentConfig::default(),
             api: ApiConfig::default(),
+            onboarding_completed: false,
         }
     }
 }

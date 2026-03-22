@@ -5,6 +5,7 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SplitContainer } from "./components/Terminal/SplitContainer";
 import { NotificationToastContainer } from "./components/Notifications/NotificationToast";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
+import { Onboarding } from "./components/Onboarding/Onboarding";
 import { useConfig } from "./hooks/useConfig";
 import {
   MultiplexerProvider,
@@ -60,7 +61,38 @@ function deriveColor(hex: string, amount: number): string {
 function AppInner() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const { config, updateConfig, theme } = useConfig();
+
+  // Show onboarding on first launch
+  useEffect(() => {
+    if (config && !config.onboarding_completed) {
+      setShowOnboarding(true);
+    }
+  }, [config?.onboarding_completed]);
+
+  const handleOnboardingComplete = useCallback(
+    (newConfig: typeof config) => {
+      setShowOnboarding(false);
+      updateConfig(newConfig);
+    },
+    [updateConfig],
+  );
+
+  // Debug menu: Ctrl+Shift+F12 to reset onboarding (dev builds only)
+  useEffect(() => {
+    const handleDebug = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === "F12") {
+        e.preventDefault();
+        if (confirm("Debug: Reset onboarding?")) {
+          updateConfig({ ...config, onboarding_completed: false });
+          setShowOnboarding(true);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleDebug);
+    return () => window.removeEventListener("keydown", handleDebug);
+  }, [config, updateConfig]);
 
   const {
     state,
@@ -458,6 +490,21 @@ function AppInner() {
           )}
         </main>
       </div>
+
+      {/* Onboarding wizard */}
+      {showOnboarding && config && (
+        <Onboarding
+          config={config}
+          theme={theme}
+          onComplete={handleOnboardingComplete}
+        />
+      )}
+
+      {/* Toast notifications */}
+      <NotificationToastContainer
+        toasts={state.toasts}
+        onDismiss={dismissToast}
+      />
 
       {/* Settings panel */}
       {settingsOpen && (

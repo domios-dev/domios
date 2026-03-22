@@ -27,8 +27,12 @@ pub async fn spawn_pty(
     cols: u16,
     rows: u16,
     predicted_id: Option<String>,
+    pane_id: Option<String>,
 ) -> Result<String, String> {
-    let env_vars: HashMap<String, String> = HashMap::new();
+    let mut env_vars: HashMap<String, String> = HashMap::new();
+    if let Some(ref pid) = pane_id {
+        env_vars.insert("CODETERM_PANE_ID".to_string(), pid.clone());
+    }
 
     let (pty_id, _session) = {
         let mut manager = state.lock();

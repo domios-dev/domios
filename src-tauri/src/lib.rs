@@ -6,6 +6,7 @@ pub mod multiplexer;
 mod notification;
 pub mod pty;
 mod screenshot;
+pub mod service;
 pub mod session;
 mod socket;
 
@@ -21,6 +22,7 @@ use notification::NotifState;
 use notification::store::NotificationStore;
 use pty::manager::{OutputBuffer, PtyManager};
 use screenshot::{ScreenshotChannel, ScreenshotState};
+use service::{ServiceContext, ServiceState};
 use session::SessionState;
 use session::store::SessionStore;
 
@@ -80,6 +82,7 @@ pub fn run() {
         .manage(report_store.clone())
         .manage(event_broadcaster.clone())
         .manage(screenshot_state.clone())
+        // ServiceState is added in .setup() after AppHandle is available
         .invoke_handler(tauri::generate_handler![
             // PTY commands
             commands::get_default_cwd,
@@ -122,6 +125,7 @@ pub fn run() {
             multiplexer::commands::mux_set_pane_role,
             multiplexer::commands::mux_clear_pane_role,
             multiplexer::commands::mux_set_can_spawn,
+            multiplexer::commands::mux_batch,
             // Notification commands
             notification::notify,
             notification::list_notifications,
@@ -165,8 +169,22 @@ pub fn run() {
                 }
             }
 
-            // Start socket server
+            // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
+            let svc_ctx = ServiceContext {
+                mux: mux_state.clone(),
+                pty: pty_state.clone(),
+                output_buf: output_buffer.clone(),
+                notif: notif_state.clone(),
+                events: event_broadcaster.clone(),
+                app_handle: app_handle.clone(),
+                agent_tracker: agent_tracker.clone(),
+                report_store: report_store.clone(),
+            };
+            let service_state: ServiceState = Arc::new(svc_ctx);
+            app.manage(service_state.clone());
+
+            // Start socket server
             if let Err(e) = socket::server::SocketServer::start(
                 mux_state.clone(),
                 pty_state.clone(),
@@ -192,6 +210,7 @@ pub fn run() {
                         token: api_config.token.clone(),
                         agent_tracker: agent_tracker.clone(),
                         report_store: report_store.clone(),
+                        svc: service_state.clone(),
                     };
                     let router = api::routes::create_router(api_state);
                     let host = api_config.host.clone();

@@ -4,10 +4,16 @@ AI-first cross-platform terminal multiplexer. Tauri v2 (Rust) + React/TypeScript
 
 ## Quick ref
 
-- `pnpm tauri dev` — dev mode
-- `pnpm tauri build` — production
-- `cd cli && cargo build --release` — CLI tool
+- `./build.sh dev` — dev mode (sets VS env automatically on BLACKSTAR)
+- `./build.sh test` — run Rust lib tests
+- `./build.sh check` — cargo check
+- `./build.sh cli` — build CLI tool
 - All code/comments in English
+
+## Agent roles
+
+- **devops** agent — builds, releases, CI/CD, version bumps, tagging, GitHub Actions, `build.sh` maintenance. Delegate all build/release/deploy tasks to it.
+- **docs** agent — keeps `docs/API.md`, `docs/CONFIG.md`, `docs/SKILLS.md`, `docs/AGENT_PROMPT.md`, `skills/codeterm/SKILL.md` in sync with code. Delegate doc updates to it after feature changes.
 
 ## Documentation
 
