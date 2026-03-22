@@ -339,7 +339,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                     {/* Add tab button */}
                     <button
                       onClick={() => createTab(ws.id)}
-                      className="flex items-center gap-2 mx-2 mt-1 mb-0.5 px-5 py-1 rounded-md border border-dashed border-[var(--ct-border)] text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:border-[var(--ct-muted)] hover:bg-[var(--ct-hover)] transition-colors"
+                      className="flex items-center gap-2 mx-2 mt-1 mb-0.5 px-5 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
                       title="New tab in this workspace"
                     >
                       <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
