@@ -2,7 +2,6 @@ import { useCallback, useRef, useState } from "react";
 import { TerminalPane } from "./TerminalPane";
 import { BrowserPane } from "../Browser/BrowserPane";
 import { Divider } from "./Divider";
-import { useMultiplexer } from "../../store/multiplexer";
 import type { SplitNode, Pane, Orientation, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 
 interface SplitContainerProps {
@@ -47,8 +46,6 @@ export function SplitContainer({
 
     const splitButtons = (
       <PaneToolbar
-        paneId={pane.id}
-        paneType={pane.pane_type}
         hasAgent={pane.agent_type === "claude"}
         onSplitH={() => onSplitPane(pane.id, "Horizontal")}
         onSplitV={() => onSplitPane(pane.id, "Vertical")}
@@ -133,14 +130,14 @@ interface SplitViewProps {
   children: React.ReactNode[];
 }
 
-function ConfirmStopDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+function ConfirmStopDialog({ message, confirmLabel, onConfirm, onCancel }: { message?: string; confirmLabel?: string; onConfirm: () => void; onCancel: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
       <div
         className="bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-xl px-6 py-5 max-w-sm text-center"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="text-sm text-[var(--ct-fg)] mb-4">Are you sure you want to stop the process?</p>
+        <p className="text-sm text-[var(--ct-fg)] mb-4">{message || "Are you sure you want to stop the process?"}</p>
         <div className="flex items-center justify-center gap-3">
           <button
             onClick={onCancel}
@@ -152,7 +149,7 @@ function ConfirmStopDialog({ onConfirm, onCancel }: { onConfirm: () => void; onC
             onClick={onConfirm}
             className="px-4 py-1.5 text-xs rounded bg-[var(--ct-red)] hover:opacity-80 text-white font-medium transition-colors"
           >
-            Stop
+            {confirmLabel || "Stop"}
           </button>
         </div>
       </div>
@@ -161,22 +158,17 @@ function ConfirmStopDialog({ onConfirm, onCancel }: { onConfirm: () => void; onC
 }
 
 function PaneToolbar({
-  paneId,
-  paneType,
   hasAgent,
   onSplitH,
   onSplitV,
   onClose,
 }: {
-  paneId: string;
-  paneType: "Terminal" | "Browser";
   hasAgent: boolean;
   onSplitH: () => void;
   onSplitV: () => void;
   onClose: () => void;
 }) {
   const [confirmClose, setConfirmClose] = useState(false);
-  const { convertPaneType } = useMultiplexer();
 
   const btnBase = "w-6 h-6 flex items-center justify-center rounded-md transition-all duration-150";
   const btnNormal = `${btnBase} bg-[var(--ct-bg)]/90 backdrop-blur-sm border border-[var(--ct-border)]/60 text-[var(--ct-muted)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-muted)] hover:bg-[var(--ct-surface)]`;
@@ -206,31 +198,6 @@ function PaneToolbar({
             <line x1="1.5" y1="6" x2="10.5" y2="6" />
           </svg>
         </button>
-        {/* Toggle: Browser ↔ Terminal */}
-        {paneType === "Terminal" ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); convertPaneType(paneId, "Browser"); }}
-            className={btnNormal}
-            title="Replace with browser"
-          >
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
-              <circle cx="8" cy="8" r="6.5" />
-              <ellipse cx="8" cy="8" rx="3" ry="6.5" />
-              <line x1="1.5" y1="8" x2="14.5" y2="8" />
-            </svg>
-          </button>
-        ) : (
-          <button
-            onClick={(e) => { e.stopPropagation(); convertPaneType(paneId, "Terminal"); }}
-            className={btnNormal}
-            title="Replace with terminal"
-          >
-            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5Z" />
-            </svg>
-          </button>
-        )}
-
         {/* Separator */}
         <div className="w-px h-3 bg-[var(--ct-border)]/50 mx-0.5" />
 
@@ -241,11 +208,7 @@ function PaneToolbar({
             if (hasAgent) setConfirmClose(true);
             else onClose();
           }}
-          className={`${btnBase} ${
-            hasAgent
-              ? "bg-[var(--ct-yellow)]/15 border border-[var(--ct-yellow)]/30 text-[var(--ct-yellow)] hover:bg-[var(--ct-red)]/80 hover:border-[var(--ct-red)] hover:text-white"
-              : "bg-[var(--ct-bg)]/90 backdrop-blur-sm border border-[var(--ct-border)]/60 text-[var(--ct-muted)] hover:bg-[var(--ct-red)]/80 hover:border-[var(--ct-red)] hover:text-white"
-          } transition-all duration-150`}
+          className={`${btnBase} bg-[var(--ct-bg)]/90 backdrop-blur-sm border border-[var(--ct-border)]/60 text-[var(--ct-muted)] hover:bg-[var(--ct-red)]/80 hover:border-[var(--ct-red)] hover:text-white transition-all duration-150`}
           title={hasAgent ? "Close (agent running)" : "Close pane (Ctrl+Shift+Q)"}
         >
           <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
