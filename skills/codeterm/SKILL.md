@@ -1,6 +1,6 @@
 ---
 name: codeterm
-description: Control CodeTerm terminal multiplexer — workspaces, panes, browser panels, notifications, layouts. Use when user mentions splitting panes, creating workspaces, sending commands, visualizations, or managing terminal sessions.
+description: Control CodeTerm terminal multiplexer — workspaces, panes, notifications, layouts. Use when user mentions splitting panes, creating workspaces, sending commands, visualizations, or managing terminal sessions.
 version: 0.2.0
 ---
 
@@ -46,12 +46,12 @@ codeterm workspace close ID                     # Delete
 codeterm workspace move-tab TAB --from WS --to WS  # Move tab
 ```
 
-## Browser Panel (Canvas)
+## Canvas Panel
 
-Render HTML visualizations INSIDE CodeTerm. NEVER open external browser.
+Render HTML visualizations inside CodeTerm. For localhost apps, data URLs, and generated content.
 
 ```bash
-# Write HTML to file, then open
+# Write HTML to file, then open as canvas panel
 cat > /tmp/viz.html << 'EOF'
 <!DOCTYPE html>
 <html><head><style>

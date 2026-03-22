@@ -55,7 +55,7 @@ enum Commands {
         pane: Option<String>,
     },
 
-    /// Open a browser panel
+    /// Open a canvas panel (localhost, data URLs, HTML visualizations)
     Browser {
         #[command(subcommand)]
         action: BrowserAction,
@@ -189,7 +189,7 @@ enum PaneAction {
 
 #[derive(Subcommand)]
 enum BrowserAction {
-    /// Open a URL in the browser panel
+    /// Open a URL in the canvas panel
     Open {
         /// URL to open
         url: String,

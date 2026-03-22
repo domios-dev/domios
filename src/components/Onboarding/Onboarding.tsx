@@ -253,7 +253,7 @@ function StepWelcome({ c }: { c: C }) {
         <FeatureCard c={c} icon="+" title="Split panes" desc="Organize with flexible workspace layouts" />
         <FeatureCard c={c} icon="*" title="Agent orchestration" desc="Conductor/worker hierarchy for AI agents" />
         <FeatureCard c={c} icon="~" title="Claude integration" desc="Skills, hooks, auto-resume, notifications" />
-        <FeatureCard c={c} icon=">" title="Browser panels" desc="Docs and dashboards inline with terminals" />
+        <FeatureCard c={c} icon=">" title="Canvas panels" desc="Visualizations and localhost apps inline with terminals" />
       </div>
 
       <p className="text-[11px] mt-8" style={{ color: c.muted }}>

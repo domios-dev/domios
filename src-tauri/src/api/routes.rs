@@ -119,7 +119,7 @@ async fn identify(
         "name": "CodeTerm",
         "version": env!("CARGO_PKG_VERSION"),
         "platform": std::env::consts::OS,
-        "features": ["multiplexer", "agent-detection", "notifications", "rest-api", "browser"]
+        "features": ["multiplexer", "agent-detection", "notifications", "rest-api", "canvas"]
     })))
 }
 
