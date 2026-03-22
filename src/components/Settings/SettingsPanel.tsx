@@ -77,14 +77,23 @@ export function SettingsPanel({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-[720px] h-[520px] bg-[var(--ct-sidebar-bg)] border border-[var(--ct-border)] rounded-lg shadow-xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="w-[720px] h-[540px] bg-[var(--ct-sidebar-bg)] border border-[var(--ct-border)] rounded-xl shadow-2xl flex flex-col overflow-hidden relative">
+        {/* Subtle dot grid background */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage: "radial-gradient(var(--ct-border) 1px, transparent 1px)",
+            backgroundSize: "20px 20px",
+            opacity: 0.3,
+          }}
+        />
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--ct-border)]">
-          <h2 className="text-sm font-semibold text-[var(--ct-fg)]">Settings</h2>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ct-border)] relative z-10">
+          <h2 className="text-sm font-medium text-[var(--ct-fg)]">Settings</h2>
           <button
             onClick={onClose}
-            className="flex items-center justify-center w-6 h-6 rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+            className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
               <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
@@ -93,20 +102,20 @@ export function SettingsPanel({
         </div>
 
         {/* Body: sidebar tabs + content */}
-        <div className="flex flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 relative z-10">
           {/* Tab sidebar */}
-          <div className="w-[170px] shrink-0 border-r border-[var(--ct-border)] py-2 flex flex-col gap-0.5">
+          <div className="w-[170px] shrink-0 border-r border-[var(--ct-border)] py-3 px-2 flex flex-col gap-0.5">
             {TABS.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-1.5 text-xs transition-colors ${
+                className={`flex items-center gap-2.5 px-3 py-1.5 text-[11px] rounded-md transition-colors ${
                   activeTab === tab.id
-                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)] border-r-2 border-[var(--ct-accent)]"
-                    : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
                 }`}
               >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-70">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className={`shrink-0 ${activeTab === tab.id ? "opacity-90" : "opacity-50"}`}>
                   <path d={TAB_ICONS[tab.id]} />
                 </svg>
                 <span>{tab.label}</span>
@@ -384,7 +393,7 @@ export function SettingsPanel({
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--ct-muted)] mb-2">{title}</h3>
+      <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)] mb-2.5">{title}</h3>
       <div className="space-y-2.5">{children}</div>
     </div>
   );
