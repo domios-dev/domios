@@ -92,6 +92,7 @@ function buildXtermTheme(theme?: ThemeConfig) {
     scrollbarSliderBackground: "rgba(128, 128, 128, 0.25)",
     scrollbarSliderHoverBackground: "rgba(128, 128, 128, 0.4)",
     scrollbarSliderActiveBackground: "rgba(128, 128, 128, 0.5)",
+    overviewRulerBorder: "#00000000",
   };
 }
 
