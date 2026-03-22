@@ -78,14 +78,14 @@ function AppInner() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const { config, updateConfig, theme } = useConfig();
+  const { config, updateConfig, theme, loading } = useConfig();
 
-  // Show onboarding on first launch
+  // Show onboarding only after config loads from backend (not from defaults)
   useEffect(() => {
-    if (config && !config.onboarding_completed) {
+    if (!loading && config && !config.onboarding_completed) {
       setShowOnboarding(true);
     }
-  }, [config?.onboarding_completed]);
+  }, [loading, config?.onboarding_completed]);
 
   const handleOnboardingComplete = useCallback(
     (newConfig: typeof config) => {
