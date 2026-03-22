@@ -846,17 +846,20 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const createTab = useCallback(async (workspaceId: string) => {
     try {
-      // 1. Create tab + pane in backend (pane has no PTY — TerminalPane will spawn it)
+      // 1. Switch to workspace (user action — navigate to where tab is created)
+      invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
+      // 2. Create tab + pane in backend (pane has no PTY — TerminalPane will spawn it)
       const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId });
-      // 2. Set active tab in backend
+      // 3. Set active tab in backend
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
-      // 3. Optimistically switch to the new tab before refresh
+      // 4. Optimistically switch to the new tab before refresh
       dispatch({
         type: "SET_ACTIVE_TAB",
         workspaceId,
         tabId: tabInfo.id,
       });
-      // 4. Refresh frontend — TerminalPane will see ptyId=null and spawn PTY itself
+      // 5. Refresh frontend — TerminalPane will see ptyId=null and spawn PTY itself
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to create tab:", e);
