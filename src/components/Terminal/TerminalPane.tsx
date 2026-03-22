@@ -704,7 +704,7 @@ export function TerminalPane({
         const paneData = state.panes[paneId];
         const cwd = paneData?.cwd || undefined;
         const spawnedId = await invoke<string>("spawn_pty", {
-          cols, rows, predictedId, cwd,
+          cols, rows, predictedId, cwd, paneId,
         });
         if (disposed) {
           invoke("kill_pty", { ptyId: spawnedId }).catch(() => {});

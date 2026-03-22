@@ -28,6 +28,7 @@ pub struct AppState {
     pub token: Option<String>,
     pub agent_tracker: AgentTrackerState,
     pub report_store: ReportStoreState,
+    pub svc: crate::service::ServiceState,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -81,6 +82,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/agents", get(list_agents))
         .route("/api/agents/hierarchy", get(get_hierarchy))
         .route("/api/agents/spawn", post(spawn_agent))
+        .route("/api/batch", post(batch_commands))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -142,11 +144,7 @@ async fn create_workspace(
     Json(body): Json<CreateWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let ws = {
-        let mut mux = state.mux.lock();
-        mux.create_workspace(body.name)
-    };
-    let _ = state.app_handle.emit("mux-state-changed", ());
+    let ws = state.svc.create_workspace(body.name);
     Ok(Json(serde_json::to_value(ws).unwrap()))
 }
 
@@ -156,12 +154,8 @@ async fn focus_workspace(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state
-        .mux
-        .lock()
-        .set_active_workspace(&id)
+    state.svc.focus_workspace(&id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
-    let _ = state.app_handle.emit("mux-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -177,12 +171,8 @@ async fn rename_workspace(
     Json(body): Json<RenameWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state
-        .mux
-        .lock()
-        .rename_workspace(&id, &body.name)
+    state.svc.rename_workspace(&id, &body.name)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
-    let _ = state.app_handle.emit("mux-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -192,15 +182,8 @@ async fn close_workspace(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let pty_ids = state
-        .mux
-        .lock()
-        .close_workspace(&id)
+    state.svc.close_workspace(&id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
-    for pty_id in &pty_ids {
-        let _ = state.pty.lock().kill(pty_id);
-    }
-    let _ = state.app_handle.emit("mux-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -216,12 +199,8 @@ async fn move_tab(
     Json(body): Json<MoveTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state
-        .mux
-        .lock()
-        .move_tab(&tab_id, &workspace_id, &body.to_workspace_id)
+    state.svc.move_tab(&tab_id, &workspace_id, &body.to_workspace_id)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to move tab"))?;
-    let _ = state.app_handle.emit("mux-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -231,19 +210,8 @@ async fn create_tab(
     Path(workspace_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let (tab_id, pane_id) = {
-        let mut mux = state.mux.lock();
-        mux.create_tab(&workspace_id)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?
-    };
-    // Set active tab
-    {
-        let mut mux = state.mux.lock();
-        let _ = mux.set_active_tab(&workspace_id, &tab_id);
-    }
-    // Tell frontend to refresh — TerminalPane will spawn PTY via Tauri command
-    let _ = state.app_handle.emit("mux-state-changed", ());
-
+    let (tab_id, pane_id) = state.svc.create_tab(&workspace_id)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
     Ok(Json(serde_json::json!({
         "tab_id": tab_id,
         "pane_id": pane_id
@@ -266,16 +234,9 @@ async fn split_pane(
         Some("down" | "vertical") => crate::multiplexer::types::Orientation::Vertical,
         _ => crate::multiplexer::types::Orientation::Horizontal,
     };
-    let new_pane_id = {
-        let mut mux = state.mux.lock();
-        mux.split_pane(&pane_id, orientation)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?
-    };
-    let _ = state.app_handle.emit("mux-state-changed", ());
-
-    Ok(Json(serde_json::json!({
-        "new_pane_id": new_pane_id
-    })))
+    let new_pane_id = state.svc.split_pane(&pane_id, orientation)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    Ok(Json(serde_json::json!({"new_pane_id": new_pane_id})))
 }
 
 async fn list_panes(
@@ -314,47 +275,20 @@ async fn send_text(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 
-    let pty_id = {
-        let mux = state.mux.lock();
-        mux.get_pane(&pane_id)
-            .and_then(|p| p.pty_id.clone())
-            .ok_or((StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?
-    };
-
-    // Batch mode — send multiple commands with delays
+    // Batch mode
     if let Some(batch) = body.batch {
-        let pty = state.pty.clone();
-        let pid = pty_id.clone();
-        tokio::spawn(async move {
-            for cmd in batch {
-                if let Some(delay) = cmd.delay_ms {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
-                }
-                let text = if cmd.enter && !cmd.text.ends_with('\r') {
-                    format!("{}\r", cmd.text)
-                } else {
-                    cmd.text
-                };
-                let _ = pty.lock().write(&pid, text.as_bytes());
-            }
-        });
+        let items: Vec<crate::service::pty_io::SendBatchItem> = batch.into_iter().map(|c| {
+            crate::service::pty_io::SendBatchItem { text: c.text, enter: c.enter, delay_ms: c.delay_ms }
+        }).collect();
+        state.svc.send_text_batch(&pane_id, items)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
         return Ok(Json(serde_json::json!({"ok": true, "batch": true})));
     }
 
     // Single send
     let text = body.text.unwrap_or_default();
-    let data = if body.enter && !text.ends_with('\r') {
-        format!("{}\r", text)
-    } else {
-        text
-    };
-
-    state
-        .pty
-        .lock()
-        .write(&pty_id, data.as_bytes())
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
-
+    state.svc.send_text(&pane_id, &text, body.enter)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -364,12 +298,8 @@ async fn focus_pane(
     Path(pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state
-        .mux
-        .lock()
-        .set_focused_pane(&pane_id)
+    state.svc.focus_pane(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
-    let _ = state.app_handle.emit("mux-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -388,12 +318,8 @@ async fn get_pane_output(
     Query(query): Query<OutputQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let pty_id = {
-        let mux = state.mux.lock();
-        mux.get_pane(&pane_id)
-            .and_then(|p| p.pty_id.clone())
-            .ok_or((StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?
-    };
+    let pty_id = state.svc.resolve_pty_id(&pane_id)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     let buf = state.output_buf.lock();
     let text = buf.get_text(&pty_id).unwrap_or_default();
     let offset = query.offset.unwrap_or(0);
@@ -423,12 +349,8 @@ async fn exec_in_pane(
     Json(body): Json<ExecBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let pty_id = {
-        let mux = state.mux.lock();
-        mux.get_pane(&pane_id)
-            .and_then(|p| p.pty_id.clone())
-            .ok_or((StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?
-    };
+    let pty_id = state.svc.resolve_pty_id(&pane_id)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
 
     let start_offset = state.output_buf.lock()
         .get_text(&pty_id).map(|t| t.len()).unwrap_or(0);
@@ -493,17 +415,9 @@ async fn open_browser(
     Json(body): Json<OpenBrowserBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let new_pane_id = {
-        let mut mux = state.mux.lock();
-        mux.open_browser(Some(body.url.clone()))
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to open browser"))?
-    };
-    let _ = state.app_handle.emit("mux-state-changed", ());
-
-    Ok(Json(serde_json::json!({
-        "pane_id": new_pane_id,
-        "url": body.url
-    })))
+    let new_pane_id = state.svc.open_browser(body.url.clone())
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to open browser"))?;
+    Ok(Json(serde_json::json!({"pane_id": new_pane_id, "url": body.url})))
 }
 
 async fn close_pane(
@@ -512,16 +426,8 @@ async fn close_pane(
     Path(pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let pty_ids = state
-        .mux
-        .lock()
-        .close_pane(&pane_id)
+    state.svc.close_pane(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
-    {
-        let mut pty = state.pty.lock();
-        for pid in &pty_ids { let _ = pty.kill(pid); }
-    }
-    let _ = state.app_handle.emit("mux-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -537,17 +443,8 @@ async fn rename_pane(
     Json(body): Json<RenamePaneBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let title = body.title.clone();
-    state
-        .mux
-        .lock()
-        .rename_pane(&pane_id, &body.title)
+    state.svc.rename_pane(&pane_id, &body.title)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
-    let _ = state.app_handle.emit("pane-title-pinned", serde_json::json!({
-        "pane_id": pane_id,
-        "title": title,
-    }));
-    let _ = state.app_handle.emit("mux-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -564,14 +461,7 @@ async fn resize_pane(
     Json(body): Json<ResizePaneBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let pty_id = {
-        let mux = state.mux.lock();
-        mux.get_pane(&pane_id)
-            .and_then(|p| p.pty_id.clone())
-            .ok_or((StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?
-    };
-    state.pty.lock()
-        .resize(&pty_id, body.cols, body.rows)
+    state.svc.resize_pane(&pane_id, body.cols, body.rows)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to resize PTY"))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -583,12 +473,8 @@ async fn stream_pane_output(
     Path(pane_id): Path<String>,
 ) -> Result<axum::response::Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let pty_id = {
-        let mux = state.mux.lock();
-        mux.get_pane(&pane_id)
-            .and_then(|p| p.pty_id.clone())
-            .ok_or((StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?
-    };
+    let pty_id = state.svc.resolve_pty_id(&pane_id)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
 
     let buf = state.output_buf.clone();
     let pid = pty_id.clone();
@@ -632,6 +518,10 @@ struct CreateNotifBody {
     title: String,
     body: Option<String>,
     level: Option<String>,
+    /// Action buttons for the toast (optional)
+    actions: Option<serde_json::Value>,
+    /// Keep toast visible until user interacts (optional)
+    sticky: Option<bool>,
 }
 
 async fn create_notification(
@@ -640,34 +530,10 @@ async fn create_notification(
     Json(body): Json<CreateNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let level = match body.level.as_deref() {
-        Some("warning") => crate::notification::store::NotificationLevel::Warning,
-        Some("error") => crate::notification::store::NotificationLevel::Error,
-        _ => crate::notification::store::NotificationLevel::Info,
-    };
-    let level_str = match &level {
-        crate::notification::store::NotificationLevel::Warning => "Warning",
-        crate::notification::store::NotificationLevel::Error => "Error",
-        _ => "Info",
-    };
-    let title = body.title.clone();
-    let notif_body = body.body.clone();
-    let id = state
-        .notif
-        .lock()
-        .add(body.title, body.body, level, None, None);
-    let _ = state.app_handle.emit("notification-created", serde_json::json!({
-        "id": id,
-        "title": title,
-        "body": notif_body,
-        "level": level_str,
-        "pane_id": serde_json::Value::Null,
-        "workspace_id": serde_json::Value::Null,
-    }));
-
-    // Send OS-level notification if window is not focused
-    send_os_notification_if_unfocused(&state.app_handle, &title, notif_body.as_deref());
-
+    let id = state.svc.create_notification_ext(
+        body.title, body.body, body.level.as_deref(),
+        body.actions, body.sticky,
+    );
     Ok(Json(serde_json::json!({"id": id})))
 }
 
@@ -691,30 +557,23 @@ async fn take_screenshot(
     Query(query): Query<ScreenshotQuery>,
 ) -> Result<axum::response::Response, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    // Screenshot is dev-only — disabled in release builds
-    #[cfg(not(debug_assertions))]
-    return Err((StatusCode::GONE, "Screenshot API disabled in production"));
 
-
-    let ss = state.screenshot.clone();
     let app = state.app_handle.clone();
-
     let result = tokio::task::spawn_blocking(move || {
-        crate::screenshot::request_screenshot(&app, &ss, 5000)
+        crate::screenshot::capture_window(&app)
     })
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Screenshot task failed"))?
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Screenshot capture failed"))?;
 
-    // result is "data:image/png;base64,..." or raw base64
     let format = query.format.as_deref().unwrap_or("json");
 
     match format {
-        "png" => {
-            // Strip data URI prefix if present and decode to raw PNG
-            let b64 = result
-                .strip_prefix("data:image/png;base64,")
-                .unwrap_or(&result);
+        "jpeg" | "jpg" => {
+            // Return raw JPEG bytes
+            let b64 = result.data_url
+                .strip_prefix("data:image/jpeg;base64,")
+                .unwrap_or(&result.data_url);
             let bytes = base64::Engine::decode(
                 &base64::engine::general_purpose::STANDARD,
                 b64,
@@ -722,13 +581,18 @@ async fn take_screenshot(
             .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Invalid base64"))?;
 
             Ok(axum::response::Response::builder()
-                .header("Content-Type", "image/png")
+                .header("Content-Type", "image/jpeg")
                 .body(axum::body::Body::from(bytes))
                 .unwrap())
         }
         _ => {
-            // JSON with base64 data
-            let json = serde_json::json!({ "screenshot": result });
+            // JSON with data URL + metadata
+            let json = serde_json::json!({
+                "screenshot": result.data_url,
+                "width": result.width,
+                "height": result.height,
+                "size_kb": result.size_bytes / 1024,
+            });
             Ok(axum::response::Response::builder()
                 .header("Content-Type", "application/json")
                 .body(axum::body::Body::from(serde_json::to_string(&json).unwrap()))
@@ -784,9 +648,9 @@ async fn get_pane_screen(
     Path(pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    // Verify pane exists
+    // Verify pane exists by trying to resolve pty (or at least check mux)
     {
-        let mux = state.mux.lock();
+        let mux = state.svc.mux.lock();
         mux.get_pane(&pane_id)
             .ok_or((StatusCode::NOT_FOUND, "Pane not found"))?;
     }
@@ -935,11 +799,13 @@ pub fn detect_tailscale_ip() -> Option<String> {
 struct SpawnAgentBody {
     /// Agent command to run (e.g. "claude", "aider", "goose"). Default: "claude"
     agent: Option<String>,
+    /// Claude agent name from .claude/agents/ (e.g. "architect" → --agent architect)
+    agent_name: Option<String>,
     /// Extra args for the agent (e.g. ["--dangerously-skip-permissions", "--agent", "architect"])
     args: Option<Vec<String>>,
     /// Working directory
     cwd: Option<String>,
-    /// Tab title (default: agent name)
+    /// Tab title (default: agent_name or agent command)
     title: Option<String>,
     /// Role to assign: "Conductor", "Worker", "SubWorker"
     role: Option<String>,
@@ -959,141 +825,57 @@ async fn spawn_agent(
     Json(body): Json<SpawnAgentBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-
-    let agent_cmd = body.agent.as_deref().unwrap_or("claude");
-    let title = body.title.clone().unwrap_or_else(|| agent_cmd.to_string());
-
-    // 1. Find workspace
-    let ws_id = {
-        let mux = state.mux.lock();
-        let snap = mux.snapshot();
-        body.workspace_id.clone().or_else(|| snap.active_workspace_id.clone())
-            .ok_or((StatusCode::BAD_REQUEST, "No workspace found".to_string()))?
+    let params = crate::service::SpawnAgentParams {
+        agent: body.agent,
+        agent_name: body.agent_name,
+        args: body.args,
+        cwd: body.cwd,
+        title: body.title,
+        role: body.role,
+        parent_pane_id: body.parent_pane_id,
+        can_spawn: body.can_spawn,
+        task: body.task,
+        workspace_id: body.workspace_id,
     };
-
-    // 2. Create tab + pane
-    let (tab_id, pane_id) = {
-        let mut mux = state.mux.lock();
-        mux.create_tab(&ws_id)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?
-    };
-    {
-        let mut mux = state.mux.lock();
-        let _ = mux.set_active_tab(&ws_id, &tab_id);
-    }
-    let _ = state.app_handle.emit("mux-state-changed", ());
-
-    // 3. Wait for PTY to be assigned by frontend (poll up to 10s)
-    let pty_state = state.pty.clone();
-    let mux_state = state.mux.clone();
-    let pane_id_clone = pane_id.clone();
-    let pty_id = tokio::time::timeout(
-        tokio::time::Duration::from_secs(10),
-        async {
-            loop {
-                {
-                    let mux = mux_state.lock();
-                    if let Some(pane) = mux.get_pane(&pane_id_clone) {
-                        if let Some(ref pid) = pane.pty_id {
-                            return pid.clone();
-                        }
-                    }
-                }
-                tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-            }
-        },
-    )
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Timeout waiting for PTY".to_string()))?;
-
-    // 4. Rename pane + tab (pinned so OSC auto-rename won't overwrite)
-    {
-        let mut mux = state.mux.lock();
-        let _ = mux.rename_pane(&pane_id, &title);
-    }
-    let _ = state.app_handle.emit("pane-title-pinned", serde_json::json!({
-        "pane_id": &pane_id,
-        "title": &title,
-    }));
-    let _ = state.app_handle.emit("mux-state-changed", ());
-
-    // 5. Set role (if provided)
-    if let Some(ref role_str) = body.role {
-        use crate::multiplexer::types::AgentRole;
-        let role = match role_str.as_str() {
-            "Conductor" => AgentRole::Conductor,
-            "Worker" => AgentRole::Worker,
-            "SubWorker" => AgentRole::SubWorker,
-            _ => return Err((StatusCode::BAD_REQUEST, format!("Invalid role: {}", role_str))),
-        };
-        let mut mux = state.mux.lock();
-        mux.set_pane_role(&pane_id, role, body.parent_pane_id.as_deref())
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        if let Some(cs) = body.can_spawn {
-            let _ = mux.set_can_spawn(&pane_id, cs);
-        }
-    }
-    let _ = state.app_handle.emit("mux-state-changed", ());
-
-    // 6. Build agent launch command
-    let cwd = body.cwd.clone();
-    let mut cmd_parts = vec![agent_cmd.to_string()];
-    // Default args for known agents
-    if agent_cmd == "claude" {
-        cmd_parts.push("--dangerously-skip-permissions".to_string());
-    }
-    if let Some(ref extra) = body.args {
-        cmd_parts.extend(extra.iter().cloned());
-    }
-    let agent_launch = cmd_parts.join(" ");
-
-    // 7. Send cd + agent launch via batch
-    let pty = pty_state.clone();
-    let pid = pty_id.clone();
-    let task = body.task.clone();
-    let pane_id_for_task = pane_id.clone();
-    let mux_for_task = state.mux.clone();
-    let pty_for_task = pty_state.clone();
-
-    tokio::spawn(async move {
-        // cd to working directory + clear screen to hide prompt noise
-        if let Some(ref dir) = cwd {
-            let cd_cmd = format!("cd {}; cls\r", dir.replace('\\', "/"));
-            let _ = pty.lock().write(&pid, cd_cmd.as_bytes());
-            tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
-        }
-
-        // Launch agent
-        let launch = format!("{}\r", agent_launch);
-        let _ = pty.lock().write(&pid, launch.as_bytes());
-
-        // If task provided, wait for agent to be ready then send
-        if let Some(task_text) = task {
-            // Wait for agent to initialize (poll for readiness)
-            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
-
-            // Send task
-            let task_cmd = format!("{}\r", task_text);
-            // Re-resolve pty_id in case it changed
-            let current_pty = {
-                let mux = mux_for_task.lock();
-                mux.get_pane(&pane_id_for_task)
-                    .and_then(|p| p.pty_id.clone())
-            };
-            if let Some(ref cpid) = current_pty {
-                let _ = pty_for_task.lock().write(cpid, task_cmd.as_bytes());
-            }
-        }
-    });
-
+    let result = state.svc.spawn_agent(params).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({
-        "pane_id": pane_id,
-        "tab_id": tab_id,
-        "pty_id": pty_id,
-        "agent": agent_cmd,
-        "title": title,
-        "role": body.role,
+        "pane_id": result.pane_id,
+        "tab_id": result.tab_id,
+        "pty_id": result.pty_id,
+        "agent": result.agent,
+        "title": result.title,
+        "role": result.role,
     })))
+}
+
+// ── Batch Commands ──────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct BatchBody {
+    commands: Vec<BatchOp>,
+}
+
+#[derive(Deserialize)]
+struct BatchOp {
+    method: String,
+    #[serde(default)]
+    params: serde_json::Value,
+    /// Optional ID — other commands can reference this result via "$id"
+    id: Option<String>,
+}
+
+async fn batch_commands(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<BatchBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let ops: Vec<crate::service::BatchOp> = body.commands.into_iter().map(|c| {
+        crate::service::BatchOp { method: c.method, params: c.params, id: c.id }
+    }).collect();
+    let results = state.svc.batch(ops).await;
+    Ok(Json(serde_json::json!({"results": results})))
 }
 
 // ── Agent Hierarchy Endpoints ────────────────────────────────────────
@@ -1112,20 +894,8 @@ async fn set_pane_role(
     Json(body): Json<SetRoleBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    use crate::multiplexer::types::AgentRole;
-    let role = match body.role.as_str() {
-        "Conductor" => AgentRole::Conductor,
-        "Worker" => AgentRole::Worker,
-        "SubWorker" => AgentRole::SubWorker,
-        _ => return Err((StatusCode::BAD_REQUEST, format!("Invalid role: {}", body.role))),
-    };
-    let mut mux = state.mux.lock();
-    mux.set_pane_role(&id, role, body.parent_pane_id.as_deref())
+    state.svc.set_pane_role(&id, &body.role, body.parent_pane_id.as_deref(), body.can_spawn)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    if let Some(cs) = body.can_spawn {
-        let _ = mux.set_can_spawn(&id, cs);
-    }
-    let _ = state.app_handle.emit("mux-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -1135,9 +905,7 @@ async fn clear_pane_role(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let mut mux = state.mux.lock();
-    mux.clear_pane_role(&id).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    let _ = state.app_handle.emit("mux-state-changed", ());
+    state.svc.clear_pane_role(&id).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -1147,31 +915,9 @@ async fn get_pane_status(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let mux = state.mux.lock();
-    let pane = mux.get_pane(&id).ok_or((StatusCode::NOT_FOUND, "Pane not found".to_string()))?;
-
-    // Get status from tracker (lookup by pty_id)
-    let status = if let Some(ref pty_id) = pane.pty_id {
-        let tracker = state.agent_tracker.lock();
-        format!("{:?}", tracker.get_status(pty_id))
-    } else {
-        "Idle".to_string()
-    };
-
-    let children = mux.get_children_ids(&id);
-
-    Ok(Json(serde_json::json!({
-        "pane_id": pane.id,
-        "status": status,
-        "agent_type": pane.agent_type,
-        "role": pane.role,
-        "parent_pane_id": pane.parent_pane_id,
-        "can_spawn": pane.can_spawn,
-        "depth": pane.depth,
-        "children": children,
-        "cwd": pane.cwd,
-        "title": pane.title,
-    })))
+    let info = state.svc.get_pane_status(&id)
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    Ok(Json(serde_json::to_value(info).unwrap()))
 }
 
 async fn get_pane_children(
@@ -1207,50 +953,9 @@ async fn submit_report(
     Json(body): Json<ReportBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-
-    // Find this pane and walk up to find the conductor
-    let (from_title, conductor_id) = {
-        let mux = state.mux.lock();
-        let pane = mux.get_pane(&id)
-            .ok_or((StatusCode::NOT_FOUND, "Pane not found".to_string()))?;
-        let title = pane.title.clone();
-
-        // Walk up the hierarchy to find the conductor
-        let mut current_id = id.clone();
-        let mut conductor = None;
-        for _ in 0..3 {
-            let p = mux.get_pane(&current_id);
-            match p {
-                Some(p) if p.role == Some(crate::multiplexer::types::AgentRole::Conductor) => {
-                    conductor = Some(current_id.clone());
-                    break;
-                }
-                Some(p) if p.parent_pane_id.is_some() => {
-                    current_id = p.parent_pane_id.clone().unwrap();
-                }
-                _ => break,
-            }
-        }
-        let conductor_id = conductor
-            .ok_or((StatusCode::BAD_REQUEST, "No conductor found in hierarchy".to_string()))?;
-        (title, conductor_id)
-    };
-
-    let report = state.report_store.lock().add(&conductor_id, &id, &from_title, &body.message);
-
-    // Emit event
-    state.events.broadcast("agent.report", serde_json::json!({
-        "conductor_pane_id": conductor_id,
-        "report": report,
-    }));
-    let _ = state.app_handle.emit("agent-report", serde_json::json!({
-        "conductor_pane_id": conductor_id,
-        "from_pane_id": id,
-        "from_title": from_title,
-        "message": body.message,
-    }));
-
-    Ok(Json(serde_json::json!({"ok": true, "report_id": report.id})))
+    let result = state.svc.submit_report(&id, &body.message)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({"ok": true, "report_id": result.report_id})))
 }
 
 #[derive(Deserialize)]
@@ -1282,10 +987,8 @@ async fn set_can_spawn(
     Json(body): Json<CanSpawnBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let mut mux = state.mux.lock();
-    mux.set_can_spawn(&id, body.can_spawn)
+    state.svc.set_can_spawn(&id, body.can_spawn)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    let _ = state.app_handle.emit("mux-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -1294,29 +997,7 @@ async fn list_agents(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let mux = state.mux.lock();
-    let tracker = state.agent_tracker.lock();
-    let snap = mux.snapshot();
-    let agents: Vec<serde_json::Value> = snap.panes.values()
-        .filter(|p| p.role.is_some() || p.agent_type.is_some())
-        .map(|p| {
-            let status = p.pty_id.as_ref()
-                .map(|pid| format!("{:?}", tracker.get_status(pid)))
-                .unwrap_or_else(|| "Idle".to_string());
-            serde_json::json!({
-                "pane_id": p.id,
-                "title": p.title,
-                "agent_type": p.agent_type,
-                "role": p.role,
-                "parent_pane_id": p.parent_pane_id,
-                "can_spawn": p.can_spawn,
-                "depth": p.depth,
-                "status": status,
-                "cwd": p.cwd,
-            })
-        })
-        .collect();
-    Ok(Json(serde_json::json!(agents)))
+    Ok(Json(serde_json::json!(state.svc.list_agents())))
 }
 
 async fn get_hierarchy(
@@ -1324,41 +1005,58 @@ async fn get_hierarchy(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let mux = state.mux.lock();
-    let tracker = state.agent_tracker.lock();
-    let snap = mux.snapshot();
-
-    // Build tree: find conductors, then their children recursively
-    fn build_node(pane_id: &str, snap: &crate::multiplexer::state::MultiplexerSnapshot, tracker: &crate::agent::status::PaneStatusTracker) -> Option<serde_json::Value> {
-        let pane = snap.panes.get(pane_id)?;
-        let status = pane.pty_id.as_ref()
-            .map(|pid| format!("{:?}", tracker.get_status(pid)))
-            .unwrap_or_else(|| "Idle".to_string());
-        let children: Vec<serde_json::Value> = snap.panes.values()
-            .filter(|p| p.parent_pane_id.as_deref() == Some(pane_id))
-            .filter_map(|p| build_node(&p.id, snap, tracker))
-            .collect();
-        Some(serde_json::json!({
-            "pane_id": pane.id,
-            "title": pane.title,
-            "role": pane.role,
-            "depth": pane.depth,
-            "status": status,
-            "agent_type": pane.agent_type,
-            "can_spawn": pane.can_spawn,
-            "children": children,
-        }))
-    }
-
-    let conductors: Vec<serde_json::Value> = snap.panes.values()
-        .filter(|p| p.role == Some(crate::multiplexer::types::AgentRole::Conductor))
-        .filter_map(|p| build_node(&p.id, &snap, &tracker))
-        .collect();
-
-    Ok(Json(serde_json::json!(conductors)))
+    Ok(Json(serde_json::json!(state.svc.get_hierarchy())))
 }
 
 /// Strip ANSI escape codes from terminal output.
+#[cfg(test)]
+mod tests_strip_ansi {
+    use super::*;
+
+    #[test]
+    fn test_no_ansi() {
+        assert_eq!(strip_ansi_codes("hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_csi_color() {
+        assert_eq!(strip_ansi_codes("\x1b[32mgreen\x1b[0m"), "green");
+    }
+
+    #[test]
+    fn test_osc_title() {
+        assert_eq!(strip_ansi_codes("\x1b]0;title\x07text"), "text");
+    }
+
+    #[test]
+    fn test_osc_st_terminator() {
+        assert_eq!(strip_ansi_codes("\x1b]0;title\x1b\\text"), "text");
+    }
+
+    #[test]
+    fn test_carriage_return_stripped() {
+        assert_eq!(strip_ansi_codes("line1\r\nline2"), "line1\nline2");
+    }
+
+    #[test]
+    fn test_mixed() {
+        assert_eq!(
+            strip_ansi_codes("\x1b[1;34mBold Blue\x1b[0m and \x1b[31mRed\x1b[0m"),
+            "Bold Blue and Red"
+        );
+    }
+
+    #[test]
+    fn test_empty() {
+        assert_eq!(strip_ansi_codes(""), "");
+    }
+
+    #[test]
+    fn test_csi_cursor_move() {
+        assert_eq!(strip_ansi_codes("\x1b[2Aup\x1b[3Bdown"), "updown");
+    }
+}
+
 pub fn strip_ansi_codes(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
@@ -1614,7 +1312,7 @@ pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&s
     std::thread::spawn(move || {
         let (wa_x, wa_y, wa_w, wa_h) = get_workarea();
         let win_w = 320.0;
-        let win_h = 80.0;
+        let win_h = calc_notif_height(&body, win_w);
         let margin = 16.0;
 
         let html = build_notif_html(&title, &body);
@@ -1672,6 +1370,15 @@ fn build_notif_html(title: &str, body: &str) -> String {
         title.replace('<', "&lt;").replace('>', "&gt;"),
         body.replace('<', "&lt;").replace('>', "&gt;"),
     )
+}
+
+/// Estimate notification popup height based on body text length.
+fn calc_notif_height(body: &str, win_w: f64) -> f64 {
+    let chars_per_line = ((win_w - 60.0) / 7.0).max(1.0) as usize; // ~7px per char at 12px
+    let lines = if body.is_empty() { 0 } else { (body.len() / chars_per_line).max(1) };
+    let base = 50.0; // title + padding
+    let line_h = 16.0;
+    (base + lines as f64 * line_h).max(60.0).min(200.0)
 }
 
 /// Returns workarea (x, y, width, height) — desktop minus taskbar.

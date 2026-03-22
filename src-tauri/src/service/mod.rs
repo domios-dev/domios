@@ -1,0 +1,122 @@
+//! Unified service layer for CodeTerm multiplexer operations.
+//!
+//! Both REST API routes, Tauri IPC commands, and the Socket server
+//! delegate to this module. This ensures consistent behavior (PTY cleanup,
+//! event emission, hierarchy validation) regardless of the entry point.
+//!
+//! Sub-modules group operations by domain:
+//! - `workspace` — workspace & tab CRUD
+//! - `pane` — pane lifecycle, split, rename, focus, browser
+//! - `pty_io` — send text, batch send, PTY helpers
+//! - `hierarchy` — agent roles, reports, status queries
+//! - `orchestrator` — agent spawn, batch commands
+//! - `notification` — create notification with OS toast
+
+mod workspace;
+mod pane;
+pub mod pty_io;
+mod hierarchy;
+mod orchestrator;
+mod notification;
+#[cfg(test)]
+mod tests;
+
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+use tauri::Emitter;
+
+use crate::api::events::EventBroadcaster;
+use crate::multiplexer::commands::MuxState;
+use crate::multiplexer::types::AgentRole;
+use crate::{AgentTrackerState, NotifState, OutputBufferState, PtyState, ReportStoreState};
+
+// Re-export public types used by callers.
+pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
+pub use hierarchy::PaneStatusInfo;
+
+/// Shared service context — all state needed for multiplexer operations.
+/// Both API routes, Tauri commands, and Socket server hold a clone of this.
+#[derive(Clone)]
+pub struct ServiceContext {
+    pub mux: MuxState,
+    pub pty: PtyState,
+    pub output_buf: OutputBufferState,
+    pub notif: NotifState,
+    pub events: Arc<EventBroadcaster>,
+    pub app_handle: tauri::AppHandle,
+    pub agent_tracker: AgentTrackerState,
+    pub report_store: ReportStoreState,
+}
+
+pub type ServiceState = Arc<ServiceContext>;
+
+impl ServiceContext {
+    // ── Event helpers (used by all sub-modules) ─────────────────────
+
+    pub(crate) fn emit_state_changed(&self) {
+        let _ = self.app_handle.emit("mux-state-changed", ());
+    }
+
+    pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {
+        let _ = self.app_handle.emit(
+            "pane-title-pinned",
+            serde_json::json!({"pane_id": pane_id, "title": title}),
+        );
+    }
+
+    pub(crate) fn kill_ptys(&self, pty_ids: &[String]) {
+        let mut manager = self.pty.lock();
+        for id in pty_ids {
+            let _ = manager.kill(id);
+        }
+    }
+
+    pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {
+        match role_str {
+            "Conductor" => Ok(AgentRole::Conductor),
+            "Worker" => Ok(AgentRole::Worker),
+            "SubWorker" => Ok(AgentRole::SubWorker),
+            _ => Err(format!("Invalid role: {}", role_str)),
+        }
+    }
+}
+
+// ── Shared data types ───────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportResult {
+    pub report_id: String,
+    pub conductor_pane_id: String,
+}
+
+/// Helper: extract optional string from JSON value.
+pub(crate) fn json_str(v: &serde_json::Value, key: &str) -> Option<String> {
+    v.get(key).and_then(|v| v.as_str()).map(|s| s.to_string())
+}
+
+/// Replace "$ref" strings in params with actual pane_ids from previous results.
+pub(crate) fn resolve_refs(
+    params: &serde_json::Value,
+    refs: &std::collections::HashMap<String, String>,
+) -> serde_json::Value {
+    match params {
+        serde_json::Value::String(s) if s.starts_with('$') => {
+            let key = &s[1..];
+            refs.get(key)
+                .map(|v| serde_json::Value::String(v.clone()))
+                .unwrap_or_else(|| params.clone())
+        }
+        serde_json::Value::Object(map) => {
+            let mut new_map = serde_json::Map::new();
+            for (k, v) in map {
+                new_map.insert(k.clone(), resolve_refs(v, refs));
+            }
+            serde_json::Value::Object(new_map)
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(|v| resolve_refs(v, refs)).collect())
+        }
+        other => other.clone(),
+    }
+}

@@ -28,6 +28,7 @@ reqwest = { version = "0.12", features = ["json"] }
 async-stream = "0.3"
 futures-core = "0.3"
 png = "0.17"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -5,6 +5,10 @@ CodeTerm exposes three APIs for agent integration:
 2. **Socket API** — JSON-RPC v2 over named pipe (Windows) / Unix socket
 3. **CLI** — `codeterm.exe` command-line tool
 
+### Architecture: Unified Service Layer
+
+All multiplexer operations (workspace/tab/pane management, agent spawn, batch commands, etc.) are implemented in a single **ServiceContext** (`src-tauri/src/service.rs`). Both REST API routes and Tauri IPC commands delegate to this shared service layer, which ensures consistent behavior — PTY cleanup, event emission, hierarchy validation — regardless of the entry point. This means every operation available via REST is also available internally via Tauri commands, with identical semantics.
+
 ## REST API
 
 Base URL: `http://<host>:7685/api`
@@ -27,6 +31,7 @@ Then: `Authorization: Bearer your-secret-token`
 | GET | `/api/health` | — | Health check |
 | GET | `/api/identify` | — | Version, platform, features |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
+| GET | `/api/screenshot` | `?format=json\|jpeg` | Capture window screenshot (see below) |
 
 
 #### Workspaces
@@ -67,6 +72,12 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/can-spawn` | `{can_spawn: bool}` | Toggle whether pane can spawn children |
 | GET | `/api/agents` | — | List all panes that have roles |
 | GET | `/api/agents/hierarchy` | — | Full hierarchy tree |
+| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?}` | One-call agent spawn (see below) |
+
+#### Batch
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/batch` | `{commands: [{method, params, id?}]}` | Execute multiple commands sequentially (see below) |
 
 ### Pane Fields
 
@@ -119,6 +130,74 @@ Webhook events: `agent.permission_request`, `agent.task_complete`, `agent.report
 
 Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/.config/codeterm/themes/` (macOS/Linux).
 
+### Agent Spawn (POST /api/agents/spawn)
+
+Creates a tab, assigns a role, launches an agent (claude/aider/any), and optionally sends a task. All in one request.
+
+**Request body:**
+```json
+{
+  "agent": "claude",           // agent command (default: "claude")
+  "agent_name": "architect",   // maps to --agent flag (.claude/agents/ file)
+  "title": "Worker-1",         // tab title (default: agent_name or agent command)
+  "cwd": "C:/project",         // working directory
+  "role": "Worker",            // Conductor, Worker, SubWorker
+  "parent_pane_id": "uuid",   // parent for Worker/SubWorker
+  "can_spawn": true,           // allow spawning children
+  "task": "analyze the code",  // baked into launch via -p flag (instant start)
+  "args": ["--verbose"],       // extra agent args
+  "workspace_id": "uuid"      // optional, defaults to active workspace
+}
+```
+
+All fields are optional. `agent` defaults to `"claude"`. For Claude, `--dangerously-skip-permissions` is added automatically. When `task` is provided, it is passed via the `-p` flag so the agent starts working immediately (no delay). When `agent_name` is provided, it maps to `--agent <name>` which loads the agent definition from `.claude/agents/<name>.md`.
+
+**Response:**
+```json
+{"pane_id": "uuid", "tab_id": "uuid", "pty_id": "uuid", "agent": "claude", "title": "Worker-1", "role": "Worker"}
+```
+
+### Batch Commands (POST /api/batch)
+
+Execute multiple operations in a single HTTP request. Commands run sequentially. Each command can have an `id` that other commands reference via `$id` (resolves to `pane_id` from that result).
+
+**Request body:**
+```json
+{
+  "commands": [
+    {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Conductor", "agent": "claude", "cwd": "C:/project", "can_spawn": true}},
+    {"method": "spawn", "id": "w1", "params": {"title": "Worker-1", "role": "Worker", "parent_pane_id": "$boss", "agent": "claude", "cwd": "C:/project", "task": "analyze code"}},
+    {"method": "spawn", "params": {"title": "Worker-2", "role": "Worker", "parent_pane_id": "$boss", "agent": "claude"}},
+    {"method": "spawn", "params": {"title": "Sub-W1", "role": "SubWorker", "parent_pane_id": "$w1", "agent": "claude"}},
+    {"method": "notify", "params": {"title": "All spawned", "body": "4 agents ready"}}
+  ]
+}
+```
+
+**Available methods:** `spawn`, `send`, `rename`, `close`, `role`, `notify`, `can-spawn`, `report`
+
+**$ref syntax:** Any string value starting with `$` is replaced with the `pane_id` from the result of the command with that `id`. E.g. `"parent_pane_id": "$boss"` resolves to the pane_id returned by the "boss" spawn command.
+
+**Response:**
+```json
+{"results": [{"pane_id": "...", "tab_id": "...", ...}, {"ok": true}, ...]}
+```
+
+On error, individual commands return `{"error": "message", "method": "..."}` but subsequent commands still execute.
+
+**Batch method parameters:**
+
+| Method | Required params | Optional params |
+|--------|----------------|-----------------|
+| `spawn` | — | `agent`, `agent_name`, `title`, `cwd`, `role`, `parent_pane_id`, `can_spawn`, `task`, `args` |
+| `send` | `pane_id`, | `text`, `enter` (default: true) |
+| `rename` | `pane_id`, `title` | — |
+| `close` | `pane_id` | — |
+| `role` | `pane_id`, `role` | `parent_pane_id`, `can_spawn` |
+| `notify` | — | `title`, `body`, `level` |
+| `can-spawn` | `pane_id` | `can_spawn` (default: true) |
+| `report` | `pane_id`, `message` | — |
+
 ### Output Cursor Pattern
 
 Use `offset` parameter for efficient polling without fetching the full buffer:
@@ -156,6 +235,41 @@ Subscribe to real-time output via Server-Sent Events:
 curl -N "http://host:7685/api/panes/$PANE/output/stream"
 # data: {"output": "new text", "offset": 1234}
 # data: {"output": "more text", "offset": 1300}
+```
+
+### Screenshot (GET /api/screenshot)
+
+Captures the CodeTerm window as a JPEG image. Works even when the window is behind other windows.
+
+**Platform implementation:**
+- **Windows:** PrintWindow API (captures occluded windows)
+- **macOS:** `screencapture -l` (captures by window ID)
+- **Linux:** `xdotool` + `import` (X11 window capture)
+
+**Query parameters:**
+
+| Param | Values | Default | Description |
+|-------|--------|---------|-------------|
+| `format` | `json`, `jpeg` | `json` | Response format |
+
+**format=json** (default) — returns JSON with base64 data URL and metadata:
+```json
+{
+  "data_url": "data:image/jpeg;base64,/9j/4AAQ...",
+  "width": 1920,
+  "height": 1080,
+  "size_kb": 287
+}
+```
+
+**format=jpeg** — returns raw JPEG bytes with `Content-Type: image/jpeg`.
+
+```bash
+# Get screenshot as JSON (data URL + metadata)
+curl http://host:7685/api/screenshot
+
+# Save raw JPEG to file
+curl http://host:7685/api/screenshot?format=jpeg -o screenshot.jpg
 ```
 
 ### Examples
@@ -288,6 +402,14 @@ codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
 codeterm agent report MESSAGE [--pane ID]      # Send report to parent conductor
 codeterm agent reports [--pane ID]             # Read reports (as conductor)
 codeterm agent status [--pane ID]              # Get detailed status + role
+codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--agent-name NAME] [--args A1 A2]
+                                               # One-call agent spawn (default agent: claude)
+                                               # --agent-name maps to .claude/agents/ file (e.g. "architect")
+                                               # --task is baked into launch via -p flag (instant start, no delay)
+
+# Screenshot
+codeterm screenshot                            # Capture window, print JSON (data URL + dimensions)
+codeterm screenshot --output screenshot.jpg    # Capture window, save to file
 ```
 
 Add `--json` flag for machine-readable output.
@@ -303,6 +425,7 @@ These are Tauri IPC commands (invoked from frontend via `invoke()`), not REST en
 | `detect_claude_session_id` | `cwd, exclude?, max_age_secs?` | Finds Claude Code session ID by scanning `~/.claude/projects/` directory structure |
 | `mux_set_claude_session_id` | `pane_id, session_id` | Links pane to a Claude Code session for `--resume` support |
 | `get_default_cwd` | — | Returns the application's current working directory |
+| `mux_batch` | `commands: [{method, params, id?}]` | Execute batch commands with $ref resolution (same semantics as POST /api/batch). Delegates to the unified ServiceContext. |
 
 ## Environment Variables
 
@@ -329,4 +452,4 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
-<!-- revision: 5 -->
+<!-- revision: 9 -->

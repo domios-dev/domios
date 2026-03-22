@@ -101,9 +101,47 @@ codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
 codeterm agent report MESSAGE [--pane ID]      # Send report to parent
 codeterm agent reports [--pane ID]             # Read reports (as conductor)
 codeterm agent status [--pane ID]              # Detailed status + role
+codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--agent-name NAME] [--args A1 A2]
+                                               # One-call agent spawn (task uses -p flag, instant start)
 ```
 
-### Orchestrator pattern
+### Orchestrator pattern (using agent spawn)
+```bash
+# 1. Mark self as conductor
+codeterm agent set-conductor
+
+# 2. Spawn workers (one-call: creates tab, sets role, launches agent, sends task via -p flag)
+SELF=$(codeterm pane current)
+codeterm agent spawn claude --title "Worker-1" --role Worker --parent $SELF --cwd /project --task "run tests"
+codeterm agent spawn claude --title "Worker-2" --role Worker --parent $SELF --cwd /project --task "lint code"
+
+# 3. Spawn with a specific agent definition from .claude/agents/
+codeterm agent spawn claude --title "Architect" --role Worker --parent $SELF --cwd /project --agent-name architect --task "review architecture"
+
+# 4. Read reports from workers
+codeterm agent reports
+```
+
+### Orchestrator pattern (batch API — REST and Tauri IPC)
+```bash
+# Spawn entire hierarchy in one call (tasks use -p flag, instant start)
+# Available via POST /api/batch (REST) or mux_batch Tauri command — identical semantics
+curl -X POST http://localhost:7685/api/batch \
+  -H "Content-Type: application/json" \
+  -d '{
+    "commands": [
+      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Conductor", "can_spawn": true, "cwd": "C:/project"}},
+      {"method": "spawn", "params": {"title": "W1", "role": "Worker", "parent_pane_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
+      {"method": "spawn", "params": {"title": "W2", "role": "Worker", "parent_pane_id": "$boss", "task": "run tests"}},
+      {"method": "notify", "params": {"title": "Ready", "body": "Hierarchy spawned"}}
+    ]
+  }'
+```
+
+Batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `can-spawn`, `report`.
+Use `$id` to reference results from earlier commands (resolves to pane_id).
+
+### Orchestrator pattern (manual — split + link)
 ```bash
 # 1. Mark self as conductor
 codeterm agent set-conductor
@@ -189,10 +227,30 @@ codeterm theme save my-theme /tmp/my-theme.toml --apply
 
 The UI colors (borders, sidebar, surfaces) are automatically derived from the background color. Light themes (bright background) get darkened borders; dark themes get lightened ones.
 
+## Screenshots
+
+Capture the CodeTerm window as JPEG. Works even when the window is behind other windows. Images are JPEG compressed (~200-400KB).
+
+```
+codeterm screenshot                            # Print JSON: {data_url, width, height, size_kb}
+codeterm screenshot --output screenshot.jpg    # Save JPEG to file
+```
+
+REST API:
+- `GET /api/screenshot` — JSON response with base64 data URL + dimensions
+- `GET /api/screenshot?format=jpeg` — raw JPEG bytes
+
+**For debugging:** save to file, then use a subagent to read and analyze the image (avoids context pollution with large base64 data).
+
+```bash
+codeterm screenshot --output /tmp/debug.jpg
+# Then delegate image analysis to a subagent
+```
+
 ## System
 ```
 codeterm identify        # Version & features
 codeterm capabilities    # All API methods
 ```
 
-<!-- revision: 5 -->
+<!-- revision: 9 -->

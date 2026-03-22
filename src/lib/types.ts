@@ -65,6 +65,16 @@ export interface PtyInfo {
   status: "running" | "dead";
 }
 
+export interface NotificationAction {
+  label: string;
+  /** "invoke" calls a Tauri command, "url" opens in browser, "dismiss" just closes */
+  type: "invoke" | "url" | "dismiss";
+  /** Tauri command name or URL */
+  value?: string;
+  /** Args for Tauri invoke */
+  args?: Record<string, unknown>;
+}
+
 export interface Notification {
   id: string;
   pane_id: string | null;
@@ -74,6 +84,10 @@ export interface Notification {
   level: "Info" | "Warning" | "Error";
   timestamp: number;
   read: boolean;
+  /** Action buttons — if present, toast shows buttons instead of auto-dismiss */
+  actions?: NotificationAction[];
+  /** Persist toast — don't auto-dismiss, require explicit action */
+  sticky?: boolean;
 }
 
 export type PaneStatus = "Working" | "Waiting" | "Idle" | "Dead";
@@ -180,4 +194,5 @@ export interface AppConfig {
   socket: SocketConfigSettings;
   agent: AgentConfig;
   api: ApiConfig;
+  onboarding_completed: boolean;
 }

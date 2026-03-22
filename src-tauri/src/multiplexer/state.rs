@@ -43,6 +43,7 @@ impl MultiplexerState {
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
+            pinned_title: false,
         };
 
         let tab = Tab {
@@ -346,6 +347,7 @@ impl MultiplexerState {
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
+            pinned_title: false,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -367,6 +369,7 @@ impl MultiplexerState {
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
+            pinned_title: false,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -436,11 +439,12 @@ impl MultiplexerState {
         self.focused_pane_id.as_deref()
     }
 
-    /// Rename a pane and its containing tab.
+    /// Rename a pane and its containing tab. Pins the title to block OSC auto-rename.
     pub fn rename_pane(&mut self, pane_id: &str, title: &str) -> Result<(), String> {
         let pane = self.panes.get_mut(pane_id)
             .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
         pane.title = title.to_string();
+        pane.pinned_title = true;
 
         // Also update tab title if this pane is in a tab
         for ws in &mut self.workspaces {
@@ -771,6 +775,7 @@ impl MultiplexerState {
                         parent_pane_id: parent_pane_id.clone(),
                         can_spawn: *can_spawn,
                         depth: *depth,
+                        pinned_title: role.is_some(), // restore pinned if had role
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }
@@ -826,7 +831,7 @@ pub struct MultiplexerSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::multiplexer::types::PaneType;
+    use crate::multiplexer::types::{AgentRole, Orientation, PaneType};
 
     #[test]
     fn test_new_state_has_default_workspace() {
@@ -1103,6 +1108,320 @@ mod tests {
         }
         let pane = state.get_pane(&initial_pane_id).unwrap();
         assert_eq!(pane.title, "Custom Title");
+    }
+
+    // ── Agent Hierarchy Tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_set_conductor_role() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        state
+            .set_pane_role(&pane_id, AgentRole::Conductor, None)
+            .unwrap();
+        let pane = state.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.role, Some(AgentRole::Conductor));
+        assert_eq!(pane.depth, 1);
+        assert!(pane.can_spawn);
+        assert!(pane.parent_pane_id.is_none());
+    }
+
+    #[test]
+    fn test_conductor_cannot_have_parent() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        let result = state.set_pane_role(&pane_id, AgentRole::Conductor, Some("fake"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_worker_requires_conductor_parent() {
+        let (mut state, conductor_id) = MultiplexerState::new();
+        state
+            .set_pane_role(&conductor_id, AgentRole::Conductor, None)
+            .unwrap();
+        let worker_id = state
+            .split_pane(&conductor_id, Orientation::Horizontal)
+            .unwrap();
+        state
+            .set_pane_role(&worker_id, AgentRole::Worker, Some(&conductor_id))
+            .unwrap();
+
+        let worker = state.get_pane(&worker_id).unwrap();
+        assert_eq!(worker.role, Some(AgentRole::Worker));
+        assert_eq!(worker.depth, 2);
+        assert!(!worker.can_spawn);
+        assert_eq!(worker.parent_pane_id.as_deref(), Some(conductor_id.as_str()));
+    }
+
+    #[test]
+    fn test_worker_parent_must_be_conductor() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        let other_id = state
+            .split_pane(&pane_id, Orientation::Horizontal)
+            .unwrap();
+        // other_id has no role — can't be parent
+        let result = state.set_pane_role(&pane_id, AgentRole::Worker, Some(&other_id));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_worker_parent_must_allow_spawn() {
+        let (mut state, conductor_id) = MultiplexerState::new();
+        state
+            .set_pane_role(&conductor_id, AgentRole::Conductor, None)
+            .unwrap();
+        // Disable spawning
+        state.set_can_spawn(&conductor_id, false).unwrap();
+
+        let worker_id = state
+            .split_pane(&conductor_id, Orientation::Horizontal)
+            .unwrap();
+        let result = state.set_pane_role(&worker_id, AgentRole::Worker, Some(&conductor_id));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_subworker_requires_worker_parent() {
+        let (mut state, conductor_id) = MultiplexerState::new();
+        state
+            .set_pane_role(&conductor_id, AgentRole::Conductor, None)
+            .unwrap();
+        let worker_id = state
+            .split_pane(&conductor_id, Orientation::Horizontal)
+            .unwrap();
+        state
+            .set_pane_role(&worker_id, AgentRole::Worker, Some(&conductor_id))
+            .unwrap();
+        // Enable spawning on worker
+        state.set_can_spawn(&worker_id, true).unwrap();
+
+        let sub_id = state
+            .split_pane(&worker_id, Orientation::Vertical)
+            .unwrap();
+        state
+            .set_pane_role(&sub_id, AgentRole::SubWorker, Some(&worker_id))
+            .unwrap();
+
+        let sub = state.get_pane(&sub_id).unwrap();
+        assert_eq!(sub.role, Some(AgentRole::SubWorker));
+        assert_eq!(sub.depth, 3);
+        assert!(!sub.can_spawn);
+    }
+
+    #[test]
+    fn test_get_children_ids() {
+        let (mut state, conductor_id) = MultiplexerState::new();
+        state
+            .set_pane_role(&conductor_id, AgentRole::Conductor, None)
+            .unwrap();
+        let w1 = state
+            .split_pane(&conductor_id, Orientation::Horizontal)
+            .unwrap();
+        state
+            .set_pane_role(&w1, AgentRole::Worker, Some(&conductor_id))
+            .unwrap();
+        let w2 = state
+            .split_pane(&conductor_id, Orientation::Horizontal)
+            .unwrap();
+        state
+            .set_pane_role(&w2, AgentRole::Worker, Some(&conductor_id))
+            .unwrap();
+
+        let children = state.get_children_ids(&conductor_id);
+        assert_eq!(children.len(), 2);
+        assert!(children.contains(&w1));
+        assert!(children.contains(&w2));
+    }
+
+    #[test]
+    fn test_clear_role_orphans_children() {
+        let (mut state, conductor_id) = MultiplexerState::new();
+        state
+            .set_pane_role(&conductor_id, AgentRole::Conductor, None)
+            .unwrap();
+        let worker_id = state
+            .split_pane(&conductor_id, Orientation::Horizontal)
+            .unwrap();
+        state
+            .set_pane_role(&worker_id, AgentRole::Worker, Some(&conductor_id))
+            .unwrap();
+
+        // Clear conductor role
+        state.clear_pane_role(&conductor_id).unwrap();
+
+        // Conductor should have no role
+        let conductor = state.get_pane(&conductor_id).unwrap();
+        assert!(conductor.role.is_none());
+        assert_eq!(conductor.depth, 0);
+
+        // Worker should be orphaned
+        let worker = state.get_pane(&worker_id).unwrap();
+        assert!(worker.role.is_none());
+        assert!(worker.parent_pane_id.is_none());
+        assert_eq!(worker.depth, 0);
+    }
+
+    #[test]
+    fn test_close_pane_cascades_children() {
+        let (mut state, conductor_id) = MultiplexerState::new();
+        state
+            .set_pane_role(&conductor_id, AgentRole::Conductor, None)
+            .unwrap();
+        state.link_pty(&conductor_id, "pty-cond".to_string());
+
+        let worker_id = state
+            .split_pane(&conductor_id, Orientation::Horizontal)
+            .unwrap();
+        state
+            .set_pane_role(&worker_id, AgentRole::Worker, Some(&conductor_id))
+            .unwrap();
+        state.link_pty(&worker_id, "pty-worker".to_string());
+
+        // Close conductor should cascade to worker
+        let pty_ids = state.close_pane(&conductor_id).unwrap();
+        assert!(pty_ids.contains(&"pty-cond".to_string()));
+        assert!(pty_ids.contains(&"pty-worker".to_string()));
+        assert!(state.get_pane(&conductor_id).is_none());
+        assert!(state.get_pane(&worker_id).is_none());
+    }
+
+    #[test]
+    fn test_set_can_spawn_requires_role() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        let result = state.set_can_spawn(&pane_id, true);
+        assert!(result.is_err()); // no role
+    }
+
+    #[test]
+    fn test_set_can_spawn_on_conductor() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        state
+            .set_pane_role(&pane_id, AgentRole::Conductor, None)
+            .unwrap();
+        assert!(state.get_pane(&pane_id).unwrap().can_spawn);
+
+        state.set_can_spawn(&pane_id, false).unwrap();
+        assert!(!state.get_pane(&pane_id).unwrap().can_spawn);
+
+        state.set_can_spawn(&pane_id, true).unwrap();
+        assert!(state.get_pane(&pane_id).unwrap().can_spawn);
+    }
+
+    #[test]
+    fn test_rename_pane_pins_title() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        assert!(!state.get_pane(&pane_id).unwrap().pinned_title);
+
+        state.rename_pane(&pane_id, "Custom").unwrap();
+        let pane = state.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.title, "Custom");
+        assert!(pane.pinned_title);
+    }
+
+    #[test]
+    fn test_rename_pane_updates_tab_title() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        state.rename_pane(&pane_id, "My Tab").unwrap();
+
+        let ws = state.get_active_workspace().unwrap();
+        assert_eq!(ws.tabs[0].title, "My Tab");
+    }
+
+    #[test]
+    fn test_move_tab() {
+        let (mut state, _) = MultiplexerState::new();
+        let ws1_id = state.list_workspaces()[0].id.clone();
+        let ws2 = state.create_workspace("Second".to_string());
+
+        // Create a second tab in ws1
+        let (tab2_id, _) = state.create_tab(&ws1_id).unwrap();
+
+        // Move it to ws2
+        state.move_tab(&tab2_id, &ws1_id, &ws2.id).unwrap();
+
+        let ws1 = state.get_workspace(&ws1_id).unwrap();
+        let ws2 = state.get_workspace(&ws2.id).unwrap();
+        assert_eq!(ws1.tabs.len(), 1); // only first tab remains
+        assert_eq!(ws2.tabs.len(), 2); // original + moved
+    }
+
+    #[test]
+    fn test_move_last_tab_fails() {
+        let (mut state, _) = MultiplexerState::new();
+        let ws1_id = state.list_workspaces()[0].id.clone();
+        let ws2 = state.create_workspace("Second".to_string());
+        let tab_id = state.get_workspace(&ws1_id).unwrap().tabs[0].id.clone();
+
+        let result = state.move_tab(&tab_id, &ws1_id, &ws2.id);
+        assert!(result.is_err()); // can't move last tab
+    }
+
+    #[test]
+    fn test_session_snapshot_roundtrip() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        state.link_pty(&pane_id, "pty-1".to_string());
+        if let Some(pane) = state.get_pane_mut(&pane_id) {
+            pane.cwd = Some("/test/path".to_string());
+            pane.agent_type = Some("claude".to_string());
+        }
+        state
+            .set_pane_role(&pane_id, AgentRole::Conductor, None)
+            .unwrap();
+
+        // Create second workspace
+        let ws2 = state.create_workspace("Second".to_string());
+
+        // Snapshot
+        let snap = state.to_session_snapshot();
+        assert_eq!(snap.workspaces.len(), 2);
+
+        // Restore
+        let restored = MultiplexerState::from_session_snapshot(&snap);
+        let ws_list = restored.list_workspaces();
+        assert_eq!(ws_list.len(), 2);
+
+        // Check pane state was preserved
+        let pane = restored.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.cwd.as_deref(), Some("/test/path"));
+        assert_eq!(pane.agent_type.as_deref(), Some("claude"));
+        assert_eq!(pane.role, Some(AgentRole::Conductor));
+        assert_eq!(pane.depth, 1);
+        assert!(pane.can_spawn);
+        // PTY should not be restored
+        assert!(pane.pty_id.is_none());
+    }
+
+    #[test]
+    fn test_session_snapshot_preserves_hierarchy() {
+        let (mut state, cond_id) = MultiplexerState::new();
+        state
+            .set_pane_role(&cond_id, AgentRole::Conductor, None)
+            .unwrap();
+        let worker_id = state
+            .split_pane(&cond_id, Orientation::Horizontal)
+            .unwrap();
+        state
+            .set_pane_role(&worker_id, AgentRole::Worker, Some(&cond_id))
+            .unwrap();
+
+        let snap = state.to_session_snapshot();
+        let restored = MultiplexerState::from_session_snapshot(&snap);
+
+        let cond = restored.get_pane(&cond_id).unwrap();
+        assert_eq!(cond.role, Some(AgentRole::Conductor));
+
+        let worker = restored.get_pane(&worker_id).unwrap();
+        assert_eq!(worker.role, Some(AgentRole::Worker));
+        assert_eq!(worker.parent_pane_id.as_deref(), Some(cond_id.as_str()));
+        assert_eq!(worker.depth, 2);
+    }
+
+    #[test]
+    fn test_browser_pane() {
+        let (mut state, _) = MultiplexerState::new();
+        let pane_id = state.create_browser_pane(Some("https://example.com".to_string()));
+        let pane = state.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.pane_type, PaneType::Browser);
+        assert_eq!(pane.url.as_deref(), Some("https://example.com"));
     }
 
     #[test]

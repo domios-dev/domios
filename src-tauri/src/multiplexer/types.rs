@@ -157,6 +157,9 @@ pub struct Pane {
     /// Depth in hierarchy: 0=none, 1=conductor, 2=worker, 3=sub-worker.
     #[serde(default)]
     pub depth: u8,
+    /// Title is pinned (manually set) — blocks OSC auto-rename.
+    #[serde(default)]
+    pub pinned_title: bool,
 }
 
 /// Type of content displayed in a pane.

@@ -96,6 +96,17 @@ enum Commands {
         #[command(subcommand)]
         action: AgentAction,
     },
+
+    /// Capture a screenshot of the CodeTerm window
+    Screenshot {
+        /// Save to file instead of printing base64 (e.g. screenshot.jpg)
+        #[arg(long)]
+        output: Option<String>,
+
+        /// Output format: json (default, data URL), file (save to --output)
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -778,6 +789,53 @@ fn main() {
                     return;
                 }
             }
+        }
+
+        Commands::Screenshot { output, format } => {
+            let base = "http://127.0.0.1:7685";
+            let http = reqwest::blocking::Client::new();
+
+            if format == "file" || output.is_some() {
+                // Save JPEG to file
+                let path = output.unwrap_or_else(|| "screenshot.jpg".to_string());
+                match http.get(format!("{}/api/screenshot?format=jpeg", base)).send() {
+                    Ok(resp) => {
+                        if resp.status().is_success() {
+                            let bytes = resp.bytes().unwrap_or_default();
+                            if let Err(e) = std::fs::write(&path, &bytes) {
+                                eprintln!("Error writing file: {}", e);
+                                std::process::exit(1);
+                            }
+                            println!("{} ({}KB)", path, bytes.len() / 1024);
+                        } else {
+                            eprintln!("Error: {}", resp.status());
+                            std::process::exit(1);
+                        }
+                    }
+                    Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                }
+            } else {
+                // JSON with data URL
+                match http.get(format!("{}/api/screenshot", base)).send() {
+                    Ok(resp) => {
+                        let val: serde_json::Value = resp.json().unwrap_or_default();
+                        if cli.json {
+                            println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        } else {
+                            println!("{}x{} ({}KB)",
+                                val.get("width").and_then(|v| v.as_u64()).unwrap_or(0),
+                                val.get("height").and_then(|v| v.as_u64()).unwrap_or(0),
+                                val.get("size_kb").and_then(|v| v.as_u64()).unwrap_or(0),
+                            );
+                            if let Some(data) = val.get("screenshot").and_then(|v| v.as_str()) {
+                                println!("{}", data);
+                            }
+                        }
+                    }
+                    Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                }
+            }
+            return;
         }
     };
 

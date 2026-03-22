@@ -94,3 +94,96 @@ impl PaneStatusTracker {
         self.pane_statuses.keys().cloned().collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_unknown_pane_is_dead() {
+        let tracker = PaneStatusTracker::new();
+        assert_eq!(tracker.get_status("nonexistent"), PaneStatus::Dead);
+    }
+
+    #[test]
+    fn test_update_output_sets_working() {
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-1", b"hello");
+        assert_eq!(tracker.get_status("pty-1"), PaneStatus::Working);
+    }
+
+    #[test]
+    fn test_set_waiting() {
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-1", b"data");
+        tracker.set_waiting("pty-1");
+        assert_eq!(tracker.get_status("pty-1"), PaneStatus::Waiting);
+    }
+
+    #[test]
+    fn test_set_dead() {
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-1", b"data");
+        tracker.set_dead("pty-1");
+        assert_eq!(tracker.get_status("pty-1"), PaneStatus::Dead);
+    }
+
+    #[test]
+    fn test_check_idle_not_timed_out() {
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-1", b"data");
+        tracker.check_idle("pty-1", Duration::from_secs(60));
+        // Should still be working (not enough time passed)
+        assert_eq!(tracker.get_status("pty-1"), PaneStatus::Working);
+    }
+
+    #[test]
+    fn test_check_idle_timed_out() {
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-1", b"data");
+        // Use zero duration to trigger immediate idle
+        tracker.check_idle("pty-1", Duration::from_millis(0));
+        assert_eq!(tracker.get_status("pty-1"), PaneStatus::Idle);
+    }
+
+    #[test]
+    fn test_update_output_resets_to_working() {
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-1", b"data");
+        tracker.check_idle("pty-1", Duration::from_millis(0));
+        assert_eq!(tracker.get_status("pty-1"), PaneStatus::Idle);
+
+        // New output should reset to Working
+        tracker.update_output("pty-1", b"more data");
+        assert_eq!(tracker.get_status("pty-1"), PaneStatus::Working);
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-1", b"data");
+        tracker.remove("pty-1");
+        assert_eq!(tracker.get_status("pty-1"), PaneStatus::Dead);
+    }
+
+    #[test]
+    fn test_all_ids() {
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-1", b"a");
+        tracker.update_output("pty-2", b"b");
+        let ids = tracker.all_ids();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&"pty-1".to_string()));
+        assert!(ids.contains(&"pty-2".to_string()));
+    }
+
+    #[test]
+    fn test_waiting_not_affected_by_idle_check() {
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-1", b"data");
+        tracker.set_waiting("pty-1");
+        // check_idle should not affect Waiting status (only transitions Working→Idle)
+        tracker.check_idle("pty-1", Duration::from_millis(0));
+        assert_eq!(tracker.get_status("pty-1"), PaneStatus::Waiting);
+    }
+}

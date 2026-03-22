@@ -220,15 +220,17 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
           }),
         };
       });
-      // Preserve frontend-only pane flags (pinned_title) when merging backend state
+      // Merge pane flags: pinned_title from backend OR frontend, agent_type from frontend
       const mergedPanes = { ...action.state.panes };
       for (const [id, backendPane] of Object.entries(mergedPanes)) {
         const existing = state.panes[id];
-        if (existing?.pinned_title || existing?.agent_type) {
+        const pinned = backendPane.pinned_title || existing?.pinned_title;
+        const agentType = existing?.agent_type || backendPane.agent_type;
+        if (pinned || agentType) {
           mergedPanes[id] = {
             ...backendPane,
-            ...(existing.pinned_title ? { pinned_title: true } : {}),
-            ...(existing.agent_type ? { agent_type: existing.agent_type } : {}),
+            ...(pinned ? { pinned_title: true, title: backendPane.pinned_title ? backendPane.title : (existing?.title || backendPane.title) } : {}),
+            ...(agentType ? { agent_type: agentType } : {}),
           };
         }
       }
@@ -643,6 +645,47 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
+  // Startup check: outdated skills → show action toast
+  useEffect(() => {
+    const checkSkills = async () => {
+      try {
+        const skills = await invoke<Array<{
+          id: string; name: string; installed: boolean;
+          update_available: boolean; revision: number; installed_revision: number;
+        }>>("list_skills");
+
+        for (const skill of skills) {
+          if (skill.update_available) {
+            dispatch({
+              type: "ADD_NOTIFICATION",
+              notification: {
+                id: uid(),
+                pane_id: null,
+                workspace_id: null,
+                title: `Skill update: ${skill.name}`,
+                body: `v${skill.installed_revision} → v${skill.revision}`,
+                level: "Info" as const,
+                timestamp: Date.now(),
+                read: false,
+                sticky: true,
+                actions: [
+                  { label: "Update", type: "invoke" as const, value: "install_skill", args: { skillId: skill.id } },
+                  { label: "Dismiss", type: "dismiss" as const },
+                ],
+              },
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("Skill check failed:", e);
+      }
+    };
+
+    // Delay check so UI renders first
+    const timer = setTimeout(checkSkills, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
   // Listen for Tauri events
   useEffect(() => {
     const unlisteners: (() => void)[] = [];
@@ -653,6 +696,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       title: string;
       body: string | null;
       level: "Info" | "Warning" | "Error";
+      actions?: Array<{ label: string; type: "invoke" | "url" | "dismiss"; value?: string; args?: Record<string, unknown> }>;
+      sticky?: boolean;
     }>("notification-created", (event) => {
       dispatch({
         type: "ADD_NOTIFICATION",
@@ -665,6 +710,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           level: event.payload.level,
           timestamp: Date.now(),
           read: false,
+          actions: event.payload.actions,
+          sticky: event.payload.sticky,
         },
       });
     }).then((unlisten) => unlisteners.push(unlisten));
