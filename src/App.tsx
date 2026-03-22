@@ -23,22 +23,38 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-fg": theme.foreground,
     "--ct-cursor": theme.cursor,
     "--ct-selection": theme.selection,
-    "--ct-sidebar-bg": deriveColor(theme.background, 10),
-    "--ct-titlebar-bg": deriveColor(theme.background, 10),
-    "--ct-border": deriveColor(theme.background, 37),
-    "--ct-hover": deriveColor(theme.background, 16),
-    "--ct-active": deriveColor(theme.background, 27),
-    "--ct-surface": deriveColor(theme.background, 12),
+    "--ct-sidebar-bg": deriveColor(theme.background, 8),
+    "--ct-titlebar-bg": deriveColor(theme.background, 6),
+    "--ct-border": blendColor(theme.background, theme.bright_black, 0.25),
+    "--ct-hover": deriveColor(theme.background, 14),
+    "--ct-active": deriveColor(theme.background, 22),
+    "--ct-surface": deriveColor(theme.background, 10),
     "--ct-muted": theme.bright_black,
-    "--ct-muted-fg": deriveColor(theme.bright_black, 60),
+    "--ct-muted-fg": blendColor(theme.bright_black, theme.foreground, 0.45),
     "--ct-accent": theme.blue,
     "--ct-red": theme.red,
     "--ct-green": theme.green,
     "--ct-yellow": theme.yellow,
-    "--ct-orange": theme.red, // fallback for agent indicator
-    // CRT glow color for Pip-Boy and similar themes
+    "--ct-orange": theme.red,
     ...(theme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy" ? { "--ct-glow": theme.green + "99" } : {}),
   };
+}
+
+/**
+ * Blend two hex colors by a ratio (0 = all colorA, 1 = all colorB).
+ * Produces intentional tints instead of flat brightness shifts.
+ */
+function blendColor(hexA: string, hexB: string, ratio: number): string {
+  const a = parseHex(hexA), b = parseHex(hexB);
+  const r = Math.round(a[0] + (b[0] - a[0]) * ratio);
+  const g = Math.round(a[1] + (b[1] - a[1]) * ratio);
+  const bl = Math.round(a[2] + (b[2] - a[2]) * ratio);
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${bl.toString(16).padStart(2, "0")}`;
+}
+
+function parseHex(hex: string): [number, number, number] {
+  const c = hex.replace("#", "");
+  return [parseInt(c.substring(0, 2), 16), parseInt(c.substring(2, 4), 16), parseInt(c.substring(4, 6), 16)];
 }
 
 /**

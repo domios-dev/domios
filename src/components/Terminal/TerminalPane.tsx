@@ -933,7 +933,7 @@ export function TerminalPane({
       <div
         ref={termRef}
         className="w-full h-full"
-        style={{ padding: "4px", opacity: overlayVisible ? 0 : 1, transition: "opacity 0.3s ease-in" }}
+        style={{ padding: "4px 8px", opacity: overlayVisible ? 0 : 1, transition: "opacity 0.3s ease-in" }}
         onClick={() => xtermRef.current?.focus()}
       />
 
