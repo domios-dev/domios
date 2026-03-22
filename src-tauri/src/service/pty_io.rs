@@ -84,7 +84,7 @@ impl ServiceContext {
                     let ready = {
                         let buf = ob.lock();
                         buf.get_text(&pid)
-                            .map(|t| t.contains("PS ") || t.contains("> ") || t.contains("$ "))
+                            .map(|t| t.contains("PS ") || t.contains("> ") || t.contains("$ ") || t.contains("% "))
                             .unwrap_or(false)
                     };
                     if ready {
