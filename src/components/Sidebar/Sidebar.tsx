@@ -160,15 +160,15 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         style={{ width: sidebarWidth }}
       >
         {/* Workspaces header */}
-        <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-2 py-2 border-b border-[var(--ct-border)]`}>
+        <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
           {!isCompact && (
-            <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ct-muted-fg)] truncate">
+            <span className="text-[11px] text-[var(--ct-muted)] truncate">
               Workspaces
             </span>
           )}
           <button
             onClick={handleNewWorkspace}
-            className="flex items-center justify-center w-5 h-5 rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+            className="flex items-center justify-center w-6 h-6 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
             title="New workspace (Ctrl+Shift+N)"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -179,8 +179,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
 
         {/* Git branch info */}
         {!isCompact && gitInfo?.branch && (
-          <div className="px-3 py-1 border-b border-[var(--ct-border)] flex items-center gap-1.5 text-[10px] text-[var(--ct-muted-fg)]">
-            <span className="opacity-70">{"\u2387"}</span>
+          <div className="px-3 py-1.5 flex items-center gap-1.5 text-[11px] text-[var(--ct-muted)]">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0 opacity-60">
+              <path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z" />
+            </svg>
             <span className="truncate">{gitInfo.branch}</span>
             {gitInfo.is_dirty && (
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--ct-yellow)] shrink-0" title="Uncommitted changes" />
@@ -350,13 +352,13 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                     {/* Add tab button inside folder */}
                     <button
                       onClick={() => createTab(ws.id)}
-                      className="flex items-center gap-2 w-full pl-8 pr-3 py-1 text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+                      className="flex items-center gap-2 w-full pl-7 pr-3 py-1.5 text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
                       title="New tab in this workspace"
                     >
-                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                      <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                         <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                       </svg>
-                      <span className="text-[10px]">New tab</span>
+                      <span className="text-[11px]">New tab</span>
                     </button>
                   </>
                 ) : isActive && ws.active_tab_id ? (

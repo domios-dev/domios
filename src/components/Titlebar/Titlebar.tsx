@@ -1,15 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMultiplexer } from "../../store/multiplexer";
-import { NotificationBadge } from "../Notifications/NotificationBadge";
 import type { PaneStatus, ThemeConfig } from "../../lib/types";
-
-const STATUS_COLORS: Record<PaneStatus, string> = {
-  Working: "var(--ct-green, #7ee787)",
-  Waiting: "var(--ct-yellow, #d29922)",
-  Idle: "var(--ct-muted, #484f58)",
-  Dead: "var(--ct-red, #f85149)",
-};
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -21,93 +13,80 @@ interface TitlebarProps {
 
 export function Titlebar({
   onToggleSidebar,
-  onNewTab,
   workspaceName,
   tabTitle,
   theme: _theme,
 }: TitlebarProps) {
-  // theme is available for future dynamic titlebar coloring
   void _theme;
   const appWindow = getCurrentWindow();
   const { state } = useMultiplexer();
-
-  const unreadCount = useMemo(
-    () => state.notifications.filter((n) => !n.read).length,
-    [state.notifications],
-  );
 
   const focusedStatus: PaneStatus | undefined =
     state.focused_pane_id
       ? state.paneStatuses[state.focused_pane_id]
       : undefined;
 
-  const handleMinimize = useCallback(() => {
-    appWindow.minimize();
-  }, [appWindow]);
-
-  const handleMaximize = useCallback(() => {
-    appWindow.toggleMaximize();
-  }, [appWindow]);
-
-  const handleClose = useCallback(() => {
-    appWindow.close();
-  }, [appWindow]);
+  const handleMinimize = useCallback(() => appWindow.minimize(), [appWindow]);
+  const handleMaximize = useCallback(() => appWindow.toggleMaximize(), [appWindow]);
+  const handleClose = useCallback(() => appWindow.close(), [appWindow]);
 
   return (
     <div
-      className="flex items-center h-8 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] select-none shrink-0"
+      className="flex items-center h-9 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] select-none shrink-0"
       data-tauri-drag-region
     >
-      {/* Left: sidebar toggle + title */}
-      <div className="flex items-center gap-2 pl-3" data-tauri-drag-region>
+      {/* Left: sidebar toggle + breadcrumb */}
+      <div className="flex items-center gap-1.5 pl-3" data-tauri-drag-region>
         <button
           onClick={onToggleSidebar}
-          className="flex items-center justify-center w-6 h-6 rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+          className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
           title="Toggle sidebar"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
             <path d="M1 2.75A.75.75 0 0 1 1.75 2h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 2.75Zm0 5A.75.75 0 0 1 1.75 7h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 7.75ZM1.75 12h12.5a.75.75 0 0 1 0 1.5H1.75a.75.75 0 0 1 0-1.5Z" />
           </svg>
         </button>
-        <span
-          className="text-xs font-semibold text-[var(--ct-muted-fg)] tracking-wide"
-          data-tauri-drag-region
-        >
-          CodeTerm
-        </span>
 
-        {workspaceName && (
-          <>
-            <span className="text-[10px] text-[var(--ct-muted)]" data-tauri-drag-region>/</span>
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-1 ml-1" data-tauri-drag-region>
+          <span className="text-[11px] text-[var(--ct-muted)]" data-tauri-drag-region>
+            CodeTerm
+          </span>
+          {workspaceName && (
+            <>
+              <Chevron />
+              <span className="text-[11px] text-[var(--ct-muted-fg)]" data-tauri-drag-region>
+                {workspaceName}
+              </span>
+            </>
+          )}
+          {tabTitle && (
+            <>
+              <Chevron />
+              <span className="text-[11px] text-[var(--ct-fg)]" data-tauri-drag-region>
+                {tabTitle}
+              </span>
+            </>
+          )}
+          {/* Status dot */}
+          {focusedStatus && focusedStatus !== "Idle" && (
             <span
-              className="text-xs text-[var(--ct-muted-fg)]"
-              data-tauri-drag-region
-            >
-              {workspaceName}
-            </span>
-          </>
-        )}
-        {tabTitle && (
-          <>
-            <span className="text-[10px] text-[var(--ct-muted)]" data-tauri-drag-region>/</span>
-            <span
-              className="text-xs text-[var(--ct-fg)]"
-              data-tauri-drag-region
-            >
-              {tabTitle}
-            </span>
-          </>
-        )}
+              className="ml-1 w-1.5 h-1.5 rounded-full shrink-0"
+              style={{ backgroundColor: STATUS_COLORS[focusedStatus] }}
+              title={focusedStatus}
+            />
+          )}
+        </div>
       </div>
 
-      {/* Spacer -- drag region */}
+      {/* Spacer — drag region */}
       <div className="flex-1" data-tauri-drag-region />
 
-      {/* Right: window controls */}
+      {/* Window controls */}
       <div className="flex items-center h-full">
         <button
           onClick={handleMinimize}
-          className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+          className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
           title="Minimize"
         >
           <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
@@ -116,23 +95,16 @@ export function Titlebar({
         </button>
         <button
           onClick={handleMaximize}
-          className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+          className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
           title="Maximize"
         >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 10 10"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1"
-          >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
             <rect x="0.5" y="0.5" width="9" height="9" />
           </svg>
         </button>
         <button
           onClick={handleClose}
-          className="inline-flex items-center justify-center w-12 h-full hover:bg-[var(--ct-red)] text-[var(--ct-muted-fg)] hover:text-white transition-colors"
+          className="inline-flex items-center justify-center w-12 h-full hover:bg-[#e81123] text-[var(--ct-muted)] hover:text-white transition-colors"
           title="Close"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
@@ -141,5 +113,24 @@ export function Titlebar({
         </button>
       </div>
     </div>
+  );
+}
+
+const STATUS_COLORS: Record<PaneStatus, string> = {
+  Working: "var(--ct-green)",
+  Waiting: "var(--ct-yellow)",
+  Idle: "var(--ct-muted)",
+  Dead: "var(--ct-red)",
+};
+
+function Chevron() {
+  return (
+    <svg
+      width="12" height="12" viewBox="0 0 16 16" fill="none"
+      stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"
+      className="text-[var(--ct-muted)] opacity-50 shrink-0"
+    >
+      <path d="M6 4l4 4-4 4" />
+    </svg>
   );
 }

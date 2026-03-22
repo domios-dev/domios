@@ -50,24 +50,29 @@ export function Divider({ orientation, onDrag, onDragStart, onDragEnd, onDoubleC
     [isHorizontal, onDrag, onDragStart, onDragEnd],
   );
 
+  // Thin visible line (1px) inside a wider hit target (6px)
   return (
     <div
       onMouseDown={handleMouseDown}
       onDoubleClick={onDoubleClick}
+      className="group/divider relative shrink-0"
       style={{
-        flexShrink: 0,
-        width: isHorizontal ? "4px" : "100%",
-        height: isHorizontal ? "100%" : "4px",
+        width: isHorizontal ? "6px" : "100%",
+        height: isHorizontal ? "100%" : "6px",
         cursor: isHorizontal ? "col-resize" : "row-resize",
-        background: "var(--ct-border)",
         zIndex: 10,
       }}
-      onMouseEnter={(e) => {
-        (e.currentTarget as HTMLElement).style.background = "var(--ct-accent)";
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLElement).style.background = "var(--ct-border)";
-      }}
-    />
+    >
+      {/* Visible line */}
+      <div
+        className="absolute transition-colors duration-150 group-hover/divider:bg-[var(--ct-accent)]"
+        style={{
+          backgroundColor: "var(--ct-border)",
+          ...(isHorizontal
+            ? { left: "2px", top: 0, bottom: 0, width: "1px" }
+            : { top: "2px", left: 0, right: 0, height: "1px" }),
+        }}
+      />
+    </div>
   );
 }
