@@ -537,6 +537,9 @@ function AppInner() {
 
       {/* Status bar — VS Code style footer */}
       <div className="flex items-center h-5 shrink-0 px-3 bg-[var(--ct-titlebar-bg)] border-t border-[var(--ct-border)] text-[10px] text-[var(--ct-muted)] gap-3 select-none">
+        {gitInfo?.repo_root && (
+          <span className="opacity-60">{gitInfo.repo_root.split(/[/\\]/).pop()}</span>
+        )}
         {gitInfo?.branch && (
           <div className="flex items-center gap-1">
             <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" className="opacity-50">
