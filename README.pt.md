@@ -127,24 +127,23 @@ cd cli && cargo build --release
 
 ## Atalhos de Teclado
 
+> Os atalhos usam Cmd no macOS e Ctrl no Windows/Linux. Personalizáveis em Configurações → Atalhos de teclado.
+
 | Atalho | Ação |
 |--------|------|
-| `Ctrl+Shift+T` | Nova aba |
-| `Ctrl+Shift+W` | Fechar aba |
-| `Ctrl+Shift+D` | Dividir à direita |
-| `Ctrl+Shift+E` | Dividir abaixo |
-| `Ctrl+Shift+Q` | Fechar painel |
-| `Ctrl+Shift+N` | Novo workspace |
-| `Ctrl+Shift+B` | Abrir painel do navegador |
-| `Ctrl+Shift+F` | Pesquisar no terminal |
-| `Ctrl+Shift+C` | Copiar |
-| `Ctrl+Shift+V` | Colar |
+| `Cmd/Ctrl+T` | Nova aba |
+| `Cmd/Ctrl+W` | Fechar aba |
+| `Cmd/Ctrl+Shift+→` | Dividir à direita |
+| `Cmd/Ctrl+Shift+↓` | Dividir abaixo |
+| `Cmd/Ctrl+Shift+Q` | Fechar painel |
+| `Cmd/Ctrl+Shift+N` | Novo workspace |
+| `Cmd/Ctrl+Shift+F` | Pesquisar no terminal |
 | `Ctrl+Tab` | Próxima aba |
 | `Ctrl+Shift+Tab` | Aba anterior |
-| `Ctrl+1-9` | Ir para aba N |
-| `Ctrl+,` | Configurações |
-| `Ctrl+=` / `Ctrl+-` | Aumentar/diminuir zoom |
-| `Ctrl+0` | Redefinir zoom |
+| `Cmd/Ctrl+1-9` | Ir para aba N |
+| `Cmd/Ctrl+,` | Configurações |
+| `Cmd/Ctrl+=` / `Cmd/Ctrl+-` | Aumentar/diminuir zoom |
+| `Cmd/Ctrl+0` | Redefinir zoom |
 | `Alt+Setas` | Navegar entre painéis |
 
 ## API

@@ -127,24 +127,23 @@ cd cli && cargo build --release
 
 ## 键盘快捷键
 
+> 快捷键在 macOS 上使用 Cmd，在 Windows/Linux 上使用 Ctrl。可在 设置 → 键绑定 中自定义。
+
 | 快捷键 | 操作 |
 |----------|--------|
-| `Ctrl+Shift+T` | 新建标签页 |
-| `Ctrl+Shift+W` | 关闭标签页 |
-| `Ctrl+Shift+D` | 向右拆分 |
-| `Ctrl+Shift+E` | 向下拆分 |
-| `Ctrl+Shift+Q` | 关闭窗格 |
-| `Ctrl+Shift+N` | 新建工作区 |
-| `Ctrl+Shift+B` | 打开浏览器窗格 |
-| `Ctrl+Shift+F` | 在终端中搜索 |
-| `Ctrl+Shift+C` | 复制 |
-| `Ctrl+Shift+V` | 粘贴 |
+| `Cmd/Ctrl+T` | 新建标签页 |
+| `Cmd/Ctrl+W` | 关闭标签页 |
+| `Cmd/Ctrl+Shift+→` | 向右拆分 |
+| `Cmd/Ctrl+Shift+↓` | 向下拆分 |
+| `Cmd/Ctrl+Shift+Q` | 关闭窗格 |
+| `Cmd/Ctrl+Shift+N` | 新建工作区 |
+| `Cmd/Ctrl+Shift+F` | 在终端中搜索 |
 | `Ctrl+Tab` | 下一个标签页 |
 | `Ctrl+Shift+Tab` | 上一个标签页 |
-| `Ctrl+1-9` | 切换到第 N 个标签页 |
-| `Ctrl+,` | 设置 |
-| `Ctrl+=` / `Ctrl+-` | 放大/缩小 |
-| `Ctrl+0` | 重置缩放 |
+| `Cmd/Ctrl+1-9` | 切换到第 N 个标签页 |
+| `Cmd/Ctrl+,` | 设置 |
+| `Cmd/Ctrl+=` / `Cmd/Ctrl+-` | 放大/缩小 |
+| `Cmd/Ctrl+0` | 重置缩放 |
 | `Alt+方向键` | 导航窗格 |
 
 ## API

@@ -127,24 +127,23 @@ cd cli && cargo build --release
 
 ## Tastenkürzel
 
+> Tastenkürzel verwenden Cmd auf macOS und Strg auf Windows/Linux. Anpassbar unter Einstellungen → Tastenkürzel.
+
 | Tastenkürzel | Aktion |
 |----------|--------|
-| `Strg+Umschalt+T` | Neuer Tab |
-| `Strg+Umschalt+W` | Tab schließen |
-| `Strg+Umschalt+D` | Rechts teilen |
-| `Strg+Umschalt+E` | Nach unten teilen |
-| `Strg+Umschalt+Q` | Pane schließen |
-| `Strg+Umschalt+N` | Neuer Workspace |
-| `Strg+Umschalt+B` | Browser-Pane öffnen |
-| `Strg+Umschalt+F` | Im Terminal suchen |
-| `Strg+Umschalt+C` | Kopieren |
-| `Strg+Umschalt+V` | Einfügen |
+| `Cmd/Strg+T` | Neuer Tab |
+| `Cmd/Strg+W` | Tab schließen |
+| `Cmd/Strg+Umschalt+→` | Rechts teilen |
+| `Cmd/Strg+Umschalt+↓` | Nach unten teilen |
+| `Cmd/Strg+Umschalt+Q` | Pane schließen |
+| `Cmd/Strg+Umschalt+N` | Neuer Workspace |
+| `Cmd/Strg+Umschalt+F` | Im Terminal suchen |
 | `Strg+Tab` | Nächster Tab |
 | `Strg+Umschalt+Tab` | Vorheriger Tab |
-| `Strg+1-9` | Zu Tab N wechseln |
-| `Strg+,` | Einstellungen |
-| `Strg+=` / `Strg+-` | Vergrößern/Verkleinern |
-| `Strg+0` | Zoom zurücksetzen |
+| `Cmd/Strg+1-9` | Zu Tab N wechseln |
+| `Cmd/Strg+,` | Einstellungen |
+| `Cmd/Strg+=` / `Cmd/Strg+-` | Vergrößern/Verkleinern |
+| `Cmd/Strg+0` | Zoom zurücksetzen |
 | `Alt+Pfeiltasten` | Panes navigieren |
 
 ## API

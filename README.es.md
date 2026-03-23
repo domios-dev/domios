@@ -127,24 +127,23 @@ cd cli && cargo build --release
 
 ## Atajos de Teclado
 
+> Los atajos usan Cmd en macOS y Ctrl en Windows/Linux. Se pueden personalizar en Configuración → Atajos de teclado.
+
 | Atajo | Acción |
 |-------|--------|
-| `Ctrl+Shift+T` | Nueva pestaña |
-| `Ctrl+Shift+W` | Cerrar pestaña |
-| `Ctrl+Shift+D` | Dividir a la derecha |
-| `Ctrl+Shift+E` | Dividir hacia abajo |
-| `Ctrl+Shift+Q` | Cerrar panel |
-| `Ctrl+Shift+N` | Nuevo espacio de trabajo |
-| `Ctrl+Shift+B` | Abrir panel de navegador |
-| `Ctrl+Shift+F` | Buscar en la terminal |
-| `Ctrl+Shift+C` | Copiar |
-| `Ctrl+Shift+V` | Pegar |
+| `Cmd/Ctrl+T` | Nueva pestaña |
+| `Cmd/Ctrl+W` | Cerrar pestaña |
+| `Cmd/Ctrl+Shift+→` | Dividir a la derecha |
+| `Cmd/Ctrl+Shift+↓` | Dividir hacia abajo |
+| `Cmd/Ctrl+Shift+Q` | Cerrar panel |
+| `Cmd/Ctrl+Shift+N` | Nuevo espacio de trabajo |
+| `Cmd/Ctrl+Shift+F` | Buscar en la terminal |
 | `Ctrl+Tab` | Siguiente pestaña |
 | `Ctrl+Shift+Tab` | Pestaña anterior |
-| `Ctrl+1-9` | Cambiar a pestaña N |
-| `Ctrl+,` | Configuración |
-| `Ctrl+=` / `Ctrl+-` | Acercar/alejar |
-| `Ctrl+0` | Restablecer zoom |
+| `Cmd/Ctrl+1-9` | Cambiar a pestaña N |
+| `Cmd/Ctrl+,` | Configuración |
+| `Cmd/Ctrl+=` / `Cmd/Ctrl+-` | Acercar/alejar |
+| `Cmd/Ctrl+0` | Restablecer zoom |
 | `Alt+Flechas` | Navegar entre paneles |
 
 ## API
