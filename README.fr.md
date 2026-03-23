@@ -127,24 +127,23 @@ cd cli && cargo build --release
 
 ## Raccourcis clavier
 
+> Les raccourcis utilisent Cmd sur macOS et Ctrl sur Windows/Linux. Personnalisables dans Paramètres → Raccourcis clavier.
+
 | Raccourci | Action |
 |-----------|--------|
-| `Ctrl+Shift+T` | Nouvel onglet |
-| `Ctrl+Shift+W` | Fermer l'onglet |
-| `Ctrl+Shift+D` | Diviser à droite |
-| `Ctrl+Shift+E` | Diviser en bas |
-| `Ctrl+Shift+Q` | Fermer le panneau |
-| `Ctrl+Shift+N` | Nouvel espace de travail |
-| `Ctrl+Shift+B` | Ouvrir un panneau navigateur |
-| `Ctrl+Shift+F` | Rechercher dans le terminal |
-| `Ctrl+Shift+C` | Copier |
-| `Ctrl+Shift+V` | Coller |
+| `Cmd/Ctrl+T` | Nouvel onglet |
+| `Cmd/Ctrl+W` | Fermer l'onglet |
+| `Cmd/Ctrl+Shift+→` | Diviser à droite |
+| `Cmd/Ctrl+Shift+↓` | Diviser en bas |
+| `Cmd/Ctrl+Shift+Q` | Fermer le panneau |
+| `Cmd/Ctrl+Shift+N` | Nouvel espace de travail |
+| `Cmd/Ctrl+Shift+F` | Rechercher dans le terminal |
 | `Ctrl+Tab` | Onglet suivant |
 | `Ctrl+Shift+Tab` | Onglet précédent |
-| `Ctrl+1-9` | Aller à l'onglet N |
-| `Ctrl+,` | Paramètres |
-| `Ctrl+=` / `Ctrl+-` | Zoom avant/arrière |
-| `Ctrl+0` | Réinitialiser le zoom |
+| `Cmd/Ctrl+1-9` | Aller à l'onglet N |
+| `Cmd/Ctrl+,` | Paramètres |
+| `Cmd/Ctrl+=` / `Cmd/Ctrl+-` | Zoom avant/arrière |
+| `Cmd/Ctrl+0` | Réinitialiser le zoom |
 | `Alt+Flèches` | Naviguer entre les panneaux |
 
 ## API

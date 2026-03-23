@@ -127,24 +127,23 @@ cd cli && cargo build --release
 
 ## 키보드 단축키
 
+> 단축키는 macOS에서는 Cmd, Windows/Linux에서는 Ctrl을 사용합니다. 설정 → 키 바인딩에서 변경할 수 있습니다.
+
 | 단축키 | 동작 |
 |----------|--------|
-| `Ctrl+Shift+T` | 새 탭 |
-| `Ctrl+Shift+W` | 탭 닫기 |
-| `Ctrl+Shift+D` | 오른쪽 분할 |
-| `Ctrl+Shift+E` | 아래로 분할 |
-| `Ctrl+Shift+Q` | 패널 닫기 |
-| `Ctrl+Shift+N` | 새 워크스페이스 |
-| `Ctrl+Shift+B` | 브라우저 패널 열기 |
-| `Ctrl+Shift+F` | 터미널에서 검색 |
-| `Ctrl+Shift+C` | 복사 |
-| `Ctrl+Shift+V` | 붙여넣기 |
+| `Cmd/Ctrl+T` | 새 탭 |
+| `Cmd/Ctrl+W` | 탭 닫기 |
+| `Cmd/Ctrl+Shift+→` | 오른쪽 분할 |
+| `Cmd/Ctrl+Shift+↓` | 아래로 분할 |
+| `Cmd/Ctrl+Shift+Q` | 패널 닫기 |
+| `Cmd/Ctrl+Shift+N` | 새 워크스페이스 |
+| `Cmd/Ctrl+Shift+F` | 터미널에서 검색 |
 | `Ctrl+Tab` | 다음 탭 |
 | `Ctrl+Shift+Tab` | 이전 탭 |
-| `Ctrl+1-9` | N번째 탭으로 전환 |
-| `Ctrl+,` | 설정 |
-| `Ctrl+=` / `Ctrl+-` | 확대/축소 |
-| `Ctrl+0` | 확대/축소 초기화 |
+| `Cmd/Ctrl+1-9` | N번째 탭으로 전환 |
+| `Cmd/Ctrl+,` | 설정 |
+| `Cmd/Ctrl+=` / `Cmd/Ctrl+-` | 확대/축소 |
+| `Cmd/Ctrl+0` | 확대/축소 초기화 |
 | `Alt+Arrows` | 패널 탐색 |
 
 ## API

@@ -127,24 +127,23 @@ cd cli && cargo build --release
 
 ## Keyboard Shortcuts
 
+> ショートカットは macOS では Cmd、Windows/Linux では Ctrl を使用します。設定 → キーバインド で変更できます。
+
 | ショートカット | アクション |
 |----------|--------|
-| `Ctrl+Shift+T` | 新しいタブ |
-| `Ctrl+Shift+W` | タブを閉じる |
-| `Ctrl+Shift+D` | 右に分割 |
-| `Ctrl+Shift+E` | 下に分割 |
-| `Ctrl+Shift+Q` | ペインを閉じる |
-| `Ctrl+Shift+N` | 新しいワークスペース |
-| `Ctrl+Shift+B` | ブラウザペインを開く |
-| `Ctrl+Shift+F` | ターミナル内検索 |
-| `Ctrl+Shift+C` | コピー |
-| `Ctrl+Shift+V` | 貼り付け |
+| `Cmd/Ctrl+T` | 新しいタブ |
+| `Cmd/Ctrl+W` | タブを閉じる |
+| `Cmd/Ctrl+Shift+→` | 右に分割 |
+| `Cmd/Ctrl+Shift+↓` | 下に分割 |
+| `Cmd/Ctrl+Shift+Q` | ペインを閉じる |
+| `Cmd/Ctrl+Shift+N` | 新しいワークスペース |
+| `Cmd/Ctrl+Shift+F` | ターミナル内検索 |
 | `Ctrl+Tab` | 次のタブ |
 | `Ctrl+Shift+Tab` | 前のタブ |
-| `Ctrl+1-9` | タブNに切り替え |
-| `Ctrl+,` | 設定 |
-| `Ctrl+=` / `Ctrl+-` | ズームイン/アウト |
-| `Ctrl+0` | ズームリセット |
+| `Cmd/Ctrl+1-9` | タブNに切り替え |
+| `Cmd/Ctrl+,` | 設定 |
+| `Cmd/Ctrl+=` / `Cmd/Ctrl+-` | ズームイン/アウト |
+| `Cmd/Ctrl+0` | ズームリセット |
 | `Alt+Arrows` | ペインナビゲーション |
 
 ## API

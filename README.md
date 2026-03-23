@@ -66,15 +66,12 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 
 ### Theming
 - **8 built-in themes** — GitHub Dark, Dracula, Catppuccin Mocha, One Dark, Nord, GitHub Light, Solarized Light, Pip-Boy
-- **Pip-Boy CRT mode** — scanlines, phosphor glow, screen flicker (activated automatically)
 - **Full UI theming** — themes apply to the entire interface, not just the terminal
 - **Custom colors** — override individual colors in `config.toml`
 - **Light theme support** — automatic color derivation works for both light and dark themes
 
-### Built-in Browser
-- **Browser panes** — open web pages side-by-side with your terminal
-- **Local file serving** — render local HTML/visualizations in browser panes
-- **Navigation controls** — back, forward, refresh, URL bar
+### Canvas Panels
+- **Canvas panes** — open web content side-by-side with your terminal for dashboards, docs, or visualizations
 
 ### Developer Experience
 - **macOS-style scrollbars** — thin, rounded, unobtrusive
@@ -128,24 +125,23 @@ cd cli && cargo build --release
 
 ## Keyboard Shortcuts
 
+All shortcuts use `Cmd` on macOS, `Ctrl` on Windows/Linux. Configurable in Settings → Keybindings.
+
 | Shortcut | Action |
 |----------|--------|
-| `Ctrl+Shift+T` | New tab |
-| `Ctrl+Shift+W` | Close tab |
-| `Ctrl+Shift+D` | Split right |
-| `Ctrl+Shift+E` | Split down |
-| `Ctrl+Shift+Q` | Close pane |
-| `Ctrl+Shift+N` | New workspace |
-| `Ctrl+Shift+B` | Open browser pane |
-| `Ctrl+Shift+F` | Search in terminal |
-| `Ctrl+Shift+C` | Copy |
-| `Ctrl+Shift+V` | Paste |
+| `Cmd/Ctrl+T` | New tab |
+| `Cmd/Ctrl+W` | Close tab |
+| `Cmd/Ctrl+Shift+→` | Split right |
+| `Cmd/Ctrl+Shift+↓` | Split down |
+| `Cmd/Ctrl+Shift+Q` | Close pane |
+| `Cmd/Ctrl+Shift+N` | New workspace |
+| `Cmd/Ctrl+Shift+F` | Search in terminal |
 | `Ctrl+Tab` | Next tab |
 | `Ctrl+Shift+Tab` | Previous tab |
-| `Ctrl+1-9` | Switch to tab N |
-| `Ctrl+,` | Settings |
-| `Ctrl+=` / `Ctrl+-` | Zoom in/out |
-| `Ctrl+0` | Reset zoom |
+| `Cmd/Ctrl+1-9` | Switch to tab N |
+| `Cmd/Ctrl+,` | Settings |
+| `Cmd/Ctrl+=` / `Cmd/Ctrl+-` | Zoom in/out |
+| `Cmd/Ctrl+0` | Reset zoom |
 | `Alt+Arrows` | Navigate panes |
 
 ## API
