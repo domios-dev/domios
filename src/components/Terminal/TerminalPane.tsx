@@ -155,6 +155,9 @@ export function TerminalPane({
   }, []);
 
   const { state, updatePaneStatus, setPaneTitle, setAgentType, splitPane, closePane } = useMultiplexer();
+  // Ref to access latest state in callbacks without stale closures
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const handleClick = useCallback(() => {
     onFocus?.(paneId);
     // Focus xterm textarea, then fallback to container
@@ -331,11 +334,12 @@ export function TerminalPane({
           setAgentType(paneId, "claude");
           invoke("mux_set_pane_agent_type", { paneId, agentType: "claude" }).catch(() => {});
           // Detect and save the Claude session ID for future resume
-          // Collect already-assigned session IDs to avoid duplicates
-          const excludeIds = Object.values(state.panes)
+          // Use stateRef for fresh state (this callback is in a stale closure)
+          const currentPanes = stateRef.current.panes;
+          const excludeIds = Object.values(currentPanes)
             .map((p) => p.claude_session_id)
             .filter((id): id is string => !!id);
-          const paneCwd = state.panes[paneId]?.cwd;
+          const paneCwd = currentPanes[paneId]?.cwd;
           if (paneCwd) {
             invoke<string | null>("detect_claude_session_id", { cwd: paneCwd, exclude: excludeIds })
               .then((sessionId) => {
@@ -742,7 +746,28 @@ export function TerminalPane({
             });
           }, 800);
         } else {
-          // Unix: no injection needed, rely on prompt detection from feedOutput
+          // Unix: inject OSC 7 CWD reporting hook
+          // macOS zsh only emits OSC 7 for Apple_Terminal; we set TERM_PROGRAM=CodeTerm
+          // so we need our own hook for both zsh and bash
+          setTimeout(() => {
+            const injection =
+              'if [ -n "$ZSH_VERSION" ]; then ' +
+              '__ct_osc7(){ echo -ne "\\033]7;file://${PWD}\\033\\\\" }; ' +
+              'autoload -Uz add-zsh-hook 2>/dev/null; ' +
+              'add-zsh-hook precmd __ct_osc7; ' +
+              'else ' +
+              '__ct_osc7(){ echo -ne "\\033]7;file://${PWD}\\033\\\\" }; ' +
+              'PROMPT_COMMAND="__ct_osc7${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; ' +
+              'fi; clear';
+            invoke("write_pty_string", {
+              ptyId: spawnedId,
+              data: injection + "\r",
+            }).then(() => {
+              setTimeout(() => setShellReady(true), 400);
+            }).catch(() => {
+              setShellReady(true);
+            });
+          }, 800);
         }
 
         // If this pane had Claude Code running and we know the session ID, resume it

@@ -1,7 +1,7 @@
 ---
 name: codeterm
-description: Control CodeTerm terminal multiplexer — workspaces, panes, notifications, layouts. Use when user mentions splitting panes, creating workspaces, sending commands, visualizations, or managing terminal sessions.
-version: 0.2.0
+description: Control CodeTerm terminal multiplexer — workspaces, panes, notifications, layouts, agent hierarchy. Use when user mentions splitting panes, creating workspaces, sending commands to other panes, visualizations, managing terminal sessions, spawning workers/agents, orchestrating parallel tasks, or setting up multi-pane layouts. Also use when user says "in terminal", "split", "new pane", "run X there", "conductor", "worker", or wants to delegate tasks to sub-agents.
+version: 0.2.1
 ---
 
 # CodeTerm — AI Terminal Control
@@ -19,10 +19,12 @@ codeterm pane rename "fix login bug"
 
 Commands default to the **current focused pane** when no ID is given.
 
+**Important:** `pane split` does NOT move focus to the new pane. Use `pane current --last` to get the ID of the newly created pane.
+
 ```
 codeterm pane list                              # List panes
 codeterm pane current                           # Get current pane ID
-codeterm pane current --last                    # Get last pane ID
+codeterm pane current --last                    # Get last created pane ID
 codeterm pane split                             # Split current pane right
 codeterm pane split --direction down            # Split current pane down
 codeterm pane split --id PANE_ID                # Split specific pane
@@ -75,15 +77,26 @@ Levels: `info` (blue), `warning` (yellow), `error` (red)
 
 ## Common Layouts
 
-### Side-by-side
+### Side-by-side (split + run command)
 ```bash
 codeterm pane split
+NEW_PANE=$(codeterm pane current --last)
+codeterm send-text "npm test" --pane $NEW_PANE
 ```
 
-### Three-panel
+### Three-panel (editor left, two panes right)
 ```bash
+# Split right → capture top-right pane
 codeterm pane split
-codeterm pane split --id $(codeterm pane current --last) --direction down
+TOP_RIGHT=$(codeterm pane current --last)
+
+# Split that pane down → capture bottom-right pane
+codeterm pane split --id $TOP_RIGHT --direction down
+BOT_RIGHT=$(codeterm pane current --last)
+
+# Send commands to each pane
+codeterm send-text "npm test -- --watch" --pane $TOP_RIGHT
+codeterm send-text "tail -f /var/log/app.log" --pane $BOT_RIGHT
 ```
 
 ## Agent Hierarchy
@@ -238,4 +251,4 @@ codeterm capabilities    # All API methods
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

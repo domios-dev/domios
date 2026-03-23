@@ -84,8 +84,16 @@ impl PtyManager {
         let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
         let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
 
-        let shell = command.unwrap_or_else(|| detect_default_shell());
-        let mut cmd = CommandBuilder::new(&shell);
+        let (shell, mut cmd) = match command {
+            Some(c) => (c.clone(), CommandBuilder::new(&c)),
+            None => {
+                let s = detect_default_shell();
+                // Use new_default_prog() so the shell is spawned as a login shell
+                // (argv[0] prefixed with '-'), which sources .zprofile/.bash_profile
+                // and sets up PATH properly (e.g. Homebrew on macOS)
+                (s, CommandBuilder::new_default_prog())
+            }
+        };
 
         if let Some(dir) = cwd {
             cmd.cwd(dir);
