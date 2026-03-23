@@ -16,6 +16,7 @@ import { CompletionEngine } from "../../lib/completions/engine";
 import { defaultDefinitions } from "../../lib/completions/definitions";
 import type { CompletionItem } from "../../lib/completions/types";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+import { consumePendingCommand, consumePendingCwd } from "../../lib/pendingCommands";
 
 interface TerminalPaneProps {
   paneId: string;
@@ -124,6 +125,19 @@ export function TerminalPane({
       return () => clearTimeout(t);
     }
   }, [shellReady, overlayVisible]);
+
+  // Execute pending command after shell is ready
+  const pendingCommandFired = useRef(false);
+  useEffect(() => {
+    if (!shellReady || pendingCommandFired.current) return;
+    const ptyIdNow = connectedPtyRef.current;
+    if (!ptyIdNow) return;
+    const cmd = consumePendingCommand(paneId);
+    if (cmd) {
+      pendingCommandFired.current = true;
+      invoke("write_pty_string", { ptyId: ptyIdNow, data: cmd + "\r" });
+    }
+  }, [shellReady, paneId]);
 
   // Completion state
   const [completionItems, setCompletionItems] = useState<CompletionItem[]>([]);
@@ -691,7 +705,7 @@ export function TerminalPane({
         const rows = Math.max(term.rows, 24);
         // Pass saved CWD from pane data (session restore)
         const paneData = state.panes[paneId];
-        const cwd = paneData?.cwd || undefined;
+        const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
         const spawnedId = await invoke<string>("spawn_pty", {
           cols, rows, predictedId, cwd, paneId,
         });
@@ -952,12 +966,12 @@ export function TerminalPane({
           onAccept={(item) => {
             const tracker = trackerRef.current;
             const parsed = tracker?.getCursorWord();
-            const suffix = parsed ? item.text.slice(parsed.currentArg.length) : item.text;
-            if (suffix) {
-              const ptyId = connectedPtyRef.current;
-              if (ptyId) invoke("write_pty_string", { ptyId, data: suffix + " " });
-              tracker?.feed(suffix + " ");
-            }
+            const eraseCount = parsed?.currentArg.length ?? 0;
+            const erase = "\x7f".repeat(eraseCount);
+            const insert = item.text + " ";
+            const ptyId = connectedPtyRef.current;
+            if (ptyId) invoke("write_pty_string", { ptyId, data: erase + insert });
+            tracker?.feed(erase + insert);
             setCompletionItems([]);
           }}
           onDismiss={() => setCompletionItems([])}

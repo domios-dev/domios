@@ -72,6 +72,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(config_state.clone())
         .manage(pty_state.clone())
         .manage(mux_state.clone())
@@ -99,6 +100,7 @@ pub fn run() {
             commands::uninstall_skill,
             commands::get_skills_prompt,
             commands::get_network_info,
+            commands::generate_api_token,
             commands::save_clipboard_image,
             commands::copy_image_to_clipboard,
             commands::install_project_rules,

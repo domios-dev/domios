@@ -110,6 +110,9 @@ impl PtyManager {
             cmd.env(key, value);
         }
 
+        // Remove vars that prevent tools from running inside CodeTerm
+        cmd.env_remove("CLAUDECODE");
+
         let child = pair.slave.spawn_command(cmd)
             .map_err(|e| format!("Failed to spawn '{}': {}", shell, e))?;
 

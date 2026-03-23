@@ -10,6 +10,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { uid } from "../lib/uid";
+import { setPendingCommand, setPendingCwd } from "../lib/pendingCommands";
 import type {
   MultiplexerState,
   Workspace,
@@ -549,7 +550,7 @@ interface MultiplexerContextType {
   closeWorkspace: (id: string) => void;
   renameWorkspace: (id: string, name: string) => void;
   moveTab: (tabId: string, fromWorkspaceId: string, toWorkspaceId: string) => void;
-  createTab: (workspaceId: string) => void;
+  createTab: (workspaceId: string, cwd?: string) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
   setActiveTab: (workspaceId: string, tabId: string) => void;
   splitPane: (paneId: string, orientation: Orientation) => void;
@@ -569,6 +570,8 @@ interface MultiplexerContextType {
   setAgentType: (paneId: string, agentType: "claude" | null) => void;
   // Pane status
   updatePaneStatus: (paneId: string, status: PaneStatus) => void;
+  // Spawn Claude in a new tab
+  spawnClaudeTab: (workspaceId: string, skipPermissions: boolean, cwd?: string) => void;
 }
 
 const MultiplexerContext = createContext<MultiplexerContextType | null>(null);
@@ -804,25 +807,51 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       .catch((e) => console.warn("Failed to refresh state:", e));
   }, []);
 
-  const createTab = useCallback(async (workspaceId: string) => {
+  const createTab = useCallback(async (workspaceId: string, cwd?: string) => {
     try {
       // 1. Switch to workspace (user action — navigate to where tab is created)
       invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       // 2. Create tab + pane in backend (pane has no PTY — TerminalPane will spawn it)
       const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId });
-      // 3. Set active tab in backend
+      // 3. Set cwd on pane — both pending map and backend
+      if (cwd) {
+        setPendingCwd(tabInfo.pane_id, cwd);
+        await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd });
+      }
+      // 4. Set active tab in backend
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
-      // 4. Optimistically switch to the new tab before refresh
+      // 5. Optimistically switch to the new tab before refresh
       dispatch({
         type: "SET_ACTIVE_TAB",
         workspaceId,
         tabId: tabInfo.id,
       });
-      // 5. Refresh frontend — TerminalPane will see ptyId=null and spawn PTY itself
+      // 6. Refresh frontend — TerminalPane will see ptyId=null and spawn PTY itself
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to create tab:", e);
+    }
+  }, [refreshFromBackend]);
+
+  const spawnClaudeTab = useCallback(async (workspaceId: string, skipPermissions: boolean, cwd?: string) => {
+    try {
+      invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
+      const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId });
+      // Set cwd both on backend and in pending map (state may not be ready when PTY spawns)
+      if (cwd) {
+        setPendingCwd(tabInfo.pane_id, cwd);
+        await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd });
+      }
+      const cmd = skipPermissions ? "claude --dangerously-skip-permissions" : "claude";
+      setPendingCommand(tabInfo.pane_id, cmd);
+      await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
+      dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
+      console.log("[claude-spawn] refreshing frontend...");
+      refreshFromBackend();
+    } catch (e) {
+      console.error("Failed to spawn Claude tab:", e);
     }
   }, [refreshFromBackend]);
 
@@ -1047,6 +1076,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     setPaneTitle,
     setAgentType,
     updatePaneStatus,
+    spawnClaudeTab,
   };
 
   return (
