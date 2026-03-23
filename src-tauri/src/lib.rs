@@ -57,7 +57,13 @@ pub fn run() {
         let last = session_state.lock().load_last();
         match last {
             Ok(Some(snapshot)) if !snapshot.workspaces.is_empty() => {
-                log::info!("Restoring session with {} workspaces", snapshot.workspaces.len());
+                log::info!("Restoring session with {} workspaces, {} tabs total",
+                    snapshot.workspaces.len(),
+                    snapshot.workspaces.iter().map(|w| w.tabs.len()).sum::<usize>());
+                for ws in &snapshot.workspaces {
+                    log::info!("  Workspace '{}': {} tabs, active_tab={:?}",
+                        ws.name, ws.tabs.len(), ws.active_tab_id);
+                }
                 MultiplexerState::from_session_snapshot(&snapshot)
             }
             _ => {
