@@ -243,7 +243,7 @@ size = 16
         // Defaults for fields not specified
         assert_eq!(config.terminal.scrollback, 10000);
         assert!(!config.api.enabled);
-        assert_eq!(config.keybindings.new_tab, "Ctrl+Shift+T");
+        assert_eq!(config.keybindings.new_tab, "Ctrl+T");
     }
 
     #[test]
