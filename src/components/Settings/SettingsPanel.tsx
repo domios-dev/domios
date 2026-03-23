@@ -345,9 +345,7 @@ export function SettingsPanel({
               <div className="space-y-6">
                 {/* Logo + tagline */}
                 <div className="text-center py-4">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl mb-3" style={{ backgroundColor: "var(--ct-accent)", opacity: 0.15 }}>
-                    <span className="text-xl font-mono font-bold" style={{ color: "var(--ct-accent)" }}>{"</>"}</span>
-                  </div>
+                  <img src="/assets/logo.png" alt="CodeTerm" width="64" height="64" className="rounded-xl mb-3 mx-auto" />
                   <div className="text-xl font-bold text-[var(--ct-fg)]">CodeTerm</div>
                   <div className="text-xs text-[var(--ct-muted-fg)] mt-1">AI-first terminal multiplexer</div>
                 </div>

@@ -227,26 +227,6 @@ codeterm theme save my-theme /tmp/my-theme.toml --apply
 
 The UI colors (borders, sidebar, surfaces) are automatically derived from the background color. Light themes (bright background) get darkened borders; dark themes get lightened ones.
 
-## Screenshots
-
-Capture the CodeTerm window as JPEG. Works even when the window is behind other windows. Images are JPEG compressed (~200-400KB).
-
-```
-codeterm screenshot                            # Print JSON: {data_url, width, height, size_kb}
-codeterm screenshot --output screenshot.jpg    # Save JPEG to file
-```
-
-REST API:
-- `GET /api/screenshot` — JSON response with base64 data URL + dimensions
-- `GET /api/screenshot?format=jpeg` — raw JPEG bytes
-
-**For debugging:** save to file, then use a subagent to read and analyze the image (avoids context pollution with large base64 data).
-
-```bash
-codeterm screenshot --output /tmp/debug.jpg
-# Then delegate image analysis to a subagent
-```
-
 ## System
 ```
 codeterm identify        # Version & features
@@ -255,8 +235,6 @@ codeterm capabilities    # All API methods
 
 ## Platform Notes
 
-- **Screenshots (macOS):** Requires Screen Recording permission. If capture fails, guide the user to System Settings → Privacy & Security → Screen Recording.
-- **Screenshots (Windows):** Works out of the box, no extra permissions needed.
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 

@@ -282,8 +282,10 @@ function StepWelcome({ c }: { c: C }) {
         className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-6"
         style={{ backgroundColor: c.accent + "15" }}
       >
-        <span className="text-2xl font-mono font-bold" style={{ color: c.accent }}>
-          {"</>"}
+        <span className="text-2xl font-mono font-bold">
+          <span style={{ color: c.accent }}>&lt;</span>
+          <span style={{ color: "#d4a574" }}>/</span>
+          <span style={{ color: c.accent }}>&gt;</span>
         </span>
       </div>
 

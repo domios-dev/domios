@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="108" fill="#0d1117"/>
+  <!-- < -->
+  <text x="100" y="320" font-family="SF Mono, Menlo, Consolas, monospace" font-weight="700" font-size="240" fill="#58a6ff">&lt;</text>
+  <!-- / -->
+  <text x="190" y="320" font-family="SF Mono, Menlo, Consolas, monospace" font-weight="700" font-size="240" fill="#d4a574">/</text>
+  <!-- > -->
+  <text x="280" y="320" font-family="SF Mono, Menlo, Consolas, monospace" font-weight="700" font-size="240" fill="#58a6ff">&gt;</text>
+</svg>
