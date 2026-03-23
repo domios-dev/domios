@@ -45,7 +45,7 @@ pub struct ApiConfig {
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             host: "0.0.0.0".to_string(),
             port: 7685,
             token: None,
@@ -193,17 +193,17 @@ pub struct KeybindingsConfig {
 impl Default for KeybindingsConfig {
     fn default() -> Self {
         Self {
-            new_tab: "Ctrl+Shift+T".to_string(),
-            close_tab: "Ctrl+Shift+W".to_string(),
+            new_tab: "Ctrl+T".to_string(),
+            close_tab: "Ctrl+W".to_string(),
             next_tab: "Ctrl+Tab".to_string(),
             prev_tab: "Ctrl+Shift+Tab".to_string(),
-            split_right: "Ctrl+Shift+D".to_string(),
-            split_down: "Ctrl+Shift+E".to_string(),
+            split_right: "Ctrl+Shift+ArrowRight".to_string(),
+            split_down: "Ctrl+Shift+ArrowDown".to_string(),
             close_pane: "Ctrl+Shift+Q".to_string(),
-            focus_pane_left: "Alt+Left".to_string(),
-            focus_pane_right: "Alt+Right".to_string(),
-            focus_pane_up: "Alt+Up".to_string(),
-            focus_pane_down: "Alt+Down".to_string(),
+            focus_pane_left: "Alt+ArrowLeft".to_string(),
+            focus_pane_right: "Alt+ArrowRight".to_string(),
+            focus_pane_up: "Alt+ArrowUp".to_string(),
+            focus_pane_down: "Alt+ArrowDown".to_string(),
             new_workspace: "Ctrl+Shift+N".to_string(),
             copy: "Ctrl+Shift+C".to_string(),
             paste: "Ctrl+Shift+V".to_string(),

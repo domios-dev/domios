@@ -27,6 +27,10 @@ Each doc has a `<!-- revision: N -->` tag at the bottom. When you change API end
 
 ## Cross-platform notes
 
+**Always verify cross-platform correctness.** Every feature must work on macOS, Windows, and Linux. Never add platform-specific code without handling all targets.
+
 - OSC 7 CWD tracking: injected into PowerShell prompt on Windows. On macOS/Linux, bash/zsh usually emit OSC 7 natively.
 - PTY: uses `portable-pty` crate (ConPTY on Windows, native on Unix)
 - Paths: use forward slashes in code, OS-native in user-facing output
+- Keybindings: `Ctrl` in config maps to `Cmd` on macOS, `Ctrl` on Win/Linux. Use `e.code` (not `e.key`) for keyboard layout independence.
+- Tauri plugins (dialog, notification, shell): cross-platform by design, prefer over custom solutions.

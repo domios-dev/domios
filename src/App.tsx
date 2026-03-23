@@ -13,6 +13,7 @@ import {
   useMultiplexer,
 } from "./store/multiplexer";
 import type { ThemeConfig } from "./lib/types";
+import { matchesBinding, isMac } from "./lib/keybindings";
 
 /**
  * Derive CSS custom properties from a ThemeConfig so the entire UI
@@ -174,10 +175,12 @@ function AppInner() {
   );
 
   const handleNewTab = useCallback(() => {
-    if (activeWs) {
-      createTab(activeWs.id);
-    }
-  }, [activeWs, createTab]);
+    if (!activeWs) return;
+    // Inherit cwd from focused pane
+    const focusedPane = state.focused_pane_id ? state.panes[state.focused_pane_id] : null;
+    const cwd = focusedPane?.cwd || undefined;
+    createTab(activeWs.id, cwd);
+  }, [activeWs, state.focused_pane_id, state.panes, createTab]);
 
   const handleCloseCurrentTab = useCallback(() => {
     if (activeWs && activeTab) {
@@ -221,189 +224,142 @@ function AppInner() {
     [activeWs, activeTab, updateSplitRatio],
   );
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts — uses config keybindings + language-independent matching
+  const kb = config.keybindings;
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+Shift shortcuts
-      if (e.ctrlKey && e.shiftKey) {
-        switch (e.key) {
-          case "T":
-          case "t":
-            e.preventDefault();
-            handleNewTab();
-            return;
-          case "W":
-          case "w":
-            e.preventDefault();
-            handleCloseCurrentTab();
-            return;
-          case "D":
-          case "d":
-            e.preventDefault();
-            handleSplitRight();
-            return;
-          case "E":
-          case "e":
-            e.preventDefault();
-            handleSplitDown();
-            return;
-          case "Q":
-          case "q":
-            e.preventDefault();
-            handleCloseFocusedPane();
-            return;
-          case "N":
-          case "n": {
-            e.preventDefault();
-            const n = stateRef.current.workspaces.length + 1;
-            createWorkspace(`Workspace ${n}`);
-            return;
-          }
-          case "C":
-          case "c": {
-            e.preventDefault();
-            const sel = window.getSelection()?.toString();
-            if (sel) {
-              navigator.clipboard.writeText(sel).catch(() => {});
-            }
-            return;
-          }
-          case "V":
-          case "v": {
-            e.preventDefault();
-            const focusedId = stateRef.current.focused_pane_id;
-            if (focusedId) {
-              const focusedPane = stateRef.current.panes[focusedId];
-              if (focusedPane?.pty_id) {
-                navigator.clipboard.readText().then((text) => {
-                  if (text) {
-                    invoke("write_pty_string", { ptyId: focusedPane.pty_id!, data: text });
-                  }
-                }).catch(() => {});
-              }
-            }
-            return;
-          }
-          case "F":
-          case "f": {
-            e.preventDefault();
-            const focusedPaneId = stateRef.current.focused_pane_id;
-            if (focusedPaneId) {
-              window.dispatchEvent(
-                new CustomEvent("codeterm-toggle-search", {
-                  detail: { paneId: focusedPaneId },
-                }),
-              );
-            }
-            return;
-          }
-          case "Tab": {
-            // Ctrl+Shift+Tab: previous tab
-            e.preventDefault();
-            if (activeWs && activeWs.tabs.length > 1) {
-              const idx = activeWs.tabs.findIndex((t) => t.id === activeWs.active_tab_id);
-              const prev = (idx - 1 + activeWs.tabs.length) % activeWs.tabs.length;
-              setActiveTab(activeWs.id, activeWs.tabs[prev].id);
-            }
-            return;
-          }
-        }
-      }
-
-      // Ctrl+Tab: next tab
-      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key === "Tab") {
+      // Config-driven bindings (language-independent via e.code)
+      if (matchesBinding(e, kb.new_tab)) { e.preventDefault(); handleNewTab(); return; }
+      if (matchesBinding(e, kb.close_tab)) { e.preventDefault(); handleCloseCurrentTab(); return; }
+      if (matchesBinding(e, kb.split_right)) { e.preventDefault(); handleSplitRight(); return; }
+      if (matchesBinding(e, kb.split_down)) { e.preventDefault(); handleSplitDown(); return; }
+      if (matchesBinding(e, kb.close_pane)) { e.preventDefault(); handleCloseFocusedPane(); return; }
+      if (matchesBinding(e, kb.new_workspace)) {
         e.preventDefault();
-        if (activeWs && activeWs.tabs.length > 1) {
-          const idx = activeWs.tabs.findIndex((t) => t.id === activeWs.active_tab_id);
-          const next = (idx + 1) % activeWs.tabs.length;
-          setActiveTab(activeWs.id, activeWs.tabs[next].id);
+        const n = stateRef.current.workspaces.length + 1;
+        createWorkspace(`Workspace ${n}`);
+        return;
+      }
+      if (matchesBinding(e, kb.copy)) {
+        e.preventDefault();
+        const sel = window.getSelection()?.toString();
+        if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+        return;
+      }
+      if (matchesBinding(e, kb.paste)) {
+        e.preventDefault();
+        const focusedId = stateRef.current.focused_pane_id;
+        if (focusedId) {
+          const focusedPane = stateRef.current.panes[focusedId];
+          if (focusedPane?.pty_id) {
+            navigator.clipboard.readText().then((text) => {
+              if (text) invoke("write_pty_string", { ptyId: focusedPane.pty_id!, data: text });
+            }).catch(() => {});
+          }
         }
         return;
       }
-
-      // Alt+Arrow: navigate between panes
-      if (e.altKey && !e.ctrlKey && !e.shiftKey) {
-        if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
-          e.preventDefault();
-          // Find all pane elements and navigate spatially
-          const paneEls = Array.from(document.querySelectorAll("[data-pane-id]")) as HTMLElement[];
-          if (paneEls.length < 2) return;
-          const focusedId = stateRef.current.focused_pane_id;
-          const currentEl = paneEls.find((el) => el.dataset.paneId === focusedId);
-          if (!currentEl) return;
-          const currentRect = currentEl.getBoundingClientRect();
-          let bestEl: HTMLElement | null = null;
-          let bestDist = Infinity;
-          for (const el of paneEls) {
-            if (el === currentEl) continue;
-            const r = el.getBoundingClientRect();
-            const cx = r.left + r.width / 2;
-            const cy = r.top + r.height / 2;
-            const dx = cx - (currentRect.left + currentRect.width / 2);
-            const dy = cy - (currentRect.top + currentRect.height / 2);
-            let valid = false;
-            if (e.key === "ArrowLeft" && dx < -10) valid = true;
-            if (e.key === "ArrowRight" && dx > 10) valid = true;
-            if (e.key === "ArrowUp" && dy < -10) valid = true;
-            if (e.key === "ArrowDown" && dy > 10) valid = true;
-            if (valid) {
-              const dist = Math.abs(dx) + Math.abs(dy);
-              if (dist < bestDist) { bestDist = dist; bestEl = el; }
-            }
-          }
-          if (bestEl?.dataset.paneId) {
-            setFocusedPane(bestEl.dataset.paneId);
-          }
-          return;
+      if (matchesBinding(e, kb.search)) {
+        e.preventDefault();
+        const focusedPaneId = stateRef.current.focused_pane_id;
+        if (focusedPaneId) {
+          window.dispatchEvent(new CustomEvent("codeterm-toggle-search", { detail: { paneId: focusedPaneId } }));
         }
+        return;
       }
-
-      // Ctrl+, opens settings
-      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key === ",") {
+      if (matchesBinding(e, kb.zoom_in)) {
+        e.preventDefault();
+        const newSize = Math.min(32, (config.font.size || 14) + 1);
+        updateConfig({ ...config, font: { ...config.font, size: newSize } });
+        return;
+      }
+      if (matchesBinding(e, kb.zoom_out)) {
+        e.preventDefault();
+        const newSize = Math.max(8, (config.font.size || 14) - 1);
+        updateConfig({ ...config, font: { ...config.font, size: newSize } });
+        return;
+      }
+      if (matchesBinding(e, kb.zoom_reset)) {
+        e.preventDefault();
+        updateConfig({ ...config, font: { ...config.font, size: 14 } });
+        return;
+      }
+      if (matchesBinding(e, kb.open_settings)) {
         e.preventDefault();
         setSettingsOpen((v) => !v);
         return;
       }
 
-      // Ctrl+= / Ctrl+- / Ctrl+0: font zoom
-      if (e.ctrlKey && !e.shiftKey && !e.altKey) {
-        if (e.key === "=" || e.key === "+") {
-          e.preventDefault();
-          const newSize = Math.min(32, (config.font.size || 14) + 1);
-          updateConfig({ ...config, font: { ...config.font, size: newSize } });
-          return;
+      // Pane focus navigation (uses config bindings)
+      if (matchesBinding(e, kb.focus_pane_left) || matchesBinding(e, kb.focus_pane_right) ||
+          matchesBinding(e, kb.focus_pane_up) || matchesBinding(e, kb.focus_pane_down)) {
+        e.preventDefault();
+        const dir = matchesBinding(e, kb.focus_pane_left) ? "ArrowLeft"
+          : matchesBinding(e, kb.focus_pane_right) ? "ArrowRight"
+          : matchesBinding(e, kb.focus_pane_up) ? "ArrowUp" : "ArrowDown";
+        const paneEls = Array.from(document.querySelectorAll("[data-pane-id]")) as HTMLElement[];
+        if (paneEls.length < 2) return;
+        const focusedId = stateRef.current.focused_pane_id;
+        const currentEl = paneEls.find((el) => el.dataset.paneId === focusedId);
+        if (!currentEl) return;
+        const currentRect = currentEl.getBoundingClientRect();
+        let bestEl: HTMLElement | null = null;
+        let bestDist = Infinity;
+        for (const el of paneEls) {
+          if (el === currentEl) continue;
+          const r = el.getBoundingClientRect();
+          const dx = (r.left + r.width / 2) - (currentRect.left + currentRect.width / 2);
+          const dy = (r.top + r.height / 2) - (currentRect.top + currentRect.height / 2);
+          let valid = false;
+          if (dir === "ArrowLeft" && dx < -10) valid = true;
+          if (dir === "ArrowRight" && dx > 10) valid = true;
+          if (dir === "ArrowUp" && dy < -10) valid = true;
+          if (dir === "ArrowDown" && dy > 10) valid = true;
+          if (valid) {
+            const dist = Math.abs(dx) + Math.abs(dy);
+            if (dist < bestDist) { bestDist = dist; bestEl = el; }
+          }
         }
-        if (e.key === "-") {
-          e.preventDefault();
-          const newSize = Math.max(8, (config.font.size || 14) - 1);
-          updateConfig({ ...config, font: { ...config.font, size: newSize } });
-          return;
-        }
-        if (e.key === "0") {
-          e.preventDefault();
-          updateConfig({ ...config, font: { ...config.font, size: 14 } });
-          return;
-        }
+        if (bestEl?.dataset.paneId) setFocusedPane(bestEl.dataset.paneId);
+        return;
       }
 
-      // Ctrl+1-9: switch tab
-      if (e.ctrlKey && !e.shiftKey && !e.altKey) {
-        const num = parseInt(e.key, 10);
-        if (num >= 1 && num <= 9 && activeWs) {
+      // Tab switching: next/prev
+      if (matchesBinding(e, kb.next_tab)) {
+        e.preventDefault();
+        if (activeWs && activeWs.tabs.length > 1) {
+          const idx = activeWs.tabs.findIndex((t) => t.id === activeWs.active_tab_id);
+          setActiveTab(activeWs.id, activeWs.tabs[(idx + 1) % activeWs.tabs.length].id);
+        }
+        return;
+      }
+      if (matchesBinding(e, kb.prev_tab)) {
+        e.preventDefault();
+        if (activeWs && activeWs.tabs.length > 1) {
+          const idx = activeWs.tabs.findIndex((t) => t.id === activeWs.active_tab_id);
+          setActiveTab(activeWs.id, activeWs.tabs[(idx - 1 + activeWs.tabs.length) % activeWs.tabs.length].id);
+        }
+        return;
+      }
+
+      // Mod+1-9: switch tab by number
+      const modKey = isMac ? e.metaKey : e.ctrlKey;
+      if (modKey && !e.shiftKey && !e.altKey && /^Digit[1-9]$/.test(e.code)) {
+        const num = parseInt(e.code.slice(5), 10);
+        if (activeWs) {
           const tab = activeWs.tabs[num - 1];
           if (tab) {
             e.preventDefault();
             setActiveTab(activeWs.id, tab.id);
           }
-          return;
         }
+        return;
       }
 
       // Ignore modifier-only key presses
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
       // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY
-      // But NOT if user is typing in an input/textarea (e.g. rename, settings, search)
       const active = document.activeElement;
       const isXtermFocused = active?.classList.contains("xterm-helper-textarea");
       const isInputFocused = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || active?.getAttribute("contenteditable") === "true";
@@ -439,6 +395,7 @@ function AppInner() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
+    kb,
     handleNewTab,
     handleCloseCurrentTab,
     handleSplitRight,

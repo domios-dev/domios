@@ -273,8 +273,6 @@ export function SettingsPanel({
                 <KeybindGroup title="Tabs" bindings={[
                   ["new_tab", "New Tab"],
                   ["close_tab", "Close Tab"],
-                  ["next_tab", "Next Tab"],
-                  ["prev_tab", "Previous Tab"],
                 ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
 
                 <KeybindGroup title="Panes" bindings={[
@@ -289,13 +287,10 @@ export function SettingsPanel({
 
                 <KeybindGroup title="General" bindings={[
                   ["new_workspace", "New Workspace"],
-                  ["copy", "Copy"],
-                  ["paste", "Paste"],
                   ["search", "Search"],
                   ["zoom_in", "Zoom In"],
                   ["zoom_out", "Zoom Out"],
                   ["zoom_reset", "Zoom Reset"],
-                  ["open_browser", "Open Browser"],
                   ["open_settings", "Settings"],
                 ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
               </div>
@@ -370,6 +365,24 @@ export function SettingsPanel({
                     <AboutLink href="https://github.com/rollacode" label="GitHub" icon="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z" />
                     <AboutLink href="https://rollacode.org" label="Website" icon="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" />
                     <AboutLink href="https://www.linkedin.com/in/rollacode" label="LinkedIn" icon="M12.225 12.225h-1.778V9.44c0-.664-.012-1.519-.925-1.519-.926 0-1.068.724-1.068 1.47v2.834H6.676V6.498h1.707v.783h.024c.348-.594.996-.95 1.684-.925 1.802 0 2.135 1.185 2.135 2.728ZM3.56 5.715a1.03 1.03 0 1 1 0-2.06 1.03 1.03 0 0 1 0 2.06Zm.889 6.51H2.67V6.498h1.779ZM13.11 2H2.885A.88.88 0 0 0 2 2.866v10.268a.88.88 0 0 0 .885.866h10.226a.882.882 0 0 0 .889-.866V2.865A.88.88 0 0 0 13.111 2Z" />
+                  </div>
+                </Group>
+
+                <Group title="Setup">
+                  <button
+                    onClick={() => {
+                      const next = { ...localConfig, onboarding_completed: false };
+                      onUpdateConfig(next).then(() => {
+                        setLocalConfig(next);
+                        window.location.reload();
+                      }).catch(() => {});
+                    }}
+                    className="px-3 py-1.5 text-[11px] rounded bg-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-muted)] transition-colors"
+                  >
+                    Reset Onboarding
+                  </button>
+                  <div className="text-[10px] text-[var(--ct-muted)]">
+                    Re-run the setup wizard on next launch.
                   </div>
                 </Group>
 
@@ -490,6 +503,68 @@ function AboutLink({ href, label, icon }: { href: string; label: string; icon: s
   );
 }
 
+const IS_MAC_SETTINGS = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
+const KEY_SYMBOLS: Record<string, string> = IS_MAC_SETTINGS ? {
+  ctrl: "⌃",
+  shift: "⇧",
+  alt: "⌥",
+  cmd: "⌘",
+  mod: "⌘",
+  super: "⌘",
+  opt: "⌥",
+  option: "⌥",
+  tab: "⇥",
+  enter: "↩",
+  backspace: "⌫",
+  delete: "⌦",
+  escape: "⎋",
+  arrowleft: "←",
+  arrowright: "→",
+  arrowup: "↑",
+  arrowdown: "↓",
+  " ": "Space",
+} : {
+  ctrl: "Ctrl",
+  shift: "Shift",
+  alt: "Alt",
+  cmd: "Ctrl",
+  mod: "Ctrl",
+  super: "Win",
+  tab: "Tab",
+  enter: "Enter",
+  backspace: "Bksp",
+  delete: "Del",
+  escape: "Esc",
+  arrowleft: "←",
+  arrowright: "→",
+  arrowup: "↑",
+  arrowdown: "↓",
+  " ": "Space",
+};
+
+function renderKbd(binding: string) {
+  const parts = binding.split("+").map((p) => p.trim());
+  return (
+    <span className="flex items-center gap-0.5">
+      {parts.map((part, i) => {
+        const sym = KEY_SYMBOLS[part.toLowerCase()] || part.toUpperCase();
+        // On mac, Ctrl in binding with letters = Mod = ⌘
+        const display = IS_MAC_SETTINGS && part.toLowerCase() === "ctrl" && parts.some(p => /^[a-zA-Z0-9]$/.test(p))
+          ? "⌘" : sym;
+        return (
+          <kbd
+            key={i}
+            className="inline-flex items-center justify-center min-w-[20px] h-[20px] px-1 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)] text-[10px] font-mono text-[var(--ct-muted-fg)] shadow-[0_1px_0_var(--ct-border)]"
+          >
+            {display}
+          </kbd>
+        );
+      })}
+    </span>
+  );
+}
+
 function KeybindGroup({
   title,
   bindings,
@@ -501,26 +576,42 @@ function KeybindGroup({
   config: AppConfig;
   onUpdate: (config: AppConfig) => void;
 }) {
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+
   return (
     <Group title={title}>
       <div className="space-y-1">
-        {bindings.map(([key, label]) => (
-          <div key={key} className="flex items-center justify-between">
-            <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
-            <input
-              type="text"
-              value={(config.keybindings as unknown as Record<string, string>)[key] || ""}
-              onChange={(e) => {
-                const next = {
-                  ...config,
-                  keybindings: { ...config.keybindings, [key]: e.target.value },
-                };
-                onUpdate(next);
-              }}
-              className="w-32 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-0.5 text-[11px] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none text-right font-mono"
-            />
-          </div>
-        ))}
+        {bindings.map(([key, label]) => {
+          const value = (config.keybindings as unknown as Record<string, string>)[key] || "";
+          const isEditing = editingKey === key;
+          return (
+            <div key={key} className="flex items-center justify-between py-0.5">
+              <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
+              {isEditing ? (
+                <input
+                  type="text"
+                  autoFocus
+                  value={value}
+                  onChange={(e) => {
+                    const next = { ...config, keybindings: { ...config.keybindings, [key]: e.target.value } };
+                    onUpdate(next);
+                  }}
+                  onBlur={() => setEditingKey(null)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingKey(null); }}
+                  className="w-36 bg-[var(--ct-bg)] border border-[var(--ct-accent)] rounded px-2 py-0.5 text-[11px] text-[var(--ct-fg)] focus:outline-none text-right font-mono"
+                />
+              ) : (
+                <button
+                  onClick={() => setEditingKey(key)}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[var(--ct-hover)] transition-colors"
+                  title="Click to edit"
+                >
+                  {renderKbd(value)}
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
     </Group>
   );
@@ -538,6 +629,7 @@ function NetworkTab({
     api_port: number; api_url: string; tailscale_url: string | null;
   } | null>(null);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [tokenRefreshing, setTokenRefreshing] = useState(false);
 
   useEffect(() => {
     invoke<typeof net>("get_network_info").then(setNet).catch(() => {});
@@ -545,20 +637,35 @@ function NetworkTab({
 
   const [openclawPrompt, setOpenclawPrompt] = useState("");
 
-  useEffect(() => {
-    if (!net) return;
+  const buildPrompt = useCallback((netInfo: typeof net, token: string | null) => {
+    if (!netInfo) return;
     invoke<string>("get_skills_prompt").then((base) => {
-      const url = net.tailscale_url || net.api_url;
-      setOpenclawPrompt(`CodeTerm API: ${url}\n\n${base}`);
+      const url = netInfo.tailscale_url || netInfo.api_url;
+      const authLine = token ? `\nAuthorization: Bearer ${token}` : "";
+      setOpenclawPrompt(`CodeTerm API: ${url}${authLine}\n\n${base}`);
     }).catch(() => {});
-  }, [net]);
+  }, []);
+
+  useEffect(() => {
+    buildPrompt(net, cfg.api?.token ?? null);
+  }, [net, cfg.api?.token, buildPrompt]);
+
+  const refreshToken = useCallback(async () => {
+    setTokenRefreshing(true);
+    try {
+      const token = await invoke<string>("generate_api_token");
+      onUpdate("api", { token });
+      buildPrompt(net, token);
+    } catch {}
+    setTokenRefreshing(false);
+  }, [net, onUpdate, buildPrompt]);
 
   return (
     <div className="space-y-6">
       <Group title="REST API">
         <Toggle
           label="Enable API"
-          checked={cfg.api?.enabled ?? true}
+          checked={cfg.api?.enabled ?? false}
           onChange={(v) => onUpdate("api", { enabled: v })}
         />
         <div className="text-[10px] text-[var(--ct-muted)] -mt-1">
@@ -570,6 +677,32 @@ function NetworkTab({
             <CopyRow label="Tailscale" value={net.tailscale_url} />
           )}
         </div>
+      </Group>
+
+      <Group title="API Token">
+        <div className="text-[10px] text-[var(--ct-muted)] mb-2">
+          Bearer token required for all API requests. Included in the orchestrator prompt automatically.
+        </div>
+        {cfg.api?.token ? (
+          <div className="flex items-center gap-2">
+            <CopyRow label="Token" value={cfg.api.token} />
+            <button
+              onClick={refreshToken}
+              disabled={tokenRefreshing}
+              className="shrink-0 px-2 py-1 text-[10px] rounded bg-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-muted)] transition-colors disabled:opacity-50"
+            >
+              {tokenRefreshing ? "..." : "Regenerate"}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={refreshToken}
+            disabled={tokenRefreshing}
+            className="px-3 py-1.5 text-[11px] rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all disabled:opacity-50"
+          >
+            {tokenRefreshing ? "Generating..." : "Generate Token"}
+          </button>
+        )}
       </Group>
 
       <Group title="Webhooks">
@@ -584,7 +717,7 @@ function NetworkTab({
 
       <Group title="OpenClaw / External Orchestrator">
         <div className="text-xs text-[var(--ct-muted-fg)] mb-2">
-          Copy this prompt and give it to your external orchestrator (OpenClaw, etc.) so it knows how to control CodeTerm:
+          Copy this prompt and give it to your external orchestrator (OpenClaw, etc.) so it knows how to control CodeTerm. {cfg.api?.token ? "Includes your API token." : "Generate a token above to include authentication."}
         </div>
         <div className="relative">
           <pre className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded p-3 text-[10px] text-[var(--ct-muted-fg)] font-mono whitespace-pre-wrap max-h-[160px] overflow-y-auto leading-relaxed">

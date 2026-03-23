@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::Read;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use crate::agent::detector;
 use crate::agent::git_info::{self, GitInfo};
@@ -663,6 +663,22 @@ fn claude_settings_path() -> Result<std::path::PathBuf, String> {
 
 const CODETERM_HOOK_MARKER: &str = "codeterm-hook";
 
+/// Check if a hook entry belongs to CodeTerm — either by `_source` marker or by command content.
+fn is_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
+    hook_entry.get("hooks").and_then(|hs| hs.as_array())
+        .map(|hs| hs.iter().any(|h| {
+            // Check _source marker
+            if h.get("_source").and_then(|s| s.as_str()) == Some(CODETERM_HOOK_MARKER) {
+                return true;
+            }
+            // Legacy detection: check if command posts to CodeTerm API
+            h.get("command").and_then(|c| c.as_str())
+                .map(|cmd| cmd.contains("/api/notifications") && cmd.contains("7685"))
+                .unwrap_or(false)
+        }))
+        .unwrap_or(false)
+}
+
 /// Check if Claude Code hooks are installed for CodeTerm notifications.
 #[tauri::command]
 pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
@@ -680,27 +696,18 @@ pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
     let json: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse settings.json: {}", e))?;
 
-    let has_marker = content.contains(CODETERM_HOOK_MARKER);
     let notification_hook = json.pointer("/hooks/Notification")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(|h| {
-            h.get("hooks").and_then(|hs| hs.as_array())
-                .map(|hs| hs.iter().any(|h| h.get("_source").and_then(|s| s.as_str()) == Some(CODETERM_HOOK_MARKER)))
-                .unwrap_or(false)
-        }))
+        .map(|arr| arr.iter().any(is_codeterm_hook))
         .unwrap_or(false);
     let stop_hook = json.pointer("/hooks/Stop")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(|h| {
-            h.get("hooks").and_then(|hs| hs.as_array())
-                .map(|hs| hs.iter().any(|h| h.get("_source").and_then(|s| s.as_str()) == Some(CODETERM_HOOK_MARKER)))
-                .unwrap_or(false)
-        }))
+        .map(|arr| arr.iter().any(is_codeterm_hook))
         .unwrap_or(false);
 
     Ok(ClaudeHooksStatus {
         settings_exists: true,
-        hooks_installed: has_marker || (notification_hook && stop_hook),
+        hooks_installed: notification_hook && stop_hook,
         notification_hook,
         stop_hook,
     })
@@ -734,14 +741,14 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
         serde_json::json!({})
     };
 
-    // Build hook commands
-    // Single quotes around JSON body prevent shell from interpreting the content.
-    // The \" inside are JSON escapes in the settings.json file — they become " at runtime.
+    // Build hook commands — cross-platform null device and error handling.
+    // Use single quotes around the JSON body (works in sh/bash/zsh/powershell).
+    let null_dev = if cfg!(target_os = "windows") { "NUL" } else { "/dev/null" };
     let notify_cmd = format!(
-        r#"curl -s -X POST http://localhost:{port}/api/notifications -H 'Content-Type: application/json' -d '{{"title":"Claude Code","body":"Needs permission","level":"warning"}}' > /dev/null 2>&1 || true"#
+        "curl -s -X POST http://localhost:{port}/api/notifications -H 'Content-Type: application/json' -d '{{\"title\":\"Claude Code\",\"body\":\"Needs permission\",\"level\":\"warning\"}}' > {null_dev} 2>&1 || true"
     );
     let stop_cmd = format!(
-        r#"curl -s -X POST http://localhost:{port}/api/notifications -H 'Content-Type: application/json' -d '{{"title":"Claude Code","body":"Task complete","level":"info"}}' > /dev/null 2>&1 || true"#
+        "curl -s -X POST http://localhost:{port}/api/notifications -H 'Content-Type: application/json' -d '{{\"title\":\"Claude Code\",\"body\":\"Task complete\",\"level\":\"info\"}}' > {null_dev} 2>&1 || true"
     );
 
     // Ensure hooks object exists
@@ -775,14 +782,10 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
     let hooks = json["hooks"].as_object_mut()
         .ok_or("hooks is not an object")?;
 
-    // Remove old codeterm hooks first
+    // Remove old codeterm hooks first (by _source marker or legacy command detection)
     for key in &["Notification", "Stop"] {
         if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
-            arr.retain(|h| {
-                !h.get("hooks").and_then(|hs| hs.as_array())
-                    .map(|hs| hs.iter().any(|h| h.get("_source").and_then(|s| s.as_str()) == Some(CODETERM_HOOK_MARKER)))
-                    .unwrap_or(false)
-            });
+            arr.retain(|h| !is_codeterm_hook(h));
         }
     }
 
@@ -888,6 +891,21 @@ pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Generate a new API token, save it to config, and return it.
+#[tauri::command]
+pub fn generate_api_token(
+    state: tauri::State<'_, crate::config::ConfigState>,
+    app: AppHandle,
+) -> Result<String, String> {
+    let token = uuid::Uuid::new_v4().to_string().replace("-", "");
+    let mut cfg = state.lock().clone();
+    cfg.api.token = Some(token.clone());
+    crate::config::save_config_pub(&cfg)?;
+    *state.lock() = cfg.clone();
+    app.emit("config-changed", &cfg).ok();
+    Ok(token)
 }
 
 /// Get network info (local IP, Tailscale IP, API URL).

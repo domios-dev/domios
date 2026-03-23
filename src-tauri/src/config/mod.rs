@@ -72,7 +72,7 @@ resume_sessions = true
 resume_skip_permissions = false
 
 [api]
-enabled = true
+enabled = false
 port = 7685
 # token = "your-secret-token"
 cors = true
@@ -242,7 +242,7 @@ size = 16
         assert_eq!(config.font.size, 16);
         // Defaults for fields not specified
         assert_eq!(config.terminal.scrollback, 10000);
-        assert!(config.api.enabled);
+        assert!(!config.api.enabled);
         assert_eq!(config.keybindings.new_tab, "Ctrl+Shift+T");
     }
 

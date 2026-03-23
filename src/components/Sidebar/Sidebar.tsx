@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useMultiplexer } from "../../store/multiplexer";
 import type { Workspace, Tab, SplitNode, PaneStatus, Pane, AgentRole } from "../../lib/types";
 
@@ -41,7 +42,51 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     closeTab,
     setActiveTab,
     setPaneTitle,
+    spawnClaudeTab,
   } = useMultiplexer();
+
+  // Claude spawn modal state
+  const [claudeSpawnModal, setClaudeSpawnModal] = useState<{ folder: string } | null>(null);
+  const [claudeSkipPerms, setClaudeSkipPerms] = useState(() => {
+    try { return localStorage.getItem("codeterm-claude-skip-perms") === "true"; } catch { return false; }
+  });
+  const [claudeRememberChoice, setClaudeRememberChoice] = useState(() => {
+    try { return localStorage.getItem("codeterm-claude-remember") === "true"; } catch { return false; }
+  });
+
+  const handleClaudeSpawn = useCallback(async () => {
+    let folder: string | null;
+    try {
+      folder = await open({ directory: true, multiple: false, title: "Choose project folder for Claude" });
+    } catch (err) {
+      console.error("[claude-spawn] folder picker failed:", err);
+      return;
+    }
+    if (!folder) return;
+    const path = folder;
+    console.log("[claude-spawn] folder picked:", path);
+    // If user chose "remember", skip the modal and spawn directly
+    if (claudeRememberChoice) {
+      const wsId = state.active_workspace_id ?? state.workspaces[0]?.id;
+      console.log("[claude-spawn] remember mode, wsId:", wsId, "skip:", claudeSkipPerms);
+      if (wsId) spawnClaudeTab(wsId, claudeSkipPerms, path);
+      return;
+    }
+    setClaudeSpawnModal({ folder: path });
+  }, [state.active_workspace_id, state.workspaces, spawnClaudeTab, claudeRememberChoice, claudeSkipPerms]);
+
+  const handleClaudeConfirm = useCallback(() => {
+    if (!claudeSpawnModal) return;
+    if (claudeRememberChoice) {
+      try {
+        localStorage.setItem("codeterm-claude-skip-perms", String(claudeSkipPerms));
+        localStorage.setItem("codeterm-claude-remember", "true");
+      } catch { /* ignore */ }
+    }
+    const wsId = state.active_workspace_id ?? state.workspaces[0]?.id;
+    if (wsId) spawnClaudeTab(wsId, claudeSkipPerms, claudeSpawnModal.folder);
+    setClaudeSpawnModal(null);
+  }, [claudeSpawnModal, claudeSkipPerms, claudeRememberChoice, state.active_workspace_id, state.workspaces, spawnClaudeTab]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
@@ -113,22 +158,48 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         className="shrink-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-hidden relative"
         style={{ width: sidebarWidth }}
       >
-        {/* Workspaces header */}
+        {/* Panes header with action icons */}
         <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
           {!isCompact && (
             <span className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate">
-              Workspaces
+              Panes
             </span>
           )}
-          <button
-            onClick={handleNewWorkspace}
-            className="flex items-center justify-center w-6 h-6 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
-            title="New workspace (Ctrl+Shift+N)"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1">
+            {/* Spawn Claude */}
+            <button
+              onClick={handleClaudeSpawn}
+              className="flex items-center justify-center w-6 h-6 rounded border border-[#d4a574]/30 bg-[#d4a574]/5 hover:bg-[#d4a574]/15 hover:border-[#d4a574]/50 text-[#d4a574]/70 hover:text-[#d4a574] transition-colors"
+              title="Spawn Claude Code"
+            >
+              <span className="text-[15px] leading-none">✳</span>
+            </button>
+            {/* New terminal pane */}
+            <button
+              onClick={() => {
+                const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);
+                if (ws) createTab(ws.id);
+              }}
+              className="flex items-center justify-center w-6 h-6 rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)] hover:border-[var(--ct-muted)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+              title="New terminal"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                <path d="M2 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M8 13h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
+            {/* New workspace (group) */}
+            <button
+              onClick={handleNewWorkspace}
+              className="flex items-center justify-center w-6 h-6 rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)] hover:border-[var(--ct-muted)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+              title="New workspace"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                <path d="M1.5 3.5A1 1 0 012.5 2.5h3l1.5 2h6.5a1 1 0 011 1v7a1 1 0 01-1 1h-11a1 1 0 01-1-1v-9z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+                <path d="M8 7v4M6 9h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Workspace tree */}
@@ -357,6 +428,54 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         />
       </aside>
 
+      {/* Claude spawn modal */}
+      {claudeSpawnModal && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setClaudeSpawnModal(null)} />
+          <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[320px] overflow-hidden">
+            <div className="px-4 pt-4 pb-2">
+              <div className="text-[13px] font-medium text-[var(--ct-fg)]">Spawn Claude Code</div>
+              <div className="mt-2 text-[11px] text-[var(--ct-muted)] truncate" title={claudeSpawnModal.folder}>
+                {claudeSpawnModal.folder}
+              </div>
+            </div>
+            <div className="px-4 py-3 flex flex-col gap-2.5">
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={claudeSkipPerms}
+                  onChange={(e) => setClaudeSkipPerms(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
+                />
+                <span className="text-[12px] text-[var(--ct-fg)]">Skip permission prompts</span>
+              </label>
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={claudeRememberChoice}
+                  onChange={(e) => setClaudeRememberChoice(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
+                />
+                <span className="text-[12px] text-[var(--ct-muted-fg)]">Remember my choice</span>
+              </label>
+            </div>
+            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--ct-border)]">
+              <button
+                onClick={() => setClaudeSpawnModal(null)}
+                className="px-3 py-1.5 text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] rounded-md hover:bg-[var(--ct-hover)] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleClaudeConfirm}
+                className="px-4 py-1.5 text-[11px] font-medium text-white bg-[var(--ct-accent)] rounded-md hover:opacity-90 transition-opacity"
+              >
+                Launch
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

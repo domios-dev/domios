@@ -22,6 +22,10 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
   const [skillsInstalled, setSkillsInstalled] = useState(false);
   const [hooksInstalled, setHooksInstalled] = useState(false);
   const [rulesInstalled, setRulesInstalled] = useState(false);
+  const [networkEnabled, setNetworkEnabled] = useState(config.api?.enabled ?? false);
+  const [apiToken, setApiToken] = useState<string | null>(config.api?.token ?? null);
+  const [networkInfo, setNetworkInfo] = useState<{ api_url: string; tailscale_url: string | null } | null>(null);
+  const [orchestratorPrompt, setOrchestratorPrompt] = useState("");
 
   useEffect(() => {
     requestAnimationFrame(() => requestAnimationFrame(() => setEntered(true)));
@@ -63,11 +67,40 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
     try { await invoke("install_skill", { skillId: "codeterm" }); setSkillsInstalled(true); } catch {}
   }, []);
   const installHooks = useCallback(async () => {
-    try { await invoke("install_claude_hooks", { paneId: null }); setHooksInstalled(true); } catch {}
+    try { await invoke("install_claude_hooks", { apiPort: null }); setHooksInstalled(true); } catch {}
   }, []);
   const installRules = useCallback(async () => {
     try { await invoke("install_project_rules"); setRulesInstalled(true); } catch {}
   }, []);
+
+  const enableNetwork = useCallback(async () => {
+    try {
+      // Generate token first
+      const token = await invoke<string>("generate_api_token");
+      setApiToken(token);
+      // Enable API
+      await invoke("update_config", {
+        config: { ...config, api: { ...config.api, enabled: true, token } },
+      });
+      setNetworkEnabled(true);
+      // Fetch network info
+      const net = await invoke<{ api_url: string; tailscale_url: string | null }>("get_network_info");
+      setNetworkInfo(net);
+      // Fetch orchestrator prompt
+      const base = await invoke<string>("get_skills_prompt");
+      const url = net.tailscale_url || net.api_url;
+      setOrchestratorPrompt(`CodeTerm API: ${url}\nAuthorization: Bearer ${token}\n\n${base}`);
+    } catch {}
+  }, [config]);
+
+  const disableNetwork = useCallback(async () => {
+    try {
+      await invoke("update_config", {
+        config: { ...config, api: { ...config.api, enabled: false } },
+      });
+      setNetworkEnabled(false);
+    } catch {}
+  }, [config]);
 
   // Derived
   const progress = ((step + 1) / TOTAL_STEPS) * 100;
@@ -77,7 +110,8 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
   const c = useMemo(() => ({
     bg: theme.background,
     fg: theme.foreground,
-    muted: theme.bright_black,
+    muted: theme.foreground + "90",
+    dimmed: theme.foreground + "60",
     accent: theme.blue,
     green: theme.green,
     surface: adjustBrightness(theme.background, 12),
@@ -127,7 +161,7 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
           <div className="flex items-center gap-3 pl-4" data-tauri-drag-region>
             <span
               className="text-[11px] font-mono tracking-wider uppercase"
-              style={{ color: c.muted }}
+              style={{ color: c.dimmed }}
               data-tauri-drag-region
             >
               Setup {step + 1}/{TOTAL_STEPS}
@@ -164,7 +198,13 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
                 onInstallSkill={installSkill} onInstallHooks={installHooks} onInstallRules={installRules}
               />
             )}
-            {step === 3 && <StepFinish c={c} />}
+            {step === 3 && (
+              <StepNetwork c={c}
+                enabled={networkEnabled} token={apiToken} networkInfo={networkInfo}
+                orchestratorPrompt={orchestratorPrompt}
+                onEnable={enableNetwork} onDisable={disableNetwork}
+              />
+            )}
           </div>
         </div>
 
@@ -197,9 +237,9 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
           <button
             onClick={skip}
             className="text-[11px] transition-colors underline underline-offset-2 decoration-dotted"
-            style={{ color: c.muted }}
+            style={{ color: c.dimmed }}
             onMouseEnter={(e) => (e.currentTarget.style.color = c.fg)}
-            onMouseLeave={(e) => (e.currentTarget.style.color = c.muted)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = c.dimmed)}
           >
             Skip setup
           </button>
@@ -218,7 +258,7 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
 
 // ── Color helper ────────────────────────────────────────────────────
 
-type C = { bg: string; fg: string; muted: string; accent: string; green: string; surface: string; border: string; hover: string; glow: string };
+type C = { bg: string; fg: string; muted: string; dimmed: string; accent: string; green: string; surface: string; border: string; hover: string; glow: string };
 
 function adjustBrightness(hex: string, amount: number): string {
   const clean = hex.replace("#", "");
@@ -261,7 +301,7 @@ function StepWelcome({ c }: { c: C }) {
         <FeatureCard c={c} icon=">" title="Canvas panels" desc="Visualizations and localhost apps inline with terminals" />
       </div>
 
-      <p className="text-[11px] mt-8" style={{ color: c.muted }}>
+      <p className="text-[11px] mt-8" style={{ color: c.dimmed }}>
         Just 4 quick steps. Everything is also in Settings (Ctrl+,).
       </p>
     </div>
@@ -345,7 +385,7 @@ function TerminalPreview({ c }: { c: C }) {
         <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.muted + "60" }} />
         <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.muted + "60" }} />
         <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.muted + "60" }} />
-        <span className="ml-2 text-[10px]" style={{ color: c.muted }}>Terminal</span>
+        <span className="ml-2 text-[10px]" style={{ color: c.dimmed }}>Terminal</span>
       </div>
       {/* Fake terminal output */}
       <div className="px-3 py-2.5 space-y-0.5">
@@ -399,17 +439,17 @@ function StepSetup({
       <div className="space-y-2 max-w-md mx-auto text-left">
         <SetupRow c={c}
           title="CodeTerm skill"
-          desc="Teaches Claude to control panes, workspaces, and agents"
+          desc="Split panes, create workspaces, open canvas panels, spawn agents — all from Claude"
           installed={skillsInstalled} onInstall={onInstallSkill}
         />
         <SetupRow c={c}
           title="Notification hooks"
-          desc="Alerts when Claude finishes tasks or needs permission"
+          desc="Get desktop alerts when Claude finishes a task or needs your permission to proceed"
           installed={hooksInstalled} onInstall={onInstallHooks}
         />
         <SetupRow c={c}
           title="Project rules"
-          desc="Tells Claude it's inside CodeTerm for optimal behavior"
+          desc="Claude auto-renames tabs, uses workspaces instead of mkdir, opens browser panels inline"
           installed={rulesInstalled} onInstall={onInstallRules}
         />
       </div>
@@ -457,60 +497,158 @@ function SetupRow({
   );
 }
 
-// ── Step 4: Done ────────────────────────────────────────────────────
+// ── Step 4: Network & Orchestrator ───────────────────────────────────
 
-function StepFinish({ c }: { c: C }) {
+function StepNetwork({
+  c, enabled, token, networkInfo, orchestratorPrompt,
+  onEnable, onDisable,
+}: {
+  c: C;
+  enabled: boolean; token: string | null;
+  networkInfo: { api_url: string; tailscale_url: string | null } | null;
+  orchestratorPrompt: string;
+  onEnable: () => void; onDisable: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
   return (
     <div className="text-center">
       <div
         className="inline-flex items-center justify-center w-14 h-14 rounded-full mb-6"
-        style={{ backgroundColor: c.green + "15" }}
+        style={{ backgroundColor: c.accent + "15" }}
       >
-        <span className="text-2xl" style={{ color: c.green }}>&#10003;</span>
+        {/* Globe icon */}
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M2 12h20" />
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+        </svg>
       </div>
 
       <h2 className="text-xl font-semibold mb-1" style={{ color: c.fg }}>
-        Ready to go
+        Network API
       </h2>
-      <p className="text-sm mb-8" style={{ color: c.muted }}>
-        Start Claude Code in any pane — CodeTerm auto-detects it.
+      <p className="text-sm mb-6" style={{ color: c.muted }}>
+        Enable the REST API so external tools and orchestrators can control CodeTerm.
       </p>
 
-      <div className="max-w-xs mx-auto space-y-1.5">
-        <ShortcutRow c={c} keys="Ctrl+Shift+T" action="New tab" />
-        <ShortcutRow c={c} keys="Ctrl+Shift+D" action="Split right" />
-        <ShortcutRow c={c} keys="Ctrl+Shift+E" action="Split down" />
-        <ShortcutRow c={c} keys="Ctrl+Shift+N" action="New workspace" />
-        <ShortcutRow c={c} keys="Ctrl+," action="Settings" />
-      </div>
-
+      {/* Enable toggle */}
       <div
-        className="mt-8 mx-auto max-w-sm px-4 py-3 rounded-lg border text-[11px] text-left"
-        style={{ borderColor: c.border, backgroundColor: c.surface + "60", color: c.muted }}
+        className="max-w-md mx-auto flex items-center justify-between px-4 py-3 rounded-lg border transition-colors"
+        style={{
+          borderColor: enabled ? c.green + "40" : c.border,
+          backgroundColor: enabled ? c.green + "08" : c.surface + "60",
+        }}
       >
-        <span style={{ color: c.accent }}>Tip:</span> Type{" "}
-        <code
-          className="px-1 py-0.5 rounded text-[10px] font-mono"
-          style={{ backgroundColor: c.border, color: c.fg }}
+        <div className="text-left">
+          <div className="text-xs font-medium" style={{ color: c.fg }}>REST API</div>
+          <div className="text-[11px]" style={{ color: c.muted }}>
+            {enabled ? "Listening on port 7685 with token auth" : "Disabled — only local CLI access"}
+          </div>
+        </div>
+        <button
+          onClick={enabled ? onDisable : onEnable}
+          className="shrink-0 text-[11px] px-3 py-1.5 rounded-md font-medium transition-all"
+          style={{
+            backgroundColor: enabled ? c.surface : c.accent,
+            color: enabled ? c.muted : "#fff",
+            borderWidth: enabled ? 1 : 0,
+            borderColor: c.border,
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.filter = "brightness(1.15)")}
+          onMouseLeave={(e) => (e.currentTarget.style.filter = "none")}
         >
-          claude
-        </code>{" "}
-        in a terminal to start your AI coding assistant. It will automatically connect to CodeTerm.
+          {enabled ? "Disable" : "Enable"}
+        </button>
       </div>
-    </div>
-  );
-}
 
-function ShortcutRow({ c, keys, action }: { c: C; keys: string; action: string }) {
-  return (
-    <div className="flex items-center justify-between text-xs py-1">
-      <span style={{ color: c.muted }}>{action}</span>
-      <kbd
-        className="px-2 py-0.5 rounded text-[11px] font-mono"
-        style={{ backgroundColor: c.border, color: c.fg }}
-      >
-        {keys}
-      </kbd>
+      {/* Token + orchestrator info — shown after enabling */}
+      {enabled && token && (
+        <div className="max-w-md mx-auto mt-4 space-y-3 text-left">
+          {/* Token display */}
+          <div
+            className="px-4 py-3 rounded-lg border"
+            style={{ borderColor: c.border, backgroundColor: c.surface + "60" }}
+          >
+            <div className="text-[11px] font-medium mb-1.5" style={{ color: c.muted }}>API Token</div>
+            <div className="flex items-center gap-2">
+              <code
+                className="flex-1 text-[10px] font-mono px-2 py-1 rounded truncate"
+                style={{ backgroundColor: c.bg, color: c.fg }}
+              >
+                {token}
+              </code>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(token);
+                }}
+                className="shrink-0 text-[10px] px-2 py-1 rounded transition-colors"
+                style={{ backgroundColor: c.border, color: c.fg }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = c.hover)}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = c.border)}
+              >
+                Copy
+              </button>
+            </div>
+            <div className="text-[10px] mt-1.5" style={{ color: c.muted }}>
+              {networkInfo?.tailscale_url
+                ? `Available at ${networkInfo.tailscale_url} (Tailscale) and ${networkInfo.api_url} (local)`
+                : networkInfo?.api_url
+                  ? `Available at ${networkInfo.api_url}`
+                  : "Requires restart to start listening"}
+            </div>
+          </div>
+
+          {/* Orchestrator section */}
+          <div
+            className="px-4 py-3 rounded-lg border"
+            style={{ borderColor: c.border, backgroundColor: c.surface + "60" }}
+          >
+            <div className="text-[11px] font-medium mb-1" style={{ color: c.fg }}>External Orchestrator</div>
+            <div className="text-[10px] mb-2" style={{ color: c.muted }}>
+              Copy this prompt to OpenClaw or any external AI orchestrator — it includes the API URL, auth token, and all available commands.
+            </div>
+            <div className="relative">
+              <pre
+                className="rounded p-2 text-[9px] font-mono whitespace-pre-wrap max-h-[80px] overflow-y-auto leading-relaxed"
+                style={{ backgroundColor: c.bg, color: c.muted }}
+              >
+                {orchestratorPrompt || "Loading..."}
+              </pre>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(orchestratorPrompt).then(() => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  });
+                }}
+                className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[9px] rounded transition-colors"
+                style={{ backgroundColor: c.border, color: c.fg }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = c.hover)}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = c.border)}
+              >
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+          </div>
+
+          <div className="text-[10px] text-center" style={{ color: c.dimmed }}>
+            You can regenerate the token anytime in Settings &rarr; Network & API.
+          </div>
+        </div>
+      )}
+
+      {!enabled && (
+        <div
+          className="mt-6 mx-auto max-w-sm px-4 py-3 rounded-lg border text-[11px] text-left"
+          style={{ borderColor: c.border, backgroundColor: c.surface + "60", color: c.muted }}
+        >
+          <span style={{ color: c.accent }}>Note:</span> You can always enable this later in Settings. The local CLI (<code
+            className="px-1 py-0.5 rounded text-[10px] font-mono"
+            style={{ backgroundColor: c.border, color: c.fg }}
+          >codeterm</code>) works without the API.
+        </div>
+      )}
     </div>
   );
 }
