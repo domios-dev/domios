@@ -351,7 +351,7 @@ export function SettingsPanel({
                 </div>
 
                 <Group title="Info">
-                  <InfoRow label="Version" value="0.1.0" />
+                  <InfoRow label="Version" value={__APP_VERSION__} />
                   <InfoRow label="Platform" value={navigator.platform} />
                   <InfoRow label="Config" value={configPath || "loading..."} mono />
                 </Group>
