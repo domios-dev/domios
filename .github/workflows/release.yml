@@ -14,18 +14,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # - platform: windows-latest
-          #   args: ''
-          #   target: ''
+          - platform: windows-latest
+            args: ''
+            target: ''
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
             target: 'aarch64-apple-darwin'
           - platform: macos-latest
             args: '--target x86_64-apple-darwin'
             target: 'x86_64-apple-darwin'
-          # - platform: ubuntu-22.04
-          #   args: ''
-          #   target: ''
+          - platform: ubuntu-22.04
+            args: ''
+            target: ''
 
     runs-on: ${{ matrix.platform }}
 
