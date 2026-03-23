@@ -48,11 +48,6 @@ Agent Hierarchy:
 - POST /api/panes/:id/can-spawn {can_spawn} — toggle spawning permission
 - GET  /api/agents — list all panes with roles
 
-Screenshots:
-- GET /api/screenshot — capture window as JPEG, returns JSON with data_url, width, height, size_kb
-- GET /api/screenshot?format=jpeg — raw JPEG bytes
-- Works even when window is behind others. Useful for visual debugging.
-
 Claude session resume: when Claude Code is detected in a pane, CodeTerm saves its session ID. On restart, CodeTerm automatically runs `claude --resume <session-id>` to restore the conversation.
 
 Workflow: create workspace → create tab → exec commands → monitor output via offset polling or SSE stream → receive webhook events when agents need attention.

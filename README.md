@@ -57,15 +57,15 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Webhook system** — register webhooks for agent events (permission requests, task completion)
 - **Programmatic control** — agents can create panes, run commands, read output via API
 
-### Full API
-- **REST API** — 30+ endpoints for complete terminal control (port 7685)
+### Full API — let external AI operate your terminal
+- **REST API** — 30+ endpoints for complete terminal control (port 7685). An external AI (e.g. a gateway, custom agents) can create workspaces, spawn panes, run commands, read output, and orchestrate Claude Code sessions — all remotely
 - **CLI tool** — `codeterm` command-line tool for scripting and automation
 - **Socket API** — JSON-RPC v2 over named pipes (Windows) / Unix sockets
+- **Agent prompt** — copy the integration prompt from Settings to give any LLM full control over CodeTerm
 - **Real-time streaming** — SSE endpoint for live terminal output
-- **Output capture** — cursor-based pagination, ANSI stripping, screen snapshots
 
 ### Theming
-- **8 built-in themes** — GitHub Dark, Dracula, Catppuccin Mocha, One Dark, Nord, GitHub Light, Solarized Light, Pip-Boy
+- **8 built-in themes** — dark and light options included
 - **Full UI theming** — themes apply to the entire interface, not just the terminal
 - **Custom colors** — override individual colors in `config.toml`
 - **Light theme support** — automatic color derivation works for both light and dark themes
@@ -74,12 +74,9 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Canvas panes** — open web content side-by-side with your terminal for dashboards, docs, or visualizations
 
 ### Developer Experience
-- **macOS-style scrollbars** — thin, rounded, unobtrusive
-- **Drag & drop** — drop files into terminal (text files paste content, images save to disk)
+- **Clipboard & paste** — Ctrl+V pastes images from clipboard (Windows Snipping Tool, screenshots), text from any source
+- **Drag & drop** — drop files and documents into terminal to paste content as text (works great with Claude Code)
 - **Tab completion** — built-in shell completion engine
-- **Search** — Ctrl+Shift+F to search terminal output
-- **Visual bell** — screen flash instead of audio
-- **CWD tracking** — tracks working directory via OSC 7 escape sequences
 
 ## Installation
 
