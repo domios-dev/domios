@@ -167,6 +167,9 @@ impl ServiceContext {
                                 drop(buf);
                                 std::thread::sleep(std::time::Duration::from_millis(300));
                                 let _ = pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
+                                // Multi-line tasks get pasted and need an extra Enter to submit
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                let _ = pty.lock().write(&pty_id, b"\r");
                                 log::info!("spawn_task_sender: task sent to {}", pty_id);
                                 return;
                             }
