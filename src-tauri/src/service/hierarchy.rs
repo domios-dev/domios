@@ -75,7 +75,7 @@ impl ServiceContext {
         // This way Claude in the conductor pane sees the report immediately (push, not poll).
         {
             let notify_msg = format!(
-                "\n[Report from {}] {}\n",
+                "[Report from {}] {}\r",
                 from_title, message
             );
             if let Ok(pty_id) = self.resolve_pty_id(&conductor_id) {
