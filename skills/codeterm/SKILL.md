@@ -25,22 +25,19 @@ Commands default to the **current focused pane** when no ID is given.
 - `$CODETERM` — always `1` when running inside CodeTerm
 - `$TERM_PROGRAM` — always `CodeTerm`
 
-**Important:** `pane split` does NOT move focus to the new pane. Use `pane current --last` to get the ID of the newly created pane. Use `$CODETERM_PANE_ID` instead of `pane current` when you need your own pane ID.
+**Important:** Always use `$CODETERM_PANE_ID` to reference your own pane — `pane current` returns the *focused* pane (which may be a different pane). When splitting, always pass `--id $CODETERM_PANE_ID` to split *your* pane. Use `pane current --last` to get the ID of the newly created pane after a split.
 
 ```
 codeterm pane list                              # List panes
-codeterm pane current                           # Get current pane ID
+codeterm pane current                           # Get focused pane ID (may not be yours!)
 codeterm pane current --last                    # Get last created pane ID
-codeterm pane split                             # Split current pane right
-codeterm pane split --direction down            # Split current pane down
-codeterm pane split --id PANE_ID                # Split specific pane
-codeterm pane rename "title"                    # Rename current pane tab
+codeterm pane split --id $CODETERM_PANE_ID      # Split YOUR pane right
+codeterm pane split --id $CODETERM_PANE_ID --direction down  # Split YOUR pane down
+codeterm pane rename "title"                    # Rename your tab
 codeterm pane rename "title" --pane PANE_ID     # Rename specific pane
 codeterm pane focus PANE_ID                     # Focus pane
 codeterm pane close PANE_ID                     # Close pane
-codeterm send-text "command"                    # Send to current pane
 codeterm send-text "command" --pane PANE_ID     # Send to specific pane
-codeterm get-output                             # Read current pane output
 codeterm get-output --pane PANE_ID              # Read specific pane output
 ```
 

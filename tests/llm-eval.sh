@@ -110,7 +110,7 @@ echo "══ Test 4: Split pane ══"
 echo "Claude should split a pane and send a command to the new pane"
 
 T4=$($CT agent spawn claude --title "Splitter" \
-  --task 'Split your current pane to the right using codeterm pane split. Get the new pane ID with codeterm pane current --last. Then send the text "echo SPLIT_OK > /tmp/ct-llm-split.txt" to that new pane using codeterm send-text. Report what you did.' \
+  --task 'Split your pane using: codeterm pane split --id $CODETERM_PANE_ID. Then get the new pane ID with: codeterm pane current --last. Send "echo SPLIT_OK > /tmp/ct-llm-split.txt" to that new pane using codeterm send-text --pane <new_id>. Report what you did.' \
   --json 2>&1 | python3 -c "import json,sys; print(json.load(sys.stdin).get('pane_id',''))" 2>/dev/null)
 echo "  Spawned: $T4"
 sleep $WAIT_SECS
