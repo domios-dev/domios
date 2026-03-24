@@ -738,8 +738,19 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         .catch(() => {});
     }).then((unlisten) => unlisteners.push(unlisten));
 
+    // Auto-save session every 30 seconds
+    const saveInterval = setInterval(() => {
+      invoke("save_session").catch(() => {});
+    }, 30_000);
+
+    // Also save on window close / before unload
+    const beforeUnload = () => { invoke("save_session").catch(() => {}); };
+    window.addEventListener("beforeunload", beforeUnload);
+
     return () => {
       for (const unlisten of unlisteners) unlisten();
+      clearInterval(saveInterval);
+      window.removeEventListener("beforeunload", beforeUnload);
     };
   }, []);
 
