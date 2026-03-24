@@ -215,7 +215,8 @@ impl ServiceContext {
                 .ok_or("No workspace found")?
         };
 
-        // 2. Create tab
+        // 2. Create tab + set role + rename — all before emitting state change
+        //    so frontend sees role/parent when spawning PTY (env vars)
         let (tab_id, pane_id) = {
             let mut mux = self.mux.lock();
             let result = mux.create_tab(&ws_id)?;
@@ -225,17 +226,19 @@ impl ServiceContext {
                 }
             }
             let _ = mux.set_active_tab(&ws_id, &result.0);
+            // Set role inside same lock — before frontend sees the pane
+            if let Some(ref role_str) = params.role {
+                let role = Self::parse_role(role_str)?;
+                mux.set_pane_role(&result.1, role, params.parent_pane_id.as_deref())?;
+                if let Some(cs) = params.can_spawn {
+                    let _ = mux.set_can_spawn(&result.1, cs);
+                }
+            }
+            // Rename
+            let _ = mux.rename_pane(&result.1, &title);
             result
         };
         self.emit_state_changed();
-
-        // 3. Set role
-        if let Some(ref role_str) = params.role {
-            self.set_pane_role(&pane_id, role_str, params.parent_pane_id.as_deref(), params.can_spawn)?;
-        }
-
-        // 4. Rename
-        self.rename_pane(&pane_id, &title)?;
 
         // 5. Background launch
         let launch_cmd = build_agent_command(&agent_cmd, &params);

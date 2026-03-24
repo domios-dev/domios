@@ -21,6 +21,7 @@ pub fn get_default_cwd() -> Result<String, String> {
 #[tauri::command]
 pub async fn spawn_pty(
     state: tauri::State<'_, PtyState>,
+    mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
     _app: AppHandle,
     command: Option<String>,
     cwd: Option<String>,
@@ -32,6 +33,17 @@ pub async fn spawn_pty(
     let mut env_vars: HashMap<String, String> = HashMap::new();
     if let Some(ref pid) = pane_id {
         env_vars.insert("CODETERM_PANE_ID".to_string(), pid.clone());
+        // Pass role/parent info so agents know their place in hierarchy
+        let mux = mux_state.lock();
+        if let Some(pane) = mux.get_pane(pid) {
+            if let Some(ref role) = pane.role {
+                env_vars.insert("CODETERM_ROLE".to_string(), format!("{:?}", role));
+            }
+            if let Some(ref parent) = pane.parent_pane_id {
+                env_vars.insert("CODETERM_PARENT_PANE_ID".to_string(), parent.clone());
+            }
+        }
+        drop(mux);
     }
     env_vars.insert(
         "CODETERM_SOCKET_PATH".to_string(),

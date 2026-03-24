@@ -22,10 +22,11 @@ codeterm pane rename "fix login bug"
 Commands default to the **current focused pane** when no ID is given.
 
 **Environment variables** (available in every CodeTerm pane):
-- `$CODETERM_PANE_ID` — this pane's unique ID, 8-char hex (e.g. `a3f1b2c7`). Use for `--pane` args, agent hierarchy.
+- `$CODETERM_PANE_ID` — this pane's unique ID, 8-char hex (e.g. `a3f1b2c7`). Use for `--pane` args.
+- `$CODETERM_ROLE` — your role: `Conductor`, `Worker`, or `SubWorker` (empty if no role)
+- `$CODETERM_PARENT_PANE_ID` — your parent's pane ID (empty if you're a conductor or no role)
 - `$CODETERM_SOCKET_PATH` — socket path for CLI communication
 - `$CODETERM` — always `1` when running inside CodeTerm
-- `$TERM_PROGRAM` — always `CodeTerm`
 
 **Important:** Always use `$CODETERM_PANE_ID` to reference your own pane — `pane current` returns the *focused* pane (which may be a different pane). When splitting, always pass `--id $CODETERM_PANE_ID` to split *your* pane. Use `pane current --last` to get the ID of the newly created pane after a split.
 
@@ -148,13 +149,13 @@ codeterm agent spawn claude --title "Agent" --role Conductor --workspace $WS --c
 codeterm agent reports
 ```
 
-**Worker reporting:** When you are spawned as a Worker, always report results back when done:
-```bash
-codeterm agent report "summary of what you did and results" --pane $CODETERM_PANE_ID
-```
-Include this in worker tasks, e.g.: `--task "run tests and report results back via codeterm agent report"`
+**Worker behavior:** Check `$CODETERM_ROLE` and `$CODETERM_PARENT_PANE_ID` env vars. If you are a Worker or SubWorker:
+- You have a parent. Do NOT set yourself as conductor.
+- When done, report results directly: `codeterm agent report "your summary" --pane $CODETERM_PANE_ID`
+- Do NOT use files to communicate. Use `codeterm agent report` — it pushes your report directly into your parent's terminal.
+- Do NOT sleep/wait. Execute task, report, done.
 
-**Conductor receives reports automatically:** When a worker sends a report, it appears directly in the conductor's terminal as `[Report from Worker] message`. No polling needed — just wait for the text to appear. You can also read all reports with `codeterm agent reports`.
+**Conductor receives reports automatically:** Reports appear in your terminal as `[Report from Worker] message` — no polling needed. You can also read all with `codeterm agent reports`.
 
 **Cross-workspace spawn:** When creating a workspace and spawning an agent there, you MUST pass `--workspace <WS_ID>` explicitly, otherwise the agent lands in your current workspace:
 ```bash
