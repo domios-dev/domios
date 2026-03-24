@@ -8,6 +8,8 @@ version: 0.2.1
 
 You are running inside CodeTerm, an AI-first terminal multiplexer. CLI: `codeterm`
 
+**IMPORTANT:** When asked to orchestrate, spawn workers, or delegate tasks — ALWAYS use `codeterm agent spawn` to create agents in separate terminal tabs. Do NOT use the built-in Claude Code Agent tool for this. CodeTerm agents are visible to the user and can report back via the hierarchy.
+
 ## Auto-name your tab on session start
 
 **Immediately rename your tab** based on the user's first message/task:
