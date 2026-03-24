@@ -55,14 +55,18 @@ impl ServiceContext {
     // ── Event helpers (used by all sub-modules) ─────────────────────
 
     pub(crate) fn emit_state_changed(&self) {
-        let _ = self.app_handle.emit("mux-state-changed", ());
+        let handle = self.app_handle.clone();
+        std::thread::spawn(move || {
+            let _ = handle.emit("mux-state-changed", ());
+        });
     }
 
     pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {
-        let _ = self.app_handle.emit(
-            "pane-title-pinned",
-            serde_json::json!({"pane_id": pane_id, "title": title}),
-        );
+        let handle = self.app_handle.clone();
+        let payload = serde_json::json!({"pane_id": pane_id, "title": title});
+        std::thread::spawn(move || {
+            let _ = handle.emit("pane-title-pinned", payload);
+        });
     }
 
     pub(crate) fn kill_ptys(&self, pty_ids: &[String]) {

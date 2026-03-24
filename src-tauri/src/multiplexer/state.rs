@@ -84,23 +84,13 @@ impl MultiplexerState {
     // ── Workspace ops ────────────────────────────────────────────────
 
     pub fn create_workspace(&mut self, name: String) -> WorkspaceInfo {
-        let pane_id = self.create_pane();
-        let tab_id = short_id();
         let workspace_id = short_id();
-
-        let tab = Tab {
-            id: tab_id.clone(),
-            title: "Tab 1".to_string(),
-            split_tree: SplitNode::Leaf {
-                pane_id: pane_id.clone(),
-            },
-        };
 
         let workspace = Workspace {
             id: workspace_id.clone(),
             name: name.clone(),
-            tabs: vec![tab],
-            active_tab_id: Some(tab_id),
+            tabs: vec![],
+            active_tab_id: None,
         };
 
         self.workspaces.push(workspace);
@@ -1372,7 +1362,7 @@ mod tests {
         let ws1 = state.get_workspace(&ws1_id).unwrap();
         let ws2 = state.get_workspace(&ws2.id).unwrap();
         assert_eq!(ws1.tabs.len(), 1); // only first tab remains
-        assert_eq!(ws2.tabs.len(), 2); // original + moved
+        assert_eq!(ws2.tabs.len(), 1); // moved tab (workspace starts empty)
     }
 
     #[test]
