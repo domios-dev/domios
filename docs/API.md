@@ -85,7 +85,7 @@ Fields returned by `GET /api/panes` for each pane:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | `string` | Unique pane UUID |
+| `id` | `string` | Unique pane ID (8-char hex, e.g. `a3f1b2c7`) |
 | `pty_id` | `string` | Associated PTY process ID |
 | `pane_type` | `string` | `"Terminal"` or `"Browser"` (canvas for visualizations) |
 | `title` | `string` | Display title (user-pinned or auto-detected) |
@@ -132,7 +132,9 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 
 ### Agent Spawn (POST /api/agents/spawn)
 
-Creates a tab, assigns a role, launches an agent (claude/aider/any), and optionally sends a task. All in one request.
+Creates a **new tab** in the parent's workspace, assigns a role, launches an agent (claude/aider/any), and optionally sends a task. All in one request. The response returns immediately (non-blocking) -- PTY readiness detection and agent launch happen in a background thread.
+
+The hierarchy (Conductor -> Worker -> SubWorker) is a logical chain, not visual splits. Each agent gets its own tab. The `--force-tab` flag still exists in the API but is no longer meaningful (tab is always the default).
 
 **Request body:**
 ```json
@@ -142,19 +144,19 @@ Creates a tab, assigns a role, launches an agent (claude/aider/any), and optiona
   "title": "Worker-1",         // tab title (default: agent_name or agent command)
   "cwd": "C:/project",         // working directory
   "role": "Worker",            // Conductor, Worker, SubWorker
-  "parent_pane_id": "uuid",   // parent for Worker/SubWorker
+  "parent_pane_id": "a3f1b2c7", // parent for Worker/SubWorker (8-char hex ID)
   "can_spawn": true,           // allow spawning children
   "task": "analyze the code",  // baked into launch via -p flag (instant start)
   "args": ["--verbose"],       // extra agent args
-  "workspace_id": "uuid"      // optional, defaults to active workspace
+  "workspace_id": "b4e2c8d1"  // optional, defaults to active workspace
 }
 ```
 
 All fields are optional. `agent` defaults to `"claude"`. For Claude, `--dangerously-skip-permissions` is added automatically. When `task` is provided, it is passed via the `-p` flag so the agent starts working immediately (no delay). When `agent_name` is provided, it maps to `--agent <name>` which loads the agent definition from `.claude/agents/<name>.md`.
 
-**Response:**
+**Response** (returned immediately, before agent is fully started):
 ```json
-{"pane_id": "uuid", "tab_id": "uuid", "pty_id": "uuid", "agent": "claude", "title": "Worker-1", "role": "Worker"}
+{"pane_id": "a3f1b2c7", "tab_id": "d5e6f7a8", "pty_id": "c9d0e1f2", "agent": "claude", "title": "Worker-1", "role": "Worker"}
 ```
 
 ### Batch Commands (POST /api/batch)
@@ -337,7 +339,7 @@ Newline-delimited JSON:
 | `pane.list` | — | List panes |
 | `pane.focus` | `{pane_id}` | Focus pane |
 | `pane.close` | `{pane_id}` | Close pane |
-| `pane.send_text` | `{pane_id, text}` | Send text to PTY |
+| `pane.send_text` | `{pane_id, text, enter?}` | Send text to PTY (`enter` defaults to `true`, appends `\r`) |
 | `pane.get_output` | `{pane_id, max_bytes?}` | Read terminal output |
 | `pane.split` | `{pane_id, direction?}` | Split pane |
 | `pane.rename` | `{pane_id, title}` | Rename pane (pinned) |
@@ -369,8 +371,8 @@ codeterm pane current                           # Get current pane ID
 codeterm pane current --last                    # Get last pane ID
 codeterm pane focus ID                          # Focus pane
 codeterm pane close ID                          # Close pane
-codeterm pane split [--id ID] [--direction right|down]  # Split (default: current)
-codeterm pane rename "title" [--id ID]          # Rename tab (default: current)
+codeterm pane split [--id ID] [--pane ID] [--direction right|down]  # Split (default: current)
+codeterm pane rename "title" [--pane ID] [--id ID]  # Rename tab (default: current)
 
 # Terminal I/O
 codeterm send-text "command" [--pane ID]        # Send text (default: current)
@@ -402,10 +404,12 @@ codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
 codeterm agent report MESSAGE [--pane ID]      # Send report to parent conductor
 codeterm agent reports [--pane ID]             # Read reports (as conductor)
 codeterm agent status [--pane ID]              # Get detailed status + role
-codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--agent-name NAME] [--args A1 A2]
+codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--args A1 A2] [--force-tab]
                                                # One-call agent spawn (default agent: claude)
-                                               # --agent-name maps to .claude/agents/ file (e.g. "architect")
+                                               # Creates a new tab (not a split) — hierarchy is logical, not visual
                                                # --task is baked into launch via -p flag (instant start, no delay)
+                                               # Returns immediately (non-blocking); agent launch happens in background
+                                               # NOTE: --agent-name is only available via REST API, not CLI
 
 # Screenshot
 codeterm screenshot                            # Capture window, print JSON (data URL + dimensions)
@@ -436,8 +440,8 @@ Set automatically in every PTY spawned by CodeTerm:
 | `CODETERM` | `1` | Running inside CodeTerm |
 | `CODETERM_VERSION` | `0.1.0` | App version |
 | `CODETERM_SOCKET_PATH` | `\\.\pipe\codeterm-1234` | Socket path |
-| `CODETERM_PANE_ID` | `uuid` | Current pane ID |
-| `CODETERM_WORKSPACE_ID` | `uuid` | Current workspace ID |
+| `CODETERM_PANE_ID` | `a3f1b2c7` | Current pane ID (8-char hex) |
+| `CODETERM_WORKSPACE_ID` | `b4e2c8d1` | Current workspace ID (8-char hex) |
 | `TERM` | `xterm-256color` | Terminal type |
 | `COLORTERM` | `truecolor` | Color support |
 | `TERM_PROGRAM` | `CodeTerm` | Terminal name |
@@ -452,4 +456,4 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

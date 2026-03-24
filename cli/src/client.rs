@@ -124,12 +124,13 @@ pub fn discover_socket() -> Result<String, String> {
     }
 }
 
-/// Normalize a socket path: strip the \\.\pipe\ prefix on Windows if present,
-/// or return as-is on Unix.
+/// Normalize a socket path to the bare namespaced name that `GenericNamespaced` expects.
+///
+/// On Windows: strip `\\.\pipe\` prefix.
+/// On Unix: strip `/tmp/` prefix (GenericNamespaced adds it back automatically).
 fn normalize_socket_path(path: &str) -> String {
     #[cfg(target_os = "windows")]
     {
-        // Strip Windows named pipe prefix if present
         if let Some(name) = path.strip_prefix("\\\\.\\pipe\\") {
             return name.to_string();
         }
@@ -141,6 +142,10 @@ fn normalize_socket_path(path: &str) -> String {
 
     #[cfg(not(target_os = "windows"))]
     {
+        // GenericNamespaced on Unix prepends /tmp/, so strip it to avoid /tmp//tmp/
+        if let Some(name) = path.strip_prefix("/tmp/") {
+            return name.to_string();
+        }
         path.to_string()
     }
 }
@@ -174,28 +179,25 @@ fn discover_windows_pipe() -> Result<String, String> {
 fn discover_unix_socket() -> Result<String, String> {
     use std::fs;
 
-    // First: scan /tmp for codeterm-*.sock files (traditional Unix sockets)
+    // Scan /tmp for codeterm-*.sock files and return the bare name
+    // (GenericNamespaced will prepend /tmp/ when connecting)
     if let Ok(entries) = fs::read_dir("/tmp") {
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str() {
                 if name.starts_with("codeterm-") && name.ends_with(".sock") {
-                    return Ok(format!("/tmp/{}", name));
+                    return Ok(name.to_string());
                 }
             }
         }
     }
 
-    // Fallback: try connecting with GenericNamespaced using known PID patterns.
-    // interprocess may use abstract sockets or platform-specific paths.
-    // Try to find a running CodeTerm process and construct the socket name.
+    // Fallback: find running CodeTerm process and try connecting by PID
     if let Ok(output) = std::process::Command::new("pgrep").arg("-f").arg("codeterm").output() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             if let Ok(pid) = line.trim().parse::<u32>() {
-                let sock_name = format!("/tmp/codeterm-{}.sock", pid);
-                // Try to connect — if it works, we found it
-                let test_name = sock_name.clone();
-                let test = test_name
+                let sock_name = format!("codeterm-{}.sock", pid);
+                let test = sock_name.clone()
                     .to_ns_name::<GenericNamespaced>()
                     .ok()
                     .and_then(|name| {

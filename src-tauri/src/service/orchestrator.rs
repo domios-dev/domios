@@ -150,6 +150,8 @@ pub struct SpawnAgentParams {
     pub can_spawn: Option<bool>,
     pub task: Option<String>,
     pub workspace_id: Option<String>,
+    /// Force creation as a new tab instead of split pane (even with parent).
+    pub force_tab: Option<bool>,
 }
 
 impl SpawnAgentParams {
@@ -173,6 +175,7 @@ impl SpawnAgentParams {
             can_spawn: params.get("can_spawn").and_then(|v| v.as_bool()),
             task: json_str(params, "task"),
             workspace_id: json_str(params, "workspace_id"),
+            force_tab: params.get("force_tab").and_then(|v| v.as_bool()),
         })
     }
 }
@@ -193,14 +196,27 @@ impl ServiceContext {
             .or(params.agent_name.as_deref())
             .unwrap_or(agent_cmd);
 
-        // 1. Find workspace
-        let ws_id = params
-            .workspace_id
-            .clone()
-            .or_else(|| self.mux.lock().snapshot().active_workspace_id.clone())
-            .ok_or("No workspace found")?;
+        // 1. Find workspace — prefer parent's workspace, then explicit, then active, then first
+        let ws_id = if let Some(ref parent_id) = params.parent_pane_id {
+            self.mux.lock().find_workspace_for_pane(parent_id)
+                .or_else(|| params.workspace_id.clone())
+                .or_else(|| {
+                    let mux = self.mux.lock();
+                    mux.snapshot().active_workspace_id.clone()
+                        .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
+                })
+                .ok_or("No workspace found for parent pane")?
+        } else {
+            params.workspace_id.clone()
+                .or_else(|| {
+                    let mux = self.mux.lock();
+                    mux.snapshot().active_workspace_id.clone()
+                        .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
+                })
+                .ok_or("No workspace found")?
+        };
 
-        // 2. Create tab + pane, set cwd
+        // 2. Create new tab in the workspace (each agent gets its own tab)
         let (tab_id, pane_id) = {
             let mut mux = self.mux.lock();
             let result = mux.create_tab(&ws_id)?;
@@ -214,13 +230,7 @@ impl ServiceContext {
         };
         self.emit_state_changed();
 
-        // 3. Wait for PTY
-        let pty_id = self.wait_for_pty(&pane_id, 10).await?;
-
-        // 4. Rename tab
-        self.rename_pane(&pane_id, title)?;
-
-        // 5. Set role in hierarchy
+        // 3. Set role in hierarchy (before async wait — role is metadata)
         if let Some(ref role_str) = params.role {
             self.set_pane_role(
                 &pane_id,
@@ -230,26 +240,75 @@ impl ServiceContext {
             )?;
         }
 
-        // 6. Build launch command (without task for interactive mode)
+        // 4. Rename pane immediately (metadata only)
+        self.rename_pane(&pane_id, title)?;
+
+        // 5. Launch agent in background thread — don't block API runtime.
+        //    Uses std::thread to avoid saturating the Tokio worker pool.
         let launch_cmd = build_agent_command(agent_cmd, &params);
+        let is_claude = agent_cmd == "claude";
+        let svc = self.clone();
+        let bg_pane_id = pane_id.clone();
+        let bg_task = params.task.clone();
+        std::thread::spawn(move || {
+            // Wait for PTY (frontend creates it after mux-state-changed)
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            let pty_id = loop {
+                if std::time::Instant::now() > deadline {
+                    log::error!("spawn_agent: PTY wait timeout for {}", bg_pane_id);
+                    return;
+                }
+                if let Some(pid) = svc.mux.try_lock()
+                    .and_then(|m| m.get_pane(&bg_pane_id).and_then(|p| p.pty_id.clone()))
+                {
+                    break pid;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            };
 
-        // 7. Wait for shell prompt (30s — accounts for slow shell init).
-        //    If timeout, command queues in PTY input buffer.
-        self.wait_for_shell_prompt(&pty_id, 30).await;
-        self.pty
-            .lock()
-            .write(&pty_id, format!("{}\r", launch_cmd).as_bytes())
-            .map_err(|e| e.to_string())?;
+            // Wait for shell prompt (poll output buffer with try_lock to avoid blocking others)
+            let prompt_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            loop {
+                if std::time::Instant::now() > prompt_deadline {
+                    log::warn!("spawn_agent: shell prompt wait timeout for {}", bg_pane_id);
+                    break;
+                }
+                let ready = svc.output_buf.try_lock()
+                    .and_then(|buf| {
+                        buf.get_text(&pty_id).map(|t| {
+                            t.contains("PS ") || t.contains("> ")
+                                || t.contains("$ ") || t.contains("% ")
+                        })
+                    })
+                    .unwrap_or(false);
+                if ready { break; }
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
 
-        // 8. If task provided, poll for agent readiness, then send interactively
-        if let Some(ref task_text) = params.task {
-            self.spawn_task_sender(pty_id.clone(), task_text.clone());
-        }
+            // Send launch command
+            if let Err(e) = svc.pty.lock().write(&pty_id, format!("{}\r", launch_cmd).as_bytes()) {
+                log::error!("spawn_agent: failed to write launch cmd: {}", e);
+                return;
+            }
+
+            // If task provided:
+            // - Claude agents: poll for readiness markers, then send interactively
+            // - Other agents: send task directly after short delay
+            if let Some(ref task_text) = bg_task {
+                if is_claude {
+                    svc.spawn_task_sender(pty_id, task_text.clone());
+                } else {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    let _ = svc.pty.lock().write(&pty_id, format!("{}\r", task_text).as_bytes());
+                    log::info!("spawn_agent: task sent directly to non-claude agent {}", pty_id);
+                }
+            }
+        });
 
         Ok(SpawnResult {
             pane_id,
             tab_id,
-            pty_id,
+            pty_id: String::new(), // PTY not yet assigned — happens async
             agent: agent_cmd.to_string(),
             title: title.to_string(),
             role: params.role,
@@ -320,6 +379,7 @@ mod tests {
             parent_pane_id: None,
             can_spawn: None,
             workspace_id: None,
+            force_tab: None,
         }
     }
 

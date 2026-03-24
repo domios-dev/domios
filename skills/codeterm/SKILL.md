@@ -19,7 +19,13 @@ codeterm pane rename "fix login bug"
 
 Commands default to the **current focused pane** when no ID is given.
 
-**Important:** `pane split` does NOT move focus to the new pane. Use `pane current --last` to get the ID of the newly created pane.
+**Environment variables** (available in every CodeTerm pane):
+- `$CODETERM_PANE_ID` — this pane's unique ID, 8-char hex (e.g. `a3f1b2c7`). Use for `--pane` args, agent hierarchy.
+- `$CODETERM_SOCKET_PATH` — socket path for CLI communication
+- `$CODETERM` — always `1` when running inside CodeTerm
+- `$TERM_PROGRAM` — always `CodeTerm`
+
+**Important:** `pane split` does NOT move focus to the new pane. Use `pane current --last` to get the ID of the newly created pane. Use `$CODETERM_PANE_ID` instead of `pane current` when you need your own pane ID.
 
 ```
 codeterm pane list                              # List panes
@@ -28,7 +34,8 @@ codeterm pane current --last                    # Get last created pane ID
 codeterm pane split                             # Split current pane right
 codeterm pane split --direction down            # Split current pane down
 codeterm pane split --id PANE_ID                # Split specific pane
-codeterm pane rename "title"                    # Rename current tab
+codeterm pane rename "title"                    # Rename current pane tab
+codeterm pane rename "title" --pane PANE_ID     # Rename specific pane
 codeterm pane focus PANE_ID                     # Focus pane
 codeterm pane close PANE_ID                     # Close pane
 codeterm send-text "command"                    # Send to current pane
@@ -114,30 +121,35 @@ codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
 codeterm agent report MESSAGE [--pane ID]      # Send report to parent
 codeterm agent reports [--pane ID]             # Read reports (as conductor)
 codeterm agent status [--pane ID]              # Detailed status + role
-codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--agent-name NAME] [--args A1 A2]
-                                               # One-call agent spawn (task uses -p flag, instant start)
+codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--force-tab] [--args A1 A2]
+                                               # One-call: create tab, set role, launch agent, send task (non-blocking)
 ```
 
 ### Orchestrator pattern (using agent spawn)
 ```bash
-# 1. Mark self as conductor
-codeterm agent set-conductor
+# 1. Mark self as conductor (uses $CODETERM_PANE_ID — your pane's ID, set automatically)
+codeterm agent set-conductor --pane $CODETERM_PANE_ID
 
-# 2. Spawn workers (one-call: creates tab, sets role, launches agent, sends task via -p flag)
-SELF=$(codeterm pane current)
-codeterm agent spawn claude --title "Worker-1" --role Worker --parent $SELF --cwd /project --task "run tests"
-codeterm agent spawn claude --title "Worker-2" --role Worker --parent $SELF --cwd /project --task "lint code"
+# 2. Spawn workers — each gets its own tab in your workspace, linked in hierarchy chain
+codeterm agent spawn claude --title "Worker-1" --role Worker --parent $CODETERM_PANE_ID --cwd /project --task "run tests"
+codeterm agent spawn claude --title "Worker-2" --role Worker --parent $CODETERM_PANE_ID --cwd /project --task "lint code"
 
 # 3. Spawn with a specific agent definition from .claude/agents/
-codeterm agent spawn claude --title "Architect" --role Worker --parent $SELF --cwd /project --agent-name architect --task "review architecture"
+codeterm agent spawn claude --title "Architect" --role Worker --parent $CODETERM_PANE_ID --cwd /project --agent-name architect --task "review architecture"
 
-# 4. Read reports from workers
+# 4. Allow a worker to spawn sub-workers (3-level depth)
+codeterm agent allow-spawn --pane <WORKER_PANE_ID>
+codeterm agent spawn claude --title "SubWorker" --role SubWorker --parent <WORKER_PANE_ID> --task "subtask"
+
+# 5. Read reports from workers
 codeterm agent reports
 ```
 
+**Hierarchy rules:** Conductor (depth 1) -> Worker (depth 2) -> SubWorker (depth 3, max). Use `--role SubWorker` when spawning under a Worker. Workers need `allow-spawn` before they can spawn SubWorkers. Each agent gets its own tab; the hierarchy is a logical chain, not visual splits. IDs are 8-char hex (e.g. `a3f1b2c7`). `--agent-name` (for `.claude/agents/` files) is only available via REST API, not CLI.
+
 ### Orchestrator pattern (batch API — REST and Tauri IPC)
 ```bash
-# Spawn entire hierarchy in one call (tasks use -p flag, instant start)
+# Spawn entire hierarchy in one call
 # Available via POST /api/batch (REST) or mux_batch Tauri command — identical semantics
 curl -X POST http://localhost:7685/api/batch \
   -H "Content-Type: application/json" \
@@ -157,12 +169,12 @@ Use `$id` to reference results from earlier commands (resolves to pane_id).
 ### Orchestrator pattern (manual — split + link)
 ```bash
 # 1. Mark self as conductor
-codeterm agent set-conductor
+codeterm agent set-conductor --pane $CODETERM_PANE_ID
 
 # 2. Split and assign workers
 codeterm pane split
 WORKER=$(codeterm pane current --last)
-codeterm agent link --parent $(codeterm pane current) --pane $WORKER
+codeterm agent link --parent $CODETERM_PANE_ID --pane $WORKER
 
 # 3. Send work to worker pane
 codeterm send-text "npm test" --pane $WORKER
@@ -251,4 +263,4 @@ codeterm capabilities    # All API methods
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

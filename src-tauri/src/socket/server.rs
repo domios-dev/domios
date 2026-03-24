@@ -65,22 +65,20 @@ impl JsonRpcResponse {
 
 // ── Socket path ─────────────────────────────────────────────────────
 
-/// Get the socket path for the current process.
+/// Get the namespaced socket name for the current process.
+///
+/// `GenericNamespaced` on Unix prepends `/tmp/` automatically,
+/// so we only provide the bare name here.
 pub fn socket_path() -> String {
     let pid = std::process::id();
-
-    #[cfg(target_os = "windows")]
-    {
-        format!("codeterm-{}", pid)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        format!("/tmp/codeterm-{}.sock", pid)
-    }
+    format!("codeterm-{}.sock", pid)
 }
 
-/// Get the full display path (for env var).
+/// Get the full display path (for env var / user display).
+///
+/// On Unix, `GenericNamespaced` places the socket at `/tmp/<name>`,
+/// so the display path is `/tmp/codeterm-{pid}.sock`.
+/// On Windows, it's `\\.\pipe\codeterm-{pid}`.
 pub fn socket_display_path() -> String {
     let pid = std::process::id();
 
@@ -247,7 +245,17 @@ fn dispatch(
                     "browser.open",
                     "notification.create",
                     "notification.list",
-                    "notification.clear"
+                    "notification.clear",
+                    "agent.list",
+                    "agent.hierarchy",
+                    "agent.spawn",
+                    "agent.set_role",
+                    "agent.clear_role",
+                    "agent.status",
+                    "agent.children",
+                    "agent.link",
+                    "agent.report",
+                    "agent.reports"
                 ]
             }))
         }
@@ -391,6 +399,11 @@ fn dispatch(
         "pane.send_text" => {
             let id = get_string_param(&params, "pane_id")?;
             let text = get_string_param(&params, "text")?;
+            let enter = params
+                .as_ref()
+                .and_then(|p| p.get("enter"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
 
             // Find the PTY ID for this pane
             let pty_id = {
@@ -403,8 +416,15 @@ fn dispatch(
                     })?
             };
 
+            // Append \r (Enter) unless explicitly disabled or text already ends with \r
+            let data = if enter && !text.ends_with('\r') {
+                format!("{}\r", text)
+            } else {
+                text
+            };
+
             let mut pty_mgr = _pty.lock();
-            pty_mgr.write(&pty_id, text.as_bytes()).map_err(|e| JsonRpcError {
+            pty_mgr.write(&pty_id, data.as_bytes()).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
             })?;

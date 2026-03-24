@@ -38,6 +38,9 @@ pub fn run() {
 
     log::info!("CodeTerm starting...");
 
+    // Write shell integration scripts (OSC 7 CWD tracking)
+    pty::shell_integration::ensure_scripts();
+
     // Load configuration
     let app_config = config::load_config();
     log::info!("Config loaded: theme={}", app_config.theme.name);
@@ -224,7 +227,8 @@ pub fn run() {
                     let host = api_config.host.clone();
                     let port = api_config.port;
                     std::thread::spawn(move || {
-                        let rt = tokio::runtime::Builder::new_current_thread()
+                        let rt = tokio::runtime::Builder::new_multi_thread()
+                            .worker_threads(2)
                             .enable_all()
                             .build()
                             .expect("Failed to create Tokio runtime for REST API");

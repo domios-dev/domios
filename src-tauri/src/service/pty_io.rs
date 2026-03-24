@@ -150,8 +150,8 @@ impl ServiceContext {
                     log::warn!("spawn_task_sender: timeout waiting for agent readiness ({})", pty_id);
                     break;
                 }
-                {
-                    let buf = ob.lock();
+                // Use try_lock to avoid blocking other threads that need output_buf
+                if let Some(buf) = ob.try_lock() {
                     if let Some(data) = buf.get_text(&pty_id) {
                         let cur_len = data.len();
                         // Only check when new output arrives
@@ -164,7 +164,6 @@ impl ServiceContext {
                             };
                             // Claude Code readiness markers (any of these means prompt is active)
                             if is_claude_ready(tail) {
-                                // Small delay to ensure UI is fully rendered
                                 drop(buf);
                                 std::thread::sleep(std::time::Duration::from_millis(300));
                                 let _ = pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
@@ -174,7 +173,7 @@ impl ServiceContext {
                         }
                     }
                 }
-                std::thread::sleep(std::time::Duration::from_millis(250));
+                std::thread::sleep(std::time::Duration::from_millis(500));
             }
         });
     }

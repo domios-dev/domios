@@ -24,20 +24,20 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 
 ## How it works
 
-Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in CodeTerm (via `CODETERM=1` env var), it can use the `codeterm` CLI to:
+Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in CodeTerm (via `$CODETERM=1` env var and `$CODETERM_PANE_ID` for self-identification), it can use the `codeterm` CLI to:
 
 1. **Split panes**: `codeterm pane split` (splits current pane)
 2. **Send commands**: `codeterm send-text "npm test"` (sends to current pane, newline appended automatically)
 3. **Send notifications**: `codeterm notify "Done" --level info`
 4. **Create workspaces**: `codeterm workspace create "Feature X"`
 5. **Read output**: `codeterm get-output` (reads from current pane)
-6. **Rename tab**: `codeterm pane rename "my task"` (renames current tab)
+6. **Rename tab**: `codeterm pane rename "my task"` or `codeterm pane rename "my task" --pane ID`
 7. **Create theme**: `codeterm theme save my-theme /tmp/theme.toml --apply`
 8. **Agent hierarchy**: `codeterm agent set-conductor` (mark self as conductor)
 9. **Send report**: `codeterm agent report "task done"` (report to parent conductor)
 10. **List hierarchy**: `codeterm agent hierarchy` (show full agent tree)
-11. **Spawn agent**: `codeterm agent spawn claude --title "Worker" --role Worker --parent ID --task "do work"` (one-call agent spawn, task uses `-p` flag for instant start)
-12. **Spawn with agent definition**: `codeterm agent spawn claude --agent-name architect --task "review"` (loads `.claude/agents/architect.md`)
+11. **Spawn agent**: `codeterm agent spawn claude --title "Worker" --role Worker --parent ID --task "do work"` (creates new tab, non-blocking, task uses `-p` flag for instant start)
+12. **Spawn with agent definition**: via REST API `POST /api/agents/spawn` with `agent_name` field (loads `.claude/agents/<name>.md`; not available in CLI)
 
 ## Screenshots for Debugging
 
@@ -84,10 +84,10 @@ curl -X POST http://localhost:7685/api/workspaces \
 # Create tab
 curl -X POST http://localhost:7685/api/workspaces/$WS_ID/tabs
 
-# Send command
+# Send command (enter: true is default, appends \r automatically)
 curl -X POST http://localhost:7685/api/panes/$PANE_ID/send \
   -H "Content-Type: application/json" \
-  -d '{"text":"npm run build\r\n"}'
+  -d '{"text":"npm run build"}'
 
 # Read output
 curl http://localhost:7685/api/panes/$PANE_ID/output
@@ -100,16 +100,16 @@ curl -X POST http://localhost:7685/api/notifications \
 
 ## Agent Hierarchy
 
-CodeTerm supports a 3-level agent hierarchy: Conductor (depth 1) -> Worker (depth 2) -> SubWorker (depth 3).
+CodeTerm supports a 3-level agent hierarchy: Conductor (depth 1) -> Worker (depth 2) -> SubWorker (depth 3). Each agent gets its own tab; the hierarchy is a logical chain, not visual splits. IDs are 8-char hex (e.g. `a3f1b2c7`).
 
 ```bash
-# Mark current pane as conductor
-codeterm agent set-conductor
+# Mark current pane as conductor (use $CODETERM_PANE_ID for self-identification)
+codeterm agent set-conductor --pane $CODETERM_PANE_ID
 
 # Split a pane and link it as a worker
 codeterm pane split
 WORKER=$(codeterm pane current --last)
-codeterm agent link --parent $CONDUCTOR_ID --pane $WORKER
+codeterm agent link --parent $CODETERM_PANE_ID --pane $WORKER
 
 # Worker sends report to its conductor
 codeterm agent report "build passed" --pane $WORKER
@@ -137,22 +137,23 @@ The `agent.report` webhook event fires when workers send reports, enabling async
 
 ### One-call agent spawn
 
-The `task` field is baked into the launch command via the `-p` flag, so the agent starts working immediately with no delay.
+The `task` field is baked into the launch command via the `-p` flag, so the agent starts working immediately with no delay. Spawn returns immediately (non-blocking) -- PTY readiness and agent launch happen in a background thread. Each spawned agent gets its own tab.
 
 ```bash
 # Spawn a Claude worker linked to a conductor
-codeterm agent spawn claude --title "Worker-1" --role Worker --parent $CONDUCTOR_ID --cwd /project --task "run tests"
-
-# Spawn with a specific agent definition from .claude/agents/
-codeterm agent spawn claude --title "Architect" --role Worker --parent $CONDUCTOR_ID --agent-name architect --task "review architecture"
+codeterm agent spawn claude --title "Worker-1" --role Worker --parent $CODETERM_PANE_ID --cwd /project --task "run tests"
 
 # Spawn defaults to claude if no agent specified
-codeterm agent spawn --title "Helper" --role Worker --parent $CONDUCTOR_ID
+codeterm agent spawn --title "Helper" --role Worker --parent $CODETERM_PANE_ID
+
+# Workers need allow-spawn before spawning SubWorkers
+codeterm agent allow-spawn --pane <WORKER_PANE_ID>
+codeterm agent spawn claude --title "Sub" --role SubWorker --parent <WORKER_PANE_ID> --task "subtask"
 ```
 
 Returns: pane_id, tab_id, pty_id, agent, title, role.
 
-The `--agent-name` flag maps to `--agent <name>` in the Claude CLI, loading the agent definition from `.claude/agents/<name>.md`.
+The `--agent-name` option (for loading `.claude/agents/<name>.md`) is only available via the REST API (`POST /api/agents/spawn`), not the CLI.
 
 ### Batch API (REST and Tauri IPC)
 
@@ -180,4 +181,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`, so context is preserved across restarts.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

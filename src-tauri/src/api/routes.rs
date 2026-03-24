@@ -817,6 +817,8 @@ struct SpawnAgentBody {
     task: Option<String>,
     /// Workspace ID (default: active workspace)
     workspace_id: Option<String>,
+    /// Force creation as a new tab instead of split pane (even with parent)
+    force_tab: Option<bool>,
 }
 
 async fn spawn_agent(
@@ -836,6 +838,7 @@ async fn spawn_agent(
         can_spawn: body.can_spawn,
         task: body.task,
         workspace_id: body.workspace_id,
+        force_tab: body.force_tab,
     };
     let result = state.svc.spawn_agent(params).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;

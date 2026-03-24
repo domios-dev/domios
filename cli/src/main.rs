@@ -3,6 +3,39 @@ mod client;
 use clap::{Parser, Subcommand};
 use client::{discover_socket, SocketClient};
 
+/// Read API config (host, port, token) from CodeTerm config.toml
+fn read_api_config() -> (String, Option<String>) {
+    let config_dir = dirs::config_dir().unwrap_or_default().join("codeterm");
+    let config_path = config_dir.join("config.toml");
+    if let Ok(content) = std::fs::read_to_string(&config_path) {
+        if let Ok(val) = content.parse::<toml::Table>() {
+            if let Some(api) = val.get("api").and_then(|v| v.as_table()) {
+                let raw_host = api.get("host").and_then(|v| v.as_str()).unwrap_or("127.0.0.1");
+                // 0.0.0.0 means "listen on all interfaces" — for connecting, use localhost
+                let host = if raw_host == "0.0.0.0" { "127.0.0.1" } else { raw_host };
+                let port = api.get("port").and_then(|v| v.as_integer()).unwrap_or(7685);
+                let token = api.get("token").and_then(|v| v.as_str()).map(|s| s.to_string());
+                return (format!("http://{}:{}", host, port), token);
+            }
+        }
+    }
+    ("http://127.0.0.1:7685".to_string(), None)
+}
+
+/// Build HTTP client with optional auth header
+fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
+    let mut headers = reqwest::header::HeaderMap::new();
+    if let Some(t) = token {
+        if let Ok(val) = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", t)) {
+            headers.insert(reqwest::header::AUTHORIZATION, val);
+        }
+    }
+    reqwest::blocking::Client::builder()
+        .default_headers(headers)
+        .build()
+        .unwrap_or_else(|_| reqwest::blocking::Client::new())
+}
+
 #[derive(Parser)]
 #[command(name = "codeterm", version, about = "CodeTerm CLI — control your terminal multiplexer")]
 struct Cli {
@@ -171,7 +204,7 @@ enum PaneAction {
     /// Split a pane (default: current pane)
     Split {
         /// Pane ID to split (default: current focused pane)
-        #[arg(long)]
+        #[arg(long, alias = "pane")]
         id: Option<String>,
         /// Split direction: right or down
         #[arg(long, default_value = "right")]
@@ -182,8 +215,8 @@ enum PaneAction {
         /// New title
         title: String,
         /// Pane ID to rename (default: current focused pane)
-        #[arg(long)]
-        id: Option<String>,
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
     },
 }
 
@@ -295,7 +328,7 @@ enum AgentAction {
         #[arg(long)]
         pane: Option<String>,
     },
-    /// Spawn a new agent (creates tab, sets role, launches agent, sends task)
+    /// Spawn a new agent (creates split pane under parent, or new tab if --force-tab)
     Spawn {
         /// Agent to run: claude, aider, goose, or any command
         #[arg(default_value = "claude")]
@@ -321,6 +354,9 @@ enum AgentAction {
         /// Extra args for the agent
         #[arg(long, num_args = 1..)]
         args: Option<Vec<String>>,
+        /// Force creation as new tab instead of split pane
+        #[arg(long)]
+        force_tab: bool,
     },
 }
 
@@ -456,8 +492,8 @@ fn main() {
                     Some(serde_json::json!({ "pane_id": pane_id, "direction": direction })),
                 )
             }
-            PaneAction::Rename { id, title } => {
-                let pane_id = resolve_pane(&mut client, id);
+            PaneAction::Rename { pane, title } => {
+                let pane_id = resolve_pane(&mut client, pane);
                 client.call(
                     "pane.rename",
                     Some(serde_json::json!({ "pane_id": pane_id, "title": title })),
@@ -514,8 +550,8 @@ fn main() {
         },
 
         Commands::Agent { action } => {
-            let base = "http://127.0.0.1:7685";
-            let http = reqwest::blocking::Client::new();
+            let (base, token) = read_api_config();
+            let http = build_http(&token);
             match action {
                 AgentAction::List => {
                     match http.get(format!("{}/api/agents", base)).send() {
@@ -681,7 +717,7 @@ fn main() {
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
                 }
-                AgentAction::Spawn { agent, title, cwd, role, parent, can_spawn, task, args } => {
+                AgentAction::Spawn { agent, title, cwd, role, parent, can_spawn, task, args, force_tab } => {
                     let mut body = serde_json::json!({
                         "agent": agent,
                     });
@@ -692,6 +728,7 @@ fn main() {
                     if can_spawn { body["can_spawn"] = serde_json::json!(true); }
                     if let Some(t) = task { body["task"] = serde_json::json!(t); }
                     if let Some(a) = args { body["args"] = serde_json::json!(a); }
+                    if force_tab { body["force_tab"] = serde_json::json!(true); }
                     match http.post(format!("{}/api/agents/spawn", base))
                         .json(&body)
                         .send()
