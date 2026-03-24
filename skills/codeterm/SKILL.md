@@ -142,8 +142,26 @@ codeterm agent spawn claude --title "SubWorker" --role SubWorker --parent <WORKE
 WS=$(codeterm workspace create "Other Project" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
 codeterm agent spawn claude --title "Agent" --role Conductor --workspace $WS --cwd /other/project --task "analyze code"
 
-# 6. Read reports from workers
+# 6. Read reports from workers (poll until you get them)
 codeterm agent reports
+```
+
+**Worker reporting:** When you are spawned as a Worker, always report results back when done:
+```bash
+codeterm agent report "summary of what you did and results" --pane $CODETERM_PANE_ID
+```
+Include this in worker tasks, e.g.: `--task "run tests and report results back via codeterm agent report"`
+
+**Conductor polling:** After spawning workers, poll for reports:
+```bash
+# Wait for workers to finish and report back
+sleep 30 && codeterm agent reports
+```
+
+**Cross-workspace spawn:** When creating a workspace and spawning an agent there, you MUST pass `--workspace <WS_ID>` explicitly, otherwise the agent lands in your current workspace:
+```bash
+WS=$(codeterm workspace create "Name" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+codeterm agent spawn claude --title "Agent" --workspace $WS --task "do something"
 ```
 
 **Hierarchy rules:** Conductor (depth 1) -> Worker (depth 2) -> SubWorker (depth 3, max). Use `--role SubWorker` when spawning under a Worker. Workers need `allow-spawn` before they can spawn SubWorkers. Each agent gets its own tab; the hierarchy is a logical chain, not visual splits. IDs are 8-char hex (e.g. `a3f1b2c7`). `--agent-name` (for `.claude/agents/` files) is only available via REST API, not CLI.
