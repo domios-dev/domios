@@ -152,11 +152,7 @@ codeterm agent report "summary of what you did and results" --pane $CODETERM_PAN
 ```
 Include this in worker tasks, e.g.: `--task "run tests and report results back via codeterm agent report"`
 
-**Conductor polling:** After spawning workers, poll for reports:
-```bash
-# Wait for workers to finish and report back
-sleep 30 && codeterm agent reports
-```
+**Conductor receives reports automatically:** When a worker sends a report, it appears directly in the conductor's terminal as `[Report from Worker] message`. No polling needed — just wait for the text to appear. You can also read all reports with `codeterm agent reports`.
 
 **Cross-workspace spawn:** When creating a workspace and spawning an agent there, you MUST pass `--workspace <WS_ID>` explicitly, otherwise the agent lands in your current workspace:
 ```bash

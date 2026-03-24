@@ -71,6 +71,18 @@ impl ServiceContext {
             }),
         );
 
+        // Auto-notify conductor: send report summary as text into conductor's PTY.
+        // This way Claude in the conductor pane sees the report immediately (push, not poll).
+        {
+            let notify_msg = format!(
+                "\n[Report from {}] {}\n",
+                from_title, message
+            );
+            if let Ok(pty_id) = self.resolve_pty_id(&conductor_id) {
+                let _ = self.pty.lock().write(&pty_id, notify_msg.as_bytes());
+            }
+        }
+
         Ok(ReportResult {
             report_id: report.id,
             conductor_pane_id: conductor_id,
