@@ -33,6 +33,16 @@ pub enum SplitNode {
 }
 
 impl SplitNode {
+    /// Check if this subtree contains a pane with the given ID.
+    pub fn contains_pane(&self, target_pane_id: &str) -> bool {
+        match self {
+            SplitNode::Leaf { pane_id } => pane_id == target_pane_id,
+            SplitNode::Split { children, .. } => {
+                children.iter().any(|c| c.contains_pane(target_pane_id))
+            }
+        }
+    }
+
     /// Collect all pane IDs in this subtree.
     pub fn collect_pane_ids(&self) -> Vec<String> {
         match self {

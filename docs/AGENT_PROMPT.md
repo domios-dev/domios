@@ -28,8 +28,15 @@ Integration:
 - GET  /api/network — connection info (local IP, Tailscale IP)
 Webhook events: agent.permission_request, agent.task_complete, agent.report
 
+Environment variables (available in every CodeTerm PTY):
+- `$CODETERM` — always `1` inside CodeTerm
+- `$CODETERM_PANE_ID` — this pane's unique ID (8-char hex, e.g. `a3f1b2c7`). Use for `--pane` args and agent hierarchy. Prefer over `$(codeterm pane current)`.
+- `$CODETERM_SOCKET_PATH` — socket path for CLI communication
+- `$TERM_PROGRAM` — always `CodeTerm`
+
 Pane fields:
-- `cwd` — current working directory (tracked via OSC 7)
+- `id` — unique pane ID (8-char hex, e.g. `a3f1b2c7`)
+- `cwd` — current working directory (tracked via invisible OSC 7 shell integration)
 - `agent_type` — `"claude"` when Claude Code is detected in the pane
 - `claude_session_id` — session ID for resume (see below)
 - `role` — `"Conductor"`, `"Worker"`, `"SubWorker"`, or null
@@ -55,15 +62,16 @@ Workflow: create workspace → create tab → exec commands → monitor output v
 Orchestrator workflow:
 - For fire-and-forget commands: use `/exec` with `strip_ansi: true` to run a command and get clean output.
 - For interactive TUI (e.g. Claude Code): use `/screen` to read what's currently visible on the terminal, `/send` to type input.
-  - `enter: true` auto-appends Enter keystroke (no need to add `\r` manually).
+  - `enter: true` (default) auto-appends `\r` (Enter keystroke). Set `enter: false` to disable.
   - `batch` sends sequential commands with delays: `[{text, enter, delay_ms}]`.
   - Prefer agent spawn over manual launch — it handles `-p` flag, `--dangerously-skip-permissions`, and `--agent` automatically.
 - For async tasks: register a one-shot webhook with `once: true` and `pane_id` to get notified when a specific pane's task completes. The webhook fires once and auto-deletes — like a Promise. Prefer this over polling with timeout.
 
 Agent spawn (one-call):
 - POST /api/agents/spawn {agent?, agent_name?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?}
-- Creates tab, assigns role, launches agent, optionally sends task. All in one request.
-- Returns {pane_id, tab_id, pty_id, agent, title, role}.
+- Creates a **new tab** (not a split) in the parent's workspace, assigns role, launches agent, optionally sends task. All in one request.
+- Returns immediately (non-blocking) with {pane_id, tab_id, pty_id, agent, title, role}. PTY readiness and agent launch happen in a background thread.
+- The hierarchy (Conductor -> Worker -> SubWorker) is a logical chain, not visual splits.
 - `agent` defaults to "claude". For Claude, `--dangerously-skip-permissions` is added automatically.
 - `agent_name` maps to `.claude/agents/` files (e.g. `"architect"` adds `--agent architect`).
 - `task` is baked into the launch command via `-p` flag — agent starts working immediately, no delay.
@@ -91,6 +99,8 @@ Batch commands (POST /api/batch or Tauri `mux_batch` command):
 Orchestrator with hierarchy:
 - Conductor (depth 1) creates workers via POST /api/agents/spawn, POST /api/batch, or Tauri `mux_batch` command.
 - Workers (depth 2) can create sub-workers (depth 3) if `can_spawn` is true. Max depth is 3 levels.
+- Workers need `allow-spawn` before spawning SubWorkers. Use `--role SubWorker` when spawning under a Worker.
+- Use `$CODETERM_PANE_ID` for self-identification instead of `$(codeterm pane current)`.
 - Workers report progress to their conductor via POST /api/panes/:id/report {message}.
 - Conductor polls reports via GET /api/panes/:id/reports?clear=true.
 - The `agent.report` webhook event fires when any worker sends a report.
@@ -98,4 +108,4 @@ Orchestrator with hierarchy:
 - Closing a pane cascade-closes all children (tabs + PTYs killed recursively).
 - Clearing a role (DELETE /api/panes/:id/role) orphans children — they keep their role but lose parent linkage.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

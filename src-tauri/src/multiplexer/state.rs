@@ -5,6 +5,13 @@ use uuid::Uuid;
 
 use super::types::{AgentRole, Orientation, Pane, PaneType, SplitNode, Tab, Workspace};
 
+/// Generate a short 8-char hex ID (from UUID v4).
+fn short_id() -> String {
+    let uuid = Uuid::new_v4();
+    let bytes = uuid.as_bytes();
+    format!("{:02x}{:02x}{:02x}{:02x}", bytes[0], bytes[1], bytes[2], bytes[3])
+}
+
 /// Lightweight workspace summary for listing.
 #[derive(Debug, Clone, Serialize)]
 pub struct WorkspaceInfo {
@@ -26,9 +33,9 @@ impl MultiplexerState {
     /// Create a new state with a default "Main" workspace, one tab, and one pane.
     /// Returns (state, initial_pane_id).
     pub fn new() -> (Self, String) {
-        let pane_id = Uuid::new_v4().to_string();
-        let tab_id = Uuid::new_v4().to_string();
-        let workspace_id = Uuid::new_v4().to_string();
+        let pane_id = short_id();
+        let tab_id = short_id();
+        let workspace_id = short_id();
 
         let pane = Pane {
             id: pane_id.clone(),
@@ -78,8 +85,8 @@ impl MultiplexerState {
 
     pub fn create_workspace(&mut self, name: String) -> WorkspaceInfo {
         let pane_id = self.create_pane();
-        let tab_id = Uuid::new_v4().to_string();
-        let workspace_id = Uuid::new_v4().to_string();
+        let tab_id = short_id();
+        let workspace_id = short_id();
 
         let tab = Tab {
             id: tab_id.clone(),
@@ -235,7 +242,7 @@ impl MultiplexerState {
     /// Create a new tab in the given workspace. Returns (tab_id, new_pane_id).
     pub fn create_tab(&mut self, workspace_id: &str) -> Result<(String, String), String> {
         let pane_id = self.create_pane();
-        let tab_id = Uuid::new_v4().to_string();
+        let tab_id = short_id();
 
         let tab_number = {
             let ws = self
@@ -333,7 +340,7 @@ impl MultiplexerState {
 
     /// Create a new terminal pane and register it. Returns the pane ID.
     pub fn create_pane(&mut self) -> String {
-        let pane_id = Uuid::new_v4().to_string();
+        let pane_id = short_id();
         let pane = Pane {
             id: pane_id.clone(),
             pty_id: None,
@@ -355,7 +362,7 @@ impl MultiplexerState {
 
     /// Create a new browser pane and register it. Returns the pane ID.
     pub fn create_browser_pane(&mut self, url: Option<String>) -> String {
-        let pane_id = Uuid::new_v4().to_string();
+        let pane_id = short_id();
         let pane = Pane {
             id: pane_id.clone(),
             pty_id: None,
@@ -396,7 +403,7 @@ impl MultiplexerState {
         let ws_id = self.active_workspace_id.clone()
             .ok_or_else(|| "No active workspace".to_string())?;
 
-        let tab_id = Uuid::new_v4().to_string();
+        let tab_id = short_id();
         let tab = Tab {
             id: tab_id.clone(),
             title: "Browser".to_string(),
@@ -456,6 +463,30 @@ impl MultiplexerState {
             }
         }
         Ok(())
+    }
+
+    /// Find which workspace contains a given pane.
+    pub fn find_workspace_for_pane(&self, pane_id: &str) -> Option<String> {
+        for ws in &self.workspaces {
+            for tab in &ws.tabs {
+                if tab.split_tree.contains_pane(pane_id) {
+                    return Some(ws.id.clone());
+                }
+            }
+        }
+        None
+    }
+
+    /// Find which tab contains a given pane.
+    pub fn find_tab_for_pane(&self, pane_id: &str) -> Option<String> {
+        for ws in &self.workspaces {
+            for tab in &ws.tabs {
+                if tab.split_tree.contains_pane(pane_id) {
+                    return Some(tab.id.clone());
+                }
+            }
+        }
+        None
     }
 
     // ── Split ops ────────────────────────────────────────────────────

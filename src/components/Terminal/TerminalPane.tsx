@@ -730,44 +730,23 @@ export function TerminalPane({
           }
         }
 
-        // Inject OSC 7 CWD reporting into shell prompt
-        // Windows PowerShell needs explicit injection; macOS/Linux shells usually emit OSC 7 natively
+        // OSC 7 CWD tracking is now handled invisibly via env vars at PTY spawn
+        // (shell_integration.rs sets ZDOTDIR for zsh, PROMPT_COMMAND for bash).
+        // Windows PowerShell still needs prompt injection after spawn.
         if (navigator.platform.startsWith("Win")) {
           setTimeout(() => {
-            // Single command: define ESC/BEL vars, override prompt, then clear screen — all at once
             invoke("write_pty_string", {
               ptyId: spawnedId,
               data: "$e=[char]27;$b=[char]7;function prompt{$f=$pwd.Path.Replace('\\','/');\"$e]7;file:///$f$b\"+\"PS $pwd> \"};cls\r",
             }).then(() => {
-              // Shell init done — reveal terminal after cls executes
               setTimeout(() => setShellReady(true), 400);
             }).catch(() => {
               setShellReady(true);
             });
           }, 800);
         } else {
-          // Unix: inject OSC 7 CWD reporting hook
-          // macOS zsh only emits OSC 7 for Apple_Terminal; we set TERM_PROGRAM=CodeTerm
-          // so we need our own hook for both zsh and bash
-          setTimeout(() => {
-            const injection =
-              'if [ -n "$ZSH_VERSION" ]; then ' +
-              '__ct_osc7(){ echo -ne "\\033]7;file://${PWD}\\033\\\\" }; ' +
-              'autoload -Uz add-zsh-hook 2>/dev/null; ' +
-              'add-zsh-hook precmd __ct_osc7; ' +
-              'else ' +
-              '__ct_osc7(){ echo -ne "\\033]7;file://${PWD}\\033\\\\" }; ' +
-              'PROMPT_COMMAND="__ct_osc7${PROMPT_COMMAND:+;$PROMPT_COMMAND}"; ' +
-              'fi; clear';
-            invoke("write_pty_string", {
-              ptyId: spawnedId,
-              data: injection + "\r",
-            }).then(() => {
-              setTimeout(() => setShellReady(true), 400);
-            }).catch(() => {
-              setShellReady(true);
-            });
-          }, 800);
+          // Unix: shell integration loaded via env vars — no visible commands needed
+          setShellReady(true);
         }
 
         // If this pane had Claude Code running and we know the session ID, resume it

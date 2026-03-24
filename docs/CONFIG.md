@@ -111,6 +111,18 @@ Contains workspace layout, tab arrangement, and split tree structure.
 
 ## CWD Tracking
 
-CodeTerm tracks the current working directory of each pane via OSC 7 escape sequences. On macOS and Linux this works automatically (most shells emit OSC 7 by default). On Windows, CodeTerm injects an OSC 7 prompt hook into PowerShell sessions so CWD updates are reported transparently.
+CodeTerm tracks the current working directory of each pane via invisible OSC 7 shell integration. No visible commands are injected into the terminal.
 
-<!-- revision: 3 -->
+**How it works per shell:**
+- **zsh** (macOS default): ZDOTDIR trick -- a temporary `.zshrc` in the integration directory sources the user's real config, then adds a `precmd` hook that emits OSC 7.
+- **bash** (Linux default): `PROMPT_COMMAND` env var is set at PTY spawn time, plus `BASH_ENV` points to an integration script that sources `~/.bashrc` first.
+- **PowerShell** (Windows default): Prompt injection after spawn (same as before).
+
+Shell integration scripts are stored in the platform data directory:
+- **macOS:** `~/Library/Application Support/codeterm/shell-integration/`
+- **Linux:** `~/.local/share/codeterm/shell-integration/`
+- **Windows:** `%APPDATA%/codeterm/shell-integration/`
+
+Scripts are created at startup by `pty::shell_integration::ensure_scripts()`. Users should not need to edit these files.
+
+<!-- revision: 4 -->

@@ -33,6 +33,10 @@ pub async fn spawn_pty(
     if let Some(ref pid) = pane_id {
         env_vars.insert("CODETERM_PANE_ID".to_string(), pid.clone());
     }
+    env_vars.insert(
+        "CODETERM_SOCKET_PATH".to_string(),
+        crate::socket::server::socket_display_path(),
+    );
 
     let (pty_id, _session) = {
         let mut manager = state.lock();

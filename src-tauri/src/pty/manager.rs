@@ -114,6 +114,9 @@ impl PtyManager {
             cmd.env("LC_CTYPE", "UTF-8");
         }
 
+        // Invisible shell integration: OSC 7 CWD tracking via env vars
+        super::shell_integration::apply_env(&mut cmd, &shell);
+
         for (key, value) in &env_vars {
             cmd.env(key, value);
         }
