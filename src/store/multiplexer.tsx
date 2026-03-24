@@ -728,6 +728,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         .then((s) => {
           if (s && s.workspaces.length > 0) {
             dispatch({ type: "SET_STATE", state: s });
+            // After layout change (e.g. split via API), trigger pane resize
+            // so all xterm instances refit to their new container size
+            requestAnimationFrame(() => {
+              window.dispatchEvent(new Event("codeterm-pane-resize"));
+            });
           }
         })
         .catch(() => {});

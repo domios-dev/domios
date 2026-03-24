@@ -69,8 +69,8 @@ enum Commands {
 
     /// Get terminal output from a pane (default: current pane)
     GetOutput {
-        /// Target pane ID (default: current focused pane)
-        #[arg(long)]
+        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+        #[arg(long, alias = "id")]
         pane: Option<String>,
 
         /// Maximum number of lines to return (approximate)
@@ -83,8 +83,8 @@ enum Commands {
         /// Text to send
         text: String,
 
-        /// Target pane ID (default: current focused pane)
-        #[arg(long)]
+        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+        #[arg(long, alias = "id")]
         pane: Option<String>,
     },
 
@@ -360,11 +360,23 @@ enum AgentAction {
     },
 }
 
-/// Resolve pane ID: use provided value or fetch the current focused pane.
+/// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
+///
+/// When running inside CodeTerm, $CODETERM_PANE_ID is set automatically by the PTY.
+/// This ensures commands like `pane split` always target the caller's pane,
+/// not whatever pane the user happens to have focused.
 fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
+    // 1. Explicit --pane/--id arg
     if let Some(id) = id {
         return id;
     }
+    // 2. $CODETERM_PANE_ID env var (set by CodeTerm PTY for each shell)
+    if let Ok(env_id) = std::env::var("CODETERM_PANE_ID") {
+        if !env_id.is_empty() {
+            return env_id;
+        }
+    }
+    // 3. Fallback: ask server for focused pane
     match client.call("pane.list", None) {
         Ok(value) => {
             if let Some(arr) = value.as_array() {
