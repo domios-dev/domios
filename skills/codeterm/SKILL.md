@@ -121,7 +121,7 @@ codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
 codeterm agent report MESSAGE [--pane ID]      # Send report to parent
 codeterm agent reports [--pane ID]             # Read reports (as conductor)
 codeterm agent status [--pane ID]              # Detailed status + role
-codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--force-tab] [--args A1 A2]
+codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS_ID] [--args A1 A2]
                                                # One-call: create tab, set role, launch agent, send task (non-blocking)
 ```
 
@@ -141,7 +141,11 @@ codeterm agent spawn claude --title "Architect" --role Worker --parent $CODETERM
 codeterm agent allow-spawn --pane <WORKER_PANE_ID>
 codeterm agent spawn claude --title "SubWorker" --role SubWorker --parent <WORKER_PANE_ID> --task "subtask"
 
-# 5. Read reports from workers
+# 5. Spawn agent in a different workspace
+WS=$(codeterm workspace create "Other Project" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+codeterm agent spawn claude --title "Agent" --role Conductor --workspace $WS --cwd /other/project --task "analyze code"
+
+# 6. Read reports from workers
 codeterm agent reports
 ```
 

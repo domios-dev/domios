@@ -328,7 +328,7 @@ enum AgentAction {
         #[arg(long)]
         pane: Option<String>,
     },
-    /// Spawn a new agent (creates split pane under parent, or new tab if --force-tab)
+    /// Spawn a new agent (creates tab in workspace, linked in hierarchy)
     Spawn {
         /// Agent to run: claude, aider, goose, or any command
         #[arg(default_value = "claude")]
@@ -354,9 +354,9 @@ enum AgentAction {
         /// Extra args for the agent
         #[arg(long, num_args = 1..)]
         args: Option<Vec<String>>,
-        /// Force creation as new tab instead of split pane
+        /// Target workspace ID (default: parent's workspace or active workspace)
         #[arg(long)]
-        force_tab: bool,
+        workspace: Option<String>,
     },
 }
 
@@ -717,7 +717,7 @@ fn main() {
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
                 }
-                AgentAction::Spawn { agent, title, cwd, role, parent, can_spawn, task, args, force_tab } => {
+                AgentAction::Spawn { agent, title, cwd, role, parent, can_spawn, task, args, workspace } => {
                     let mut body = serde_json::json!({
                         "agent": agent,
                     });
@@ -728,7 +728,7 @@ fn main() {
                     if can_spawn { body["can_spawn"] = serde_json::json!(true); }
                     if let Some(t) = task { body["task"] = serde_json::json!(t); }
                     if let Some(a) = args { body["args"] = serde_json::json!(a); }
-                    if force_tab { body["force_tab"] = serde_json::json!(true); }
+                    if let Some(w) = workspace { body["workspace_id"] = serde_json::json!(w); }
                     match http.post(format!("{}/api/agents/spawn", base))
                         .json(&body)
                         .send()
