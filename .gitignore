@@ -5,3 +5,4 @@ references/
 *.exe
 /tmp/
 .cargo/
+codeterm-workspace/
