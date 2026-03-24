@@ -729,12 +729,9 @@ fn main() {
                     if let Some(t) = task { body["task"] = serde_json::json!(t); }
                     if let Some(a) = args { body["args"] = serde_json::json!(a); }
                     if let Some(w) = workspace { body["workspace_id"] = serde_json::json!(w); }
-                    match http.post(format!("{}/api/agents/spawn", base))
-                        .json(&body)
-                        .send()
-                    {
-                        Ok(resp) => {
-                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                    // Use socket API (not REST) — avoids tokio runtime contention
+                    match client.call("agent.spawn", Some(body)) {
+                        Ok(val) => {
                             if cli.json {
                                 println!("{}", serde_json::to_string_pretty(&val).unwrap());
                             } else {

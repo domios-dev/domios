@@ -188,6 +188,94 @@ impl ServiceContext {
     ///   The agent stays alive for follow-up messages.
     /// - **One-shot** (`oneshot: true`): uses `-p` flag to pass task inline.
     ///   Agent exits after responding.
+    /// Synchronous spawn — for socket API. No tokio runtime needed.
+    pub fn spawn_agent_sync(&self, params: SpawnAgentParams) -> Result<SpawnResult, String> {
+        let agent_cmd = params.agent.as_deref().unwrap_or("claude").to_string();
+        let title = params.title.as_deref()
+            .or(params.agent_name.as_deref())
+            .unwrap_or(&agent_cmd).to_string();
+
+        // 1. Find workspace
+        let ws_id = if let Some(ref parent_id) = params.parent_pane_id {
+            self.mux.lock().find_workspace_for_pane(parent_id)
+                .or(params.workspace_id.clone())
+                .or_else(|| {
+                    let mux = self.mux.lock();
+                    mux.snapshot().active_workspace_id.clone()
+                        .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
+                })
+                .ok_or("No workspace found for parent pane")?
+        } else {
+            params.workspace_id.clone()
+                .or_else(|| {
+                    let mux = self.mux.lock();
+                    mux.snapshot().active_workspace_id.clone()
+                        .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
+                })
+                .ok_or("No workspace found")?
+        };
+
+        // 2. Create tab
+        let (tab_id, pane_id) = {
+            let mut mux = self.mux.lock();
+            let result = mux.create_tab(&ws_id)?;
+            if let Some(ref dir) = params.cwd {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.cwd = Some(dir.clone());
+                }
+            }
+            let _ = mux.set_active_tab(&ws_id, &result.0);
+            result
+        };
+        self.emit_state_changed();
+
+        // 3. Set role
+        if let Some(ref role_str) = params.role {
+            self.set_pane_role(&pane_id, role_str, params.parent_pane_id.as_deref(), params.can_spawn)?;
+        }
+
+        // 4. Rename
+        self.rename_pane(&pane_id, &title)?;
+
+        // 5. Background launch
+        let launch_cmd = build_agent_command(&agent_cmd, &params);
+        let is_claude = agent_cmd == "claude";
+        let svc = self.clone();
+        let bg_pane_id = pane_id.clone();
+        let bg_task = params.task.clone();
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            let pty_id = loop {
+                if std::time::Instant::now() > deadline { return; }
+                if let Some(pid) = svc.mux.try_lock()
+                    .and_then(|m| m.get_pane(&bg_pane_id).and_then(|p| p.pty_id.clone())) { break pid; }
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            };
+            if is_claude {
+                let dl = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                loop {
+                    if std::time::Instant::now() > dl { break; }
+                    let ready = svc.output_buf.try_lock()
+                        .and_then(|b| b.get_text(&pty_id).map(|t| t.contains("$ ") || t.contains("% ") || t.contains("> ") || t.contains("PS ")))
+                        .unwrap_or(false);
+                    if ready { break; }
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                }
+                let _ = svc.pty.lock().write(&pty_id, format!("{}\r", launch_cmd).as_bytes());
+                if let Some(ref task) = bg_task { svc.spawn_task_sender(pty_id, task.clone()); }
+            } else {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let _ = svc.pty.lock().write(&pty_id, format!("{}\r", launch_cmd).as_bytes());
+                if let Some(ref task) = bg_task {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let _ = svc.pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
+                }
+            }
+        });
+
+        Ok(SpawnResult { pane_id, tab_id, pty_id: String::new(), agent: agent_cmd, title, role: params.role })
+    }
+
     pub async fn spawn_agent(&self, params: SpawnAgentParams) -> Result<SpawnResult, String> {
         let agent_cmd = params.agent.as_deref().unwrap_or("claude");
         let title = params
@@ -266,42 +354,42 @@ impl ServiceContext {
                 std::thread::sleep(std::time::Duration::from_millis(300));
             };
 
-            // Wait for shell prompt (poll output buffer with try_lock to avoid blocking others)
-            let prompt_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-            loop {
-                if std::time::Instant::now() > prompt_deadline {
-                    log::warn!("spawn_agent: shell prompt wait timeout for {}", bg_pane_id);
-                    break;
-                }
-                let ready = svc.output_buf.try_lock()
-                    .and_then(|buf| {
-                        buf.get_text(&pty_id).map(|t| {
-                            t.contains("PS ") || t.contains("> ")
-                                || t.contains("$ ") || t.contains("% ")
+            if is_claude {
+                // Claude: wait for shell prompt, send launch command, then poll for readiness
+                let prompt_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                loop {
+                    if std::time::Instant::now() > prompt_deadline {
+                        log::warn!("spawn_agent: shell prompt wait timeout for {}", bg_pane_id);
+                        break;
+                    }
+                    let ready = svc.output_buf.try_lock()
+                        .and_then(|buf| {
+                            buf.get_text(&pty_id).map(|t| {
+                                t.contains("PS ") || t.contains("> ")
+                                    || t.contains("$ ") || t.contains("% ")
+                            })
                         })
-                    })
-                    .unwrap_or(false);
-                if ready { break; }
-                std::thread::sleep(std::time::Duration::from_millis(300));
-            }
-
-            // Send launch command
-            if let Err(e) = svc.pty.lock().write(&pty_id, format!("{}\r", launch_cmd).as_bytes()) {
-                log::error!("spawn_agent: failed to write launch cmd: {}", e);
-                return;
-            }
-
-            // If task provided:
-            // - Claude agents: poll for readiness markers, then send interactively
-            // - Other agents: send task directly after short delay
-            if let Some(ref task_text) = bg_task {
-                if is_claude {
-                    svc.spawn_task_sender(pty_id, task_text.clone());
-                } else {
-                    std::thread::sleep(std::time::Duration::from_secs(1));
-                    let _ = svc.pty.lock().write(&pty_id, format!("{}\r", task_text).as_bytes());
-                    log::info!("spawn_agent: task sent directly to non-claude agent {}", pty_id);
+                        .unwrap_or(false);
+                    if ready { break; }
+                    std::thread::sleep(std::time::Duration::from_millis(300));
                 }
+                if let Err(e) = svc.pty.lock().write(&pty_id, format!("{}\r", launch_cmd).as_bytes()) {
+                    log::error!("spawn_agent: failed to write launch cmd: {}", e);
+                    return;
+                }
+                if let Some(ref task_text) = bg_task {
+                    svc.spawn_task_sender(pty_id, task_text.clone());
+                }
+            } else {
+                // Non-claude: short delay for shell init, send command + task directly, then exit thread
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let _ = svc.pty.lock().write(&pty_id, format!("{}\r", launch_cmd).as_bytes());
+                if let Some(ref task_text) = bg_task {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    let _ = svc.pty.lock().write(&pty_id, format!("{}\r", task_text).as_bytes());
+                }
+                log::info!("spawn_agent: non-claude agent launched in {}", bg_pane_id);
+                // Thread exits immediately — no long-running polling
             }
         });
 

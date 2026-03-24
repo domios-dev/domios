@@ -202,6 +202,7 @@ pub fn run() {
                 notif_state.clone(),
                 app_handle.clone(),
                 output_buffer.clone(),
+                service_state.clone(),
             ) {
                 log::error!("Failed to start socket server: {}", e);
             }
@@ -228,7 +229,7 @@ pub fn run() {
                     let port = api_config.port;
                     std::thread::spawn(move || {
                         let rt = tokio::runtime::Builder::new_multi_thread()
-                            .worker_threads(2)
+                            .worker_threads(4)
                             .enable_all()
                             .build()
                             .expect("Failed to create Tokio runtime for REST API");

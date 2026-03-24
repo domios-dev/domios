@@ -14,6 +14,7 @@ use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::Orientation;
 use crate::notification::NotifState;
 use crate::notification::store::NotificationLevel;
+use crate::service::ServiceState;
 use crate::{OutputBufferState, PtyState};
 
 // ── JSON-RPC types ──────────────────────────────────────────────────
@@ -105,6 +106,7 @@ impl SocketServer {
         notif_state: NotifState,
         app: AppHandle,
         output_buf: OutputBufferState,
+        svc_state: ServiceState,
     ) -> Result<(), String> {
         let name = socket_path();
 
@@ -132,9 +134,10 @@ impl SocketServer {
                         let notif = notif_state.clone();
                         let app_handle = app.clone();
                         let out_buf = output_buf.clone();
+                        let svc = svc_state.clone();
 
                         std::thread::spawn(move || {
-                            handle_connection(stream, &mux, &pty, &notif, &app_handle, &out_buf);
+                            handle_connection(stream, &mux, &pty, &notif, &app_handle, &out_buf, &svc);
                         });
                     }
                     Err(e) => {
@@ -156,6 +159,7 @@ fn handle_connection(
     notif: &NotifState,
     app: &AppHandle,
     output_buf: &OutputBufferState,
+    svc: &ServiceState,
 ) {
     // Split into reader/writer via a reference-based approach.
     // interprocess streams implement Read+Write on the same type.
@@ -176,7 +180,7 @@ fn handle_connection(
                 let response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
                     Ok(req) => {
                         let id = req.id.clone();
-                        match dispatch(&req.method, req.params, mux, pty, notif, app, output_buf) {
+                        match dispatch(&req.method, req.params, mux, pty, notif, app, output_buf, svc) {
                             Ok(result) => JsonRpcResponse::success(id, result),
                             Err(err) => JsonRpcResponse::error(id, err.code, err.message),
                         }
@@ -213,6 +217,7 @@ fn dispatch(
     notif: &NotifState,
     app: &AppHandle,
     output_buf: &OutputBufferState,
+    svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
     match method {
         "system.identify" => {
@@ -281,7 +286,7 @@ fn dispatch(
                 let mut mux = mux.lock();
                 mux.create_workspace(name)
             };
-            let _ = app.emit("mux-state-changed", ());
+            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
             serde_json::to_value(&info).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: format!("Serialization error: {}", e),
@@ -297,7 +302,7 @@ fn dispatch(
                     message: e,
                 })?;
             }
-            let _ = app.emit("mux-state-changed", ());
+            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
             Ok(serde_json::json!({"ok": true}))
         }
 
@@ -311,7 +316,7 @@ fn dispatch(
                     message: e,
                 })?;
             }
-            let _ = app.emit("mux-state-changed", ());
+            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
             Ok(serde_json::json!({"ok": true}))
         }
 
@@ -327,7 +332,7 @@ fn dispatch(
             for pty_id in &pty_ids {
                 let _ = _pty.lock().kill(pty_id);
             }
-            let _ = app.emit("mux-state-changed", ());
+            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
             Ok(serde_json::json!({"ok": true}))
         }
 
@@ -342,7 +347,7 @@ fn dispatch(
                     message: e,
                 })?;
             }
-            let _ = app.emit("mux-state-changed", ());
+            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
             Ok(serde_json::json!({"ok": true}))
         }
 
@@ -375,7 +380,7 @@ fn dispatch(
                     message: e,
                 })?;
             }
-            let _ = app.emit("mux-state-changed", ());
+            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
             Ok(serde_json::json!({"ok": true}))
         }
 
@@ -392,7 +397,7 @@ fn dispatch(
                 let mut pty_mgr = _pty.lock();
                 for pid in &pty_ids { let _ = pty_mgr.kill(pid); }
             }
-            let _ = app.emit("mux-state-changed", ());
+            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
             Ok(serde_json::json!({"ok": true}))
         }
 
@@ -483,7 +488,7 @@ fn dispatch(
             };
 
             // Emit event so frontend spawns PTY for the new pane
-            let _ = app.emit("mux-state-changed", ());
+            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
 
             Ok(serde_json::json!({"new_pane_id": new_pane_id}))
         }
@@ -498,11 +503,8 @@ fn dispatch(
                     message: e,
                 })?;
             }
-            let _ = app.emit("pane-title-pinned", serde_json::json!({
-                "pane_id": id,
-                "title": title,
-            }));
-            let _ = app.emit("mux-state-changed", ());
+            { let h = app.clone(); let p = serde_json::json!({"pane_id": id, "title": title}); std::thread::spawn(move || { let _ = h.emit("pane-title-pinned", p); }); }
+            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
             Ok(serde_json::json!({"ok": true}))
         }
 
@@ -515,7 +517,7 @@ fn dispatch(
                     message: e,
                 })?
             };
-            let _ = app.emit("mux-state-changed", ());
+            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
             Ok(serde_json::json!({"pane_id": new_pane_id, "url": url}))
         }
 
@@ -555,14 +557,7 @@ fn dispatch(
             let id = store.add(title, body, level, pane_id, None);
 
             // Emit event to frontend with full payload
-            let _ = app.emit("notification-created", serde_json::json!({
-                "id": id,
-                "title": emit_title,
-                "body": emit_body,
-                "level": emit_level,
-                "pane_id": emit_pane,
-                "workspace_id": serde_json::Value::Null,
-            }));
+            { let h = app.clone(); let p = serde_json::json!({"id": id, "title": emit_title, "body": emit_body, "level": emit_level, "pane_id": emit_pane, "workspace_id": serde_json::Value::Null}); std::thread::spawn(move || { let _ = h.emit("notification-created", p); }); }
 
             // OS notification if window unfocused
             {
@@ -610,6 +605,28 @@ fn dispatch(
             let mut store = notif.lock();
             store.clear(id);
             Ok(serde_json::json!({"ok": true}))
+        }
+
+        "agent.spawn" => {
+            let p = params.as_ref().ok_or(JsonRpcError {
+                code: -32602,
+                message: "params required".to_string(),
+            })?;
+            let spawn_params = crate::service::SpawnAgentParams::from_json(p)
+                .map_err(|e| JsonRpcError { code: -32602, message: e })?;
+
+            // spawn_agent_sync: inline the sync parts, skip tokio runtime entirely
+            let svc_ref = &**svc;
+            let result = svc_ref.spawn_agent_sync(spawn_params)
+                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
+            Ok(serde_json::json!({
+                "pane_id": result.pane_id,
+                "tab_id": result.tab_id,
+                "agent": result.agent,
+                "title": result.title,
+                "role": result.role,
+            }))
         }
 
         _ => Err(JsonRpcError {
