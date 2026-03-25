@@ -129,15 +129,23 @@ codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [-
                                                # Role: Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
 ```
 
-### Spawn orchestrator in a separate workspace
-When asked to "spawn orchestrator in another workspace", "run this in a separate workspace", or delegate to another orchestrator — use ONE command to create workspace + spawn agent there. Do NOT set yourself as orchestrator. Do NOT call set-conductor.
+### Two orchestration modes — choose based on what the user wants
+
+**Mode A: "spawn/create/put an orchestrator somewhere"** — User wants a separate agent to handle the work independently. You are a dispatcher, not the orchestrator. Create the workspace, spawn the agent, you're done.
+
+This applies when user says things like: "spawn an orchestrator in...", "put an agent in workspace X to...", "create a workspace and run Y there", "open a separate workspace for...", "delegate this to another agent"
+
 ```bash
 WS=$(codeterm workspace create "Project" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
-codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn --task "the full task description here"
-# That's it. The spawned agent handles everything. You're done.
+codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn --task "the full task"
+# You're done. Don't call set-conductor. Don't spawn leads yourself. The new agent handles it all.
 ```
 
-### Orchestrator pattern (when YOU are the orchestrator)
+**Mode B: "be the orchestrator" / "set yourself up" / "spawn workers"** — User wants YOU to orchestrate directly.
+
+This applies when user says things like: "be the orchestrator", "set yourself as conductor", "spawn 3 workers", "create leads for..."
+
+### Orchestrator pattern (Mode B — when YOU are the orchestrator)
 ```bash
 # 1. Mark self as orchestrator
 codeterm agent set-conductor --pane $CODETERM_PANE_ID
