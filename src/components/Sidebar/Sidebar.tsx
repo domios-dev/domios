@@ -92,18 +92,16 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
   );
 
-  // Auto-expand active workspace and any new workspaces
+  // Auto-expand only the active workspace when it changes
   useMemo(() => {
-    setExpandedWorkspaces((prev) => {
-      const next = new Set(prev);
-      if (state.active_workspace_id) next.add(state.active_workspace_id);
-      // Expand all workspaces not yet tracked (newly created)
-      for (const ws of state.workspaces) {
-        if (!prev.has(ws.id)) next.add(ws.id);
-      }
-      return next;
-    });
-  }, [state.active_workspace_id, state.workspaces]);
+    if (state.active_workspace_id) {
+      setExpandedWorkspaces((prev) => {
+        const next = new Set(prev);
+        next.add(state.active_workspace_id!);
+        return next;
+      });
+    }
+  }, [state.active_workspace_id]);
 
   const handleNewWorkspace = useCallback(() => {
     const n = state.workspaces.length + 1;
