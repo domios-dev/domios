@@ -595,6 +595,11 @@ impl MultiplexerState {
                 if parent_pane_id.is_some() {
                     return Err("Conductor cannot have a parent".to_string());
                 }
+                // Prevent Workers/SubWorkers from promoting themselves to Conductor
+                let existing = self.panes.get(pane_id).unwrap();
+                if existing.parent_pane_id.is_some() {
+                    return Err("Cannot become Conductor — this pane has a parent (already in hierarchy)".to_string());
+                }
                 let pane = self.panes.get_mut(pane_id).unwrap();
                 pane.role = Some(AgentRole::Conductor);
                 pane.parent_pane_id = None;
@@ -641,9 +646,14 @@ impl MultiplexerState {
     }
 
     /// Clear a pane's orchestration role and orphan its children.
+    /// Workers/SubWorkers with a parent cannot unlink themselves.
     pub fn clear_pane_role(&mut self, pane_id: &str) -> Result<(), String> {
-        let pane = self.panes.get_mut(pane_id)
+        let pane = self.panes.get(pane_id)
             .ok_or(format!("Pane {} not found", pane_id))?;
+        if pane.parent_pane_id.is_some() {
+            return Err("Cannot unlink — this pane is a worker in a hierarchy".to_string());
+        }
+        let pane = self.panes.get_mut(pane_id).unwrap();
         pane.role = None;
         pane.parent_pane_id = None;
         pane.can_spawn = false;

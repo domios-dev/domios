@@ -118,8 +118,8 @@ codeterm agent link --parent ID [--pane ID]    # Link as worker under parent
 codeterm agent unlink [--pane ID]              # Clear role
 codeterm agent children [--pane ID]            # List children
 codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
-codeterm agent report MESSAGE [--pane ID]      # Send report to parent
-codeterm agent reports [--pane ID]             # Read reports (as conductor)
+codeterm agent report "MESSAGE" [--pane ID]    # Report to parent (positional, NOT --message)
+codeterm agent reports [--pane ID]             # Read reports from children
 codeterm agent status [--pane ID]              # Detailed status + role
 codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS_ID] [--args A1 A2]
                                                # One-call: create tab, set role, launch agent, send task (non-blocking)
@@ -149,13 +149,21 @@ codeterm agent spawn claude --title "Agent" --role Conductor --workspace $WS --c
 codeterm agent reports
 ```
 
-**Worker behavior:** Check `$CODETERM_ROLE` and `$CODETERM_PARENT_PANE_ID` env vars. If you are a Worker or SubWorker:
-- You have a parent. Do NOT set yourself as conductor.
-- When done, report results directly: `codeterm agent report "your summary" --pane $CODETERM_PANE_ID`
-- Do NOT use files to communicate. Use `codeterm agent report` — it pushes your report directly into your parent's terminal.
-- Do NOT sleep/wait. Execute task, report, done.
+**Role-aware behavior — check `$CODETERM_ROLE` on startup:**
 
-**Conductor receives reports automatically:** Reports appear in your terminal as `[Report from Worker] message` — no polling needed. You can also read all with `codeterm agent reports`.
+If `$CODETERM_ROLE` is `Worker` or `SubWorker`:
+- You are in a hierarchy under a parent. The backend BLOCKS you from calling `set-conductor` or `unlink`.
+- Do NOT create extra workspaces or tabs. Do NOT `sleep` or poll. Do NOT use files to exchange data.
+- If asked to delegate/spawn sub-tasks, use codeterm: `codeterm agent spawn claude --title "Sub-X" --role SubWorker --parent $CODETERM_PANE_ID --task "do X then report back with: codeterm agent report your-summary"`
+- Do NOT use the built-in Agent tool or run sub-tasks inline — always spawn via codeterm for visibility.
+- When done, report to parent: `codeterm agent report "your summary"` — message is a positional arg, NOT `--message`.
+- Reports are push-based: when your sub-worker reports, it appears in your terminal as `[Report from Sub-X] ...`. No polling.
+
+If `$CODETERM_ROLE` is empty (no role assigned):
+- You can become a conductor: `codeterm agent set-conductor --pane $CODETERM_PANE_ID`
+- Then spawn workers: `codeterm agent spawn claude --title "W" --role Worker --parent $CODETERM_PANE_ID --can-spawn --task "..."`
+
+**Report syntax:** `codeterm agent report "your message here"` — message is the FIRST positional argument. Do NOT use `--message`, `--to`, or `--from` flags — they don't exist.
 
 **Cross-workspace spawn:** When creating a workspace and spawning an agent there, you MUST pass `--workspace <WS_ID>` explicitly, otherwise the agent lands in your current workspace:
 ```bash

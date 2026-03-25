@@ -38,54 +38,63 @@ impl ServiceContext {
         Ok(())
     }
 
-    /// Walk up the hierarchy to find the conductor, then store the report.
+    /// Send report to direct parent (not conductor). This enables cascade reporting:
+    /// SubWorker → Worker → Conductor.
     pub fn submit_report(&self, pane_id: &str, message: &str) -> Result<ReportResult, String> {
-        let (from_title, conductor_id) = {
+        let (from_title, target_id) = {
             let mux = self.mux.lock();
             let pane = mux.get_pane(pane_id).ok_or("Pane not found")?;
             let title = pane.title.clone();
-            let conductor_id = find_conductor(&mux, pane_id)?;
-            (title, conductor_id)
+            // Report goes to direct parent, not conductor
+            let parent = pane.parent_pane_id.clone()
+                .ok_or_else(|| {
+                    // No parent — fall back to conductor
+                    find_conductor(&mux, pane_id).unwrap_or_default()
+                });
+            let target = parent.unwrap_or_else(|fallback| fallback);
+            if target.is_empty() {
+                return Err("No parent or conductor found".to_string());
+            }
+            (title, target)
         };
 
         let report = self
             .report_store
             .lock()
-            .add(&conductor_id, pane_id, &from_title, message);
+            .add(&target_id, pane_id, &from_title, message);
 
         // Broadcast webhook + Tauri event
         self.events.broadcast(
             "agent.report",
             serde_json::json!({
-                "conductor_pane_id": conductor_id,
+                "target_pane_id": target_id,
                 "report": report,
             }),
         );
         let _ = self.app_handle.emit(
             "agent-report",
             serde_json::json!({
-                "conductor_pane_id": conductor_id,
+                "target_pane_id": target_id,
                 "from_pane_id": pane_id,
                 "from_title": from_title,
                 "message": message,
             }),
         );
 
-        // Auto-notify conductor: send report summary as text into conductor's PTY.
-        // This way Claude in the conductor pane sees the report immediately (push, not poll).
+        // Auto-push report into parent's PTY so Claude sees it immediately.
         {
             let notify_msg = format!(
                 "[Report from {}] {}\r",
                 from_title, message
             );
-            if let Ok(pty_id) = self.resolve_pty_id(&conductor_id) {
+            if let Ok(pty_id) = self.resolve_pty_id(&target_id) {
                 let _ = self.pty.lock().write(&pty_id, notify_msg.as_bytes());
             }
         }
 
         Ok(ReportResult {
             report_id: report.id,
-            conductor_pane_id: conductor_id,
+            conductor_pane_id: target_id,
         })
     }
 
