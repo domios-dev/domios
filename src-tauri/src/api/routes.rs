@@ -1409,7 +1409,7 @@ pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&s
     #[cfg(not(target_os = "macos"))]
     {
         use tauri_plugin_notification::NotificationExt;
-        let mut notif = _app.notification().builder().title(title);
+        let mut notif = app.notification().builder().title(title);
         if let Some(b) = body { notif = notif.body(b); }
         if notif.show().is_ok() { return; }
     }
