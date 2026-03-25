@@ -609,11 +609,20 @@ pub fn open_folder(path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn test_notification(app: tauri::AppHandle) {
     use tauri_plugin_notification::NotificationExt;
-    let _ = app.notification()
+    // Try tauri plugin first (works in production .app bundle)
+    let result = app.notification()
         .builder()
         .title("CodeTerm")
         .body("Notifications are working!")
         .show();
+
+    // Fallback: osascript for dev mode (no .app bundle = no notification center registration)
+    #[cfg(target_os = "macos")]
+    if result.is_err() {
+        let _ = std::process::Command::new("osascript")
+            .args(["-e", "display notification \"Notifications are working!\" with title \"CodeTerm\""])
+            .spawn();
+    }
 }
 
 /// Open a URL in the default browser.

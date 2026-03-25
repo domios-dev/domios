@@ -1277,17 +1277,25 @@ pub fn send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, bo
 
 /// Single notification popup — reuses existing window, auto-closes after 4s.
 pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
-    // Use native macOS/Windows/Linux notifications via tauri-plugin-notification
+    // Try tauri plugin (works in production .app bundle)
     use tauri_plugin_notification::NotificationExt;
-    let mut notif = app.notification().builder()
-        .title(title);
-    if let Some(b) = body {
-        notif = notif.body(b);
-    }
-    let _ = notif.show();
+    let mut notif = app.notification().builder().title(title);
+    if let Some(b) = body { notif = notif.body(b); }
+    let result = notif.show();
 
-    // Keep old custom window code below as fallback — but return early with native
-    return;
+    // Fallback: osascript for dev mode on macOS
+    #[cfg(target_os = "macos")]
+    if result.is_err() {
+        let msg = body.unwrap_or("");
+        let _ = std::process::Command::new("osascript")
+            .args(["-e", &format!("display notification \"{}\" with title \"{}\"", msg, title)])
+            .spawn();
+        return;
+    }
+
+    if result.is_ok() { return; }
+
+    // Keep old custom window code below as last fallback
 
     #[allow(unreachable_code)]
     {
