@@ -334,6 +334,8 @@ export function TerminalPane({
     // Shells set CWD, Claude Code sets task description
     term.onTitleChange((title) => {
       if (title) {
+        const curPane = stateRef.current.panes[paneId];
+        if (curPane && curPane.title_level === TitleLevel.User) return;
         setPaneTitle(paneId, title, TitleLevel.Auto);
         // Detect Claude Code from OSC title
         if (/claude/i.test(title)) {
@@ -371,7 +373,7 @@ export function TerminalPane({
         if (dir && dir.length > 2) {
           invoke("mux_update_pane_cwd", { paneId, cwd: dir }).catch(() => {});
           // Auto-rename tab to directory name (if not manually pinned)
-          const pane = state.panes[paneId];
+          const pane = stateRef.current.panes[paneId];
           if (pane && pane.title_level !== TitleLevel.User) {
             const dirName = dir.split("/").pop() || dir;
             if (dirName) setPaneTitle(paneId, dirName, TitleLevel.Auto);
@@ -381,7 +383,7 @@ export function TerminalPane({
         // Some shells send just a path without file:// scheme
         if (data && data.length > 2) {
           invoke("mux_update_pane_cwd", { paneId, cwd: data }).catch(() => {});
-          const pane = state.panes[paneId];
+          const pane = stateRef.current.panes[paneId];
           if (pane && pane.title_level !== TitleLevel.User) {
             const dirName = data.split("/").pop() || data;
             if (dirName) setPaneTitle(paneId, dirName, TitleLevel.Auto);
