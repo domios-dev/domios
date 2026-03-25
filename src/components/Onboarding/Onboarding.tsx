@@ -298,7 +298,7 @@ function StepWelcome({ c }: { c: C }) {
 
       <div className="grid grid-cols-2 gap-3 text-left max-w-md mx-auto">
         <FeatureCard c={c} icon="+" title="Split panes" desc="Organize with flexible workspace layouts" />
-        <FeatureCard c={c} icon="*" title="Agent orchestration" desc="Conductor/worker hierarchy for AI agents" />
+        <FeatureCard c={c} icon="*" title="Agent orchestration" desc="Spawn teams of AI agents that work in parallel and report back" />
         <FeatureCard c={c} icon="~" title="Claude integration" desc="Skills, hooks, auto-resume, notifications" />
         <FeatureCard c={c} icon=">" title="Canvas panels" desc="Visualizations and localhost apps inline with terminals" />
       </div>
