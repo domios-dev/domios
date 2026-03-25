@@ -129,23 +129,20 @@ codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [-
                                                # Role: Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
 ```
 
-### Two orchestration modes — choose based on what the user wants
+### Delegating vs doing it yourself
 
-**Mode A: "spawn/create/put an orchestrator somewhere"** — User wants a separate agent to handle the work independently. You are a dispatcher, not the orchestrator. Create the workspace, spawn the agent, you're done.
+When the user says "spawn an orchestrator in a workspace", "put an orchestrator there", "create a workspace and run X" — they want you to **delegate**. The whole point is that the orchestrator runs independently in its own workspace while you stay free. Think of it like hiring someone: you don't become the contractor, you hire one.
 
-This applies when user says things like: "spawn an orchestrator in...", "put an agent in workspace X to...", "create a workspace and run Y there", "open a separate workspace for...", "delegate this to another agent"
-
+**Delegation pattern** (2 commands, then you're done):
 ```bash
 WS=$(codeterm workspace create "Project" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
-codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn --task "the full task"
-# You're done. Don't call set-conductor. Don't spawn leads yourself. The new agent handles it all.
+codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn --task "You are the orchestrator. [paste the full task here]. Set yourself as conductor, spawn leads/workers, collect reports, send notification when done."
 ```
+After these 2 commands, you're **done**. Do not call set-conductor. Do not spawn leads. Do not touch the Demo workspace. The spawned orchestrator handles everything autonomously.
 
-**Mode B: "be the orchestrator" / "set yourself up" / "spawn workers"** — User wants YOU to orchestrate directly.
+When the user says "be the orchestrator", "set yourself up", "spawn workers for me" — then you DO it yourself:
 
-This applies when user says things like: "be the orchestrator", "set yourself as conductor", "spawn 3 workers", "create leads for..."
-
-### Orchestrator pattern (Mode B — when YOU are the orchestrator)
+### Self-orchestration pattern (when YOU are the orchestrator)
 ```bash
 # 1. Mark self as orchestrator
 codeterm agent set-conductor --pane $CODETERM_PANE_ID
