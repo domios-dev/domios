@@ -216,7 +216,6 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
         const highestLevel = levels.indexOf(backendLevel) >= levels.indexOf(frontendLevel) ? backendLevel : frontendLevel;
         const title = highestLevel === frontendLevel && existing ? existing.title : backendPane.title;
         if (existing && existing.title !== title) {
-          console.log(`[MERGE] pane=${id.slice(0,8)} backend="${backendPane.title}"(${backendLevel}) frontend="${existing.title}"(${frontendLevel}) → "${title}"(${highestLevel})`);
         }
         mergedPanes[id] = {
           ...backendPane,
@@ -445,7 +444,6 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
       const levels = [TitleLevel.Default, TitleLevel.Auto, TitleLevel.User];
       const newLevel = action.level || TitleLevel.Auto;
       const curLevel = pane.title_level || TitleLevel.Default;
-      console.log(`[REDUCER SET_PANE_TITLE] pane=${action.paneId.slice(0,8)} title="${action.title}" newLevel=${newLevel} curLevel=${curLevel} blocked=${levels.indexOf(newLevel) < levels.indexOf(curLevel)}`);
       if (levels.indexOf(newLevel) < levels.indexOf(curLevel)) return state;
       const displayTitle = shortenTitle(action.title);
       const updatedPanes = {
