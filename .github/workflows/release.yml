@@ -17,15 +17,23 @@ jobs:
           - platform: windows-latest
             args: ''
             target: ''
+            cli-binary: codeterm.exe
+            cli-asset: codeterm-cli-windows-x86_64.exe
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
             target: 'aarch64-apple-darwin'
+            cli-binary: codeterm
+            cli-asset: codeterm-cli-macos-aarch64
           - platform: macos-latest
             args: '--target x86_64-apple-darwin'
             target: 'x86_64-apple-darwin'
+            cli-binary: codeterm
+            cli-asset: codeterm-cli-macos-x86_64
           - platform: ubuntu-22.04
             args: ''
             target: ''
+            cli-binary: codeterm
+            cli-asset: codeterm-cli-linux-x86_64
 
     runs-on: ${{ matrix.platform }}
 
@@ -55,18 +63,57 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            src-tauri
+            cli
 
       - name: Install frontend dependencies
         run: pnpm install
+
+      # macOS: import certificate from GitHub Secrets into a temporary keychain
+      - name: Import Apple certificate
+        if: startsWith(matrix.platform, 'macos')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 12)
+
+          # Decode certificate
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Add to keychain search list
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+          # Verify identity is available
+          security find-identity -v "$KEYCHAIN_PATH"
+
+          # Clean up certificate file
+          rm -f "$CERTIFICATE_PATH"
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          # Signing (macOS only — tauri-action reads these)
           APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          # Notarization (macOS only — tauri-action reads these)
+          APPLE_ID: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_TEAM_ID || '' }}
         with:
           tagName: v__VERSION__
           releaseName: 'CodeTerm v__VERSION__'
@@ -81,6 +128,85 @@ jobs:
             | Linux | `.AppImage` / `.deb` |
 
             See [CHANGELOG](https://github.com/rollacode/codeterm/blob/master/CHANGELOG.md) for details.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      # Notarize and staple the DMG manually if tauri-action didn't handle it
+      # (belt-and-suspenders — tauri-action v0 with Tauri v2 should do this via env vars above,
+      #  but if it doesn't, this step catches it)
+      - name: Notarize DMG
+        if: startsWith(matrix.platform, 'macos') && success()
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Find the DMG built by tauri
+          DMG=$(find src-tauri/target -name "*.dmg" -type f 2>/dev/null | head -1)
+          if [ -z "$DMG" ]; then
+            echo "No DMG found, skipping notarization"
+            exit 0
+          fi
+
+          echo "Found DMG: $DMG"
+
+          # Check if already notarized (staple will succeed if so)
+          if xcrun stapler validate "$DMG" 2>/dev/null; then
+            echo "DMG is already notarized and stapled"
+            exit 0
+          fi
+
+          # Submit for notarization
+          echo "Submitting for notarization..."
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait --timeout 600
+
+          # Staple the notarization ticket
+          echo "Stapling..."
+          xcrun stapler staple "$DMG"
+
+          echo "Notarization complete"
+
+      # Build CLI tool
+      - name: Build CLI
+        run: |
+          if [ -n "${{ matrix.target }}" ]; then
+            cargo build --release --manifest-path cli/Cargo.toml --target ${{ matrix.target }}
+          else
+            cargo build --release --manifest-path cli/Cargo.toml
+          fi
+        shell: bash
+
+      # Upload CLI binary to the release
+      - name: Upload CLI to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          if [ -n "${{ matrix.target }}" ]; then
+            CLI_PATH="cli/target/${{ matrix.target }}/release/${{ matrix.cli-binary }}"
+          else
+            CLI_PATH="cli/target/release/${{ matrix.cli-binary }}"
+          fi
+
+          if [ -f "$CLI_PATH" ]; then
+            cp "$CLI_PATH" "${{ matrix.cli-asset }}"
+            gh release upload "$TAG" "${{ matrix.cli-asset }}" --clobber
+          else
+            echo "CLI binary not found at $CLI_PATH"
+            ls -la cli/target/*/release/ 2>/dev/null || ls -la cli/target/release/ 2>/dev/null || true
+          fi
+        shell: bash
+
+      # Clean up macOS keychain
+      - name: Cleanup keychain
+        if: startsWith(matrix.platform, 'macos') && always()
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          if [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
