@@ -165,10 +165,11 @@ impl ServiceContext {
                             // Claude Code readiness markers (any of these means prompt is active)
                             if is_claude_ready(tail) {
                                 drop(buf);
-                                std::thread::sleep(std::time::Duration::from_millis(300));
+                                // Wait for UI to fully settle (update prompts, etc.)
+                                std::thread::sleep(std::time::Duration::from_secs(2));
                                 let _ = pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
                                 // Multi-line tasks get pasted and need an extra Enter to submit
-                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                std::thread::sleep(std::time::Duration::from_secs(1));
                                 let _ = pty.lock().write(&pty_id, b"\r");
                                 log::info!("spawn_task_sender: task sent to {}", pty_id);
                                 return;
