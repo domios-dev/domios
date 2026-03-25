@@ -1277,6 +1277,20 @@ pub fn send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, bo
 
 /// Single notification popup — reuses existing window, auto-closes after 4s.
 pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
+    // Use native macOS/Windows/Linux notifications via tauri-plugin-notification
+    use tauri_plugin_notification::NotificationExt;
+    let mut notif = app.notification().builder()
+        .title(title);
+    if let Some(b) = body {
+        notif = notif.body(b);
+    }
+    let _ = notif.show();
+
+    // Keep old custom window code below as fallback — but return early with native
+    return;
+
+    #[allow(unreachable_code)]
+    {
     use tauri::Manager;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -1352,6 +1366,7 @@ pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&s
             NOTIF_ACTIVE.store(false, Ordering::Relaxed);
         }
     });
+    } // end unreachable_code block
 }
 
 fn build_notif_html(title: &str, body: &str) -> String {

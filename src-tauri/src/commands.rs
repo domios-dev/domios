@@ -605,6 +605,18 @@ pub fn open_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Open a URL in the default browser.
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    { let _ = std::process::Command::new("cmd").args(["/C", "start", &url]).spawn(); }
+    #[cfg(target_os = "macos")]
+    { let _ = std::process::Command::new("open").arg(&url).spawn(); }
+    #[cfg(target_os = "linux")]
+    { let _ = std::process::Command::new("xdg-open").arg(&url).spawn(); }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Directory completion for cd
 // ---------------------------------------------------------------------------
