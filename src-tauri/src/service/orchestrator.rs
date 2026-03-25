@@ -245,7 +245,13 @@ impl ServiceContext {
         let is_claude = agent_cmd == "claude";
         let svc = self.clone();
         let bg_pane_id = pane_id.clone();
-        let bg_task = params.task.clone();
+        let bg_task = params.task.as_ref().map(|t| {
+            match params.role.as_deref() {
+                Some("Worker") => format!("{}\nWhen done, report by running: codeterm agent report \"your summary\"", t),
+                Some("Lead") => format!("{}\nWhen spawning workers, include in --task: 'then run: codeterm agent report your-summary'. After getting their report, run: codeterm agent report \"your summary\"", t),
+                _ => t.clone(),
+            }
+        });
         std::thread::spawn(move || {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
             let pty_id = loop {
@@ -340,7 +346,13 @@ impl ServiceContext {
         let is_claude = agent_cmd == "claude";
         let svc = self.clone();
         let bg_pane_id = pane_id.clone();
-        let bg_task = params.task.clone();
+        let bg_task = params.task.as_ref().map(|t| {
+            match params.role.as_deref() {
+                Some("Worker") => format!("{}\nWhen done, report by running: codeterm agent report \"your summary\"", t),
+                Some("Lead") => format!("{}\nWhen spawning workers, include in --task: 'then run: codeterm agent report your-summary'. After getting their report, run: codeterm agent report \"your summary\"", t),
+                _ => t.clone(),
+            }
+        });
         std::thread::spawn(move || {
             // Wait for PTY (frontend creates it after mux-state-changed)
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
