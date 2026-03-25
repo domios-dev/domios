@@ -31,13 +31,19 @@
 
 <table>
 <tr>
-<td width="50%">
-<strong>Agent Orchestration</strong><br>
-<video src="docs/assets/agent-team.mp4" autoplay loop muted playsinline></video>
+<td width="50%" align="center">
+<strong>Agent Orchestration</strong><br><br>
+<a href="docs/assets/agent-team.mp4">
+<img src="docs/assets/agent-team-preview.png" alt="Agent Team Demo" width="100%">
+</a>
+<sub>Click to play</sub>
 </td>
-<td width="50%">
-<strong>Cron Jobs</strong><br>
-<video src="docs/assets/cron.mp4" autoplay loop muted playsinline></video>
+<td width="50%" align="center">
+<strong>Cron Jobs</strong><br><br>
+<a href="docs/assets/cron.mp4">
+<img src="docs/assets/cron-preview.png" alt="Cron Demo" width="100%">
+</a>
+<sub>Click to play</sub>
 </td>
 </tr>
 </table>
