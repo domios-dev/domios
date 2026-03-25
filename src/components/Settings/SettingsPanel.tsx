@@ -312,15 +312,7 @@ export function SettingsPanel({
                     checked={localConfig.notifications.sound}
                     onChange={(v) => update("notifications", { sound: v })}
                   />
-                  <button
-                    onClick={() => invoke("test_notification").catch(() => {})}
-                    className="mt-1 px-3 py-1 text-xs bg-[var(--ct-border)] hover:bg-[var(--ct-muted)] rounded transition-colors"
-                  >
-                    Send test notification
-                  </button>
                 </Group>
-
-                <ClaudeHooksGroup />
 
                 <Group title="In-app Toast">
                   <div className="text-xs text-[var(--ct-muted-fg)] mb-1">
