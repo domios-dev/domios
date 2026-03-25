@@ -269,7 +269,8 @@ enum AgentAction {
     List,
     /// Show full hierarchy tree
     Hierarchy,
-    /// Mark a pane as conductor
+    /// Mark a pane as orchestrator (top-level, can spawn leads/workers)
+    #[command(alias = "set-orchestrator")]
     SetConductor {
         /// Pane ID (default: current focused pane)
         #[arg(long)]

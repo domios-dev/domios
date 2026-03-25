@@ -78,10 +78,10 @@ impl ServiceContext {
 
     pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {
         match role_str {
-            "Conductor" => Ok(AgentRole::Conductor),
-            "Worker" => Ok(AgentRole::Worker),
-            "SubWorker" => Ok(AgentRole::SubWorker),
-            _ => Err(format!("Invalid role: {}", role_str)),
+            "Orchestrator" | "Conductor" => Ok(AgentRole::Orchestrator),
+            "Lead" => Ok(AgentRole::Lead),
+            "Worker" | "SubWorker" => Ok(AgentRole::Worker),
+            _ => Err(format!("Invalid role: {}. Use: Orchestrator, Lead, Worker", role_str)),
         }
     }
 }
