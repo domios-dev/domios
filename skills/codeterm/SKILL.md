@@ -8,7 +8,15 @@ version: 0.3.0
 
 You are running inside CodeTerm, an AI-first terminal multiplexer. CLI: `codeterm`
 
-**When to use CodeTerm agents vs built-in agents:** If user says "in terminal", "in codeterm", "spawn in tab", "open a terminal for", "заспавни в терминале" — use `codeterm agent spawn` (visible tabs with hierarchy). Otherwise, use the standard built-in Agent tool for background work.
+**CRITICAL — "separate workspace" / "another workspace" in user request:**
+If the request mentions a separate/another/new/different workspace — run ONLY these 2 commands and stop:
+```bash
+WS=$(codeterm workspace create "Name" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn --task "You are the orchestrator. [full task]. Set yourself as conductor, spawn leads/workers, collect reports, send notification when done."
+```
+Do NOT call set-conductor on yourself. Do NOT spawn leads. Do NOT rename yourself to Orchestrator. Just 2 commands.
+
+**When to use CodeTerm agents vs built-in agents:** If user says "in terminal", "in codeterm", "spawn in tab" — use `codeterm agent spawn`. Otherwise, use built-in Agent tool.
 
 ## Auto-name your tab on session start
 
