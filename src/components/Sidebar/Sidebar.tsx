@@ -891,8 +891,8 @@ function TabItem({
               autoFocus
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              onBlur={() => { const t = editName.trim(); if (t && t !== tab.title) onRename?.(t); setEditing(false); }}
-              onKeyDown={(e) => { if (e.key === "Enter") { const t = editName.trim(); if (t && t !== tab.title) onRename?.(t); setEditing(false); } if (e.key === "Escape") setEditing(false); }}
+              onBlur={() => { const t = editName.trim(); if (t) onRename?.(t); setEditing(false); }}
+              onKeyDown={(e) => { if (e.key === "Enter") { const t = editName.trim(); if (t) onRename?.(t); setEditing(false); } if (e.key === "Escape") setEditing(false); }}
               onClick={(e) => e.stopPropagation()}
               className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
             />
