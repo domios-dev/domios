@@ -129,20 +129,27 @@ codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [-
                                                # Role: Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
 ```
 
-### Orchestrator pattern (using agent spawn)
+### Spawn orchestrator in a separate workspace
+When asked to "spawn orchestrator in another workspace" or "run this in a separate workspace":
+```bash
+# Create workspace and spawn an orchestrator agent THERE (not yourself)
+WS=$(codeterm workspace create "Project" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn --task "your task here"
+```
+Do NOT become the orchestrator yourself. Spawn a separate agent in the new workspace.
+
+### Orchestrator pattern (when YOU are the orchestrator)
 ```bash
 # 1. Mark self as orchestrator
 codeterm agent set-conductor --pane $CODETERM_PANE_ID
 
 # 2. Spawn leads (they can spawn workers under them)
 codeterm agent spawn claude --title "Team-A" --role Lead --parent $CODETERM_PANE_ID --task "coordinate team A"
-codeterm agent spawn claude --title "Team-B" --role Lead --parent $CODETERM_PANE_ID --task "coordinate team B"
 
 # 3. Spawn workers directly (they execute and report, cannot spawn)
 codeterm agent spawn claude --title "Scout" --role Worker --parent $CODETERM_PANE_ID --task "list files and report"
 
-# 4. Read reports from children
-codeterm agent reports
+# 4. Reports arrive automatically — no polling needed
 ```
 
 **Role-aware behavior — check `$CODETERM_ROLE` on startup:**
