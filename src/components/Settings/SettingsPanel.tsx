@@ -314,6 +314,8 @@ export function SettingsPanel({
                   />
                 </Group>
 
+                <ClaudeHooksGroup />
+
                 <Group title="In-app Toast">
                   <div className="text-xs text-[var(--ct-muted-fg)] mb-1">
                     Toast notifications appear inside CodeTerm for 5 seconds.
