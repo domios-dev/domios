@@ -31,6 +31,12 @@ pub enum SplitNodeSnapshot {
     Leaf {
         pane_id: String,
         cwd: Option<String>,
+        /// Pane title.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        title: Option<String>,
+        /// Title priority level.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        title_level: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_type: Option<String>,
         /// Claude Code session ID for --resume

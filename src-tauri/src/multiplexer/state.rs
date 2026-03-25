@@ -745,9 +745,13 @@ impl MultiplexerState {
                     let parent_pane_id = pane.and_then(|p| p.parent_pane_id.clone());
                     let can_spawn = pane.map(|p| p.can_spawn).unwrap_or(false);
                     let depth = pane.map(|p| p.depth).unwrap_or(0);
+                    let title = pane.map(|p| p.title.clone());
+                    let title_level = pane.map(|p| format!("{:?}", p.title_level));
                     SplitNodeSnapshot::Leaf {
                         pane_id: pane_id.clone(),
                         cwd,
+                        title,
+                        title_level,
                         agent_type,
                         claude_session_id,
                         role,
@@ -799,18 +803,24 @@ impl MultiplexerState {
 
         fn snapshot_to_split(node: &SplitNodeSnapshot, panes: &mut HashMap<String, Pane>) -> SplitNode {
             match node {
-                SplitNodeSnapshot::Leaf { pane_id, cwd, agent_type, claude_session_id, role, parent_pane_id, can_spawn, depth } => {
+                SplitNodeSnapshot::Leaf { pane_id, cwd, title, title_level, agent_type, claude_session_id, role, parent_pane_id, can_spawn, depth } => {
                     let parsed_role = role.as_deref().and_then(|r| match r {
                         "Orchestrator" | "Conductor" => Some(crate::multiplexer::types::AgentRole::Orchestrator),
                         "Lead" => Some(crate::multiplexer::types::AgentRole::Lead),
                         "Worker" | "SubWorker" => Some(crate::multiplexer::types::AgentRole::Worker),
                         _ => None,
                     });
+                    let restored_title = title.as_deref().unwrap_or("Terminal").to_string();
+                    let restored_level = match title_level.as_deref() {
+                        Some("User") => TitleLevel::User,
+                        Some("Auto") => TitleLevel::Auto,
+                        _ => if role.is_some() { TitleLevel::User } else { TitleLevel::Default },
+                    };
                     panes.insert(pane_id.clone(), Pane {
                         id: pane_id.clone(),
                         pty_id: None,
                         pane_type: PaneType::Terminal,
-                        title: "Terminal".to_string(),
+                        title: restored_title,
                         cwd: cwd.clone(),
                         url: None,
                         agent_type: agent_type.clone(),
@@ -819,7 +829,7 @@ impl MultiplexerState {
                         parent_pane_id: parent_pane_id.clone(),
                         can_spawn: *can_spawn,
                         depth: *depth,
-                        title_level: if role.is_some() { TitleLevel::User } else { TitleLevel::Default }, // restore pinned if had role
+                        title_level: restored_level,
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }
