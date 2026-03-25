@@ -98,6 +98,24 @@ impl ServiceContext {
         })
     }
 
+    pub fn get_reports(&self, pane_id: &str) -> Vec<serde_json::Value> {
+        let reports = self.report_store.lock().get(pane_id, false);
+        serde_json::to_value(&reports)
+            .unwrap_or_default()
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn get_and_clear_reports(&self, pane_id: &str) -> Vec<serde_json::Value> {
+        let reports = self.report_store.lock().get(pane_id, true);
+        serde_json::to_value(&reports)
+            .unwrap_or_default()
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+    }
+
     pub fn get_pane_status(&self, pane_id: &str) -> Result<PaneStatusInfo, String> {
         let mux = self.mux.lock();
         let pane = mux

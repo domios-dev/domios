@@ -629,6 +629,36 @@ fn dispatch(
             }))
         }
 
+        "agent.report" => {
+            let pane_id = get_string_param(&params, "pane_id")?;
+            let message = get_string_param(&params, "message")?;
+            let svc_ref = &**svc;
+            let result = svc_ref.submit_report(&pane_id, &message)
+                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            Ok(serde_json::json!({
+                "ok": true,
+                "report_id": result.report_id,
+            }))
+        }
+
+        "agent.reports" => {
+            let pane_id = get_string_param(&params, "pane_id")?;
+            let clear = params.as_ref()
+                .and_then(|p| p.get("clear"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let svc_ref = &**svc;
+            let reports = if clear {
+                svc_ref.get_and_clear_reports(&pane_id)
+            } else {
+                svc_ref.get_reports(&pane_id)
+            };
+            serde_json::to_value(&reports).map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e.to_string(),
+            })
+        }
+
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
