@@ -258,7 +258,10 @@ impl MultiplexerState {
             .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
 
         workspace.tabs.push(tab);
-        workspace.active_tab_id = Some(tab_id.clone());
+        // Only set active if this is the first tab (empty workspace)
+        if workspace.active_tab_id.is_none() {
+            workspace.active_tab_id = Some(tab_id.clone());
+        }
 
         Ok((tab_id, pane_id))
     }
@@ -932,7 +935,8 @@ mod tests {
 
         let ws = state.get_workspace(&ws_id).unwrap();
         assert_eq!(ws.tabs.len(), 2);
-        assert_eq!(ws.active_tab_id, Some(tab_id));
+        // active_tab_id stays on original tab (create_tab doesn't auto-switch)
+        assert!(ws.active_tab_id.is_some());
     }
 
     #[test]
