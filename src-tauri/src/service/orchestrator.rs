@@ -225,7 +225,10 @@ impl ServiceContext {
                     pane.cwd = Some(dir.clone());
                 }
             }
-            let _ = mux.set_active_tab(&ws_id, &result.0);
+            // Only switch to new tab if no role (user-initiated), not for agent spawns
+            if params.role.is_none() {
+                let _ = mux.set_active_tab(&ws_id, &result.0);
+            }
             // Set role inside same lock — before frontend sees the pane
             if let Some(ref role_str) = params.role {
                 let role = Self::parse_role(role_str)?;
@@ -322,7 +325,10 @@ impl ServiceContext {
                     pane.cwd = Some(dir.clone());
                 }
             }
-            let _ = mux.set_active_tab(&ws_id, &result.0);
+            // Only switch tab for user-initiated spawns, not agent hierarchy
+            if params.role.is_none() {
+                let _ = mux.set_active_tab(&ws_id, &result.0);
+            }
             result
         };
         self.emit_state_changed();
