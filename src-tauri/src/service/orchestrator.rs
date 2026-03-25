@@ -243,11 +243,8 @@ impl ServiceContext {
         };
         self.emit_state_changed();
 
-        // 5. Background launch
-        let launch_cmd = build_agent_command(&agent_cmd, &params);
+        // 5. Background launch — task is passed as CLI arg to claude (no paste needed)
         let is_claude = agent_cmd == "claude";
-        let svc = self.clone();
-        let bg_pane_id = pane_id.clone();
         let bg_task = params.task.as_ref().map(|t| {
             match params.role.as_deref() {
                 Some("Worker") => format!("{}\nWhen done, report by running: codeterm agent report \"your summary\"", t),
@@ -255,6 +252,9 @@ impl ServiceContext {
                 _ => t.clone(),
             }
         });
+        let launch_cmd = build_agent_command(&agent_cmd, &params, bg_task.as_deref());
+        let svc = self.clone();
+        let bg_pane_id = pane_id.clone();
         std::thread::spawn(move || {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
             let pty_id = loop {
@@ -264,6 +264,7 @@ impl ServiceContext {
                 std::thread::sleep(std::time::Duration::from_millis(300));
             };
             if is_claude {
+                // Wait for shell prompt
                 let dl = std::time::Instant::now() + std::time::Duration::from_secs(30);
                 loop {
                     if std::time::Instant::now() > dl { break; }
@@ -273,8 +274,9 @@ impl ServiceContext {
                     if ready { break; }
                     std::thread::sleep(std::time::Duration::from_millis(300));
                 }
+                // Task is embedded in launch_cmd as CLI arg — Claude starts and processes immediately
                 let _ = svc.pty.lock().write(&pty_id, format!("{}\r", launch_cmd).as_bytes());
-                if let Some(ref task) = bg_task { svc.spawn_task_sender(pty_id, task.clone()); }
+                // No spawn_task_sender needed — task is a CLI argument, not pasted after start
             } else {
                 std::thread::sleep(std::time::Duration::from_secs(2));
                 let _ = svc.pty.lock().write(&pty_id, format!("{}\r", launch_cmd).as_bytes());
@@ -346,12 +348,8 @@ impl ServiceContext {
         // 4. Rename pane immediately (metadata only)
         self.rename_pane(&pane_id, title)?;
 
-        // 5. Launch agent in background thread — don't block API runtime.
-        //    Uses std::thread to avoid saturating the Tokio worker pool.
-        let launch_cmd = build_agent_command(agent_cmd, &params);
+        // 5. Launch agent in background thread
         let is_claude = agent_cmd == "claude";
-        let svc = self.clone();
-        let bg_pane_id = pane_id.clone();
         let bg_task = params.task.as_ref().map(|t| {
             match params.role.as_deref() {
                 Some("Worker") => format!("{}\nWhen done, report by running: codeterm agent report \"your summary\"", t),
@@ -359,6 +357,9 @@ impl ServiceContext {
                 _ => t.clone(),
             }
         });
+        let launch_cmd = build_agent_command(agent_cmd, &params, bg_task.as_deref());
+        let svc = self.clone();
+        let bg_pane_id = pane_id.clone();
         std::thread::spawn(move || {
             // Wait for PTY (frontend creates it after mux-state-changed)
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
@@ -427,34 +428,32 @@ impl ServiceContext {
 
 /// Build a single shell command that launches the agent.
 ///
-/// Build launch command for the agent. Always interactive — no `-p` flag.
+/// For Claude Code with task: includes task as CLI argument so it starts immediately
+/// without needing spawn_task_sender (avoids "Update available" paste timing issues).
 ///
-/// For Claude Code:
-///   `unset CLAUDECODE && claude --dangerously-skip-permissions [--agent NAME]`
-/// Task is sent separately after the agent is ready (via spawn_task_sender).
-///
-/// For other agents:
-///   `agent [args]`
-fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams) -> String {
+/// For Claude Code without task: interactive mode.
+/// For other agents: direct command.
+fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<&str>) -> String {
     let mut parts: Vec<String> = Vec::new();
 
     if agent_cmd == "claude" {
-        // Unset the nested-session guard env var
         parts.push("unset CLAUDECODE &&".to_string());
-
         parts.push("claude".to_string());
         parts.push("--dangerously-skip-permissions".to_string());
 
-        // Use --agent flag for named agent definitions
         if let Some(ref name) = params.agent_name {
             parts.push("--agent".to_string());
             parts.push(shell_quote(name));
+        }
+
+        // Pass task as CLI argument — Claude starts and processes it immediately
+        if let Some(t) = task {
+            parts.push(shell_quote(t));
         }
     } else {
         parts.push(agent_cmd.to_string());
     }
 
-    // Extra args
     if let Some(ref extra) = params.args {
         parts.extend(extra.iter().cloned());
     }
@@ -494,19 +493,18 @@ mod tests {
 
     #[test]
     fn test_build_claude_with_task_is_interactive() {
-        // Task is NOT in the launch command — sent separately after readiness
+        // Task IS in the launch command as positional arg
         let params = make_params("claude", Some("count files"));
-        let cmd = build_agent_command("claude", &params);
+        let cmd = build_agent_command("claude", &params, Some("count files"));
         assert!(cmd.starts_with("unset CLAUDECODE &&"));
         assert!(cmd.contains("--dangerously-skip-permissions"));
-        assert!(!cmd.contains(" -p "), "must be interactive, no -p flag");
-        assert!(!cmd.contains("count files"), "task must not be in launch command");
+        assert!(cmd.contains("'count files'"), "task should be in launch command as arg");
     }
 
     #[test]
     fn test_build_claude_no_task() {
         let params = make_params("claude", None);
-        let cmd = build_agent_command("claude", &params);
+        let cmd = build_agent_command("claude", &params, None);
         assert_eq!(cmd, "unset CLAUDECODE && claude --dangerously-skip-permissions");
     }
 
@@ -514,7 +512,7 @@ mod tests {
     fn test_build_claude_with_agent_name() {
         let mut params = make_params("claude", Some("review code"));
         params.agent_name = Some("architect".to_string());
-        let cmd = build_agent_command("claude", &params);
+        let cmd = build_agent_command("claude", &params, None);
         assert!(cmd.contains("--agent 'architect'"));
         assert!(!cmd.contains(" -p "), "must be interactive");
     }
@@ -523,7 +521,7 @@ mod tests {
     fn test_build_other_agent() {
         let mut params = make_params("aider", None);
         params.args = Some(vec!["--model".to_string(), "gpt-4".to_string()]);
-        let cmd = build_agent_command("aider", &params);
+        let cmd = build_agent_command("aider", &params, None);
         assert_eq!(cmd, "aider --model gpt-4");
         assert!(!cmd.contains("CLAUDECODE"));
     }
