@@ -31,6 +31,8 @@ Webhook events: agent.permission_request, agent.task_complete, agent.report
 Environment variables (available in every CodeTerm PTY):
 - `$CODETERM` — always `1` inside CodeTerm
 - `$CODETERM_PANE_ID` — this pane's unique ID (8-char hex, e.g. `a3f1b2c7`). Use for `--pane` args and agent hierarchy. Prefer over `$(codeterm pane current)`.
+- `$CODETERM_ROLE` — your role: `Orchestrator`, `Lead`, or `Worker` (empty if no role). Set at PTY spawn.
+- `$CODETERM_PARENT_PANE_ID` — your parent's pane ID (empty if Orchestrator or no role). Set at PTY spawn.
 - `$CODETERM_SOCKET_PATH` — socket path for CLI communication
 - `$TERM_PROGRAM` — always `CodeTerm`
 
@@ -39,10 +41,10 @@ Pane fields:
 - `cwd` — current working directory (tracked via invisible OSC 7 shell integration)
 - `agent_type` — `"claude"` when Claude Code is detected in the pane
 - `claude_session_id` — session ID for resume (see below)
-- `role` — `"Conductor"`, `"Worker"`, `"SubWorker"`, or null
+- `role` — `"Orchestrator"`, `"Lead"`, `"Worker"`, or null
 - `parent_pane_id` — parent pane ID in hierarchy, or null
-- `can_spawn` — whether this pane can spawn children
-- `depth` — hierarchy depth (0=none, 1=Conductor, 2=Worker, 3=SubWorker)
+- `can_spawn` — whether this pane can spawn children (Orchestrator/Lead: true, Worker: always false)
+- `depth` — hierarchy depth (0=none, 1=Orchestrator, 2=Lead or Worker, 3=Worker under Lead)
 
 Agent Hierarchy:
 - GET  /api/panes/:id/status — discover your role, parent, children
@@ -50,8 +52,8 @@ Agent Hierarchy:
 - POST /api/panes/:id/role {role, parent_pane_id?, can_spawn?} — set role
 - DELETE /api/panes/:id/role — clear role
 - GET  /api/panes/:id/children — list child panes
-- POST /api/panes/:id/report {message} — worker sends report to conductor
-- GET  /api/panes/:id/reports?clear=true — conductor reads (and optionally clears) reports
+- POST /api/panes/:id/report {message} — send report to direct parent (cascade, auto-injected into parent's PTY)
+- GET  /api/panes/:id/reports?clear=true — read reports from children (optionally clearing them)
 - POST /api/panes/:id/can-spawn {can_spawn} — toggle spawning permission
 - GET  /api/agents — list all panes with roles
 
@@ -71,7 +73,7 @@ Agent spawn (one-call):
 - POST /api/agents/spawn {agent?, agent_name?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?}
 - Creates a **new tab** (not a split) in the parent's workspace, assigns role, launches agent, optionally sends task. All in one request.
 - Returns immediately (non-blocking) with {pane_id, tab_id, pty_id, agent, title, role}. PTY readiness and agent launch happen in a background thread.
-- The hierarchy (Conductor -> Worker -> SubWorker) is a logical chain, not visual splits.
+- The hierarchy (Orchestrator -> Lead -> Worker) is a logical chain, not visual splits.
 - `agent` defaults to "claude". For Claude, `--dangerously-skip-permissions` is added automatically.
 - `agent_name` maps to `.claude/agents/` files (e.g. `"architect"` adds `--agent architect`).
 - `task` is baked into the launch command via `-p` flag — agent starts working immediately, no delay.
@@ -88,8 +90,9 @@ Batch commands (POST /api/batch or Tauri `mux_batch` command):
   POST /api/batch
   {
     "commands": [
-      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Conductor", "agent": "claude", "cwd": "C:/project", "can_spawn": true}},
-      {"method": "spawn", "id": "w1", "params": {"title": "Worker-1", "role": "Worker", "parent_pane_id": "$boss", "agent": "claude", "task": "analyze code"}},
+      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Orchestrator", "agent": "claude", "cwd": "C:/project", "can_spawn": true}},
+      {"method": "spawn", "id": "lead", "params": {"title": "Lead-1", "role": "Lead", "parent_pane_id": "$boss", "agent": "claude", "task": "coordinate team"}},
+      {"method": "spawn", "params": {"title": "Worker-1", "role": "Worker", "parent_pane_id": "$lead", "agent": "claude", "task": "analyze code"}},
       {"method": "spawn", "params": {"title": "Worker-2", "role": "Worker", "parent_pane_id": "$boss", "agent": "claude"}},
       {"method": "notify", "params": {"title": "Ready", "body": "3 agents spawned"}}
     ]
@@ -97,15 +100,19 @@ Batch commands (POST /api/batch or Tauri `mux_batch` command):
   ```
 
 Orchestrator with hierarchy:
-- Conductor (depth 1) creates workers via POST /api/agents/spawn, POST /api/batch, or Tauri `mux_batch` command.
-- Workers (depth 2) can create sub-workers (depth 3) if `can_spawn` is true. Max depth is 3 levels.
-- Workers need `allow-spawn` before spawning SubWorkers. Use `--role SubWorker` when spawning under a Worker.
+- Orchestrator (depth 1) creates Leads and Workers via POST /api/agents/spawn, POST /api/batch, or Tauri `mux_batch` command.
+- Leads (depth 2) can spawn Workers. Workers CANNOT spawn anything (`can_spawn` always false).
+- Workers CANNOT call set-conductor, unlink, or agent spawn (backend blocks).
+- Leads get `can_spawn=true` by default.
 - Use `$CODETERM_PANE_ID` for self-identification instead of `$(codeterm pane current)`.
-- Workers report progress to their conductor via POST /api/panes/:id/report {message}.
-- Conductor polls reports via GET /api/panes/:id/reports?clear=true.
-- The `agent.report` webhook event fires when any worker sends a report.
+- Check `$CODETERM_ROLE` on startup to know your role (Orchestrator, Lead, Worker, or empty).
+- Reports go to direct parent (cascade), not to orchestrator: Worker -> Lead -> Orchestrator.
+- Reports are auto-injected into parent's PTY as `[Report from Name] message\r` -- no polling needed.
+- The `agent.report` webhook event fires when any agent sends a report.
 - Use GET /api/agents/hierarchy to see the full tree at any time.
 - Closing a pane cascade-closes all children (tabs + PTYs killed recursively).
-- Clearing a role (DELETE /api/panes/:id/role) orphans children — they keep their role but lose parent linkage.
+- Clearing a role (DELETE /api/panes/:id/role) orphans children -- but panes with a parent CANNOT unlink.
+- Agent spawns do NOT auto-switch active tab.
+- `workspace create` creates an empty workspace (no auto-tab).
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

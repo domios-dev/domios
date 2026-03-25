@@ -63,12 +63,12 @@ Then: `Authorization: Bearer your-secret-token`
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/panes/{id}/role` | `{role, parent_pane_id?, can_spawn?}` | Set pane role (`Conductor`, `Worker`, `SubWorker`) |
+| POST | `/api/panes/{id}/role` | `{role, parent_pane_id?, can_spawn?}` | Set pane role (`Orchestrator`, `Lead`, `Worker`). Accepts `Conductor`/`SubWorker` as backward-compat aliases. |
 | DELETE | `/api/panes/{id}/role` | — | Clear role (orphans children) |
 | GET | `/api/panes/{id}/status` | — | Pane status + role + children info |
 | GET | `/api/panes/{id}/children` | — | List child panes |
-| POST | `/api/panes/{id}/report` | `{message}` | Worker sends report to parent conductor |
-| GET | `/api/panes/{id}/reports` | `?clear=true` | Conductor reads reports (optionally clearing them) |
+| POST | `/api/panes/{id}/report` | `{message}` | Send report to direct parent (cascade, not to Orchestrator). Auto-injected into parent's PTY. |
+| GET | `/api/panes/{id}/reports` | `?clear=true` | Read reports from children (optionally clearing them) |
 | POST | `/api/panes/{id}/can-spawn` | `{can_spawn: bool}` | Toggle whether pane can spawn children |
 | GET | `/api/agents` | — | List all panes that have roles |
 | GET | `/api/agents/hierarchy` | — | Full hierarchy tree |
@@ -93,10 +93,10 @@ Fields returned by `GET /api/panes` for each pane:
 | `url` | `string?` | URL for canvas panes (localhost, data URLs) |
 | `agent_type` | `string?` | Agent running in pane, e.g. `"claude"` |
 | `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
-| `role` | `string?` | `"Conductor"`, `"Worker"`, `"SubWorker"`, or `null` |
+| `role` | `string?` | `"Orchestrator"`, `"Lead"`, `"Worker"`, or `null` |
 | `parent_pane_id` | `string?` | Parent pane ID in hierarchy, or `null` |
-| `can_spawn` | `bool` | Whether this pane can spawn child workers |
-| `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Conductor), 2 (Worker), 3 (SubWorker) |
+| `can_spawn` | `bool` | Whether this pane can spawn children. Orchestrator: true (default). Lead: true (default). Worker: always false. |
+| `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Orchestrator), 2 (Lead or Worker under Orchestrator), 3 (Worker under Lead) |
 
 #### Canvas (Visualizations)
 | Method | Path | Body | Description |
@@ -134,7 +134,7 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 
 Creates a **new tab** in the parent's workspace, assigns a role, launches an agent (claude/aider/any), and optionally sends a task. All in one request. The response returns immediately (non-blocking) -- PTY readiness detection and agent launch happen in a background thread.
 
-The hierarchy (Conductor -> Worker -> SubWorker) is a logical chain, not visual splits. Each agent gets its own tab. The `--force-tab` flag still exists in the API but is no longer meaningful (tab is always the default).
+The hierarchy (Orchestrator -> Lead -> Worker) is a logical chain, not visual splits. Each agent gets its own tab. Agent spawns do not auto-switch the active tab -- the user stays on their current tab.
 
 **Request body:**
 ```json
@@ -143,8 +143,8 @@ The hierarchy (Conductor -> Worker -> SubWorker) is a logical chain, not visual 
   "agent_name": "architect",   // maps to --agent flag (.claude/agents/ file)
   "title": "Worker-1",         // tab title (default: agent_name or agent command)
   "cwd": "C:/project",         // working directory
-  "role": "Worker",            // Conductor, Worker, SubWorker
-  "parent_pane_id": "a3f1b2c7", // parent for Worker/SubWorker (8-char hex ID)
+  "role": "Worker",            // Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
+  "parent_pane_id": "a3f1b2c7", // parent for Lead/Worker (8-char hex ID)
   "can_spawn": true,           // allow spawning children
   "task": "analyze the code",  // baked into launch via -p flag (instant start)
   "args": ["--verbose"],       // extra agent args
@@ -167,10 +167,10 @@ Execute multiple operations in a single HTTP request. Commands run sequentially.
 ```json
 {
   "commands": [
-    {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Conductor", "agent": "claude", "cwd": "C:/project", "can_spawn": true}},
-    {"method": "spawn", "id": "w1", "params": {"title": "Worker-1", "role": "Worker", "parent_pane_id": "$boss", "agent": "claude", "cwd": "C:/project", "task": "analyze code"}},
+    {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Orchestrator", "agent": "claude", "cwd": "C:/project", "can_spawn": true}},
+    {"method": "spawn", "id": "lead", "params": {"title": "Lead-1", "role": "Lead", "parent_pane_id": "$boss", "agent": "claude", "cwd": "C:/project", "task": "coordinate team"}},
+    {"method": "spawn", "params": {"title": "Worker-1", "role": "Worker", "parent_pane_id": "$lead", "agent": "claude", "task": "analyze code"}},
     {"method": "spawn", "params": {"title": "Worker-2", "role": "Worker", "parent_pane_id": "$boss", "agent": "claude"}},
-    {"method": "spawn", "params": {"title": "Sub-W1", "role": "SubWorker", "parent_pane_id": "$w1", "agent": "claude"}},
     {"method": "notify", "params": {"title": "All spawned", "body": "4 agents ready"}}
   ]
 }
@@ -347,10 +347,13 @@ Newline-delimited JSON:
 | `notification.create` | `{title, body?, level?, pane_id?}` | Create notification |
 | `notification.list` | `{unread_only?}` | List notifications |
 | `notification.clear` | `{id?}` | Clear notifications |
+| `agent.spawn` | `{agent?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?}` | Spawn agent (same as REST) |
+| `agent.report` | `{pane_id, message}` | Send report to direct parent |
+| `agent.reports` | `{pane_id, clear?}` | Read reports from children |
 
 ## CLI
 
-Most pane commands default to the **current focused pane** when no ID is given.
+Most pane commands default to `$CODETERM_PANE_ID` (if set) then fall back to the **current focused pane** when no ID is given.
 
 ```bash
 codeterm identify                               # System info
@@ -363,7 +366,7 @@ codeterm workspace create "Name"                # Create workspace
 codeterm workspace focus ID                     # Switch workspace
 codeterm workspace rename ID "New Name"         # Rename
 codeterm workspace close ID                     # Delete
-codeterm workspace move-tab TAB --from WS --to WS  # Move tab
+codeterm workspace move-tab TAB FROM TO             # Move tab between workspaces
 
 # Panes
 codeterm pane list                              # List panes
@@ -375,8 +378,8 @@ codeterm pane split [--id ID] [--pane ID] [--direction right|down]  # Split (def
 codeterm pane rename "title" [--pane ID] [--id ID]  # Rename tab (default: current)
 
 # Terminal I/O
-codeterm send-text "command" [--pane ID]        # Send text (default: current)
-codeterm get-output [--pane ID] [--lines 50]    # Read output (default: current)
+codeterm send-text "command" [--pane ID] [--id ID]  # Send text (default: current, --id alias for --pane)
+codeterm get-output [--pane ID] [--id ID] [--lines 50]  # Read output (default: current, --id alias for --pane)
 
 # Canvas (visualizations)
 codeterm browser open URL                       # Open canvas panel (localhost, data URLs)
@@ -396,19 +399,22 @@ codeterm theme dir                              # Show themes directory
 # Agent Hierarchy
 codeterm agent list                            # List all panes with roles
 codeterm agent hierarchy                       # Show full hierarchy tree
-codeterm agent set-conductor [--pane ID]       # Mark pane as conductor
-codeterm agent link --parent ID [--pane ID]    # Link pane as worker under parent
-codeterm agent unlink [--pane ID]              # Clear role
+codeterm agent set-conductor [--pane ID]       # Mark pane as orchestrator (alias: set-orchestrator). Workers/Leads blocked.
+codeterm agent link --parent ID [--pane ID]    # Link pane under parent (auto-detects role: Lead under Orchestrator, Worker under Lead)
+codeterm agent unlink [--pane ID]              # Clear role. Workers/Leads with a parent CANNOT unlink (backend blocks).
 codeterm agent children [--pane ID]            # List children of pane
 codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
-codeterm agent report MESSAGE [--pane ID]      # Send report to parent conductor
-codeterm agent reports [--pane ID]             # Read reports (as conductor)
+codeterm agent report MESSAGE [--pane ID]      # Send report to direct parent (cascade, not to orchestrator). Auto-injected into parent's PTY.
+codeterm agent reports [--pane ID] [--clear]   # Read reports from children
 codeterm agent status [--pane ID]              # Get detailed status + role
-codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--args A1 A2] [--force-tab]
+codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS_ID] [--args A1 A2]
                                                # One-call agent spawn (default agent: claude)
-                                               # Creates a new tab (not a split) — hierarchy is logical, not visual
+                                               # Role: Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
+                                               # Creates a new tab (does NOT auto-switch active tab)
                                                # --task is baked into launch via -p flag (instant start, no delay)
+                                               # --workspace for cross-workspace spawn
                                                # Returns immediately (non-blocking); agent launch happens in background
+                                               # Uses socket API (not REST) for reliability
                                                # NOTE: --agent-name is only available via REST API, not CLI
 
 # Screenshot
@@ -438,10 +444,12 @@ Set automatically in every PTY spawned by CodeTerm:
 | Variable | Example | Description |
 |----------|---------|-------------|
 | `CODETERM` | `1` | Running inside CodeTerm |
-| `CODETERM_VERSION` | `0.1.0` | App version |
+| `CODETERM_VERSION` | `0.4.0` | App version |
 | `CODETERM_SOCKET_PATH` | `\\.\pipe\codeterm-1234` | Socket path |
 | `CODETERM_PANE_ID` | `a3f1b2c7` | Current pane ID (8-char hex) |
 | `CODETERM_WORKSPACE_ID` | `b4e2c8d1` | Current workspace ID (8-char hex) |
+| `CODETERM_ROLE` | `Orchestrator` | Agent role: `Orchestrator`, `Lead`, or `Worker` (empty if no role). Set at PTY spawn. |
+| `CODETERM_PARENT_PANE_ID` | `b4e2c8d1` | Parent pane ID in hierarchy (empty if Orchestrator or no role). Set at PTY spawn. |
 | `TERM` | `xterm-256color` | Terminal type |
 | `COLORTERM` | `truecolor` | Color support |
 | `TERM_PROGRAM` | `CodeTerm` | Terminal name |
@@ -456,4 +464,4 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

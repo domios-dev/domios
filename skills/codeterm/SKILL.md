@@ -1,7 +1,7 @@
 ---
 name: codeterm
-description: Control CodeTerm terminal multiplexer — workspaces, panes, notifications, layouts, agent hierarchy. Use when user mentions splitting panes, creating workspaces, sending commands to other panes, visualizations, managing terminal sessions, spawning workers/agents, orchestrating parallel tasks, or setting up multi-pane layouts. Also use when user says "in terminal", "split", "new pane", "run X there", "conductor", "worker", or wants to delegate tasks to sub-agents.
-version: 0.2.1
+description: Control CodeTerm terminal multiplexer — workspaces, panes, notifications, layouts, agent hierarchy. Use when user mentions splitting panes, creating workspaces, sending commands to other panes, visualizations, managing terminal sessions, spawning workers/agents, orchestrating parallel tasks, or setting up multi-pane layouts. Also use when user says "in terminal", "split", "new pane", "run X there", "orchestrator", "conductor", "lead", "worker", or wants to delegate tasks to sub-agents.
+version: 0.3.0
 ---
 
 # CodeTerm — AI Terminal Control
@@ -23,8 +23,8 @@ Commands default to the **current focused pane** when no ID is given.
 
 **Environment variables** (available in every CodeTerm pane):
 - `$CODETERM_PANE_ID` — this pane's unique ID, 8-char hex (e.g. `a3f1b2c7`). Use for `--pane` args.
-- `$CODETERM_ROLE` — your role: `Conductor`, `Worker`, or `SubWorker` (empty if no role)
-- `$CODETERM_PARENT_PANE_ID` — your parent's pane ID (empty if you're a conductor or no role)
+- `$CODETERM_ROLE` — your role: `Orchestrator`, `Lead`, or `Worker` (empty if no role)
+- `$CODETERM_PARENT_PANE_ID` — your parent's pane ID (empty if you're an orchestrator or no role)
 - `$CODETERM_SOCKET_PATH` — socket path for CLI communication
 - `$CODETERM` — always `1` when running inside CodeTerm
 
@@ -40,19 +40,19 @@ codeterm pane rename "title"                    # Rename your tab
 codeterm pane rename "title" --pane PANE_ID     # Rename specific pane
 codeterm pane focus PANE_ID                     # Focus pane
 codeterm pane close PANE_ID                     # Close pane
-codeterm send-text "command" --pane PANE_ID     # Send to specific pane
-codeterm get-output --pane PANE_ID              # Read specific pane output
+codeterm send-text "command" --pane PANE_ID     # Send to specific pane (--id alias for --pane)
+codeterm get-output --pane PANE_ID              # Read specific pane output (--id alias for --pane)
 ```
 
 ## Workspace Management
 ```
 codeterm workspace list                         # List workspaces
 codeterm workspace current                      # Get current workspace ID
-codeterm workspace create "Name"                # Create workspace
+codeterm workspace create "Name"                # Create workspace (starts empty, no auto-tab)
 codeterm workspace focus ID                     # Switch workspace
 codeterm workspace rename ID "New Name"         # Rename
 codeterm workspace close ID                     # Delete
-codeterm workspace move-tab TAB --from WS --to WS  # Move tab
+codeterm workspace move-tab TAB FROM TO             # Move tab between workspaces
 ```
 
 ## Canvas Panel
@@ -116,7 +116,7 @@ CodeTerm supports a 3-level hierarchy: Orchestrator → Lead → Worker.
 ```
 codeterm agent list                            # List all agent panes
 codeterm agent hierarchy                       # Show full hierarchy tree
-codeterm agent set-conductor [--pane ID]       # Mark as conductor (depth 1)
+codeterm agent set-conductor [--pane ID]       # Mark as orchestrator (alias: set-orchestrator)
 codeterm agent link --parent ID [--pane ID]    # Link as worker under parent
 codeterm agent unlink [--pane ID]              # Clear role
 codeterm agent children [--pane ID]            # List children
@@ -125,7 +125,8 @@ codeterm agent report "MESSAGE" [--pane ID]    # Report to parent (positional, N
 codeterm agent reports [--pane ID]             # Read reports from children
 codeterm agent status [--pane ID]              # Detailed status + role
 codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS_ID] [--args A1 A2]
-                                               # One-call: create tab, set role, launch agent, send task (non-blocking)
+                                               # One-call: create tab (no auto-switch), set role, launch agent, send task (non-blocking)
+                                               # Role: Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
 ```
 
 ### Orchestrator pattern (using agent spawn)
@@ -177,8 +178,9 @@ curl -X POST http://localhost:7685/api/batch \
   -H "Content-Type: application/json" \
   -d '{
     "commands": [
-      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Conductor", "can_spawn": true, "cwd": "/path/to/project"}},
-      {"method": "spawn", "params": {"title": "W1", "role": "Worker", "parent_pane_id": "$boss", "task": "analyze code", "agent_name": "reviewer"}},
+      {"method": "spawn", "id": "boss", "params": {"title": "Boss", "role": "Orchestrator", "can_spawn": true, "cwd": "/path/to/project"}},
+      {"method": "spawn", "id": "lead", "params": {"title": "Lead-A", "role": "Lead", "parent_pane_id": "$boss", "task": "coordinate team"}},
+      {"method": "spawn", "params": {"title": "W1", "role": "Worker", "parent_pane_id": "$lead", "task": "analyze code", "agent_name": "reviewer"}},
       {"method": "spawn", "params": {"title": "W2", "role": "Worker", "parent_pane_id": "$boss", "task": "run tests"}},
       {"method": "notify", "params": {"title": "Ready", "body": "Hierarchy spawned"}}
     ]
@@ -188,9 +190,9 @@ curl -X POST http://localhost:7685/api/batch \
 Batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `can-spawn`, `report`.
 Use `$id` to reference results from earlier commands (resolves to pane_id).
 
-### Orchestrator pattern (manual — split + link)
+### Orchestrator pattern (manual -- split + link)
 ```bash
-# 1. Mark self as conductor
+# 1. Mark self as orchestrator
 codeterm agent set-conductor --pane $CODETERM_PANE_ID
 
 # 2. Split and assign workers
@@ -201,11 +203,7 @@ codeterm agent link --parent $CODETERM_PANE_ID --pane $WORKER
 # 3. Send work to worker pane
 codeterm send-text "npm test" --pane $WORKER
 
-# 4. Worker reports back
-codeterm agent report "tests passed" --pane $WORKER
-
-# 5. Conductor reads reports
-codeterm agent reports
+# 4. Reports arrive automatically as [Report from ...] in your PTY -- no polling needed
 ```
 
 ## Multi-agent Workflow
@@ -294,4 +292,4 @@ When asked to test the CodeTerm orchestrator:
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

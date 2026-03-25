@@ -125,4 +125,4 @@ Shell integration scripts are stored in the platform data directory:
 
 Scripts are created at startup by `pty::shell_integration::ensure_scripts()`. Users should not need to edit these files.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
