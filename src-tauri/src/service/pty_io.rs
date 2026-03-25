@@ -165,26 +165,23 @@ impl ServiceContext {
                             // Claude Code readiness markers (any of these means prompt is active)
                             if is_claude_ready(tail) {
                                 drop(buf);
-                                // Retry loop: send task fast, verify it landed, retry if not
-                                for attempt in 0..5 {
+                                // Wait for UI to fully settle, then send task once
+                                // Poll until "Update available" stops appearing (Claude Code auto-update check)
+                                for _ in 0..10 {
                                     std::thread::sleep(std::time::Duration::from_millis(500));
-                                    let _ = pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
-                                    std::thread::sleep(std::time::Duration::from_millis(300));
-                                    let _ = pty.lock().write(&pty_id, b"\r");
-
-                                    // Check if output grew (Claude started processing)
-                                    std::thread::sleep(std::time::Duration::from_secs(2));
-                                    let accepted = ob.try_lock()
-                                        .and_then(|b| b.get_text(&pty_id).map(|t| t.len() > last_len + 50))
+                                    let still_updating = ob.try_lock()
+                                        .and_then(|b| b.get_text(&pty_id).map(|t| {
+                                            let tail = if t.len() > 500 { &t[t.len()-500..] } else { &t };
+                                            tail.contains("Update available") || tail.contains("Updating")
+                                        }))
                                         .unwrap_or(false);
-
-                                    if accepted {
-                                        log::info!("spawn_task_sender: task accepted (attempt {}) for {}", attempt + 1, pty_id);
-                                        return;
-                                    }
-                                    log::warn!("spawn_task_sender: retry {} for {}", attempt + 1, pty_id);
+                                    if !still_updating { break; }
                                 }
-                                log::warn!("spawn_task_sender: gave up after 5 attempts for {}", pty_id);
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                let _ = pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
+                                std::thread::sleep(std::time::Duration::from_millis(300));
+                                let _ = pty.lock().write(&pty_id, b"\r");
+                                log::info!("spawn_task_sender: task sent to {}", pty_id);
                                 return;
                             }
                         }
