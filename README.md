@@ -29,24 +29,13 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-<table>
-<tr>
-<td width="50%" align="center">
-<strong>Agent Orchestration</strong><br><br>
-<a href="docs/assets/agent-team.mp4">
-<img src="docs/assets/agent-team-preview.png" alt="Agent Team Demo" width="100%">
-</a>
-<sub>Click to play</sub>
-</td>
-<td width="50%" align="center">
-<strong>Cron Jobs</strong><br><br>
-<a href="docs/assets/cron.mp4">
-<img src="docs/assets/cron-preview.png" alt="Cron Demo" width="100%">
-</a>
-<sub>Click to play</sub>
-</td>
-</tr>
-</table>
+### Agent Orchestration
+
+<img src="docs/assets/agent-team.gif" alt="Agent Team Demo" width="100%">
+
+### Cron Jobs
+
+<img src="docs/assets/cron.gif" alt="Cron Demo" width="100%">
 
 ---
 
