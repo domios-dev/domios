@@ -342,13 +342,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                               )}
                               status={aggregateStatus(tabPids, state.paneStatuses)}
                               onRename={(title) => {
-                                console.log("[TAB RENAME] onRename called:", title, "pane:", tabPids[0]);
                                 if (tabPids[0]) {
                                   setPaneTitle(tabPids[0], title, TitleLevel.User);
                                   invoke("mux_rename_pane", { paneId: tabPids[0], title }).then(() => {
-                                    console.log("[TAB RENAME] backend rename OK");
                                   }).catch((e) => {
-                                    console.error("[TAB RENAME] backend rename FAILED:", e);
                                   });
                                 }
                               }}
@@ -896,8 +893,6 @@ function TabItem({
               autoFocus
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              onBlur={() => { const t = editName.trim(); console.log("[TAB RENAME] onBlur:", t, "onRename:", !!onRename); if (t) onRename?.(t); setEditing(false); }}
-              onKeyDown={(e) => { if (e.key === "Enter") { const t = editName.trim(); console.log("[TAB RENAME] Enter:", t); if (t) onRename?.(t); setEditing(false); } if (e.key === "Escape") setEditing(false); }}
               onClick={(e) => e.stopPropagation()}
               className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
             />
