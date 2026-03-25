@@ -130,13 +130,12 @@ codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [-
 ```
 
 ### Spawn orchestrator in a separate workspace
-When asked to "spawn orchestrator in another workspace" or "run this in a separate workspace":
+When asked to "spawn orchestrator in another workspace", "run this in a separate workspace", or delegate to another orchestrator — use ONE command to create workspace + spawn agent there. Do NOT set yourself as orchestrator. Do NOT call set-conductor.
 ```bash
-# Create workspace and spawn an orchestrator agent THERE (not yourself)
 WS=$(codeterm workspace create "Project" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
-codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn --task "your task here"
+codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn --task "the full task description here"
+# That's it. The spawned agent handles everything. You're done.
 ```
-Do NOT become the orchestrator yourself. Spawn a separate agent in the new workspace.
 
 ### Orchestrator pattern (when YOU are the orchestrator)
 ```bash
