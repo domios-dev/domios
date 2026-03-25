@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useMultiplexer } from "../../store/multiplexer";
+import { TitleLevel } from "../../lib/types";
 import type { Workspace, Tab, SplitNode, PaneStatus, Pane, AgentRole } from "../../lib/types";
 
 function collectPaneIds(node: SplitNode): string[] {
@@ -341,7 +342,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                               )}
                               status={aggregateStatus(tabPids, state.paneStatuses)}
                               onRename={(title) => {
-                                if (tabPids[0]) setPaneTitle(tabPids[0], title, true);
+                                if (tabPids[0]) {
+                                  setPaneTitle(tabPids[0], title, TitleLevel.User);
+                                  invoke("mux_rename_pane", { paneId: tabPids[0], title });
+                                }
                               }}
                               pane={firstPane}
                               orchestrators={wsOrchestrators}
@@ -393,7 +397,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                         )}
                         status={aggregateStatus(atPids, state.paneStatuses)}
                         onRename={(title) => {
-                          if (atPids[0]) setPaneTitle(atPids[0], title);
+                          if (atPids[0]) {
+                            setPaneTitle(atPids[0], title, TitleLevel.User);
+                            invoke("mux_rename_pane", { paneId: atPids[0], title });
+                          }
                         }}
                         pane={atFirstPane}
                         orchestrators={wsOrchestrators}
