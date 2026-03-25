@@ -605,6 +605,12 @@ pub fn open_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Send a test notification via native OS notifications.
+#[tauri::command]
+pub fn test_notification(app: tauri::AppHandle) {
+    crate::api::routes::send_os_notification(&app, "CodeTerm", Some("Notifications are working!"));
+}
+
 /// Open a URL in the default browser.
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
