@@ -152,13 +152,14 @@ If `$CODETERM_ROLE` is `Lead`:
 - IMPORTANT: Always include `codeterm agent report '...'` in the worker's --task so it knows how to report back.
 - Do NOT create extra workspaces/tabs. Do NOT sleep/poll. Do NOT use files to exchange data.
 - When done, report to parent: `codeterm agent report "your summary"`
-- Sub-worker reports appear in your terminal as `[Report from W] ...`. No polling needed.
+- Worker reports appear in your terminal as `[Report from W] ...` — NO sleep, NO polling needed. Just wait.
+- When you see the report, immediately run: `codeterm agent report "your summary"`
 
 If `$CODETERM_ROLE` is `Worker`:
 - You execute tasks and report. You CANNOT spawn anything.
 - Do NOT call `set-conductor`, `unlink`, `agent spawn`, or create tabs.
-- Do NOT use SendMessage or built-in Agent tools to report — use CLI only.
-- When done: `codeterm agent report "your summary"` (this sends to your parent's terminal directly)
+- Do NOT use SendMessage or built-in Agent tools — use `codeterm agent report` CLI only.
+- Do NOT sleep. Execute the task, then immediately: `codeterm agent report "your summary"`
 
 If `$CODETERM_ROLE` is empty:
 - You can become orchestrator: `codeterm agent set-conductor --pane $CODETERM_PANE_ID`
