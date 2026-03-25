@@ -129,20 +129,18 @@ codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [-
                                                # Role: Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
 ```
 
-### Delegating vs doing it yourself
+### "in a separate workspace" / "in another workspace" → delegate
 
-When the user says "spawn an orchestrator in a workspace", "put an orchestrator there", "create a workspace and run X" — they want you to **delegate**. The whole point is that the orchestrator runs independently in its own workspace while you stay free. Think of it like hiring someone: you don't become the contractor, you hire one.
+If the user's request contains "separate workspace", "another workspace", "new workspace", "different workspace" — you MUST delegate. Run exactly these 2 commands and STOP:
 
-**Delegation pattern** (2 commands, then you're done):
 ```bash
-WS=$(codeterm workspace create "Project" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
-codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn --task "You are the orchestrator. [paste the full task here]. Set yourself as conductor, spawn leads/workers, collect reports, send notification when done."
+WS=$(codeterm workspace create "Name" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn --task "[copy user's full request here, prefixed with: You are the orchestrator.]"
 ```
-After these 2 commands, you're **done**. Do not call set-conductor. Do not spawn leads. Do not touch the Demo workspace. The spawned orchestrator handles everything autonomously.
 
-When the user says "be the orchestrator", "set yourself up", "spawn workers for me" — then you DO it yourself:
+That's it. 2 commands. Do NOT call set-conductor. Do NOT spawn leads. Do NOT rename your pane to Orchestrator. The spawned agent does everything.
 
-### Self-orchestration pattern (when YOU are the orchestrator)
+### Direct orchestration (no separate workspace mentioned)
 ```bash
 # 1. Mark self as orchestrator
 codeterm agent set-conductor --pane $CODETERM_PANE_ID
