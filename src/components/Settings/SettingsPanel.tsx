@@ -313,8 +313,20 @@ export function SettingsPanel({
                     onChange={(v) => update("notifications", { sound: v })}
                   />
                   <button
-                    onClick={() => {
-                      invoke("test_notification").catch(() => {});
+                    onClick={async () => {
+                      try {
+                        const { isPermissionGranted, requestPermission, sendNotification } = await import("@tauri-apps/plugin-notification");
+                        let granted = await isPermissionGranted();
+                        if (!granted) {
+                          const perm = await requestPermission();
+                          granted = perm === "granted";
+                        }
+                        if (granted) {
+                          sendNotification({ title: "CodeTerm", body: "Notifications are working!" });
+                        }
+                      } catch (e) {
+                        console.error("Notification error:", e);
+                      }
                     }}
                     className="mt-1 px-3 py-1 text-xs bg-[var(--ct-border)] hover:bg-[var(--ct-muted)] rounded transition-colors"
                   >
