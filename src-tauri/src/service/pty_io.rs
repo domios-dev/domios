@@ -165,19 +165,19 @@ impl ServiceContext {
                             // Claude Code readiness markers (any of these means prompt is active)
                             if is_claude_ready(tail) {
                                 drop(buf);
-                                // Wait for UI to fully settle, then send task once
-                                // Poll until "Update available" stops appearing (Claude Code auto-update check)
-                                for _ in 0..10 {
+                                // Wait for output to stabilize (no new bytes for 1.5s)
+                                // This handles "Update available!" and other post-ready UI renders
+                                let mut stable_len = 0usize;
+                                for _ in 0..8 {
                                     std::thread::sleep(std::time::Duration::from_millis(500));
-                                    let still_updating = ob.try_lock()
-                                        .and_then(|b| b.get_text(&pty_id).map(|t| {
-                                            let tail = if t.len() > 500 { &t[t.len()-500..] } else { &t };
-                                            tail.contains("Update available") || tail.contains("Updating")
-                                        }))
-                                        .unwrap_or(false);
-                                    if !still_updating { break; }
+                                    let cur = ob.try_lock()
+                                        .and_then(|b| b.get_text(&pty_id).map(|t| t.len()))
+                                        .unwrap_or(0);
+                                    if cur == stable_len && stable_len > 0 {
+                                        break; // output stopped changing
+                                    }
+                                    stable_len = cur;
                                 }
-                                std::thread::sleep(std::time::Duration::from_millis(500));
                                 let _ = pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
                                 std::thread::sleep(std::time::Duration::from_millis(300));
                                 let _ = pty.lock().write(&pty_id, b"\r");
