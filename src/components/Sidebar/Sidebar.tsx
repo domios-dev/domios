@@ -267,7 +267,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
             const isExpanded = expandedWorkspaces.has(ws.id);
             // Conductors available for linking (across all workspaces)
             const wsConductors = Object.values(state.panes).filter(
-              (p) => p.role === "Conductor" || (p.role === "Worker" && p.can_spawn),
+              (p) => p.role === "Conductor" || p.role === "Orchestrator" || (p.role === "Worker" && p.can_spawn),
             );
 
             return (
@@ -485,9 +485,11 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
 // ---------------------------------------------------------------------------
 
 const ROLE_ICONS: Record<string, string> = {
-  Conductor: "\u2605", // ★
-  Worker: "\u2699",    // ⚙
-  SubWorker: "\u25E6", // ◦
+  Orchestrator: "\u2605", // ★
+  Conductor: "\u2605",    // ★ (backward compat)
+  Lead: "\u00B7",         // ·
+  Worker: "\u2699",       // ⚙
+  SubWorker: "\u25E6",    // ◦
 };
 
 function RoleIcon({ role }: { role: AgentRole }) {
@@ -514,7 +516,7 @@ export function buildHierarchyTree(
 ): HierarchyNodeData[] {
   // Find conductors
   const conductors = Object.values(panes).filter(
-    (p) => p.role === "Conductor",
+    (p) => p.role === "Conductor" || p.role === "Orchestrator",
   );
   function buildNode(pane: Pane): HierarchyNodeData {
     const children = Object.values(panes)
@@ -549,7 +551,7 @@ export function HierarchyTree({
               title={`${node.pane.title} (${node.pane.role})`}
             >
               {node.pane.role && <RoleIcon role={node.pane.role} />}
-              <span className={`truncate ${node.pane.role === "Conductor" ? "font-semibold" : ""}`}>
+              <span className={`truncate ${node.pane.role === "Conductor" || node.pane.role === "Orchestrator" || pane.role === "Orchestrator" ? "font-semibold" : ""}`}>
                 {node.pane.title}
               </span>
               <StatusDot status={node.status} animate />
@@ -865,7 +867,7 @@ function TabItem({
           {/* Icon — role icon > orange sparkle for Claude Code (spins when working) > terminal icon */}
           {pane?.role ? (
             <span
-              className={`shrink-0 text-[11px] leading-none ${pane.role === "Conductor" ? "text-[var(--ct-yellow)]" : "text-[var(--ct-muted-fg)]"} ${status === "Working" ? "animate-pulse" : ""}`}
+              className={`shrink-0 text-[11px] leading-none ${pane.role === "Conductor" || pane.role === "Orchestrator" ? "text-[var(--ct-yellow)]" : "text-[var(--ct-muted-fg)]"} ${status === "Working" ? "animate-pulse" : ""}`}
               title={`${pane.role}${status === "Working" ? " — working" : ""}`}
             >{ROLE_ICONS[pane.role]}</span>
           ) : hasAgent ? (
@@ -935,31 +937,7 @@ function TabItem({
                 onClick={() => { setCtxMenu(null); setEditName(tab.title); setEditing(true); }}
                 className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
               >Rename</button>
-              {/* Hierarchy actions */}
-              {hasAgent && !pane?.role && (
-                <button
-                  onClick={() => {
-                    setCtxMenu(null);
-                    if (pane) invoke("mux_set_pane_role", { paneId: pane.id, role: "Conductor", parentPaneId: null });
-                  }}
-                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
-                >{ROLE_ICONS.Conductor} Set as Conductor</button>
-              )}
-              {hasAgent && !pane?.role && conductors && conductors.length > 0 && (
-                conductors.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => {
-                      setCtxMenu(null);
-                      if (pane) {
-                        const role = c.role === "Conductor" ? "Worker" : "SubWorker";
-                        invoke("mux_set_pane_role", { paneId: pane.id, role, parentPaneId: c.id });
-                      }
-                    }}
-                    className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
-                  >{ROLE_ICONS.Worker} Link to {c.title.substring(0, 20)}</button>
-                ))
-              )}
+              {/* Hierarchy is managed via CLI — no manual role assignment in UI */}
               {pane?.role && (
                 <button
                   onClick={() => {
@@ -969,7 +947,7 @@ function TabItem({
                   className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-yellow)] hover:bg-[var(--ct-border)]"
                 >Remove Role</button>
               )}
-              {pane?.role && (pane.role === "Conductor" || pane.role === "Worker") && (
+              {pane?.role && (pane.role === "Conductor" || pane.role === "Orchestrator" || pane.role === "Worker") && (
                 <button
                   onClick={() => {
                     setCtxMenu(null);
