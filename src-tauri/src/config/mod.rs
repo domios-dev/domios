@@ -11,23 +11,21 @@ use schema::{AppConfig, ThemeConfig};
 pub type ConfigState = Arc<Mutex<AppConfig>>;
 
 /// Get the config file path.
-/// Windows: %APPDATA%/codeterm/config.toml
-/// Linux/macOS: ~/.config/codeterm/config.toml
+/// All platforms: ~/.codeterm/config.toml
 pub fn config_path_pub() -> Result<PathBuf, String> {
     config_path()
 }
 
 fn config_path() -> Result<PathBuf, String> {
-    let dir = dirs::config_dir()
-        .ok_or_else(|| "Could not determine config directory".to_string())?;
-    Ok(dir.join("codeterm").join("config.toml"))
+    let dir = dirs::home_dir()
+        .ok_or_else(|| "Could not determine home directory".to_string())?;
+    Ok(dir.join(".codeterm").join("config.toml"))
 }
 
 /// Generate the default config TOML with helpful comments.
 fn default_config_toml() -> String {
     r##"# CodeTerm Configuration
-# Location: ~/.config/codeterm/config.toml (Linux/macOS)
-#           %APPDATA%/codeterm/config.toml (Windows)
+# Location: ~/.codeterm/config.toml
 
 [theme]
 name = "github-dark"

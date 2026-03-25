@@ -1,12 +1,32 @@
 ---
 name: codeterm
-description: Control CodeTerm terminal multiplexer — workspaces, panes, notifications, layouts, agent hierarchy. Use when user mentions splitting panes, creating workspaces, sending commands to other panes, visualizations, managing terminal sessions, spawning workers/agents, orchestrating parallel tasks, or setting up multi-pane layouts. Also use when user says "in terminal", "split", "new pane", "run X there", "orchestrator", "conductor", "lead", "worker", or wants to delegate tasks to sub-agents.
-version: 0.3.0
+description: Control CodeTerm terminal multiplexer — workspaces, panes, notifications, layouts, agent hierarchy, cron jobs. Use when user mentions splitting panes, creating workspaces, sending commands to other panes, visualizations, managing terminal sessions, spawning workers/agents, orchestrating parallel tasks, setting up multi-pane layouts, or scheduling recurring tasks. Also use when user says "in terminal", "split", "new pane", "run X there", "orchestrator", "conductor", "lead", "worker", "cron", "schedule", "every hour", "recurring", or wants to delegate tasks to sub-agents.
+version: 0.4.0
 ---
 
 # CodeTerm — AI Terminal Control
 
 You are running inside CodeTerm, an AI-first terminal multiplexer. CLI: `codeterm`
+
+**CRITICAL — Cron jobs / scheduled tasks / recurring tasks:**
+Do NOT use the built-in CronCreate/CronList tools. CodeTerm has its own cron system. Always use `codeterm cron` commands:
+```bash
+# Create a cron job (schedule = 5-field: min hour dom mon dow)
+codeterm cron create "Job Name" --schedule "0 * * * *" --task "what to do"
+
+# Examples:
+codeterm cron create "Heartbeat" --schedule "0 * * * *" --task "Say hello to the user"
+codeterm cron create "Build Check" --schedule "*/30 * * * *" --task "Run cargo check and report"
+codeterm cron create "Daily Review" --schedule "0 9 * * *" --task "Review TODOs in codebase" --cwd /path/to/project
+
+# Manage
+codeterm cron list                    # List all cron jobs
+codeterm cron enable ID               # Enable
+codeterm cron disable ID              # Disable
+codeterm cron trigger ID              # Fire now
+codeterm cron delete ID               # Delete
+```
+The cron spawns a Claude agent on schedule. The agent MUST call `codeterm cron complete --run-id UUID --summary "result"` when done (this instruction is auto-appended to the task prompt). Completing a run automatically closes the tab (run panes are ephemeral). Crons survive window close (app stays in tray). Successful spawns do not generate notifications — only errors do.
 
 **CRITICAL — "separate workspace" / "another workspace" in user request:**
 If the request mentions a separate/another/new/different workspace — run ONLY these 2 commands and stop:
@@ -289,6 +309,29 @@ codeterm theme save my-theme /tmp/my-theme.toml --apply
 
 The UI colors (borders, sidebar, surfaces) are automatically derived from the background color. Light themes (bright background) get darkened borders; dark themes get lightened ones.
 
+## Cron Jobs
+
+Schedule recurring tasks. Uses 5-field cron expressions (`min hour dom mon dow`).
+
+```bash
+codeterm cron list [--workspace ID]            # List all cron jobs
+codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs" [--cwd /path] [--description "desc"]
+codeterm cron edit ID [--name "new"] [--schedule "..."] [--task "..."]
+codeterm cron delete ID
+codeterm cron enable ID
+codeterm cron disable ID
+codeterm cron trigger ID                       # Manual trigger
+codeterm cron history ID                       # Run history
+codeterm cron complete --run-id UUID --summary "what happened"
+                                               # Mark a cron run as complete (called by spawned agent)
+```
+
+Cron runs spawn Claude agents on schedule. The spawned agent calls `cron complete` when done, which automatically closes the run's tab (run panes are ephemeral). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. The sidebar shows a cron tree with runs and next scheduled time. Click a finished run to open the log viewer. The app hides to system tray on close so crons keep running. Successful spawns do not generate notifications — only errors do.
+
+Deleting a cron job cascades: kills all running panes/PTYs, closes their tabs, and removes the log directory (`~/.codeterm/crons/<job_id>/`).
+
+Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
+
 ## System
 ```
 codeterm identify        # Version & features
@@ -309,4 +352,4 @@ When asked to test the CodeTerm orchestrator:
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 13 -->
+<!-- revision: 16 -->

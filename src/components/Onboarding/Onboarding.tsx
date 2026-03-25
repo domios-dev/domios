@@ -298,9 +298,11 @@ function StepWelcome({ c }: { c: C }) {
 
       <div className="grid grid-cols-2 gap-3 text-left max-w-md mx-auto">
         <FeatureCard c={c} icon="+" title="Split panes" desc="Organize with flexible workspace layouts" />
-        <FeatureCard c={c} icon="*" title="Agent orchestration" desc="Spawn teams of AI agents that work in parallel and report back" />
-        <FeatureCard c={c} icon="~" title="Claude integration" desc="Skills, hooks, auto-resume, notifications" />
+        <FeatureCard c={c} icon={"\u2726"} title="Agent orchestration" desc="Spawn teams of AI agents that work in parallel and report back" />
+        <FeatureCard c={c} icon="*" title="Claude integration" desc="Skills, hooks, auto-resume, notifications" iconColor="#f0883e" />
         <FeatureCard c={c} icon=">" title="Canvas panels" desc="Visualizations and localhost apps inline with terminals" />
+        <FeatureCard c={c} icon="@" title="Cron jobs" desc="Schedule recurring tasks — agents run on a cron and report results" />
+        <FeatureCard c={c} icon="!" title="Notifications" desc="OS-level alerts when agents need input or tasks complete" />
       </div>
 
       <p className="text-[11px] mt-8" style={{ color: c.dimmed }}>
@@ -310,14 +312,14 @@ function StepWelcome({ c }: { c: C }) {
   );
 }
 
-function FeatureCard({ c, icon, title, desc }: { c: C; icon: string; title: string; desc: string }) {
+function FeatureCard({ c, icon, title, desc, iconColor }: { c: C; icon: string; title: string; desc: string; iconColor?: string }) {
   return (
     <div
       className="px-4 py-3 rounded-lg"
       style={{ backgroundColor: c.surface + "30" }}
     >
       <div className="flex items-center gap-2 mb-1">
-        <span className="text-xs font-mono" style={{ color: c.accent }}>{icon}</span>
+        <span className="text-xs font-mono" style={{ color: iconColor || c.accent }}>{icon}</span>
         <span className="text-xs font-medium" style={{ color: c.fg }}>{title}</span>
       </div>
       <p className="text-[11px] leading-relaxed" style={{ color: c.muted }}>{desc}</p>

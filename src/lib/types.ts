@@ -99,6 +99,36 @@ export interface Notification {
 
 export type PaneStatus = "Working" | "Waiting" | "Idle" | "Dead";
 
+// Cron types
+
+export type CronRunStatus = "Running" | "Success" | "Failed";
+
+export interface CronRunInfo {
+  run_id: string;
+  started_at: number;
+  finished_at: number | null;
+  status: CronRunStatus;
+  pane_id: string | null;
+  tab_id: string | null;
+}
+
+export interface CronJob {
+  id: string;
+  name: string;
+  description: string | null;
+  workspace_id: string;
+  schedule: string;
+  enabled: boolean;
+  agent: string;
+  task: string;
+  cwd: string | null;
+  role: string | null;
+  max_history: number;
+  created_at: number;
+  last_run: CronRunInfo | null;
+  next_run: number | null;
+}
+
 export interface GitInfo {
   branch: string | null;
   is_dirty: boolean;

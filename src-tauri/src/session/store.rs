@@ -68,9 +68,9 @@ pub struct SessionStore {
 
 impl SessionStore {
     pub fn new() -> Self {
-        let dir = dirs::config_dir()
+        let dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("codeterm")
+            .join(".codeterm")
             .join("sessions");
         let _ = fs::create_dir_all(&dir);
         Self { session_dir: dir }
