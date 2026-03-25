@@ -165,13 +165,29 @@ impl ServiceContext {
                             // Claude Code readiness markers (any of these means prompt is active)
                             if is_claude_ready(tail) {
                                 drop(buf);
-                                // Wait for UI to fully settle (update prompts, etc.)
-                                std::thread::sleep(std::time::Duration::from_secs(2));
-                                let _ = pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
-                                // Multi-line tasks get pasted and need an extra Enter to submit
-                                std::thread::sleep(std::time::Duration::from_secs(1));
-                                let _ = pty.lock().write(&pty_id, b"\r");
-                                log::info!("spawn_task_sender: task sent to {}", pty_id);
+                                // Retry loop: send task, check if it landed, retry if not
+                                for attempt in 0..3 {
+                                    std::thread::sleep(std::time::Duration::from_secs(if attempt == 0 { 2 } else { 3 }));
+                                    let _ = pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
+                                    std::thread::sleep(std::time::Duration::from_secs(1));
+                                    let _ = pty.lock().write(&pty_id, b"\r");
+
+                                    // Verify task was accepted — check if output grew significantly
+                                    std::thread::sleep(std::time::Duration::from_secs(3));
+                                    let accepted = ob.try_lock()
+                                        .and_then(|b| b.get_text(&pty_id).map(|t| {
+                                            // If Claude started working, we'll see tool calls or thinking markers
+                                            t.len() > last_len + 100
+                                        }))
+                                        .unwrap_or(false);
+
+                                    if accepted {
+                                        log::info!("spawn_task_sender: task accepted on attempt {} for {}", attempt + 1, pty_id);
+                                        return;
+                                    }
+                                    log::warn!("spawn_task_sender: task may not have landed (attempt {}), retrying for {}", attempt + 1, pty_id);
+                                }
+                                log::info!("spawn_task_sender: task sent (3 attempts) to {}", pty_id);
                                 return;
                             }
                         }
