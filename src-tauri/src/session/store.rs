@@ -45,7 +45,7 @@ pub enum SplitNodeSnapshot {
         /// Can spawn children.
         #[serde(default)]
         can_spawn: bool,
-        /// Hierarchy depth (0=none, 1=conductor, 2=worker, 3=sub-worker).
+        /// Hierarchy depth (0=none, 1=orchestrator, 2=lead/worker, 3=worker).
         #[serde(default)]
         depth: u8,
     },

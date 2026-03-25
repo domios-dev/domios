@@ -17,7 +17,7 @@ export type SplitNode =
 
 export type Orientation = "Horizontal" | "Vertical";
 
-export type AgentRole = "Conductor" | "Worker" | "SubWorker";
+export type AgentRole = "Orchestrator" | "Lead" | "Worker" | "Conductor" | "SubWorker";
 
 export interface Pane {
   id: string;

@@ -807,7 +807,7 @@ struct SpawnAgentBody {
     cwd: Option<String>,
     /// Tab title (default: agent_name or agent command)
     title: Option<String>,
-    /// Role to assign: "Conductor", "Worker", "SubWorker"
+    /// Role to assign: "Orchestrator", "Lead", "Worker"
     role: Option<String>,
     /// Parent pane ID (required for Worker/SubWorker)
     parent_pane_id: Option<String>,

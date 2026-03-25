@@ -278,7 +278,7 @@ enum AgentAction {
     },
     /// Link a pane as worker under a parent
     Link {
-        /// Parent pane ID (conductor or worker)
+        /// Parent pane ID (orchestrator or lead)
         #[arg(long)]
         parent: String,
         /// Pane ID to link (default: current focused pane)
@@ -314,7 +314,7 @@ enum AgentAction {
         #[arg(long)]
         pane: Option<String>,
     },
-    /// Read reports (for conductor panes)
+    /// Read reports (for orchestrator panes)
     Reports {
         /// Pane ID (default: current focused pane)
         #[arg(long)]
@@ -340,7 +340,7 @@ enum AgentAction {
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,
-        /// Role: Conductor, Worker, SubWorker
+        /// Role: Orchestrator, Lead, Worker
         #[arg(long)]
         role: Option<String>,
         /// Parent pane ID (for Worker/SubWorker)
@@ -594,9 +594,9 @@ fn main() {
                                     let title = node.get("title").and_then(|v| v.as_str()).unwrap_or("?");
                                     let status = node.get("status").and_then(|v| v.as_str()).unwrap_or("?");
                                     let icon = match role {
-                                        "Conductor" => "★",
+                                        "Orchestrator" => "★",
+                                        "Lead" => "·",
                                         "Worker" => "⚙",
-                                        "SubWorker" => "◦",
                                         _ => "·",
                                     };
                                     println!("{}{} {} [{}] ({})", prefix, icon, title, status, role);
@@ -617,7 +617,7 @@ fn main() {
                 AgentAction::SetConductor { pane } => {
                     let pane_id = resolve_pane(&mut client, pane);
                     match http.post(format!("{}/api/panes/{}/role", base, pane_id))
-                        .json(&serde_json::json!({"role": "Conductor"}))
+                        .json(&serde_json::json!({"role": "Orchestrator"}))
                         .send()
                     {
                         Ok(resp) => { let v: serde_json::Value = resp.json().unwrap_or_default(); println!("{}", serde_json::to_string_pretty(&v).unwrap()); return; }
@@ -632,9 +632,9 @@ fn main() {
                         Ok(resp) => {
                             let val: serde_json::Value = resp.json().unwrap_or_default();
                             match val.get("role").and_then(|v| v.as_str()) {
-                                Some("Conductor") => "Worker",
-                                Some("Worker") => "SubWorker",
-                                _ => { eprintln!("Parent must be Conductor or Worker"); std::process::exit(1); }
+                                Some("Orchestrator") | Some("Conductor") => "Worker",
+                                Some("Lead") | Some("Worker") => "Worker",
+                                _ => { eprintln!("Parent must be Orchestrator or Lead"); std::process::exit(1); }
                             }
                         }
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }

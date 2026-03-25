@@ -671,7 +671,7 @@ impl MultiplexerState {
         if pane.role.is_none() {
             return Err("Pane has no role".to_string());
         }
-        // Only conductors and workers can spawn
+        // Only orchestrators and leads can spawn
         match pane.role {
             Some(AgentRole::Orchestrator) | Some(AgentRole::Lead) => {
                 pane.can_spawn = can_spawn;
@@ -1147,7 +1147,7 @@ mod tests {
     // ── Agent Hierarchy Tests ─────────────────────────────────────────
 
     #[test]
-    fn test_set_conductor_role() {
+    fn test_set_orchestrator_role() {
         let (mut state, pane_id) = MultiplexerState::new();
         state
             .set_pane_role(&pane_id, AgentRole::Orchestrator, None)
@@ -1160,34 +1160,34 @@ mod tests {
     }
 
     #[test]
-    fn test_conductor_cannot_have_parent() {
+    fn test_orchestrator_cannot_have_parent() {
         let (mut state, pane_id) = MultiplexerState::new();
         let result = state.set_pane_role(&pane_id, AgentRole::Orchestrator, Some("fake"));
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_worker_requires_conductor_parent() {
-        let (mut state, conductor_id) = MultiplexerState::new();
+    fn test_worker_requires_orchestrator_parent() {
+        let (mut state, orch_id) = MultiplexerState::new();
         state
-            .set_pane_role(&conductor_id, AgentRole::Orchestrator, None)
+            .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
             .unwrap();
         let worker_id = state
-            .split_pane(&conductor_id, Orientation::Horizontal)
+            .split_pane(&orch_id, Orientation::Horizontal)
             .unwrap();
         state
-            .set_pane_role(&worker_id, AgentRole::Worker, Some(&conductor_id))
+            .set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id))
             .unwrap();
 
         let worker = state.get_pane(&worker_id).unwrap();
         assert_eq!(worker.role, Some(AgentRole::Worker));
         assert_eq!(worker.depth, 2);
         assert!(!worker.can_spawn);
-        assert_eq!(worker.parent_pane_id.as_deref(), Some(conductor_id.as_str()));
+        assert_eq!(worker.parent_pane_id.as_deref(), Some(orch_id.as_str()));
     }
 
     #[test]
-    fn test_worker_parent_must_be_conductor() {
+    fn test_worker_parent_must_be_orchestrator() {
         let (mut state, pane_id) = MultiplexerState::new();
         let other_id = state
             .split_pane(&pane_id, Orientation::Horizontal)
@@ -1199,17 +1199,17 @@ mod tests {
 
     #[test]
     fn test_worker_parent_must_allow_spawn() {
-        let (mut state, conductor_id) = MultiplexerState::new();
+        let (mut state, orch_id) = MultiplexerState::new();
         state
-            .set_pane_role(&conductor_id, AgentRole::Orchestrator, None)
+            .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
             .unwrap();
         // Disable spawning
-        state.set_can_spawn(&conductor_id, false).unwrap();
+        state.set_can_spawn(&orch_id, false).unwrap();
 
         let worker_id = state
-            .split_pane(&conductor_id, Orientation::Horizontal)
+            .split_pane(&orch_id, Orientation::Horizontal)
             .unwrap();
-        let result = state.set_pane_role(&worker_id, AgentRole::Worker, Some(&conductor_id));
+        let result = state.set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id));
         assert!(result.is_err());
     }
 
@@ -1233,24 +1233,24 @@ mod tests {
 
     #[test]
     fn test_get_children_ids() {
-        let (mut state, conductor_id) = MultiplexerState::new();
+        let (mut state, orch_id) = MultiplexerState::new();
         state
-            .set_pane_role(&conductor_id, AgentRole::Orchestrator, None)
+            .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
             .unwrap();
         let w1 = state
-            .split_pane(&conductor_id, Orientation::Horizontal)
+            .split_pane(&orch_id, Orientation::Horizontal)
             .unwrap();
         state
-            .set_pane_role(&w1, AgentRole::Worker, Some(&conductor_id))
+            .set_pane_role(&w1, AgentRole::Worker, Some(&orch_id))
             .unwrap();
         let w2 = state
-            .split_pane(&conductor_id, Orientation::Horizontal)
+            .split_pane(&orch_id, Orientation::Horizontal)
             .unwrap();
         state
-            .set_pane_role(&w2, AgentRole::Worker, Some(&conductor_id))
+            .set_pane_role(&w2, AgentRole::Worker, Some(&orch_id))
             .unwrap();
 
-        let children = state.get_children_ids(&conductor_id);
+        let children = state.get_children_ids(&orch_id);
         assert_eq!(children.len(), 2);
         assert!(children.contains(&w1));
         assert!(children.contains(&w2));
@@ -1258,24 +1258,24 @@ mod tests {
 
     #[test]
     fn test_clear_role_orphans_children() {
-        let (mut state, conductor_id) = MultiplexerState::new();
+        let (mut state, orch_id) = MultiplexerState::new();
         state
-            .set_pane_role(&conductor_id, AgentRole::Orchestrator, None)
+            .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
             .unwrap();
         let worker_id = state
-            .split_pane(&conductor_id, Orientation::Horizontal)
+            .split_pane(&orch_id, Orientation::Horizontal)
             .unwrap();
         state
-            .set_pane_role(&worker_id, AgentRole::Worker, Some(&conductor_id))
+            .set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id))
             .unwrap();
 
-        // Clear conductor role
-        state.clear_pane_role(&conductor_id).unwrap();
+        // Clear orchestrator role
+        state.clear_pane_role(&orch_id).unwrap();
 
-        // Conductor should have no role
-        let conductor = state.get_pane(&conductor_id).unwrap();
-        assert!(conductor.role.is_none());
-        assert_eq!(conductor.depth, 0);
+        // Orchestrator should have no role
+        let orch = state.get_pane(&orch_id).unwrap();
+        assert!(orch.role.is_none());
+        assert_eq!(orch.depth, 0);
 
         // Worker should be orphaned
         let worker = state.get_pane(&worker_id).unwrap();
@@ -1286,25 +1286,25 @@ mod tests {
 
     #[test]
     fn test_close_pane_cascades_children() {
-        let (mut state, conductor_id) = MultiplexerState::new();
+        let (mut state, orch_id) = MultiplexerState::new();
         state
-            .set_pane_role(&conductor_id, AgentRole::Orchestrator, None)
+            .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
             .unwrap();
-        state.link_pty(&conductor_id, "pty-cond".to_string());
+        state.link_pty(&orch_id, "pty-orch".to_string());
 
         let worker_id = state
-            .split_pane(&conductor_id, Orientation::Horizontal)
+            .split_pane(&orch_id, Orientation::Horizontal)
             .unwrap();
         state
-            .set_pane_role(&worker_id, AgentRole::Worker, Some(&conductor_id))
+            .set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id))
             .unwrap();
         state.link_pty(&worker_id, "pty-worker".to_string());
 
-        // Close conductor should cascade to worker
-        let pty_ids = state.close_pane(&conductor_id).unwrap();
-        assert!(pty_ids.contains(&"pty-cond".to_string()));
+        // Close orchestrator should cascade to worker
+        let pty_ids = state.close_pane(&orch_id).unwrap();
+        assert!(pty_ids.contains(&"pty-orch".to_string()));
         assert!(pty_ids.contains(&"pty-worker".to_string()));
-        assert!(state.get_pane(&conductor_id).is_none());
+        assert!(state.get_pane(&orch_id).is_none());
         assert!(state.get_pane(&worker_id).is_none());
     }
 
@@ -1316,7 +1316,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_can_spawn_on_conductor() {
+    fn test_set_can_spawn_on_orchestrator() {
         let (mut state, pane_id) = MultiplexerState::new();
         state
             .set_pane_role(&pane_id, AgentRole::Orchestrator, None)
