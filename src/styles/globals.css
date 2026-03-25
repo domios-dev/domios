@@ -8,7 +8,16 @@
 }
 
 html,
-body,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  color: var(--ct-fg, #c9d1d9);
+}
+
 #root {
   margin: 0;
   padding: 0;
@@ -17,7 +26,7 @@ body,
   overflow: hidden;
   background: var(--ct-bg, #0d1117);
   color: var(--ct-fg, #c9d1d9);
-  /* macOS window corner radius (frameless window) */
+  /* macOS window corner radius (frameless + transparent window) */
   border-radius: 10px;
 }
 
