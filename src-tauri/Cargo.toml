@@ -30,6 +30,11 @@ futures-core = "0.3"
 png = "0.17"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder"] }
+objc2-foundation = "0.3"
+
 [target.'cfg(windows)'.dependencies]
 conpty = "0.7"
 

@@ -178,6 +178,31 @@ pub fn run() {
                         let _ = window.set_icon(icon);
                     }
                 }
+
+                // macOS: rounded corners for frameless window
+                #[cfg(target_os = "macos")]
+                {
+                    use objc2_app_kit::{NSWindow, NSWindowStyleMask, NSWindowTitleVisibility};
+                    let ns_win = window.ns_window().unwrap() as *mut objc2::runtime::AnyObject;
+                    unsafe {
+                        let ns_window: &NSWindow = &*(ns_win as *const NSWindow);
+                        let mut mask = ns_window.styleMask();
+                        mask |= NSWindowStyleMask::Titled;
+                        mask |= NSWindowStyleMask::FullSizeContentView;
+                        ns_window.setStyleMask(mask);
+                        ns_window.setTitlebarAppearsTransparent(true);
+                        ns_window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+                        ns_window.setHasShadow(true);
+                        // Hide traffic light buttons
+                        use objc2::msg_send;
+                        for i in 0..3_isize {
+                            let btn: *mut objc2::runtime::AnyObject = msg_send![ns_window, standardWindowButton: i];
+                            if !btn.is_null() {
+                                let _: () = msg_send![btn, setHidden: true];
+                            }
+                        }
+                    }
+                }
             }
 
             // Create unified service context (available to both API and Tauri commands)
