@@ -91,7 +91,7 @@ impl ServiceContext {
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportResult {
     pub report_id: String,
-    pub conductor_pane_id: String,
+    pub orchestrator_pane_id: String,
 }
 
 /// Helper: extract optional string from JSON value.

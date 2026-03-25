@@ -167,7 +167,7 @@ pub struct Pane {
     /// Claude Code session ID for resume.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub claude_session_id: Option<String>,
-    /// Orchestration role (conductor / worker / sub-worker).
+    /// Orchestration role (orchestrator / lead / worker).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,
     /// Parent pane ID in the orchestration hierarchy.
@@ -176,7 +176,7 @@ pub struct Pane {
     /// Whether this pane can spawn child agents.
     #[serde(default)]
     pub can_spawn: bool,
-    /// Depth in hierarchy: 0=none, 1=conductor, 2=worker, 3=sub-worker.
+    /// Depth in hierarchy: 0=none, 1=orchestrator, 2=lead/worker, 3=worker.
     #[serde(default)]
     pub depth: u8,
     /// Title is pinned (manually set) — blocks OSC auto-rename.

@@ -14,24 +14,24 @@ pub struct AgentReport {
     pub timestamp: u64,
 }
 
-/// Stores reports keyed by conductor pane ID.
+/// Stores reports keyed by orchestrator pane ID.
 pub struct ReportStore {
     reports: HashMap<String, Vec<AgentReport>>,
-    max_reports_per_conductor: usize,
+    max_reports_per_orchestrator: usize,
 }
 
 impl ReportStore {
-    pub fn new(max_per_conductor: usize) -> Self {
+    pub fn new(max_per_orchestrator: usize) -> Self {
         Self {
             reports: HashMap::new(),
-            max_reports_per_conductor: max_per_conductor,
+            max_reports_per_orchestrator: max_per_orchestrator,
         }
     }
 
-    /// Add a report under a conductor's pane ID.
+    /// Add a report under an orchestrator's pane ID.
     pub fn add(
         &mut self,
-        conductor_pane_id: &str,
+        orchestrator_pane_id: &str,
         from_pane_id: &str,
         from_title: &str,
         message: &str,
@@ -49,44 +49,44 @@ impl ReportStore {
 
         let entries = self
             .reports
-            .entry(conductor_pane_id.to_string())
+            .entry(orchestrator_pane_id.to_string())
             .or_default();
         entries.push(report.clone());
 
         // Trim old reports
-        if entries.len() > self.max_reports_per_conductor {
-            let excess = entries.len() - self.max_reports_per_conductor;
+        if entries.len() > self.max_reports_per_orchestrator {
+            let excess = entries.len() - self.max_reports_per_orchestrator;
             entries.drain(..excess);
         }
 
         report
     }
 
-    /// Get all reports for a conductor, optionally clearing them.
-    pub fn get(&mut self, conductor_pane_id: &str, clear: bool) -> Vec<AgentReport> {
+    /// Get all reports for an orchestrator, optionally clearing them.
+    pub fn get(&mut self, orchestrator_pane_id: &str, clear: bool) -> Vec<AgentReport> {
         if clear {
             self.reports
-                .remove(conductor_pane_id)
+                .remove(orchestrator_pane_id)
                 .unwrap_or_default()
         } else {
             self.reports
-                .get(conductor_pane_id)
+                .get(orchestrator_pane_id)
                 .cloned()
                 .unwrap_or_default()
         }
     }
 
-    /// Get report count for a conductor.
-    pub fn count(&self, conductor_pane_id: &str) -> usize {
+    /// Get report count for an orchestrator.
+    pub fn count(&self, orchestrator_pane_id: &str) -> usize {
         self.reports
-            .get(conductor_pane_id)
+            .get(orchestrator_pane_id)
             .map(|v| v.len())
             .unwrap_or(0)
     }
 
-    /// Remove all reports for a conductor (cleanup on close).
-    pub fn remove(&mut self, conductor_pane_id: &str) {
-        self.reports.remove(conductor_pane_id);
+    /// Remove all reports for an orchestrator (cleanup on close).
+    pub fn remove(&mut self, orchestrator_pane_id: &str) {
+        self.reports.remove(orchestrator_pane_id);
     }
 }
 
@@ -109,7 +109,7 @@ mod tests {
         let mut store = ReportStore::new(100);
         store.add("cond-1", "w1", "Worker 1", "Done");
         store.add("cond-1", "w2", "Worker 2", "Done too");
-        store.add("cond-2", "w3", "Worker 3", "Other conductor");
+        store.add("cond-2", "w3", "Worker 3", "Other orchestrator");
 
         let reports = store.get("cond-1", false);
         assert_eq!(reports.len(), 2);
@@ -166,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn test_separate_conductors() {
+    fn test_separate_orchestrators() {
         let mut store = ReportStore::new(100);
         store.add("cond-1", "w1", "W1", "msg1");
         store.add("cond-2", "w2", "W2", "msg2");

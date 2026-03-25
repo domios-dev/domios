@@ -265,9 +265,9 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
             );
             const isActive = ws.id === state.active_workspace_id;
             const isExpanded = expandedWorkspaces.has(ws.id);
-            // Conductors available for linking (across all workspaces)
-            const wsConductors = Object.values(state.panes).filter(
-              (p) => p.role === "Conductor" || p.role === "Orchestrator" || (p.role === "Worker" && p.can_spawn),
+            // Orchestrators available for linking (across all workspaces)
+            const wsOrchestrators = Object.values(state.panes).filter(
+              (p) => p.role === "Orchestrator" || p.role === "Conductor" || p.role === "Lead" || (p.role === "Worker" && p.can_spawn),
             );
 
             return (
@@ -346,7 +346,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                                 if (tabPids[0]) setPaneTitle(tabPids[0], title, true);
                               }}
                               pane={firstPane}
-                              conductors={wsConductors}
+                              orchestrators={wsOrchestrators}
                             />
                             {childTabs.map((ct, ci) => renderTab(ct, ci, depth + 1))}
                           </div>
@@ -398,7 +398,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                           if (atPids[0]) setPaneTitle(atPids[0], title);
                         }}
                         pane={atFirstPane}
-                        conductors={wsConductors}
+                        orchestrators={wsOrchestrators}
                       />
                     );
                   })()
@@ -514,9 +514,9 @@ export function buildHierarchyTree(
   panes: Record<string, Pane>,
   statuses: Record<string, PaneStatus>,
 ): HierarchyNodeData[] {
-  // Find conductors
-  const conductors = Object.values(panes).filter(
-    (p) => p.role === "Conductor" || p.role === "Orchestrator",
+  // Find orchestrators (top-level nodes)
+  const orchestrators = Object.values(panes).filter(
+    (p) => p.role === "Orchestrator" || p.role === "Conductor",
   );
   function buildNode(pane: Pane): HierarchyNodeData {
     const children = Object.values(panes)
@@ -524,7 +524,7 @@ export function buildHierarchyTree(
       .map(buildNode);
     return { pane, children, status: statuses[pane.id] ?? null };
   }
-  return conductors.map(buildNode);
+  return orchestrators.map(buildNode);
 }
 
 export function HierarchyTree({
@@ -551,7 +551,7 @@ export function HierarchyTree({
               title={`${node.pane.title} (${node.pane.role})`}
             >
               {node.pane.role && <RoleIcon role={node.pane.role} />}
-              <span className={`truncate ${node.pane.role === "Conductor" || node.pane.role === "Orchestrator" || pane.role === "Orchestrator" ? "font-semibold" : ""}`}>
+              <span className={`truncate ${node.pane.role === "Orchestrator" || node.pane.role === "Conductor" ? "font-semibold" : ""}`}>
                 {node.pane.title}
               </span>
               <StatusDot status={node.status} animate />
@@ -787,7 +787,7 @@ interface TabItemProps {
   status?: PaneStatus | null;
   onRename?: (title: string) => void;
   pane?: Pane | null;
-  conductors?: Pane[];
+  orchestrators?: Pane[];
 }
 
 function ConfirmStopDialog({ onConfirm, onCancel, message }: { onConfirm: () => void; onCancel: () => void; message?: string }) {
@@ -829,7 +829,7 @@ function TabItem({
   status,
   onRename,
   pane,
-  conductors,
+  orchestrators,
 }: TabItemProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
@@ -867,7 +867,7 @@ function TabItem({
           {/* Icon — role icon > orange sparkle for Claude Code (spins when working) > terminal icon */}
           {pane?.role ? (
             <span
-              className={`shrink-0 text-[11px] leading-none ${pane.role === "Conductor" || pane.role === "Orchestrator" ? "text-[var(--ct-yellow)]" : "text-[var(--ct-muted-fg)]"} ${status === "Working" ? "animate-pulse" : ""}`}
+              className={`shrink-0 text-[11px] leading-none ${pane.role === "Orchestrator" || pane.role === "Conductor" ? "text-[var(--ct-yellow)]" : "text-[var(--ct-muted-fg)]"} ${status === "Working" ? "animate-pulse" : ""}`}
               title={`${pane.role}${status === "Working" ? " — working" : ""}`}
             >{ROLE_ICONS[pane.role]}</span>
           ) : hasAgent ? (
@@ -947,7 +947,7 @@ function TabItem({
                   className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-yellow)] hover:bg-[var(--ct-border)]"
                 >Remove Role</button>
               )}
-              {pane?.role && (pane.role === "Conductor" || pane.role === "Orchestrator" || pane.role === "Worker") && (
+              {pane?.role && (pane.role === "Orchestrator" || pane.role === "Conductor" || pane.role === "Lead") && (
                 <button
                   onClick={() => {
                     setCtxMenu(null);

@@ -38,22 +38,22 @@ impl ServiceContext {
         Ok(())
     }
 
-    /// Send report to direct parent (not conductor). This enables cascade reporting:
-    /// SubWorker → Worker → Conductor.
+    /// Send report to direct parent (not orchestrator). This enables cascade reporting:
+    /// Worker → Lead → Orchestrator.
     pub fn submit_report(&self, pane_id: &str, message: &str) -> Result<ReportResult, String> {
         let (from_title, target_id) = {
             let mux = self.mux.lock();
             let pane = mux.get_pane(pane_id).ok_or("Pane not found")?;
             let title = pane.title.clone();
-            // Report goes to direct parent, not conductor
+            // Report goes to direct parent, not orchestrator
             let parent = pane.parent_pane_id.clone()
                 .ok_or_else(|| {
-                    // No parent — fall back to conductor
-                    find_conductor(&mux, pane_id).unwrap_or_default()
+                    // No parent — fall back to orchestrator
+                    find_orchestrator(&mux, pane_id).unwrap_or_default()
                 });
             let target = parent.unwrap_or_else(|fallback| fallback);
             if target.is_empty() {
-                return Err("No parent or conductor found".to_string());
+                return Err("No parent or orchestrator found".to_string());
             }
             (title, target)
         };
@@ -94,7 +94,7 @@ impl ServiceContext {
 
         Ok(ReportResult {
             report_id: report.id,
-            conductor_pane_id: target_id,
+            orchestrator_pane_id: target_id,
         })
     }
 
@@ -233,8 +233,8 @@ impl ServiceContext {
     }
 }
 
-/// Walk parent chain to find a conductor. Max 3 hops.
-fn find_conductor(
+/// Walk parent chain to find an orchestrator. Max 3 hops.
+fn find_orchestrator(
     mux: &crate::multiplexer::state::MultiplexerState,
     start_pane_id: &str,
 ) -> Result<String, String> {
@@ -249,7 +249,7 @@ fn find_conductor(
             _ => break,
         }
     }
-    Err("No conductor found in hierarchy".to_string())
+    Err("No orchestrator found in hierarchy".to_string())
 }
 
 #[derive(Debug, Clone, Serialize)]
