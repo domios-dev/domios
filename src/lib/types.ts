@@ -1,3 +1,10 @@
+/** Title priority: higher levels cannot be overwritten by lower ones. */
+export enum TitleLevel {
+  Default = "Default",
+  Auto = "Auto",
+  User = "User",
+}
+
 export interface Workspace {
   id: string;
   name: string;
@@ -26,7 +33,7 @@ export interface Pane {
   title: string;
   cwd: string | null;
   url?: string;
-  pinned_title?: boolean;
+  title_level?: TitleLevel;
   agent_type?: "claude" | null;
   claude_session_id?: string | null;
   role?: AgentRole | null;
