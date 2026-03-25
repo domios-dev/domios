@@ -18,6 +18,7 @@ pub mod pty_io;
 mod hierarchy;
 mod orchestrator;
 mod notification;
+pub mod cron;
 #[cfg(test)]
 mod tests;
 

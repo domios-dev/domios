@@ -9,9 +9,9 @@ use std::path::PathBuf;
 
 /// Data dir where shell integration scripts live.
 fn integration_dir() -> PathBuf {
-    let dir = dirs::data_dir()
+    let dir = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join("codeterm")
+        .join(".codeterm")
         .join("shell-integration");
     dir
 }

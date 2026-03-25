@@ -12,6 +12,7 @@ import {
   MultiplexerProvider,
   useMultiplexer,
 } from "./store/multiplexer";
+import { CronProvider } from "./store/crons";
 import type { ThemeConfig } from "./lib/types";
 import { matchesBinding, isMac } from "./lib/keybindings";
 
@@ -158,7 +159,8 @@ function AppInner() {
     dismissToast,
   } = useMultiplexer();
 
-  const gitInfo = useGitInfo(state.focused_pane_id);
+  // Git info hook (side effects: updates git status in state)
+  useGitInfo(state.focused_pane_id);
 
   // Keep ref to latest state for keyboard handler closure
   const stateRef = useRef(state);
@@ -525,7 +527,9 @@ function AppInner() {
 export function App() {
   return (
     <MultiplexerProvider>
-      <AppInner />
+      <CronProvider>
+        <AppInner />
+      </CronProvider>
     </MultiplexerProvider>
   );
 }

@@ -29,6 +29,8 @@ pub struct AppState {
     pub agent_tracker: AgentTrackerState,
     pub report_store: ReportStoreState,
     pub svc: crate::service::ServiceState,
+    pub cron: crate::CronState,
+    pub cron_wake: crate::CronWake,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -83,6 +85,13 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/agents/hierarchy", get(get_hierarchy))
         .route("/api/agents/spawn", post(spawn_agent))
         .route("/api/batch", post(batch_commands))
+        // Cron jobs
+        .route("/api/crons", get(cron_list).post(cron_create))
+        .route("/api/crons/{id}", get(cron_get).put(cron_update).delete(cron_delete))
+        .route("/api/crons/{id}/enable", post(cron_enable))
+        .route("/api/crons/{id}/disable", post(cron_disable))
+        .route("/api/crons/{id}/trigger", post(cron_trigger))
+        .route("/api/crons/{id}/history", get(cron_history))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -325,7 +334,7 @@ async fn get_pane_output(
     let offset = query.offset.unwrap_or(0);
     let raw = if offset < text.len() { &text[offset..] } else { "" };
     let output = if query.strip_ansi.unwrap_or(false) {
-        strip_ansi_codes(raw)
+        clean_terminal_output(raw)
     } else {
         raw.to_string()
     };
@@ -395,7 +404,7 @@ async fn exec_in_pane(
 
     let (raw_output, offset, timed_out) = result;
     let output = if body.strip_ansi.unwrap_or(false) {
-        strip_ansi_codes(&raw_output)
+        clean_terminal_output(&raw_output)
     } else {
         raw_output
     };
@@ -1099,6 +1108,14 @@ pub fn strip_ansi_codes(s: &str) -> String {
     result
 }
 
+/// Parse raw terminal output through a VT100 emulator to get clean screen text.
+/// Properly handles cursor movements, overwrites (spinners), line wraps, etc.
+pub fn clean_terminal_output(raw: &str) -> String {
+    let mut parser = vt100::Parser::new(500, 200, 10000);
+    parser.process(raw.as_bytes());
+    parser.screen().contents()
+}
+
 // ── Theme API ──────────────────────────────────────────────────────────
 
 async fn list_themes_api(
@@ -1260,6 +1277,107 @@ async fn uninstall_hooks_api(
     crate::commands::uninstall_claude_hooks()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to uninstall hooks"))?;
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+// ── Cron API ───────────────────────────────────────────────────────
+
+async fn cron_list(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let ws_id = query.get("workspace_id").map(|s| s.as_str());
+    let jobs = state.svc.cron_list(&state.cron, ws_id);
+    Ok(Json(serde_json::to_value(jobs).unwrap()))
+}
+
+async fn cron_get(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let job = state.svc.cron_get(&state.cron, &id)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
+    Ok(Json(serde_json::to_value(job).unwrap()))
+}
+
+async fn cron_create(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<crate::cron::store::CronCreateParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let job = state.svc.cron_create(&state.cron, &state.cron_wake, body)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to create cron job"))?;
+    Ok(Json(serde_json::to_value(job).unwrap()))
+}
+
+async fn cron_update(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<crate::cron::store::CronUpdateParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let job = state.svc.cron_update(&state.cron, &state.cron_wake, &id, body)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
+    Ok(Json(serde_json::to_value(job).unwrap()))
+}
+
+async fn cron_delete(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state.svc.cron_delete(&state.cron, &state.cron_wake, &id)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn cron_enable(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let job = state.svc.cron_enable(&state.cron, &state.cron_wake, &id, true)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
+    Ok(Json(serde_json::to_value(job).unwrap()))
+}
+
+async fn cron_disable(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let job = state.svc.cron_enable(&state.cron, &state.cron_wake, &id, false)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
+    Ok(Json(serde_json::to_value(job).unwrap()))
+}
+
+async fn cron_trigger(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let run = state.svc.cron_trigger(&state.cron, &id)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to trigger cron job"))?;
+    Ok(Json(serde_json::to_value(run).unwrap()))
+}
+
+async fn cron_history(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let history = state.svc.cron_history(&state.cron, &id);
+    Ok(Json(serde_json::to_value(history).unwrap()))
 }
 
 /// Send an OS-level toast notification if the CodeTerm window is not focused.

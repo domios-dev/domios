@@ -3,7 +3,7 @@
 use std::io::{BufRead, BufReader, Write};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use interprocess::local_socket::{
     prelude::*,
@@ -99,6 +99,39 @@ pub fn socket_display_path() -> String {
 pub struct SocketServer;
 
 impl SocketServer {
+    /// Clean up stale sockets from previous runs that didn't exit cleanly.
+    pub fn cleanup_stale_sockets() {
+        #[cfg(not(target_os = "windows"))]
+        {
+            if let Ok(entries) = std::fs::read_dir("/tmp") {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name.starts_with("codeterm-") && name.ends_with(".sock") {
+                            // Extract PID from "codeterm-{pid}.sock"
+                            if let Some(pid_str) = name.strip_prefix("codeterm-").and_then(|s| s.strip_suffix(".sock")) {
+                                if let Ok(pid) = pid_str.parse::<u32>() {
+                                    // Check if process is alive via kill -0
+                                    let alive = std::process::Command::new("kill")
+                                        .args(["-0", &pid.to_string()])
+                                        .stdout(std::process::Stdio::null())
+                                        .stderr(std::process::Stdio::null())
+                                        .status()
+                                        .map(|s| s.success())
+                                        .unwrap_or(false);
+                                    if !alive {
+                                        let _ = std::fs::remove_file(&path);
+                                        log::info!("Cleaned stale socket: {}", name);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Start the JSON-RPC server in a background thread.
     pub fn start(
         mux_state: MuxState,
@@ -108,6 +141,9 @@ impl SocketServer {
         output_buf: OutputBufferState,
         svc_state: ServiceState,
     ) -> Result<(), String> {
+        // Clean up stale sockets from crashed processes
+        Self::cleanup_stale_sockets();
+
         let name = socket_path();
 
         let name = name
@@ -260,7 +296,17 @@ fn dispatch(
                     "agent.children",
                     "agent.link",
                     "agent.report",
-                    "agent.reports"
+                    "agent.reports",
+                    "cron.list",
+                    "cron.get",
+                    "cron.create",
+                    "cron.update",
+                    "cron.delete",
+                    "cron.enable",
+                    "cron.disable",
+                    "cron.trigger",
+                    "cron.history",
+                    "cron.complete"
                 ]
             }))
         }
@@ -455,13 +501,22 @@ fn dispatch(
                     })?
             };
 
+            let strip = params.as_ref()
+                .and_then(|p| p.get("strip_ansi"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
             let buf = output_buf.lock();
             let text = buf.get_text(&pty_id).unwrap_or_default();
-            // Return last max_bytes worth of text
-            let output = if text.len() > max_bytes {
+            let trimmed = if text.len() > max_bytes {
                 text[text.len() - max_bytes..].to_string()
             } else {
                 text
+            };
+            let output = if strip {
+                crate::api::routes::clean_terminal_output(&trimmed)
+            } else {
+                trimmed
             };
             Ok(serde_json::json!({"output": output}))
         }
@@ -657,6 +712,111 @@ fn dispatch(
                 code: -32603,
                 message: e.to_string(),
             })
+        }
+
+        // ── Cron ────────────────────────────────────────────────
+
+        "cron.list" => {
+            let ws_id = params.as_ref().and_then(|p| p.get("workspace_id")).and_then(|v| v.as_str());
+            let cron_state = app.try_state::<crate::CronState>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let jobs = svc.cron_list(&cron_state, ws_id);
+            serde_json::to_value(&jobs).map_err(|e| JsonRpcError { code: -32603, message: e.to_string() })
+        }
+
+        "cron.get" => {
+            let id = get_string_param(&params, "id")?;
+            let cron_state = app.try_state::<crate::CronState>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let job = svc.cron_get(&cron_state, &id).map_err(|e| JsonRpcError { code: -32602, message: e })?;
+            serde_json::to_value(&job).map_err(|e| JsonRpcError { code: -32603, message: e.to_string() })
+        }
+
+        "cron.create" => {
+            let p = params.ok_or_else(|| JsonRpcError { code: -32602, message: "params required".into() })?;
+            let create_params: crate::cron::store::CronCreateParams = serde_json::from_value(p)
+                .map_err(|e| JsonRpcError { code: -32602, message: format!("Invalid params: {}", e) })?;
+            let cron_state = app.try_state::<crate::CronState>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let cron_wake = app.try_state::<crate::CronWake>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let job = svc.cron_create(&cron_state, &cron_wake, create_params)
+                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            serde_json::to_value(&job).map_err(|e| JsonRpcError { code: -32603, message: e.to_string() })
+        }
+
+        "cron.update" => {
+            let id = get_string_param(&params, "id")?;
+            let p = params.ok_or_else(|| JsonRpcError { code: -32602, message: "params required".into() })?;
+            let patch: crate::cron::store::CronUpdateParams = serde_json::from_value(p)
+                .map_err(|e| JsonRpcError { code: -32602, message: format!("Invalid params: {}", e) })?;
+            let cron_state = app.try_state::<crate::CronState>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let cron_wake = app.try_state::<crate::CronWake>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let job = svc.cron_update(&cron_state, &cron_wake, &id, patch)
+                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            serde_json::to_value(&job).map_err(|e| JsonRpcError { code: -32603, message: e.to_string() })
+        }
+
+        "cron.delete" => {
+            let id = get_string_param(&params, "id")?;
+            let cron_state = app.try_state::<crate::CronState>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let cron_wake = app.try_state::<crate::CronWake>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            svc.cron_delete(&cron_state, &cron_wake, &id)
+                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            Ok(serde_json::json!({"ok": true}))
+        }
+
+        "cron.enable" => {
+            let id = get_string_param(&params, "id")?;
+            let cron_state = app.try_state::<crate::CronState>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let cron_wake = app.try_state::<crate::CronWake>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let job = svc.cron_enable(&cron_state, &cron_wake, &id, true)
+                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            serde_json::to_value(&job).map_err(|e| JsonRpcError { code: -32603, message: e.to_string() })
+        }
+
+        "cron.disable" => {
+            let id = get_string_param(&params, "id")?;
+            let cron_state = app.try_state::<crate::CronState>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let cron_wake = app.try_state::<crate::CronWake>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let job = svc.cron_enable(&cron_state, &cron_wake, &id, false)
+                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            serde_json::to_value(&job).map_err(|e| JsonRpcError { code: -32603, message: e.to_string() })
+        }
+
+        "cron.trigger" => {
+            let id = get_string_param(&params, "id")?;
+            let cron_state = app.try_state::<crate::CronState>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let run = svc.cron_trigger(&cron_state, &id)
+                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            serde_json::to_value(&run).map_err(|e| JsonRpcError { code: -32603, message: e.to_string() })
+        }
+
+        "cron.history" => {
+            let id = get_string_param(&params, "id")?;
+            let cron_state = app.try_state::<crate::CronState>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let history = svc.cron_history(&cron_state, &id);
+            serde_json::to_value(&history).map_err(|e| JsonRpcError { code: -32603, message: e.to_string() })
+        }
+
+        "cron.complete" => {
+            let run_id = get_string_param(&params, "run_id")?;
+            let summary = params.as_ref().and_then(|p| p.get("summary")).and_then(|v| v.as_str());
+            let cron_state = app.try_state::<crate::CronState>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            svc.cron_complete(&cron_state, &run_id, summary)
+                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            Ok(serde_json::json!({"ok": true}))
         }
 
         _ => Err(JsonRpcError {

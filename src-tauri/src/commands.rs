@@ -230,12 +230,31 @@ pub async fn read_pty(
                     .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
                     .map(|(id, _)| id.clone())
             };
-            if let Some(pid) = pane_id {
+            if let Some(ref pid) = pane_id {
                 use tauri::Emitter;
                 let _ = app.emit("pane-status-changed", serde_json::json!({
                     "pane_id": pid,
                     "status": "Dead",
                 }));
+
+                // Cron fallback: if agent died without calling cron complete, mark as failed
+                use tauri::Manager;
+                if let Some(cron_state) = app.try_state::<crate::CronState>() {
+                    let owner = cron_state.lock().get_pane_owner(pid).cloned();
+                    if let Some((job_id, run_id)) = owner {
+                        let mut store = cron_state.lock();
+                        // Only save if no log exists yet (don't overwrite clean summary)
+                        if store.read_log(&job_id, &run_id).is_none() {
+                            let text = output_buf.lock().get_text(&pty_id).unwrap_or_default();
+                            let clean = crate::api::routes::clean_terminal_output(&text);
+                            let _ = store.save_log(&job_id, &run_id, &clean);
+                            let _ = store.update_run_status(&job_id, &run_id, crate::cron::store::CronRunStatus::Failed);
+                        }
+                        store.unregister_pane(pid);
+                        log::info!("Cron pane exited: job={}, run={}", job_id, run_id);
+                        let _ = app.emit("cron-state-changed", ());
+                    }
+                }
             }
             Err(e)
         },
@@ -982,6 +1001,139 @@ pub fn get_pane_git_info(
         Some(cwd) => Ok(git_info::get_git_info(cwd)),
         None => Ok(None),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Cron commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn cron_list(
+    cron: tauri::State<'_, crate::CronState>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    workspace_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let jobs = svc.cron_list(&cron, workspace_id.as_deref());
+    serde_json::to_value(jobs).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cron_get(
+    cron: tauri::State<'_, crate::CronState>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let job = svc.cron_get(&cron, &id)?;
+    serde_json::to_value(job).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cron_create(
+    cron: tauri::State<'_, crate::CronState>,
+    wake: tauri::State<'_, crate::CronWake>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    name: String,
+    workspace_id: String,
+    schedule: String,
+    task: String,
+    agent: Option<String>,
+    cwd: Option<String>,
+    description: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let params = crate::cron::store::CronCreateParams {
+        name,
+        workspace_id,
+        schedule,
+        task,
+        description,
+        agent,
+        cwd,
+        role: None,
+        enabled: Some(true),
+        max_history: None,
+    };
+    let job = svc.cron_create(&cron, &wake, params)?;
+    serde_json::to_value(job).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cron_update(
+    cron: tauri::State<'_, crate::CronState>,
+    wake: tauri::State<'_, crate::CronWake>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    id: String,
+    name: Option<String>,
+    schedule: Option<String>,
+    task: Option<String>,
+    cwd: Option<String>,
+    description: Option<String>,
+    enabled: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    let patch = crate::cron::store::CronUpdateParams {
+        name,
+        description,
+        schedule,
+        task,
+        cwd,
+        role: None,
+        enabled,
+        max_history: None,
+    };
+    let job = svc.cron_update(&cron, &wake, &id, patch)?;
+    serde_json::to_value(job).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cron_delete(
+    cron: tauri::State<'_, crate::CronState>,
+    wake: tauri::State<'_, crate::CronWake>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    id: String,
+) -> Result<(), String> {
+    svc.cron_delete(&cron, &wake, &id)
+}
+
+#[tauri::command]
+pub fn cron_toggle(
+    cron: tauri::State<'_, crate::CronState>,
+    wake: tauri::State<'_, crate::CronWake>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    id: String,
+    enabled: bool,
+) -> Result<serde_json::Value, String> {
+    let job = svc.cron_enable(&cron, &wake, &id, enabled)?;
+    serde_json::to_value(job).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cron_trigger(
+    cron: tauri::State<'_, crate::CronState>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let run = svc.cron_trigger(&cron, &id)?;
+    serde_json::to_value(run).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cron_history(
+    cron: tauri::State<'_, crate::CronState>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let history = svc.cron_history(&cron, &id);
+    serde_json::to_value(history).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn cron_read_log(
+    cron: tauri::State<'_, crate::CronState>,
+    job_id: String,
+    run_id: String,
+) -> Result<String, String> {
+    cron.lock()
+        .read_log(&job_id, &run_id)
+        .ok_or_else(|| "Log not found".to_string())
 }
 
 // ---------------------------------------------------------------------------

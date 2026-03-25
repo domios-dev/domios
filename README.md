@@ -29,8 +29,18 @@
   <a href="README.ru.md">Русский</a>
 </p>
 
-<!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
-<!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+<table>
+<tr>
+<td width="50%">
+<strong>Agent Orchestration</strong><br>
+<video src="docs/assets/agent-team.mp4" autoplay loop muted playsinline></video>
+</td>
+<td width="50%">
+<strong>Cron Jobs</strong><br>
+<video src="docs/assets/cron.mp4" autoplay loop muted playsinline></video>
+</td>
+</tr>
+</table>
 
 ---
 

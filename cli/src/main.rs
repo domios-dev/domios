@@ -5,7 +5,7 @@ use client::{discover_socket, SocketClient};
 
 /// Read API config (host, port, token) from CodeTerm config.toml
 fn read_api_config() -> (String, Option<String>) {
-    let config_dir = dirs::config_dir().unwrap_or_default().join("codeterm");
+    let config_dir = dirs::home_dir().unwrap_or_default().join(".codeterm");
     let config_path = config_dir.join("config.toml");
     if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(val) = content.parse::<toml::Table>() {
@@ -128,6 +128,12 @@ enum Commands {
     Agent {
         #[command(subcommand)]
         action: AgentAction,
+    },
+
+    /// Cron job management
+    Cron {
+        #[command(subcommand)]
+        action: CronAction,
     },
 
     /// Capture a screenshot of the CodeTerm window
@@ -358,6 +364,88 @@ enum AgentAction {
         /// Target workspace ID (default: parent's workspace or active workspace)
         #[arg(long)]
         workspace: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum CronAction {
+    /// List cron jobs
+    List {
+        /// Filter by workspace ID
+        #[arg(long)]
+        workspace: Option<String>,
+    },
+    /// Create a cron job
+    Create {
+        /// Cron job name
+        name: String,
+        /// Cron schedule (5-field: "*/30 * * * *")
+        #[arg(long)]
+        schedule: String,
+        /// Task prompt for the agent
+        #[arg(long)]
+        task: String,
+        /// Workspace ID (default: active)
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Agent to spawn (default: claude)
+        #[arg(long, default_value = "claude")]
+        agent: String,
+        /// Working directory
+        #[arg(long)]
+        cwd: Option<String>,
+        /// Description
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// Edit a cron job
+    Edit {
+        /// Cron job ID
+        id: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        schedule: Option<String>,
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        cwd: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// Delete a cron job
+    Delete {
+        /// Cron job ID
+        id: String,
+    },
+    /// Enable a cron job
+    Enable {
+        /// Cron job ID
+        id: String,
+    },
+    /// Disable a cron job
+    Disable {
+        /// Cron job ID
+        id: String,
+    },
+    /// Manually trigger a cron job now
+    Trigger {
+        /// Cron job ID
+        id: String,
+    },
+    /// Show run history
+    History {
+        /// Cron job ID
+        id: String,
+    },
+    /// Mark a cron run as complete (called by agent at end of task)
+    Complete {
+        /// Run ID
+        #[arg(long)]
+        run_id: String,
+        /// Summary of what happened
+        #[arg(long)]
+        summary: Option<String>,
     },
 }
 
@@ -830,6 +918,151 @@ fn main() {
                         .unwrap_or_default();
                     println!("{}", dir.display());
                     return;
+                }
+            }
+        }
+
+        Commands::Cron { action } => {
+            // Cron uses socket API
+            match action {
+                CronAction::List { workspace } => {
+                    let mut params = serde_json::json!({});
+                    if let Some(ws) = workspace { params["workspace_id"] = serde_json::json!(ws); }
+                    match client.call("cron.list", Some(params)) {
+                        Ok(val) => {
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if let Some(arr) = val.as_array() {
+                                if arr.is_empty() { println!("No cron jobs."); }
+                                for j in arr {
+                                    let enabled = j.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    let status = if enabled { "enabled" } else { "disabled" };
+                                    println!("{} {} [{}] schedule={} agent={}",
+                                        j.get("id").and_then(|v| v.as_str()).unwrap_or("?"),
+                                        j.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                                        status,
+                                        j.get("schedule").and_then(|v| v.as_str()).unwrap_or("?"),
+                                        j.get("agent").and_then(|v| v.as_str()).unwrap_or("?"),
+                                    );
+                                }
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                CronAction::Create { name, schedule, task, workspace, agent, cwd, description } => {
+                    let ws_id = workspace.unwrap_or_else(|| {
+                        // Get active workspace
+                        client.call("workspace.list", None)
+                            .ok()
+                            .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
+                            .and_then(|w| w.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                            .unwrap_or_default()
+                    });
+                    let mut params = serde_json::json!({
+                        "name": name,
+                        "schedule": schedule,
+                        "task": task,
+                        "workspace_id": ws_id,
+                        "agent": agent,
+                    });
+                    if let Some(c) = cwd { params["cwd"] = serde_json::json!(c); }
+                    if let Some(d) = description { params["description"] = serde_json::json!(d); }
+                    match client.call("cron.create", Some(params)) {
+                        Ok(val) => {
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                println!("Created: {} ({})",
+                                    val.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                                    val.get("id").and_then(|v| v.as_str()).unwrap_or("?"),
+                                );
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                CronAction::Edit { id, name, schedule, task, cwd, description } => {
+                    let mut params = serde_json::json!({"id": id});
+                    if let Some(n) = name { params["name"] = serde_json::json!(n); }
+                    if let Some(s) = schedule { params["schedule"] = serde_json::json!(s); }
+                    if let Some(t) = task { params["task"] = serde_json::json!(t); }
+                    if let Some(c) = cwd { params["cwd"] = serde_json::json!(c); }
+                    if let Some(d) = description { params["description"] = serde_json::json!(d); }
+                    match client.call("cron.update", Some(params)) {
+                        Ok(val) => {
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                println!("Updated: {}", val.get("name").and_then(|v| v.as_str()).unwrap_or("?"));
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                CronAction::Delete { id } => {
+                    match client.call("cron.delete", Some(serde_json::json!({"id": id}))) {
+                        Ok(_) => { println!("Deleted: {}", id); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                CronAction::Enable { id } => {
+                    match client.call("cron.enable", Some(serde_json::json!({"id": id}))) {
+                        Ok(_) => { println!("Enabled: {}", id); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                CronAction::Disable { id } => {
+                    match client.call("cron.disable", Some(serde_json::json!({"id": id}))) {
+                        Ok(_) => { println!("Disabled: {}", id); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                CronAction::Trigger { id } => {
+                    match client.call("cron.trigger", Some(serde_json::json!({"id": id}))) {
+                        Ok(val) => {
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                println!("Triggered: pane={}",
+                                    val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?"));
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                CronAction::History { id } => {
+                    match client.call("cron.history", Some(serde_json::json!({"id": id}))) {
+                        Ok(val) => {
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if let Some(arr) = val.as_array() {
+                                if arr.is_empty() { println!("No runs yet."); }
+                                for r in arr {
+                                    println!("{} {} started={} pane={}",
+                                        r.get("run_id").and_then(|v| v.as_str()).unwrap_or("?"),
+                                        r.get("status").and_then(|v| v.as_str()).unwrap_or("?"),
+                                        r.get("started_at").and_then(|v| v.as_u64()).unwrap_or(0),
+                                        r.get("pane_id").and_then(|v| v.as_str()).unwrap_or("-"),
+                                    );
+                                }
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                CronAction::Complete { run_id, summary } => {
+                    let mut params = serde_json::json!({"run_id": run_id});
+                    if let Some(s) = summary { params["summary"] = serde_json::json!(s); }
+                    match client.call("cron.complete", Some(params)) {
+                        Ok(_) => { println!("Completed: {}", run_id); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
                 }
             }
         }

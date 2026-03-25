@@ -2,6 +2,7 @@ mod agent;
 mod api;
 mod commands;
 mod config;
+pub mod cron;
 pub mod multiplexer;
 mod notification;
 pub mod pty;
@@ -30,6 +31,7 @@ pub type PtyState = Arc<Mutex<PtyManager>>;
 pub type OutputBufferState = Arc<Mutex<OutputBuffer>>;
 pub type AgentTrackerState = Arc<Mutex<agent::status::PaneStatusTracker>>;
 pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
+pub use cron::scheduler::{CronState, CronWake};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -168,6 +170,16 @@ pub fn run() {
             session::save_session_named,
             session::list_saved_sessions,
             session::load_session,
+            // Cron commands
+            commands::cron_list,
+            commands::cron_get,
+            commands::cron_create,
+            commands::cron_update,
+            commands::cron_delete,
+            commands::cron_toggle,
+            commands::cron_trigger,
+            commands::cron_history,
+            commands::cron_read_log,
         ])
         .setup(move |app| {
             // Set window icon (decode PNG → RGBA for Tauri)
@@ -223,6 +235,14 @@ pub fn run() {
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
 
+            // Initialize cron store and scheduler
+            let cron_store = cron::store::CronStore::new();
+            let cron_state: CronState = Arc::new(Mutex::new(cron_store));
+            let cron_wake: CronWake = Arc::new(std::sync::Condvar::new());
+            app.manage(cron_state.clone());
+            app.manage(cron_wake.clone());
+            cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
+
             // Start socket server
             if let Err(e) = socket::server::SocketServer::start(
                 mux_state.clone(),
@@ -251,6 +271,8 @@ pub fn run() {
                         agent_tracker: agent_tracker.clone(),
                         report_store: report_store.clone(),
                         svc: service_state.clone(),
+                        cron: cron_state.clone(),
+                        cron_wake: cron_wake.clone(),
                     };
                     let router = api::routes::create_router(api_state);
                     let host = api_config.host.clone();
@@ -394,9 +416,11 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                // Only save session for main window, not notification popups
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Only handle main window, not notification popups
                 if window.label() != "main" { return; }
+
+                // Save session
                 let app = window.app_handle();
                 if let (Some(mux), Some(session)) = (
                     app.try_state::<MuxState>(),
@@ -406,11 +430,14 @@ pub fn run() {
                     if let Err(e) = session.lock().save(&snapshot) {
                         log::error!("Failed to save session: {}", e);
                     } else {
-                        log::info!("Session saved on close");
+                        log::info!("Session saved (close-to-tray)");
                     }
                 }
 
-                // Let the window close normally
+                // Hide to tray instead of quitting
+                api.prevent_close();
+                let _ = window.hide();
+                log::info!("Window hidden to tray");
             }
         })
         .run(tauri::generate_context!())

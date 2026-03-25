@@ -128,7 +128,31 @@ Webhook events: `agent.permission_request`, `agent.task_complete`, `agent.report
 | DELETE | `/api/themes/{id}` | — | Delete a custom theme |
 | POST | `/api/themes/apply` | `{name}` | Apply a theme by name |
 
-Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/.config/codeterm/themes/` (macOS/Linux).
+Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/.codeterm/themes/` (macOS/Linux).
+
+#### Cron Jobs
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/crons` | `?workspace_id=ID` | List all cron jobs (optionally filter by workspace) |
+| POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, cwd?, description?}` | Create cron job |
+| GET | `/api/crons/:id` | — | Get cron job by ID |
+| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?}` | Update cron job |
+| DELETE | `/api/crons/:id` | — | Delete cron job |
+| POST | `/api/crons/:id/enable` | — | Enable cron job |
+| POST | `/api/crons/:id/disable` | — | Disable cron job |
+| POST | `/api/crons/:id/trigger` | — | Manually trigger cron job |
+| GET | `/api/crons/:id/history` | — | Get run history for cron job |
+| POST | `/api/crons/runs/:run_id/complete` | `{summary?}` | Mark a cron run as complete |
+
+Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
+
+Cron runs spawn Claude agents on schedule. When done, the agent calls `POST /api/crons/runs/:run_id/complete` (or `codeterm cron complete --run-id UUID`), which automatically closes the run's tab/pane (ephemeral). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. The sidebar shows a cron tree with runs and next scheduled time. Click a finished run to open the log viewer. Successful spawns do not generate notifications — only errors do.
+
+**Deleting a cron job** cascades: kills all running panes/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
+
+**Tauri events:**
+- `cron-state-changed` — emitted on any cron CRUD operation
+- `cron-fired` — emitted when a cron fires, payload: `{cron_id, run_id, pane_id, tab_id}`
 
 ### Agent Spawn (POST /api/agents/spawn)
 
@@ -350,6 +374,16 @@ Newline-delimited JSON:
 | `agent.spawn` | `{agent?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?}` | Spawn agent (same as REST) |
 | `agent.report` | `{pane_id, message}` | Send report to direct parent |
 | `agent.reports` | `{pane_id, clear?}` | Read reports from children |
+| `cron.list` | `{workspace_id?}` | List cron jobs |
+| `cron.get` | `{id}` | Get cron job by ID |
+| `cron.create` | `{name, schedule, task, workspace_id, agent?, cwd?, description?}` | Create cron job |
+| `cron.update` | `{id, name?, schedule?, task?, cwd?, description?, enabled?}` | Update cron job |
+| `cron.delete` | `{id}` | Delete cron job |
+| `cron.enable` | `{id}` | Enable cron job |
+| `cron.disable` | `{id}` | Disable cron job |
+| `cron.trigger` | `{id}` | Manually trigger cron job |
+| `cron.history` | `{id}` | Get run history |
+| `cron.complete` | `{run_id, summary?}` | Mark a cron run as complete |
 
 ## CLI
 
@@ -417,6 +451,20 @@ codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [-
                                                # Uses socket API (not REST) for reliability
                                                # NOTE: --agent-name is only available via REST API, not CLI
 
+# Cron Jobs
+codeterm cron list [--workspace ID]            # List all cron jobs
+codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs" [--cwd /path] [--description "desc"]
+                                               # Create cron job (5-field cron: min hour dom mon dow)
+codeterm cron edit ID [--name "new name"] [--schedule "..."] [--task "..."]
+                                               # Update cron job fields
+codeterm cron delete ID                        # Delete cron job
+codeterm cron enable ID                        # Enable cron job
+codeterm cron disable ID                       # Disable cron job
+codeterm cron trigger ID                       # Manually trigger cron job
+codeterm cron history ID                       # Show run history
+codeterm cron complete --run-id UUID --summary "result"
+                                               # Mark cron run as complete (called by spawned agent)
+
 # Screenshot
 codeterm screenshot                            # Capture window, print JSON (data URL + dimensions)
 codeterm screenshot --output screenshot.jpg    # Capture window, save to file
@@ -464,4 +512,8 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
-<!-- revision: 11 -->
+## System Tray
+
+CodeTerm hides to the system tray on window close instead of quitting. To fully quit, use the tray menu. This ensures cron jobs and background agents continue running when the window is closed.
+
+<!-- revision: 14 -->
