@@ -129,12 +129,24 @@ pub enum Orientation {
 /// Agent role in the orchestration hierarchy.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum AgentRole {
-    /// Top-level orchestrator (depth 1).
-    Conductor,
-    /// Worker spawned by a conductor (depth 2).
+    /// Top-level orchestrator (depth 1). Can spawn Leads and Workers.
+    Orchestrator,
+    /// Lead spawned by orchestrator (depth 2). Can spawn Workers.
+    Lead,
+    /// Worker (depth 2 or 3). Executes tasks, reports back. Cannot spawn.
     Worker,
-    /// Sub-worker spawned by a worker (depth 3, max).
-    SubWorker,
+}
+
+// Keep backward-compatible aliases for deserialization
+impl AgentRole {
+    pub fn from_str_compat(s: &str) -> Option<Self> {
+        match s {
+            "Orchestrator" | "Conductor" => Some(Self::Orchestrator),
+            "Lead" => Some(Self::Lead),
+            "Worker" | "SubWorker" => Some(Self::Worker),
+            _ => None,
+        }
+    }
 }
 
 /// A pane represents a single terminal or browser panel.

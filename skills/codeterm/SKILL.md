@@ -108,7 +108,10 @@ codeterm send-text "tail -f /var/log/app.log" --pane $BOT_RIGHT
 
 ## Agent Hierarchy
 
-CodeTerm supports a 3-level hierarchy: Conductor -> Worker -> SubWorker (max depth 3).
+CodeTerm supports a 3-level hierarchy: Orchestrator → Lead → Worker.
+- **Orchestrator** — top-level, can spawn Leads and Workers
+- **Lead** — spawned by Orchestrator, can spawn Workers
+- **Worker** — executes tasks, reports back, CANNOT spawn anything
 
 ```
 codeterm agent list                            # List all agent panes
@@ -127,51 +130,41 @@ codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [-
 
 ### Orchestrator pattern (using agent spawn)
 ```bash
-# 1. Mark self as conductor (uses $CODETERM_PANE_ID — your pane's ID, set automatically)
+# 1. Mark self as orchestrator
 codeterm agent set-conductor --pane $CODETERM_PANE_ID
 
-# 2. Spawn workers — each gets its own tab in your workspace, linked in hierarchy chain
-codeterm agent spawn claude --title "Worker-1" --role Worker --parent $CODETERM_PANE_ID --cwd /project --task "run tests"
-codeterm agent spawn claude --title "Worker-2" --role Worker --parent $CODETERM_PANE_ID --cwd /project --task "lint code"
+# 2. Spawn leads (they can spawn workers under them)
+codeterm agent spawn claude --title "Team-A" --role Lead --parent $CODETERM_PANE_ID --task "coordinate team A"
+codeterm agent spawn claude --title "Team-B" --role Lead --parent $CODETERM_PANE_ID --task "coordinate team B"
 
-# 3. Spawn with a specific agent definition from .claude/agents/
-codeterm agent spawn claude --title "Architect" --role Worker --parent $CODETERM_PANE_ID --cwd /project --agent-name architect --task "review architecture"
+# 3. Spawn workers directly (they execute and report, cannot spawn)
+codeterm agent spawn claude --title "Scout" --role Worker --parent $CODETERM_PANE_ID --task "list files and report"
 
-# 4. Allow a worker to spawn sub-workers (3-level depth)
-codeterm agent allow-spawn --pane <WORKER_PANE_ID>
-codeterm agent spawn claude --title "SubWorker" --role SubWorker --parent <WORKER_PANE_ID> --task "subtask"
-
-# 5. Spawn agent in a different workspace
-WS=$(codeterm workspace create "Other Project" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
-codeterm agent spawn claude --title "Agent" --role Conductor --workspace $WS --cwd /other/project --task "analyze code"
-
-# 6. Read reports from workers (poll until you get them)
+# 4. Read reports from children
 codeterm agent reports
 ```
 
 **Role-aware behavior — check `$CODETERM_ROLE` on startup:**
 
-If `$CODETERM_ROLE` is `Worker` or `SubWorker`:
-- You are in a hierarchy under a parent. The backend BLOCKS you from calling `set-conductor` or `unlink`.
-- Do NOT create extra workspaces or tabs. Do NOT `sleep` or poll. Do NOT use files to exchange data.
-- If asked to delegate/spawn sub-tasks, use codeterm: `codeterm agent spawn claude --title "Sub-X" --role SubWorker --parent $CODETERM_PANE_ID --task "do X then report back with: codeterm agent report your-summary"`
-- Do NOT use the built-in Agent tool or run sub-tasks inline — always spawn via codeterm for visibility.
-- When done, report to parent: `codeterm agent report "your summary"` — message is a positional arg, NOT `--message`.
-- Reports are push-based: when your sub-worker reports, it appears in your terminal as `[Report from Sub-X] ...`. No polling.
+If `$CODETERM_ROLE` is `Lead`:
+- You are under an Orchestrator. Do NOT call `set-conductor` or `unlink` (backend blocks it).
+- You CAN spawn Workers: `codeterm agent spawn claude --title "W" --role Worker --parent $CODETERM_PANE_ID --task "do X and report back"`
+- Do NOT create extra workspaces/tabs. Do NOT sleep/poll. Do NOT use files to exchange data.
+- When done, report to parent: `codeterm agent report "your summary"`
+- Sub-worker reports appear in your terminal as `[Report from W] ...`. No polling needed.
 
-If `$CODETERM_ROLE` is empty (no role assigned):
-- You can become a conductor: `codeterm agent set-conductor --pane $CODETERM_PANE_ID`
-- Then spawn workers: `codeterm agent spawn claude --title "W" --role Worker --parent $CODETERM_PANE_ID --can-spawn --task "..."`
+If `$CODETERM_ROLE` is `Worker`:
+- You execute tasks and report. You CANNOT spawn anything.
+- Do NOT call `set-conductor`, `unlink`, `agent spawn`, or create tabs.
+- When done: `codeterm agent report "your summary"`
 
-**Report syntax:** `codeterm agent report "your message here"` — message is the FIRST positional argument. Do NOT use `--message`, `--to`, or `--from` flags — they don't exist.
+If `$CODETERM_ROLE` is empty:
+- You can become orchestrator: `codeterm agent set-conductor --pane $CODETERM_PANE_ID`
+- Then spawn leads/workers with `codeterm agent spawn`
 
-**Cross-workspace spawn:** When creating a workspace and spawning an agent there, you MUST pass `--workspace <WS_ID>` explicitly, otherwise the agent lands in your current workspace:
-```bash
-WS=$(codeterm workspace create "Name" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
-codeterm agent spawn claude --title "Agent" --workspace $WS --task "do something"
-```
+**Report syntax:** `codeterm agent report "message"` — message is the FIRST positional argument. Do NOT use `--message`, `--to`, or `--from` flags.
 
-**Hierarchy rules:** Conductor (depth 1) -> Worker (depth 2) -> SubWorker (depth 3, max). Use `--role SubWorker` when spawning under a Worker. Workers need `allow-spawn` before they can spawn SubWorkers. Each agent gets its own tab; the hierarchy is a logical chain, not visual splits. IDs are 8-char hex (e.g. `a3f1b2c7`). `--agent-name` (for `.claude/agents/` files) is only available via REST API, not CLI.
+**Hierarchy:** Orchestrator (depth 1) → Lead (depth 2) → Worker (depth 3). Leads can spawn Workers. Workers cannot spawn. IDs are 8-char hex.
 
 ### Orchestrator pattern (batch API — REST and Tauri IPC)
 ```bash

@@ -590,55 +590,54 @@ impl MultiplexerState {
         }
 
         match role {
-            AgentRole::Conductor => {
-                // Conductor: no parent, depth 1
+            AgentRole::Orchestrator => {
                 if parent_pane_id.is_some() {
-                    return Err("Conductor cannot have a parent".to_string());
+                    return Err("Orchestrator cannot have a parent".to_string());
                 }
-                // Prevent Workers/SubWorkers from promoting themselves to Conductor
                 let existing = self.panes.get(pane_id).unwrap();
                 if existing.parent_pane_id.is_some() {
-                    return Err("Cannot become Conductor — this pane has a parent (already in hierarchy)".to_string());
+                    return Err("Cannot become Orchestrator — already in a hierarchy".to_string());
                 }
                 let pane = self.panes.get_mut(pane_id).unwrap();
-                pane.role = Some(AgentRole::Conductor);
+                pane.role = Some(AgentRole::Orchestrator);
                 pane.parent_pane_id = None;
                 pane.can_spawn = true;
                 pane.depth = 1;
+            }
+            AgentRole::Lead => {
+                let parent_id = parent_pane_id
+                    .ok_or("Lead requires a parent_pane_id")?;
+                let parent = self.panes.get(parent_id)
+                    .ok_or(format!("Parent pane {} not found", parent_id))?;
+                if parent.role != Some(AgentRole::Orchestrator) {
+                    return Err("Lead's parent must be an Orchestrator".to_string());
+                }
+                if !parent.can_spawn {
+                    return Err("Parent does not allow spawning".to_string());
+                }
+                let pane = self.panes.get_mut(pane_id).unwrap();
+                pane.role = Some(AgentRole::Lead);
+                pane.parent_pane_id = Some(parent_id.to_string());
+                pane.can_spawn = true; // Leads can spawn Workers
+                pane.depth = 2;
             }
             AgentRole::Worker => {
                 let parent_id = parent_pane_id
                     .ok_or("Worker requires a parent_pane_id")?;
                 let parent = self.panes.get(parent_id)
                     .ok_or(format!("Parent pane {} not found", parent_id))?;
-                if parent.role != Some(AgentRole::Conductor) {
-                    return Err("Worker's parent must be a Conductor".to_string());
+                if parent.role != Some(AgentRole::Orchestrator) && parent.role != Some(AgentRole::Lead) {
+                    return Err("Worker's parent must be an Orchestrator or Lead".to_string());
                 }
                 if !parent.can_spawn {
-                    return Err("Parent conductor does not allow spawning".to_string());
+                    return Err("Parent does not allow spawning".to_string());
                 }
+                let parent_depth = parent.depth;
                 let pane = self.panes.get_mut(pane_id).unwrap();
                 pane.role = Some(AgentRole::Worker);
                 pane.parent_pane_id = Some(parent_id.to_string());
                 pane.can_spawn = false;
-                pane.depth = 2;
-            }
-            AgentRole::SubWorker => {
-                let parent_id = parent_pane_id
-                    .ok_or("SubWorker requires a parent_pane_id")?;
-                let parent = self.panes.get(parent_id)
-                    .ok_or(format!("Parent pane {} not found", parent_id))?;
-                if parent.role != Some(AgentRole::Worker) {
-                    return Err("SubWorker's parent must be a Worker".to_string());
-                }
-                if !parent.can_spawn {
-                    return Err("Parent worker does not allow spawning".to_string());
-                }
-                let pane = self.panes.get_mut(pane_id).unwrap();
-                pane.role = Some(AgentRole::SubWorker);
-                pane.parent_pane_id = Some(parent_id.to_string());
-                pane.can_spawn = false;
-                pane.depth = 3;
+                pane.depth = parent_depth + 1;
             }
         }
 
@@ -671,11 +670,11 @@ impl MultiplexerState {
         }
         // Only conductors and workers can spawn
         match pane.role {
-            Some(AgentRole::Conductor) | Some(AgentRole::Worker) => {
+            Some(AgentRole::Orchestrator) | Some(AgentRole::Lead) => {
                 pane.can_spawn = can_spawn;
                 Ok(())
             }
-            _ => Err("Only Conductor or Worker can spawn children".to_string()),
+            _ => Err("Only Orchestrator or Lead can spawn children".to_string()),
         }
     }
 
@@ -788,9 +787,9 @@ impl MultiplexerState {
             match node {
                 SplitNodeSnapshot::Leaf { pane_id, cwd, agent_type, claude_session_id, role, parent_pane_id, can_spawn, depth } => {
                     let parsed_role = role.as_deref().and_then(|r| match r {
-                        "Conductor" => Some(crate::multiplexer::types::AgentRole::Conductor),
-                        "Worker" => Some(crate::multiplexer::types::AgentRole::Worker),
-                        "SubWorker" => Some(crate::multiplexer::types::AgentRole::SubWorker),
+                        "Orchestrator" | "Conductor" => Some(crate::multiplexer::types::AgentRole::Orchestrator),
+                        "Lead" => Some(crate::multiplexer::types::AgentRole::Lead),
+                        "Worker" | "SubWorker" => Some(crate::multiplexer::types::AgentRole::Worker),
                         _ => None,
                     });
                     panes.insert(pane_id.clone(), Pane {
@@ -1147,10 +1146,10 @@ mod tests {
     fn test_set_conductor_role() {
         let (mut state, pane_id) = MultiplexerState::new();
         state
-            .set_pane_role(&pane_id, AgentRole::Conductor, None)
+            .set_pane_role(&pane_id, AgentRole::Orchestrator, None)
             .unwrap();
         let pane = state.get_pane(&pane_id).unwrap();
-        assert_eq!(pane.role, Some(AgentRole::Conductor));
+        assert_eq!(pane.role, Some(AgentRole::Orchestrator));
         assert_eq!(pane.depth, 1);
         assert!(pane.can_spawn);
         assert!(pane.parent_pane_id.is_none());
@@ -1159,7 +1158,7 @@ mod tests {
     #[test]
     fn test_conductor_cannot_have_parent() {
         let (mut state, pane_id) = MultiplexerState::new();
-        let result = state.set_pane_role(&pane_id, AgentRole::Conductor, Some("fake"));
+        let result = state.set_pane_role(&pane_id, AgentRole::Orchestrator, Some("fake"));
         assert!(result.is_err());
     }
 
@@ -1167,7 +1166,7 @@ mod tests {
     fn test_worker_requires_conductor_parent() {
         let (mut state, conductor_id) = MultiplexerState::new();
         state
-            .set_pane_role(&conductor_id, AgentRole::Conductor, None)
+            .set_pane_role(&conductor_id, AgentRole::Orchestrator, None)
             .unwrap();
         let worker_id = state
             .split_pane(&conductor_id, Orientation::Horizontal)
@@ -1198,7 +1197,7 @@ mod tests {
     fn test_worker_parent_must_allow_spawn() {
         let (mut state, conductor_id) = MultiplexerState::new();
         state
-            .set_pane_role(&conductor_id, AgentRole::Conductor, None)
+            .set_pane_role(&conductor_id, AgentRole::Orchestrator, None)
             .unwrap();
         // Disable spawning
         state.set_can_spawn(&conductor_id, false).unwrap();
@@ -1212,37 +1211,27 @@ mod tests {
 
     #[test]
     fn test_subworker_requires_worker_parent() {
-        let (mut state, conductor_id) = MultiplexerState::new();
-        state
-            .set_pane_role(&conductor_id, AgentRole::Conductor, None)
-            .unwrap();
-        let worker_id = state
-            .split_pane(&conductor_id, Orientation::Horizontal)
-            .unwrap();
-        state
-            .set_pane_role(&worker_id, AgentRole::Worker, Some(&conductor_id))
-            .unwrap();
-        // Enable spawning on worker
-        state.set_can_spawn(&worker_id, true).unwrap();
+        // Lead under Orchestrator, Worker under Lead
+        let (mut state, orch_id) = MultiplexerState::new();
+        state.set_pane_role(&orch_id, AgentRole::Orchestrator, None).unwrap();
 
-        let sub_id = state
-            .split_pane(&worker_id, Orientation::Vertical)
-            .unwrap();
-        state
-            .set_pane_role(&sub_id, AgentRole::SubWorker, Some(&worker_id))
-            .unwrap();
+        let lead_id = state.split_pane(&orch_id, Orientation::Horizontal).unwrap();
+        state.set_pane_role(&lead_id, AgentRole::Lead, Some(&orch_id)).unwrap();
 
-        let sub = state.get_pane(&sub_id).unwrap();
-        assert_eq!(sub.role, Some(AgentRole::SubWorker));
-        assert_eq!(sub.depth, 3);
-        assert!(!sub.can_spawn);
+        let worker_id = state.split_pane(&lead_id, Orientation::Vertical).unwrap();
+        state.set_pane_role(&worker_id, AgentRole::Worker, Some(&lead_id)).unwrap();
+
+        let worker = state.get_pane(&worker_id).unwrap();
+        assert_eq!(worker.role, Some(AgentRole::Worker));
+        assert_eq!(worker.depth, 3);
+        assert!(!worker.can_spawn);
     }
 
     #[test]
     fn test_get_children_ids() {
         let (mut state, conductor_id) = MultiplexerState::new();
         state
-            .set_pane_role(&conductor_id, AgentRole::Conductor, None)
+            .set_pane_role(&conductor_id, AgentRole::Orchestrator, None)
             .unwrap();
         let w1 = state
             .split_pane(&conductor_id, Orientation::Horizontal)
@@ -1267,7 +1256,7 @@ mod tests {
     fn test_clear_role_orphans_children() {
         let (mut state, conductor_id) = MultiplexerState::new();
         state
-            .set_pane_role(&conductor_id, AgentRole::Conductor, None)
+            .set_pane_role(&conductor_id, AgentRole::Orchestrator, None)
             .unwrap();
         let worker_id = state
             .split_pane(&conductor_id, Orientation::Horizontal)
@@ -1295,7 +1284,7 @@ mod tests {
     fn test_close_pane_cascades_children() {
         let (mut state, conductor_id) = MultiplexerState::new();
         state
-            .set_pane_role(&conductor_id, AgentRole::Conductor, None)
+            .set_pane_role(&conductor_id, AgentRole::Orchestrator, None)
             .unwrap();
         state.link_pty(&conductor_id, "pty-cond".to_string());
 
@@ -1326,7 +1315,7 @@ mod tests {
     fn test_set_can_spawn_on_conductor() {
         let (mut state, pane_id) = MultiplexerState::new();
         state
-            .set_pane_role(&pane_id, AgentRole::Conductor, None)
+            .set_pane_role(&pane_id, AgentRole::Orchestrator, None)
             .unwrap();
         assert!(state.get_pane(&pane_id).unwrap().can_spawn);
 
@@ -1395,7 +1384,7 @@ mod tests {
             pane.agent_type = Some("claude".to_string());
         }
         state
-            .set_pane_role(&pane_id, AgentRole::Conductor, None)
+            .set_pane_role(&pane_id, AgentRole::Orchestrator, None)
             .unwrap();
 
         // Create second workspace
@@ -1414,7 +1403,7 @@ mod tests {
         let pane = restored.get_pane(&pane_id).unwrap();
         assert_eq!(pane.cwd.as_deref(), Some("/test/path"));
         assert_eq!(pane.agent_type.as_deref(), Some("claude"));
-        assert_eq!(pane.role, Some(AgentRole::Conductor));
+        assert_eq!(pane.role, Some(AgentRole::Orchestrator));
         assert_eq!(pane.depth, 1);
         assert!(pane.can_spawn);
         // PTY should not be restored
@@ -1425,7 +1414,7 @@ mod tests {
     fn test_session_snapshot_preserves_hierarchy() {
         let (mut state, cond_id) = MultiplexerState::new();
         state
-            .set_pane_role(&cond_id, AgentRole::Conductor, None)
+            .set_pane_role(&cond_id, AgentRole::Orchestrator, None)
             .unwrap();
         let worker_id = state
             .split_pane(&cond_id, Orientation::Horizontal)
@@ -1438,7 +1427,7 @@ mod tests {
         let restored = MultiplexerState::from_session_snapshot(&snap);
 
         let cond = restored.get_pane(&cond_id).unwrap();
-        assert_eq!(cond.role, Some(AgentRole::Conductor));
+        assert_eq!(cond.role, Some(AgentRole::Orchestrator));
 
         let worker = restored.get_pane(&worker_id).unwrap();
         assert_eq!(worker.role, Some(AgentRole::Worker));

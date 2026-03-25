@@ -191,7 +191,7 @@ impl ServiceContext {
 
         snap.panes
             .values()
-            .filter(|p| p.role == Some(AgentRole::Conductor))
+            .filter(|p| p.role == Some(AgentRole::Orchestrator))
             .filter_map(|p| build_node(&p.id, &snap, &tracker))
             .collect()
     }
@@ -224,7 +224,7 @@ fn find_conductor(
     for _ in 0..3 {
         let pane = mux.get_pane(&current_id);
         match pane {
-            Some(p) if p.role == Some(AgentRole::Conductor) => return Ok(current_id),
+            Some(p) if p.role == Some(AgentRole::Orchestrator) => return Ok(current_id),
             Some(p) if p.parent_pane_id.is_some() => {
                 current_id = p.parent_pane_id.clone().unwrap();
             }
