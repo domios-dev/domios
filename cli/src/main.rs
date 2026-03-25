@@ -305,11 +305,11 @@ enum AgentAction {
         #[arg(long, default_value = "true")]
         enable: bool,
     },
-    /// Send a report to the hierarchy's conductor
+    /// Send a report to your parent in the hierarchy
     Report {
-        /// Report message
+        /// Report message (also accepts --message alias)
         message: String,
-        /// Pane ID (default: current focused pane)
+        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
         #[arg(long)]
         pane: Option<String>,
     },
