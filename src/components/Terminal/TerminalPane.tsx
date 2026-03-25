@@ -15,6 +15,7 @@ import { InputTracker } from "../../lib/completions/inputTracker";
 import { CompletionEngine } from "../../lib/completions/engine";
 import { defaultDefinitions } from "../../lib/completions/definitions";
 import type { CompletionItem } from "../../lib/completions/types";
+import { TitleLevel } from "../../lib/types";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { consumePendingCommand, consumePendingCwd } from "../../lib/pendingCommands";
 
@@ -333,7 +334,7 @@ export function TerminalPane({
     // Shells set CWD, Claude Code sets task description
     term.onTitleChange((title) => {
       if (title) {
-        setPaneTitle(paneId, title);
+        setPaneTitle(paneId, title, TitleLevel.Auto);
         // Detect Claude Code from OSC title
         if (/claude/i.test(title)) {
           setAgentType(paneId, "claude");
@@ -371,9 +372,9 @@ export function TerminalPane({
           invoke("mux_update_pane_cwd", { paneId, cwd: dir }).catch(() => {});
           // Auto-rename tab to directory name (if not manually pinned)
           const pane = state.panes[paneId];
-          if (pane && !pane.pinned_title) {
+          if (pane && pane.title_level !== TitleLevel.User) {
             const dirName = dir.split("/").pop() || dir;
-            if (dirName) setPaneTitle(paneId, dirName);
+            if (dirName) setPaneTitle(paneId, dirName, TitleLevel.Auto);
           }
         }
       } catch {
@@ -381,9 +382,9 @@ export function TerminalPane({
         if (data && data.length > 2) {
           invoke("mux_update_pane_cwd", { paneId, cwd: data }).catch(() => {});
           const pane = state.panes[paneId];
-          if (pane && !pane.pinned_title) {
+          if (pane && pane.title_level !== TitleLevel.User) {
             const dirName = data.split("/").pop() || data;
-            if (dirName) setPaneTitle(paneId, dirName);
+            if (dirName) setPaneTitle(paneId, dirName, TitleLevel.Auto);
           }
         }
       }

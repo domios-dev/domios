@@ -11,6 +11,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { uid } from "../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../lib/pendingCommands";
+import { TitleLevel } from "../lib/types";
 import type {
   MultiplexerState,
   Workspace,
@@ -171,7 +172,7 @@ type Action =
   | { type: "CLEAR_NOTIFICATIONS" }
   | { type: "DISMISS_TOAST"; id: string }
   // Pane title — pinned=true from API/CLI rename (blocks OSC auto-rename)
-  | { type: "SET_PANE_TITLE"; paneId: string; title: string; pinned?: boolean }
+  | { type: "SET_PANE_TITLE"; paneId: string; title: string; level?: TitleLevel }
   // Agent detection
   | { type: "SET_AGENT_TYPE"; paneId: string; agentType: "claude" | null }
   // Pane status actions
@@ -203,19 +204,23 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
           }),
         };
       });
-      // Merge pane flags: pinned_title from backend OR frontend, agent_type from frontend
+      // Merge pane flags: title_level priority, agent_type from frontend
       const mergedPanes = { ...action.state.panes };
       for (const [id, backendPane] of Object.entries(mergedPanes)) {
         const existing = state.panes[id];
-        const pinned = backendPane.pinned_title || existing?.pinned_title;
         const agentType = existing?.agent_type || backendPane.agent_type;
-        if (pinned || agentType) {
-          mergedPanes[id] = {
-            ...backendPane,
-            ...(pinned ? { pinned_title: true, title: backendPane.pinned_title ? backendPane.title : (existing?.title || backendPane.title) } : {}),
-            ...(agentType ? { agent_type: agentType } : {}),
-          };
-        }
+        // Keep highest title_level between backend and frontend
+        const backendLevel = backendPane.title_level || TitleLevel.Default;
+        const frontendLevel = existing?.title_level || TitleLevel.Default;
+        const levels = [TitleLevel.Default, TitleLevel.Auto, TitleLevel.User];
+        const highestLevel = levels.indexOf(backendLevel) >= levels.indexOf(frontendLevel) ? backendLevel : frontendLevel;
+        const title = highestLevel === frontendLevel && existing ? existing.title : backendPane.title;
+        mergedPanes[id] = {
+          ...backendPane,
+          title_level: highestLevel as TitleLevel,
+          title,
+          ...(agentType ? { agent_type: agentType } : {}),
+        };
       }
       return {
         ...state,
@@ -434,14 +439,17 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
       const pane = state.panes[action.paneId];
       if (!pane) return state;
       // If title is pinned (manually renamed) and this is an OSC auto-rename, skip
-      if (pane.pinned_title && !action.pinned) return state;
+      const levels = [TitleLevel.Default, TitleLevel.Auto, TitleLevel.User];
+      const newLevel = action.level || TitleLevel.Auto;
+      const curLevel = pane.title_level || TitleLevel.Default;
+      if (levels.indexOf(newLevel) < levels.indexOf(curLevel)) return state;
       const displayTitle = shortenTitle(action.title);
       const updatedPanes = {
         ...state.panes,
         [action.paneId]: {
           ...pane,
           title: action.title,
-          pinned_title: action.pinned || pane.pinned_title,
+          title_level: newLevel,
         },
       };
       const updatedWorkspaces = state.workspaces.map((ws) => ({
@@ -566,7 +574,7 @@ interface MultiplexerContextType {
   clearNotifications: () => void;
   dismissToast: (id: string) => void;
   // Pane title (from terminal OSC sequences)
-  setPaneTitle: (paneId: string, title: string, pinned?: boolean) => void;
+  setPaneTitle: (paneId: string, title: string, level?: TitleLevel) => void;
   setAgentType: (paneId: string, agentType: "claude" | null) => void;
   // Pane status
   updatePaneStatus: (paneId: string, status: PaneStatus) => void;
@@ -712,13 +720,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       },
     ).then((unlisten) => unlisteners.push(unlisten));
 
-    // Listen for pinned pane title (from API/CLI rename — blocks OSC auto-rename)
+    // Listen for user-level pane title (from API/CLI rename — highest priority)
     listen<{ pane_id: string; title: string }>("pane-title-pinned", (event) => {
       dispatch({
         type: "SET_PANE_TITLE",
         paneId: event.payload.pane_id,
         title: event.payload.title,
-        pinned: true,
+        level: TitleLevel.User,
       });
     }).then((unlisten) => unlisteners.push(unlisten));
 
@@ -1056,8 +1064,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "DISMISS_TOAST", id });
   }, []);
 
-  const setPaneTitle = useCallback((paneId: string, title: string, pinned?: boolean) => {
-    dispatch({ type: "SET_PANE_TITLE", paneId, title, pinned });
+  const setPaneTitle = useCallback((paneId: string, title: string, level?: TitleLevel) => {
+    dispatch({ type: "SET_PANE_TITLE", paneId, title, level });
   }, []);
 
   const setAgentType = useCallback((paneId: string, agentType: "claude" | null) => {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::types::{AgentRole, Orientation, Pane, PaneType, SplitNode, Tab, Workspace};
+use super::types::{AgentRole, Orientation, Pane, PaneType, SplitNode, Tab, TitleLevel, Workspace};
 
 /// Generate a short 8-char hex ID (from UUID v4).
 fn short_id() -> String {
@@ -50,7 +50,7 @@ impl MultiplexerState {
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
-            pinned_title: false,
+            title_level: TitleLevel::Default,
         };
 
         let tab = Tab {
@@ -347,7 +347,7 @@ impl MultiplexerState {
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
-            pinned_title: false,
+            title_level: TitleLevel::Default,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -369,7 +369,7 @@ impl MultiplexerState {
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
-            pinned_title: false,
+            title_level: TitleLevel::Default,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -440,13 +440,24 @@ impl MultiplexerState {
     }
 
     /// Rename a pane and its containing tab. Pins the title to block OSC auto-rename.
+    /// Rename a pane at User level (highest priority).
     pub fn rename_pane(&mut self, pane_id: &str, title: &str) -> Result<(), String> {
+        self.rename_pane_at_level(pane_id, title, TitleLevel::User)
+    }
+
+    /// Rename a pane at a specific priority level.
+    /// Lower levels cannot overwrite higher ones.
+    pub fn rename_pane_at_level(&mut self, pane_id: &str, title: &str, level: TitleLevel) -> Result<(), String> {
         let pane = self.panes.get_mut(pane_id)
             .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
+        // Only rename if new level >= current level
+        if level < pane.title_level {
+            return Ok(()); // silently skip — higher priority title already set
+        }
         pane.title = title.to_string();
-        pane.pinned_title = true;
+        pane.title_level = level;
 
-        // Also update tab title if this pane is in a tab
+        // Also update tab title
         for ws in &mut self.workspaces {
             for tab in &mut ws.tabs {
                 let ids = tab.split_tree.collect_pane_ids();
@@ -808,7 +819,7 @@ impl MultiplexerState {
                         parent_pane_id: parent_pane_id.clone(),
                         can_spawn: *can_spawn,
                         depth: *depth,
-                        pinned_title: role.is_some(), // restore pinned if had role
+                        title_level: if role.is_some() { TitleLevel::User } else { TitleLevel::Default }, // restore pinned if had role
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }
@@ -1333,12 +1344,12 @@ mod tests {
     #[test]
     fn test_rename_pane_pins_title() {
         let (mut state, pane_id) = MultiplexerState::new();
-        assert!(!state.get_pane(&pane_id).unwrap().pinned_title);
+        assert_eq!(state.get_pane(&pane_id).unwrap().title_level, TitleLevel::Default);
 
         state.rename_pane(&pane_id, "Custom").unwrap();
         let pane = state.get_pane(&pane_id).unwrap();
         assert_eq!(pane.title, "Custom");
-        assert!(pane.pinned_title);
+        assert_eq!(pane.title_level, TitleLevel::User);
     }
 
     #[test]

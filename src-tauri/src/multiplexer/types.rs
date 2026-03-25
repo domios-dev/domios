@@ -179,9 +179,24 @@ pub struct Pane {
     /// Depth in hierarchy: 0=none, 1=orchestrator, 2=lead/worker, 3=worker.
     #[serde(default)]
     pub depth: u8,
-    /// Title is pinned (manually set) — blocks OSC auto-rename.
+    /// Title naming priority level.
     #[serde(default)]
-    pub pinned_title: bool,
+    pub title_level: TitleLevel,
+}
+
+/// Title priority: higher levels cannot be overwritten by lower ones.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub enum TitleLevel {
+    /// "Terminal" — initial default, lowest priority
+    Default = 0,
+    /// Auto-set by CWD/directory change (OSC 7)
+    Auto = 1,
+    /// Manually set by user or agent — highest priority
+    User = 2,
+}
+
+impl Default for TitleLevel {
+    fn default() -> Self { Self::Default }
 }
 
 /// Type of content displayed in a pane.
