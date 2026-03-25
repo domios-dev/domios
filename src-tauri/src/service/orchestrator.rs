@@ -438,17 +438,21 @@ fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<
 
     if agent_cmd == "claude" {
         parts.push("unset CLAUDECODE &&".to_string());
+
         parts.push("claude".to_string());
         parts.push("--dangerously-skip-permissions".to_string());
+
+        // For tasks: write to temp file and use $(cat file) to avoid PTY line length limits
+        if let Some(t) = task {
+            let uid = uuid::Uuid::new_v4();
+            let task_file = format!("/tmp/.ct-task-{}", &uid.to_string()[..8]);
+            let _ = std::fs::write(&task_file, t);
+            parts.push(format!("\"$(cat {})\"", task_file));
+        }
 
         if let Some(ref name) = params.agent_name {
             parts.push("--agent".to_string());
             parts.push(shell_quote(name));
-        }
-
-        // Pass task as CLI argument — Claude starts and processes it immediately
-        if let Some(t) = task {
-            parts.push(shell_quote(t));
         }
     } else {
         parts.push(agent_cmd.to_string());
@@ -493,12 +497,12 @@ mod tests {
 
     #[test]
     fn test_build_claude_with_task_is_interactive() {
-        // Task IS in the launch command as positional arg
+        // Task is written to temp file and loaded via $(cat)
         let params = make_params("claude", Some("count files"));
         let cmd = build_agent_command("claude", &params, Some("count files"));
         assert!(cmd.starts_with("unset CLAUDECODE &&"));
         assert!(cmd.contains("--dangerously-skip-permissions"));
-        assert!(cmd.contains("'count files'"), "task should be in launch command as arg");
+        assert!(cmd.contains("$(cat /tmp/.ct-task-"), "task should be via temp file");
     }
 
     #[test]
