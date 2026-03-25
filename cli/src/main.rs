@@ -682,24 +682,20 @@ fn main() {
                 }
                 AgentAction::Report { message, pane } => {
                     let pane_id = resolve_pane(&mut client, pane);
-                    match http.post(format!("{}/api/panes/{}/report", base, pane_id))
-                        .json(&serde_json::json!({"message": message}))
-                        .send()
-                    {
-                        Ok(resp) => { let v: serde_json::Value = resp.json().unwrap_or_default(); println!("{}", serde_json::to_string_pretty(&v).unwrap()); return; }
-                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
-                    }
+                    // Use socket (not REST) for reliability
+                    client.call("agent.report", Some(serde_json::json!({
+                        "pane_id": pane_id,
+                        "message": message,
+                    })))
                 }
                 AgentAction::Reports { pane, clear } => {
                     let pane_id = resolve_pane(&mut client, pane);
-                    let url = if clear {
-                        format!("{}/api/panes/{}/reports?clear=true", base, pane_id)
-                    } else {
-                        format!("{}/api/panes/{}/reports", base, pane_id)
-                    };
-                    match http.get(&url).send() {
-                        Ok(resp) => {
-                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                    // Use socket (not REST) for reliability
+                    match client.call("agent.reports", Some(serde_json::json!({
+                        "pane_id": pane_id,
+                        "clear": clear,
+                    }))) {
+                        Ok(val) => {
                             if cli.json {
                                 println!("{}", serde_json::to_string_pretty(&val).unwrap());
                             } else if let Some(arr) = val.as_array() {

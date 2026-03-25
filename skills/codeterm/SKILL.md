@@ -277,6 +277,15 @@ codeterm identify        # Version & features
 codeterm capabilities    # All API methods
 ```
 
+## Testing the orchestrator
+
+When asked to test the CodeTerm orchestrator:
+1. Run `bash tests/restart-clean.sh` — kills all, cleans session, restarts. Returns socket path.
+2. Verify clean: 1 pane, no hierarchy
+3. Spawn Boss with task, wait for notifications/reports
+4. Check hierarchy (`codeterm agent hierarchy`), reports, pane outputs
+5. If issues — read each pane's output, find errors, fix skill/code, repeat from step 1
+
 ## Platform Notes
 
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
