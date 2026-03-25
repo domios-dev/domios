@@ -298,9 +298,9 @@ export function SettingsPanel({
 
             {activeTab === SettingsTab.Notifications && (
               <div className="space-y-6">
-                <Group title="Windows Notifications">
+                <Group title="System Notifications">
                   <div className="text-xs text-[var(--ct-muted-fg)] mb-1">
-                    Show OS-level toast notifications when CodeTerm window is not focused.
+                    Native OS notifications when CodeTerm window is not focused.
                   </div>
                   <Toggle
                     label="Desktop notifications"
@@ -312,6 +312,14 @@ export function SettingsPanel({
                     checked={localConfig.notifications.sound}
                     onChange={(v) => update("notifications", { sound: v })}
                   />
+                  <button
+                    onClick={() => {
+                      invoke("test_notification").catch(() => {});
+                    }}
+                    className="mt-1 px-3 py-1 text-xs bg-[var(--ct-border)] hover:bg-[var(--ct-muted)] rounded transition-colors"
+                  >
+                    Send test notification
+                  </button>
                 </Group>
 
                 <ClaudeHooksGroup />
