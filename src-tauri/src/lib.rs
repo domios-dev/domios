@@ -131,6 +131,7 @@ pub fn run() {
             multiplexer::commands::mux_close_pane,
             multiplexer::commands::mux_set_focused_pane,
             multiplexer::commands::mux_link_pty,
+            multiplexer::commands::mux_rename_pane,
             multiplexer::commands::mux_update_pane_cwd,
             multiplexer::commands::mux_set_pane_agent_type,
             multiplexer::commands::detect_claude_session_id,

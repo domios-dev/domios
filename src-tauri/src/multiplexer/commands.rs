@@ -167,6 +167,16 @@ pub fn mux_link_pty(
     Ok(())
 }
 
+/// Rename a pane (User-level — highest priority, blocks auto-rename).
+#[tauri::command]
+pub fn mux_rename_pane(
+    svc: State<'_, ServiceState>,
+    pane_id: String,
+    title: String,
+) -> Result<(), String> {
+    svc.rename_pane(&pane_id, &title)
+}
+
 /// Update the working directory of a pane (called from OSC 7 handler).
 #[tauri::command]
 pub fn mux_update_pane_cwd(
