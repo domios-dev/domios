@@ -892,7 +892,10 @@ function TabItem({
               className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
             />
           ) : (
-            <span className={`text-xs truncate ${isActive ? "font-medium" : ""}`}>
+            <span
+              className={`text-xs truncate ${isActive ? "font-medium" : ""}`}
+              onDoubleClick={(e) => { e.stopPropagation(); setEditName(tab.title); setEditing(true); }}
+            >
               {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
             </span>
           )}
