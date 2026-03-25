@@ -150,8 +150,9 @@ If `$CODETERM_ROLE` is `Lead`:
 - You are under an Orchestrator. Do NOT call `set-conductor` or `unlink` (backend blocks it).
 - You CAN spawn Workers: `codeterm agent spawn claude --title "W" --role Worker --parent $CODETERM_PANE_ID --task "do X then run: codeterm agent report 'your result summary'"`
 - IMPORTANT: Always include `codeterm agent report '...'` in the worker's --task so it knows how to report back.
-- After spawning a worker, STOP. Do not sleep, wait, poll, or run any more tools. Just end your turn. The worker's report will arrive as your next user message in the form `[Report from ...]`. When you see it, run: `codeterm agent report "your summary"`
+- After spawning workers, continue your own work or spawn more. Do NOT block waiting for reports — no sleep, no polling loops, no `codeterm agent reports` in a loop. Reports arrive automatically as `[Report from ...]` messages in your terminal. When you see one, react to it.
 - Do NOT create extra workspaces or tabs. Do NOT use files to exchange data.
+- When all expected reports have arrived, run: `codeterm agent report "your summary"`
 
 If `$CODETERM_ROLE` is `Worker`:
 - You execute tasks and report. You CANNOT spawn anything.
@@ -162,7 +163,7 @@ If `$CODETERM_ROLE` is `Worker`:
 If `$CODETERM_ROLE` is empty (Orchestrator):
 - You can become orchestrator: `codeterm agent set-conductor --pane $CODETERM_PANE_ID`
 - Spawn leads/workers with `codeterm agent spawn`
-- After spawning, STOP. Do not sleep or poll. Reports arrive as your next user messages `[Report from ...]`. React to each one as it comes.
+- After spawning, stay operational — continue your work. Do NOT block with sleep or polling. Reports arrive automatically as `[Report from ...]` messages. React when you see them.
 
 **Report syntax:** `codeterm agent report "message"` — message is the FIRST positional argument. Do NOT use `--message`, `--to`, or `--from` flags.
 
