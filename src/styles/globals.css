@@ -26,8 +26,7 @@ body {
   overflow: hidden;
   background: var(--ct-bg, #0d1117);
   color: var(--ct-fg, #c9d1d9);
-  /* macOS window corner radius (frameless + transparent window) */
-  border-radius: 10px;
+  /* Window corners handled by macOS native titlebar overlay */
 }
 
 /* Thin macOS-style scrollbars */
