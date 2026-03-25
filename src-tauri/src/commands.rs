@@ -607,21 +607,21 @@ pub fn open_folder(path: String) -> Result<(), String> {
 
 /// Send a test notification via native OS notifications.
 #[tauri::command]
-pub fn test_notification(app: tauri::AppHandle) {
-    use tauri_plugin_notification::NotificationExt;
-    // Try tauri plugin first (works in production .app bundle)
-    let result = app.notification()
-        .builder()
-        .title("CodeTerm")
-        .body("Notifications are working!")
-        .show();
-
-    // Fallback: osascript for dev mode (no .app bundle = no notification center registration)
+pub fn test_notification(_app: tauri::AppHandle) {
+    // Use osascript on macOS — works reliably in both dev and production
     #[cfg(target_os = "macos")]
-    if result.is_err() {
+    {
         let _ = std::process::Command::new("osascript")
             .args(["-e", "display notification \"Notifications are working!\" with title \"CodeTerm\""])
             .spawn();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        let _ = _app.notification().builder()
+            .title("CodeTerm")
+            .body("Notifications are working!")
+            .show();
     }
 }
 
