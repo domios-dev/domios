@@ -293,7 +293,12 @@ export function TerminalPane({
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    term.loadAddon(new WebLinksAddon());
+    term.loadAddon(new WebLinksAddon((_event, uri) => {
+      // Open links via Tauri shell API (works in frameless window)
+      invoke("open_url", { url: uri }).catch(() => {
+        window.open(uri, "_blank");
+      });
+    }));
 
     // Search addon
     const searchAddon = new SearchAddon();

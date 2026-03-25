@@ -115,6 +115,7 @@ pub fn run() {
             commands::install_project_rules,
             commands::check_rule_installed,
             commands::open_folder,
+            commands::open_url,
             // Multiplexer commands
             multiplexer::commands::mux_get_state,
             multiplexer::commands::mux_create_workspace,
