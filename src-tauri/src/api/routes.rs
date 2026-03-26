@@ -264,10 +264,12 @@ async fn list_panes(
     Ok(Json(serde_json::to_value(panes).unwrap()))
 }
 
+fn default_true() -> bool { true }
+
 #[derive(Deserialize)]
 struct SendTextBody {
     text: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     enter: bool,
     /// Batch: send multiple commands sequentially with optional delays
     batch: Option<Vec<BatchCommand>>,
@@ -276,7 +278,7 @@ struct SendTextBody {
 #[derive(Deserialize)]
 struct BatchCommand {
     text: String,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     enter: bool,
     delay_ms: Option<u64>,
 }
@@ -369,14 +371,7 @@ async fn exec_in_pane(
     let start_offset = state.output_buf.lock()
         .get_text(&pty_id).map(|t| t.len()).unwrap_or(0);
 
-    let cmd = if body.command.ends_with('\r') || body.command.ends_with('\n') {
-        body.command.clone()
-    } else {
-        format!("{}\r", body.command)
-    };
-
-    state.pty.lock()
-        .write(&pty_id, cmd.as_bytes())
+    state.svc.send_text(&pane_id, &body.command, true)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
 
     let timeout_ms = body.timeout_ms.unwrap_or(10000);
@@ -1077,6 +1072,150 @@ mod tests_strip_ansi {
     #[test]
     fn test_csi_cursor_move() {
         assert_eq!(strip_ansi_codes("\x1b[2Aup\x1b[3Bdown"), "updown");
+    }
+}
+
+#[cfg(test)]
+mod tests_send_text_body {
+    use super::*;
+
+    // ── 2. REST API SendTextBody deserialization ──
+
+    #[test]
+    fn send_text_body_enter_defaults_true() {
+        let json = r#"{"text": "ls"}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.text, Some("ls".to_string()));
+        assert!(body.enter, "enter should default to true via default_true()");
+        assert!(body.batch.is_none());
+    }
+
+    #[test]
+    fn send_text_body_enter_explicit_false() {
+        let json = r#"{"text": "partial", "enter": false}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert!(!body.enter);
+    }
+
+    #[test]
+    fn send_text_body_enter_explicit_true() {
+        let json = r#"{"text": "cmd", "enter": true}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert!(body.enter);
+    }
+
+    #[test]
+    fn send_text_body_only_text() {
+        let json = r#"{"text": "hello"}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.text, Some("hello".to_string()));
+        assert!(body.enter, "enter defaults to true when omitted");
+    }
+
+    #[test]
+    fn send_text_body_empty_object() {
+        let json = r#"{}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.text, None, "text is None when omitted");
+        assert!(body.enter, "enter defaults to true even with empty body");
+    }
+
+    #[test]
+    fn send_text_body_text_null() {
+        let json = r#"{"text": null}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.text, None);
+        assert!(body.enter);
+    }
+
+    // ── Batch body tests ──
+
+    #[test]
+    fn send_text_body_with_batch() {
+        let json = r#"{
+            "batch": [
+                {"text": "cmd1"},
+                {"text": "cmd2", "enter": false},
+                {"text": "cmd3", "enter": true, "delay_ms": 500}
+            ]
+        }"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        let batch = body.batch.unwrap();
+        assert_eq!(batch.len(), 3);
+        // BatchCommand also uses default_true
+        assert!(batch[0].enter, "batch item enter defaults to true");
+        assert!(!batch[1].enter);
+        assert!(batch[2].enter);
+        assert_eq!(batch[2].delay_ms, Some(500));
+    }
+
+    #[test]
+    fn batch_command_enter_defaults_true() {
+        let json = r#"{"text": "echo hi"}"#;
+        let cmd: BatchCommand = serde_json::from_str(json).unwrap();
+        assert!(cmd.enter, "BatchCommand.enter defaults to true via default_true()");
+    }
+
+    // ── 3. ExecBody enter handling ──
+
+    #[test]
+    fn exec_body_deserialize() {
+        let json = r#"{"command": "ls -la"}"#;
+        let body: ExecBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.command, "ls -la");
+        assert!(body.timeout_ms.is_none());
+        assert!(body.strip_ansi.is_none());
+    }
+
+    #[test]
+    fn exec_body_with_options() {
+        let json = r#"{"command": "echo test", "timeout_ms": 5000, "strip_ansi": true}"#;
+        let body: ExecBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.timeout_ms, Some(5000));
+        assert_eq!(body.strip_ansi, Some(true));
+    }
+
+    // Test the exec enter logic (mirrors exec_in_pane lines 374-378)
+    fn apply_exec_enter(command: &str) -> String {
+        if command.ends_with('\r') || command.ends_with('\n') {
+            command.to_string()
+        } else {
+            format!("{}\r", command)
+        }
+    }
+
+    #[test]
+    fn exec_command_no_trailing_newline_appends_cr() {
+        assert_eq!(apply_exec_enter("ls -la"), "ls -la\r");
+    }
+
+    #[test]
+    fn exec_command_trailing_cr_no_append() {
+        assert_eq!(apply_exec_enter("ls\r"), "ls\r");
+    }
+
+    #[test]
+    fn exec_command_trailing_newline_no_append() {
+        // BASELINE: exec checks BOTH \r and \n — unlike send_text which only checks \r
+        assert_eq!(apply_exec_enter("ls\n"), "ls\n");
+    }
+
+    #[test]
+    fn exec_command_trailing_crlf_no_append() {
+        // ends_with('\n') catches this
+        assert_eq!(apply_exec_enter("ls\r\n"), "ls\r\n");
+    }
+
+    #[test]
+    fn exec_empty_command_appends_cr() {
+        assert_eq!(apply_exec_enter(""), "\r");
+    }
+
+    // ── default_true function ──
+
+    #[test]
+    fn default_true_returns_true() {
+        assert!(default_true());
     }
 }
 

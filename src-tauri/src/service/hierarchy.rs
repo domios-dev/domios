@@ -264,3 +264,53 @@ pub struct PaneStatusInfo {
     pub cwd: Option<String>,
     pub title: String,
 }
+
+#[cfg(test)]
+mod tests {
+    // ── 5. Report message format ──
+    // Tests the format string used in submit_report (line 85-87):
+    //   format!("[Report from {}] {}\r", from_title, message)
+
+    fn format_report(from_title: &str, message: &str) -> String {
+        format!("[Report from {}] {}\r", from_title, message)
+    }
+
+    #[test]
+    fn report_format_basic() {
+        let msg = format_report("Scout", "Task completed successfully");
+        assert_eq!(msg, "[Report from Scout] Task completed successfully\r");
+    }
+
+    #[test]
+    fn report_format_ends_with_cr() {
+        let msg = format_report("Worker-1", "done");
+        assert!(msg.ends_with('\r'), "Report message must end with \\r for PTY");
+    }
+
+    #[test]
+    fn report_format_message_with_newlines() {
+        // BASELINE: newlines inside message are NOT escaped — they pass through raw
+        let msg = format_report("Lead", "line1\nline2\nline3");
+        assert_eq!(msg, "[Report from Lead] line1\nline2\nline3\r");
+        assert!(msg.contains('\n'), "Internal newlines are preserved");
+        assert!(msg.ends_with('\r'), "Still ends with \\r");
+    }
+
+    #[test]
+    fn report_format_empty_message() {
+        let msg = format_report("Agent", "");
+        assert_eq!(msg, "[Report from Agent] \r");
+    }
+
+    #[test]
+    fn report_format_title_with_spaces() {
+        let msg = format_report("My Agent Title", "ok");
+        assert_eq!(msg, "[Report from My Agent Title] ok\r");
+    }
+
+    #[test]
+    fn report_format_message_with_special_chars() {
+        let msg = format_report("Bot", "found 3 files: a.rs, b.rs, c.rs");
+        assert!(msg.starts_with("[Report from Bot] "));
+    }
+}

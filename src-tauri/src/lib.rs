@@ -6,6 +6,7 @@ pub mod cron;
 pub mod multiplexer;
 mod notification;
 pub mod paths;
+pub mod prompts;
 pub mod pty;
 mod screenshot;
 pub mod service;
@@ -99,19 +100,24 @@ pub fn run() {
     };
     let mux_state: MuxState = Arc::new(Mutex::new(mux_state_inner));
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // Another instance launched — show existing window instead of duplicating
+        .plugin(tauri_plugin_updater::Builder::new().build());
+
+    // Single-instance: only in release builds so dev and prod can run side by side
+    if !cfg!(debug_assertions) {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.show();
                 let _ = w.unminimize();
                 let _ = w.set_focus();
             }
-        }))
+        }));
+    }
+
+    builder
         .manage(config_state.clone())
         .manage(pty_state.clone())
         .manage(mux_state.clone())

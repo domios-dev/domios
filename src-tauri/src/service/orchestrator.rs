@@ -253,45 +253,14 @@ impl ServiceContext {
         let is_claude = agent_cmd == "claude";
         let bg_task = params.task.as_ref().map(|t| {
             match params.role.as_deref() {
-                Some("Worker") => format!("{}\nWhen done, report by running: codeterm agent report \"your summary\"", t),
-                Some("Lead") => format!("{}\nWhen spawning workers, include in --task: 'then run: codeterm agent report your-summary'. After getting their report, run: codeterm agent report \"your summary\"", t),
+                Some("Worker") => format!("{}{}", t, crate::prompts::WORKER_SUFFIX),
+                Some("Lead") => format!("{}{}", t, crate::prompts::LEAD_SUFFIX),
+                Some("Orchestrator") => format!("{}{}", t, crate::prompts::ORCHESTRATOR_SUFFIX),
                 _ => t.clone(),
             }
         });
         let launch_cmd = build_agent_command(&agent_cmd, &params, bg_task.as_deref());
-        let svc = self.clone();
-        let bg_pane_id = pane_id.clone();
-        std::thread::spawn(move || {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-            let pty_id = loop {
-                if std::time::Instant::now() > deadline { return; }
-                if let Some(pid) = svc.mux.try_lock()
-                    .and_then(|m| m.get_pane(&bg_pane_id).and_then(|p| p.pty_id.clone())) { break pid; }
-                std::thread::sleep(std::time::Duration::from_millis(300));
-            };
-            if is_claude {
-                // Wait for shell prompt
-                let dl = std::time::Instant::now() + std::time::Duration::from_secs(30);
-                loop {
-                    if std::time::Instant::now() > dl { break; }
-                    let ready = svc.output_buf.try_lock()
-                        .and_then(|b| b.get_text(&pty_id).map(|t| t.contains("$ ") || t.contains("% ") || t.contains("> ") || t.contains("PS ")))
-                        .unwrap_or(false);
-                    if ready { break; }
-                    std::thread::sleep(std::time::Duration::from_millis(300));
-                }
-                // Task is embedded in launch_cmd as CLI arg — Claude starts and processes immediately
-                let _ = svc.pty.lock().write(&pty_id, format!("{}\r", launch_cmd).as_bytes());
-                // No spawn_task_sender needed — task is a CLI argument, not pasted after start
-            } else {
-                std::thread::sleep(std::time::Duration::from_secs(2));
-                let _ = svc.pty.lock().write(&pty_id, format!("{}\r", launch_cmd).as_bytes());
-                if let Some(ref task) = bg_task {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    let _ = svc.pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
-                }
-            }
-        });
+        launch_agent_in_background(self.clone(), pane_id.clone(), launch_cmd, is_claude, bg_task);
 
         Ok(SpawnResult { pane_id, tab_id, pty_id: String::new(), agent: agent_cmd, title, role: params.role })
     }
@@ -364,66 +333,14 @@ impl ServiceContext {
         let is_claude = agent_cmd == "claude";
         let bg_task = params.task.as_ref().map(|t| {
             match params.role.as_deref() {
-                Some("Worker") => format!("{}\nWhen done, report by running: codeterm agent report \"your summary\"", t),
-                Some("Lead") => format!("{}\nWhen spawning workers, include in --task: 'then run: codeterm agent report your-summary'. After getting their report, run: codeterm agent report \"your summary\"", t),
+                Some("Worker") => format!("{}{}", t, crate::prompts::WORKER_SUFFIX),
+                Some("Lead") => format!("{}{}", t, crate::prompts::LEAD_SUFFIX),
+                Some("Orchestrator") => format!("{}{}", t, crate::prompts::ORCHESTRATOR_SUFFIX),
                 _ => t.clone(),
             }
         });
         let launch_cmd = build_agent_command(agent_cmd, &params, bg_task.as_deref());
-        let svc = self.clone();
-        let bg_pane_id = pane_id.clone();
-        std::thread::spawn(move || {
-            // Wait for PTY (frontend creates it after mux-state-changed)
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
-            let pty_id = loop {
-                if std::time::Instant::now() > deadline {
-                    log::error!("spawn_agent: PTY wait timeout for {}", bg_pane_id);
-                    return;
-                }
-                if let Some(pid) = svc.mux.try_lock()
-                    .and_then(|m| m.get_pane(&bg_pane_id).and_then(|p| p.pty_id.clone()))
-                {
-                    break pid;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(300));
-            };
-
-            if is_claude {
-                // Claude: wait for shell prompt, send launch command, then poll for readiness
-                let prompt_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-                loop {
-                    if std::time::Instant::now() > prompt_deadline {
-                        log::warn!("spawn_agent: shell prompt wait timeout for {}", bg_pane_id);
-                        break;
-                    }
-                    let ready = svc.output_buf.try_lock()
-                        .and_then(|buf| {
-                            buf.get_text(&pty_id).map(|t| {
-                                t.contains("PS ") || t.contains("> ")
-                                    || t.contains("$ ") || t.contains("% ")
-                            })
-                        })
-                        .unwrap_or(false);
-                    if ready { break; }
-                    std::thread::sleep(std::time::Duration::from_millis(300));
-                }
-                if let Err(e) = svc.pty.lock().write(&pty_id, format!("{}\r", launch_cmd).as_bytes()) {
-                    log::error!("spawn_agent: failed to write launch cmd: {}", e);
-                    return;
-                }
-                // Task is already embedded in launch_cmd as CLI arg — no spawn_task_sender needed
-            } else {
-                // Non-claude: short delay for shell init, send command + task directly, then exit thread
-                std::thread::sleep(std::time::Duration::from_secs(2));
-                let _ = svc.pty.lock().write(&pty_id, format!("{}\r", launch_cmd).as_bytes());
-                if let Some(ref task_text) = bg_task {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                    let _ = svc.pty.lock().write(&pty_id, format!("{}\r", task_text).as_bytes());
-                }
-                log::info!("spawn_agent: non-claude agent launched in {}", bg_pane_id);
-                // Thread exits immediately — no long-running polling
-            }
-        });
+        launch_agent_in_background(self.clone(), pane_id.clone(), launch_cmd, is_claude, bg_task);
 
         Ok(SpawnResult {
             pane_id,
@@ -434,6 +351,59 @@ impl ServiceContext {
             role: params.role,
         })
     }
+}
+
+/// Shared background thread logic for launching agents in a PTY.
+/// Used by both `spawn_agent` (async) and `spawn_agent_sync`.
+fn launch_agent_in_background(
+    svc: ServiceContext,
+    pane_id: String,
+    launch_cmd: String,
+    is_claude: bool,
+    task: Option<String>,
+) {
+    std::thread::spawn(move || {
+        // 1. Wait for PTY (frontend creates it after mux-state-changed)
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let pty_id = loop {
+            if std::time::Instant::now() > deadline {
+                log::error!("launch_agent: PTY wait timeout for {}", pane_id);
+                return;
+            }
+            if let Some(pid) = svc.mux.try_lock()
+                .and_then(|m| m.get_pane(&pane_id).and_then(|p| p.pty_id.clone())) {
+                break pid;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        };
+
+        // 2. Wait for shell prompt (if claude) or short delay (non-claude)
+        if is_claude {
+            crate::service::pty_io::poll_shell_prompt(
+                &svc.output_buf,
+                &pty_id,
+                std::time::Duration::from_secs(30),
+            );
+        } else {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        }
+
+        // 3. Send launch command
+        if let Err(e) = svc.send_text(&pane_id, &launch_cmd, true) {
+            log::error!("launch_agent: failed to send launch cmd: {}", e);
+            return;
+        }
+
+        // 4. For non-claude with task, send task after delay
+        if !is_claude {
+            if let Some(ref task_text) = task {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let _ = svc.send_text(&pane_id, task_text, true);
+            }
+        }
+
+        log::info!("launch_agent: agent launched in {}", pane_id);
+    });
 }
 
 use crate::shell::ShellSyntax;
@@ -540,5 +510,81 @@ mod tests {
         } else {
             assert_eq!(ShellSyntax::quote("it's"), "'it'\\''s'");
         }
+    }
+
+    // ── 4. build_agent_command with special chars ──
+
+    #[test]
+    fn test_build_claude_task_with_newlines() {
+        let params = make_params("claude", Some("line1\nline2\nline3"));
+        let cmd = build_agent_command("claude", &params, Some("line1\nline2\nline3"));
+        // Task goes through temp file, so newlines are preserved in the file
+        assert!(cmd.contains(".ct-task-"), "task with newlines still uses temp file");
+        assert!(cmd.contains("--dangerously-skip-permissions"));
+    }
+
+    #[test]
+    fn test_build_claude_task_with_single_quotes() {
+        let task = "count files that don't match '*.rs'";
+        let params = make_params("claude", Some(task));
+        let cmd = build_agent_command("claude", &params, Some(task));
+        // Task is written to a temp file, so quotes don't break the command
+        assert!(cmd.contains(".ct-task-"));
+    }
+
+    #[test]
+    fn test_build_claude_task_with_double_quotes() {
+        let task = r#"find files matching "*.rs""#;
+        let params = make_params("claude", Some(task));
+        let cmd = build_agent_command("claude", &params, Some(task));
+        assert!(cmd.contains(".ct-task-"));
+    }
+
+    #[test]
+    fn test_build_claude_task_with_shell_special_chars() {
+        let task = "echo $HOME && ls | grep foo; rm -rf /tmp/test";
+        let params = make_params("claude", Some(task));
+        let cmd = build_agent_command("claude", &params, Some(task));
+        // Should not contain raw special chars in the command itself — they're in the temp file
+        assert!(cmd.contains(".ct-task-"));
+        assert!(!cmd.contains("$HOME"), "shell vars should be in temp file, not in command");
+    }
+
+    #[test]
+    fn test_build_claude_task_temp_file_created() {
+        let task = "test task content";
+        let params = make_params("claude", Some(task));
+        let cmd = build_agent_command("claude", &params, Some(task));
+        // Extract the temp file path from the command and verify it was written
+        if cfg!(not(target_os = "windows")) {
+            // Command looks like: ... "$(cat /tmp/.ct-task-XXXXXXXX)"
+            let start = cmd.find("/tmp/.ct-task-").unwrap();
+            let end = cmd[start..].find(')').unwrap() + start;
+            let path = &cmd[start..end];
+            let content = std::fs::read_to_string(path).unwrap();
+            assert_eq!(content, task, "temp file should contain the task verbatim");
+            // Cleanup
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn test_build_claude_with_extra_args() {
+        let mut params = make_params("claude", None);
+        params.args = Some(vec!["--verbose".to_string(), "--no-cache".to_string()]);
+        let cmd = build_agent_command("claude", &params, None);
+        assert!(cmd.contains("--verbose"));
+        assert!(cmd.contains("--no-cache"));
+        assert!(cmd.ends_with("--verbose --no-cache"));
+    }
+
+    #[test]
+    fn test_build_non_claude_ignores_task_in_command() {
+        // For non-claude agents, build_agent_command does NOT embed the task
+        let params = make_params("aider", Some("review this code"));
+        let cmd = build_agent_command("aider", &params, Some("review this code"));
+        // Non-claude: task is NOT added to the command (it's sent separately via PTY)
+        // The function just puts agent_cmd + args
+        assert_eq!(cmd, "aider");
     }
 }

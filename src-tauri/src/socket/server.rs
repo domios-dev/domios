@@ -458,26 +458,7 @@ fn dispatch(
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
 
-            // Find the PTY ID for this pane
-            let pty_id = {
-                let mux = mux.lock();
-                mux.get_pane(&id)
-                    .and_then(|p| p.pty_id.clone())
-                    .ok_or_else(|| JsonRpcError {
-                        code: -32602,
-                        message: format!("Pane {} has no PTY", id),
-                    })?
-            };
-
-            // Append \r (Enter) unless explicitly disabled or text already ends with \r
-            let data = if enter && !text.ends_with('\r') {
-                format!("{}\r", text)
-            } else {
-                text
-            };
-
-            let mut pty_mgr = _pty.lock();
-            pty_mgr.write(&pty_id, data.as_bytes()).map_err(|e| JsonRpcError {
+            svc.send_text(&id, &text, enter).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
             })?;
