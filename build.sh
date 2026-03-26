@@ -7,6 +7,7 @@
 #   ./build.sh build    — production build
 #   ./build.sh cli      — build CLI tool
 #   ./build.sh kill     — kill running CodeTerm processes
+#   ./build.sh e2e      — run E2E tests (pytest, needs running instance or auto-starts)
 
 set -e
 
@@ -43,10 +44,16 @@ case "$CMD" in
     ;;
   dev)
     echo "Starting dev mode..."
-    pnpm tauri dev
+    pnpm tauri dev --config src-tauri/tauri.dev.conf.json
+    ;;
+  e2e)
+    echo "Running E2E tests..."
+    cd tests/e2e
+    pip install -q -r requirements.txt 2>/dev/null
+    python3 -m pytest -v --tb=short "$@"
     ;;
   *)
-    echo "Usage: ./build.sh {dev|check|test|build|cli|kill}"
+    echo "Usage: ./build.sh {dev|check|test|build|cli|kill|e2e}"
     exit 1
     ;;
 esac

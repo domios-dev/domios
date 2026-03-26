@@ -6,7 +6,7 @@ use super::ServiceContext;
 impl ServiceContext {
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(pane_id)?;
-        let data = if enter && !text.ends_with('\r') {
+        let data = if enter && !text.ends_with('\r') && !text.ends_with('\n') {
             format!("{}\r", text)
         } else {
             text.to_string()
@@ -73,40 +73,6 @@ impl ServiceContext {
         .map_err(|_| "Timeout waiting for PTY".to_string())
     }
 
-    /// Wait for shell prompt to appear in output buffer.
-    ///
-    /// Checks output buffer for common shell prompt markers. If timeout
-    /// is reached without finding a prompt, proceeds anyway — the command
-    /// will queue in the PTY input buffer until the shell is ready.
-    pub async fn wait_for_shell_prompt(&self, pty_id: &str, timeout_secs: u64) {
-        let ob = self.output_buf.clone();
-        let pid = pty_id.to_string();
-        let result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(timeout_secs),
-            async move {
-                loop {
-                    let ready = {
-                        let buf = ob.lock();
-                        buf.get_text(&pid)
-                            .map(|t| {
-                                t.contains("PS ") || t.contains("> ")
-                                    || t.contains("$ ") || t.contains("% ")
-                            })
-                            .unwrap_or(false)
-                    };
-                    if ready {
-                        return;
-                    }
-                    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
-                }
-            },
-        )
-        .await;
-        if result.is_err() {
-            log::warn!("wait_for_shell_prompt: timeout for PTY {}, proceeding anyway", pty_id);
-        }
-    }
-
     /// Wait for output buffer to grow by at least `min_bytes`.
     pub async fn wait_for_output_growth(
         &self,
@@ -132,74 +98,21 @@ impl ServiceContext {
         .await;
     }
 
-    /// Spawn a background thread that polls for Claude Code readiness, then sends task.
-    ///
-    /// Detects readiness by looking for Claude Code UI markers in the terminal
-    /// output buffer tail. Handles auto-updates by continuing to poll until
-    /// the interactive prompt appears.
-    pub fn spawn_task_sender(&self, pty_id: String, task: String) {
-        let ob = self.output_buf.clone();
-        let pty = self.pty.clone();
-        std::thread::spawn(move || {
-            // 3 minutes: accounts for auto-updates, slow networks, large project indexing
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
-            let mut last_len = 0usize;
-
-            loop {
-                if std::time::Instant::now() > deadline {
-                    log::warn!("spawn_task_sender: timeout waiting for agent readiness ({})", pty_id);
-                    break;
-                }
-                // Use try_lock to avoid blocking other threads that need output_buf
-                if let Some(buf) = ob.try_lock() {
-                    if let Some(data) = buf.get_text(&pty_id) {
-                        let cur_len = data.len();
-                        // Only check when new output arrives
-                        if cur_len > last_len {
-                            last_len = cur_len;
-                            let tail = if data.len() > 1000 {
-                                &data[data.len() - 1000..]
-                            } else {
-                                &data
-                            };
-                            // Claude Code readiness markers (any of these means prompt is active)
-                            if is_claude_ready(tail) {
-                                drop(buf);
-                                // Wait for output to stabilize (no new bytes for 1.5s)
-                                // This handles "Update available!" and other post-ready UI renders
-                                let mut stable_len = 0usize;
-                                for _ in 0..8 {
-                                    std::thread::sleep(std::time::Duration::from_millis(500));
-                                    let cur = ob.try_lock()
-                                        .and_then(|b| b.get_text(&pty_id).map(|t| t.len()))
-                                        .unwrap_or(0);
-                                    if cur == stable_len && stable_len > 0 {
-                                        break; // output stopped changing
-                                    }
-                                    stable_len = cur;
-                                }
-                                let _ = pty.lock().write(&pty_id, format!("{}\r", task).as_bytes());
-                                std::thread::sleep(std::time::Duration::from_millis(300));
-                                let _ = pty.lock().write(&pty_id, b"\r");
-                                log::info!("spawn_task_sender: task sent to {}", pty_id);
-                                return;
-                            }
-                        }
-                    }
-                }
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
-        });
-    }
 }
 
-/// Check if Claude Code interactive prompt is ready for input.
-fn is_claude_ready(output_tail: &str) -> bool {
-    // These markers appear in the Claude Code TUI when the input prompt is active
-    output_tail.contains("shift+tab")
-        || output_tail.contains("hold Space")
-        || output_tail.contains("esc to interrupt")
-        || output_tail.contains("ctrl+g to edit")
+/// Poll output buffer for shell prompt markers. Returns true if found within timeout.
+pub fn poll_shell_prompt(output_buf: &crate::OutputBufferState, pty_id: &str, timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if std::time::Instant::now() > deadline { return false; }
+        let ready = output_buf.try_lock()
+            .and_then(|buf| buf.get_text(pty_id).map(|t| {
+                t.contains("$ ") || t.contains("% ") || t.contains("> ") || t.contains("PS ")
+            }))
+            .unwrap_or(false);
+        if ready { return true; }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -208,4 +121,95 @@ pub struct SendBatchItem {
     #[serde(default)]
     pub enter: bool,
     pub delay_ms: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Helper: captures the enter-append logic from send_text / send_text_batch ──
+    // This mirrors the exact logic in ServiceContext::send_text
+    fn apply_enter(text: &str, enter: bool) -> String {
+        if enter && !text.ends_with('\r') && !text.ends_with('\n') {
+            format!("{}\r", text)
+        } else {
+            text.to_string()
+        }
+    }
+
+    // ── 1. send_text enter logic ──
+
+    #[test]
+    fn enter_true_appends_cr_when_missing() {
+        assert_eq!(apply_enter("ls -la", true), "ls -la\r");
+    }
+
+    #[test]
+    fn enter_true_no_double_cr() {
+        // Text already ends with \r — should NOT append another
+        assert_eq!(apply_enter("ls -la\r", true), "ls -la\r");
+    }
+
+    #[test]
+    fn enter_false_passthrough() {
+        assert_eq!(apply_enter("partial text", false), "partial text");
+    }
+
+    #[test]
+    fn enter_false_preserves_trailing_cr() {
+        assert_eq!(apply_enter("text\r", false), "text\r");
+    }
+
+    #[test]
+    fn empty_text_enter_true_sends_just_cr() {
+        assert_eq!(apply_enter("", true), "\r");
+    }
+
+    #[test]
+    fn empty_text_enter_false_sends_nothing() {
+        assert_eq!(apply_enter("", false), "");
+    }
+
+    #[test]
+    fn enter_true_text_ending_newline() {
+        // Text ending with \n already has a line terminator — no \r appended.
+        assert_eq!(apply_enter("echo hello\n", true), "echo hello\n");
+    }
+
+    #[test]
+    fn text_with_embedded_cr_but_not_trailing() {
+        assert_eq!(apply_enter("line1\rline2", true), "line1\rline2\r");
+    }
+
+    #[test]
+    fn multiline_text_enter_true() {
+        assert_eq!(apply_enter("line1\nline2", true), "line1\nline2\r");
+    }
+
+    // ── SendBatchItem deserialization ──
+
+    #[test]
+    fn batch_item_enter_defaults_false() {
+        // SendBatchItem uses #[serde(default)] which defaults bool to false
+        let json = r#"{"text": "hello"}"#;
+        let item: SendBatchItem = serde_json::from_str(json).unwrap();
+        assert_eq!(item.text, "hello");
+        assert_eq!(item.enter, false, "SendBatchItem.enter defaults to false (serde default)");
+        assert!(item.delay_ms.is_none());
+    }
+
+    #[test]
+    fn batch_item_enter_explicit_true() {
+        let json = r#"{"text": "cmd", "enter": true, "delay_ms": 100}"#;
+        let item: SendBatchItem = serde_json::from_str(json).unwrap();
+        assert!(item.enter);
+        assert_eq!(item.delay_ms, Some(100));
+    }
+
+    #[test]
+    fn batch_item_enter_explicit_false() {
+        let json = r#"{"text": "partial", "enter": false}"#;
+        let item: SendBatchItem = serde_json::from_str(json).unwrap();
+        assert!(!item.enter);
+    }
 }

@@ -134,12 +134,9 @@ impl ServiceContext {
         // Spawn agent
         let mut task_text = task;
         if creator_pane_id.is_some() {
-            task_text.push_str("\n\nYou can report progress back to the cron creator by running: codeterm agent report \"your message\"");
+            task_text.push_str(crate::prompts::CRON_REPORT_HINT);
         }
-        task_text.push_str(&format!(
-            "\n\nIMPORTANT: When you are completely done with this task, you MUST run this exact command as your FINAL action:\ncodeterm cron complete --run-id {} --summary \"<your concise summary of what happened and the result>\"",
-            run_id
-        ));
+        task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
         let params = super::SpawnAgentParams {
             agent: Some(agent),
             agent_name: None,

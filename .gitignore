@@ -6,3 +6,4 @@ references/
 /tmp/
 .cargo/
 codeterm-workspace/
+tests/e2e/__pycache__/
