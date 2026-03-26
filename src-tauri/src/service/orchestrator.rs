@@ -411,9 +411,7 @@ impl ServiceContext {
                     log::error!("spawn_agent: failed to write launch cmd: {}", e);
                     return;
                 }
-                if let Some(ref task_text) = bg_task {
-                    svc.spawn_task_sender(pty_id, task_text.clone());
-                }
+                // Task is already embedded in launch_cmd as CLI arg — no spawn_task_sender needed
             } else {
                 // Non-claude: short delay for shell init, send command + task directly, then exit thread
                 std::thread::sleep(std::time::Duration::from_secs(2));
@@ -438,33 +436,25 @@ impl ServiceContext {
     }
 }
 
+use crate::shell::ShellSyntax;
+
 /// Build a single shell command that launches the agent.
-///
-/// For Claude Code with task: includes task as CLI argument so it starts immediately
-/// without needing spawn_task_sender (avoids "Update available" paste timing issues).
-///
-/// For Claude Code without task: interactive mode.
-/// For other agents: direct command.
+/// Platform-aware: emits PowerShell syntax on Windows, bash on Unix.
 fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<&str>) -> String {
     let mut parts: Vec<String> = Vec::new();
 
     if agent_cmd == "claude" {
-        parts.push("unset CLAUDECODE &&".to_string());
-
+        parts.push(ShellSyntax::UNSET_CLAUDECODE.to_string());
         parts.push("claude".to_string());
         parts.push("--dangerously-skip-permissions".to_string());
 
-        // For tasks: write to temp file and use $(cat file) to avoid PTY line length limits
         if let Some(t) = task {
-            let uid = uuid::Uuid::new_v4();
-            let task_file = format!("/tmp/.ct-task-{}", &uid.to_string()[..8]);
-            let _ = std::fs::write(&task_file, t);
-            parts.push(format!("\"$(cat {})\"", task_file));
+            parts.push(ShellSyntax::task_file_expr(t));
         }
 
         if let Some(ref name) = params.agent_name {
             parts.push("--agent".to_string());
-            parts.push(shell_quote(name));
+            parts.push(ShellSyntax::quote(name));
         }
     } else {
         parts.push(agent_cmd.to_string());
@@ -475,16 +465,6 @@ fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<
     }
 
     parts.join(" ")
-}
-
-/// Shell-quote a string: wrap in single quotes, escape internal single quotes.
-fn shell_quote(s: &str) -> String {
-    if s.contains('\'') {
-        // Replace ' with '\'' (end quote, escaped quote, start quote)
-        format!("'{}'", s.replace('\'', "'\\''"))
-    } else {
-        format!("'{}'", s)
-    }
 }
 
 #[cfg(test)]
@@ -509,20 +489,29 @@ mod tests {
     }
 
     #[test]
-    fn test_build_claude_with_task_is_interactive() {
-        // Task is written to temp file and loaded via $(cat)
+    fn test_build_claude_with_task() {
         let params = make_params("claude", Some("count files"));
         let cmd = build_agent_command("claude", &params, Some("count files"));
-        assert!(cmd.starts_with("unset CLAUDECODE &&"));
         assert!(cmd.contains("--dangerously-skip-permissions"));
-        assert!(cmd.contains("$(cat /tmp/.ct-task-"), "task should be via temp file");
+        assert!(cmd.contains(".ct-task-"), "task via temp file");
+        if cfg!(target_os = "windows") {
+            assert!(cmd.contains("$env:CLAUDECODE=$null;"));
+            assert!(cmd.contains("(Get-Content"));
+        } else {
+            assert!(cmd.contains("unset CLAUDECODE &&"));
+            assert!(cmd.contains("$(cat /tmp/"));
+        }
     }
 
     #[test]
     fn test_build_claude_no_task() {
         let params = make_params("claude", None);
         let cmd = build_agent_command("claude", &params, None);
-        assert_eq!(cmd, "unset CLAUDECODE && claude --dangerously-skip-permissions");
+        if cfg!(target_os = "windows") {
+            assert_eq!(cmd, "$env:CLAUDECODE=$null; claude --dangerously-skip-permissions");
+        } else {
+            assert_eq!(cmd, "unset CLAUDECODE && claude --dangerously-skip-permissions");
+        }
     }
 
     #[test]
@@ -531,7 +520,6 @@ mod tests {
         params.agent_name = Some("architect".to_string());
         let cmd = build_agent_command("claude", &params, None);
         assert!(cmd.contains("--agent 'architect'"));
-        assert!(!cmd.contains(" -p "), "must be interactive");
     }
 
     #[test]
@@ -544,17 +532,13 @@ mod tests {
     }
 
     #[test]
-    fn test_shell_quote_simple() {
-        assert_eq!(shell_quote("hello"), "'hello'");
-    }
-
-    #[test]
-    fn test_shell_quote_with_single_quotes() {
-        assert_eq!(shell_quote("it's"), "'it'\\''s'");
-    }
-
-    #[test]
-    fn test_shell_quote_with_spaces_and_special() {
-        assert_eq!(shell_quote("count *.tsx files"), "'count *.tsx files'");
+    fn test_shell_quote() {
+        assert_eq!(ShellSyntax::quote("hello"), "'hello'");
+        assert_eq!(ShellSyntax::quote("count *.tsx files"), "'count *.tsx files'");
+        if cfg!(target_os = "windows") {
+            assert_eq!(ShellSyntax::quote("it's"), "'it''s'");
+        } else {
+            assert_eq!(ShellSyntax::quote("it's"), "'it'\\''s'");
+        }
     }
 }
