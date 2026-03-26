@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "0.6.3"
+version = "0.6.4"
 edition = "2021"
 
 [dependencies]
@@ -8,6 +8,8 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-single-instance = "2"
 portable-pty = { path = "pty-fork" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
