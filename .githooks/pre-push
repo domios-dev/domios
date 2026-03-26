@@ -1,0 +1,19 @@
+#!/bin/bash
+# Pre-push hook: cargo check before pushing to catch compile errors early
+# Saves CI minutes by failing locally first
+
+echo "Pre-push: running cargo check..."
+
+# Main crate
+if ! cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tail -5; then
+    echo "❌ cargo check failed — push aborted"
+    exit 1
+fi
+
+# CLI
+if ! cargo check --manifest-path cli/Cargo.toml 2>&1 | tail -3; then
+    echo "❌ CLI cargo check failed — push aborted"
+    exit 1
+fi
+
+echo "✅ cargo check passed"
