@@ -85,9 +85,27 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 
 ## Installation
 
-### Download
+### macOS (Homebrew)
 
-Pre-built binaries will be available on the [Releases](https://github.com/rollacode/codeterm/releases) page.
+```bash
+brew tap rollacode/codeterm
+brew install --cask codeterm
+```
+
+### Windows (Scoop)
+
+```powershell
+scoop bucket add codeterm https://github.com/rollacode/scoop-codeterm
+scoop install codeterm
+```
+
+### Windows (installer)
+
+Download `.exe` or `.msi` from [Releases](https://github.com/rollacode/codeterm/releases).
+
+### Linux
+
+Download `.AppImage`, `.deb`, or `.rpm` from [Releases](https://github.com/rollacode/codeterm/releases).
 
 ### Building from Source
 

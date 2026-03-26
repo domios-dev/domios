@@ -45,7 +45,7 @@ pub struct ApiConfig {
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             host: "0.0.0.0".to_string(),
             port: 7685,
             token: None,

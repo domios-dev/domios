@@ -57,6 +57,33 @@ Agent Hierarchy:
 - POST /api/panes/:id/can-spawn {can_spawn} — toggle spawning permission
 - GET  /api/agents — list all panes with roles
 
+Cron Jobs (scheduled recurring tasks):
+- GET  /api/crons?workspace_id=ID — list cron jobs
+- POST /api/crons {name, schedule, task, workspace_id, agent?, cwd?, description?} — create cron job
+- GET  /api/crons/:id — get cron job
+- PUT  /api/crons/:id {name?, schedule?, task?, cwd?, description?, enabled?} — update cron job
+- DELETE /api/crons/:id — delete cron job (cascades: kills running panes, removes logs)
+- POST /api/crons/:id/enable — enable cron job
+- POST /api/crons/:id/disable — disable cron job
+- POST /api/crons/:id/trigger — manually trigger cron job
+- GET  /api/crons/:id/history — get run history
+
+Schedule format: 5-field cron expressions (min hour dom mon dow). Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am).
+
+Cron runs spawn Claude agents on schedule. The spawned agent MUST call `cron.complete` (via socket/CLI: `codeterm cron complete --run-id UUID --summary "result"`) when done. Completing a run automatically closes the run's tab (ephemeral). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log`. The app hides to system tray on close so crons keep running. Successful spawns do not generate notifications -- only errors do.
+
+Tauri events: `cron-state-changed` (any CRUD), `cron-fired` (cron fires, payload: {cron_id, run_id, pane_id, tab_id}).
+
+Setup endpoints (skills, rules, hooks):
+- GET  /api/setup/skills — list available skills
+- POST /api/setup/skills/:id/install — install a skill
+- POST /api/setup/skills/:id/uninstall — uninstall a skill
+- GET  /api/setup/rules — check project rules status
+- POST /api/setup/rules/install — install project rules
+- GET  /api/setup/hooks — check Claude hooks status
+- POST /api/setup/hooks/install — install Claude hooks
+- POST /api/setup/hooks/uninstall — uninstall Claude hooks
+
 Claude session resume: when Claude Code is detected in a pane, CodeTerm saves its session ID. On restart, CodeTerm automatically runs `claude --resume <session-id>` to restore the conversation.
 
 Workflow: create workspace → create tab → exec commands → monitor output via offset polling or SSE stream → receive webhook events when agents need attention.
@@ -115,4 +142,4 @@ Orchestrator with hierarchy:
 - Agent spawns do NOT auto-switch active tab.
 - `workspace create` creates an empty workspace (no auto-tab).
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

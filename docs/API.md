@@ -130,6 +130,18 @@ Webhook events: `agent.permission_request`, `agent.task_complete`, `agent.report
 
 Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/.codeterm/themes/` (macOS/Linux).
 
+#### Setup (Skills, Rules, Hooks)
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| GET | `/api/setup/skills` | — | List available skills and install status |
+| POST | `/api/setup/skills/{id}/install` | — | Install a skill |
+| POST | `/api/setup/skills/{id}/uninstall` | — | Uninstall a skill |
+| GET | `/api/setup/rules` | — | Check if project rules are installed |
+| POST | `/api/setup/rules/install` | — | Install project rules |
+| GET | `/api/setup/hooks` | — | Check Claude hooks status |
+| POST | `/api/setup/hooks/install` | — | Install Claude hooks |
+| POST | `/api/setup/hooks/uninstall` | — | Uninstall Claude hooks |
+
 #### Cron Jobs
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -142,11 +154,10 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/crons/:id/disable` | — | Disable cron job |
 | POST | `/api/crons/:id/trigger` | — | Manually trigger cron job |
 | GET | `/api/crons/:id/history` | — | Get run history for cron job |
-| POST | `/api/crons/runs/:run_id/complete` | `{summary?}` | Mark a cron run as complete |
 
 Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
 
-Cron runs spawn Claude agents on schedule. When done, the agent calls `POST /api/crons/runs/:run_id/complete` (or `codeterm cron complete --run-id UUID`), which automatically closes the run's tab/pane (ephemeral). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. The sidebar shows a cron tree with runs and next scheduled time. Click a finished run to open the log viewer. Successful spawns do not generate notifications — only errors do.
+Cron runs spawn Claude agents on schedule. When done, the agent calls `codeterm cron complete --run-id UUID` (uses the `cron.complete` socket method), which automatically closes the run's tab/pane (ephemeral). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. The sidebar shows a cron tree with runs and next scheduled time. Click a finished run to open the log viewer. Successful spawns do not generate notifications — only errors do.
 
 **Deleting a cron job** cascades: kills all running panes/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
 
@@ -371,7 +382,14 @@ Newline-delimited JSON:
 | `notification.create` | `{title, body?, level?, pane_id?}` | Create notification |
 | `notification.list` | `{unread_only?}` | List notifications |
 | `notification.clear` | `{id?}` | Clear notifications |
+| `agent.list` | — | List all panes with roles |
+| `agent.hierarchy` | — | Full hierarchy tree |
 | `agent.spawn` | `{agent?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?}` | Spawn agent (same as REST) |
+| `agent.set_role` | `{pane_id, role, parent_pane_id?, can_spawn?}` | Set pane role |
+| `agent.clear_role` | `{pane_id}` | Clear pane role |
+| `agent.status` | `{pane_id}` | Get pane status + role |
+| `agent.children` | `{pane_id}` | List child panes |
+| `agent.link` | `{pane_id, parent_pane_id}` | Link pane under parent |
 | `agent.report` | `{pane_id, message}` | Send report to direct parent |
 | `agent.reports` | `{pane_id, clear?}` | Read reports from children |
 | `cron.list` | `{workspace_id?}` | List cron jobs |
@@ -516,4 +534,4 @@ Skills for Claude Code are in `skills/` directory. Install via Settings → Agen
 
 CodeTerm hides to the system tray on window close instead of quitting. To fully quit, use the tray menu. This ensures cron jobs and background agents continue running when the window is closed.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->
