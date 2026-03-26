@@ -147,6 +147,26 @@ When creating new GitHub Actions workflows, follow these patterns:
 - **Draft mode:** Releases are drafts — must `gh release edit --draft=false` to publish
 - **Windows signing:** Not configured yet. Add when needed via `TAURI_SIGNING_PRIVATE_KEY` secret
 
+## Package Manager Distribution
+
+Release CI automatically updates Homebrew tap and Scoop bucket after publish:
+- **Homebrew tap:** `rollacode/homebrew-codeterm` → `Casks/codeterm.rb`
+- **Scoop bucket:** `rollacode/scoop-codeterm` → `bucket/codeterm.json`
+- Jobs `update-homebrew` and `update-scoop` in `release.yml` download artifacts, compute sha256, push updated manifests
+- Uses `PACKAGE_REPOS_TOKEN` secret (fine-grained PAT with `contents:write` on both repos)
+
+### Homebrew cask sed gotcha
+The `sed` patterns for sha256 must use `[0-9a-f]\{64\}` to match only hash lines, not the `arch arm:` line which also contains `intel: "x64"`.
+
+## Release Notes
+
+After tauri-action creates the draft release, update the description with `gh release edit`:
+```bash
+gh release edit vX.Y.Z --repo rollacode/codeterm --notes "..."
+```
+
+Include sections: What's New (features, fixes), Download table with platform/filename mapping.
+
 ## Version Strategy
 
 - `0.x.y` — pre-1.0, breaking changes allowed
