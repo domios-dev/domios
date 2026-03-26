@@ -108,6 +108,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Fix "invalid Darwin version number: macosx14" — needs minor version
+          MACOSX_DEPLOYMENT_TARGET: ${{ startsWith(matrix.platform, 'macos') && '10.15' || '' }}
           # Signing (macOS only — tauri-action reads these)
           APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.platform, 'macos') && secrets.APPLE_SIGNING_IDENTITY || '' }}
           # Notarization (macOS only — tauri-action reads these)
