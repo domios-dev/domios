@@ -733,6 +733,38 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }).then((unlisten) => unlisteners.push(unlisten));
 
     // Listen for mux state changes from REST API / socket
+    // Update available notification
+    listen<{
+      current_version: string;
+      latest_version: string;
+      release_url: string;
+      release_notes: string | null;
+      update_command: string | null;
+    }>("update-available", (event) => {
+      const { latest_version, release_url, update_command } = event.payload;
+      const body = update_command
+        ? `Run: ${update_command}`
+        : "Click to view release notes";
+      dispatch({
+        type: "ADD_NOTIFICATION",
+        notification: {
+          id: `update-${latest_version}`,
+          pane_id: null,
+          workspace_id: null,
+          title: `CodeTerm v${latest_version} available`,
+          body,
+          level: "Info",
+          timestamp: Date.now(),
+          read: false,
+          sticky: true,
+          actions: [
+            { label: "View Release", type: "url", value: release_url },
+            { label: "Dismiss", type: "dismiss" },
+          ],
+        },
+      });
+    }).then((unlisten) => unlisteners.push(unlisten));
+
     listen("mux-state-changed", () => {
       invoke<MultiplexerState>("mux_get_state")
         .then((s) => {

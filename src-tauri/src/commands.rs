@@ -497,6 +497,21 @@ pub fn install_skill(skill_id: String) -> Result<(), String> {
     copy_dir(&source, &dest)
 }
 
+/// Auto-update all installed skills that have a newer bundled version.
+/// Returns list of skill IDs that were updated.
+pub fn auto_update_skills() -> Vec<String> {
+    let skills = scan_skills();
+    let mut updated = Vec::new();
+    for skill in skills {
+        if skill.installed && skill.update_available {
+            if install_skill(skill.id.clone()).is_ok() {
+                updated.push(skill.id);
+            }
+        }
+    }
+    updated
+}
+
 /// Uninstall a skill by removing it from ~/.claude/skills/
 #[tauri::command]
 pub fn uninstall_skill(skill_id: String) -> Result<(), String> {

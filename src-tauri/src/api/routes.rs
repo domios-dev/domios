@@ -32,6 +32,7 @@ pub struct AppState {
     pub cron: crate::CronState,
     pub cron_wake: crate::CronWake,
     pub api_port: u16,
+    pub update_state: crate::UpdateStateHandle,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -93,6 +94,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/crons/{id}/disable", post(cron_disable))
         .route("/api/crons/{id}/trigger", post(cron_trigger))
         .route("/api/crons/{id}/history", get(cron_history))
+        // Update
+        .route("/api/update/check", get(check_update))
+        .route("/api/update/install", post(install_update))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -1563,5 +1567,83 @@ fn get_workarea() -> (f64, f64, f64, f64) {
     #[cfg(not(target_os = "windows"))]
     {
         (0.0, 0.0, 1920.0, 1080.0)
+    }
+}
+
+// ── Update endpoints ──
+
+#[derive(Deserialize)]
+struct CheckUpdateQuery {
+    force: Option<bool>,
+}
+
+async fn check_update(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<CheckUpdateQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+
+    let force = q.force.unwrap_or(false);
+
+    // Return cached result if fresh (< 1 hour)
+    if !force {
+        let us = state.update_state.lock();
+        if let (Some(ref info), Some(check_time)) = (&us.last_check, us.last_check_time) {
+            if check_time.elapsed() < std::time::Duration::from_secs(3600) {
+                return Ok(Json(serde_json::to_value(info).unwrap_or_default()));
+            }
+        }
+    }
+
+    let method = state.update_state.lock().install_method.clone();
+
+    let info = crate::update::checker::check_for_update(&method)
+        .await
+        .map_err(|_| (StatusCode::BAD_GATEWAY, "Failed to check for updates"))?;
+
+    let mut us = state.update_state.lock();
+    us.last_check = Some(info.clone());
+    us.last_check_time = Some(std::time::Instant::now());
+
+    Ok(Json(serde_json::to_value(info).unwrap_or_default()))
+}
+
+async fn install_update(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+
+    let us = state.update_state.lock();
+    let info = us
+        .last_check
+        .as_ref()
+        .ok_or((StatusCode::BAD_REQUEST, "Run check first"))?
+        .clone();
+    drop(us);
+
+    if !info.update_available {
+        return Ok(Json(serde_json::json!({"status": "up_to_date"})));
+    }
+
+    match info.update_command {
+        Some(cmd) => Ok(Json(serde_json::json!({
+            "status": "command",
+            "command": cmd,
+            "message": format!("Run: {}", cmd)
+        }))),
+        None => {
+            let url = info
+                .download_url
+                .as_deref()
+                .unwrap_or(&info.release_url);
+            let _ = crate::commands::open_url(url.to_string());
+            Ok(Json(serde_json::json!({
+                "status": "browser_opened",
+                "url": url,
+                "message": "Opened download page in browser"
+            })))
+        }
     }
 }
