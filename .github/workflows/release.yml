@@ -246,8 +246,8 @@ jobs:
         run: |
           VERSION=${{ steps.version.outputs.version }}
           sed -i "s/version \".*\"/version \"${VERSION}\"/" Casks/codeterm.rb
-          sed -i "s/arm:   \".*\"/arm:   \"${SHA_ARM}\"/" Casks/codeterm.rb
-          sed -i "s/intel: \".*\"/intel: \"${SHA_INTEL}\"/" Casks/codeterm.rb
+          sed -i "s/arm:   \"[0-9a-f]\{64\}\"/arm:   \"${SHA_ARM}\"/" Casks/codeterm.rb
+          sed -i "s/intel: \"[0-9a-f]\{64\}\"/intel: \"${SHA_INTEL}\"/" Casks/codeterm.rb
 
       - name: Commit and push
         run: |

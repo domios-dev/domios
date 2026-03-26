@@ -11,6 +11,7 @@ mod screenshot;
 pub mod service;
 pub mod session;
 mod socket;
+pub mod update;
 
 use std::sync::Arc;
 
@@ -33,6 +34,7 @@ pub type OutputBufferState = Arc<Mutex<OutputBuffer>>;
 pub type AgentTrackerState = Arc<Mutex<agent::status::PaneStatusTracker>>;
 pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
 pub use cron::scheduler::{CronState, CronWake};
+pub type UpdateStateHandle = Arc<Mutex<update::UpdateState>>;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -57,6 +59,21 @@ pub fn run() {
     let agent_tracker: AgentTrackerState = Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
     let report_store: ReportStoreState = Arc::new(Mutex::new(agent::reports::ReportStore::new(200)));
     let event_broadcaster: api::events::EventBroadcasterState = Arc::new(api::events::EventBroadcaster::new());
+
+    // Detect install method and init update state
+    let install_method = update::detect_install_method();
+    log::info!("Install method detected: {}", install_method);
+    let update_state: UpdateStateHandle = Arc::new(Mutex::new(update::UpdateState {
+        install_method,
+        last_check: None,
+        last_check_time: None,
+    }));
+
+    // Auto-update installed skills if bundled version is newer
+    let updated_skills = commands::auto_update_skills();
+    if !updated_skills.is_empty() {
+        log::info!("Auto-updated skills: {}", updated_skills.join(", "));
+    }
 
     // Try to restore last session, fallback to default workspace
     let mux_state_inner = {
@@ -95,6 +112,7 @@ pub fn run() {
         .manage(report_store.clone())
         .manage(event_broadcaster.clone())
         .manage(screenshot_state.clone())
+        .manage(update_state.clone())
         // ServiceState is added in .setup() after AppHandle is available
         .invoke_handler(tauri::generate_handler![
             // PTY commands
@@ -275,6 +293,7 @@ pub fn run() {
                         cron: cron_state.clone(),
                         cron_wake: cron_wake.clone(),
                         api_port: api_config.port,
+                        update_state: update_state.clone(),
                     };
                     let router = api::routes::create_router(api_state);
                     let host = api_config.host.clone();
@@ -317,7 +336,12 @@ pub fn run() {
                     .build()?;
 
                 let tray_icon = {
+                    // macOS: template image (white on transparent, auto-adapts to light/dark)
+                    #[cfg(target_os = "macos")]
+                    let bytes = include_bytes!("../icons/tray-template.png");
+                    #[cfg(not(target_os = "macos"))]
                     let bytes = include_bytes!("../icons/32x32.png");
+
                     let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
                         .read_info().expect("Failed to decode tray icon PNG");
                     let info = reader.info().clone();
@@ -329,6 +353,7 @@ pub fn run() {
                 let _tray = TrayIconBuilder::new()
                     .tooltip("CodeTerm")
                     .icon(tray_icon)
+                    .icon_as_template(cfg!(target_os = "macos"))
                     .menu(&menu)
                     .on_menu_event(move |app, event| {
                         match event.id().as_ref() {
@@ -371,6 +396,42 @@ pub fn run() {
                             }
                         }
                     }
+                });
+            }
+
+            // Background update check (5s delay to not slow startup)
+            {
+                let update_st = update_state.clone();
+                let app_h = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .expect("Failed to create update check runtime");
+                    rt.block_on(async {
+                        let method = update_st.lock().install_method.clone();
+                        match crate::update::checker::check_for_update(&method).await {
+                            Ok(info) => {
+                                if info.update_available {
+                                    log::info!(
+                                        "Update available: {} → {}",
+                                        info.current_version,
+                                        info.latest_version
+                                    );
+                                    use tauri::Emitter;
+                                    let _ = app_h.emit(
+                                        "update-available",
+                                        serde_json::to_value(&info).unwrap_or_default(),
+                                    );
+                                }
+                                let mut us = update_st.lock();
+                                us.last_check = Some(info);
+                                us.last_check_time = Some(std::time::Instant::now());
+                            }
+                            Err(e) => log::warn!("Update check failed: {}", e),
+                        }
+                    });
                 });
             }
 

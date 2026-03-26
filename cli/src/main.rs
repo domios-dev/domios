@@ -148,6 +148,12 @@ enum Commands {
         action: CronAction,
     },
 
+    /// Check for updates and manage CodeTerm version
+    Update {
+        #[command(subcommand)]
+        action: Option<UpdateAction>,
+    },
+
     /// Capture a screenshot of the CodeTerm window
     Screenshot {
         /// Save to file instead of printing base64 (e.g. screenshot.jpg)
@@ -377,6 +383,18 @@ enum AgentAction {
         #[arg(long)]
         workspace: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum UpdateAction {
+    /// Check for available updates
+    Check {
+        /// Force re-check (ignore cache)
+        #[arg(long)]
+        force: bool,
+    },
+    /// Show update command or open download page
+    Install,
 }
 
 #[derive(Subcommand)]
@@ -1079,6 +1097,88 @@ fn main() {
                         Ok(_) => { println!("Completed: {}", run_id); return; }
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
+                }
+            }
+        }
+
+        Commands::Update { action } => {
+            let (base_url, token) = read_api_config();
+            let http = build_http(&token);
+
+            match action.unwrap_or(UpdateAction::Check { force: false }) {
+                UpdateAction::Check { force } => {
+                    let url = if force {
+                        format!("{}/api/update/check?force=true", base_url)
+                    } else {
+                        format!("{}/api/update/check", base_url)
+                    };
+                    match http.get(&url).send() {
+                        Ok(resp) if resp.status().is_success() => {
+                            let body: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+                            } else {
+                                let current = body["current_version"].as_str().unwrap_or("?");
+                                let latest = body["latest_version"].as_str().unwrap_or("?");
+                                let method = body["install_method"].as_str().unwrap_or("unknown");
+                                let available = body["update_available"].as_bool().unwrap_or(false);
+
+                                println!("Current: v{}  Latest: v{}  Install: {}", current, latest, method);
+                                if available {
+                                    println!("Update available!");
+                                    if let Some(cmd) = body["update_command"].as_str() {
+                                        println!("Run: {}", cmd);
+                                    } else if let Some(url) = body["download_url"].as_str() {
+                                        println!("Download: {}", url);
+                                    }
+                                } else {
+                                    println!("Up to date.");
+                                }
+                            }
+                        }
+                        Ok(resp) => {
+                            eprintln!("Error: {}", resp.status());
+                            std::process::exit(1);
+                        }
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                    return;
+                }
+                UpdateAction::Install => {
+                    match http.post(format!("{}/api/update/install", base_url)).send() {
+                        Ok(resp) if resp.status().is_success() => {
+                            let body: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+                            } else {
+                                let status = body["status"].as_str().unwrap_or("unknown");
+                                match status {
+                                    "up_to_date" => println!("Already up to date."),
+                                    "command" => {
+                                        if let Some(cmd) = body["command"].as_str() {
+                                            println!("{}", cmd);
+                                        }
+                                    }
+                                    "browser_opened" => {
+                                        println!("Opened download page in browser.");
+                                    }
+                                    _ => println!("{}", body),
+                                }
+                            }
+                        }
+                        Ok(resp) => {
+                            eprintln!("Error: {}", resp.status());
+                            std::process::exit(1);
+                        }
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                    return;
                 }
             }
         }
