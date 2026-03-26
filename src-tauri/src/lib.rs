@@ -103,6 +103,15 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // Another instance launched — show existing window instead of duplicating
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .manage(config_state.clone())
         .manage(pty_state.clone())
         .manage(mux_state.clone())
@@ -136,6 +145,8 @@ pub fn run() {
             commands::copy_image_to_clipboard,
             commands::install_project_rules,
             commands::check_rule_installed,
+            commands::check_for_update,
+            commands::install_app_update,
             commands::open_folder,
             commands::open_url,
             commands::test_notification,
@@ -504,6 +515,17 @@ pub fn run() {
                 log::info!("Window hidden to tray");
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
+                if !has_visible_windows {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                }
+            }
+        });
 }
