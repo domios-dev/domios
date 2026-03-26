@@ -354,6 +354,7 @@ export function SettingsPanel({
                   <InfoRow label="Version" value={__APP_VERSION__} />
                   <InfoRow label="Platform" value={navigator.platform} />
                   <InfoRow label="Config" value={configPath || "loading..."} mono />
+                  <CheckForUpdateButton />
                 </Group>
 
                 {/* Creator */}
@@ -400,6 +401,74 @@ export function SettingsPanel({
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+function CheckForUpdateButton() {
+  const [status, setStatus] = useState<"idle" | "checking" | "up-to-date" | "available" | "installing" | "error">("idle");
+  const [info, setInfo] = useState<{ latest_version?: string; release_url?: string } | null>(null);
+
+  const check = async () => {
+    setStatus("checking");
+    try {
+      const result = await invoke<{
+        update_available: boolean;
+        latest_version: string;
+        release_url: string;
+      }>("check_for_update");
+      if (result.update_available) {
+        setStatus("available");
+        setInfo(result);
+      } else {
+        setStatus("up-to-date");
+        setTimeout(() => setStatus("idle"), 3000);
+      }
+    } catch {
+      setStatus("error");
+      setTimeout(() => setStatus("idle"), 3000);
+    }
+  };
+
+  const install = async () => {
+    setStatus("installing");
+    try {
+      await invoke("install_app_update");
+    } catch {
+      setStatus("error");
+      setTimeout(() => setStatus("available"), 3000);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <button
+        onClick={check}
+        disabled={status === "checking" || status === "installing"}
+        className="px-3 py-1.5 text-[11px] rounded bg-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-muted)] transition-colors disabled:opacity-50"
+      >
+        {status === "checking" ? "Checking..." : "Check for Updates"}
+      </button>
+      {status === "up-to-date" && (
+        <span className="text-[11px] text-[var(--ct-green)]">Up to date</span>
+      )}
+      {status === "available" && info && (
+        <>
+          <span className="text-[11px] text-[var(--ct-yellow)]">v{info.latest_version} available</span>
+          <button
+            onClick={install}
+            className="px-3 py-1.5 text-[11px] rounded bg-[var(--ct-green)] text-[var(--ct-bg)] hover:opacity-90 transition-opacity font-medium"
+          >
+            Install & Restart
+          </button>
+        </>
+      )}
+      {status === "installing" && (
+        <span className="text-[11px] text-[var(--ct-muted-fg)]">Downloading and installing...</span>
+      )}
+      {status === "error" && (
+        <span className="text-[11px] text-[var(--ct-red)]">Update failed</span>
+      )}
+    </div>
+  );
+}
 
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (

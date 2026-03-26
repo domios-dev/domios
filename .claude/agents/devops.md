@@ -41,13 +41,44 @@ Edit all three:
 - `src-tauri/Cargo.toml` → `version = "X.Y.Z"`
 - `package.json` → `"version": "X.Y.Z"`
 
-### Step 2 — Commit, tag, push
+### Step 2 — Commit and push to develop
 
 ```bash
+git checkout develop
 git add -A
 git commit -m "release: vX.Y.Z"
+git push origin develop
+```
+
+### Step 3 — Create PR develop → master, approve, merge
+
+```bash
+gh pr create --base master --head develop \
+  --title "release: vX.Y.Z" \
+  --body "Release vX.Y.Z — <summary of changes>"
+
+# Approve and merge immediately
+gh pr review --approve
+gh pr merge --merge
+```
+
+**IMPORTANT:** Always use `--merge` (not rebase/squash) to keep commit SHAs consistent between branches. Never rebase or cherry-pick between develop and master — it creates divergent history.
+
+### Step 4 — Tag on master and push
+
+```bash
+git checkout master
+git pull origin master
 git tag vX.Y.Z
-git push origin master --tags
+git push origin vX.Y.Z
+```
+
+### Step 5 — Sync develop back
+
+```bash
+git checkout develop
+git pull origin master
+git push origin develop
 ```
 
 ### Step 3 — Monitor CI
