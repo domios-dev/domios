@@ -210,3 +210,109 @@ jobs:
           if [ -f "$KEYCHAIN_PATH" ]; then
             security delete-keychain "$KEYCHAIN_PATH"
           fi
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${GITHUB_REF#refs/tags/}" --repo "$GITHUB_REPOSITORY" --draft=false
+
+  update-homebrew:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download and hash DMGs
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          curl -sL "https://github.com/rollacode/codeterm/releases/download/v${VERSION}/CodeTerm_${VERSION}_aarch64.dmg" -o aarch64.dmg
+          curl -sL "https://github.com/rollacode/codeterm/releases/download/v${VERSION}/CodeTerm_${VERSION}_x64.dmg" -o x64.dmg
+          echo "SHA_ARM=$(sha256sum aarch64.dmg | cut -d' ' -f1)" >> "$GITHUB_ENV"
+          echo "SHA_INTEL=$(sha256sum x64.dmg | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: Checkout tap
+        uses: actions/checkout@v4
+        with:
+          repository: rollacode/homebrew-codeterm
+          token: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+
+      - name: Update cask
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" Casks/codeterm.rb
+          sed -i "s/arm:   \".*\"/arm:   \"${SHA_ARM}\"/" Casks/codeterm.rb
+          sed -i "s/intel: \".*\"/intel: \"${SHA_INTEL}\"/" Casks/codeterm.rb
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/codeterm.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "codeterm ${{ steps.version.outputs.version }}"
+          git push
+
+  update-scoop:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download and hash installer
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          curl -sL "https://github.com/rollacode/codeterm/releases/download/v${VERSION}/CodeTerm_${VERSION}_x64-setup.exe" -o setup.exe
+          echo "SHA_WIN=$(sha256sum setup.exe | cut -d' ' -f1)" >> "$GITHUB_ENV"
+
+      - name: Checkout bucket
+        uses: actions/checkout@v4
+        with:
+          repository: rollacode/scoop-codeterm
+          token: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+
+      - name: Update manifest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          jq -n \
+            --arg ver "$VERSION" \
+            --arg hash "$SHA_WIN" \
+            '{
+              version: $ver,
+              description: "AI-first cross-platform terminal multiplexer",
+              homepage: "https://github.com/rollacode/codeterm",
+              license: "MIT",
+              architecture: {
+                "64bit": {
+                  url: "https://github.com/rollacode/codeterm/releases/download/v\($ver)/CodeTerm_\($ver)_x64-setup.exe#/dl.7z",
+                  hash: $hash
+                }
+              },
+              shortcuts: [["CodeTerm/CodeTerm.exe", "CodeTerm"]],
+              bin: [["CodeTerm/codeterm.exe", "codeterm"]],
+              checkver: { github: "https://github.com/rollacode/codeterm" },
+              autoupdate: {
+                architecture: {
+                  "64bit": {
+                    url: "https://github.com/rollacode/codeterm/releases/download/v$version/CodeTerm_$version_x64-setup.exe#/dl.7z"
+                  }
+                }
+              }
+            }' > bucket/codeterm.json
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket/codeterm.json
+          git diff --cached --quiet && exit 0
+          git commit -m "codeterm ${{ steps.version.outputs.version }}"
+          git push

@@ -34,17 +34,17 @@ sound = false
 toast_duration = 5  # seconds
 
 [keybindings]
-new_tab = "Ctrl+Shift+T"
-close_tab = "Ctrl+Shift+W"
+new_tab = "Ctrl+T"
+close_tab = "Ctrl+W"
 next_tab = "Ctrl+Tab"
 prev_tab = "Ctrl+Shift+Tab"
-split_right = "Ctrl+Shift+D"
-split_down = "Ctrl+Shift+E"
+split_right = "Ctrl+Shift+ArrowRight"
+split_down = "Ctrl+Shift+ArrowDown"
 close_pane = "Ctrl+Shift+Q"
-focus_pane_left = "Ctrl+Alt+Left"
-focus_pane_right = "Ctrl+Alt+Right"
-focus_pane_up = "Ctrl+Alt+Up"
-focus_pane_down = "Ctrl+Alt+Down"
+focus_pane_left = "Alt+ArrowLeft"
+focus_pane_right = "Alt+ArrowRight"
+focus_pane_up = "Alt+ArrowUp"
+focus_pane_down = "Alt+ArrowDown"
 new_workspace = "Ctrl+Shift+N"
 copy = "Ctrl+Shift+C"
 paste = "Ctrl+Shift+V"
@@ -63,11 +63,15 @@ open_settings = "Ctrl+,"
 # Agent config controls AI agent integration (e.g. Claude Code).
 # poll_interval_ms: how often the agent polls for new commands.
 # idle_timeout_s: disconnect agent after this many seconds of inactivity.
+# resume_sessions: auto-resume Claude Code sessions on restart.
+# resume_skip_permissions: add --dangerously-skip-permissions to resumed sessions.
 poll_interval_ms = 500
 idle_timeout_s = 30
+resume_sessions = true
+resume_skip_permissions = false
 
 [api]
-enabled = true
+enabled = false
 host = "0.0.0.0"
 port = 7685
 # token = "your-secret-token"  # Uncomment to require auth
@@ -125,4 +129,4 @@ Shell integration scripts are stored in the platform data directory:
 
 Scripts are created at startup by `pty::shell_integration::ensure_scripts()`. Users should not need to edit these files.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
