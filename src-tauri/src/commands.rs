@@ -830,7 +830,7 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
 
     // Build hook commands — cross-platform null device and error handling.
     // Use single quotes around the JSON body (works in sh/bash/zsh/powershell).
-    let null_dev = if cfg!(target_os = "windows") { "NUL" } else { "/dev/null" };
+    let null_dev = crate::shell::ShellSyntax::NULL_DEV;
     let notify_cmd = format!(
         "curl -s -X POST http://localhost:{port}/api/notifications -H 'Content-Type: application/json' -d '{{\"title\":\"Claude Code\",\"body\":\"Needs permission\",\"level\":\"warning\"}}' > {null_dev} 2>&1 || true"
     );

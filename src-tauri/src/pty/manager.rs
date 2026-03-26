@@ -88,10 +88,18 @@ impl PtyManager {
             Some(c) => (c.clone(), CommandBuilder::new(&c)),
             None => {
                 let s = detect_default_shell();
-                // Use new_default_prog() so the shell is spawned as a login shell
-                // (argv[0] prefixed with '-'), which sources .zprofile/.bash_profile
-                // and sets up PATH properly (e.g. Homebrew on macOS)
-                (s, CommandBuilder::new_default_prog())
+                #[cfg(target_os = "windows")]
+                {
+                    // On Windows, new_default_prog() always uses COMSPEC (cmd.exe).
+                    // We want PowerShell, so spawn it explicitly.
+                    (s.clone(), CommandBuilder::new(&s))
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    // On Unix, new_default_prog() spawns a login shell (argv[0] prefixed
+                    // with '-'), which sources .zprofile/.bash_profile and sets up PATH.
+                    (s, CommandBuilder::new_default_prog())
+                }
             }
         };
 

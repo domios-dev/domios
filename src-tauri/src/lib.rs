@@ -9,6 +9,7 @@ pub mod paths;
 pub mod pty;
 mod screenshot;
 pub mod service;
+pub mod shell;
 pub mod session;
 mod socket;
 pub mod update;
