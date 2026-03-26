@@ -93,6 +93,8 @@ pub fn mux_create_tab(
     workspace_id: String,
 ) -> Result<TabInfo, String> {
     let (tab_id, pane_id) = svc.create_tab(&workspace_id)?;
+    // User-created tabs are Orchestrators by default (can spawn agents)
+    let _ = svc.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
     // Read tab title from state
     let title = svc.mux.lock()
         .get_workspace(&workspace_id)

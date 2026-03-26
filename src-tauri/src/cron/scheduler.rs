@@ -39,7 +39,7 @@ pub fn start(
 fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
     let now_ms = now();
     let mut next_fire: Option<u64> = None;
-    let mut to_fire: Vec<(String, String, String, Option<String>, Option<String>, String)> = Vec::new();
+    let mut to_fire: Vec<(String, String, String, Option<String>, Option<String>, String, Option<String>)> = Vec::new();
 
     // Collect jobs that need firing
     {
@@ -54,6 +54,7 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
                         job.cwd.clone(),
                         job.role.clone(),
                         job.workspace_id.clone(),
+                        job.creator_pane_id.clone(),
                     ));
                 } else {
                     next_fire = Some(match next_fire {
@@ -67,8 +68,8 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
 
     // Fire jobs
     let fired_any = !to_fire.is_empty();
-    for (job_id, agent, task, cwd, role, workspace_id) in to_fire {
-        fire_job(cron_state, service, &job_id, &agent, &task, cwd.as_deref(), role.as_deref(), &workspace_id);
+    for (job_id, agent, task, cwd, role, workspace_id, creator_pane_id) in to_fire {
+        fire_job(cron_state, service, &job_id, &agent, &task, cwd.as_deref(), role.as_deref(), &workspace_id, creator_pane_id.as_deref());
     }
 
     // Recalculate next fire after firing
@@ -107,6 +108,7 @@ fn fire_job(
     cwd: Option<&str>,
     role: Option<&str>,
     workspace_id: &str,
+    creator_pane_id: Option<&str>,
 ) {
     let run_id = uuid::Uuid::new_v4().to_string();
     log::info!("Cron fired: job={}, run={}", job_id, run_id);
@@ -128,21 +130,27 @@ fn fire_job(
     }
 
     // Spawn agent
+    let mut task_text = task.to_string();
+    if creator_pane_id.is_some() {
+        task_text.push_str("\n\nYou can report progress back to the cron creator by running: codeterm agent report \"your message\"");
+    }
+    task_text.push_str(&format!(
+        "\n\nIMPORTANT: When you are completely done with this task, you MUST run this exact command as your FINAL action:\ncodeterm cron complete --run-id {} --summary \"<your concise summary of what happened and the result>\"",
+        run_id
+    ));
     let params = SpawnAgentParams {
         agent: Some(agent.to_string()),
         agent_name: None,
         args: None,
         cwd: cwd.map(|s| s.to_string()),
-        title: None, // Will be set from job name below
+        title: None,
         role: role.map(|s| s.to_string()),
         parent_pane_id: None,
         can_spawn: None,
-        task: Some(format!(
-            "{}\n\nIMPORTANT: When you are completely done with this task, you MUST run this exact command as your FINAL action:\ncodeterm cron complete --run-id {} --summary \"<your concise summary of what happened and the result>\"",
-            task, run_id
-        )),
+        task: Some(task_text),
         workspace_id: Some(workspace_id.to_string()),
         force_tab: Some(true),
+        report_target_pane_id: creator_pane_id.map(|s| s.to_string()),
     };
 
     match service.spawn_agent_sync(params) {
@@ -243,6 +251,7 @@ mod tests {
             agent: None,
             cwd: None,
             role: None,
+            creator_pane_id: None,
             enabled: Some(true),
             max_history: None,
         }).unwrap();
@@ -256,6 +265,7 @@ mod tests {
             agent: None,
             cwd: None,
             role: None,
+            creator_pane_id: None,
             enabled: Some(false),
             max_history: None,
         }).unwrap();

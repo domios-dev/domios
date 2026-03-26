@@ -179,6 +179,9 @@ pub struct Pane {
     /// Depth in hierarchy: 0=none, 1=orchestrator, 2=lead/worker, 3=worker.
     #[serde(default)]
     pub depth: u8,
+    /// Report target pane ID — for cron agents that report without joining hierarchy.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub report_target_pane_id: Option<String>,
     /// Title naming priority level.
     #[serde(default)]
     pub title_level: TitleLevel,

@@ -72,25 +72,26 @@ impl JsonRpcResponse {
 /// so we only provide the bare name here.
 pub fn socket_path() -> String {
     let pid = std::process::id();
-    format!("codeterm-{}.sock", pid)
+    format!("{}-{}.sock", crate::paths::SOCKET_PREFIX, pid)
 }
 
 /// Get the full display path (for env var / user display).
 ///
 /// On Unix, `GenericNamespaced` places the socket at `/tmp/<name>`,
-/// so the display path is `/tmp/codeterm-{pid}.sock`.
-/// On Windows, it's `\\.\pipe\codeterm-{pid}`.
+/// so the display path is `/tmp/{prefix}-{pid}.sock`.
+/// On Windows, it's `\\.\pipe\{prefix}-{pid}`.
 pub fn socket_display_path() -> String {
     let pid = std::process::id();
+    let prefix = crate::paths::SOCKET_PREFIX;
 
     #[cfg(target_os = "windows")]
     {
-        format!("\\\\.\\pipe\\codeterm-{}", pid)
+        format!("\\\\.\\pipe\\{}-{}", prefix, pid)
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        format!("/tmp/codeterm-{}.sock", pid)
+        format!("/tmp/{}-{}.sock", prefix, pid)
     }
 }
 
@@ -107,9 +108,10 @@ impl SocketServer {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if name.starts_with("codeterm-") && name.ends_with(".sock") {
-                            // Extract PID from "codeterm-{pid}.sock"
-                            if let Some(pid_str) = name.strip_prefix("codeterm-").and_then(|s| s.strip_suffix(".sock")) {
+                        let sock_prefix = format!("{}-", crate::paths::SOCKET_PREFIX);
+                        if name.starts_with(&sock_prefix) && name.ends_with(".sock") {
+                            // Extract PID from "{prefix}-{pid}.sock"
+                            if let Some(pid_str) = name.strip_prefix(&sock_prefix).and_then(|s| s.strip_suffix(".sock")) {
                                 if let Ok(pid) = pid_str.parse::<u32>() {
                                     // Check if process is alive via kill -0
                                     let alive = std::process::Command::new("kill")

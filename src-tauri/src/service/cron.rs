@@ -103,7 +103,7 @@ impl ServiceContext {
         cron: &CronState,
         id: &str,
     ) -> Result<CronRunInfo, String> {
-        let (agent, task, cwd, role, workspace_id) = {
+        let (agent, task, cwd, role, workspace_id, creator_pane_id) = {
             let store = cron.lock();
             let job = store.get(id).ok_or_else(|| format!("Cron job not found: {}", id))?;
             (
@@ -112,6 +112,7 @@ impl ServiceContext {
                 job.cwd.clone(),
                 job.role.clone(),
                 job.workspace_id.clone(),
+                job.creator_pane_id.clone(),
             )
         };
 
@@ -131,6 +132,14 @@ impl ServiceContext {
         };
 
         // Spawn agent
+        let mut task_text = task;
+        if creator_pane_id.is_some() {
+            task_text.push_str("\n\nYou can report progress back to the cron creator by running: codeterm agent report \"your message\"");
+        }
+        task_text.push_str(&format!(
+            "\n\nIMPORTANT: When you are completely done with this task, you MUST run this exact command as your FINAL action:\ncodeterm cron complete --run-id {} --summary \"<your concise summary of what happened and the result>\"",
+            run_id
+        ));
         let params = super::SpawnAgentParams {
             agent: Some(agent),
             agent_name: None,
@@ -140,12 +149,10 @@ impl ServiceContext {
             role,
             parent_pane_id: None,
             can_spawn: None,
-            task: Some(format!(
-                "{}\n\nIMPORTANT: When you are completely done with this task, you MUST run this exact command as your FINAL action:\ncodeterm cron complete --run-id {} --summary \"<your concise summary of what happened and the result>\"",
-                task, run_id
-            )),
+            task: Some(task_text),
             workspace_id: Some(workspace_id),
             force_tab: Some(true),
+            report_target_pane_id: creator_pane_id,
         };
 
         match self.spawn_agent_sync(params) {

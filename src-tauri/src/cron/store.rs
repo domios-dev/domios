@@ -39,6 +39,9 @@ pub struct CronJob {
     pub cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// Pane ID of whoever created this cron — spawned agents report back here.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub creator_pane_id: Option<String>,
     #[serde(default = "default_max_history")]
     pub max_history: usize,
     pub created_at: u64,
@@ -111,10 +114,7 @@ pub struct CronStore {
 
 impl CronStore {
     pub fn new() -> Self {
-        let dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".codeterm");
-        let _ = fs::create_dir_all(&dir);
+        let dir = crate::paths::data_dir();
         let file_path = dir.join("crons.json");
         let file = if file_path.exists() {
             match fs::read_to_string(&file_path) {
@@ -231,6 +231,7 @@ impl CronStore {
             task: params.task,
             cwd: params.cwd,
             role: params.role,
+            creator_pane_id: params.creator_pane_id,
             max_history: params.max_history.unwrap_or(default_max_history()),
             created_at: Self::now_ms(),
             last_run: None,
@@ -419,6 +420,8 @@ pub struct CronCreateParams {
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
+    pub creator_pane_id: Option<String>,
+    #[serde(default)]
     pub enabled: Option<bool>,
     #[serde(default)]
     pub max_history: Option<usize>,
@@ -469,6 +472,7 @@ mod tests {
             agent: None,
             cwd: None,
             role: None,
+            creator_pane_id: None,
             enabled: None,
             max_history: None,
         }

@@ -22,7 +22,6 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
   const [skillsInstalled, setSkillsInstalled] = useState(false);
   const [hooksInstalled, setHooksInstalled] = useState(false);
   const [rulesInstalled, setRulesInstalled] = useState(false);
-  const [networkEnabled, setNetworkEnabled] = useState(config.api?.enabled ?? false);
   const [apiToken, setApiToken] = useState<string | null>(config.api?.token ?? null);
   const [networkInfo, setNetworkInfo] = useState<{ api_url: string; tailscale_url: string | null } | null>(null);
   const [orchestratorPrompt, setOrchestratorPrompt] = useState("");
@@ -73,32 +72,39 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
     try { await invoke("install_project_rules"); setRulesInstalled(true); } catch {}
   }, []);
 
-  const enableNetwork = useCallback(async () => {
-    try {
-      // Generate token first
-      const token = await invoke<string>("generate_api_token");
-      setApiToken(token);
-      // Enable API
-      await invoke("update_config", {
-        config: { ...config, api: { ...config.api, enabled: true, token } },
-      });
-      setNetworkEnabled(true);
-      // Fetch network info
-      const net = await invoke<{ api_url: string; tailscale_url: string | null }>("get_network_info");
-      setNetworkInfo(net);
-      // Fetch orchestrator prompt
-      const base = await invoke<string>("get_skills_prompt");
-      const url = net.tailscale_url || net.api_url;
-      setOrchestratorPrompt(`CodeTerm API: ${url}\nAuthorization: Bearer ${token}\n\n${base}`);
-    } catch {}
-  }, [config]);
+  // Auto-initialize network info when reaching the network step
+  useEffect(() => {
+    if (step !== 3) return;
+    (async () => {
+      try {
+        // Generate token if we don't have one yet
+        let token = apiToken;
+        if (!token) {
+          token = await invoke<string>("generate_api_token");
+          setApiToken(token);
+          await invoke("update_config", {
+            config: { ...config, api: { ...config.api, enabled: true, token } },
+          });
+        }
+        // Fetch network info
+        const net = await invoke<{ api_url: string; tailscale_url: string | null }>("get_network_info");
+        setNetworkInfo(net);
+        // Build orchestrator prompt
+        const base = await invoke<string>("get_skills_prompt");
+        const url = net.tailscale_url || net.api_url;
+        setOrchestratorPrompt(`CodeTerm API: ${url}\nAuthorization: Bearer ${token}\n\n${base}`);
+      } catch {}
+    })();
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const disableNetwork = useCallback(async () => {
     try {
       await invoke("update_config", {
         config: { ...config, api: { ...config.api, enabled: false } },
       });
-      setNetworkEnabled(false);
+      setApiToken(null);
+      setNetworkInfo(null);
+      setOrchestratorPrompt("");
     } catch {}
   }, [config]);
 
@@ -200,9 +206,9 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
             )}
             {step === 3 && (
               <StepNetwork c={c}
-                enabled={networkEnabled} token={apiToken} networkInfo={networkInfo}
+                token={apiToken} networkInfo={networkInfo}
                 orchestratorPrompt={orchestratorPrompt}
-                onEnable={enableNetwork} onDisable={disableNetwork}
+                onDisable={disableNetwork}
               />
             )}
           </div>
@@ -504,16 +510,16 @@ function SetupRow({
 // ── Step 4: Network & Orchestrator ───────────────────────────────────
 
 function StepNetwork({
-  c, enabled, token, networkInfo, orchestratorPrompt,
-  onEnable, onDisable,
+  c, token, networkInfo, orchestratorPrompt, onDisable,
 }: {
   c: C;
-  enabled: boolean; token: string | null;
+  token: string | null;
   networkInfo: { api_url: string; tailscale_url: string | null } | null;
   orchestratorPrompt: string;
-  onEnable: () => void; onDisable: () => void;
+  onDisable: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [tokenCopied, setTokenCopied] = useState(false);
 
   return (
     <div className="text-center">
@@ -521,7 +527,6 @@ function StepNetwork({
         className="inline-flex items-center justify-center w-14 h-14 rounded-full mb-6"
         style={{ backgroundColor: c.accent + "15" }}
       >
-        {/* Globe icon */}
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={c.accent} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="10" />
           <path d="M2 12h20" />
@@ -533,43 +538,41 @@ function StepNetwork({
         Network API
       </h2>
       <p className="text-sm mb-6" style={{ color: c.muted }}>
-        Enable the REST API so external tools and orchestrators can control CodeTerm.
+        CodeTerm's REST API is ready. External tools and orchestrators can control your terminal remotely.
       </p>
 
-      {/* Enable toggle */}
-      <div
-        className="max-w-md mx-auto flex items-center justify-between px-4 py-3 rounded-lg border transition-colors"
-        style={{
-          borderColor: enabled ? c.green + "40" : c.border,
-          backgroundColor: enabled ? c.green + "08" : c.surface + "60",
-        }}
-      >
-        <div className="text-left">
-          <div className="text-xs font-medium" style={{ color: c.fg }}>REST API</div>
-          <div className="text-[11px]" style={{ color: c.muted }}>
-            {enabled ? "Listening on port 7685 with token auth" : "Disabled — only local CLI access"}
-          </div>
-        </div>
-        <button
-          onClick={enabled ? onDisable : onEnable}
-          className="shrink-0 text-[11px] px-3 py-1.5 rounded-md font-medium transition-all"
-          style={{
-            backgroundColor: enabled ? c.surface : c.accent,
-            color: enabled ? c.muted : "#fff",
-            borderWidth: enabled ? 1 : 0,
-            borderColor: c.border,
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.filter = "brightness(1.15)")}
-          onMouseLeave={(e) => (e.currentTarget.style.filter = "none")}
+      <div className="max-w-md mx-auto space-y-3 text-left">
+        {/* Status + address */}
+        <div
+          className="flex items-center justify-between px-4 py-3 rounded-lg border"
+          style={{ borderColor: c.green + "40", backgroundColor: c.green + "08" }}
         >
-          {enabled ? "Disable" : "Enable"}
-        </button>
-      </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.green }} />
+              <span className="text-xs font-medium" style={{ color: c.fg }}>API Active</span>
+            </div>
+            <div className="text-[11px] mt-0.5" style={{ color: c.muted }}>
+              {networkInfo?.tailscale_url
+                ? `${networkInfo.api_url} (local) · ${networkInfo.tailscale_url} (Tailscale)`
+                : networkInfo?.api_url
+                  ? networkInfo.api_url
+                  : "Initializing..."}
+            </div>
+          </div>
+          <button
+            onClick={onDisable}
+            className="shrink-0 text-[11px] px-3 py-1.5 rounded-md font-medium transition-all"
+            style={{ backgroundColor: c.surface, color: c.muted, borderWidth: 1, borderColor: c.border }}
+            onMouseEnter={(e) => (e.currentTarget.style.filter = "brightness(1.15)")}
+            onMouseLeave={(e) => (e.currentTarget.style.filter = "none")}
+          >
+            Disable
+          </button>
+        </div>
 
-      {/* Token + orchestrator info — shown after enabling */}
-      {enabled && token && (
-        <div className="max-w-md mx-auto mt-4 space-y-3 text-left">
-          {/* Token display */}
+        {/* Token */}
+        {token && (
           <div
             className="px-4 py-3 rounded-lg border"
             style={{ borderColor: c.border, backgroundColor: c.surface + "60" }}
@@ -585,74 +588,57 @@ function StepNetwork({
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(token);
+                  setTokenCopied(true);
+                  setTimeout(() => setTokenCopied(false), 2000);
                 }}
                 className="shrink-0 text-[10px] px-2 py-1 rounded transition-colors"
                 style={{ backgroundColor: c.border, color: c.fg }}
                 onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = c.hover)}
                 onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = c.border)}
               >
-                Copy
-              </button>
-            </div>
-            <div className="text-[10px] mt-1.5" style={{ color: c.muted }}>
-              {networkInfo?.tailscale_url
-                ? `Available at ${networkInfo.tailscale_url} (Tailscale) and ${networkInfo.api_url} (local)`
-                : networkInfo?.api_url
-                  ? `Available at ${networkInfo.api_url}`
-                  : "Requires restart to start listening"}
-            </div>
-          </div>
-
-          {/* Orchestrator section */}
-          <div
-            className="px-4 py-3 rounded-lg border"
-            style={{ borderColor: c.border, backgroundColor: c.surface + "60" }}
-          >
-            <div className="text-[11px] font-medium mb-1" style={{ color: c.fg }}>External Orchestrator</div>
-            <div className="text-[10px] mb-2" style={{ color: c.muted }}>
-              Copy this prompt to a gateway or any external AI orchestrator — it includes the API URL, auth token, and all available commands.
-            </div>
-            <div className="relative">
-              <pre
-                className="rounded p-2 text-[9px] font-mono whitespace-pre-wrap max-h-[80px] overflow-y-auto leading-relaxed"
-                style={{ backgroundColor: c.bg, color: c.muted }}
-              >
-                {orchestratorPrompt || "Loading..."}
-              </pre>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(orchestratorPrompt).then(() => {
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  });
-                }}
-                className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[9px] rounded transition-colors"
-                style={{ backgroundColor: c.border, color: c.fg }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = c.hover)}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = c.border)}
-              >
-                {copied ? "Copied!" : "Copy"}
+                {tokenCopied ? "Copied!" : "Copy"}
               </button>
             </div>
           </div>
+        )}
 
-          <div className="text-[10px] text-center" style={{ color: c.dimmed }}>
-            You can regenerate the token anytime in Settings &rarr; Network & API.
-          </div>
-        </div>
-      )}
-
-      {!enabled && (
+        {/* Orchestrator prompt */}
         <div
-          className="mt-6 mx-auto max-w-sm px-4 py-3 rounded-lg border text-[11px] text-left"
-          style={{ borderColor: c.border, backgroundColor: c.surface + "60", color: c.muted }}
+          className="px-4 py-3 rounded-lg border"
+          style={{ borderColor: c.border, backgroundColor: c.surface + "60" }}
         >
-          <span style={{ color: c.accent }}>Note:</span> You can always enable this later in Settings. The local CLI (<code
-            className="px-1 py-0.5 rounded text-[10px] font-mono"
-            style={{ backgroundColor: c.border, color: c.fg }}
-          >codeterm</code>) works without the API.
+          <div className="text-[11px] font-medium mb-1" style={{ color: c.fg }}>External Orchestrator Prompt</div>
+          <div className="text-[10px] mb-2" style={{ color: c.muted }}>
+            Give this to a gateway or any AI orchestrator — it includes the API URL, auth token, and all available commands so it can control CodeTerm.
+          </div>
+          <div className="relative">
+            <pre
+              className="rounded p-2 text-[9px] font-mono whitespace-pre-wrap max-h-[100px] overflow-y-auto leading-relaxed"
+              style={{ backgroundColor: c.bg, color: c.muted }}
+            >
+              {orchestratorPrompt || "Loading..."}
+            </pre>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(orchestratorPrompt).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                });
+              }}
+              className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[9px] rounded transition-colors"
+              style={{ backgroundColor: c.border, color: c.fg }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = c.hover)}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = c.border)}
+            >
+              {copied ? "Copied!" : "Copy"}
+            </button>
+          </div>
         </div>
-      )}
+
+        <div className="text-[10px] text-center" style={{ color: c.dimmed }}>
+          You can regenerate the token anytime in Settings &rarr; Network & API.
+        </div>
+      </div>
     </div>
   );
 }

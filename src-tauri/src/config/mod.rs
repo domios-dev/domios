@@ -11,15 +11,12 @@ use schema::{AppConfig, ThemeConfig};
 pub type ConfigState = Arc<Mutex<AppConfig>>;
 
 /// Get the config file path.
-/// All platforms: ~/.codeterm/config.toml
 pub fn config_path_pub() -> Result<PathBuf, String> {
-    config_path()
+    crate::paths::config_path()
 }
 
 fn config_path() -> Result<PathBuf, String> {
-    let dir = dirs::home_dir()
-        .ok_or_else(|| "Could not determine home directory".to_string())?;
-    Ok(dir.join(".codeterm").join("config.toml"))
+    crate::paths::config_path()
 }
 
 /// Generate the default config TOML with helpful comments.

@@ -47,6 +47,9 @@ impl Default for ApiConfig {
         Self {
             enabled: true,
             host: "0.0.0.0".to_string(),
+            #[cfg(debug_assertions)]
+            port: 7686,
+            #[cfg(not(debug_assertions))]
             port: 7685,
             token: None,
             cors: true,
@@ -310,7 +313,7 @@ pub fn list_builtin_theme_ids() -> Vec<String> {
 
 /// Directory for user custom themes.
 pub fn user_themes_dir() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|d| d.join(".codeterm").join("themes"))
+    Some(crate::paths::data_dir().join("themes"))
 }
 
 /// Load a custom theme from the user themes directory.

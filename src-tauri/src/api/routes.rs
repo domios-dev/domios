@@ -31,6 +31,7 @@ pub struct AppState {
     pub svc: crate::service::ServiceState,
     pub cron: crate::CronState,
     pub cron_wake: crate::CronWake,
+    pub api_port: u16,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -219,7 +220,7 @@ async fn create_tab(
     Path(workspace_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let (tab_id, pane_id) = state.svc.create_tab(&workspace_id)
+    let (tab_id, pane_id) = state.svc.create_tab_with_activate(&workspace_id, false)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
     Ok(Json(serde_json::json!({
         "tab_id": tab_id,
@@ -769,16 +770,19 @@ async fn unregister_webhook(
 // Network info
 // ---------------------------------------------------------------------------
 
-async fn network_info() -> Json<serde_json::Value> {
+async fn network_info(
+    AxumState(state): AxumState<AppState>,
+) -> Json<serde_json::Value> {
     let local_ip = local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
     let tailscale_ip = detect_tailscale_ip();
+    let port = state.api_port;
 
     Json(serde_json::json!({
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,
-        "api_port": 7685,
-        "api_url": format!("http://{}:7685", local_ip),
-        "tailscale_url": tailscale_ip.as_ref().map(|ip| format!("http://{}:7685", ip)),
+        "api_port": port,
+        "api_url": format!("http://{}:{}", local_ip, port),
+        "tailscale_url": tailscale_ip.as_ref().map(|ip| format!("http://{}:{}", ip, port)),
     }))
 }
 
@@ -828,6 +832,8 @@ struct SpawnAgentBody {
     workspace_id: Option<String>,
     /// Force creation as a new tab instead of split pane (even with parent)
     force_tab: Option<bool>,
+    /// Report target pane ID — for cron agents to report without joining hierarchy
+    report_target_pane_id: Option<String>,
 }
 
 async fn spawn_agent(
@@ -848,6 +854,7 @@ async fn spawn_agent(
         task: body.task,
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
+        report_target_pane_id: body.report_target_pane_id,
     };
     let result = state.svc.spawn_agent(params).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;

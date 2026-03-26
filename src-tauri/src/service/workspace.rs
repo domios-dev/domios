@@ -47,10 +47,16 @@ impl ServiceContext {
     }
 
     pub fn create_tab(&self, workspace_id: &str) -> Result<(String, String), String> {
+        self.create_tab_with_activate(workspace_id, true)
+    }
+
+    pub fn create_tab_with_activate(&self, workspace_id: &str, activate: bool) -> Result<(String, String), String> {
         let result = {
             let mut mux = self.mux.lock();
             let (tab_id, pane_id) = mux.create_tab(workspace_id)?;
-            let _ = mux.set_active_tab(workspace_id, &tab_id);
+            if activate {
+                let _ = mux.set_active_tab(workspace_id, &tab_id);
+            }
             (tab_id, pane_id)
         };
         self.emit_state_changed();

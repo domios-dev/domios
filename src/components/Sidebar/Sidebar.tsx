@@ -878,10 +878,11 @@ function TabItem({
         `}
       >
         <div className="flex items-center gap-2 min-w-0">
-          {/* Icon — role icon > orange sparkle for Claude Code (spins when working) > terminal icon */}
-          {pane?.role ? (
+          {/* Icon — Lead/Worker role icon > orange sparkle for Claude Code (spins when working) > terminal icon */}
+          {/* Orchestrator uses standard icon (Claude sparkle or terminal) — it's just a user tab */}
+          {pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor" ? (
             <span
-              className={`shrink-0 text-[11px] leading-none ${pane.role === "Orchestrator" || pane.role === "Conductor" ? "text-[var(--ct-yellow)]" : "text-[var(--ct-muted-fg)]"} ${status === "Working" ? "animate-pulse" : ""}`}
+              className={`shrink-0 text-[11px] leading-none text-[var(--ct-muted-fg)] ${status === "Working" ? "animate-pulse" : ""}`}
               title={`${pane.role}${status === "Working" ? " — working" : ""}`}
             >{ROLE_ICONS[pane.role]}</span>
           ) : hasAgent ? (
