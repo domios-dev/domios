@@ -1,13 +1,48 @@
 use std::collections::HashMap;
 use std::io::Read;
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_updater::UpdaterExt;
 
 use crate::agent::detector;
 use crate::agent::git_info::{self, GitInfo};
 use crate::multiplexer::commands::MuxState;
 use crate::notification::NotifState;
 use crate::api::events::EventBroadcasterState;
-use crate::{AgentTrackerState, OutputBufferState, PtyState};
+use crate::{AgentTrackerState, OutputBufferState, PtyState, UpdateStateHandle};
+
+#[tauri::command]
+pub async fn check_for_update(
+    update_state: tauri::State<'_, UpdateStateHandle>,
+    app: AppHandle,
+) -> Result<serde_json::Value, String> {
+    let method = update_state.lock().install_method.clone();
+    let info = crate::update::checker::check_for_update(&method)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if info.update_available {
+        use tauri::Emitter;
+        let _ = app.emit("update-available", serde_json::to_value(&info).unwrap_or_default());
+    }
+
+    let val = serde_json::to_value(&info).map_err(|e| e.to_string())?;
+    let mut us = update_state.lock();
+    us.last_check = Some(info);
+    us.last_check_time = Some(std::time::Instant::now());
+    Ok(val)
+}
+
+#[tauri::command]
+pub async fn install_app_update(app: AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let update = updater.check().await.map_err(|e| e.to_string())?;
+    if let Some(update) = update {
+        update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
+        app.restart();
+    } else {
+        Err("No update available".into())
+    }
+}
 
 /// Spawn a new PTY. Returns the PTY ID.
 /// NO background thread — frontend polls via read_pty command.
