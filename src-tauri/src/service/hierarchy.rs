@@ -45,13 +45,12 @@ impl ServiceContext {
             let mux = self.mux.lock();
             let pane = mux.get_pane(pane_id).ok_or("Pane not found")?;
             let title = pane.title.clone();
-            // Report goes to direct parent, not orchestrator
-            let parent = pane.parent_pane_id.clone()
-                .ok_or_else(|| {
-                    // No parent — fall back to orchestrator
+            // Report goes to direct parent, then report_target (cron creator), then orchestrator
+            let target = pane.parent_pane_id.clone()
+                .or_else(|| pane.report_target_pane_id.clone())
+                .unwrap_or_else(|| {
                     find_orchestrator(&mux, pane_id).unwrap_or_default()
                 });
-            let target = parent.unwrap_or_else(|fallback| fallback);
             if target.is_empty() {
                 return Err("No parent or orchestrator found".to_string());
             }

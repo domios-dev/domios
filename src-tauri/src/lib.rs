@@ -5,6 +5,7 @@ mod config;
 pub mod cron;
 pub mod multiplexer;
 mod notification;
+pub mod paths;
 pub mod pty;
 mod screenshot;
 pub mod service;
@@ -273,6 +274,7 @@ pub fn run() {
                         svc: service_state.clone(),
                         cron: cron_state.clone(),
                         cron_wake: cron_wake.clone(),
+                        api_port: api_config.port,
                     };
                     let router = api::routes::create_router(api_state);
                     let host = api_config.host.clone();

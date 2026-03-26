@@ -740,7 +740,7 @@ fn is_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
             }
             // Legacy detection: check if command posts to CodeTerm API
             h.get("command").and_then(|c| c.as_str())
-                .map(|cmd| cmd.contains("/api/notifications") && cmd.contains("7685"))
+                .map(|cmd| cmd.contains("/api/notifications") && (cmd.contains("7685") || cmd.contains("7686")))
                 .unwrap_or(false)
         }))
         .unwrap_or(false)
@@ -792,7 +792,12 @@ pub struct ClaudeHooksStatus {
 #[tauri::command]
 pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
     let path = claude_settings_path()?;
-    let port = api_port.unwrap_or(7685);
+    let port = api_port.unwrap_or_else(|| {
+        #[cfg(debug_assertions)]
+        { 7686 }
+        #[cfg(not(debug_assertions))]
+        { 7685 }
+    });
 
     // Ensure ~/.claude/ directory exists
     if let Some(parent) = path.parent() {
@@ -977,15 +982,16 @@ pub fn generate_api_token(
 
 /// Get network info (local IP, Tailscale IP, API URL).
 #[tauri::command]
-pub fn get_network_info() -> Result<serde_json::Value, String> {
+pub fn get_network_info(state: tauri::State<'_, crate::config::ConfigState>) -> Result<serde_json::Value, String> {
     let local_ip = crate::api::routes::local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
     let tailscale_ip = crate::api::routes::detect_tailscale_ip();
+    let port = state.lock().api.port;
     Ok(serde_json::json!({
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,
-        "api_port": 7685,
-        "api_url": format!("http://{}:7685", local_ip),
-        "tailscale_url": tailscale_ip.as_ref().map(|ip| format!("http://{}:7685", ip)),
+        "api_port": port,
+        "api_url": format!("http://{}:{}", local_ip, port),
+        "tailscale_url": tailscale_ip.as_ref().map(|ip| format!("http://{}:{}", ip, port)),
     }))
 }
 
@@ -1049,6 +1055,7 @@ pub fn cron_create(
         agent,
         cwd,
         role: None,
+        creator_pane_id: None,
         enabled: Some(true),
         max_history: None,
     };

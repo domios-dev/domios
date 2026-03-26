@@ -3,9 +3,21 @@ mod client;
 use clap::{Parser, Subcommand};
 use client::{discover_socket, SocketClient};
 
+/// Determine the CodeTerm data directory.
+/// Dev instances use `~/.codeterm-dev/`, prod uses `~/.codeterm/`.
+/// Detection: if CODETERM_SOCKET_PATH contains "codeterm-dev", use dev dir.
+fn data_dir_name() -> &'static str {
+    if let Ok(sp) = std::env::var("CODETERM_SOCKET_PATH") {
+        if sp.contains("codeterm-dev") {
+            return ".codeterm-dev";
+        }
+    }
+    ".codeterm"
+}
+
 /// Read API config (host, port, token) from CodeTerm config.toml
 fn read_api_config() -> (String, Option<String>) {
-    let config_dir = dirs::home_dir().unwrap_or_default().join(".codeterm");
+    let config_dir = dirs::home_dir().unwrap_or_default().join(data_dir_name());
     let config_path = config_dir.join("config.toml");
     if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(val) = content.parse::<toml::Table>() {
@@ -397,6 +409,9 @@ enum CronAction {
         /// Description
         #[arg(long)]
         description: Option<String>,
+        /// Pane ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
+        #[arg(long, env = "CODETERM_PANE_ID")]
+        creator_pane: Option<String>,
     },
     /// Edit a cron job
     Edit {
@@ -951,7 +966,7 @@ fn main() {
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
                 }
-                CronAction::Create { name, schedule, task, workspace, agent, cwd, description } => {
+                CronAction::Create { name, schedule, task, workspace, agent, cwd, description, creator_pane } => {
                     let ws_id = workspace.unwrap_or_else(|| {
                         // Get active workspace
                         client.call("workspace.list", None)
@@ -969,6 +984,7 @@ fn main() {
                     });
                     if let Some(c) = cwd { params["cwd"] = serde_json::json!(c); }
                     if let Some(d) = description { params["description"] = serde_json::json!(d); }
+                    if let Some(cp) = creator_pane { params["creator_pane_id"] = serde_json::json!(cp); }
                     match client.call("cron.create", Some(params)) {
                         Ok(val) => {
                             if cli.json {

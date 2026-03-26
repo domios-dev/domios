@@ -46,10 +46,11 @@ impl MultiplexerState {
             url: None,
             agent_type: None,
             claude_session_id: None,
-            role: None,
+            role: Some(AgentRole::Orchestrator),
             parent_pane_id: None,
-            can_spawn: false,
-            depth: 0,
+            can_spawn: true,
+            depth: 1,
+            report_target_pane_id: None,
             title_level: TitleLevel::Default,
         };
 
@@ -347,6 +348,7 @@ impl MultiplexerState {
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
+            report_target_pane_id: None,
             title_level: TitleLevel::Default,
         };
         self.panes.insert(pane_id.clone(), pane);
@@ -369,6 +371,7 @@ impl MultiplexerState {
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
+            report_target_pane_id: None,
             title_level: TitleLevel::Default,
         };
         self.panes.insert(pane_id.clone(), pane);
@@ -829,6 +832,7 @@ impl MultiplexerState {
                         parent_pane_id: parent_pane_id.clone(),
                         can_spawn: *can_spawn,
                         depth: *depth,
+                        report_target_pane_id: None,
                         title_level: restored_level,
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
@@ -1331,7 +1335,9 @@ mod tests {
 
     #[test]
     fn test_set_can_spawn_requires_role() {
-        let (mut state, pane_id) = MultiplexerState::new();
+        let (mut state, _) = MultiplexerState::new();
+        // Create a plain pane without a role
+        let pane_id = state.create_pane();
         let result = state.set_can_spawn(&pane_id, true);
         assert!(result.is_err()); // no role
     }

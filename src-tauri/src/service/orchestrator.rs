@@ -152,6 +152,8 @@ pub struct SpawnAgentParams {
     pub workspace_id: Option<String>,
     /// Force creation as a new tab instead of split pane (even with parent).
     pub force_tab: Option<bool>,
+    /// Report target pane ID — for cron agents to report without joining hierarchy.
+    pub report_target_pane_id: Option<String>,
 }
 
 impl SpawnAgentParams {
@@ -176,6 +178,7 @@ impl SpawnAgentParams {
             task: json_str(params, "task"),
             workspace_id: json_str(params, "workspace_id"),
             force_tab: params.get("force_tab").and_then(|v| v.as_bool()),
+            report_target_pane_id: json_str(params, "report_target_pane_id"),
         })
     }
 }
@@ -225,16 +228,19 @@ impl ServiceContext {
                     pane.cwd = Some(dir.clone());
                 }
             }
-            // Only switch to new tab if no role (user-initiated), not for agent spawns
-            if params.role.is_none() {
-                let _ = mux.set_active_tab(&ws_id, &result.0);
-            }
+            // Never auto-switch to agent/cron spawned tabs — only user clicks switch focus
             // Set role inside same lock — before frontend sees the pane
             if let Some(ref role_str) = params.role {
                 let role = Self::parse_role(role_str)?;
                 mux.set_pane_role(&result.1, role, params.parent_pane_id.as_deref())?;
                 if let Some(cs) = params.can_spawn {
                     let _ = mux.set_can_spawn(&result.1, cs);
+                }
+            }
+            // Set report target for cron agents
+            if let Some(ref rtid) = params.report_target_pane_id {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.report_target_pane_id = Some(rtid.clone());
                 }
             }
             // Rename
@@ -330,6 +336,12 @@ impl ServiceContext {
             // Only switch tab for user-initiated spawns, not agent hierarchy
             if params.role.is_none() {
                 let _ = mux.set_active_tab(&ws_id, &result.0);
+            }
+            // Set report target for cron agents
+            if let Some(ref rtid) = params.report_target_pane_id {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.report_target_pane_id = Some(rtid.clone());
+                }
             }
             result
         };
@@ -492,6 +504,7 @@ mod tests {
             can_spawn: None,
             workspace_id: None,
             force_tab: None,
+            report_target_pane_id: None,
         }
     }
 
