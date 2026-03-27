@@ -23,6 +23,7 @@ interface TerminalPaneProps {
   paneId: string;
   ptyId?: string | null;
   isFocused?: boolean;
+  hasSplits?: boolean;
   onFocus?: (paneId: string) => void;
   onPtySpawned?: (paneId: string, ptyId: string) => void;
   theme?: ThemeConfig;
@@ -95,6 +96,7 @@ export function TerminalPane({
   paneId,
   ptyId,
   isFocused = false,
+  hasSplits = false,
   onFocus,
   onPtySpawned,
   theme,
@@ -483,23 +485,48 @@ export function TerminalPane({
       let firstData = true;
       let pendingChunks: Uint8Array[] = [];
       let rafScheduled = false;
+      let userScrolledUp = false;
+
+      // Track whether user has scrolled up (to preserve position during writes)
+      const viewportEl = term.element?.querySelector('.xterm-viewport');
+      if (viewportEl) {
+        viewportEl.addEventListener('scroll', () => {
+          const buf = term.buffer.active;
+          if (buf.type === 'normal') {
+            userScrolledUp = buf.viewportY < buf.baseY;
+          }
+        });
+      }
 
       const flushToTerminal = () => {
         rafScheduled = false;
         if (pendingChunks.length === 0) return;
+
+        // Save scroll position if user scrolled up
+        const savedViewportY = userScrolledUp && term.buffer.active.type === 'normal'
+          ? term.buffer.active.viewportY
+          : null;
+
         // Merge all pending chunks into one write
-        if (pendingChunks.length === 1) {
-          term.write(pendingChunks[0]);
-        } else {
-          const total = pendingChunks.reduce((s, c) => s + c.length, 0);
-          const merged = new Uint8Array(total);
-          let offset = 0;
-          for (const chunk of pendingChunks) {
-            merged.set(chunk, offset);
-            offset += chunk.length;
+        const writeData = pendingChunks.length === 1
+          ? pendingChunks[0]
+          : (() => {
+              const total = pendingChunks.reduce((s, c) => s + c.length, 0);
+              const merged = new Uint8Array(total);
+              let offset = 0;
+              for (const chunk of pendingChunks) {
+                merged.set(chunk, offset);
+                offset += chunk.length;
+              }
+              return merged;
+            })();
+
+        term.write(writeData, () => {
+          // Restore scroll position after write completes
+          if (savedViewportY !== null && userScrolledUp) {
+            term.scrollToLine(savedViewportY);
           }
-          term.write(merged);
-        }
+        });
         pendingChunks = [];
       };
 
@@ -858,7 +885,7 @@ export function TerminalPane({
 
   const topAccent = bellFlash
     ? "var(--ct-yellow, #d29922)"
-    : isFocused
+    : hasSplits && isFocused
       ? "var(--ct-muted-fg, #8b949e)"
       : "transparent";
 
@@ -868,7 +895,7 @@ export function TerminalPane({
       data-pane-id={paneId}
       style={{
         boxSizing: "border-box",
-        borderTop: `1px solid ${topAccent}`,
+        borderTop: hasSplits ? `1px solid ${topAccent}` : "none",
         transition: bellFlash ? "border-color 0.1s ease-in" : "border-color 0.15s ease-out",
       }}
       onMouseDown={handleClick}
@@ -952,10 +979,22 @@ export function TerminalPane({
         onClick={() => xtermRef.current?.focus()}
       />
 
-      {/* Loading overlay — hides shell startup noise */}
+      {/* Loading overlay — hides shell startup noise with premium breathing animation */}
       {overlayVisible && (
-        <div className="absolute inset-0" style={{ background: "var(--ct-bg, #0d1117)", opacity: shellReady ? 0 : 1, transition: "opacity 0.3s ease-out" }}>
-          <div style={{ color: "var(--ct-fg, #c9d1d9)", fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace", fontSize: fontConfig?.size ?? 14, padding: "4px 6px" }}>Starting...</div>
+        <div
+          className={`absolute inset-0 ${!shellReady ? "terminal-loading-overlay" : ""}`}
+          style={{
+            background: "var(--ct-bg, #0d1117)",
+            opacity: shellReady ? 0 : 1,
+            transition: "opacity 0.3s ease-out",
+          }}
+        >
+          {/* Breathing bar at bottom center */}
+          {!shellReady && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+              <div className="terminal-breathing-bar" />
+            </div>
+          )}
         </div>
       )}
 

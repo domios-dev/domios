@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -153,12 +153,62 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   const sidebarRef = useRef<HTMLDivElement>(null);
   const isCompact = sidebarWidth < 100;
 
+  // Track tabs for appear/close animations
+  const prevTabIdsRef = useRef<Set<string>>(new Set());
+  const [appearingTabs, setAppearingTabs] = useState<Set<string>>(new Set());
+  const [closingTabs, setClosingTabs] = useState<Map<string, { wsId: string }>>(new Map());
+
+  // Detect new tabs appearing
+  const allTabIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const ws of state.workspaces) {
+      for (const tab of ws.tabs) ids.add(tab.id);
+    }
+    return ids;
+  }, [state.workspaces]);
+
+  useEffect(() => {
+    const prev = prevTabIdsRef.current;
+    // Skip on first render (initial tabs should not animate in)
+    if (prev.size > 0) {
+      const newIds = new Set<string>();
+      for (const id of allTabIds) {
+        if (!prev.has(id)) newIds.add(id);
+      }
+      if (newIds.size > 0) {
+        setAppearingTabs(newIds);
+        const timer = setTimeout(() => setAppearingTabs(new Set()), 250);
+        prevTabIdsRef.current = allTabIds;
+        return () => clearTimeout(timer);
+      }
+    }
+    prevTabIdsRef.current = allTabIds;
+  }, [allTabIds]);
+
+  // Wrap closeTab to animate
+  const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
+    setClosingTabs((prev) => {
+      const next = new Map(prev);
+      next.set(tabId, { wsId });
+      return next;
+    });
+    // Phase 1: visual exit (150ms), then Phase 2: height collapse (200ms)
+    setTimeout(() => {
+      closeTab(wsId, tabId);
+      setClosingTabs((prev) => {
+        const next = new Map(prev);
+        next.delete(tabId);
+        return next;
+      });
+    }, 350);
+  }, [closeTab]);
+
   return (
     <>
       <aside
         ref={sidebarRef}
-        className="shrink-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-hidden relative"
-        style={{ width: sidebarWidth }}
+        className="shrink-0 bg-[var(--ct-sidebar-bg)] flex flex-col select-none overflow-hidden relative"
+        style={{ width: sidebarWidth, boxShadow: "inset -0.5px 0 0 var(--ct-border-subtle)" }}
       >
         {/* Panes header with action icons */}
         <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
@@ -296,7 +346,16 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                     } catch { /* ignore */ }
                   }}
                 />
-                {isExpanded ? (
+                {/* Animated expand/collapse using grid-template-rows */}
+                <div
+                  className="grid transition-[grid-template-rows] duration-[320ms]"
+                  style={{
+                    gridTemplateRows: isExpanded ? "1fr" : "0fr",
+                    transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+                  }}
+                >
+                  <div className="overflow-hidden">
+                {isExpanded || true ? (
                   <>
                     {(() => {
                       // Build pane→tab lookup and find which tabs are children
@@ -326,6 +385,9 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                             })
                           : [];
 
+                        const isClosing = closingTabs.has(tab.id);
+                        const isAppearing = appearingTabs.has(tab.id);
+
                         return (
                           <div key={tab.id} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
                             <TabItem
@@ -336,7 +398,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                                 setActiveWorkspace(ws.id);
                                 setActiveTab(ws.id, tab.id);
                               }}
-                              onClose={() => closeTab(ws.id, tab.id)}
+                              onClose={() => animatedCloseTab(ws.id, tab.id)}
                               canClose={true}
                               paneCount={tabPids.length}
                               workspaceId={ws.id}
@@ -354,6 +416,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                               }}
                               pane={firstPane}
                               orchestrators={wsOrchestrators}
+                              isAppearing={isAppearing}
+                              isClosing={isClosing}
                             />
                             {childTabs.map((ct, ci) => renderTab(ct, ci, depth + 1))}
                           </div>
@@ -384,7 +448,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                     {/* Cron jobs section */}
                     <CronSection workspaceId={ws.id} />
                   </>
-                ) : isActive && ws.active_tab_id ? (
+                ) : null}
+                  </div>
+                </div>
+                {!isExpanded && isActive && ws.active_tab_id ? (
                   /* Collapsed but active — show selected tab */
                   (() => {
                     const activeTab = ws.tabs.find((t) => t.id === ws.active_tab_id);
@@ -397,7 +464,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                         index={0}
                         isActive={true}
                         onClick={() => setActiveTab(ws.id, activeTab.id)}
-                        onClose={() => closeTab(ws.id, activeTab.id)}
+                        onClose={() => animatedCloseTab(ws.id, activeTab.id)}
                         canClose={true}
                         paneCount={atPids.length}
                         workspaceId={ws.id}
@@ -697,7 +764,7 @@ function WorkspaceItem({
       }}
     >
       <div className="flex items-center gap-1 min-w-0">
-        {/* Chevron toggle */}
+        {/* Chevron toggle — rotates on expand/collapse */}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -706,7 +773,19 @@ function WorkspaceItem({
           className="flex items-center justify-center w-4 h-4 shrink-0 text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] transition-colors"
           title={isExpanded ? "Collapse" : "Expand"}
         >
-          <span className="text-[10px] leading-none">{isExpanded ? "\u25BE" : "\u25B8"}</span>
+          <svg
+            width="8"
+            height="8"
+            viewBox="0 0 8 8"
+            fill="currentColor"
+            className="transition-transform duration-[320ms]"
+            style={{
+              transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
+              transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
+          >
+            <path d="M2 1l4 3-4 3V1z" />
+          </svg>
         </button>
         {/* Folder icon + name (click to activate, double-click to rename) */}
         <div className="flex items-center gap-2 min-w-0" onClick={onClick}>
@@ -763,7 +842,7 @@ function WorkspaceItem({
         <>
           <div className="fixed inset-0 z-40" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
           <div
-            className="fixed z-50 w-36 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1"
+            className="fixed z-50 w-36 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1 ct-float"
             style={{ left: ctxMenu.x, top: ctxMenu.y }}
           >
             <button
@@ -802,6 +881,8 @@ interface TabItemProps {
   onRename?: (title: string) => void;
   pane?: Pane | null;
   orchestrators?: Pane[];
+  isAppearing?: boolean;
+  isClosing?: boolean;
 }
 
 function ConfirmStopDialog({ onConfirm, onCancel, message }: { onConfirm: () => void; onCancel: () => void; message?: string }) {
@@ -844,11 +925,24 @@ function TabItem({
   onRename: _onRename,
   pane,
   orchestrators: _orchestrators,
+  isAppearing,
+  isClosing,
 }: TabItemProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
+  const tabRef = useRef<HTMLDivElement>(null);
+
+  // Close animation phases
+  const [closePhase, setClosePhase] = useState<0 | 1 | 2>(0);
+  useEffect(() => {
+    if (isClosing && closePhase === 0) {
+      setClosePhase(1); // Phase 1: visual exit
+      const timer = setTimeout(() => setClosePhase(2), 150); // Phase 2: height collapse
+      return () => clearTimeout(timer);
+    }
+  }, [isClosing, closePhase]);
 
   const handleClose = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -859,9 +953,19 @@ function TabItem({
     }
   }, [hasAgent, onClose]);
 
+  // Build animation CSS class
+  const animClass = isClosing
+    ? closePhase === 2
+      ? "sidebar-tab-closing-2"
+      : "sidebar-tab-closing-1"
+    : isAppearing
+      ? "sidebar-tab-appear"
+      : "";
+
   return (
     <>
       <div
+        ref={tabRef}
         onClick={onClick}
         draggable
         onDragStart={(e) => {
@@ -873,11 +977,23 @@ function TabItem({
         }}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
         className={`
-          group flex items-center justify-between pl-8 pr-2 py-1 cursor-pointer transition-colors
-          ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
+          sidebar-tab group flex items-center justify-between pl-8 pr-2 py-1 cursor-pointer transition-colors relative
+          ${animClass}
+          ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
         `}
       >
-        <div className="flex items-center gap-2 min-w-0">
+        {/* Active tab sliding pill indicator */}
+        {isActive && (
+          <div
+            className="absolute inset-y-0 left-0 right-0 rounded-[4px] pointer-events-none"
+            style={{
+              background: "var(--ct-bg-selected, rgba(99, 102, 241, 0.12))",
+              borderLeft: "2px solid var(--ct-accent, var(--ct-blue, #6366f1))",
+              transition: "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease",
+            }}
+          />
+        )}
+        <div className="flex items-center gap-2 min-w-0 relative z-[1]">
           {/* Icon — Lead/Worker role icon > orange sparkle for Claude Code (spins when working) > terminal icon */}
           {/* Orchestrator uses standard icon (Claude sparkle or terminal) — it's just a user tab */}
           {pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor" ? (
@@ -946,7 +1062,7 @@ function TabItem({
         {canClose && (
           <button
             onClick={handleClose}
-            className="shrink-0 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-all"
+            className="sidebar-tab-close shrink-0 w-5 h-5 flex items-center justify-center rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] relative z-[1]"
             title="Close tab"
           >
             <svg width="7" height="7" viewBox="0 0 10 10" fill="currentColor">
@@ -959,7 +1075,7 @@ function TabItem({
           <>
             <div className="fixed inset-0 z-40" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
             <div
-              className="fixed z-50 w-36 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1"
+              className="fixed z-50 w-36 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1 ct-float"
               style={{ left: ctxMenu.x, top: ctxMenu.y }}
             >
               <button

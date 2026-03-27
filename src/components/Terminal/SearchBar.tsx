@@ -71,7 +71,9 @@ export function SearchBar({ searchAddon, onClose }: SearchBarProps) {
         border: "1px solid var(--ct-border)",
         borderTop: "none",
         borderRadius: "0 0 6px 6px",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+        boxShadow: "var(--ct-shadow-md)",
+        backdropFilter: "blur(var(--ct-blur-overlay))",
+        WebkitBackdropFilter: "blur(var(--ct-blur-overlay))",
       }}
     >
       <input

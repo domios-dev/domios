@@ -67,7 +67,7 @@ function ToastItem({ notification, onDismiss }: ToastItemProps) {
       className={`
         border-l-2 ${styles.border} bg-[var(--ct-sidebar-bg)] rounded-r shadow-lg
         px-3 pt-2 pb-1.5 max-w-[360px] min-w-[260px]
-        transition-all duration-200 ease-out
+        transition-all duration-200 ease-out ct-float
         ${visible ? "opacity-100 translate-x-0" : "opacity-0 translate-x-4"}
       `}
     >

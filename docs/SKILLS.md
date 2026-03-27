@@ -39,9 +39,10 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 11. **Spawn agent**: `codeterm agent spawn claude --title "Worker" --role Worker --parent ID --task "do work"` (creates new tab, non-blocking, does NOT switch active tab, task uses `-p` flag for instant start)
 12. **Spawn with agent definition**: via REST API `POST /api/agents/spawn` with `agent_name` field (loads `.claude/agents/<name>.md`; not available in CLI)
 13. **Cross-workspace spawn**: `codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent ID --task "work"`
-14. **Create cron job**: `codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs"`
-15. **Complete cron run**: `codeterm cron complete --run-id UUID --summary "result"`
-16. **List cron jobs**: `codeterm cron list`, **trigger manually**: `codeterm cron trigger ID`
+14. **Create cron job**: `codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs"` (uses `$CODETERM_WORKSPACE_ID` by default)
+15. **Edit cron job**: `codeterm cron edit ID --schedule "*/15 * * * *"` (prefer over delete+recreate to preserve history)
+16. **Complete cron run**: `codeterm cron complete --run-id UUID --summary "result"`
+17. **List cron jobs**: `codeterm cron list`, **trigger manually**: `codeterm cron trigger ID`
 
 ## Screenshots for Debugging
 
@@ -175,6 +176,10 @@ curl -X POST http://localhost:7685/api/batch \
 
 Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `can-spawn`, `report`. Use `$id` references to chain command results (e.g. `"parent_pane_id": "$boss"` resolves to the pane_id from the "boss" spawn).
 
+## Command Palette
+
+`Cmd+K` (macOS) / `Ctrl+K` (Windows/Linux) opens the command palette for quick access to tabs, workspaces, splits, settings, and theme switching.
+
 ## Session Persistence
 
 CodeTerm tracks and restores terminal state across sessions:
@@ -183,4 +188,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`, so context is preserved across restarts.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
