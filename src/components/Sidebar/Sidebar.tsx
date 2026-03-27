@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useMultiplexer } from "../../store/multiplexer";
 import { useCrons, CRON_SIDEBAR_RUNS_VISIBLE } from "../../store/crons";
 import { CronEditor } from "../CronEditor/CronEditor";
+import { getAgentProvider } from "../../lib/agentProviders";
 import { TitleLevel } from "../../lib/types";
 import type { Workspace, Tab, SplitNode, PaneStatus, Pane, AgentRole, CronJob, CronRunInfo } from "../../lib/types";
 
@@ -281,7 +282,6 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                     </button>
                     {isExpanded && ws.tabs.map((tab) => {
                       const tabPaneIds = collectPaneIds(tab.split_tree);
-                      const tabHasAgent = tabPaneIds.some((pid) => state.panes[pid]?.agent_type === "claude");
                       const isTabActive = isActive && tab.id === ws.active_tab_id;
                       return (
                         <button
@@ -294,13 +294,17 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                           }`}
                           title={tab.title}
                         >
-                          {tabHasAgent ? (
-                            <span className="text-[10px] text-[#f0883e]">&#10035;</span>
-                          ) : (
-                            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-                              <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z" />
-                            </svg>
-                          )}
+                          {(() => {
+                            const agentPid = tabPaneIds.find((pid) => !!getAgentProvider(state.panes[pid]?.agent_type));
+                            const tabProvider = agentPid ? getAgentProvider(state.panes[agentPid]?.agent_type) : undefined;
+                            return tabProvider ? (
+                              <span className="text-[10px]" style={{ color: tabProvider.iconColor }}>{tabProvider.icon}</span>
+                            ) : (
+                              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z" />
+                              </svg>
+                            );
+                          })()}
                         </button>
                       );
                     })}
@@ -403,7 +407,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                               paneCount={tabPids.length}
                               workspaceId={ws.id}
                               hasAgent={tabPids.some(
-                                (pid) => state.panes[pid]?.agent_type === "claude"
+                                (pid) => !!getAgentProvider(state.panes[pid]?.agent_type)
                               )}
                               status={aggregateStatus(tabPids, state.paneStatuses)}
                               onRename={(title) => {
@@ -469,7 +473,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                         paneCount={atPids.length}
                         workspaceId={ws.id}
                         hasAgent={atPids.some(
-                          (pid) => state.panes[pid]?.agent_type === "claude"
+                          (pid) => !!getAgentProvider(state.panes[pid]?.agent_type)
                         )}
                         status={aggregateStatus(atPids, state.paneStatuses)}
                         onRename={(title) => {
@@ -928,6 +932,7 @@ function TabItem({
   isAppearing,
   isClosing,
 }: TabItemProps) {
+  const agentProvider = getAgentProvider(pane?.agent_type);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
@@ -1003,10 +1008,10 @@ function TabItem({
             >{ROLE_ICONS[pane.role]}</span>
           ) : hasAgent ? (
             <span
-              className={`shrink-0 text-[11px] leading-none text-[#f0883e] ${status === "Working" ? "animate-spin" : ""}`}
-              style={status === "Working" ? { animationDuration: "1.5s" } : undefined}
-              title={status === "Working" ? "Claude Code working..." : status === "Waiting" ? "Claude Code — waiting for input" : "Claude Code"}
-            >&#10035;</span>
+              className={`shrink-0 text-[11px] leading-none ${status === "Working" ? "animate-spin" : ""}`}
+              style={{ color: agentProvider?.iconColor || "#f0883e", ...(status === "Working" ? { animationDuration: "1.5s" } : {}) }}
+              title={status === "Working" ? `${agentProvider?.displayName || "Agent"} working...` : status === "Waiting" ? `${agentProvider?.displayName || "Agent"} — waiting for input` : agentProvider?.displayName || "Agent"}
+            >{agentProvider?.icon || "\u2733"}</span>
           ) : (
             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
               <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z" />

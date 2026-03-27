@@ -260,6 +260,7 @@ pub fn run() {
 
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
+            let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
             let svc_ctx = ServiceContext {
                 mux: mux_state.clone(),
                 pty: pty_state.clone(),
@@ -269,6 +270,7 @@ pub fn run() {
                 app_handle: app_handle.clone(),
                 agent_tracker: agent_tracker.clone(),
                 report_store: report_store.clone(),
+                agent_registry,
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());

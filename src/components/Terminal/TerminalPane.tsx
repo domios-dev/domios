@@ -8,6 +8,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMultiplexer } from "../../store/multiplexer";
+import { detectAgentFromTitle } from "../../lib/agentProviders";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
@@ -129,17 +130,39 @@ export function TerminalPane({
     }
   }, [shellReady, overlayVisible]);
 
-  // Execute pending command after shell is ready
+  // Execute pending command after shell is ready — with retry for robustness
   const pendingCommandFired = useRef(false);
   useEffect(() => {
-    if (!shellReady || pendingCommandFired.current) return;
-    const ptyIdNow = connectedPtyRef.current;
-    if (!ptyIdNow) return;
-    const cmd = consumePendingCommand(paneId);
-    if (cmd) {
+    if (pendingCommandFired.current) return;
+
+    // Check immediately and retry every 200ms until both shell ready + PTY connected
+    const tryFire = () => {
+      if (pendingCommandFired.current) return false;
+      if (!shellReady) return false;
+      const ptyIdNow = connectedPtyRef.current;
+      if (!ptyIdNow) return false;
+      const cmd = consumePendingCommand(paneId);
+      if (!cmd) return true; // no pending command, stop retrying
       pendingCommandFired.current = true;
+      console.log(`[spawn] Firing pending command in pane ${paneId}: ${cmd}`);
       invoke("write_pty_string", { ptyId: ptyIdNow, data: cmd + "\r" });
-    }
+      return true;
+    };
+
+    if (tryFire()) return;
+
+    // Retry until fired or 15s timeout
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      if (tryFire() || attempts > 75) { // 75 * 200ms = 15s
+        clearInterval(interval);
+        if (attempts > 75 && !pendingCommandFired.current) {
+          console.warn(`[spawn] Pending command timeout for pane ${paneId}`);
+        }
+      }
+    }, 200);
+    return () => clearInterval(interval);
   }, [shellReady, paneId]);
 
   // Completion state
@@ -339,15 +362,16 @@ export function TerminalPane({
         const curPane = stateRef.current.panes[paneId];
         if (curPane && curPane.title_level === TitleLevel.User) return;
         setPaneTitle(paneId, title, TitleLevel.Auto);
-        // Detect Claude Code from OSC title
-        if (/claude/i.test(title)) {
-          setAgentType(paneId, "claude");
-          invoke("mux_set_pane_agent_type", { paneId, agentType: "claude" }).catch(() => {});
-          // Detect and save the Claude session ID for future resume
+        // Detect agent from OSC title
+        const detectedAgent = detectAgentFromTitle(title);
+        if (detectedAgent) {
+          setAgentType(paneId, detectedAgent);
+          invoke("mux_set_pane_agent_type", { paneId, agentType: detectedAgent }).catch(() => {});
+          // Detect and save the agent session ID for future resume
           // Use stateRef for fresh state (this callback is in a stale closure)
           const currentPanes = stateRef.current.panes;
           const excludeIds = Object.values(currentPanes)
-            .map((p) => p.claude_session_id)
+            .map((p) => p.agent_session_id)
             .filter((id): id is string => !!id);
           const paneCwd = currentPanes[paneId]?.cwd;
           if (paneCwd) {
@@ -785,7 +809,7 @@ export function TerminalPane({
         }
 
         // If this pane had Claude Code running and we know the session ID, resume it
-        if (paneData?.agent_type === "claude" && paneData?.claude_session_id) {
+        if (paneData?.agent_type === "claude" && paneData?.agent_session_id) {
           invoke<{ agent: { resume_sessions: boolean; resume_skip_permissions: boolean } }>("get_config")
             .then((cfg) => {
               if (!cfg.agent.resume_sessions) return;
@@ -793,7 +817,7 @@ export function TerminalPane({
               setTimeout(() => {
                 invoke("write_pty_string", {
                   ptyId: spawnedId,
-                  data: `claude --resume ${paneData.claude_session_id}${skipFlag}\r`,
+                  data: `claude --resume ${paneData.agent_session_id}${skipFlag}\r`,
                 }).catch(() => {});
               }, 1500);
             })

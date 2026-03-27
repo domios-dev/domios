@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { parseJsonlSession, parseTerminalOutput } from "./parser";
+import { getAgentProvider } from "../../lib/agentProviders";
 import { MessageBubble } from "./MessageBubble";
 import type { ChatMessage } from "./parser";
 
@@ -8,16 +9,24 @@ interface ChatViewProps {
   paneId: string;
   ptyId?: string | null;
   title?: string;
+  agentType?: string | null;
   onToggle: () => void;
 }
 
 type ParseMode = "jsonl" | "terminal" | "detecting";
 
-export function ChatView({ paneId, ptyId, title, onToggle }: ChatViewProps) {
+export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatViewProps) {
+  const provider = getAgentProvider(agentType);
+  const sessionParser = provider?.parseSessionData || parseJsonlSession;
+  const terminalParser = provider?.parseTerminalOutput || parseTerminalOutput;
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [visibleCount, setVisibleCount] = useState(50);
+  const [inputExpanded, setInputExpanded] = useState(false);
+  const [inputAtMax, setInputAtMax] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Show only last N messages for performance
   const messages = allMessages.length > visibleCount
@@ -56,7 +65,7 @@ export function ChatView({ paneId, ptyId, title, onToggle }: ChatViewProps) {
           setIsTyping(false);
         }
 
-        const parsed = parseJsonlSession(accumulatedJsonl.current);
+        const parsed = sessionParser(accumulatedJsonl.current);
         if (parsed.length !== prevMessageCount.current) {
           setAllMessages(parsed);
           // Auto-scroll on new messages
@@ -87,8 +96,9 @@ export function ChatView({ paneId, ptyId, title, onToggle }: ChatViewProps) {
         const text = await invoke<string>("get_pane_output", { paneId });
         if (!active) return;
 
-        const parsed = parseTerminalOutput(text);
+        const parsed = terminalParser(text);
         setAllMessages(parsed);
+        setIsLoading(false);
 
         const len = text.length;
         setIsTyping(len > prevOutputLen.current);
@@ -108,29 +118,50 @@ export function ChatView({ paneId, ptyId, title, onToggle }: ChatViewProps) {
 
       // On first poll or while detecting, try JSONL
       if (parseMode.current === "detecting") {
+        // Show loading immediately, don't block
+        setIsLoading(true);
+
         try {
           const data = await invoke<string>("read_session_jsonl", {
             paneId,
             offset: 0,
+            tailBytes: 5000000,  // 5MB tail for fast initial load (JSONL lines can be large)
           });
           if (!active) return;
           // JSONL works — use it
           parseMode.current = "jsonl";
-          accumulatedJsonl.current = data;
-          jsonlOffset.current = new TextEncoder().encode(data).length;
-          const parsed = parseJsonlSession(data);
-          setAllMessages(parsed);
-          prevMessageCount.current = parsed.length;
-          if (!userScrolledUp.current && parsed.length > 0) {
-            requestAnimationFrame(() => {
-              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-            });
+
+          // Extract offset marker from tail read
+          let jsonlData = data;
+          if (data.startsWith("__offset:")) {
+            const nlIdx = data.indexOf("\n");
+            const fileLen = parseInt(data.substring(9, nlIdx), 10);
+            jsonlData = data.substring(nlIdx + 1);
+            jsonlOffset.current = fileLen; // next poll reads from end of file
+          } else {
+            jsonlOffset.current = new TextEncoder().encode(data).length;
           }
+          accumulatedJsonl.current = jsonlData;
+
+          // Parse in next frame to avoid blocking UI
+          requestAnimationFrame(() => {
+            if (!active) return;
+            const parsed = sessionParser(jsonlData);
+            setAllMessages(parsed);
+            setIsLoading(false);
+            prevMessageCount.current = parsed.length;
+            if (!userScrolledUp.current && parsed.length > 0) {
+              requestAnimationFrame(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              });
+            }
+          });
           return;
         } catch {
           jsonlRetryCount.current++;
           if (jsonlRetryCount.current > 5) {
             parseMode.current = "terminal";
+            setIsLoading(false);
           }
           // Fall through to terminal for this tick
           await pollTerminal();
@@ -145,7 +176,8 @@ export function ChatView({ paneId, ptyId, title, onToggle }: ChatViewProps) {
       }
     }
 
-    poll();
+    // Defer first poll so overlay renders instantly with loading state
+    setTimeout(poll, 0);
     // Poll frequently for responsive streaming
     const interval = setInterval(poll, 500);
     return () => {
@@ -167,6 +199,9 @@ export function ChatView({ paneId, ptyId, title, onToggle }: ChatViewProps) {
     const text = input.trim();
     if (!text) return;
     setInput("");
+    setInputExpanded(false);
+    setInputAtMax(false);
+    if (textareaRef.current) textareaRef.current.style.height = "20px";
 
     // Optimistic: show user message immediately
     const optimisticMsg: ChatMessage = {
@@ -199,11 +234,54 @@ export function ChatView({ paneId, ptyId, title, onToggle }: ChatViewProps) {
     }
   }, [input, ptyId, paneId]);
 
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData("text/plain");
+    if (!text) return;
+    const el = e.target as HTMLTextAreaElement;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const newValue = input.substring(0, start) + text + input.substring(end);
+    setInput(newValue);
+
+    requestAnimationFrame(() => {
+      el.selectionStart = el.selectionEnd = start + text.length;
+      // Only resize in contracted mode
+      if (!inputExpanded) {
+        el.style.height = "0";
+        el.style.height = Math.min(el.scrollHeight, 120) + "px";
+        setInputAtMax(el.scrollHeight >= 120);
+      }
+    });
+  }, [input, inputExpanded]);
+
+  const toggleExpand = useCallback(() => {
+    setInputExpanded(prev => {
+      if (prev) {
+        // Collapsing — recalc height to fit content
+        requestAnimationFrame(() => {
+          const el = textareaRef.current;
+          if (el) {
+            el.style.height = "0";
+            el.style.height = Math.min(el.scrollHeight, 120) + "px";
+            setInputAtMax(el.scrollHeight >= 120);
+          }
+        });
+      }
+      return !prev;
+    });
+  }, []);
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
+      }
+      // Cmd+Shift+E / Ctrl+Shift+E — toggle expand
+      if (e.key === "e" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        toggleExpand();
       }
     },
     [sendMessage],
@@ -254,13 +332,24 @@ export function ChatView({ paneId, ptyId, title, onToggle }: ChatViewProps) {
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto py-4"
       >
-        {messages.length === 0 ? (
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center h-full gap-3">
+            <div className="flex gap-1">
+              <div className="w-2 h-2 rounded-full bg-[var(--ct-blue)] animate-bounce" style={{ animationDelay: '0ms' }} />
+              <div className="w-2 h-2 rounded-full bg-[var(--ct-blue)] animate-bounce" style={{ animationDelay: '150ms' }} />
+              <div className="w-2 h-2 rounded-full bg-[var(--ct-blue)] animate-bounce" style={{ animationDelay: '300ms' }} />
+            </div>
+            <span className="text-xs" style={{ color: "var(--ct-muted, #8b949e)" }}>
+              Loading conversation...
+            </span>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <span
               className="text-xs"
               style={{ color: "var(--ct-muted, #8b949e)" }}
             >
-              Waiting for Claude output...
+              No messages yet. Start typing below.
             </span>
           </div>
         ) : (
@@ -284,36 +373,85 @@ export function ChatView({ paneId, ptyId, title, onToggle }: ChatViewProps) {
 
       {/* Input area */}
       <div
-        className="flex-shrink-0 px-3 py-2"
+        className="flex-shrink-0 px-3 py-2 transition-all duration-200"
         style={{
           borderTop: "1px solid var(--ct-border, #30363d)",
           background: "var(--ct-surface, #161b22)",
+          maxHeight: inputExpanded ? "80vh" : undefined,
         }}
       >
+        {/* Expand button — visible only when textarea hit max height */}
+        {inputAtMax && !inputExpanded && (
+          <button
+            onClick={toggleExpand}
+            className="w-full flex items-center justify-center gap-1 py-1 text-[10px] transition-colors hover:bg-[var(--ct-bg-hover)]"
+            style={{ color: "var(--ct-muted, #8b949e)" }}
+          >
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M3.22 9.78a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0l4.25 4.25a.75.75 0 01-1.06 1.06L8 6.06 4.28 9.78a.75.75 0 01-1.06 0z" />
+            </svg>
+            Expand <span style={{ opacity: 0.5 }}>(⌘⇧E)</span>
+          </button>
+        )}
+        {inputExpanded && (
+          <button
+            onClick={toggleExpand}
+            className="w-full flex items-center justify-center gap-1 py-1 text-[10px] transition-colors hover:bg-[var(--ct-bg-hover)]"
+            style={{ color: "var(--ct-muted, #8b949e)" }}
+          >
+            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style={{ transform: "rotate(180deg)" }}>
+              <path d="M3.22 9.78a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0l4.25 4.25a.75.75 0 01-1.06 1.06L8 6.06 4.28 9.78a.75.75 0 01-1.06 0z" />
+            </svg>
+            Collapse <span style={{ opacity: 0.5 }}>(⌘⇧E)</span>
+          </button>
+        )}
         <div
-          className="flex items-end gap-2 rounded-lg px-3 py-2"
+          className={`flex gap-2 rounded-lg px-3 py-2 ${inputExpanded ? "items-stretch" : "items-center"}`}
           style={{
             background: "var(--ct-bg, #0d1117)",
             border: "1px solid var(--ct-border, #30363d)",
+            height: inputExpanded ? "calc(80vh - 40px)" : undefined,
           }}
         >
           <textarea
+            ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              // Auto-resize on change
+              const el = e.target;
+              if (!inputExpanded) {
+                el.style.height = "0";
+                const newH = Math.min(el.scrollHeight, 120);
+                el.style.height = newH + "px";
+                setInputAtMax(newH >= 120);
+              }
+            }}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder="Send a message..."
             rows={1}
             className="flex-1 bg-transparent border-none outline-none resize-none text-sm leading-5 placeholder:text-[var(--ct-muted)]"
             style={{
               color: "var(--ct-fg, #c9d1d9)",
               fontFamily: "inherit",
-              maxHeight: "120px",
+              maxHeight: inputExpanded ? "none" : "120px",
+              minHeight: "20px",
+              height: inputExpanded ? "100%" : undefined,
+              overflowY: inputExpanded ? "auto" : inputAtMax ? "auto" : "hidden",
             }}
           />
           <button
-            onClick={sendMessage}
+            onClick={() => {
+              sendMessage();
+              setInputExpanded(false);
+              setInputAtMax(false);
+              if (textareaRef.current) {
+                textareaRef.current.style.height = "20px";
+              }
+            }}
             disabled={!input.trim()}
-            className="flex items-center justify-center w-7 h-7 rounded-md transition-colors duration-150 flex-shrink-0 disabled:opacity-30"
+            className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors duration-150 flex-shrink-0 disabled:opacity-30 ${inputExpanded ? "self-end" : ""}`}
             style={{
               color: "var(--ct-blue, #58a6ff)",
             }}
