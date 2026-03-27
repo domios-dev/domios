@@ -103,6 +103,8 @@ impl AgentProvider for ClaudeProvider {
         }
 
         let now = std::time::SystemTime::now();
+        // Only consider sessions modified in last 30 seconds — avoids picking up old sessions
+        let recency_limit = Duration::from_secs(30);
         let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
 
         if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
@@ -121,6 +123,13 @@ impl AgentProvider for ClaudeProvider {
                                         if age > max {
                                             continue;
                                         }
+                                    }
+                                }
+                                // Only pick up sessions active in last 30s
+                                // This prevents grabbing an old session that belongs to another pane
+                                if let Ok(age) = now.duration_since(modified) {
+                                    if age > recency_limit {
+                                        continue;
                                     }
                                 }
                                 sessions.push((stem.to_string(), modified));

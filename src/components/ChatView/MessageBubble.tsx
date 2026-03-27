@@ -180,13 +180,13 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
     return (
       <div className="flex justify-end mb-3 px-4">
         <div
-          className="max-w-[85%] rounded-2xl rounded-br-md px-4 py-2.5 text-sm"
+          className="max-w-[85%] rounded-2xl rounded-br-md px-4 py-2.5 text-sm select-text cursor-text"
           style={{
             background: "rgba(var(--ct-blue-rgb, 88, 166, 255), 0.15)",
             color: "var(--ct-fg)",
           }}
         >
-          <pre className="whitespace-pre-wrap font-[inherit] m-0">{message.content}</pre>
+          <pre className="whitespace-pre-wrap font-[inherit] m-0 select-text">{message.content}</pre>
         </div>
       </div>
     );
@@ -197,7 +197,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
     return (
       <div className="flex justify-start mb-3 px-4">
         <div
-          className="max-w-[85%] rounded-2xl rounded-bl-md px-4 py-2.5 text-sm leading-relaxed"
+          className="max-w-[85%] rounded-2xl rounded-bl-md px-4 py-2.5 text-sm leading-relaxed select-text cursor-text"
           style={{
             background: "var(--ct-surface, #161b22)",
             color: "var(--ct-fg)",
