@@ -55,4 +55,8 @@ pub trait AgentProvider: Send + Sync {
 
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
+
+    /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
+    /// Each provider knows its own status bar patterns, progress indicators, etc.
+    fn is_output_noise(&self, text: &str) -> bool { let _ = text; false }
 }

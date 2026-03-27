@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { parseJsonlSession, parseTerminalOutput } from "./parser";
-import { getAgentProvider } from "../../lib/agentProviders";
+import { getAgentProvider, isProviderNoise } from "../../lib/agentProviders";
 import { MessageBubble } from "./MessageBubble";
 import type { ChatMessage } from "./parser";
 
@@ -17,8 +17,15 @@ type ParseMode = "jsonl" | "terminal" | "detecting";
 
 export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatViewProps) {
   const provider = getAgentProvider(agentType);
-  const sessionParser = provider?.parseSessionData || parseJsonlSession;
-  const terminalParser = provider?.parseTerminalOutput || parseTerminalOutput;
+  const rawSessionParser = provider?.parseSessionData || parseJsonlSession;
+  const rawTerminalParser = provider?.parseTerminalOutput || parseTerminalOutput;
+
+  // Wrap parsers with noise filter from provider
+  const filterNoise = useCallback((msgs: ChatMessage[]) =>
+    msgs.filter(m => !isProviderNoise(agentType, m.content)),
+  [agentType]);
+  const sessionParser = useCallback((data: string) => filterNoise(rawSessionParser(data)), [rawSessionParser, filterNoise]);
+  const terminalParser = useCallback((data: string) => filterNoise(rawTerminalParser(data)), [rawTerminalParser, filterNoise]);
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -193,6 +200,37 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
           // Fall through to terminal for this tick
           await pollTerminal();
           return;
+        }
+      }
+
+      // In terminal mode, try to upgrade to JSONL every 5 seconds (every 10 polls at 500ms)
+      if (parseMode.current === "terminal") {
+        jsonlRetryCount.current++;
+        if (jsonlRetryCount.current % 10 === 0) {
+          try {
+            const data = await invoke<string>("read_session_jsonl", { paneId, offset: 0, tailBytes: 5000000 });
+            if (data && data.length > 50) {
+              // JSONL is available now — switch!
+              parseMode.current = "jsonl";
+              let jsonlData = data;
+              if (data.startsWith("__offset:")) {
+                const nlIdx = data.indexOf("\n");
+                jsonlOffset.current = parseInt(data.substring(9, nlIdx), 10);
+                jsonlData = data.substring(nlIdx + 1);
+              } else {
+                jsonlOffset.current = new TextEncoder().encode(data).length;
+              }
+              accumulatedJsonl.current = jsonlData;
+              const parsed = sessionParser(jsonlData);
+              setAllMessages(parsed);
+              prevMessageCount.current = parsed.length;
+              if (!userScrolledUp.current && parsed.length > 0) {
+                requestAnimationFrame(() => {
+                  messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+                });
+              }
+            }
+          } catch { /* still no JSONL */ }
         }
       }
 
