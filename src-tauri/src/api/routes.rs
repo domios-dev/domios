@@ -325,6 +325,8 @@ struct OutputQuery {
     strip_ansi: Option<bool>,
     /// Include current screen text (alternate buffer) in response
     screen: Option<bool>,
+    /// Return full untruncated output history (not just ring buffer)
+    full: Option<bool>,
 }
 
 async fn get_pane_output(
@@ -337,7 +339,11 @@ async fn get_pane_output(
     let pty_id = state.svc.resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     let buf = state.output_buf.lock();
-    let text = buf.get_text(&pty_id).unwrap_or_default();
+    let text = if query.full.unwrap_or(false) {
+        buf.get_full_text(&pty_id).unwrap_or_default()
+    } else {
+        buf.get_text(&pty_id).unwrap_or_default()
+    };
     let offset = query.offset.unwrap_or(0);
     let raw = if offset < text.len() { &text[offset..] } else { "" };
     let output = if query.strip_ansi.unwrap_or(false) {
