@@ -26,7 +26,8 @@ export function Titlebar({
 
   return (
     <div
-      className="flex items-center h-9 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] select-none shrink-0"
+      className="flex items-center h-9 bg-[var(--ct-titlebar-bg)] select-none shrink-0"
+      style={{ boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)" }}
       data-tauri-drag-region
     >
       {/* macOS: traffic lights on the left */}

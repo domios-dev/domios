@@ -46,7 +46,7 @@ export function NotificationPanel({
   );
 
   return (
-    <div className="absolute left-[220px] top-0 bottom-0 w-[300px] bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] z-40 flex flex-col overflow-hidden shadow-xl">
+    <div className="absolute left-[220px] top-0 bottom-0 w-[300px] bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] z-40 flex flex-col overflow-hidden shadow-xl ct-float">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--ct-border)] shrink-0">
         <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ct-muted-fg)]">

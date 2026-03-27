@@ -35,6 +35,15 @@ npx tauri dev
 npx tauri build
 ```
 
+## Dev/Prod Isolation
+
+Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
+- **Identifier:** `com.codeterm.dev` (vs `com.codeterm.app` in prod)
+- **API port:** 7686 (vs 7685 in prod)
+- **Data directory:** `~/.codeterm-dev/` (vs `~/.codeterm/`)
+- **Socket prefix:** `codeterm-dev` (vs `codeterm`)
+- **Single-instance:** Disabled (dev and prod can run side by side)
+
 ## Build Output
 
 After `npx tauri build`:
@@ -77,14 +86,15 @@ Icon source files: `src-tauri/icons/`
 |------|------|-------|
 | `icon.png` | 512x512 | Window icon, installer |
 | `256x256.png` | 256x256 | High-DPI displays |
-| `32x32.png` | 32x32 | System tray |
+| `32x32.png` | 32x32 | System tray (Windows/Linux) |
+| `tray-template.png` | — | macOS tray (template image, auto light/dark) |
 | `icon.ico` | 256x256 | Windows executable |
 
 **Bundle icons** (`tauri.conf.json` → `bundle.icon`) are embedded into the built installer/exe.
 
 **Runtime icons** are set programmatically in `src/lib.rs` setup — needed for dev mode and custom title bar:
 - Window icon: decoded from `icon.png` via `png` crate → `window.set_icon()`
-- Tray icon: decoded from `32x32.png` → `TrayIconBuilder::icon()`
+- Tray icon: decoded from `tray-template.png` (macOS, white on transparent, auto-adapts to light/dark) or `32x32.png` (Windows/Linux) → `TrayIconBuilder::icon()`
 
 ### Regenerating icons
 
@@ -127,6 +137,7 @@ codeterm/
 │   │   ├── api/         # REST API (Axum)
 │   │   ├── notification/# Notification store
 │   │   ├── config/      # TOML config + themes
+│   │   ├── prompts.rs   # Agent prompt templates
 │   │   └── session/     # Session persistence
 │   └── Cargo.toml
 ├── src/                # React frontend

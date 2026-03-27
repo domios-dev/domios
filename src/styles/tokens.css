@@ -1,0 +1,82 @@
+/* ==========================================================================
+   CodeTerm Design Tokens
+   Complements the dynamic theme vars (--ct-bg, --ct-fg, etc.)
+   ========================================================================== */
+
+:root {
+  /* Timing */
+  --ct-duration-instant: 50ms;
+  --ct-duration-fast: 120ms;
+  --ct-duration-normal: 200ms;
+  --ct-duration-smooth: 320ms;
+  --ct-duration-dramatic: 480ms;
+
+  /* Easing */
+  --ct-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ct-ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ct-ease-in-out-quint: cubic-bezier(0.86, 0, 0.07, 1);
+  --ct-ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+  --ct-ease-decel: cubic-bezier(0, 0, 0.2, 1);
+
+  /* Surfaces */
+  --ct-bg-overlay: rgba(10, 10, 15, 0.85);
+  --ct-bg-hover: rgba(255, 255, 255, 0.04);
+  --ct-bg-active: rgba(255, 255, 255, 0.07);
+  --ct-bg-selected: rgba(99, 102, 241, 0.12);
+
+  /* Borders - sub-pixel via box-shadow */
+  --ct-border-subtle: rgba(255, 255, 255, 0.06);
+  --ct-border-default: rgba(255, 255, 255, 0.1);
+  --ct-border-focus: rgba(99, 102, 241, 0.5);
+
+  /* Text opacity levels */
+  --ct-text-secondary-opacity: 0.55;
+  --ct-text-tertiary-opacity: 0.32;
+
+  /* Layered shadows (Stripe-style) */
+  --ct-shadow-sm:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 1px 3px rgba(0, 0, 0, 0.15);
+  --ct-shadow-md:
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    0 4px 12px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+  --ct-shadow-lg:
+    0 4px 8px rgba(0, 0, 0, 0.3),
+    0 12px 32px rgba(0, 0, 0, 0.25),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+  --ct-shadow-xl:
+    0 8px 16px rgba(0, 0, 0, 0.35),
+    0 24px 64px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+
+  /* Blur values */
+  --ct-blur-sm: 8px;
+  --ct-blur-md: 16px;
+  --ct-blur-lg: 32px;
+  --ct-blur-overlay: 24px;
+
+  /* Radii */
+  --ct-radius-sm: 4px;
+  --ct-radius-md: 8px;
+  --ct-radius-lg: 12px;
+  --ct-radius-xl: 16px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Font smoothing for premium text rendering */
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}

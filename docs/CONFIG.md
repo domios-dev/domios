@@ -53,6 +53,7 @@ zoom_in = "Ctrl+="
 zoom_out = "Ctrl+-"
 zoom_reset = "Ctrl+0"
 open_browser = "Ctrl+Shift+B"
+command_palette = "Ctrl+K"
 open_settings = "Ctrl+,"
 
 [socket]
@@ -129,4 +130,18 @@ Shell integration scripts are stored in the platform data directory:
 
 Scripts are created at startup by `pty::shell_integration::ensure_scripts()`. Users should not need to edit these files.
 
-<!-- revision: 6 -->
+## Dev/Prod Isolation
+
+Dev builds use separate paths and ports to avoid conflicts with production:
+
+| Setting | Dev | Prod |
+|---------|-----|------|
+| Identifier | `com.codeterm.dev` | `com.codeterm.app` |
+| API port | 7686 | 7685 |
+| Data dir | `~/.codeterm-dev/` | `~/.codeterm/` |
+| Socket prefix | `codeterm-dev` | `codeterm` |
+| Single-instance | Disabled | Enabled |
+
+Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
+
+<!-- revision: 7 -->

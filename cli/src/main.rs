@@ -986,12 +986,15 @@ fn main() {
                 }
                 CronAction::Create { name, schedule, task, workspace, agent, cwd, description, creator_pane } => {
                     let ws_id = workspace.unwrap_or_else(|| {
-                        // Get active workspace
-                        client.call("workspace.list", None)
-                            .ok()
-                            .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
-                            .and_then(|w| w.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                            .unwrap_or_default()
+                        // Prefer CODETERM_WORKSPACE_ID (agent's own workspace), fall back to first
+                        std::env::var("CODETERM_WORKSPACE_ID").ok()
+                            .unwrap_or_else(|| {
+                                client.call("workspace.list", None)
+                                    .ok()
+                                    .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
+                                    .and_then(|w| w.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                                    .unwrap_or_default()
+                            })
                     });
                     let mut params = serde_json::json!({
                         "name": name,

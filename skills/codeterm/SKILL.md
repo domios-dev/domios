@@ -330,7 +330,15 @@ Cron runs spawn Claude agents on schedule. The spawned agent calls `cron complet
 
 Deleting a cron job cascades: kills all running panes/PTYs, closes their tabs, and removes the log directory (`~/.codeterm/crons/<job_id>/`).
 
+**IMPORTANT:** To modify a cron job, use `codeterm cron edit ID --name/--schedule/--task`. Do NOT delete and recreate — that loses run history and changes the ID. The `edit` command updates in-place.
+
+**Workspace:** `cron create` uses `$CODETERM_WORKSPACE_ID` by default (your current workspace). Override with `--workspace ID` if needed.
+
 Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
+
+## Command Palette
+
+`Cmd+K` (macOS) / `Ctrl+K` (Windows/Linux) opens the command palette for quick access to tabs, workspaces, splits, settings, and theme switching.
 
 ## System
 ```
@@ -352,4 +360,4 @@ When asked to test the CodeTerm orchestrator:
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

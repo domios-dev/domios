@@ -148,16 +148,26 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | GET | `/api/crons` | `?workspace_id=ID` | List all cron jobs (optionally filter by workspace) |
 | POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, cwd?, description?}` | Create cron job |
 | GET | `/api/crons/:id` | — | Get cron job by ID |
-| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?}` | Update cron job |
+| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?}` | Update cron job (prefer over delete+recreate) |
 | DELETE | `/api/crons/:id` | — | Delete cron job |
 | POST | `/api/crons/:id/enable` | — | Enable cron job |
 | POST | `/api/crons/:id/disable` | — | Disable cron job |
 | POST | `/api/crons/:id/trigger` | — | Manually trigger cron job |
 | GET | `/api/crons/:id/history` | — | Get run history for cron job |
 
+#### Updates
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/update/check` | `?force=true` | Check for available updates |
+| POST | `/api/update/install` | — | Download and install pending update |
+
 Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
 
 Cron runs spawn Claude agents on schedule. When done, the agent calls `codeterm cron complete --run-id UUID` (uses the `cron.complete` socket method), which automatically closes the run's tab/pane (ephemeral). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. The sidebar shows a cron tree with runs and next scheduled time. Click a finished run to open the log viewer. Successful spawns do not generate notifications — only errors do.
+
+**Workspace resolution:** The CLI `cron create` command uses `$CODETERM_WORKSPACE_ID` by default (the agent's own workspace), falling back to the first workspace if the env var is not set. Override with `--workspace ID`.
+
+**Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID.
 
 **Deleting a cron job** cascades: kills all running panes/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
 
@@ -530,8 +540,30 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
+## Command Palette
+
+`Cmd+K` (macOS) / `Ctrl+K` (Windows/Linux) opens the command palette for quick access to tabs, workspaces, splits, settings, and theme switching.
+
 ## System Tray
 
 CodeTerm hides to the system tray on window close instead of quitting. To fully quit, use the tray menu. This ensures cron jobs and background agents continue running when the window is closed.
 
-<!-- revision: 15 -->
+**macOS:** The tray icon uses a template image (white on transparent) that auto-adapts to light and dark menu bar modes.
+
+## Dev/Prod Isolation
+
+Dev builds (`tauri.dev.conf.json`) use identifier `com.codeterm.dev` and are fully isolated from production:
+- **API port:** 7686 (prod: 7685)
+- **Data directory:** `~/.codeterm-dev/` (prod: `~/.codeterm/`)
+- **Socket prefix:** `codeterm-dev` (prod: `codeterm`)
+- **Single-instance:** Disabled in dev builds, so dev and prod can run side by side.
+
+## Agent Prompts
+
+Agent prompt templates are defined in `src-tauri/src/prompts.rs`. Role-specific suffixes are appended to tasks at spawn time:
+- **Worker:** Instructions to report back via `codeterm agent report`.
+- **Lead:** Spawn instructions + "Do NOT sleep or poll for reports" rule.
+- **Orchestrator:** "Do NOT sleep or poll for reports" rule.
+- **Cron tasks:** Completion instruction with `cron complete --run-id` command.
+
+<!-- revision: 16 -->

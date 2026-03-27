@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { TerminalPane } from "./TerminalPane";
 import { BrowserPane } from "../Browser/BrowserPane";
 import { Divider } from "./Divider";
@@ -26,6 +26,12 @@ interface SplitContainerProps {
 
 const MIN_PANE_SIZE = 100; // px
 
+/** Count total leaf panes in a split tree */
+function countLeaves(node: SplitNode): number {
+  if (node.type === "Leaf") return 1;
+  return node.children.reduce((sum, child) => sum + countLeaves(child), 0);
+}
+
 export function SplitContainer({
   node,
   panes,
@@ -40,6 +46,10 @@ export function SplitContainer({
   fontConfig,
   terminalConfig,
 }: SplitContainerProps) {
+  // Determine if we are the root node (path is empty) and count panes
+  const isRoot = path.length === 0;
+  const hasSplits = isRoot ? countLeaves(node) > 1 : true;
+
   if (node.type === "Leaf") {
     const pane = panes[node.pane_id];
     if (!pane) return null;
@@ -55,7 +65,7 @@ export function SplitContainer({
 
     if (pane.pane_type === "Browser") {
       return (
-        <div data-pane-id={pane.id} className="w-full h-full relative group/pane">
+        <PaneWrapper paneId={pane.id} isFocused={focusedPaneId === pane.id} hasSplits={hasSplits}>
           <BrowserPane
             key={pane.id}
             paneId={pane.id}
@@ -64,17 +74,18 @@ export function SplitContainer({
             onFocus={onFocusPane}
           />
           {splitButtons}
-        </div>
+        </PaneWrapper>
       );
     }
 
     return (
-      <div data-pane-id={pane.id} className="w-full h-full relative group/pane">
+      <PaneWrapper paneId={pane.id} isFocused={focusedPaneId === pane.id} hasSplits={hasSplits}>
         <TerminalPane
           key={pane.id}
           paneId={pane.id}
           ptyId={pane.pty_id}
           isFocused={focusedPaneId === pane.id}
+          hasSplits={hasSplits}
           onFocus={onFocusPane}
           onPtySpawned={onPtySpawned}
           theme={theme}
@@ -82,7 +93,7 @@ export function SplitContainer({
           terminalConfig={terminalConfig}
         />
         {splitButtons}
-      </div>
+      </PaneWrapper>
     );
   }
 
@@ -115,6 +126,58 @@ export function SplitContainer({
         />
       ))}
     </SplitView>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PaneWrapper -- handles materialize animation, focus indicator, close collapse
+// ---------------------------------------------------------------------------
+
+interface PaneWrapperProps {
+  paneId: string;
+  isFocused: boolean;
+  hasSplits: boolean;
+  children: React.ReactNode;
+}
+
+function PaneWrapper({ paneId, isFocused, hasSplits, children }: PaneWrapperProps) {
+  const [isMaterialized, setIsMaterialized] = useState(false);
+  const [focusPulse, setFocusPulse] = useState(false);
+  const prevFocused = useRef(isFocused);
+
+  // Materialize animation on mount
+  useEffect(() => {
+    // Only animate if there are splits (new pane appearing)
+    if (hasSplits) {
+      setIsMaterialized(true);
+    }
+  }, []);
+
+  // Focus pulse when focus switches to this pane
+  useEffect(() => {
+    if (isFocused && !prevFocused.current && hasSplits) {
+      setFocusPulse(true);
+      const t = setTimeout(() => setFocusPulse(false), 400);
+      return () => clearTimeout(t);
+    }
+    prevFocused.current = isFocused;
+  }, [isFocused, hasSplits]);
+
+  return (
+    <div
+      data-pane-id={paneId}
+      className={`w-full h-full relative group/pane ${isMaterialized ? "pane-materialize" : ""} ${focusPulse ? "pane-focus-pulse" : ""}`}
+      style={{
+        // Focused pane outline — only when splits exist
+        outline: hasSplits && isFocused ? "1.5px solid rgba(99, 102, 241, 0.5)" : "none",
+        outlineOffset: hasSplits && isFocused ? "-1.5px" : undefined,
+        // Unfocused dimming — only when splits exist
+        filter: hasSplits && !isFocused ? "brightness(0.92)" : "none",
+        transition: "filter 320ms cubic-bezier(0.16, 1, 0.3, 1), outline-color 320ms cubic-bezier(0.16, 1, 0.3, 1)",
+      }}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -287,6 +350,7 @@ function SplitView({
   const first = children[0];
   const second = children[1];
 
+  // Divider takes 1px now (was 6px with old hit area approach)
   const firstPercent = `${(activeRatio * 100).toFixed(4)}%`;
   const secondPercent = `${((1 - activeRatio) * 100).toFixed(4)}%`;
 
@@ -304,7 +368,7 @@ function SplitView({
     >
       <div
         style={{
-          [isHorizontal ? "width" : "height"]: `calc(${firstPercent} - 2px)`,
+          [isHorizontal ? "width" : "height"]: `calc(${firstPercent} - 1px)`,
           [isHorizontal ? "height" : "width"]: "100%",
           overflow: "hidden",
           minWidth: isHorizontal ? `${MIN_PANE_SIZE}px` : undefined,
@@ -322,7 +386,7 @@ function SplitView({
       />
       <div
         style={{
-          [isHorizontal ? "width" : "height"]: `calc(${secondPercent} - 2px)`,
+          [isHorizontal ? "width" : "height"]: `calc(${secondPercent} - 1px)`,
           [isHorizontal ? "height" : "width"]: "100%",
           overflow: "hidden",
           minWidth: isHorizontal ? `${MIN_PANE_SIZE}px` : undefined,
