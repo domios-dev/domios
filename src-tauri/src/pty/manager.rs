@@ -11,36 +11,53 @@ pub struct PtySession {
     pub child: StdMutex<Box<dyn portable_pty::Child + Send + Sync>>,
 }
 
-/// Ring buffer storing last N bytes of PTY output per pane
+/// Ring buffer storing last N bytes of PTY output per pane.
+/// Also maintains a full (unlimited) history for chat view parsing.
 pub struct OutputBuffer {
     buffers: HashMap<String, Vec<u8>>,
+    /// Full output history (never truncated). Used by chat view parser.
+    full_buffers: HashMap<String, Vec<u8>>,
     max_size: usize,
 }
 
 impl OutputBuffer {
     pub fn new(max_size: usize) -> Self {
-        Self { buffers: HashMap::new(), max_size }
+        Self { buffers: HashMap::new(), full_buffers: HashMap::new(), max_size }
     }
 
     pub fn append(&mut self, pty_id: &str, data: &[u8]) {
+        // Ring buffer (truncated)
         let buf = self.buffers.entry(pty_id.to_string()).or_default();
         buf.extend_from_slice(data);
         if buf.len() > self.max_size {
             let drain = buf.len() - self.max_size;
             buf.drain(..drain);
         }
+        // Full history (never truncated)
+        self.full_buffers.entry(pty_id.to_string()).or_default().extend_from_slice(data);
     }
 
     pub fn get(&self, pty_id: &str) -> Option<&[u8]> {
         self.buffers.get(pty_id).map(|v| v.as_slice())
     }
 
+    /// Get full untruncated output history.
+    pub fn get_full(&self, pty_id: &str) -> Option<&[u8]> {
+        self.full_buffers.get(pty_id).map(|v| v.as_slice())
+    }
+
     pub fn get_text(&self, pty_id: &str) -> Option<String> {
         self.get(pty_id).map(|b| String::from_utf8_lossy(b).to_string())
     }
 
+    /// Get full untruncated output as text.
+    pub fn get_full_text(&self, pty_id: &str) -> Option<String> {
+        self.get_full(pty_id).map(|b| String::from_utf8_lossy(b).to_string())
+    }
+
     pub fn remove(&mut self, pty_id: &str) {
         self.buffers.remove(pty_id);
+        self.full_buffers.remove(pty_id);
     }
 }
 
