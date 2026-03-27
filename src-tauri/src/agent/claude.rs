@@ -156,6 +156,25 @@ impl AgentProvider for ClaudeProvider {
         parts.push(ShellSyntax::quote(session_id));
         Some(parts.join(" "))
     }
+
+    fn is_output_noise(&self, text: &str) -> bool {
+        let t = text.trim();
+        if t.is_empty() { return true; }
+        // Claude Code TUI status bar patterns
+        let noise = [
+            "bypass permissions on",
+            "shift+tab to cycle",
+            "Update available! Run:",
+            "brew upgrade claude-code",
+            "esc to interrupt",
+            "? for shortcuts",
+            "ctrl+g to edit",
+            "Monthly spend limit",
+            "hold Space",
+        ];
+        noise.iter().any(|n| t.contains(n))
+            || t.chars().all(|c| c == '─' || c == '━' || c == '═' || c.is_whitespace())
+    }
 }
 
 #[cfg(test)]
