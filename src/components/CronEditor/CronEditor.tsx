@@ -84,7 +84,7 @@ export function CronEditor({ workspaceId: _workspaceId, existing, onSave, onClos
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/40" onClick={onClose} />
-      <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-sidebar-bg)] border border-[var(--ct-border)] rounded-xl shadow-2xl w-[720px] h-[540px] flex flex-col overflow-hidden">
+      <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-sidebar-bg)] border border-[var(--ct-border)] rounded-xl shadow-2xl w-[860px] h-[640px] max-w-[90vw] max-h-[85vh] flex flex-col overflow-hidden ct-float">
         <div className="px-4 pt-4 pb-2 flex items-center justify-between">
           <div className="text-[13px] font-medium text-[var(--ct-fg)]">
             {existing ? "Edit Cron Job" : "Create Cron Job"}

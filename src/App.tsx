@@ -6,6 +6,7 @@ import { SplitContainer } from "./components/Terminal/SplitContainer";
 import { NotificationToastContainer } from "./components/Notifications/NotificationToast";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { Onboarding } from "./components/Onboarding/Onboarding";
+import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
 import {
@@ -15,6 +16,9 @@ import {
 import { CronProvider } from "./store/crons";
 import type { ThemeConfig } from "./lib/types";
 import { matchesBinding, isMac } from "./lib/keybindings";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+// TODO: Agent Swarm Visualization — future feature
+// import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
 /**
  * Derive CSS custom properties from a ThemeConfig so the entire UI
@@ -112,6 +116,7 @@ function AppInner() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
   const { config, updateConfig, theme, loading } = useConfig();
 
   // Show onboarding only after config loads from backend (not from defaults)
@@ -157,6 +162,7 @@ function AppInner() {
     setPanePty,
     updateSplitRatio,
     dismissToast,
+    spawnClaudeTab,
   } = useMultiplexer();
 
   // Git info hook (side effects: updates git status in state)
@@ -226,6 +232,52 @@ function AppInner() {
     [activeWs, activeTab, updateSplitRatio],
   );
 
+  // Command palette commands
+  const paletteCommands = useMemo(
+    () =>
+      buildDefaultCommands({
+        newTab: handleNewTab,
+        closeTab: handleCloseCurrentTab,
+        splitRight: handleSplitRight,
+        splitDown: handleSplitDown,
+        newWorkspace: () => {
+          const n = stateRef.current.workspaces.length + 1;
+          createWorkspace(`Workspace ${n}`);
+        },
+        openSettings: () => setSettingsOpen(true),
+        toggleSidebar: () => setSidebarOpen((v) => !v),
+        spawnClaude: async () => {
+          let folder: string | null;
+          try {
+            folder = await openDialog({
+              directory: true,
+              multiple: false,
+              title: "Choose project folder for Claude",
+            });
+          } catch {
+            return;
+          }
+          if (!folder) return;
+          const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
+          if (wsId) {
+            let skipPerms = false;
+            try {
+              skipPerms = localStorage.getItem("codeterm-claude-skip-perms") === "true";
+            } catch { /* ignore */ }
+            spawnClaudeTab(wsId, skipPerms, folder);
+          }
+        },
+      }),
+    [
+      handleNewTab,
+      handleCloseCurrentTab,
+      handleSplitRight,
+      handleSplitDown,
+      createWorkspace,
+      spawnClaudeTab,
+    ],
+  );
+
   // Keyboard shortcuts — uses config keybindings + language-independent matching
   const kb = config.keybindings;
   useEffect(() => {
@@ -291,6 +343,13 @@ function AppInner() {
         setSettingsOpen((v) => !v);
         return;
       }
+
+      // TODO: Swarm overlay — future feature
+      // if (matchesBinding(e, "Mod+Shift+G")) {
+      //   e.preventDefault();
+      //   setSwarmVisible((v) => !v);
+      //   return;
+      // }
 
       // Pane focus navigation (uses config bindings)
       if (matchesBinding(e, kb.focus_pane_left) || matchesBinding(e, kb.focus_pane_right) ||
@@ -520,6 +579,12 @@ function AppInner() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+
+      {/* Command palette (Cmd+K / Ctrl+K) */}
+      <CommandPalette commands={paletteCommands} />
+
+      {/* TODO: Agent swarm visualization — future feature */}
+      {/* <SwarmOverlay visible={swarmVisible} onClose={() => setSwarmVisible(false)} /> */}
     </div>
   );
 }

@@ -31,6 +31,7 @@ Webhook events: agent.permission_request, agent.task_complete, agent.report
 Environment variables (available in every CodeTerm PTY):
 - `$CODETERM` — always `1` inside CodeTerm
 - `$CODETERM_PANE_ID` — this pane's unique ID (8-char hex, e.g. `a3f1b2c7`). Use for `--pane` args and agent hierarchy. Prefer over `$(codeterm pane current)`.
+- `$CODETERM_WORKSPACE_ID` — current workspace ID (8-char hex). Used by `cron create` as default workspace.
 - `$CODETERM_ROLE` — your role: `Orchestrator`, `Lead`, or `Worker` (empty if no role). Set at PTY spawn.
 - `$CODETERM_PARENT_PANE_ID` — your parent's pane ID (empty if Orchestrator or no role). Set at PTY spawn.
 - `$CODETERM_SOCKET_PATH` — socket path for CLI communication
@@ -70,6 +71,10 @@ Cron Jobs (scheduled recurring tasks):
 
 Schedule format: 5-field cron expressions (min hour dom mon dow). Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am).
 
+Cron workspace: `cron create` uses `$CODETERM_WORKSPACE_ID` by default (agent's own workspace), falls back to first workspace. Override with `--workspace ID`.
+
+To modify a cron job, use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`). Do NOT delete and recreate -- that loses run history and changes the ID.
+
 Cron runs spawn Claude agents on schedule. The spawned agent MUST call `cron.complete` (via socket/CLI: `codeterm cron complete --run-id UUID --summary "result"`) when done. Completing a run automatically closes the run's tab (ephemeral). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log`. The app hides to system tray on close so crons keep running. Successful spawns do not generate notifications -- only errors do.
 
 Tauri events: `cron-state-changed` (any CRUD), `cron-fired` (cron fires, payload: {cron_id, run_id, pane_id, tab_id}).
@@ -104,6 +109,7 @@ Agent spawn (one-call):
 - `agent` defaults to "claude". For Claude, `--dangerously-skip-permissions` is added automatically.
 - `agent_name` maps to `.claude/agents/` files (e.g. `"architect"` adds `--agent architect`).
 - `task` is baked into the launch command via `-p` flag — agent starts working immediately, no delay.
+- `workspace_id` — if omitted and `parent_pane_id` is set, uses the parent's workspace. If neither is set, uses the currently active workspace. **Always pass `workspace_id` explicitly from external orchestrators to avoid creating tabs in the wrong workspace.**
 
 Batch commands (POST /api/batch or Tauri `mux_batch` command):
 - Send multiple operations in one request. Commands execute sequentially.
@@ -135,6 +141,7 @@ Orchestrator with hierarchy:
 - Check `$CODETERM_ROLE` on startup to know your role (Orchestrator, Lead, Worker, or empty).
 - Reports go to direct parent (cascade), not to orchestrator: Worker -> Lead -> Orchestrator.
 - Reports are auto-injected into parent's PTY as `[Report from Name] message\r` -- no polling needed.
+- IMPORTANT: Do NOT sleep or poll for reports. They arrive automatically. Continue your work.
 - The `agent.report` webhook event fires when any agent sends a report.
 - Use GET /api/agents/hierarchy to see the full tree at any time.
 - Closing a pane cascade-closes all children (tabs + PTYs killed recursively).
@@ -142,4 +149,8 @@ Orchestrator with hierarchy:
 - Agent spawns do NOT auto-switch active tab.
 - `workspace create` creates an empty workspace (no auto-tab).
 
-<!-- revision: 12 -->
+Updates:
+- GET /api/update/check?force=true — check for available updates
+- POST /api/update/install — download and install pending update
+
+<!-- revision: 13 -->

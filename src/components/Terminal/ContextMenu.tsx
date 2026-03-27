@@ -70,7 +70,9 @@ export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
         border: "1px solid var(--ct-border)",
         borderRadius: 6,
         padding: "4px 0",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+        boxShadow: "var(--ct-shadow-lg)",
+        backdropFilter: "blur(var(--ct-blur-overlay))",
+        WebkitBackdropFilter: "blur(var(--ct-blur-overlay))",
       }}
     >
       {actions.map((action, i) => (
