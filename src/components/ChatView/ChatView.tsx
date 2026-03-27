@@ -24,9 +24,20 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
   const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [visibleCount, setVisibleCount] = useState(50);
+  const [waitingForReply, setWaitingForReply] = useState(false);
   const [inputExpanded, setInputExpanded] = useState(false);
   const [inputAtMax, setInputAtMax] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Clear waitingForReply when Claude responds
+  useEffect(() => {
+    if (waitingForReply && allMessages.length > 0) {
+      const last = allMessages[allMessages.length - 1];
+      if (last && last.type !== 'user') {
+        setWaitingForReply(false);
+      }
+    }
+  }, [allMessages, waitingForReply]);
 
   // Show only last N messages for performance
   const messages = allMessages.length > visibleCount
@@ -67,7 +78,16 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
 
         const parsed = sessionParser(accumulatedJsonl.current);
         if (parsed.length !== prevMessageCount.current) {
-          setAllMessages(parsed);
+          // Preserve optimistic messages not yet in JSONL
+          setAllMessages(prev => {
+            const optimistic = prev.filter(m => m.id.startsWith('optimistic-'));
+            if (optimistic.length === 0) return parsed;
+            // Check if optimistic content appeared in parsed (by matching text)
+            const remaining = optimistic.filter(opt =>
+              !parsed.some(p => p.type === 'user' && p.content.trim() === opt.content.trim())
+            );
+            return remaining.length > 0 ? [...parsed, ...remaining] : parsed;
+          });
           // Auto-scroll on new messages
           if (!userScrolledUp.current) {
             requestAnimationFrame(() => {
@@ -97,7 +117,14 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
         if (!active) return;
 
         const parsed = terminalParser(text);
-        setAllMessages(parsed);
+        setAllMessages(prev => {
+          const optimistic = prev.filter(m => m.id.startsWith('optimistic-'));
+          if (optimistic.length === 0) return parsed;
+          const remaining = optimistic.filter(opt =>
+            !parsed.some(p => p.type === 'user' && p.content.trim() === opt.content.trim())
+          );
+          return remaining.length > 0 ? [...parsed, ...remaining] : parsed;
+        });
         setIsLoading(false);
 
         const len = text.length;
@@ -211,6 +238,7 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
     };
     setAllMessages(prev => [...prev, optimisticMsg]);
     prevMessageCount.current += 1;
+    setWaitingForReply(true);
 
     userScrolledUp.current = false;
     requestAnimationFrame(() => {
@@ -289,7 +317,7 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
 
   return (
     <div
-      className="flex flex-col w-full h-full"
+      className="flex flex-col w-full h-full select-text"
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
@@ -330,7 +358,7 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto py-4"
+        className="flex-1 overflow-y-auto py-4 select-text cursor-text"
       >
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -366,6 +394,21 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
               </div>
             )}
             {messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)}
+            {/* Thinking indicator — shown after sending message, before Claude responds */}
+            {waitingForReply && (
+              <div className="flex justify-start mb-3 px-4">
+                <div
+                  className="rounded-2xl rounded-bl-md px-4 py-2.5 text-sm"
+                  style={{ background: "var(--ct-surface, #161b22)", color: "var(--ct-muted, #8b949e)" }}
+                >
+                  <span className="inline-flex gap-1">
+                    <span className="animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1s' }}>.</span>
+                    <span className="animate-bounce" style={{ animationDelay: '200ms', animationDuration: '1s' }}>.</span>
+                    <span className="animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1s' }}>.</span>
+                  </span>
+                </div>
+              </div>
+            )}
           </>
         )}
         <div ref={messagesEndRef} />

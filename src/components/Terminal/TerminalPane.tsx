@@ -368,21 +368,34 @@ export function TerminalPane({
           setAgentType(paneId, detectedAgent);
           invoke("mux_set_pane_agent_type", { paneId, agentType: detectedAgent }).catch(() => {});
           // Detect and save the agent session ID for future resume
-          // Use stateRef for fresh state (this callback is in a stale closure)
-          const currentPanes = stateRef.current.panes;
-          const excludeIds = Object.values(currentPanes)
-            .map((p) => p.agent_session_id)
-            .filter((id): id is string => !!id);
-          const paneCwd = currentPanes[paneId]?.cwd;
-          if (paneCwd) {
+          // Keeps retrying because: CWD might not be set yet, JSONL might not exist yet
+          const tryDetectSession = () => {
+            const currentPanes = stateRef.current.panes;
+            const pane = currentPanes[paneId];
+            if (!pane) return; // pane gone — stop
+            if (pane.agent_session_id) return; // already found — stop
+
+            const excludeIds = Object.values(currentPanes)
+              .map((p) => p.agent_session_id)
+              .filter((id): id is string => !!id);
+            const paneCwd = pane.cwd;
+            if (!paneCwd) {
+              setTimeout(tryDetectSession, 2000);
+              return;
+            }
             invoke<string | null>("detect_claude_session_id", { cwd: paneCwd, exclude: excludeIds })
               .then((sessionId) => {
                 if (sessionId) {
                   invoke("mux_set_claude_session_id", { paneId, sessionId }).catch(() => {});
+                } else {
+                  setTimeout(tryDetectSession, 3000);
                 }
               })
-              .catch(() => {});
-          }
+              .catch(() => {
+                setTimeout(tryDetectSession, 3000);
+              });
+          };
+          tryDetectSession();
         }
       }
     });
