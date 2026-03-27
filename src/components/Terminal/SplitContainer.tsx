@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TerminalPane } from "./TerminalPane";
 import { BrowserPane } from "../Browser/BrowserPane";
+import { ChatView } from "../ChatView/ChatView";
 import { Divider } from "./Divider";
 import type { SplitNode, Pane, Orientation, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 
@@ -46,6 +47,13 @@ export function SplitContainer({
   fontConfig,
   terminalConfig,
 }: SplitContainerProps) {
+  // Chat view toggle state: paneId -> boolean
+  const [chatViewEnabled, setChatViewEnabled] = useState<Record<string, boolean>>({});
+
+  const toggleChatView = useCallback((paneId: string) => {
+    setChatViewEnabled((prev) => ({ ...prev, [paneId]: !prev[paneId] }));
+  }, []);
+
   // Determine if we are the root node (path is empty) and count panes
   const isRoot = path.length === 0;
   const hasSplits = isRoot ? countLeaves(node) > 1 : true;
@@ -54,9 +62,15 @@ export function SplitContainer({
     const pane = panes[node.pane_id];
     if (!pane) return null;
 
+    const isClaudePane = pane.agent_type === "claude";
+    const showChatView = isClaudePane && chatViewEnabled[pane.id];
+
     const splitButtons = (
       <PaneToolbar
-        hasAgent={pane.agent_type === "claude"}
+        hasAgent={isClaudePane}
+        showChatToggle={isClaudePane}
+        isChatView={!!showChatView}
+        onToggleChatView={() => toggleChatView(pane.id)}
         onSplitH={() => onSplitPane(pane.id, "Horizontal")}
         onSplitV={() => onSplitPane(pane.id, "Vertical")}
         onClose={() => onClosePane(pane.id)}
@@ -72,6 +86,20 @@ export function SplitContainer({
             url={pane.url || ""}
             isFocused={focusedPaneId === pane.id}
             onFocus={onFocusPane}
+          />
+          {splitButtons}
+        </PaneWrapper>
+      );
+    }
+
+    if (showChatView) {
+      return (
+        <PaneWrapper paneId={pane.id} isFocused={focusedPaneId === pane.id} hasSplits={hasSplits}>
+          <ChatView
+            paneId={pane.id}
+            ptyId={pane.pty_id}
+            title={pane.title}
+            onToggle={() => toggleChatView(pane.id)}
           />
           {splitButtons}
         </PaneWrapper>
@@ -222,11 +250,17 @@ function ConfirmStopDialog({ message, confirmLabel, onConfirm, onCancel }: { mes
 
 function PaneToolbar({
   hasAgent,
+  showChatToggle,
+  isChatView,
+  onToggleChatView,
   onSplitH,
   onSplitV,
   onClose,
 }: {
   hasAgent: boolean;
+  showChatToggle?: boolean;
+  isChatView?: boolean;
+  onToggleChatView?: () => void;
   onSplitH: () => void;
   onSplitV: () => void;
   onClose: () => void;
@@ -239,6 +273,27 @@ function PaneToolbar({
   return (
     <>
       <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover/pane:opacity-100 transition-opacity duration-200 z-10">
+        {/* Chat view toggle */}
+        {showChatToggle && onToggleChatView && (
+          <>
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleChatView(); }}
+              className={btnNormal}
+              title={isChatView ? "Switch to terminal" : "Switch to chat view"}
+            >
+              {isChatView ? (
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0114.25 15H1.75A1.75 1.75 0 010 13.25Zm1.75-.25a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 00.25-.25V2.75a.25.25 0 00-.25-.25ZM7.25 8a.75.75 0 01-.22.53l-2.25 2.25a.75.75 0 11-1.06-1.06L5.44 8 3.72 6.28a.75.75 0 111.06-1.06l2.25 2.25c.141.14.22.331.22.53Zm1.5 1.5a.75.75 0 000 1.5h3a.75.75 0 000-1.5Z" />
+                </svg>
+              ) : (
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M1.5 2.75a.25.25 0 01.25-.25h8.5a.25.25 0 01.25.25v5.5a.25.25 0 01-.25.25h-3.5a.75.75 0 00-.53.22L3.5 11.44V9.25a.75.75 0 00-.75-.75h-1a.25.25 0 01-.25-.25v-5.5zM1.75 1A1.75 1.75 0 000 2.75v5.5C0 9.216.784 10 1.75 10H2v1.543a1.457 1.457 0 002.487 1.03L7.061 10h3.189A1.75 1.75 0 0012 8.25v-5.5A1.75 1.75 0 0010.25 1h-8.5zM14.5 4.75a.25.25 0 00-.25-.25h-.5a.75.75 0 110-1.5h.5c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0114.25 12H14v1.543a1.457 1.457 0 01-2.487 1.03L9.22 12.28a.75.75 0 111.06-1.06l2.22 2.22v-2.19a.75.75 0 01.75-.75h1a.25.25 0 00.25-.25v-5.5z" />
+                </svg>
+              )}
+            </button>
+            <div className="w-px h-3 bg-[var(--ct-border)]/50 mx-0.5" />
+          </>
+        )}
         {/* Split right */}
         <button
           onClick={(e) => { e.stopPropagation(); onSplitH(); }}

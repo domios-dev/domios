@@ -368,7 +368,8 @@ pub async fn kill_pty(
     Ok(())
 }
 
-/// Get captured PTY output.
+/// Get captured PTY output — full untruncated history, ANSI stripped.
+/// Used by ChatView to parse Claude output.
 #[tauri::command]
 pub async fn get_pane_output(
     output_buf: tauri::State<'_, OutputBufferState>,
@@ -382,7 +383,57 @@ pub async fn get_pane_output(
             .ok_or_else(|| "Pane not found or has no PTY".to_string())?
     };
     let buf = output_buf.lock();
-    Ok(buf.get_text(&pty_id).unwrap_or_default())
+    let text = buf.get_full_text(&pty_id).unwrap_or_default();
+    Ok(crate::api::routes::clean_terminal_output(&text))
+}
+
+/// Read Claude Code JSONL session file for a pane.
+/// Returns the raw JSONL text. The frontend parses it into chat messages.
+/// Supports incremental reads via `offset` — skips that many bytes and returns only new data.
+#[tauri::command]
+pub fn read_session_jsonl(
+    mux: tauri::State<'_, MuxState>,
+    pane_id: String,
+    offset: Option<u64>,
+) -> Result<String, String> {
+    // 1. Get claude_session_id and cwd from pane
+    let (session_id, cwd) = {
+        let m = mux.lock();
+        let pane = m.get_pane(&pane_id)
+            .ok_or_else(|| "Pane not found".to_string())?;
+        let sid = pane.claude_session_id.clone()
+            .ok_or_else(|| "No Claude session linked to this pane".to_string())?;
+        let cwd = pane.cwd.clone()
+            .ok_or_else(|| "Pane has no CWD".to_string())?;
+        (sid, cwd)
+    };
+
+    // 2. Build path using same encoding as detect_claude_session_id
+    let home = dirs::home_dir().ok_or("No home dir")?;
+    let encoded: String = cwd.chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
+    let jsonl_path = home.join(".claude").join("projects").join(&encoded).join(format!("{}.jsonl", session_id));
+
+    if !jsonl_path.exists() {
+        return Err(format!("JSONL not found: {}", jsonl_path.display()));
+    }
+
+    // 3. Read from offset for incremental updates
+    let skip = offset.unwrap_or(0);
+    if skip > 0 {
+        use std::io::{Seek, SeekFrom};
+        let mut file = std::fs::File::open(&jsonl_path).map_err(|e| e.to_string())?;
+        let meta = file.metadata().map_err(|e| e.to_string())?;
+        if skip >= meta.len() {
+            // No new data
+            return Ok(String::new());
+        }
+        file.seek(SeekFrom::Start(skip)).map_err(|e| e.to_string())?;
+        let mut buf = String::new();
+        file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
+        Ok(buf)
+    } else {
+        std::fs::read_to_string(&jsonl_path).map_err(|e| e.to_string())
+    }
 }
 
 // ---------------------------------------------------------------------------
