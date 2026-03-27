@@ -174,7 +174,7 @@ type Action =
   // Pane title — pinned=true from API/CLI rename (blocks OSC auto-rename)
   | { type: "SET_PANE_TITLE"; paneId: string; title: string; level?: TitleLevel }
   // Agent detection
-  | { type: "SET_AGENT_TYPE"; paneId: string; agentType: "claude" | null }
+  | { type: "SET_AGENT_TYPE"; paneId: string; agentType: string | null }
   // Pane status actions
   | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus };
 
@@ -577,7 +577,7 @@ interface MultiplexerContextType {
   dismissToast: (id: string) => void;
   // Pane title (from terminal OSC sequences)
   setPaneTitle: (paneId: string, title: string, level?: TitleLevel) => void;
-  setAgentType: (paneId: string, agentType: "claude" | null) => void;
+  setAgentType: (paneId: string, agentType: string | null) => void;
   // Pane status
   updatePaneStatus: (paneId: string, status: PaneStatus) => void;
   // Spawn Claude in a new tab
@@ -1102,7 +1102,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_PANE_TITLE", paneId, title, level });
   }, []);
 
-  const setAgentType = useCallback((paneId: string, agentType: "claude" | null) => {
+  const setAgentType = useCallback((paneId: string, agentType: string | null) => {
     dispatch({ type: "SET_AGENT_TYPE", paneId, agentType });
   }, []);
 

@@ -52,9 +52,15 @@ impl ServiceContext {
         }
     }
 
-    pub fn set_claude_session_id(&self, pane_id: &str, session_id: Option<String>) {
+    /// Set agent session ID on a pane. Kept as `set_agent_session_id`.
+    pub fn set_agent_session_id(&self, pane_id: &str, session_id: Option<String>) {
         if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
-            pane.claude_session_id = session_id;
+            pane.agent_session_id = session_id;
         }
+    }
+
+    /// Backward-compat alias for `set_agent_session_id`.
+    pub fn set_claude_session_id(&self, pane_id: &str, session_id: Option<String>) {
+        self.set_agent_session_id(pane_id, session_id);
     }
 }
