@@ -39,8 +39,8 @@ pub enum SplitNodeSnapshot {
         title_level: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_type: Option<String>,
-        /// Claude Code session ID for --resume
-        #[serde(skip_serializing_if = "Option::is_none")]
+        /// Agent session ID for --resume (backward compat: reads "claude_session_id" too).
+        #[serde(skip_serializing_if = "Option::is_none", alias = "agent_session_id")]
         claude_session_id: Option<String>,
         /// Orchestration role.
         #[serde(skip_serializing_if = "Option::is_none", default)]

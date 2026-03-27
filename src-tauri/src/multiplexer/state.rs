@@ -45,7 +45,7 @@ impl MultiplexerState {
             cwd: None,
             url: None,
             agent_type: None,
-            claude_session_id: None,
+            agent_session_id: None,
             role: Some(AgentRole::Orchestrator),
             parent_pane_id: None,
             can_spawn: true,
@@ -343,7 +343,7 @@ impl MultiplexerState {
             cwd: None,
             url: None,
             agent_type: None,
-            claude_session_id: None,
+            agent_session_id: None,
             role: None,
             parent_pane_id: None,
             can_spawn: false,
@@ -366,7 +366,7 @@ impl MultiplexerState {
             cwd: None,
             url,
             agent_type: None,
-            claude_session_id: None,
+            agent_session_id: None,
             role: None,
             parent_pane_id: None,
             can_spawn: false,
@@ -743,7 +743,7 @@ impl MultiplexerState {
                     let pane = panes.get(pane_id);
                     let cwd = pane.and_then(|p| p.cwd.clone());
                     let agent_type = pane.and_then(|p| p.agent_type.clone());
-                    let claude_session_id = pane.and_then(|p| p.claude_session_id.clone());
+                    let claude_session_id = pane.and_then(|p| p.agent_session_id.clone());
                     let role = pane.and_then(|p| p.role.map(|r| format!("{:?}", r)));
                     let parent_pane_id = pane.and_then(|p| p.parent_pane_id.clone());
                     let can_spawn = pane.map(|p| p.can_spawn).unwrap_or(false);
@@ -827,7 +827,7 @@ impl MultiplexerState {
                         cwd: cwd.clone(),
                         url: None,
                         agent_type: agent_type.clone(),
-                        claude_session_id: claude_session_id.clone(),
+                        agent_session_id: claude_session_id.clone(),
                         role: parsed_role,
                         parent_pane_id: parent_pane_id.clone(),
                         can_spawn: *can_spawn,

@@ -3,6 +3,7 @@ import { TerminalPane } from "./TerminalPane";
 import { BrowserPane } from "../Browser/BrowserPane";
 import { ChatView } from "../ChatView/ChatView";
 import { Divider } from "./Divider";
+import { getAgentProvider } from "../../lib/agentProviders";
 import type { SplitNode, Pane, Orientation, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 
 interface SplitContainerProps {
@@ -62,13 +63,15 @@ export function SplitContainer({
     const pane = panes[node.pane_id];
     if (!pane) return null;
 
-    const isClaudePane = pane.agent_type === "claude";
-    const showChatView = isClaudePane && chatViewEnabled[pane.id];
+    const agentProvider = getAgentProvider(pane.agent_type);
+    const hasAgent = !!agentProvider;
+    const supportsChatView = !!agentProvider?.supportsChatView;
+    const showChatView = supportsChatView && chatViewEnabled[pane.id];
 
     const splitButtons = (
       <PaneToolbar
-        hasAgent={isClaudePane}
-        showChatToggle={isClaudePane}
+        hasAgent={hasAgent}
+        showChatToggle={supportsChatView}
         isChatView={!!showChatView}
         onToggleChatView={() => toggleChatView(pane.id)}
         onSplitH={() => onSplitPane(pane.id, "Horizontal")}
@@ -92,23 +95,11 @@ export function SplitContainer({
       );
     }
 
-    if (showChatView) {
-      return (
-        <PaneWrapper paneId={pane.id} isFocused={focusedPaneId === pane.id} hasSplits={hasSplits}>
-          <ChatView
-            paneId={pane.id}
-            ptyId={pane.pty_id}
-            title={pane.title}
-            onToggle={() => toggleChatView(pane.id)}
-          />
-          {splitButtons}
-        </PaneWrapper>
-      );
-    }
-
+    // Terminal always renders; ChatView is an overlay on top
     return (
       <PaneWrapper paneId={pane.id} isFocused={focusedPaneId === pane.id} hasSplits={hasSplits}>
-        <TerminalPane
+        <div className="relative w-full h-full">
+          <TerminalPane
           key={pane.id}
           paneId={pane.id}
           ptyId={pane.pty_id}
@@ -120,6 +111,19 @@ export function SplitContainer({
           fontConfig={fontConfig}
           terminalConfig={terminalConfig}
         />
+          {/* Chat overlay — renders on top of terminal, terminal stays alive underneath */}
+          {showChatView && (
+            <div className="absolute inset-0 z-10">
+              <ChatView
+                paneId={pane.id}
+                ptyId={pane.pty_id}
+                title={pane.title}
+                agentType={pane.agent_type}
+                onToggle={() => toggleChatView(pane.id)}
+              />
+            </div>
+          )}
+        </div>
         {splitButtons}
       </PaneWrapper>
     );

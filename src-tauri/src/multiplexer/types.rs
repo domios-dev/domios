@@ -164,9 +164,9 @@ pub struct Pane {
     /// Agent type (e.g. "claude") — set by frontend when detected.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_type: Option<String>,
-    /// Claude Code session ID for resume.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub claude_session_id: Option<String>,
+    /// Agent session ID for resume (e.g. Claude Code session).
+    #[serde(skip_serializing_if = "Option::is_none", default, alias = "claude_session_id")]
+    pub agent_session_id: Option<String>,
     /// Orchestration role (orchestrator / lead / worker).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,

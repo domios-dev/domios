@@ -250,7 +250,6 @@ impl ServiceContext {
         self.emit_state_changed();
 
         // 5. Background launch — task is passed as CLI arg to claude (no paste needed)
-        let is_claude = agent_cmd == "claude";
         let bg_task = params.task.as_ref().map(|t| {
             match params.role.as_deref() {
                 Some("Worker") => format!("{}{}", t, crate::prompts::WORKER_SUFFIX),
@@ -259,8 +258,8 @@ impl ServiceContext {
                 _ => t.clone(),
             }
         });
-        let launch_cmd = build_agent_command(&agent_cmd, &params, bg_task.as_deref());
-        launch_agent_in_background(self.clone(), pane_id.clone(), launch_cmd, is_claude, bg_task);
+        let launch_cmd = build_agent_command(&agent_cmd, &params, bg_task.as_deref(), &self.agent_registry);
+        launch_agent_in_background(self.clone(), pane_id.clone(), launch_cmd, agent_cmd.clone(), bg_task);
 
         Ok(SpawnResult { pane_id, tab_id, pty_id: String::new(), agent: agent_cmd, title, role: params.role })
     }
@@ -330,7 +329,6 @@ impl ServiceContext {
         self.rename_pane(&pane_id, title)?;
 
         // 5. Launch agent in background thread
-        let is_claude = agent_cmd == "claude";
         let bg_task = params.task.as_ref().map(|t| {
             match params.role.as_deref() {
                 Some("Worker") => format!("{}{}", t, crate::prompts::WORKER_SUFFIX),
@@ -339,8 +337,8 @@ impl ServiceContext {
                 _ => t.clone(),
             }
         });
-        let launch_cmd = build_agent_command(agent_cmd, &params, bg_task.as_deref());
-        launch_agent_in_background(self.clone(), pane_id.clone(), launch_cmd, is_claude, bg_task);
+        let launch_cmd = build_agent_command(agent_cmd, &params, bg_task.as_deref(), &self.agent_registry);
+        launch_agent_in_background(self.clone(), pane_id.clone(), launch_cmd, agent_cmd.to_string(), bg_task);
 
         Ok(SpawnResult {
             pane_id,
@@ -353,15 +351,19 @@ impl ServiceContext {
     }
 }
 
+use crate::agent::provider::{AgentLaunchParams, ReadinessStrategy, TaskDelivery};
+use crate::agent::registry::AgentRegistry;
+
 /// Shared background thread logic for launching agents in a PTY.
-/// Used by both `spawn_agent` (async) and `spawn_agent_sync`.
+/// Uses the AgentRegistry to determine readiness strategy and task delivery.
 fn launch_agent_in_background(
     svc: ServiceContext,
     pane_id: String,
     launch_cmd: String,
-    is_claude: bool,
+    agent_cmd: String,
     task: Option<String>,
 ) {
+    let registry = svc.agent_registry.clone();
     std::thread::spawn(move || {
         // 1. Wait for PTY (frontend creates it after mux-state-changed)
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
@@ -377,15 +379,23 @@ fn launch_agent_in_background(
             std::thread::sleep(std::time::Duration::from_millis(300));
         };
 
-        // 2. Wait for shell prompt (if claude) or short delay (non-claude)
-        if is_claude {
-            crate::service::pty_io::poll_shell_prompt(
-                &svc.output_buf,
-                &pty_id,
-                std::time::Duration::from_secs(30),
-            );
-        } else {
-            std::thread::sleep(std::time::Duration::from_secs(2));
+        // 2. Wait for readiness using provider strategy
+        let provider = registry.get(&agent_cmd);
+        match provider.map(|p| p.readiness_strategy()) {
+            Some(ReadinessStrategy::PollShellPrompt { timeout }) => {
+                crate::service::pty_io::poll_shell_prompt(
+                    &svc.output_buf,
+                    &pty_id,
+                    timeout,
+                );
+            }
+            Some(ReadinessStrategy::FixedDelay { duration }) => {
+                std::thread::sleep(duration);
+            }
+            None => {
+                // Unknown agent — use fixed delay as fallback
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
         }
 
         // 3. Send launch command
@@ -394,8 +404,10 @@ fn launch_agent_in_background(
             return;
         }
 
-        // 4. For non-claude with task, send task after delay
-        if !is_claude {
+        // 4. For PtyInput delivery, send task after short delay
+        let delivery = provider.map(|p| p.task_delivery());
+        let is_pty_input = matches!(delivery, Some(TaskDelivery::PtyInput)) || delivery.is_none();
+        if is_pty_input {
             if let Some(ref task_text) = task {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 let _ = svc.send_text(&pane_id, task_text, true);
@@ -409,32 +421,23 @@ fn launch_agent_in_background(
 use crate::shell::ShellSyntax;
 
 /// Build a single shell command that launches the agent.
-/// Platform-aware: emits PowerShell syntax on Windows, bash on Unix.
-fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<&str>) -> String {
-    let mut parts: Vec<String> = Vec::new();
-
-    if agent_cmd == "claude" {
-        parts.push(ShellSyntax::UNSET_CLAUDECODE.to_string());
-        parts.push("claude".to_string());
-        parts.push("--dangerously-skip-permissions".to_string());
-
-        if let Some(t) = task {
-            parts.push(ShellSyntax::task_file_expr(t));
-        }
-
-        if let Some(ref name) = params.agent_name {
-            parts.push("--agent".to_string());
-            parts.push(ShellSyntax::quote(name));
-        }
+/// Uses the AgentRegistry for known providers; falls back to simple command for unknown agents.
+fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<&str>, registry: &AgentRegistry) -> String {
+    if let Some(provider) = registry.get(agent_cmd) {
+        let launch_params = AgentLaunchParams {
+            agent_name: params.agent_name.clone(),
+            task: task.map(|t| t.to_string()),
+            args: params.args.clone(),
+        };
+        provider.build_launch_command(&launch_params)
     } else {
-        parts.push(agent_cmd.to_string());
+        // Generic agent: just command + args
+        let mut parts: Vec<String> = vec![agent_cmd.to_string()];
+        if let Some(ref extra) = params.args {
+            parts.extend(extra.iter().cloned());
+        }
+        parts.join(" ")
     }
-
-    if let Some(ref extra) = params.args {
-        parts.extend(extra.iter().cloned());
-    }
-
-    parts.join(" ")
 }
 
 #[cfg(test)]
@@ -458,10 +461,15 @@ mod tests {
         }
     }
 
+    fn test_registry() -> AgentRegistry {
+        AgentRegistry::new()
+    }
+
     #[test]
     fn test_build_claude_with_task() {
+        let reg = test_registry();
         let params = make_params("claude", Some("count files"));
-        let cmd = build_agent_command("claude", &params, Some("count files"));
+        let cmd = build_agent_command("claude", &params, Some("count files"), &reg);
         assert!(cmd.contains("--dangerously-skip-permissions"));
         assert!(cmd.contains(".ct-task-"), "task via temp file");
         if cfg!(target_os = "windows") {
@@ -475,8 +483,9 @@ mod tests {
 
     #[test]
     fn test_build_claude_no_task() {
+        let reg = test_registry();
         let params = make_params("claude", None);
-        let cmd = build_agent_command("claude", &params, None);
+        let cmd = build_agent_command("claude", &params, None, &reg);
         if cfg!(target_os = "windows") {
             assert_eq!(cmd, "$env:CLAUDECODE=$null; claude --dangerously-skip-permissions");
         } else {
@@ -486,17 +495,19 @@ mod tests {
 
     #[test]
     fn test_build_claude_with_agent_name() {
+        let reg = test_registry();
         let mut params = make_params("claude", Some("review code"));
         params.agent_name = Some("architect".to_string());
-        let cmd = build_agent_command("claude", &params, None);
+        let cmd = build_agent_command("claude", &params, None, &reg);
         assert!(cmd.contains("--agent 'architect'"));
     }
 
     #[test]
     fn test_build_other_agent() {
+        let reg = test_registry();
         let mut params = make_params("aider", None);
         params.args = Some(vec!["--model".to_string(), "gpt-4".to_string()]);
-        let cmd = build_agent_command("aider", &params, None);
+        let cmd = build_agent_command("aider", &params, None, &reg);
         assert_eq!(cmd, "aider --model gpt-4");
         assert!(!cmd.contains("CLAUDECODE"));
     }
@@ -516,8 +527,9 @@ mod tests {
 
     #[test]
     fn test_build_claude_task_with_newlines() {
+        let reg = test_registry();
         let params = make_params("claude", Some("line1\nline2\nline3"));
-        let cmd = build_agent_command("claude", &params, Some("line1\nline2\nline3"));
+        let cmd = build_agent_command("claude", &params, Some("line1\nline2\nline3"), &reg);
         // Task goes through temp file, so newlines are preserved in the file
         assert!(cmd.contains(".ct-task-"), "task with newlines still uses temp file");
         assert!(cmd.contains("--dangerously-skip-permissions"));
@@ -525,26 +537,29 @@ mod tests {
 
     #[test]
     fn test_build_claude_task_with_single_quotes() {
+        let reg = test_registry();
         let task = "count files that don't match '*.rs'";
         let params = make_params("claude", Some(task));
-        let cmd = build_agent_command("claude", &params, Some(task));
+        let cmd = build_agent_command("claude", &params, Some(task), &reg);
         // Task is written to a temp file, so quotes don't break the command
         assert!(cmd.contains(".ct-task-"));
     }
 
     #[test]
     fn test_build_claude_task_with_double_quotes() {
+        let reg = test_registry();
         let task = r#"find files matching "*.rs""#;
         let params = make_params("claude", Some(task));
-        let cmd = build_agent_command("claude", &params, Some(task));
+        let cmd = build_agent_command("claude", &params, Some(task), &reg);
         assert!(cmd.contains(".ct-task-"));
     }
 
     #[test]
     fn test_build_claude_task_with_shell_special_chars() {
+        let reg = test_registry();
         let task = "echo $HOME && ls | grep foo; rm -rf /tmp/test";
         let params = make_params("claude", Some(task));
-        let cmd = build_agent_command("claude", &params, Some(task));
+        let cmd = build_agent_command("claude", &params, Some(task), &reg);
         // Should not contain raw special chars in the command itself — they're in the temp file
         assert!(cmd.contains(".ct-task-"));
         assert!(!cmd.contains("$HOME"), "shell vars should be in temp file, not in command");
@@ -552,9 +567,10 @@ mod tests {
 
     #[test]
     fn test_build_claude_task_temp_file_created() {
+        let reg = test_registry();
         let task = "test task content";
         let params = make_params("claude", Some(task));
-        let cmd = build_agent_command("claude", &params, Some(task));
+        let cmd = build_agent_command("claude", &params, Some(task), &reg);
         // Extract the temp file path from the command and verify it was written
         if cfg!(not(target_os = "windows")) {
             // Command looks like: ... "$(cat /tmp/.ct-task-XXXXXXXX)"
@@ -570,9 +586,10 @@ mod tests {
 
     #[test]
     fn test_build_claude_with_extra_args() {
+        let reg = test_registry();
         let mut params = make_params("claude", None);
         params.args = Some(vec!["--verbose".to_string(), "--no-cache".to_string()]);
-        let cmd = build_agent_command("claude", &params, None);
+        let cmd = build_agent_command("claude", &params, None, &reg);
         assert!(cmd.contains("--verbose"));
         assert!(cmd.contains("--no-cache"));
         assert!(cmd.ends_with("--verbose --no-cache"));
@@ -580,9 +597,10 @@ mod tests {
 
     #[test]
     fn test_build_non_claude_ignores_task_in_command() {
+        let reg = test_registry();
         // For non-claude agents, build_agent_command does NOT embed the task
         let params = make_params("aider", Some("review this code"));
-        let cmd = build_agent_command("aider", &params, Some("review this code"));
+        let cmd = build_agent_command("aider", &params, Some("review this code"), &reg);
         // Non-claude: task is NOT added to the command (it's sent separately via PTY)
         // The function just puts agent_cmd + args
         assert_eq!(cmd, "aider");

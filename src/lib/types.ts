@@ -34,8 +34,8 @@ export interface Pane {
   cwd: string | null;
   url?: string;
   title_level?: TitleLevel;
-  agent_type?: "claude" | null;
-  claude_session_id?: string | null;
+  agent_type?: string | null;
+  agent_session_id?: string | null;
   role?: AgentRole | null;
   parent_pane_id?: string | null;
   can_spawn?: boolean;

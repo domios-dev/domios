@@ -27,6 +27,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 
+use crate::agent::registry::AgentRegistry;
 use crate::api::events::EventBroadcaster;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::AgentRole;
@@ -48,6 +49,7 @@ pub struct ServiceContext {
     pub app_handle: tauri::AppHandle,
     pub agent_tracker: AgentTrackerState,
     pub report_store: ReportStoreState,
+    pub agent_registry: Arc<AgentRegistry>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;

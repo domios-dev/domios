@@ -1,6 +1,10 @@
 # CodeTerm
 
-AI-first cross-platform terminal multiplexer. Tauri v2 (Rust) + React/TypeScript + xterm.js.
+**OS for AI agents.** Cross-platform terminal multiplexer where AI agents live, work, and coordinate. Tauri v2 (Rust) + React/TypeScript + xterm.js.
+
+## Vision
+
+CodeTerm is not a terminal with AI bolted on. It's infrastructure that AI agents need — lifecycle management, observability, coordination, verification — wrapped in a terminal because that's where developers work. Model-agnostic: Claude, Codex, Gemini, local models — any agent that runs in a terminal.
 
 ## Quick ref
 
@@ -24,6 +28,34 @@ AI-first cross-platform terminal multiplexer. Tauri v2 (Rust) + React/TypeScript
 - `docs/BUILD.md` — Build instructions
 
 Each doc has a `<!-- revision: N -->` tag at the bottom. When you change API endpoints, config options, CLI commands, or skills — bump the revision in affected docs. This lets users detect when to update their local skill/config copies.
+
+## Architecture: Agent Providers
+
+Agent detection and integration is abstracted into providers. Currently only Claude Code is implemented, but the architecture supports any CLI agent.
+
+**What a provider does:**
+- **Detect** — recognize when an agent starts in a PTY (OSC title, output patterns, process name)
+- **Session** — link to session files for structured data (Claude: JSONL, Codex: TBD)
+- **Parse** — extract structured messages from agent output (chat view)
+- **Control** — send input to the agent, understand its prompt format
+
+**Current providers:**
+- `claude` — detects via OSC title containing "claude", reads `~/.claude/projects/` JSONL, parses messages/tool_calls/thinking blocks
+
+**Future providers (architecture ready, not implemented):**
+- `codex` — OpenAI Codex CLI
+- `aider` — Aider pair programmer
+- `goose` — Block's Goose agent
+- `generic` — fallback, terminal output parsing only
+
+Provider code lives in:
+- Rust: `src-tauri/src/agent/` — detection, session file reading
+- TypeScript: `src/components/ChatView/parser.ts` — output parsing
+- TypeScript: `src/components/Terminal/TerminalPane.tsx` — detection hooks (onTitleChange)
+
+## Git rules
+
+**NEVER commit or push without explicit user request.** No auto-commits, no "let me commit this". Only commit when the user says "коммить", "commit", "запушь", etc.
 
 ## Cross-platform notes
 
