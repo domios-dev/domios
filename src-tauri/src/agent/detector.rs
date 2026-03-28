@@ -260,6 +260,10 @@ fn detect_task_completion(text: &str) -> bool {
 ///   - 2+ numbered options (N. text) with optional ❯ selector
 ///   - Keyboard hint footer (Esc/Tab/Enter keywords)
 ///
+/// Key constraint: numbered options and footer/selector must be CLOSE together
+/// (within 8 lines). This prevents false positives when Claude's answer contains
+/// a numbered list far above the actual prompt.
+///
 /// This is generic enough for any TUI menu, not just Claude.
 /// Source code won't have this exact structural combination.
 pub fn detect_interactive_prompt(text: &str) -> bool {
@@ -270,11 +274,12 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
     let scan_start = lines.len().saturating_sub(20);
     let tail_lines = &lines[scan_start..];
 
-    let mut numbered_options = 0;
-    let mut has_selector = false;  // ❯ or > before an option
-    let mut has_footer = false;    // keyboard hint line
+    // Track line indices of features to check proximity
+    let mut option_indices: Vec<usize> = Vec::new();
+    let mut footer_idx: Option<usize> = None;    // keyboard hint line
+    let mut selector_idx: Option<usize> = None;
 
-    for line in tail_lines {
+    for (i, line) in tail_lines.iter().enumerate() {
         let trimmed = line.trim();
 
         // Numbered option: "1. Yes", "❯ 1. Yes", "> 2. No"
@@ -283,9 +288,9 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
             // Handle multi-digit: "10. Something"
             let rest = rest.trim_start_matches(|c: char| c.is_ascii_digit());
             if rest.starts_with(". ") {
-                numbered_options += 1;
+                option_indices.push(i);
                 if trimmed.starts_with('❯') || trimmed.starts_with('>') {
-                    has_selector = true;
+                    selector_idx = Some(i);
                 }
             }
         }
@@ -294,16 +299,37 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
         if (trimmed.contains("Esc") || trimmed.contains("Enter"))
             && (trimmed.contains("cancel") || trimmed.contains("amend") || trimmed.contains("confirm"))
         {
-            has_footer = true;
+            footer_idx = Some(i);
         }
     }
 
-    // Structural match: 2+ options AND (selector OR footer)
-    numbered_options >= 2 && (has_selector || has_footer)
+    if option_indices.len() < 2 {
+        return false;
+    }
+
+    // Check proximity: options must be close to each other AND to footer/selector.
+    // Find the contiguous cluster of options near the anchor (footer or selector).
+    let anchor = footer_idx.or(selector_idx);
+
+    if let Some(anchor_idx) = anchor {
+        // Count options within 8 lines of the anchor
+        let nearby_options = option_indices.iter()
+            .filter(|&&idx| {
+                let dist = if idx > anchor_idx { idx - anchor_idx } else { anchor_idx - idx };
+                dist <= 8
+            })
+            .count();
+        nearby_options >= 2
+    } else {
+        // No footer and no selector — not a prompt
+        false
+    }
 }
 
 /// Parse a permission prompt with numbered options from terminal output.
 /// Returns (question, options) if found. Each option is (label, value).
+/// Only parses numbered options that appear AFTER the question line to avoid
+/// picking up numbered lists from Claude's response text.
 pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, String)>)> {
     let question_patterns = [
         "Do you want to proceed?",
@@ -311,19 +337,26 @@ pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, Strin
         "Approve ",
     ];
 
+    let lines: Vec<&str> = text.lines().collect();
     let mut question = None;
-    for pattern in &question_patterns {
-        if let Some(pos) = text.rfind(pattern) {
-            let end = text[pos..].find('\n').map(|i| pos + i).unwrap_or(text.len());
-            question = Some(text[pos..end].trim().to_string());
-            break;
+    let mut question_line_idx = None;
+
+    // Find the LAST occurrence of a question pattern (use last to handle repeated text)
+    for (i, line) in lines.iter().enumerate() {
+        for pattern in &question_patterns {
+            if line.contains(pattern) {
+                question = Some(line.trim().to_string());
+                question_line_idx = Some(i);
+            }
         }
     }
     let question = question?;
+    let start = question_line_idx?;
 
-    // Parse numbered options: "1. Yes", "2. Yes, allow...", "3. No"
+    // Only parse numbered options AFTER the question, within 10 lines
+    let end = (start + 10).min(lines.len());
     let mut options = Vec::new();
-    for line in text.lines() {
+    for line in &lines[start..end] {
         let trimmed = line.trim().trim_start_matches('❯').trim_start_matches('>').trim();
         let digits: String = trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
         if !digits.is_empty() {
@@ -570,5 +603,33 @@ mod tests {
             text.push_str("Agent is working on something...\n");
         }
         assert!(!detect_interactive_prompt(&text));
+    }
+
+    // --- False positive prevention tests ---
+
+    #[test]
+    fn test_parse_prompt_ignores_numbered_list_before_question() {
+        let text = "Here's my analysis:\n1. First bug in code\n2. Second issue found\n3. Third problem\n\nDo you want to proceed?\n  ❯ 1. Yes\n    2. No\n\nEsc to cancel";
+        let result = parse_permission_prompt(text);
+        assert!(result.is_some());
+        let (q, opts) = result.unwrap();
+        assert_eq!(q, "Do you want to proceed?");
+        assert_eq!(opts.len(), 2); // Only Yes/No, not the analysis items
+        assert_eq!(opts[0].0, "Yes");
+        assert_eq!(opts[1].0, "No");
+    }
+
+    #[test]
+    fn test_fingerprint_ignores_numbered_answer_before_prompt() {
+        let text = "Analysis:\n1. Bug found\n2. Issue here\n3. Fix needed\n4. Test required\n5. Deploy\n\nDo you want to proceed?\n  ❯ 1. Yes\n    2. No\nEsc to cancel";
+        // Should detect as prompt (numbered options near footer)
+        assert!(detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_fingerprint_no_match_just_numbered_answer() {
+        // Claude's numbered answer WITHOUT any prompt
+        let text = "Here's what I found:\n1. First issue\n2. Second issue\n3. Third issue\n\nLet me fix these.";
+        assert!(!detect_interactive_prompt(text));
     }
 }
