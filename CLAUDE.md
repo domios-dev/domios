@@ -97,6 +97,10 @@ Provider code lives in:
 
 When adding agent-related features, ask: "How would this work with Codex? With Aider? With a local model?" If the answer requires Claude-specific code, put it in the provider.
 
+## No hardcode — always patterns
+
+**Never hardcode specific strings for detection.** Always use structural patterns/fingerprints. If Claude changes wording from "Do you want to proceed?" to "Do you want to create?", detection must still work. Same for any agent — detect by structure (numbered options + footer), not by specific text. This applies everywhere: prompt detection, task completion, agent identification, output parsing. Generalize, don't enumerate.
+
 ## Lock ordering (deadlock prevention)
 
 All parking_lot Mutexes must be acquired in this order. Never hold a higher-numbered lock while acquiring a lower-numbered one.
