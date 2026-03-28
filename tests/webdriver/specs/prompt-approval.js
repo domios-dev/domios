@@ -60,6 +60,11 @@ async function createTab(workspaceId) {
   return body;
 }
 
+// Helper: set agent_type on a pane so chat view becomes available
+async function setAgentType(paneId, agentType = 'claude') {
+  return apiCall('POST', `/panes/${paneId}/agent-type`, { agent_type: agentType });
+}
+
 // Helper: inject a permission prompt on a pane via API
 async function injectPrompt(paneId, question = 'Do you want to proceed?', options = null) {
   const opts = options || [
@@ -82,14 +87,14 @@ async function getPane(paneId) {
 }
 
 // Helper: open chat view by clicking the chat toggle button
-// The button title is "Switch to chat view" (when terminal is shown)
-// or "Switch to terminal" (when chat is shown).
+// Handles both states: "Switch to chat view" (terminal shown) and
+// already open (textarea visible).
 async function openChatView() {
   // Check if chat is already open
   const input = await $('textarea[placeholder*="Send"]');
   if (await input.isExisting()) return;
 
-  // Find the "Switch to chat view" button
+  // Try "Switch to chat view" button
   const chatBtn = await $('button[title="Switch to chat view"]');
   if (await chatBtn.isExisting()) {
     await chatBtn.click();
@@ -165,6 +170,12 @@ describe('Prompt Approval in Chat View', () => {
     const pane = await getFirstPane();
     if (pane) paneId = pane.id;
     workspaceId = await getWorkspaceId();
+
+    // Set agent_type so chat view toggle appears
+    if (paneId) {
+      await setAgentType(paneId);
+      await browser.pause(1000);
+    }
   });
 
   afterEach(async () => {
@@ -278,6 +289,11 @@ describe('Two Panes with Independent Prompts', () => {
       pane2Id = tab2.pane_id;
       await browser.pause(3000);
     }
+
+    // Set agent_type on both panes so chat view works
+    if (pane1Id) await setAgentType(pane1Id);
+    if (pane2Id) await setAgentType(pane2Id);
+    await browser.pause(500);
   });
 
   after(async () => {
@@ -328,8 +344,6 @@ describe('Two Panes with Independent Prompts', () => {
   });
 
   it('should show prompt in chat view for the agent pane (pane 1)', async () => {
-    // Only pane 1 (the original pane with agent) has chat view support.
-    // Pane 2 (API-created, no agent) won't have a chat toggle.
     await injectPrompt(pane1Id, 'Agent pane prompt');
     await browser.pause(500);
 
@@ -361,6 +375,11 @@ describe('Multi-Pane UI Click Approval', () => {
       pane2Id = tab2.pane_id;
       await browser.pause(3000);
     }
+
+    // Set agent_type on both panes
+    if (pane1Id) await setAgentType(pane1Id);
+    if (pane2Id) await setAgentType(pane2Id);
+    await browser.pause(500);
   });
 
   after(async () => {
@@ -413,8 +432,6 @@ describe('Multi-Pane UI Click Approval', () => {
     if (!pane1Id || !pane2Id) return;
 
     // Pane 2 should still have prompt from previous test
-    // But pane 2 might not have chat view support (no agent_type)
-    // Verify via API at least
     const p2 = await getPane(pane2Id);
     if (p2.pending_prompt) {
       expect(p2.pending_prompt.question).toContain('Pane 2');
@@ -429,6 +446,12 @@ describe('Prompt UI Button Click Flow', () => {
     await browser.pause(1000);
     const pane = await getFirstPane();
     if (pane) paneId = pane.id;
+
+    // Set agent_type so chat view works
+    if (paneId) {
+      await setAgentType(paneId);
+      await browser.pause(500);
+    }
   });
 
   afterEach(async () => {
@@ -442,7 +465,12 @@ describe('Prompt UI Button Click Flow', () => {
 
     await openChatView();
     await injectPrompt(paneId);
-    await browser.pause(4000);
+
+    // Wait for prompt buttons to appear in UI
+    await browser.waitUntil(async () => {
+      const labels = await getPromptButtonLabels();
+      return labels.includes('Yes');
+    }, { timeout: 8000, interval: 500, timeoutMsg: 'Yes button did not appear' });
 
     const clicked = await clickPromptButton('Yes');
     expect(clicked).toBe(true);
@@ -462,7 +490,12 @@ describe('Prompt UI Button Click Flow', () => {
 
     await openChatView();
     await injectPrompt(paneId);
-    await browser.pause(4000);
+
+    // Wait for prompt buttons to appear in UI
+    await browser.waitUntil(async () => {
+      const labels = await getPromptButtonLabels();
+      return labels.includes('No');
+    }, { timeout: 8000, interval: 500, timeoutMsg: 'No button did not appear' });
 
     const clicked = await clickPromptButton('No');
     expect(clicked).toBe(true);
@@ -480,7 +513,12 @@ describe('Prompt UI Button Click Flow', () => {
 
     await openChatView();
     await injectPrompt(paneId);
-    await browser.pause(4000);
+
+    // Wait for prompt buttons to appear in UI
+    await browser.waitUntil(async () => {
+      const labels = await getPromptButtonLabels();
+      return labels.includes('Yes');
+    }, { timeout: 8000, interval: 500, timeoutMsg: 'Yes button did not appear' });
 
     await clickPromptButton('Yes');
     await browser.pause(1000);

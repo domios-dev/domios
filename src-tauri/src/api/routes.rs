@@ -71,6 +71,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/report", post(submit_report))
         .route("/api/panes/{id}/reports", get(get_reports))
         .route("/api/panes/{id}/can-spawn", post(set_can_spawn))
+        .route("/api/panes/{id}/agent-type", post(set_agent_type))
         .route("/api/panes/{id}/prompt/respond", post(respond_prompt))
         .route("/api/panes/{id}/hook/permission", post(hook_permission))
         .route("/api/panes/{id}/hook/stop", post(hook_stop))
@@ -1029,6 +1030,18 @@ async fn respond_prompt(
 /// Hook endpoint: agent reports it needs permission.
 /// Called by Claude Code hook (permission_prompt matcher).
 /// No auth required — hooks run in the PTY process context.
+/// Set agent type on a pane (enables chat view for that agent's provider).
+async fn set_agent_type(
+    AxumState(state): AxumState<AppState>,
+    Path(pane_id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let agent_type = body.get("agent_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+    state.svc.set_pane_agent_type(&pane_id, agent_type);
+    state.svc.emit_state_changed();
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 ///
 /// Accepts optional JSON body with explicit prompt data:
 ///   { "question": "...", "options": [{"label": "Yes", "value": "1"}, ...] }

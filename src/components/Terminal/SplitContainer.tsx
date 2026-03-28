@@ -73,12 +73,13 @@ export function SplitContainer({
     const agentProvider = getAgentProvider(pane.agent_type);
     const hasAgent = !!agentProvider;
     const supportsChatView = !!agentProvider?.supportsChatView;
-    const showChatView = supportsChatView && (chatViewLocal[pane.id] ?? pane.chat_view ?? false);
+    const hasPendingPrompt = !!pane.pending_prompt;
+    const showChatView = (supportsChatView || hasPendingPrompt) && (chatViewLocal[pane.id] ?? pane.chat_view ?? false);
 
     const splitButtons = (
       <PaneToolbar
         hasAgent={hasAgent}
-        showChatToggle={supportsChatView}
+        showChatToggle={supportsChatView || hasPendingPrompt}
         isChatView={!!showChatView}
         onToggleChatView={() => toggleChatView(pane.id)}
         onSplitH={() => onSplitPane(pane.id, "Horizontal")}

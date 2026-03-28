@@ -157,7 +157,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         const state = await invoke<any>("mux_get_state");
         if (!active) return;
         const pane = state?.panes?.[paneId];
-        const prompt = pane?.pending_prompt || null;
+        const prompt = pane?.pending_prompt ?? null;
         // Only update if changed
         const prev = pendingPromptRef.current;
         if (JSON.stringify(prompt) !== JSON.stringify(prev)) {
@@ -545,7 +545,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
               Loading conversation...
             </span>
           </div>
-        ) : messages.length === 0 ? (
+        ) : messages.length === 0 && !pendingPrompt ? (
           <div className="flex items-center justify-center h-full">
             <span
               className="text-xs"
