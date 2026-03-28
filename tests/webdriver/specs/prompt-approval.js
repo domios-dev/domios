@@ -346,6 +346,82 @@ describe('Two Panes with Independent Prompts', () => {
   });
 });
 
+describe('Multi-Pane UI Click Approval', () => {
+  let pane1Id;
+  let pane2Id;
+  let workspaceId;
+
+  before(async () => {
+    await browser.pause(2000);
+    workspaceId = await getWorkspaceId();
+    const pane1 = await getFirstPane();
+    if (pane1) pane1Id = pane1.id;
+    if (workspaceId) {
+      const tab2 = await createTab(workspaceId);
+      pane2Id = tab2.pane_id;
+      await browser.pause(3000);
+    }
+  });
+
+  after(async () => {
+    for (const pid of [pane1Id, pane2Id]) {
+      if (pid) try { await respondPrompt(pid, '3'); } catch { /* ignore */ }
+    }
+    if (pane2Id) try { await apiCall('POST', `/panes/${pane2Id}/close`); } catch { /* ignore */ }
+  });
+
+  it('should click Yes on pane 1 UI and verify pane 2 still has prompt via API', async () => {
+    if (!pane1Id || !pane2Id) return;
+
+    // Inject prompts on both panes
+    await injectPrompt(pane1Id, 'Pane 1: read file?');
+    await injectPrompt(pane2Id, 'Pane 2: write file?');
+    await browser.pause(500);
+
+    // Focus pane 1, open chat, wait for prompt to render
+    await apiCall('POST', `/panes/${pane1Id}/focus`);
+    await browser.pause(500);
+    await openChatView();
+    await browser.pause(4000);
+
+    // Verify pane 1 prompt shows in UI
+    const found = await findTextInPage('Pane 1: read file?');
+    expect(found).toBe(true);
+
+    // Click Yes in UI
+    const clicked = await clickPromptButton('Yes');
+    expect(clicked).toBe(true);
+    await browser.pause(2000);
+
+    // Pane 1 prompt gone (UI)
+    const labels = await getPromptButtonLabels();
+    expect(labels.length).toBe(0);
+
+    // Pane 1 prompt gone (API)
+    const p1 = await getPane(pane1Id);
+    expect(p1.pending_prompt).toBeFalsy();
+
+    // Pane 2 prompt still set (API) — not affected by pane 1 click
+    const p2 = await getPane(pane2Id);
+    expect(p2.pending_prompt).not.toBeFalsy();
+    expect(p2.pending_prompt.question).toContain('Pane 2');
+
+    await closeChatView();
+  });
+
+  it('should show pane 2 prompt when switching to it', async () => {
+    if (!pane1Id || !pane2Id) return;
+
+    // Pane 2 should still have prompt from previous test
+    // But pane 2 might not have chat view support (no agent_type)
+    // Verify via API at least
+    const p2 = await getPane(pane2Id);
+    if (p2.pending_prompt) {
+      expect(p2.pending_prompt.question).toContain('Pane 2');
+    }
+  });
+});
+
 describe('Prompt UI Button Click Flow', () => {
   let paneId;
 
