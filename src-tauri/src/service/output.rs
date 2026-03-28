@@ -46,7 +46,13 @@ impl ServiceContext {
             let tail_text = {
                 let buf = self.output_buf.lock();
                 let full = buf.get_full_text(pty_id).unwrap_or_default();
-                let tail = if full.len() > 2000 { &full[full.len() - 2000..] } else { &full };
+                let start = if full.len() > 2000 {
+                    // Find a valid char boundary near the desired offset
+                    let mut s = full.len() - 2000;
+                    while s < full.len() && !full.is_char_boundary(s) { s += 1; }
+                    s
+                } else { 0 };
+                let tail = &full[start..];
                 crate::api::routes::strip_ansi_codes(tail)
             };
             let events = self.agent_registry.detect_events(at, &tail_text);
@@ -95,11 +101,12 @@ impl ServiceContext {
                 {
                     let buf = self.output_buf.lock();
                     let output_text = buf.get_full_text(pty_id).unwrap_or_default();
-                    let tail = if output_text.len() > 2000 {
-                        &output_text[output_text.len() - 2000..]
-                    } else {
-                        &output_text
-                    };
+                    let start = if output_text.len() > 2000 {
+                        let mut s = output_text.len() - 2000;
+                        while s < output_text.len() && !output_text.is_char_boundary(s) { s += 1; }
+                        s
+                    } else { 0 };
+                    let tail = &output_text[start..];
                     let clean_tail = crate::api::routes::strip_ansi_codes(tail);
                     if let Some((question, opts)) = self.agent_registry.parse_prompt(agent_type, &clean_tail) {
                         let prompt = PendingPrompt {
