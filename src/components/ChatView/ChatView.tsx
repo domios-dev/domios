@@ -163,6 +163,12 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         if (JSON.stringify(prompt) !== JSON.stringify(prev)) {
           setPendingPrompt(prompt);
           pendingPromptRef.current = prompt;
+          // Auto-scroll to prompt when it appears
+          if (prompt && !prev) {
+            requestAnimationFrame(() => {
+              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            });
+          }
         }
       } catch { /* ignore */ }
     }
