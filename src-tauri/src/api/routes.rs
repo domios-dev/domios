@@ -1029,50 +1029,74 @@ async fn respond_prompt(
 /// Hook endpoint: agent reports it needs permission.
 /// Called by Claude Code hook (permission_prompt matcher).
 /// No auth required — hooks run in the PTY process context.
+///
+/// Accepts optional JSON body with explicit prompt data:
+///   { "question": "...", "options": [{"label": "Yes", "value": "1"}, ...] }
+/// When body is provided, bypasses ring buffer parsing (useful for testing/external integrations).
 async fn hook_permission(
     AxumState(state): AxumState<AppState>,
     Path(pane_id): Path<String>,
+    body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // Parse prompt from ring buffer and set on pane
-    let pty_id = state.svc.mux.lock().get_pane(&pane_id)
-        .and_then(|p| p.pty_id.clone());
-    let agent_type = state.svc.mux.lock().get_pane(&pane_id)
-        .and_then(|p| p.agent_type.clone());
+    // Check if explicit prompt data was provided in the request body
+    let explicit_prompt = body.and_then(|Json(b)| {
+        let question = b.get("question")?.as_str()?.to_string();
+        let options = b.get("options")?.as_array()?.iter().filter_map(|o| {
+            Some(crate::multiplexer::types::PromptOption {
+                label: o.get("label")?.as_str()?.to_string(),
+                value: o.get("value")?.as_str()?.to_string(),
+            })
+        }).collect::<Vec<_>>();
+        if options.is_empty() { return None; }
+        Some(crate::multiplexer::types::PendingPrompt { question, options })
+    });
 
-    if let Some(pty_id) = pty_id {
-        // Parse prompt options from ring buffer
-        let ring_text = state.svc.output_buf.lock().get_text(&pty_id).unwrap_or_default();
-        let clean = clean_terminal_output(&ring_text);
+    if let Some(prompt) = explicit_prompt {
+        // Use explicitly provided prompt data
+        if let Some(pane) = state.svc.mux.lock().get_pane_mut(&pane_id) {
+            pane.pending_prompt = Some(prompt);
+        }
+        state.svc.emit_state_changed();
+    } else {
+        // Parse prompt from ring buffer
+        let pty_id = state.svc.mux.lock().get_pane(&pane_id)
+            .and_then(|p| p.pty_id.clone());
+        let agent_type = state.svc.mux.lock().get_pane(&pane_id)
+            .and_then(|p| p.agent_type.clone());
 
-        // Try provider-specific parser first, fall back to generic
-        let parsed = if let Some(ref at) = agent_type {
-            state.svc.agent_registry.parse_prompt(at, &clean)
-        } else {
-            crate::agent::detector::parse_permission_prompt(&clean)
-        };
+        if let Some(pty_id) = pty_id {
+            let ring_text = state.svc.output_buf.lock().get_text(&pty_id).unwrap_or_default();
+            let clean = clean_terminal_output(&ring_text);
 
-        if let Some((question, opts)) = parsed {
-            let prompt = crate::multiplexer::types::PendingPrompt {
-                question: question.clone(),
-                options: opts.into_iter().map(|(label, value)| {
-                    crate::multiplexer::types::PromptOption { label, value }
-                }).collect(),
+            let parsed = if let Some(ref at) = agent_type {
+                state.svc.agent_registry.parse_prompt(at, &clean)
+            } else {
+                crate::agent::detector::parse_permission_prompt(&clean)
             };
-            if let Some(pane) = state.svc.mux.lock().get_pane_mut(&pane_id) {
-                pane.pending_prompt = Some(prompt);
-            }
-            state.svc.emit_state_changed();
-        }
 
-        // Notify frontend + webhooks
-        let title = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.title.clone());
-        if let Some(title) = title {
-            state.svc.notify_event("agent.permission_request", serde_json::json!({
-                "pane_id": &pane_id,
-                "title": format!("{} needs approval", title),
-                "body": "Agent is waiting for your permission",
-            }));
+            if let Some((question, opts)) = parsed {
+                let prompt = crate::multiplexer::types::PendingPrompt {
+                    question: question.clone(),
+                    options: opts.into_iter().map(|(label, value)| {
+                        crate::multiplexer::types::PromptOption { label, value }
+                    }).collect(),
+                };
+                if let Some(pane) = state.svc.mux.lock().get_pane_mut(&pane_id) {
+                    pane.pending_prompt = Some(prompt);
+                }
+                state.svc.emit_state_changed();
+            }
         }
+    }
+
+    // Notify frontend + webhooks
+    let title = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.title.clone());
+    if let Some(title) = title {
+        state.svc.notify_event("agent.permission_request", serde_json::json!({
+            "pane_id": &pane_id,
+            "title": format!("{} needs approval", title),
+            "body": "Agent is waiting for your permission",
+        }));
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }
