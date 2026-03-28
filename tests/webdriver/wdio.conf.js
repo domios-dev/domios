@@ -23,15 +23,17 @@ let tauriDriver;
 
 export const config = {
   runner: 'local',
-  port: 4444,
+  port: 4445,
   specs: ['./specs/**/*.js'],
   maxInstances: 1,
 
   capabilities: [{
-    'tauri:options': {
-      application: binaryPath,
-    },
+    browserName: 'chrome',  // Required by WebdriverIO but ignored by tauri-plugin-webdriver
   }],
+
+  // Connect directly to the tauri-plugin-webdriver server (no tauri-driver needed)
+  hostname: '127.0.0.1',
+  path: '/',
 
   reporters: ['spec'],
   framework: 'mocha',
@@ -40,27 +42,6 @@ export const config = {
     timeout: 120000,  // 2 min per test (app startup can be slow)
   },
 
-  // Start tauri-driver before tests
-  beforeSession: async () => {
-    if (!existsSync(binaryPath)) {
-      throw new Error(
-        `Debug binary not found at ${binaryPath}. ` +
-        `Run: cargo build --manifest-path src-tauri/Cargo.toml`
-      );
-    }
-
-    tauriDriver = spawn('tauri-driver', [], {
-      stdio: [null, process.stdout, process.stderr],
-    });
-
-    // Give tauri-driver time to start
-    await new Promise(resolve => setTimeout(resolve, 3000));
-  },
-
-  afterSession: () => {
-    if (tauriDriver) {
-      tauriDriver.kill();
-      tauriDriver = null;
-    }
-  },
+  // No beforeSession needed — tauri-plugin-webdriver runs embedded in the app.
+  // Just ensure the app is running with --features webdriver before tests.
 };

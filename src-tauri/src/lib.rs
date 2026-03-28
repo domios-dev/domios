@@ -463,6 +463,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build());
 
+    // WebDriver plugin for E2E UI testing (cargo build --features webdriver)
+    #[cfg(feature = "webdriver")]
+    {
+        builder = builder.plugin(tauri_plugin_webdriver::init());
+        log::info!("WebDriver plugin enabled for E2E testing");
+    }
+
     // Single-instance: only in release builds so dev and prod can run side by side
     if !cfg!(debug_assertions) {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
