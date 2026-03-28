@@ -72,6 +72,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/reports", get(get_reports))
         .route("/api/panes/{id}/can-spawn", post(set_can_spawn))
         .route("/api/panes/{id}/prompt/respond", post(respond_prompt))
+        .route("/api/panes/{id}/hook/permission", post(hook_permission))
+        .route("/api/panes/{id}/hook/stop", post(hook_stop))
         .route("/api/agents", get(list_agents))
         .route("/api/agents/hierarchy", get(get_hierarchy))
         .route("/api/agents/spawn", post(spawn_agent))
@@ -215,6 +217,8 @@ async fn create_tab(
     check_auth(&state, &headers)?;
     let (tab_id, pane_id) = state.svc.create_tab_with_activate(&workspace_id, false)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
+    // API-created tabs are Orchestrators by default, same as Tauri command
+    let _ = state.svc.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
     Ok(Json(serde_json::json!({
         "tab_id": tab_id,
         "pane_id": pane_id
@@ -1019,6 +1023,74 @@ async fn respond_prompt(
         .to_string();
     state.svc.respond_prompt(&pane_id, &value)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Hook endpoint: agent reports it needs permission.
+/// Called by Claude Code hook (permission_prompt matcher).
+/// No auth required — hooks run in the PTY process context.
+async fn hook_permission(
+    AxumState(state): AxumState<AppState>,
+    Path(pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Parse prompt from ring buffer and set on pane
+    let pty_id = state.svc.mux.lock().get_pane(&pane_id)
+        .and_then(|p| p.pty_id.clone());
+    let agent_type = state.svc.mux.lock().get_pane(&pane_id)
+        .and_then(|p| p.agent_type.clone());
+
+    if let Some(pty_id) = pty_id {
+        // Parse prompt options from ring buffer
+        let ring_text = state.svc.output_buf.lock().get_text(&pty_id).unwrap_or_default();
+        let clean = clean_terminal_output(&ring_text);
+
+        // Try provider-specific parser first, fall back to generic
+        let parsed = if let Some(ref at) = agent_type {
+            state.svc.agent_registry.parse_prompt(at, &clean)
+        } else {
+            crate::agent::detector::parse_permission_prompt(&clean)
+        };
+
+        if let Some((question, opts)) = parsed {
+            let prompt = crate::multiplexer::types::PendingPrompt {
+                question: question.clone(),
+                options: opts.into_iter().map(|(label, value)| {
+                    crate::multiplexer::types::PromptOption { label, value }
+                }).collect(),
+            };
+            if let Some(pane) = state.svc.mux.lock().get_pane_mut(&pane_id) {
+                pane.pending_prompt = Some(prompt);
+            }
+            state.svc.emit_state_changed();
+        }
+
+        // Notify frontend + webhooks
+        let title = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.title.clone());
+        if let Some(title) = title {
+            state.svc.notify_event("agent.permission_request", serde_json::json!({
+                "pane_id": &pane_id,
+                "title": format!("{} needs approval", title),
+                "body": "Agent is waiting for your permission",
+            }));
+        }
+    }
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Hook endpoint: agent stopped (task complete).
+/// Called by Claude Code hook (Stop matcher).
+async fn hook_stop(
+    AxumState(state): AxumState<AppState>,
+    Path(pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let title = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.title.clone());
+    if let Some(title) = title {
+        state.svc.notify_event("agent.task_complete", serde_json::json!({
+            "pane_id": &pane_id,
+            "title": format!("{} finished", title),
+            "body": "Task complete",
+        }));
+    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

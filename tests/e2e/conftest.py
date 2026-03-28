@@ -117,7 +117,7 @@ def codeterm_instance():
 @pytest.fixture(scope="session")
 def api(codeterm_instance):
     """Session-scoped CodeTermAPI client. Cleans up leftover e2e workspaces on start/end."""
-    token = _read_token()
+    token = os.environ.get("CODETERM_API_TOKEN") or _read_token()
     client = CodeTermAPI(codeterm_instance, token=token)
     _cleanup_e2e_workspaces(client)
     yield client

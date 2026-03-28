@@ -2,6 +2,11 @@
 //!
 //! Extracted from `commands::read_pty` to keep that function focused on I/O.
 
+use std::collections::HashMap;
+use std::sync::LazyLock;
+use std::sync::Mutex as StdMutex;
+use std::time::Instant;
+
 use tauri::Emitter;
 
 use crate::agent::detector::AgentEvent;
@@ -10,10 +15,20 @@ use crate::multiplexer::types::PendingPrompt;
 use crate::multiplexer::types::PromptOption;
 use super::ServiceContext;
 
+/// Per-pane notification cooldown: (pane_id, event_kind) → last fire time.
+/// Prevents notification spam from TUI redraws (same event every chunk).
+static EVENT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
+    LazyLock::new(|| StdMutex::new(HashMap::new()));
+
 impl ServiceContext {
     /// Process new PTY output: track status, detect agent events, dispatch notifications.
     /// Returns the previous and current status for the caller to emit status-change events.
     pub fn process_pty_output(&self, pty_id: &str, data: &[u8]) -> (PaneStatus, PaneStatus) {
+        static CALL_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if n % 500 == 0 {
+            log::info!("[output] process_pty_output called {} times, pty={}, data_len={}", n, &pty_id[..pty_id.len().min(8)], data.len());
+        }
         // 1. Track status
         let prev_status = {
             let mut t = self.agent_tracker.lock();
@@ -41,28 +56,25 @@ impl ServiceContext {
             (pid, at)
         };
 
-        // 4. Detect agent events from buffer tail (not from chunk — chunks can split prompts)
+        // Agent event detection: agents with hooks (Claude Code) get detected via API
+        // endpoints (see /api/panes/{id}/hook/permission). For agents WITHOUT hooks
+        // (Codex, Aider, generic), fall back to PTY output parsing.
         if let (Some(ref pid), Some(ref at)) = (&pane_id, &agent_type) {
-            let tail_text = {
-                let buf = self.output_buf.lock();
-                let full = buf.get_full_text(pty_id).unwrap_or_default();
-                let start = if full.len() > 2000 {
-                    // Find a valid char boundary near the desired offset
-                    let mut s = full.len() - 2000;
-                    while s < full.len() && !full.is_char_boundary(s) { s += 1; }
-                    s
-                } else { 0 };
-                let tail = &full[start..];
-                crate::api::routes::strip_ansi_codes(tail)
-            };
-            let events = self.agent_registry.detect_events(at, &tail_text);
+            let provider = self.agent_registry.get(at);
+            let has_hooks = provider.map(|p| p.has_hooks()).unwrap_or(false);
 
-            if !events.is_empty() {
-                log::debug!("[agent] Events detected: {:?} for pty {}", events, &pty_id[..pty_id.len().min(8)]);
-            }
-
-            for event in &events {
-                self.handle_agent_event(pty_id, pid, at, event, prev_status);
+            if !has_hooks {
+                if let Ok(raw) = std::str::from_utf8(data) {
+                    let chunk_text = crate::api::routes::clean_terminal_output(raw);
+                    if self.agent_registry.has_event_markers(at, &chunk_text) {
+                        let ring_text = self.output_buf.lock().get_text(pty_id).unwrap_or_default();
+                        let clean = crate::api::routes::clean_terminal_output(&ring_text);
+                        let events = self.agent_registry.detect_events(at, &clean);
+                        for event in &events {
+                            self.handle_agent_event(pty_id, pid, at, event, prev_status);
+                        }
+                    }
+                }
             }
         }
 
@@ -83,6 +95,19 @@ impl ServiceContext {
         event: &AgentEvent,
         prev_status: PaneStatus,
     ) {
+        // Cooldown: skip if same event for same pane fired within last 30s
+        let cooldown_key = format!("{}:{:?}", pane_id, event);
+        {
+            let mut map = EVENT_COOLDOWN.lock().unwrap();
+            let now = Instant::now();
+            if let Some(last) = map.get(&cooldown_key) {
+                if now.duration_since(*last).as_secs() < 30 {
+                    return;
+                }
+            }
+            map.insert(cooldown_key, now);
+        }
+
         match event {
             AgentEvent::PermissionRequest => {
                 self.agent_tracker.lock().set_waiting(pty_id);
@@ -97,18 +122,13 @@ impl ServiceContext {
                     return; // Already notified, don't spam
                 }
 
-                // Parse prompt options from output buffer via provider
+                // Parse prompt options from ring buffer (last 64KB, safe)
                 {
                     let buf = self.output_buf.lock();
-                    let output_text = buf.get_full_text(pty_id).unwrap_or_default();
-                    let start = if output_text.len() > 2000 {
-                        let mut s = output_text.len() - 2000;
-                        while s < output_text.len() && !output_text.is_char_boundary(s) { s += 1; }
-                        s
-                    } else { 0 };
-                    let tail = &output_text[start..];
-                    let clean_tail = crate::api::routes::strip_ansi_codes(tail);
+                    let ring_text = buf.get_text(pty_id).unwrap_or_default();
+                    let clean_tail = crate::api::routes::clean_terminal_output(&ring_text);
                     if let Some((question, opts)) = self.agent_registry.parse_prompt(agent_type, &clean_tail) {
+                        log::debug!("[prompt] Parsed: {:?} with {} options", question, opts.len());
                         let prompt = PendingPrompt {
                             question,
                             options: opts.into_iter().map(|(label, value)| {
@@ -121,40 +141,24 @@ impl ServiceContext {
                     }
                 }
 
-                // Notify once — OS notification + webhook + frontend
+                // Single event — frontend shows toast, webhooks get notified
                 let title = self.mux.lock().get_pane(pane_id).map(|p| p.title.clone());
                 if let Some(title) = title {
-                    let notif_title = format!("{} needs approval", title);
-                    self.notify_event("notification-created", serde_json::json!({
-                        "id": uuid::Uuid::new_v4().to_string(),
-                        "title": &notif_title,
-                        "body": "Agent is waiting for your permission",
-                        "level": "Warning",
-                        "pane_id": pane_id,
-                        "workspace_id": serde_json::Value::Null,
-                    }));
                     self.notify_event("agent.permission_request", serde_json::json!({
-                        "pane_id": pane_id, "title": &title,
+                        "pane_id": pane_id,
+                        "title": format!("{} needs approval", title),
+                        "body": "Agent is waiting for your permission",
                     }));
                 }
             }
             AgentEvent::TaskComplete => {
                 if prev_status == PaneStatus::Working {
-                    let title = {
-                        self.mux.lock().get_pane(pane_id).map(|p| p.title.clone())
-                    };
+                    let title = self.mux.lock().get_pane(pane_id).map(|p| p.title.clone());
                     if let Some(title) = title {
-                        let notif_title = format!("{} finished", title);
-                        self.notify_event("notification-created", serde_json::json!({
-                            "id": uuid::Uuid::new_v4().to_string(),
-                            "title": &notif_title,
-                            "body": "Task complete",
-                            "level": "Info",
-                            "pane_id": pane_id,
-                            "workspace_id": serde_json::Value::Null,
-                        }));
                         self.notify_event("agent.task_complete", serde_json::json!({
-                            "pane_id": pane_id, "title": &title,
+                            "pane_id": pane_id,
+                            "title": format!("{} finished", title),
+                            "body": "Task complete",
                         }));
                     }
                 }

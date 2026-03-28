@@ -8,11 +8,15 @@ CodeTerm is not a terminal with AI bolted on. It's infrastructure that AI agents
 
 ## Quick ref
 
-- `./build.sh dev` — dev mode (sets VS env automatically on BLACKSTAR)
-- `./build.sh test` — run Rust lib tests
+- `./build.sh dev` — dev mode (auto-kills previous debug instance)
+- `./build.sh test` — run Rust lib tests (205 tests)
 - `./build.sh check` — cargo check
 - `./build.sh cli` — build CLI tool
+- `npx tsx src/components/ChatView/parser.test.ts` — parser tests (100 tests)
+- `CODETERM_API_URL=http://127.0.0.1:7686 pytest tests/e2e/ -v` — e2e tests (81 tests, needs running instance)
 - All code/comments in English
+- Dev logs: `~/.codeterm-dev/logs/codeterm.log` (tail -f for live view)
+- See `docs/TESTING.md` for full testing guide
 
 ## Agent roles
 

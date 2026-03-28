@@ -96,15 +96,12 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
           // Only re-parse when we got new data
           const parsed = sessionParser(accumulatedJsonl.current);
           if (parsed.length !== prevMessageCount.current) {
-            // Preserve optimistic messages not yet in JSONL
+            // Drop optimistic messages once JSONL has caught up
             setAllMessages(prev => {
               const optimistic = prev.filter(m => m.id.startsWith('optimistic-'));
               if (optimistic.length === 0) return parsed;
-              // Check if optimistic content appeared in parsed (by matching text)
-              const remaining = optimistic.filter(opt =>
-                !parsed.some(p => p.type === 'user' && p.content.trim() === opt.content.trim())
-              );
-              return remaining.length > 0 ? [...parsed, ...remaining] : parsed;
+              // If JSONL has more messages than before, it caught up — drop optimistic
+              return parsed;
             });
             // Auto-scroll on new messages
             if (!userScrolledUp.current) {
@@ -138,10 +135,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         setAllMessages(prev => {
           const optimistic = prev.filter(m => m.id.startsWith('optimistic-'));
           if (optimistic.length === 0) return parsed;
-          const remaining = optimistic.filter(opt =>
-            !parsed.some(p => p.type === 'user' && p.content.trim() === opt.content.trim())
-          );
-          return remaining.length > 0 ? [...parsed, ...remaining] : parsed;
+          return parsed;
         });
         setIsLoading(false);
 
@@ -346,7 +340,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
           if (base64) {
             try {
               const ext = att.type.split("/")[1] || "bin";
-              filePath = await invoke<string>("save_temp_file", { data: base64, extension: ext });
+              filePath = await invoke<string>("save_temp_file", { data: base64, extension: ext, name: att.name });
             } catch { /* skip */ }
           }
         }
