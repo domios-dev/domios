@@ -157,6 +157,14 @@ impl AgentProvider for ClaudeProvider {
         Some(parts.join(" "))
     }
 
+    fn detect_events(&self, text: &str) -> Vec<crate::agent::detector::AgentEvent> {
+        crate::agent::detector::detect_claude_events(text)
+    }
+
+    fn parse_prompt(&self, text: &str) -> Option<(String, Vec<(String, String)>)> {
+        crate::agent::detector::parse_permission_prompt(text)
+    }
+
     fn is_output_noise(&self, text: &str) -> bool {
         let t = text.trim();
         if t.is_empty() { return true; }

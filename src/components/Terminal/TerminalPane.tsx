@@ -438,21 +438,42 @@ export function TerminalPane({
     fitAddonRef.current = fitAddon;
 
     // Observe container resize to refit terminal
-    const resizeObserver = new ResizeObserver(() => {
+    const safefit = () => {
       requestAnimationFrame(() => {
         if (fitAddonRef.current) {
-          try {
-            fitAddonRef.current.fit();
-          } catch {
-            // ignore fit errors during teardown
-          }
+          try { fitAddonRef.current.fit(); } catch { /* teardown */ }
         }
       });
-    });
+    };
+
+    const resizeObserver = new ResizeObserver(safefit);
     resizeObserver.observe(termRef.current);
+
+    // Self-heal: refit on window focus and visibility change.
+    // Handles HMR reload, tab switch, minimize/restore, chat toggle.
+    const handleVisibility = () => { if (!document.hidden) safefit(); };
+    const handleFocus = () => safefit();
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleFocus);
+
+    // Periodic self-heal: if xterm dimensions drift (e.g. after HMR),
+    // detect mismatch and refit. Cheap check every 2s.
+    const healTimer = setInterval(() => {
+      const el = termRef.current;
+      if (!el || !fitAddonRef.current || !xtermRef.current) return;
+      const term = xtermRef.current;
+      const cellW = term.options.fontSize ?? 13;
+      const expectedCols = Math.floor(el.clientWidth / (cellW * 0.6));
+      if (expectedCols > 0 && Math.abs(term.cols - expectedCols) > 5) {
+        safefit();
+      }
+    }, 2000);
 
     return () => {
       resizeObserver.disconnect();
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleFocus);
+      clearInterval(healTimer);
       term.dispose();
       xtermRef.current = null;
       fitAddonRef.current = null;

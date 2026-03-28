@@ -38,17 +38,23 @@ pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
 pub use cron::scheduler::{CronState, CronWake};
 pub type UpdateStateHandle = Arc<Mutex<update::UpdateState>>;
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .init();
+/// All shared application states, grouped for easier passing between init functions.
+struct AppStates {
+    config: ConfigState,
+    pty: PtyState,
+    mux: MuxState,
+    notif: NotifState,
+    session: SessionState,
+    output_buffer: OutputBufferState,
+    screenshot: ScreenshotState,
+    agent_tracker: AgentTrackerState,
+    report_store: ReportStoreState,
+    event_broadcaster: api::events::EventBroadcasterState,
+    update: UpdateStateHandle,
+}
 
-    log::info!("CodeTerm starting...");
-
-    // Write shell integration scripts (OSC 7 CWD tracking)
-    pty::shell_integration::ensure_scripts();
-
-    // Load configuration
+/// Create and initialize all application states.
+fn init_states() -> AppStates {
     let app_config = config::load_config();
     log::info!("Config loaded: theme={}", app_config.theme.name);
     let config_state: ConfigState = Arc::new(Mutex::new(app_config));
@@ -70,12 +76,6 @@ pub fn run() {
         last_check: None,
         last_check_time: None,
     }));
-
-    // Auto-update installed skills if bundled version is newer
-    let updated_skills = commands::auto_update_skills();
-    if !updated_skills.is_empty() {
-        log::info!("Auto-updated skills: {}", updated_skills.join(", "));
-    }
 
     // Try to restore last session, fallback to default workspace
     let mux_state_inner = {
@@ -100,6 +100,315 @@ pub fn run() {
     };
     let mux_state: MuxState = Arc::new(Mutex::new(mux_state_inner));
 
+    AppStates {
+        config: config_state,
+        pty: pty_state,
+        mux: mux_state,
+        notif: notif_state,
+        session: session_state,
+        output_buffer,
+        screenshot: screenshot_state,
+        agent_tracker,
+        report_store,
+        event_broadcaster,
+        update: update_state,
+    }
+}
+
+/// Set window icon and apply platform-specific styling.
+fn setup_window_styling(window: &tauri::WebviewWindow) {
+    let icon_bytes = include_bytes!("../icons/icon.png");
+    if let Ok(mut reader) = png::Decoder::new(std::io::Cursor::new(icon_bytes)).read_info() {
+        let info = reader.info().clone();
+        let mut rgba = vec![0u8; reader.output_buffer_size()];
+        if reader.next_frame(&mut rgba).is_ok() {
+            let icon = tauri::image::Image::new_owned(rgba, info.width, info.height);
+            let _ = window.set_icon(icon);
+        }
+    }
+
+    // macOS: rounded corners for frameless window
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSWindow, NSWindowStyleMask, NSWindowTitleVisibility};
+        let ns_win = window.ns_window().unwrap() as *mut objc2::runtime::AnyObject;
+        unsafe {
+            let ns_window: &NSWindow = &*(ns_win as *const NSWindow);
+            let mut mask = ns_window.styleMask();
+            mask |= NSWindowStyleMask::Titled;
+            mask |= NSWindowStyleMask::FullSizeContentView;
+            ns_window.setStyleMask(mask);
+            ns_window.setTitlebarAppearsTransparent(true);
+            ns_window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+            ns_window.setHasShadow(true);
+            // Hide traffic light buttons
+            use objc2::msg_send;
+            for i in 0..3_isize {
+                let btn: *mut objc2::runtime::AnyObject = msg_send![ns_window, standardWindowButton: i];
+                if !btn.is_null() {
+                    let _: () = msg_send![btn, setHidden: true];
+                }
+            }
+        }
+    }
+}
+
+/// Build and configure the system tray icon and menu.
+fn build_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
+    use tauri::menu::{MenuBuilder, MenuItemBuilder};
+
+    let show = MenuItemBuilder::with_id("show", "Show CodeTerm").build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+    let menu = MenuBuilder::new(app)
+        .item(&show)
+        .separator()
+        .item(&quit)
+        .build()?;
+
+    let tray_icon = {
+        // macOS: template image (white on transparent, auto-adapts to light/dark)
+        #[cfg(target_os = "macos")]
+        let bytes = include_bytes!("../icons/tray-template.png");
+        #[cfg(not(target_os = "macos"))]
+        let bytes = include_bytes!("../icons/32x32.png");
+
+        let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
+            .read_info().expect("Failed to decode tray icon PNG");
+        let info = reader.info().clone();
+        let mut rgba = vec![0u8; reader.output_buffer_size()];
+        reader.next_frame(&mut rgba).expect("Failed to read tray icon frame");
+        tauri::image::Image::new_owned(rgba, info.width, info.height)
+    };
+
+    let _tray = TrayIconBuilder::new()
+        .tooltip("CodeTerm")
+        .icon(tray_icon)
+        .icon_as_template(cfg!(target_os = "macos"))
+        .menu(&menu)
+        .on_menu_event(move |app, event| {
+            match event.id().as_ref() {
+                "show" => {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                }
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
+            }
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                if let Some(w) = tray.app_handle().get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+/// Start background threads: auto-save, update check, agent idle monitoring.
+fn start_background_tasks(
+    app_handle: &tauri::AppHandle,
+    states: &AppStates,
+) {
+    // Auto-save session every 30 seconds
+    {
+        let app_handle = app_handle.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                if let (Some(mux), Some(session)) = (
+                    app_handle.try_state::<MuxState>(),
+                    app_handle.try_state::<SessionState>(),
+                ) {
+                    let snapshot = mux.lock().to_session_snapshot();
+                    if let Err(e) = session.lock().save(&snapshot) {
+                        log::warn!("Auto-save failed: {}", e);
+                    }
+                }
+            }
+        });
+    }
+
+    // Background update check (5s delay to not slow startup)
+    {
+        let update_st = states.update.clone();
+        let app_h = app_handle.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create update check runtime");
+            rt.block_on(async {
+                let method = update_st.lock().install_method.clone();
+                match crate::update::checker::check_for_update(&method).await {
+                    Ok(info) => {
+                        if info.update_available {
+                            log::info!(
+                                "Update available: {} → {}",
+                                info.current_version,
+                                info.latest_version
+                            );
+                            use tauri::Emitter;
+                            let _ = app_h.emit(
+                                "update-available",
+                                serde_json::to_value(&info).unwrap_or_default(),
+                            );
+                        }
+                        let mut us = update_st.lock();
+                        us.last_check = Some(info);
+                        us.last_check_time = Some(std::time::Instant::now());
+                    }
+                    Err(e) => log::warn!("Update check failed: {}", e),
+                }
+            });
+        });
+    }
+
+    // Agent idle check loop — transitions Working -> Idle after timeout
+    {
+        let tracker = states.agent_tracker.clone();
+        let mux = states.mux.clone();
+        let idle_timeout = {
+            let cfg = states.config.lock();
+            std::time::Duration::from_secs(cfg.agent.idle_timeout_s as u64)
+        };
+        let poll_interval = {
+            let cfg = states.config.lock();
+            std::time::Duration::from_millis(cfg.agent.poll_interval_ms as u64)
+        };
+        let app_handle = app_handle.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(poll_interval);
+                // Collect status changes while holding tracker lock,
+                // then release before touching mux (prevents deadlock with process_pty_output)
+                let changed: Vec<(String, crate::agent::status::PaneStatus)> = {
+                    let mut t = tracker.lock();
+                    let pty_ids = t.all_ids();
+                    let mut changes = Vec::new();
+                    for pty_id in pty_ids {
+                        let prev = t.get_status(&pty_id);
+                        t.check_idle(&pty_id, idle_timeout);
+                        let now = t.get_status(&pty_id);
+                        if now != prev {
+                            changes.push((pty_id, now));
+                        }
+                    }
+                    changes
+                }; // tracker lock released here
+
+                for (pty_id, status) in changed {
+                    let pane_id = mux.lock().pane_id_for_pty(&pty_id);
+                    if let Some(pid) = pane_id {
+                        use tauri::Emitter;
+                        let _ = app_handle.emit("pane-status-changed", serde_json::json!({
+                            "pane_id": pid,
+                            "status": format!("{:?}", status),
+                        }));
+                    }
+                }
+            }
+        });
+    }
+}
+
+/// Start socket server, REST API server, and cron scheduler.
+fn start_servers(
+    app: &tauri::App,
+    states: &AppStates,
+    service_state: &ServiceState,
+) {
+    let app_handle = app.handle().clone();
+
+    // Start socket server
+    if let Err(e) = socket::server::SocketServer::start(
+        states.mux.clone(),
+        states.pty.clone(),
+        states.notif.clone(),
+        app_handle.clone(),
+        states.output_buffer.clone(),
+        service_state.clone(),
+    ) {
+        log::error!("Failed to start socket server: {}", e);
+    }
+
+    // Initialize cron store and scheduler
+    let cron_store = cron::store::CronStore::new();
+    let cron_state: CronState = Arc::new(Mutex::new(cron_store));
+    let cron_wake: CronWake = Arc::new(std::sync::Condvar::new());
+    app.manage(cron_state.clone());
+    app.manage(cron_wake.clone());
+    cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
+
+    // Start REST API server in its own thread with Tokio runtime
+    {
+        let api_config = states.config.lock().api.clone();
+        if api_config.enabled {
+            let api_state = api::routes::AppState {
+                svc: service_state.clone(),
+                token: api_config.token.clone(),
+                screenshot: states.screenshot.clone(),
+                cron: cron_state.clone(),
+                cron_wake: cron_wake.clone(),
+                api_port: api_config.port,
+                update_state: states.update.clone(),
+            };
+            let router = api::routes::create_router(api_state);
+            let host = api_config.host.clone();
+            let port = api_config.port;
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(4)
+                    .enable_all()
+                    .build()
+                    .expect("Failed to create Tokio runtime for REST API");
+                rt.block_on(async move {
+                    let bind_addr = format!("{}:{}", host, port);
+                    match tokio::net::TcpListener::bind(&bind_addr).await {
+                        Ok(listener) => {
+                            log::info!("REST API listening on http://{}", bind_addr);
+                            if let Err(e) = axum::serve(listener, router).await {
+                                log::error!("REST API server error: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Failed to bind REST API on port {}: {}", port, e);
+                        }
+                    }
+                });
+            });
+        }
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .init();
+
+    log::info!("CodeTerm starting...");
+
+    // Write shell integration scripts (OSC 7 CWD tracking)
+    pty::shell_integration::ensure_scripts();
+
+    // Initialize all shared states
+    let states = init_states();
+
+    // Auto-update installed skills if bundled version is newer
+    let updated_skills = commands::auto_update_skills();
+    if !updated_skills.is_empty() {
+        log::info!("Auto-updated skills: {}", updated_skills.join(", "));
+    }
+
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
@@ -118,17 +427,17 @@ pub fn run() {
     }
 
     builder
-        .manage(config_state.clone())
-        .manage(pty_state.clone())
-        .manage(mux_state.clone())
-        .manage(notif_state.clone())
-        .manage(session_state.clone())
-        .manage(output_buffer.clone())
-        .manage(agent_tracker.clone())
-        .manage(report_store.clone())
-        .manage(event_broadcaster.clone())
-        .manage(screenshot_state.clone())
-        .manage(update_state.clone())
+        .manage(states.config.clone())
+        .manage(states.pty.clone())
+        .manage(states.mux.clone())
+        .manage(states.notif.clone())
+        .manage(states.session.clone())
+        .manage(states.output_buffer.clone())
+        .manage(states.agent_tracker.clone())
+        .manage(states.report_store.clone())
+        .manage(states.event_broadcaster.clone())
+        .manage(states.screenshot.clone())
+        .manage(states.update.clone())
         // ServiceState is added in .setup() after AppHandle is available
         .invoke_handler(tauri::generate_handler![
             // PTY commands
@@ -181,6 +490,7 @@ pub fn run() {
             multiplexer::commands::mux_set_pane_role,
             multiplexer::commands::mux_clear_pane_role,
             multiplexer::commands::mux_set_can_spawn,
+            multiplexer::commands::mux_respond_prompt,
             multiplexer::commands::mux_batch,
             // Notification commands
             notification::notify,
@@ -222,281 +532,30 @@ pub fn run() {
             commands::cron_read_log,
         ])
         .setup(move |app| {
-            // Set window icon (decode PNG → RGBA for Tauri)
             if let Some(window) = app.get_webview_window("main") {
-                let icon_bytes = include_bytes!("../icons/icon.png");
-                if let Ok(mut reader) = png::Decoder::new(std::io::Cursor::new(icon_bytes)).read_info() {
-                    let info = reader.info().clone();
-                    let mut rgba = vec![0u8; reader.output_buffer_size()];
-                    if reader.next_frame(&mut rgba).is_ok() {
-                        let icon = tauri::image::Image::new_owned(rgba, info.width, info.height);
-                        let _ = window.set_icon(icon);
-                    }
-                }
-
-                // macOS: rounded corners for frameless window
-                #[cfg(target_os = "macos")]
-                {
-                    use objc2_app_kit::{NSWindow, NSWindowStyleMask, NSWindowTitleVisibility};
-                    let ns_win = window.ns_window().unwrap() as *mut objc2::runtime::AnyObject;
-                    unsafe {
-                        let ns_window: &NSWindow = &*(ns_win as *const NSWindow);
-                        let mut mask = ns_window.styleMask();
-                        mask |= NSWindowStyleMask::Titled;
-                        mask |= NSWindowStyleMask::FullSizeContentView;
-                        ns_window.setStyleMask(mask);
-                        ns_window.setTitlebarAppearsTransparent(true);
-                        ns_window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
-                        ns_window.setHasShadow(true);
-                        // Hide traffic light buttons
-                        use objc2::msg_send;
-                        for i in 0..3_isize {
-                            let btn: *mut objc2::runtime::AnyObject = msg_send![ns_window, standardWindowButton: i];
-                            if !btn.is_null() {
-                                let _: () = msg_send![btn, setHidden: true];
-                            }
-                        }
-                    }
-                }
+                setup_window_styling(&window);
             }
 
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
             let svc_ctx = ServiceContext {
-                mux: mux_state.clone(),
-                pty: pty_state.clone(),
-                output_buf: output_buffer.clone(),
-                notif: notif_state.clone(),
-                events: event_broadcaster.clone(),
+                mux: states.mux.clone(),
+                pty: states.pty.clone(),
+                output_buf: states.output_buffer.clone(),
+                notif: states.notif.clone(),
+                events: states.event_broadcaster.clone(),
                 app_handle: app_handle.clone(),
-                agent_tracker: agent_tracker.clone(),
-                report_store: report_store.clone(),
+                agent_tracker: states.agent_tracker.clone(),
+                report_store: states.report_store.clone(),
                 agent_registry,
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
 
-            // Initialize cron store and scheduler
-            let cron_store = cron::store::CronStore::new();
-            let cron_state: CronState = Arc::new(Mutex::new(cron_store));
-            let cron_wake: CronWake = Arc::new(std::sync::Condvar::new());
-            app.manage(cron_state.clone());
-            app.manage(cron_wake.clone());
-            cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
-
-            // Start socket server
-            if let Err(e) = socket::server::SocketServer::start(
-                mux_state.clone(),
-                pty_state.clone(),
-                notif_state.clone(),
-                app_handle.clone(),
-                output_buffer.clone(),
-                service_state.clone(),
-            ) {
-                log::error!("Failed to start socket server: {}", e);
-            }
-
-            // Start REST API server in its own thread with Tokio runtime
-            {
-                let api_config = config_state.lock().api.clone();
-                if api_config.enabled {
-                    let api_state = api::routes::AppState {
-                        mux: mux_state.clone(),
-                        pty: pty_state.clone(),
-                        notif: notif_state.clone(),
-                        output_buf: output_buffer.clone(),
-                        screenshot: screenshot_state.clone(),
-                        events: event_broadcaster.clone(),
-                        app_handle: app_handle.clone(),
-                        token: api_config.token.clone(),
-                        agent_tracker: agent_tracker.clone(),
-                        report_store: report_store.clone(),
-                        svc: service_state.clone(),
-                        cron: cron_state.clone(),
-                        cron_wake: cron_wake.clone(),
-                        api_port: api_config.port,
-                        update_state: update_state.clone(),
-                    };
-                    let router = api::routes::create_router(api_state);
-                    let host = api_config.host.clone();
-                    let port = api_config.port;
-                    std::thread::spawn(move || {
-                        let rt = tokio::runtime::Builder::new_multi_thread()
-                            .worker_threads(4)
-                            .enable_all()
-                            .build()
-                            .expect("Failed to create Tokio runtime for REST API");
-                        rt.block_on(async move {
-                            let bind_addr = format!("{}:{}", host, port);
-                            match tokio::net::TcpListener::bind(&bind_addr).await {
-                                Ok(listener) => {
-                                    log::info!("REST API listening on http://{}", bind_addr);
-                                    if let Err(e) = axum::serve(listener, router).await {
-                                        log::error!("REST API server error: {}", e);
-                                    }
-                                }
-                                Err(e) => {
-                                    log::error!("Failed to bind REST API on port {}: {}", port, e);
-                                }
-                            }
-                        });
-                    });
-                }
-            }
-
-            // System tray
-            {
-                use tauri::tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent};
-                use tauri::menu::{MenuBuilder, MenuItemBuilder};
-
-                let show = MenuItemBuilder::with_id("show", "Show CodeTerm").build(app)?;
-                let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-                let menu = MenuBuilder::new(app)
-                    .item(&show)
-                    .separator()
-                    .item(&quit)
-                    .build()?;
-
-                let tray_icon = {
-                    // macOS: template image (white on transparent, auto-adapts to light/dark)
-                    #[cfg(target_os = "macos")]
-                    let bytes = include_bytes!("../icons/tray-template.png");
-                    #[cfg(not(target_os = "macos"))]
-                    let bytes = include_bytes!("../icons/32x32.png");
-
-                    let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
-                        .read_info().expect("Failed to decode tray icon PNG");
-                    let info = reader.info().clone();
-                    let mut rgba = vec![0u8; reader.output_buffer_size()];
-                    reader.next_frame(&mut rgba).expect("Failed to read tray icon frame");
-                    tauri::image::Image::new_owned(rgba, info.width, info.height)
-                };
-
-                let _tray = TrayIconBuilder::new()
-                    .tooltip("CodeTerm")
-                    .icon(tray_icon)
-                    .icon_as_template(cfg!(target_os = "macos"))
-                    .menu(&menu)
-                    .on_menu_event(move |app, event| {
-                        match event.id().as_ref() {
-                            "show" => {
-                                if let Some(w) = app.get_webview_window("main") {
-                                    let _ = w.show();
-                                    let _ = w.set_focus();
-                                }
-                            }
-                            "quit" => {
-                                app.exit(0);
-                            }
-                            _ => {}
-                        }
-                    })
-                    .on_tray_icon_event(|tray, event| {
-                        if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                            if let Some(w) = tray.app_handle().get_webview_window("main") {
-                                let _ = w.show();
-                                let _ = w.set_focus();
-                            }
-                        }
-                    })
-                    .build(app)?;
-            }
-
-            // Auto-save session every 30 seconds
-            {
-                let app_handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    loop {
-                        std::thread::sleep(std::time::Duration::from_secs(30));
-                        if let (Some(mux), Some(session)) = (
-                            app_handle.try_state::<MuxState>(),
-                            app_handle.try_state::<SessionState>(),
-                        ) {
-                            let snapshot = mux.lock().to_session_snapshot();
-                            if let Err(e) = session.lock().save(&snapshot) {
-                                log::warn!("Auto-save failed: {}", e);
-                            }
-                        }
-                    }
-                });
-            }
-
-            // Background update check (5s delay to not slow startup)
-            {
-                let update_st = update_state.clone();
-                let app_h = app.handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(5));
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .expect("Failed to create update check runtime");
-                    rt.block_on(async {
-                        let method = update_st.lock().install_method.clone();
-                        match crate::update::checker::check_for_update(&method).await {
-                            Ok(info) => {
-                                if info.update_available {
-                                    log::info!(
-                                        "Update available: {} → {}",
-                                        info.current_version,
-                                        info.latest_version
-                                    );
-                                    use tauri::Emitter;
-                                    let _ = app_h.emit(
-                                        "update-available",
-                                        serde_json::to_value(&info).unwrap_or_default(),
-                                    );
-                                }
-                                let mut us = update_st.lock();
-                                us.last_check = Some(info);
-                                us.last_check_time = Some(std::time::Instant::now());
-                            }
-                            Err(e) => log::warn!("Update check failed: {}", e),
-                        }
-                    });
-                });
-            }
-
-            // Agent idle check loop — transitions Working → Idle after timeout
-            {
-                let tracker = agent_tracker.clone();
-                let mux = mux_state.clone();
-                let idle_timeout = {
-                    let cfg = config_state.lock();
-                    std::time::Duration::from_secs(cfg.agent.idle_timeout_s as u64)
-                };
-                let poll_interval = {
-                    let cfg = config_state.lock();
-                    std::time::Duration::from_millis(cfg.agent.poll_interval_ms as u64)
-                };
-                let app_handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    loop {
-                        std::thread::sleep(poll_interval);
-                        let mut t = tracker.lock();
-                        let pty_ids = t.all_ids();
-                        for pty_id in pty_ids {
-                            let prev = t.get_status(&pty_id);
-                            t.check_idle(&pty_id, idle_timeout);
-                            let now = t.get_status(&pty_id);
-                            if now != prev {
-                                // Resolve pane_id from pty_id
-                                let pane_id = mux.lock().snapshot().panes.iter()
-                                    .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
-                                    .map(|(id, _)| id.clone());
-                                if let Some(pid) = pane_id {
-                                    use tauri::Emitter;
-                                    let _ = app_handle.emit("pane-status-changed", serde_json::json!({
-                                        "pane_id": pid,
-                                        "status": format!("{:?}", now),
-                                    }));
-                                }
-                            }
-                        }
-                    }
-                });
-            }
+            start_servers(app, &states, &service_state);
+            build_system_tray(app)?;
+            start_background_tasks(&app_handle, &states);
 
             // PTY read loops are started by spawn_pty command (initiated by frontend)
             Ok(())

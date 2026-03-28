@@ -4,11 +4,8 @@ use base64::Engine as _;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::UpdaterExt;
 
-use crate::agent::detector;
 use crate::agent::git_info::{self, GitInfo};
 use crate::multiplexer::commands::MuxState;
-use crate::notification::NotifState;
-use crate::api::events::EventBroadcasterState;
 use crate::service::ServiceState;
 use crate::{AgentTrackerState, OutputBufferState, PtyState, UpdateStateHandle};
 
@@ -104,7 +101,7 @@ pub async fn read_pty(
     output_buf: tauri::State<'_, OutputBufferState>,
     mux: tauri::State<'_, MuxState>,
     tracker: tauri::State<'_, AgentTrackerState>,
-    events: tauri::State<'_, EventBroadcasterState>,
+    svc: tauri::State<'_, ServiceState>,
     app: AppHandle,
     pty_id: String,
 ) -> Result<Vec<u8>, String> {
@@ -153,105 +150,18 @@ pub async fn read_pty(
             let mut reader_slot = session.reader.lock().unwrap();
             *reader_slot = Some(reader_back);
 
-            // Status tracking + agent event detection
-            {
-                let mut t = tracker.lock();
-                let prev = t.get_status(&pty_id);
-                t.update_output(&pty_id, &data);
+            // Status tracking + agent event detection (delegated to service layer)
+            let (prev, now) = svc.process_pty_output(&pty_id, &data);
 
-                // Detect Claude Code events from output text (strip ANSI first)
-                if let Ok(raw) = std::str::from_utf8(&data) {
-                    let text = crate::api::routes::strip_ansi_codes(raw);
-                    let agent_events = detector::detect_claude_events(&text);
-                    if !agent_events.is_empty() {
-                        log::debug!("[agent] Events detected: {:?} for pty {}", agent_events, &pty_id[..8]);
-                    }
-
-                    // Cooldown: skip if same event type fired within last 10s
-                    use std::sync::Mutex as StdMutex;
-                    use std::collections::HashMap;
-                    static LAST_NOTIF: std::sync::LazyLock<StdMutex<HashMap<(String, String), std::time::Instant>>> =
-                        std::sync::LazyLock::new(|| StdMutex::new(HashMap::new()));
-
-                    for event in &agent_events {
-                        let event_key = (pty_id.clone(), format!("{:?}", event));
-                        {
-                            let mut map = LAST_NOTIF.lock().unwrap();
-                            let now = std::time::Instant::now();
-                            if let Some(last) = map.get(&event_key) {
-                                if now.duration_since(*last).as_secs() < 10 {
-                                    continue;
-                                }
-                            }
-                            map.insert(event_key, now);
-                        }
-                        match event {
-                            detector::AgentEvent::PermissionRequest => {
-                                t.set_waiting(&pty_id);
-                                let info = mux.lock().snapshot().panes.iter()
-                                    .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
-                                    .map(|(id, p)| (id.clone(), p.title.clone()));
-                                if let Some((pid, title)) = info {
-                                    let notif_title = format!("{} needs approval", title);
-                                    use tauri::Emitter;
-                                    let _ = app.emit("notification-created", serde_json::json!({
-                                        "id": uuid::Uuid::new_v4().to_string(),
-                                        "title": &notif_title,
-                                        "body": "Agent is waiting for your permission",
-                                        "level": "Warning",
-                                        "pane_id": &pid,
-                                        "workspace_id": serde_json::Value::Null,
-                                    }));
-                                    crate::api::routes::send_os_notification_if_unfocused(
-                                        &app, &notif_title, Some("Agent is waiting for your permission"),
-                                    );
-                                    // Broadcast to webhooks + websockets
-                                    events.broadcast("agent.permission_request", serde_json::json!({
-                                        "pane_id": &pid, "title": &title,
-                                    }));
-                                }
-                            }
-                            detector::AgentEvent::TaskComplete => {
-                                if prev == crate::agent::status::PaneStatus::Working {
-                                    let info = mux.lock().snapshot().panes.iter()
-                                        .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
-                                        .map(|(id, p)| (id.clone(), p.title.clone()));
-                                    if let Some((pid, title)) = info {
-                                        let notif_title = format!("{} finished", title);
-                                        use tauri::Emitter;
-                                        let _ = app.emit("notification-created", serde_json::json!({
-                                            "id": uuid::Uuid::new_v4().to_string(),
-                                            "title": &notif_title,
-                                            "body": "Task complete",
-                                            "level": "Info",
-                                            "pane_id": &pid,
-                                            "workspace_id": serde_json::Value::Null,
-                                        }));
-                                        crate::api::routes::send_os_notification_if_unfocused(
-                                            &app, &notif_title, Some("Task complete"),
-                                        );
-                                        events.broadcast("agent.task_complete", serde_json::json!({
-                                            "pane_id": &pid, "title": &title,
-                                        }));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                let now = t.get_status(&pty_id);
-                if now != prev {
-                    let pane_id = mux.lock().snapshot().panes.iter()
-                        .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
-                        .map(|(id, _)| id.clone());
-                    if let Some(pid) = pane_id {
-                        use tauri::Emitter;
-                        let _ = app.emit("pane-status-changed", serde_json::json!({
-                            "pane_id": pid,
-                            "status": format!("{:?}", now),
-                        }));
-                    }
+            // Emit status change event to frontend
+            if now != prev {
+                let pane_id = mux.lock().pane_id_for_pty(&pty_id);
+                if let Some(ref pid) = pane_id {
+                    use tauri::Emitter;
+                    let _ = app.emit("pane-status-changed", serde_json::json!({
+                        "pane_id": pid,
+                        "status": format!("{:?}", now),
+                    }));
                 }
             }
 
@@ -260,13 +170,7 @@ pub async fn read_pty(
         Err(e) => {
             // PTY died
             tracker.lock().set_dead(&pty_id);
-            let pane_id = {
-                let m = mux.lock();
-                let snap = m.snapshot();
-                snap.panes.iter()
-                    .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
-                    .map(|(id, _)| id.clone())
-            };
+            let pane_id = mux.lock().pane_id_for_pty(&pty_id);
             if let Some(ref pid) = pane_id {
                 use tauri::Emitter;
                 let _ = app.emit("pane-status-changed", serde_json::json!({

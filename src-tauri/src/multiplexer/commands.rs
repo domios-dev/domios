@@ -284,6 +284,16 @@ pub fn mux_set_can_spawn(
     svc.set_can_spawn(&pane_id, can_spawn)
 }
 
+/// Respond to a pending prompt — sends the value to PTY and clears the prompt.
+#[tauri::command]
+pub fn mux_respond_prompt(
+    svc: State<'_, ServiceState>,
+    pane_id: String,
+    value: String,
+) -> Result<(), String> {
+    svc.respond_prompt(&pane_id, &value)
+}
+
 // ── Batch (unified via service layer) ────────────────────────────────
 
 /// Execute a batch of commands via the service layer.

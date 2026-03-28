@@ -23,8 +23,6 @@ pub type ScreenshotState = Arc<Mutex<ScreenshotChannel>>;
 
 /// Max width for screenshots (resized to fit, keeps aspect ratio).
 const MAX_WIDTH: u32 = 1280;
-/// JPEG quality (1-100). 65 gives good readability at ~200-400KB.
-const JPEG_QUALITY: u8 = 65;
 
 /// Capture the CodeTerm window and return base64-encoded JPEG.
 /// Works even when the window is behind other windows (on supported platforms).
@@ -102,15 +100,6 @@ pub fn submit_screenshot(
     Ok(())
 }
 
-/// Legacy request function — now delegates to capture_window.
-pub fn request_screenshot(
-    app: &AppHandle,
-    _screenshot_state: &ScreenshotState,
-    _timeout_ms: u64,
-) -> Result<String, String> {
-    let result = capture_window(app)?;
-    Ok(result.data_url)
-}
 
 // ── Platform implementations ────────────────────────────────────────
 

@@ -59,6 +59,20 @@ Provider code lives in:
 
 When adding agent-related features, ask: "How would this work with Codex? With Aider? With a local model?" If the answer requires Claude-specific code, put it in the provider.
 
+## Lock ordering (deadlock prevention)
+
+All parking_lot Mutexes must be acquired in this order. Never hold a higher-numbered lock while acquiring a lower-numbered one.
+
+1. `mux` (MultiplexerState)
+2. `output_buf` (OutputBuffer)
+3. `agent_tracker` (PaneStatusTracker)
+4. `pty` (PtyManager)
+
+**Rules:**
+- Never hold two locks simultaneously if possible — lock, read/write, drop, then lock the next.
+- parking_lot Mutex is NOT reentrant — `mux.lock()` inside `mux.lock()` = instant deadlock.
+- After parallel Rust refactors, grep for nested `.lock()` calls to verify ordering.
+
 ## Git rules
 
 **NEVER commit or push without explicit user request.** No auto-commits, no "let me commit this". Only commit when the user says "коммить", "commit", "запушь", etc.

@@ -1,7 +1,7 @@
 //! Background cron scheduler — fires cron jobs and spawns agents.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 use tauri::Emitter;

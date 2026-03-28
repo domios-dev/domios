@@ -26,6 +26,16 @@ export type Orientation = "Horizontal" | "Vertical";
 
 export type AgentRole = "Orchestrator" | "Lead" | "Worker" | "Conductor" | "SubWorker";
 
+export interface PromptOption {
+  label: string;
+  value: string;
+}
+
+export interface PendingPrompt {
+  question: string;
+  options: PromptOption[];
+}
+
 export interface Pane {
   id: string;
   pty_id: string | null;
@@ -41,6 +51,7 @@ export interface Pane {
   can_spawn?: boolean;
   depth?: number;
   chat_view?: boolean;
+  pending_prompt?: PendingPrompt | null;
 }
 
 export interface MultiplexerState {

@@ -59,4 +59,18 @@ pub trait AgentProvider: Send + Sync {
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
     /// Each provider knows its own status bar patterns, progress indicators, etc.
     fn is_output_noise(&self, text: &str) -> bool { let _ = text; false }
+
+    /// Detect agent-specific events from terminal output (e.g., permission requests, task completion).
+    /// Default: no events detected.
+    fn detect_events(&self, text: &str) -> Vec<crate::agent::detector::AgentEvent> {
+        let _ = text;
+        Vec::new()
+    }
+
+    /// Parse a pending interactive prompt from terminal output.
+    /// Default: no prompt parsing.
+    fn parse_prompt(&self, text: &str) -> Option<(String, Vec<(String, String)>)> {
+        let _ = text;
+        None
+    }
 }

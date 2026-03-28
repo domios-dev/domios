@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { parseJsonlSession, parseTerminalOutput } from "./parser";
 import { getAgentProvider, isProviderNoise } from "../../lib/agentProviders";
 import { MessageBubble } from "./MessageBubble";
@@ -34,6 +35,11 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const [inputExpanded, setInputExpanded] = useState(false);
   const [inputAtMax, setInputAtMax] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [pendingPrompt, setPendingPrompt] = useState<{
+    question: string;
+    options: { label: string; value: string }[];
+  } | null>(null);
+  const pendingPromptRef = useRef(pendingPrompt);
   const [attachments, setAttachments] = useState<Array<{
     id: string;
     name: string;
@@ -86,33 +92,30 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         if (newData.length > 0) {
           jsonlOffset.current += new TextEncoder().encode(newData).length;
           accumulatedJsonl.current += newData;
-          // typing state removed with header
-        } else {
-          // typing state removed with header
-        }
 
-        const parsed = sessionParser(accumulatedJsonl.current);
-        if (parsed.length !== prevMessageCount.current) {
-          // Preserve optimistic messages not yet in JSONL
-          setAllMessages(prev => {
-            const optimistic = prev.filter(m => m.id.startsWith('optimistic-'));
-            if (optimistic.length === 0) return parsed;
-            // Check if optimistic content appeared in parsed (by matching text)
-            const remaining = optimistic.filter(opt =>
-              !parsed.some(p => p.type === 'user' && p.content.trim() === opt.content.trim())
-            );
-            return remaining.length > 0 ? [...parsed, ...remaining] : parsed;
-          });
-          // Auto-scroll on new messages
-          if (!userScrolledUp.current) {
-            requestAnimationFrame(() => {
-              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          // Only re-parse when we got new data
+          const parsed = sessionParser(accumulatedJsonl.current);
+          if (parsed.length !== prevMessageCount.current) {
+            // Preserve optimistic messages not yet in JSONL
+            setAllMessages(prev => {
+              const optimistic = prev.filter(m => m.id.startsWith('optimistic-'));
+              if (optimistic.length === 0) return parsed;
+              // Check if optimistic content appeared in parsed (by matching text)
+              const remaining = optimistic.filter(opt =>
+                !parsed.some(p => p.type === 'user' && p.content.trim() === opt.content.trim())
+              );
+              return remaining.length > 0 ? [...parsed, ...remaining] : parsed;
             });
+            // Auto-scroll on new messages
+            if (!userScrolledUp.current) {
+              requestAnimationFrame(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              });
+            }
+            prevMessageCount.current = parsed.length;
           }
-          prevMessageCount.current = parsed.length;
-        } else if (newData.length === 0) {
-          // typing state removed with header
         }
+        // No new data — skip re-parse entirely
       } catch {
         // JSONL not available — switch to terminal fallback
         if (parseMode.current === "detecting") {
@@ -154,8 +157,26 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       }
     }
 
+    // Read pending prompt from backend state (provider-agnostic)
+    async function checkForPrompt() {
+      try {
+        const state = await invoke<any>("mux_get_state");
+        if (!active) return;
+        const pane = state?.panes?.[paneId];
+        const prompt = pane?.pending_prompt || null;
+        // Only update if changed
+        const prev = pendingPromptRef.current;
+        if (JSON.stringify(prompt) !== JSON.stringify(prev)) {
+          setPendingPrompt(prompt);
+          pendingPromptRef.current = prompt;
+        }
+      } catch { /* ignore */ }
+    }
+
     async function poll() {
       if (!active) return;
+      // Check for permission prompts from backend
+      checkForPrompt();
 
       // On first poll or while detecting, try JSONL
       if (parseMode.current === "detecting") {
@@ -250,11 +271,18 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
 
     // Defer first poll so overlay renders instantly with loading state
     setTimeout(poll, 0);
-    // Poll frequently for responsive streaming
-    const interval = setInterval(poll, 500);
+
+    // Listen for output change events from backend — trigger immediate poll
+    const unlisten = listen<{ pty_id: string }>("pane-output-changed", () => {
+      poll();
+    });
+
+    // Fallback polling at 2s (event-driven handles the fast path)
+    const interval = setInterval(poll, 2000);
     return () => {
       active = false;
       clearInterval(interval);
+      unlisten.then(fn => fn());
     };
   }, [paneId]);
 
@@ -298,9 +326,8 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     try {
       const resolvePtyId = async (): Promise<string | null> => {
         if (ptyId) return ptyId;
-        const panes: any[] = await invoke("mux_list_panes");
-        const pane = panes.find((p: any) => p.id === paneId);
-        return pane?.pty_id || null;
+        const state = await invoke<{ panes: Record<string, { pty_id: string | null }> }>("mux_get_state");
+        return state.panes[paneId]?.pty_id || null;
       };
       const pid = await resolvePtyId();
       if (!pid) return;
@@ -542,8 +569,8 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             )}
             {messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)}
             {/* Thinking indicator — shown after sending message, before Claude responds */}
-            {waitingForReply && (
-              <div className="mb-3 max-w-3xl mx-auto">
+            {waitingForReply && !pendingPrompt && (
+              <div className="mb-3 max-w-4xl mx-auto">
                 <span
                   className="inline-flex items-center gap-1 text-sm"
                   style={{ color: "var(--ct-muted-fg, #8b949e)" }}
@@ -554,6 +581,51 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
                     <span className="animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1s' }}>.</span>
                   </span>
                 </span>
+              </div>
+            )}
+            {/* Permission prompt — interactive buttons */}
+            {pendingPrompt && (
+              <div className="mb-3 max-w-4xl mx-auto">
+                <div
+                  className="rounded-lg px-4 py-3 border"
+                  style={{
+                    background: "color-mix(in srgb, var(--ct-yellow) 5%, var(--ct-surface))",
+                    borderColor: "color-mix(in srgb, var(--ct-yellow) 30%, transparent)",
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ct-yellow)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    </svg>
+                    <span className="text-xs font-medium" style={{ color: "var(--ct-yellow)" }}>
+                      {pendingPrompt.question}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {pendingPrompt.options.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={async () => {
+                          setPendingPrompt(null);
+                          pendingPromptRef.current = null;
+                          try {
+                            await invoke("mux_respond_prompt", { paneId, value: opt.value });
+                          } catch { /* ignore */ }
+                        }}
+                        className="px-3 py-1.5 rounded-md text-xs font-medium transition-colors hover:brightness-110"
+                        style={{
+                          background: opt.value === "1"
+                            ? "color-mix(in srgb, var(--ct-green) 20%, transparent)"
+                            : "var(--ct-surface)",
+                          color: opt.value === "1" ? "var(--ct-green)" : "var(--ct-fg)",
+                          border: "1px solid color-mix(in srgb, var(--ct-border) 50%, transparent)",
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </>

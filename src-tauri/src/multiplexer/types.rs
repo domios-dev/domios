@@ -149,6 +149,22 @@ impl AgentRole {
     }
 }
 
+/// An interactive prompt detected in agent output (e.g. permission request).
+/// Provider-agnostic — any agent can have pending prompts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptOption {
+    pub label: String,
+    /// Value to send to PTY (e.g. "1", "y", "n")
+    pub value: String,
+}
+
+/// A pending interactive prompt from an agent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingPrompt {
+    pub question: String,
+    pub options: Vec<PromptOption>,
+}
+
 /// A pane represents a single terminal or browser panel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pane {
@@ -188,6 +204,9 @@ pub struct Pane {
     /// Whether chat view overlay is active for this pane.
     #[serde(default)]
     pub chat_view: bool,
+    /// Pending interactive prompt (permission, confirmation, etc.)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pending_prompt: Option<PendingPrompt>,
 }
 
 /// Title priority: higher levels cannot be overwritten by lower ones.
