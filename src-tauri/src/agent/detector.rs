@@ -332,7 +332,7 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
 /// picking up numbered lists from Claude's response text.
 pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, String)>)> {
     let question_patterns = [
-        "Do you want to proceed?",
+        "Do you want to",   // "proceed?", "create X?", "run X?", etc.
         "Allow ",
         "Approve ",
     ];
