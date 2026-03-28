@@ -326,54 +326,86 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
     }
 }
 
-/// Parse a permission prompt with numbered options from terminal output.
+/// Parse an interactive prompt with numbered options from terminal output.
 /// Returns (question, options) if found. Each option is (label, value).
-/// Only parses numbered options that appear AFTER the question line to avoid
-/// picking up numbered lists from Claude's response text.
+///
+/// Uses structural detection — no hardcoded question text:
+/// 1. Find numbered options cluster (N. text) near the end
+/// 2. The question is the nearest line ending with `?` above the options
+/// 3. If no `?` line, use the line immediately before the first option
 pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, String)>)> {
-    let question_patterns = [
-        "Do you want to",   // "proceed?", "create X?", "run X?", etc.
-        "Allow ",
-        "Approve ",
-    ];
-
     let lines: Vec<&str> = text.lines().collect();
-    let mut question = None;
-    let mut question_line_idx = None;
+    if lines.len() < 2 { return None; }
 
-    // Find the LAST occurrence of a question pattern (use last to handle repeated text)
-    for (i, line) in lines.iter().enumerate() {
-        for pattern in &question_patterns {
-            if line.contains(pattern) {
-                question = Some(line.trim().to_string());
-                question_line_idx = Some(i);
-            }
-        }
-    }
-    let question = question?;
-    let start = question_line_idx?;
+    // Scan from end for numbered options — take only the LAST cluster
+    // (closest to the end of text, which is where the active prompt is)
+    let scan_start = lines.len().saturating_sub(20);
+    let mut all_opts: Vec<(String, String, usize)> = Vec::new();
 
-    // Only parse numbered options AFTER the question, within 10 lines
-    let end = (start + 10).min(lines.len());
-    let mut options = Vec::new();
-    for line in &lines[start..end] {
-        let trimmed = line.trim().trim_start_matches('❯').trim_start_matches('>').trim();
+    for i in scan_start..lines.len() {
+        let trimmed = lines[i].trim().trim_start_matches('❯').trim_start_matches('>').trim();
         let digits: String = trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
         if !digits.is_empty() {
             let after = &trimmed[digits.len()..];
             if let Some(label) = after.strip_prefix(". ") {
-                if !options.iter().any(|(_, v): &(String, String)| *v == digits) {
-                    options.push((label.trim().to_string(), digits));
-                }
+                all_opts.push((label.trim().to_string(), digits, i));
             }
         }
     }
 
-    if options.is_empty() {
+    if all_opts.len() < 2 { return None; }
+
+    // Extract last cluster: walk backwards from the last option,
+    // include options that are within 3 lines of each other
+    let mut options: Vec<(String, String, usize)> = Vec::new();
+    let mut prev_idx = all_opts.last()?.2;
+    for opt in all_opts.iter().rev() {
+        if prev_idx - opt.2 <= 2 || options.is_empty() {
+            options.push(opt.clone());
+            prev_idx = opt.2;
+        } else {
+            break; // gap too big — different cluster
+        }
+    }
+    options.reverse();
+
+    if options.len() < 2 { return None; }
+    let first_opt = options.first()?.2;
+
+    // Find question: nearest line ending with `?` above the first option
+    let mut question = None;
+    for i in (0..first_opt).rev() {
+        let trimmed = lines[i].trim();
+        if trimmed.ends_with('?') && trimmed.len() > 3 {
+            question = Some(trimmed.to_string());
+            break;
+        }
+        // Don't search more than 5 lines above
+        if first_opt - i > 5 { break; }
+    }
+
+    // Fallback: use the non-empty line just above first option
+    if question.is_none() {
+        for i in (0..first_opt).rev() {
+            let trimmed = lines[i].trim();
+            if !trimmed.is_empty() && trimmed.len() > 3 {
+                question = Some(trimmed.to_string());
+                break;
+            }
+            if first_opt - i > 3 { break; }
+        }
+    }
+
+    let question = question.unwrap_or_else(|| "Permission required".to_string());
+    let result_options: Vec<(String, String)> = options.into_iter()
+        .map(|(label, value, _)| (label, value))
+        .collect();
+
+    if result_options.is_empty() {
         return None;
     }
 
-    Some((question, options))
+    Some((question, result_options))
 }
 
 #[cfg(test)]
