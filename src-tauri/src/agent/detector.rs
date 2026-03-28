@@ -371,6 +371,18 @@ pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, Strin
 
     if options.len() < 2 { return None; }
     let first_opt = options.first()?.2;
+    let last_opt = options.last()?.2;
+
+    // Must have interactive markers nearby: ❯/> selector OR keyboard footer
+    // Without these, it's just a regular numbered list
+    let has_selector = options.iter().any(|(_, _, idx)| {
+        lines[*idx].trim().starts_with('❯') || lines[*idx].trim().starts_with('>')
+    });
+    let has_footer = (last_opt..lines.len().min(last_opt + 5)).any(|i| {
+        let t = lines[i].trim();
+        (t.contains("Esc") || t.contains("Enter")) && (t.contains("cancel") || t.contains("amend") || t.contains("confirm"))
+    });
+    if !has_selector && !has_footer { return None; }
 
     // Find question: nearest line ending with `?` above the first option
     let mut question = None;
@@ -663,5 +675,62 @@ mod tests {
         // Claude's numbered answer WITHOUT any prompt
         let text = "Here's what I found:\n1. First issue\n2. Second issue\n3. Third issue\n\nLet me fix these.";
         assert!(!detect_interactive_prompt(text));
+    }
+
+    // --- Real data: Claude answers with numbered lists (must NOT parse as prompts) ---
+
+    #[test]
+    fn test_real_data_no_false_positive_1() {
+        let text = "Готово. Вот что сделал:\n\n1. **Отправлять вопросы боту** через Django shell\n2. **Лезть в LangSmith** через REST API\n3. **Анализировать** — какие tools вызвались\n4. **Флагать проблемы** — `missed_memory`, `redundant_qna`";
+        assert!(parse_permission_prompt(text).is_none(), "Real Claude answer should not be parsed as prompt");
+    }
+
+    #[test]
+    fn test_real_data_no_false_positive_2() {
+        let text = "**7 write-инструментов:**\n1. `save_to_timeline` — создание заметок\n2. `update_note` — редактирование заметок\n3. `update_person` — контактные данные\n4. `update_event` — обновление встреч\n5. `delete_note` — удаление";
+        assert!(parse_permission_prompt(text).is_none(), "Real Claude answer should not be parsed as prompt");
+    }
+
+    #[test]
+    fn test_real_data_no_false_positive_3() {
+        let text = "Вот полный flow:\n\n1. **`[TOOL_CALL] event_qna`** — бот запросил детали\n2. **`[TOOL_RESULT]`** — получил title\n3. **`[TOOL_CALL] save_to_timeline`** — сохранил перевод\n4. **`[TOOL_RESULT]`** — сохранение успешно\n5. **`[TOOL_CALL] refresh_page({})`** — вызвал рефреш";
+        assert!(parse_permission_prompt(text).is_none(), "Real Claude answer should not be parsed as prompt");
+    }
+
+    #[test]
+    fn test_real_data_no_false_positive_4() {
+        let text = "Два вопроса:\n\n1. **Ты перезапускал бэкенд/фронт после наших изменений?** Daphne может не подхватывать.\n\n2. **Что именно ты ожидал увидеть?** `save_to_timeline` создаёт новую запись.";
+        assert!(parse_permission_prompt(text).is_none(), "Real Claude answer should not be parsed as prompt");
+    }
+
+    #[test]
+    fn test_real_data_no_false_positive_5() {
+        let text = "Добавил `console.log` в три места:\n1. **`relabaseChatSocket.ts`** — когда WS получает `page_refresh`\n2. **`AIDiscussion.tsx`** — когда dispatch'ит CustomEvent\n3. **`usePageRefresh.ts`** — когда hook ловит event";
+        assert!(parse_permission_prompt(text).is_none(), "Real Claude answer should not be parsed as prompt");
+    }
+
+    #[test]
+    fn test_real_data_no_false_positive_6() {
+        let text = "Красота:\n1. `event_qna` — прочитал event\n2. **`update_note`** — обновил title + content\n3. `refresh_page` — послал рефреш\n\nПроверю что записалось.";
+        assert!(parse_permission_prompt(text).is_none(), "Real Claude answer should not be parsed as prompt");
+    }
+
+    #[test]
+    fn test_real_data_with_question_before_list() {
+        // Question mark before numbered list — but no selector/footer = NOT a prompt
+        let text = "Что нужно сделать?\n\n1. Починить парсер\n2. Добавить тесты\n3. Залить в прод\n\nДавай начнём.";
+        assert!(parse_permission_prompt(text).is_none(), "Question before list without selector is not a prompt");
+    }
+
+    #[test]
+    fn test_real_prompt_with_question_mark() {
+        // Real prompt: question ending with ? + numbered options with selector
+        let text = "Write to /tmp/test.txt?\n  ❯ 1. Yes\n    2. Yes, allow writes to tmp/\n    3. No\n\nEsc to cancel · Tab to amend";
+        let result = parse_permission_prompt(text);
+        assert!(result.is_some(), "Real prompt with ? should be detected");
+        let (q, opts) = result.unwrap();
+        assert!(q.contains("test.txt"), "Question should contain filename");
+        assert_eq!(opts.len(), 3);
+        assert_eq!(opts[0].0, "Yes");
     }
 }
