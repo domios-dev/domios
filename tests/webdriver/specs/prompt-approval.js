@@ -8,7 +8,17 @@
 
 import http from 'http';
 
-const API_TOKEN = process.env.CODETERM_API_TOKEN || '7aef7cb945a2445ca05aa058cfd5ef6d';
+import fs from 'fs';
+import path from 'path';
+
+const API_TOKEN = process.env.CODETERM_API_TOKEN || (() => {
+  const configPath = path.join(process.env.HOME, '.codeterm-dev', 'config.toml');
+  if (fs.existsSync(configPath)) {
+    const match = fs.readFileSync(configPath, 'utf8').match(/token\s*=\s*"([^"]+)"/);
+    return match?.[1] || '';
+  }
+  return '';
+})();
 const API_PORT = process.env.CODETERM_API_PORT || '7686';
 
 // Helper: call CodeTerm REST API

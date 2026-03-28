@@ -112,7 +112,7 @@ cd tests/webdriver && npm install  # first time
 Run E2E tests against remote machines:
 ```bash
 # Windows (BLACKSTAR)
-CODETERM_API_URL=http://100.84.159.37:7685 CODETERM_API_TOKEN=TOKEN pytest tests/e2e/ -v
+CODETERM_API_URL=http://<REMOTE_IP>:<PORT> CODETERM_API_TOKEN=<TOKEN> pytest tests/e2e/ -v
 ```
 
 Known platform differences:
