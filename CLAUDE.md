@@ -32,21 +32,18 @@ pnpm tauri dev --config src-tauri/tauri.dev.conf.json -- --features webdriver
 
 **IMPORTANT on Windows:** Do NOT use `./build.sh` — it's a bash script. Use `pnpm tauri dev` directly. Do NOT kill the dev process by terminating the shell — use Ctrl+C or close the window.
 
-### Tests
+### Tests (3 layers)
 
 ```bash
-# Rust unit tests (no instance needed)
-cargo test --manifest-path src-tauri/Cargo.toml --lib    # 207 tests
+# 1. UNIT — no instance needed, fast
+cargo test --manifest-path src-tauri/Cargo.toml --lib    # Rust (210 tests)
+npx tsx src/components/ChatView/parser.test.ts            # TS (100 tests)
 
-# TypeScript parser tests (no instance needed)
-npx tsx src/components/ChatView/parser.test.ts            # 100 tests
+# 2. E2E — needs running dev instance (./build.sh dev)
+CODETERM_API_URL=http://127.0.0.1:7686 pytest tests/e2e/ -v   # 84 tests
+# Remote: CODETERM_API_URL=http://HOST:PORT CODETERM_API_TOKEN=TOKEN pytest tests/e2e/ -v
 
-# API e2e tests (needs running dev instance)
-CODETERM_API_URL=http://127.0.0.1:7686 pytest tests/e2e/ -v   # 81 tests
-# With explicit token (remote testing):
-CODETERM_API_URL=http://HOST:PORT CODETERM_API_TOKEN=TOKEN pytest tests/e2e/ -v
-
-# WebdriverIO UI tests (needs dev with --features webdriver)
+# 3. UI — needs dev with WebDriver (pnpm tauri dev ... -- --features webdriver)
 cd tests/webdriver && npm test                            # 19 tests
 ```
 
