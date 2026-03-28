@@ -71,7 +71,8 @@ impl ServiceContext {
         self.set_agent_session_id(pane_id, session_id);
     }
 
-    /// Respond to a pending prompt — sends the value to PTY and clears the prompt.
+    /// Respond to a pending prompt — sends the selection to PTY and clears the prompt.
+    /// Claude TUI raw mode: digit selects option, Enter confirms.
     pub fn respond_prompt(&self, pane_id: &str, value: &str) -> Result<(), String> {
         {
             let mut mux = self.mux.lock();
@@ -79,7 +80,18 @@ impl ServiceContext {
                 .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
             pane.pending_prompt = None;
         }
-        self.send_text(pane_id, value, true)?;
+        let pty_id = self.resolve_pty_id(pane_id)?;
+        // Send raw bytes: digit to select, then \r to confirm.
+        // Claude TUI handles single keypress in raw mode.
+        let mut data = Vec::new();
+        if value != "1" {
+            // Non-default option: send digit to move selection
+            data.extend_from_slice(value.as_bytes());
+            // Small delay would be ideal but sync write doesn't support it.
+            // Claude TUI processes the digit immediately.
+        }
+        data.push(b'\r'); // Enter to confirm
+        self.pty.lock().write(&pty_id, &data).map_err(|e| e.to_string())?;
         self.emit_state_changed();
         Ok(())
     }
