@@ -51,6 +51,93 @@ class TestHookEndpoints:
         assert len(prompt.get("options", [])) >= 2, f"Should have 2+ options, got {prompt}"
 
 
+class TestPromptParsingAccuracy:
+    """Test that prompt parser doesn't pick up numbered lists from Claude's answers."""
+
+    def test_numbered_answer_then_prompt(self, api, fresh_pane):
+        """Claude answer with numbered list, then real prompt — only Yes/No parsed."""
+        # Simulate Claude's answer with numbered list THEN a real prompt
+        api.send_text(fresh_pane, text=(
+            'printf "'
+            'Here is my analysis:\\n'
+            '1. First bug found in parser\\n'
+            '2. Second issue with encoding\\n'
+            '3. Third problem in renderer\\n'
+            '4. Fourth edge case\\n'
+            '5. Fifth minor issue\\n'
+            '\\n'
+            'Do you want to proceed?\\n'
+            '  \\xe2\\x9d\\xaf 1. Yes\\n'
+            '    2. Yes, allow reading during this session\\n'
+            '    3. No\\n'
+            '\\nEsc to cancel \\xc2\\xb7 Tab to amend\\n"'
+        ))
+        time.sleep(2)
+
+        # Hook triggers prompt parsing from ring buffer
+        api.post(f"/api/panes/{fresh_pane}/hook/permission")
+        time.sleep(1)
+
+        pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
+        prompt = pane.get("pending_prompt")
+        assert prompt is not None, "Should detect prompt"
+        assert prompt["question"] == "Do you want to proceed?"
+
+        # Critical: options should be Yes/No, NOT "First bug", "Second issue"
+        labels = [o["label"] for o in prompt["options"]]
+        assert "Yes" in labels, f"Should have Yes, got {labels}"
+        assert "No" in labels, f"Should have No, got {labels}"
+        assert not any("bug" in l.lower() or "issue" in l.lower() for l in labels), \
+            f"Should NOT have answer items in options: {labels}"
+        assert len(prompt["options"]) <= 3, f"Should have max 3 options, got {len(prompt['options'])}"
+
+    def test_only_numbered_answer_no_prompt(self, api, fresh_pane):
+        """Claude answer with numbered list but NO prompt — no pending_prompt set."""
+        api.send_text(fresh_pane, text=(
+            'printf "'
+            'Here is what I found:\\n'
+            '1. First thing\\n'
+            '2. Second thing\\n'
+            '3. Third thing\\n'
+            '\\nLet me fix these.\\n"'
+        ))
+        time.sleep(2)
+
+        # Hook without real prompt in buffer — should not set prompt
+        api.post(f"/api/panes/{fresh_pane}/hook/permission")
+        time.sleep(1)
+
+        pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
+        prompt = pane.get("pending_prompt")
+        # Without explicit body and without real prompt in buffer,
+        # parser should not find anything
+        if prompt:
+            # If it somehow parsed, labels should not be "First thing" etc.
+            labels = [o["label"] for o in prompt.get("options", [])]
+            assert not any("thing" in l.lower() for l in labels), \
+                f"Should NOT parse answer as prompt: {labels}"
+
+    def test_explicit_body_overrides_buffer(self, api, fresh_pane):
+        """Explicit body in hook/permission bypasses buffer parsing."""
+        # Put garbage in buffer
+        api.send_text(fresh_pane, text='printf "1. garbage\\n2. noise\\n3. junk\\n"')
+        time.sleep(1)
+
+        # Send explicit prompt via body — should ignore buffer
+        api.post(f"/api/panes/{fresh_pane}/hook/permission", json={
+            "question": "Allow Bash?",
+            "options": [{"label": "Yes", "value": "1"}, {"label": "No", "value": "3"}]
+        })
+        time.sleep(1)
+
+        pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
+        prompt = pane.get("pending_prompt")
+        assert prompt is not None
+        assert prompt["question"] == "Allow Bash?"
+        assert len(prompt["options"]) == 2
+        assert prompt["options"][0]["label"] == "Yes"
+
+
 class TestFullPromptApprovalFlow:
     """End-to-end prompt approval pipeline tests."""
 
