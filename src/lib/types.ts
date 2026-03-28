@@ -40,6 +40,7 @@ export interface Pane {
   parent_pane_id?: string | null;
   can_spawn?: boolean;
   depth?: number;
+  chat_view?: boolean;
 }
 
 export interface MultiplexerState {

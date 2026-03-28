@@ -851,12 +851,18 @@ function WorkspaceItem({
           >
             <button
               onClick={() => { setCtxMenu(null); setEditName(workspace.name); setEditing(true); }}
-              className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
-            >Rename</button>
+              className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)] whitespace-nowrap"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+              Rename
+            </button>
             <button
               onClick={() => { setCtxMenu(null); setConfirmClose(true); }}
-              className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)]"
-            >Close</button>
+              className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)] whitespace-nowrap"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              Close
+            </button>
           </div>
         </>
       )}
@@ -1080,38 +1086,54 @@ function TabItem({
           <>
             <div className="fixed inset-0 z-40" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
             <div
-              className="fixed z-50 w-36 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1 ct-float"
+              className="fixed z-50 w-44 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1 ct-float"
               style={{ left: ctxMenu.x, top: ctxMenu.y }}
             >
               <button
                 onClick={() => { setCtxMenu(null); setEditName(tab.title); setEditing(true); }}
-                className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
-              >Rename</button>
-              {/* Hierarchy is managed via CLI — no manual role assignment in UI */}
-              {pane?.role && (
+                className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)] whitespace-nowrap"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                Rename
+              </button>
+              {/* Role management — hide for Orchestrators (default role on all tabs) */}
+              {pane?.role && pane.role !== "Orchestrator" && (
                 <button
                   onClick={() => {
                     setCtxMenu(null);
                     if (pane) invoke("mux_clear_pane_role", { paneId: pane.id });
                   }}
-                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-yellow)] hover:bg-[var(--ct-border)]"
-                >Remove Role</button>
+                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-yellow)] hover:bg-[var(--ct-border)] whitespace-nowrap"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="11" x2="23" y2="11"/></svg>
+                  Remove Role
+                </button>
               )}
-              {pane?.role && (pane.role === "Orchestrator" || pane.role === "Conductor" || pane.role === "Lead") && (
+              {pane?.role && pane.role !== "Orchestrator" && (pane.role === "Conductor" || pane.role === "Lead") && (
                 <button
                   onClick={() => {
                     setCtxMenu(null);
                     if (pane) invoke("mux_set_can_spawn", { paneId: pane.id, canSpawn: !pane.can_spawn });
                   }}
-                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
-                >{pane.can_spawn ? "Disallow Spawning" : "Allow Spawning"}</button>
+                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)] whitespace-nowrap"
+                >
+                  {pane.can_spawn ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>
+                  )}
+                  {pane.can_spawn ? "Disallow Spawning" : "Allow Spawning"}
+                </button>
               )}
               <div className="h-px bg-[var(--ct-border)] my-0.5" />
               {canClose && (
                 <button
                   onClick={(e) => { setCtxMenu(null); handleClose(e); }}
-                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)]"
-                >Close</button>
+                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)] whitespace-nowrap"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                  Close
+                </button>
               )}
             </div>
           </>

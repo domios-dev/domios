@@ -185,6 +185,9 @@ pub struct Pane {
     /// Title naming priority level.
     #[serde(default)]
     pub title_level: TitleLevel,
+    /// Whether chat view overlay is active for this pane.
+    #[serde(default)]
+    pub chat_view: bool,
 }
 
 /// Title priority: higher levels cannot be overwritten by lower ones.

@@ -43,6 +43,14 @@ case "$CMD" in
     echo "CLI: cli/target/release/codeterm.exe"
     ;;
   dev)
+    # Kill previous dev instances (but not production CodeTerm.app)
+    if [[ "$OSTYPE" == darwin* ]]; then
+      pgrep -f "target/debug/codeterm" | xargs kill 2>/dev/null || true
+      lsof -ti:1420 | xargs kill -9 2>/dev/null || true
+    else
+      taskkill //F //IM codeterm.exe 2>/dev/null || true
+    fi
+    sleep 1
     echo "Starting dev mode..."
     pnpm tauri dev --config src-tauri/tauri.dev.conf.json
     ;;

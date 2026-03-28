@@ -52,6 +52,7 @@ impl MultiplexerState {
             depth: 1,
             report_target_pane_id: None,
             title_level: TitleLevel::Default,
+            chat_view: false,
         };
 
         let tab = Tab {
@@ -350,6 +351,7 @@ impl MultiplexerState {
             depth: 0,
             report_target_pane_id: None,
             title_level: TitleLevel::Default,
+            chat_view: false,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -373,6 +375,7 @@ impl MultiplexerState {
             depth: 0,
             report_target_pane_id: None,
             title_level: TitleLevel::Default,
+            chat_view: false,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -834,6 +837,7 @@ impl MultiplexerState {
                         depth: *depth,
                         report_target_pane_id: None,
                         title_level: restored_level,
+                        chat_view: false,
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }

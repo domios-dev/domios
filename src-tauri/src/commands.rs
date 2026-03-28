@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::Read;
+use base64::Engine as _;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::UpdaterExt;
 
@@ -1054,12 +1055,25 @@ pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String,
     Ok(path.to_string_lossy().to_string())
 }
 
-/// Copy image file to Windows clipboard as PNG so Claude Code can read it via Ctrl+V.
+/// Save base64 data to a temp file and return the path.
+/// Used by ChatView to send pasted images to Claude.
+#[tauri::command]
+pub fn save_temp_file(data: String, extension: String) -> Result<String, String> {
+    use std::io::Write;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&data)
+        .map_err(|e| format!("Base64 decode failed: {}", e))?;
+    let path = std::env::temp_dir().join(format!("codeterm-paste-{}.{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("img"), extension));
+    let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+    file.write_all(&bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Copy image file to system clipboard so Claude Code can read it via paste.
 #[tauri::command]
 pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        // Use PowerShell to copy image as both Image and PNG stream to clipboard
         let ps_script = format!(
             r#"
             Add-Type -AssemblyName System.Windows.Forms
@@ -1085,6 +1099,46 @@ pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
             return Err(format!("Clipboard copy failed: {}", stderr));
         }
     }
+
+    #[cfg(target_os = "macos")]
+    {
+        // Use osascript to copy image to clipboard
+        let script = format!(
+            "set the clipboard to (read (POSIX file \"{}\") as «class PNGf»)",
+            path.replace("\"", "\\\"")
+        );
+        let output = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            // Try TIFF fallback
+            let script2 = format!(
+                "set the clipboard to (read (POSIX file \"{}\") as TIFF picture)",
+                path.replace("\"", "\\\"")
+            );
+            let output2 = std::process::Command::new("osascript")
+                .args(["-e", &script2])
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !output2.status.success() {
+                let stderr = String::from_utf8_lossy(&output2.stderr);
+                return Err(format!("Clipboard copy failed: {}", stderr));
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let output = std::process::Command::new("xclip")
+            .args(["-selection", "clipboard", "-target", "image/png", "-i", &path])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err("xclip failed".to_string());
+        }
+    }
+
     Ok(())
 }
 
