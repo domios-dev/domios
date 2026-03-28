@@ -10,6 +10,7 @@ tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-webdriver = { version = "0.2", optional = true }
 portable-pty = { path = "pty-fork" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -35,6 +36,10 @@ cron = "0.13"
 chrono = "0.4"
 vt100 = "0.16"
 semver = "1"
+
+[features]
+default = []
+webdriver = ["tauri-plugin-webdriver"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
