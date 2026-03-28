@@ -15,7 +15,7 @@ interface ChatViewProps {
 
 type ParseMode = "jsonl" | "terminal" | "detecting";
 
-export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatViewProps) {
+export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: ChatViewProps) {
   const provider = getAgentProvider(agentType);
   const rawSessionParser = provider?.parseSessionData || parseJsonlSession;
   const rawTerminalParser = provider?.parseTerminalOutput || parseTerminalOutput;
@@ -28,12 +28,20 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
   const terminalParser = useCallback((data: string) => filterNoise(rawTerminalParser(data)), [rawTerminalParser, filterNoise]);
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [visibleCount, setVisibleCount] = useState(50);
   const [waitingForReply, setWaitingForReply] = useState(false);
   const [inputExpanded, setInputExpanded] = useState(false);
   const [inputAtMax, setInputAtMax] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [attachments, setAttachments] = useState<Array<{
+    id: string;
+    name: string;
+    path?: string;        // file system path for sending to PTY
+    preview?: string;     // base64 data URL for image preview
+    type: string;         // mime type
+    _base64?: string;     // raw base64 for non-image files (pasted, no path)
+  }>>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Clear waitingForReply when Claude responds
@@ -78,9 +86,9 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
         if (newData.length > 0) {
           jsonlOffset.current += new TextEncoder().encode(newData).length;
           accumulatedJsonl.current += newData;
-          setIsTyping(true);
+          // typing state removed with header
         } else {
-          setIsTyping(false);
+          // typing state removed with header
         }
 
         const parsed = sessionParser(accumulatedJsonl.current);
@@ -103,7 +111,7 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
           }
           prevMessageCount.current = parsed.length;
         } else if (newData.length === 0) {
-          setIsTyping(false);
+          // typing state removed with header
         }
       } catch {
         // JSONL not available — switch to terminal fallback
@@ -135,7 +143,6 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
         setIsLoading(false);
 
         const len = text.length;
-        setIsTyping(len > prevOutputLen.current);
         if (len > prevOutputLen.current && !userScrolledUp.current) {
           requestAnimationFrame(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -262,20 +269,25 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
   // Send input to PTY with optimistic UI
   const sendMessage = useCallback(async () => {
     const text = input.trim();
-    if (!text) return;
+    const currentAttachments = [...attachments];
+    if (!text && currentAttachments.length === 0) return;
     setInput("");
+    setAttachments([]);
     setInputExpanded(false);
     setInputAtMax(false);
     if (textareaRef.current) textareaRef.current.style.height = "20px";
 
-    // Optimistic: show user message immediately
-    const optimisticMsg: ChatMessage = {
-      id: `optimistic-${Date.now()}`,
-      type: 'user',
-      content: text,
-    };
-    setAllMessages(prev => [...prev, optimisticMsg]);
-    prevMessageCount.current += 1;
+    // Optimistic: single user message with text + attachment indicators
+    const attLabels = currentAttachments.map(a => `[${a.name}]`);
+    const displayContent = [text, ...attLabels].filter(Boolean).join(" ");
+    if (displayContent) {
+      setAllMessages(prev => [...prev, {
+        id: `optimistic-${Date.now()}`,
+        type: 'user' as const,
+        content: displayContent,
+      }]);
+      prevMessageCount.current += 1;
+    }
     setWaitingForReply(true);
 
     userScrolledUp.current = false;
@@ -284,23 +296,147 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
     });
 
     try {
-      // Use pane-level send_text which resolves pty internally
-      if (ptyId) {
-        await invoke("write_pty_string", { ptyId, data: text + "\r" });
-      } else {
-        // Fallback: use service-level send via REST-like command
+      const resolvePtyId = async (): Promise<string | null> => {
+        if (ptyId) return ptyId;
         const panes: any[] = await invoke("mux_list_panes");
         const pane = panes.find((p: any) => p.id === paneId);
-        if (pane?.pty_id) {
-          await invoke("write_pty_string", { ptyId: pane.pty_id, data: text + "\r" });
+        return pane?.pty_id || null;
+      };
+      const pid = await resolvePtyId();
+      if (!pid) return;
+
+      // Handle attachments — strategy depends on provider
+      const imageStrategy = provider?.imageSend || { method: 'path' as const };
+      const fileMentions: string[] = [];
+
+      // Phase 1: clipboard-paste images (must happen before text)
+      for (const att of currentAttachments) {
+        let filePath = att.path;
+
+        // Resolve file path: from disk, from image preview, or from raw base64
+        if (!filePath) {
+          const base64 = att.preview?.split(",")[1] || att._base64;
+          if (base64) {
+            try {
+              const ext = att.type.split("/")[1] || "bin";
+              filePath = await invoke<string>("save_temp_file", { data: base64, extension: ext });
+            } catch { /* skip */ }
+          }
         }
+        if (!filePath) continue;
+
+        if (att.type.startsWith("image/") && imageStrategy.method === 'clipboard-paste') {
+          // Provider uses clipboard paste for images (e.g. Claude Code)
+          try {
+            await invoke("copy_image_to_clipboard", { path: filePath });
+            await new Promise(r => setTimeout(r, 200));
+            await invoke("write_pty_string", { ptyId: pid, data: imageStrategy.pasteKeystroke || "\x16" });
+            await new Promise(r => setTimeout(r, 500));
+          } catch { /* skip */ }
+        } else {
+          // Non-image files: collect paths to include in text message
+          fileMentions.push(filePath);
+        }
+      }
+
+      // Phase 2: send text + file paths as one message
+      const parts: string[] = [];
+      for (const fp of fileMentions) {
+        parts.push(`[attached: ${fp}]`);
+      }
+      if (text) parts.push(text);
+
+      if (parts.length > 0) {
+        await invoke("write_pty_string", { ptyId: pid, data: parts.join(" ") + "\r" });
+      } else if (currentAttachments.length > 0) {
+        // All were clipboard-pasted images, just send Enter
+        await invoke("write_pty_string", { ptyId: pid, data: "\r" });
       }
     } catch {
       // PTY might be dead
     }
-  }, [input, ptyId, paneId]);
+  }, [input, attachments, ptyId, paneId]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    for (const file of files) {
+      const path = (file as unknown as { path?: string }).path;
+      const id = `attach-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+      const isImage = file.type.startsWith("image/");
+      if (path) {
+        // Dropped from Finder — has file path
+        setAttachments(prev => [...prev, {
+          id,
+          name: file.name,
+          path,
+          preview: isImage ? undefined : undefined, // load preview below for images
+          type: file.type,
+        }]);
+        if (isImage) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            setAttachments(prev => prev.map(a => a.id === id ? { ...a, preview: reader.result as string } : a));
+          };
+          reader.readAsDataURL(file);
+        }
+      } else {
+        // No path — read as base64
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          const base64 = dataUrl.split(",")[1];
+          setAttachments(prev => [...prev, {
+            id,
+            name: file.name,
+            preview: isImage ? dataUrl : undefined,
+            type: file.type,
+            _base64: isImage ? undefined : base64,
+          }]);
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+    // Focus input after drop
+    textareaRef.current?.focus();
+  }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    // Check for files (images, PDFs, any file type)
+    const items = Array.from(e.clipboardData.items);
+    const fileItems = items.filter(item => item.kind === "file");
+
+    if (fileItems.length > 0) {
+      e.preventDefault();
+      for (const item of fileItems) {
+        const blob = item.getAsFile();
+        if (!blob) continue;
+
+        const isImage = item.type.startsWith("image/");
+        const ext = item.type.split("/")[1] || "bin";
+        const name = isImage ? `image.${ext}` : `file.${ext}`;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+          setAttachments(prev => [...prev, {
+            id: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+            name,
+            preview: isImage ? (reader.result as string) : undefined,
+            type: item.type,
+            // Store base64 for non-image files too (for save_temp_file)
+            ...(isImage ? {} : { _base64: (reader.result as string).split(",")[1] }),
+          } as any]);
+        };
+        reader.readAsDataURL(blob);
+      }
+      return;
+    }
+
+    // Text paste
     e.preventDefault();
     const text = e.clipboardData.getData("text/plain");
     if (!text) return;
@@ -312,7 +448,6 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
 
     requestAnimationFrame(() => {
       el.selectionStart = el.selectionEnd = start + text.length;
-      // Only resize in contracted mode
       if (!inputExpanded) {
         el.style.height = "0";
         el.style.height = Math.min(el.scrollHeight, 120) + "px";
@@ -359,44 +494,18 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
+        outline: dragOver ? "2px dashed var(--ct-blue, #58a6ff)" : undefined,
+        outlineOffset: "-2px",
       }}
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={handleDrop}
     >
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-3 py-2 flex-shrink-0"
-        style={{
-          borderBottom: "1px solid var(--ct-border, #30363d)",
-          background: "var(--ct-surface, #161b22)",
-        }}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs font-medium truncate opacity-80">
-            {title || "Claude"}
-          </span>
-          {isTyping && (
-            <span className="text-[10px] text-[var(--ct-blue)] animate-pulse">
-              thinking...
-            </span>
-          )}
-        </div>
-        <button
-          onClick={onToggle}
-          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-medium transition-colors duration-150 hover:bg-[var(--ct-bg-hover)]"
-          style={{ color: "var(--ct-muted, #8b949e)" }}
-          title="Switch to terminal view"
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0114.25 15H1.75A1.75 1.75 0 010 13.25Zm1.75-.25a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 00.25-.25V2.75a.25.25 0 00-.25-.25ZM7.25 8a.75.75 0 01-.22.53l-2.25 2.25a.75.75 0 11-1.06-1.06L5.44 8 3.72 6.28a.75.75 0 111.06-1.06l2.25 2.25c.141.14.22.331.22.53Zm1.5 1.5a.75.75 0 000 1.5h3a.75.75 0 000-1.5Z" />
-          </svg>
-          Terminal
-        </button>
-      </div>
-
       {/* Messages area */}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto py-4 select-text cursor-text"
+        className="flex-1 overflow-y-auto py-4 px-4 select-text cursor-text"
       >
         {isLoading ? (
           <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -434,17 +543,17 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
             {messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)}
             {/* Thinking indicator — shown after sending message, before Claude responds */}
             {waitingForReply && (
-              <div className="flex justify-start mb-3 px-4">
-                <div
-                  className="rounded-2xl rounded-bl-md px-4 py-2.5 text-sm"
-                  style={{ background: "var(--ct-surface, #161b22)", color: "var(--ct-muted, #8b949e)" }}
+              <div className="mb-3 max-w-3xl mx-auto">
+                <span
+                  className="inline-flex items-center gap-1 text-sm"
+                  style={{ color: "var(--ct-muted-fg, #8b949e)" }}
                 >
-                  <span className="inline-flex gap-1">
+                  <span className="inline-flex gap-0.5">
                     <span className="animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1s' }}>.</span>
                     <span className="animate-bounce" style={{ animationDelay: '200ms', animationDuration: '1s' }}>.</span>
                     <span className="animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1s' }}>.</span>
                   </span>
-                </div>
+                </span>
               </div>
             )}
           </>
@@ -461,6 +570,40 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
           maxHeight: inputExpanded ? "80vh" : undefined,
         }}
       >
+        {/* Attachments preview */}
+        {attachments.length > 0 && (
+          <div className="flex gap-2 pb-2 pt-1 px-1 overflow-x-auto" style={{ overflow: "visible" }}>
+            {attachments.map(att => (
+              <div key={att.id} className="relative flex-shrink-0 group">
+                {att.preview ? (
+                  <img
+                    src={att.preview}
+                    alt={att.name}
+                    className="h-16 w-auto rounded-md object-cover border"
+                    style={{ borderColor: "var(--ct-border, #30363d)" }}
+                  />
+                ) : (
+                  <div
+                    className="h-16 px-3 flex items-center gap-1.5 rounded-md border text-xs"
+                    style={{ borderColor: "var(--ct-border, #30363d)", background: "var(--ct-bg, #0d1117)", color: "var(--ct-muted-fg, #8b949e)" }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>
+                    </svg>
+                    {att.name.length > 20 ? att.name.slice(0, 17) + "..." : att.name}
+                  </div>
+                )}
+                <button
+                  onClick={() => setAttachments(prev => prev.filter(a => a.id !== att.id))}
+                  className="absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center text-[10px] leading-none font-bold shadow-md"
+                  style={{ background: "#f85149", color: "#fff" }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         {/* Expand button — visible only when textarea hit max height */}
         {inputAtMax && !inputExpanded && (
           <button
@@ -531,7 +674,7 @@ export function ChatView({ paneId, ptyId, title, agentType, onToggle }: ChatView
                 textareaRef.current.style.height = "20px";
               }
             }}
-            disabled={!input.trim()}
+            disabled={!input.trim() && attachments.length === 0}
             className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors duration-150 flex-shrink-0 disabled:opacity-30 ${inputExpanded ? "self-end" : ""}`}
             style={{
               color: "var(--ct-blue, #58a6ff)",

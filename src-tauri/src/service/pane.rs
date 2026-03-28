@@ -59,6 +59,13 @@ impl ServiceContext {
         }
     }
 
+    /// Set chat view state on a pane.
+    pub fn set_chat_view(&self, pane_id: &str, enabled: bool) {
+        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
+            pane.chat_view = enabled;
+        }
+    }
+
     /// Backward-compat alias for `set_agent_session_id`.
     pub fn set_claude_session_id(&self, pane_id: &str, session_id: Option<String>) {
         self.set_agent_session_id(pane_id, session_id);

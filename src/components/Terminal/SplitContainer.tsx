@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { TerminalPane } from "./TerminalPane";
 import { BrowserPane } from "../Browser/BrowserPane";
 import { ChatView } from "../ChatView/ChatView";
@@ -48,12 +49,18 @@ export function SplitContainer({
   fontConfig,
   terminalConfig,
 }: SplitContainerProps) {
-  // Chat view toggle state: paneId -> boolean
-  const [chatViewEnabled, setChatViewEnabled] = useState<Record<string, boolean>>({});
+  // Local state for instant UI response + backend sync for persistence
+  const [chatViewLocal, setChatViewLocal] = useState<Record<string, boolean>>({});
 
   const toggleChatView = useCallback((paneId: string) => {
-    setChatViewEnabled((prev) => ({ ...prev, [paneId]: !prev[paneId] }));
-  }, []);
+    setChatViewLocal(prev => {
+      const current = prev[paneId] ?? panes[paneId]?.chat_view ?? false;
+      const newVal = !current;
+      // Persist to backend so it survives restart
+      invoke("mux_set_chat_view", { paneId, enabled: newVal }).catch(() => {});
+      return { ...prev, [paneId]: newVal };
+    });
+  }, [panes]);
 
   // Determine if we are the root node (path is empty) and count panes
   const isRoot = path.length === 0;
@@ -66,7 +73,7 @@ export function SplitContainer({
     const agentProvider = getAgentProvider(pane.agent_type);
     const hasAgent = !!agentProvider;
     const supportsChatView = !!agentProvider?.supportsChatView;
-    const showChatView = supportsChatView && chatViewEnabled[pane.id];
+    const showChatView = supportsChatView && (chatViewLocal[pane.id] ?? pane.chat_view ?? false);
 
     const splitButtons = (
       <PaneToolbar
@@ -117,7 +124,6 @@ export function SplitContainer({
               <ChatView
                 paneId={pane.id}
                 ptyId={pane.pty_id}
-                title={pane.title}
                 agentType={pane.agent_type}
                 onToggle={() => toggleChatView(pane.id)}
               />

@@ -201,6 +201,17 @@ pub fn mux_set_pane_agent_type(
     Ok(())
 }
 
+/// Set chat view state on a pane (persists across restart).
+#[tauri::command]
+pub fn mux_set_chat_view(
+    svc: State<'_, ServiceState>,
+    pane_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    svc.set_chat_view(&pane_id, enabled);
+    Ok(())
+}
+
 /// Detect agent session IDs for a given working directory.
 /// Uses AgentRegistry to delegate to the appropriate provider.
 /// Keeps the old Tauri command name for frontend compatibility.

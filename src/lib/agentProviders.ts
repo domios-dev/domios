@@ -1,6 +1,14 @@
 import type { ChatMessage } from "../components/ChatView/parser";
 import { parseJsonlSession, parseTerminalOutput } from "../components/ChatView/parser";
 
+/** How a provider handles image file sending */
+export interface ImageSendStrategy {
+  /** Method: 'clipboard-paste' = copy to clipboard + send Ctrl+V, 'path' = send file path as text */
+  method: 'clipboard-paste' | 'path';
+  /** For clipboard-paste: the keystroke to send after copying to clipboard */
+  pasteKeystroke?: string;
+}
+
 export interface AgentProviderConfig {
   id: string;
   displayName: string;
@@ -11,6 +19,8 @@ export interface AgentProviderConfig {
   parseTerminalOutput?: (text: string) => ChatMessage[];
   /** TUI noise — text matching any pattern is dropped from chat view */
   noisePatterns?: RegExp[];
+  /** How to send images to this agent. Default: path-based. */
+  imageSend?: ImageSendStrategy;
   icon: string;
   iconColor: string;
 }
@@ -68,6 +78,10 @@ registerAgentProvider({
     /^👍$/,                    // Claude emoji reaction
     /^\*\s*(Wandering|Thinking|Pondering|Cogitating|Musing)/i,  // Claude thinking status
   ],
+  imageSend: {
+    method: 'clipboard-paste',
+    pasteKeystroke: '\x16',  // Ctrl+V — Claude Code reads clipboard on this signal
+  },
   icon: "\u2733",  // ✳
   iconColor: "#f0883e",
 });

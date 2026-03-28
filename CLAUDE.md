@@ -53,6 +53,12 @@ Provider code lives in:
 - TypeScript: `src/components/ChatView/parser.ts` — output parsing
 - TypeScript: `src/components/Terminal/TerminalPane.tsx` — detection hooks (onTitleChange)
 
+## Multi-agent mindset
+
+**Always design for multiple agent types, not just Claude.** Every feature that interacts with agents must go through the AgentProvider abstraction. Never hardcode Claude-specific logic in generic code. If a behavior is Claude-specific (clipboard paste for images, JSONL session format, TUI noise patterns), it belongs in ClaudeProvider or the Claude provider config — not in ChatView, TerminalPane, or other generic components.
+
+When adding agent-related features, ask: "How would this work with Codex? With Aider? With a local model?" If the answer requires Claude-specific code, put it in the provider.
+
 ## Git rules
 
 **NEVER commit or push without explicit user request.** No auto-commits, no "let me commit this". Only commit when the user says "коммить", "commit", "запушь", etc.

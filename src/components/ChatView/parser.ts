@@ -11,7 +11,14 @@ export type MessageType =
   | "tool_call"
   | "tool_result"
   | "thinking"
-  | "status";
+  | "status"
+  | "image";
+
+export interface ImageAttachment {
+  id: string;
+  mimeType: string;
+  data?: string;           // base64 data (omitted for large images)
+}
 
 export interface ChatMessage {
   id: string;
@@ -19,10 +26,14 @@ export interface ChatMessage {
   content: string;
   toolName?: string;
   toolArgs?: string;
+  toolInput?: Record<string, unknown>; // full tool input (e.g. Write content)
   toolId?: string;
   timestamp?: string;
   collapsed?: boolean;
   duration?: string;
+  imageData?: string;      // base64 data (for standalone image messages)
+  imageMimeType?: string;  // e.g. "image/png"
+  attachments?: ImageAttachment[]; // images attached to user messages
 }
 
 // ---------------------------------------------------------------------------
@@ -42,14 +53,46 @@ export function parseJsonlSession(jsonlText: string): ChatMessage[] {
       const entry = JSON.parse(line);
 
       if (entry.type === "user") {
-        const content = extractText(entry.message?.content);
-        if (content.trim()) {
-          messages.push({
-            id: entry.uuid || `user-${messages.length}`,
-            type: "user",
-            content: content.trim(),
-            timestamp: entry.timestamp,
-          });
+        const rawContent = entry.message?.content;
+        if (Array.isArray(rawContent)) {
+          // Collect text and images from all blocks
+          const textParts: string[] = [];
+          const attachments: ImageAttachment[] = [];
+          for (const block of rawContent) {
+            if (block.type === "text" && block.text?.trim()) {
+              textParts.push(block.text.trim());
+            } else if (block.type === "image") {
+              const source = block.source as Record<string, unknown> | undefined;
+              const mimeType = (source?.media_type as string) || "image/png";
+              // Skip storing huge base64 data — just record the attachment
+              const data = source?.data as string | undefined;
+              attachments.push({
+                id: `${entry.uuid || "user"}-img-${attachments.length}`,
+                mimeType,
+                data: data && data.length < 100_000 ? data : undefined, // only keep small images
+              });
+            }
+          }
+          const content = textParts.join("\n");
+          if (content || attachments.length > 0) {
+            messages.push({
+              id: `${entry.uuid || "user"}-text-${messages.length}`,
+              type: "user",
+              content: content || (attachments.length > 0 ? `[${attachments.length} image${attachments.length > 1 ? "s" : ""}]` : ""),
+              timestamp: entry.timestamp,
+              attachments: attachments.length > 0 ? attachments : undefined,
+            });
+          }
+        } else {
+          const content = extractText(rawContent);
+          if (content.trim()) {
+            messages.push({
+              id: entry.uuid || `user-${messages.length}`,
+              type: "user",
+              content: content.trim(),
+              timestamp: entry.timestamp,
+            });
+          }
         }
       } else if (entry.type === "assistant") {
         const contentBlocks = entry.message?.content;
@@ -70,6 +113,7 @@ export function parseJsonlSession(jsonlText: string): ChatMessage[] {
               content: `${block.name}(${summarizeInput(block.input)})`,
               toolName: block.name,
               toolArgs: summarizeInput(block.input),
+              toolInput: block.input ?? undefined,
               toolId: block.id,
               collapsed: true,
               timestamp: entry.timestamp,
@@ -93,6 +137,9 @@ export function parseJsonlSession(jsonlText: string): ChatMessage[] {
               collapsed: true,
               timestamp: entry.timestamp,
             });
+          } else if (block.type === "image") {
+            const imgMsg = parseImageBlock(block, entry.uuid, messages.length, entry.timestamp);
+            if (imgMsg) messages.push(imgMsg);
           } else if (block.type === "thinking" && block.text?.trim()) {
             messages.push({
               id: `think-${messages.length}`,
@@ -113,6 +160,54 @@ export function parseJsonlSession(jsonlText: string): ChatMessage[] {
   }
 
   return messages;
+}
+
+/**
+ * Parse an image content block into a ChatMessage.
+ * Handles base64 data, URL references, and file path references.
+ */
+function parseImageBlock(
+  block: Record<string, unknown>,
+  uuid: string,
+  index: number,
+  timestamp?: string,
+): ChatMessage | null {
+  const source = block.source as Record<string, unknown> | undefined;
+  if (!source) return null;
+
+  // base64-encoded image data
+  if (source.data) {
+    return {
+      id: `${uuid}-img-${index}`,
+      type: "image",
+      content: "",
+      imageData: source.data as string,
+      imageMimeType: (source.media_type as string) || "image/png",
+      timestamp,
+    };
+  }
+
+  // URL or file-path reference
+  const ref = (source.url || source.path) as string | undefined;
+  if (ref) {
+    const isFilePath = ref.startsWith("/") || ref.startsWith("file://");
+    return {
+      id: `${uuid}-img-${index}`,
+      type: "image",
+      content: "",
+      imageData: isFilePath ? `file://${ref.replace(/^file:\/\//, "")}` : ref,
+      imageMimeType: (source.media_type as string) || "image/png",
+      timestamp,
+    };
+  }
+
+  // Fallback: image block exists but no renderable source — show placeholder
+  return {
+    id: `${uuid}-img-${index}`,
+    type: "image",
+    content: "",
+    timestamp,
+  };
 }
 
 function extractText(content: unknown): string {
