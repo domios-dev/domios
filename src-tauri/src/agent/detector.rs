@@ -677,60 +677,202 @@ mod tests {
         assert!(!detect_interactive_prompt(text));
     }
 
-    // --- Real data: Claude answers with numbered lists (must NOT parse as prompts) ---
+    // --- Synthetic data: Claude answers with numbered lists (must NOT trigger) ---
 
     #[test]
-    fn test_real_data_no_false_positive_1() {
-        let text = "Готово. Вот что сделал:\n\n1. **Отправлять вопросы боту** через Django shell\n2. **Лезть в LangSmith** через REST API\n3. **Анализировать** — какие tools вызвались\n4. **Флагать проблемы** — `missed_memory`, `redundant_qna`";
-        assert!(parse_permission_prompt(text).is_none(), "Real Claude answer should not be parsed as prompt");
+    fn test_no_false_positive_bug_analysis() {
+        let text = "Here's what I found:\n1. **Memory leak** in the connection pool\n2. **Race condition** in the cache layer\n3. **Missing error handling** in the API endpoint";
+        assert!(parse_permission_prompt(text).is_none(), "Bug analysis list should not be parsed as prompt");
+        assert!(!detect_interactive_prompt(text), "Bug analysis should not trigger prompt detection");
     }
 
     #[test]
-    fn test_real_data_no_false_positive_2() {
-        let text = "**7 write-инструментов:**\n1. `save_to_timeline` — создание заметок\n2. `update_note` — редактирование заметок\n3. `update_person` — контактные данные\n4. `update_event` — обновление встреч\n5. `delete_note` — удаление";
-        assert!(parse_permission_prompt(text).is_none(), "Real Claude answer should not be parsed as prompt");
+    fn test_no_false_positive_step_instructions() {
+        let text = "To fix this:\n1. Update the dependency to v2.3.0\n2. Run the database migration\n3. Restart the application server\n4. Verify the fix with integration tests";
+        assert!(parse_permission_prompt(text).is_none());
+        assert!(!detect_interactive_prompt(text));
     }
 
     #[test]
-    fn test_real_data_no_false_positive_3() {
-        let text = "Вот полный flow:\n\n1. **`[TOOL_CALL] event_qna`** — бот запросил детали\n2. **`[TOOL_RESULT]`** — получил title\n3. **`[TOOL_CALL] save_to_timeline`** — сохранил перевод\n4. **`[TOOL_RESULT]`** — сохранение успешно\n5. **`[TOOL_CALL] refresh_page({})`** — вызвал рефреш";
-        assert!(parse_permission_prompt(text).is_none(), "Real Claude answer should not be parsed as prompt");
+    fn test_no_false_positive_feature_list_with_code() {
+        let text = "The module provides:\n1. `parse_config` — reads TOML configuration files\n2. `validate_schema` — checks JSON schema compliance\n3. `emit_events` — sends notifications to subscribers\n4. `retry_with_backoff` — handles transient failures";
+        assert!(parse_permission_prompt(text).is_none());
+        assert!(!detect_interactive_prompt(text));
     }
 
     #[test]
-    fn test_real_data_no_false_positive_4() {
-        let text = "Два вопроса:\n\n1. **Ты перезапускал бэкенд/фронт после наших изменений?** Daphne может не подхватывать.\n\n2. **Что именно ты ожидал увидеть?** `save_to_timeline` создаёт новую запись.";
-        assert!(parse_permission_prompt(text).is_none(), "Real Claude answer should not be parsed as prompt");
+    fn test_no_false_positive_code_review() {
+        let text = "Issues found in the PR:\n1. Line 42: unused import `std::collections::HashMap`\n2. Line 87: missing error check on file open\n3. Line 156: hardcoded timeout value of 30s\n4. Line 201: variable shadowing in inner scope";
+        assert!(parse_permission_prompt(text).is_none());
+        assert!(!detect_interactive_prompt(text));
     }
 
     #[test]
-    fn test_real_data_no_false_positive_5() {
-        let text = "Добавил `console.log` в три места:\n1. **`relabaseChatSocket.ts`** — когда WS получает `page_refresh`\n2. **`AIDiscussion.tsx`** — когда dispatch'ит CustomEvent\n3. **`usePageRefresh.ts`** — когда hook ловит event";
-        assert!(parse_permission_prompt(text).is_none(), "Real Claude answer should not be parsed as prompt");
-    }
-
-    #[test]
-    fn test_real_data_no_false_positive_6() {
-        let text = "Красота:\n1. `event_qna` — прочитал event\n2. **`update_note`** — обновил title + content\n3. `refresh_page` — послал рефреш\n\nПроверю что записалось.";
-        assert!(parse_permission_prompt(text).is_none(), "Real Claude answer should not be parsed as prompt");
-    }
-
-    #[test]
-    fn test_real_data_with_question_before_list() {
-        // Question mark before numbered list — but no selector/footer = NOT a prompt
-        let text = "Что нужно сделать?\n\n1. Починить парсер\n2. Добавить тесты\n3. Залить в прод\n\nДавай начнём.";
+    fn test_no_false_positive_question_with_options_no_selector() {
+        // Question with ? before numbered list — but no selector/footer = NOT a prompt
+        let text = "Which approach do you prefer?\n\n1. Refactor the entire module into smaller components\n2. Add a compatibility layer for backward support\n3. Keep backward compatibility and add feature flags";
         assert!(parse_permission_prompt(text).is_none(), "Question before list without selector is not a prompt");
+        assert!(!detect_interactive_prompt(text));
     }
 
     #[test]
-    fn test_real_prompt_with_question_mark() {
-        // Real prompt: question ending with ? + numbered options with selector
-        let text = "Write to /tmp/test.txt?\n  ❯ 1. Yes\n    2. Yes, allow writes to tmp/\n    3. No\n\nEsc to cancel · Tab to amend";
+    fn test_no_false_positive_tool_results() {
+        let text = "1. `save_file` — completed successfully\n2. `run_tests` — 3 failures detected\n3. `lint_check` — 2 warnings\n4. `deploy_staging` — pending approval";
+        assert!(parse_permission_prompt(text).is_none());
+        assert!(!detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_no_false_positive_nested_list() {
+        let text = "Here are the results:\n\n1. **Performance**: 23% faster than baseline\n   - Latency: 45ms avg\n   - Throughput: 1200 req/s\n2. **Memory**: 15% reduction\n   - Peak: 512MB\n   - Steady state: 340MB\n3. **Reliability**: 99.97% uptime\n   - Error rate: 0.03%";
+        assert!(parse_permission_prompt(text).is_none());
+        assert!(!detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_no_false_positive_phased_plan() {
+        let text = "Phase 1: Foundation\n1. Set up project scaffolding\n2. Configure CI pipeline\n3. Define API contracts\n\nPhase 2: Implementation\n1. Build core service\n2. Add authentication layer\n3. Implement rate limiting";
+        assert!(parse_permission_prompt(text).is_none());
+        assert!(!detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_no_false_positive_comparison() {
+        let text = "Option A (monolith):\n1. Fast to develop\n2. Simple deployment\n3. Easy to debug\n\nOption B (microservices):\n1. Flexible scaling\n2. Independent deployments\n3. Technology diversity\n4. Better fault isolation";
+        assert!(parse_permission_prompt(text).is_none());
+        assert!(!detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_no_false_positive_security_audit() {
+        let text = "Key findings from the audit:\n\n1. **SQL injection** vulnerability in search endpoint\n   - Severity: Critical\n   - File: `handlers/search.rs`\n2. **XSS** in user profile display\n   - Severity: High\n   - File: `templates/profile.html`\n3. **CSRF** token not validated on form submission\n   - Severity: Medium\n   - File: `middleware/csrf.rs`";
+        assert!(parse_permission_prompt(text).is_none());
+        assert!(!detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_no_false_positive_three_options_summary() {
+        // Three approaches listed — looks like options but no selector/footer
+        let text = "I see three possible approaches:\n\n1. **Use a feature flag** — toggle the new behavior at runtime, minimal risk\n2. **Create a new endpoint** — keep old behavior, add `/v2/resource`, gradual migration\n3. **In-place migration** — modify existing endpoint, all clients must update simultaneously\n\nI recommend option 1 for the safest rollout.";
+        assert!(parse_permission_prompt(text).is_none());
+        assert!(!detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_no_false_positive_numbered_list_inside_code_block() {
+        // Numbered list that happens to be in a markdown code block context
+        let text = "```\n1. First item\n2. Second item\n3. Third item\n```\nThis shows the expected output format.";
+        assert!(parse_permission_prompt(text).is_none());
+        assert!(!detect_interactive_prompt(text));
+    }
+
+    // --- Synthetic data: real prompts that SHOULD trigger ---
+
+    #[test]
+    fn test_real_prompt_yes_no() {
+        let text = "Do you want to proceed?\n  ❯ 1. Yes\n    2. No\n\nEsc to cancel · Tab to amend";
+        assert!(detect_interactive_prompt(text), "Standard yes/no prompt should trigger");
         let result = parse_permission_prompt(text);
-        assert!(result.is_some(), "Real prompt with ? should be detected");
+        assert!(result.is_some());
         let (q, opts) = result.unwrap();
-        assert!(q.contains("test.txt"), "Question should contain filename");
+        assert_eq!(q, "Do you want to proceed?");
+        assert_eq!(opts.len(), 2);
+    }
+
+    #[test]
+    fn test_real_prompt_file_write() {
+        let text = "Create src/main.rs?\n  ❯ 1. Yes\n    2. Yes, allow writes to src/\n    3. No\n\nEsc to cancel";
+        assert!(detect_interactive_prompt(text));
+        let result = parse_permission_prompt(text);
+        assert!(result.is_some());
+        let (q, opts) = result.unwrap();
+        assert!(q.contains("main.rs"));
         assert_eq!(opts.len(), 3);
-        assert_eq!(opts[0].0, "Yes");
+    }
+
+    #[test]
+    fn test_real_prompt_bash_execution() {
+        let text = "Run `npm test`?\n  ❯ 1. Yes\n    2. Yes, don't ask again for Bash\n    3. No\n\nEsc to cancel · Tab to amend";
+        assert!(detect_interactive_prompt(text));
+        let result = parse_permission_prompt(text);
+        assert!(result.is_some());
+        let (_, opts) = result.unwrap();
+        assert_eq!(opts.len(), 3);
+    }
+
+    #[test]
+    fn test_real_prompt_with_preceding_answer() {
+        // Answer text BEFORE the prompt — prompt at the end should still trigger
+        let text = "Found 3 issues:\n1. Bug in parser\n2. Missing test\n3. Type error\n\nApply fixes?\n  ❯ 1. Yes\n    2. No\n\nEsc to cancel";
+        assert!(detect_interactive_prompt(text));
+        let result = parse_permission_prompt(text);
+        assert!(result.is_some());
+        let (q, opts) = result.unwrap();
+        assert_eq!(q, "Apply fixes?");
+        assert_eq!(opts.len(), 2); // Only Yes/No, not the issue list
+    }
+
+    #[test]
+    fn test_real_prompt_long_option_labels() {
+        let text = "Allow reading from /home/dev/project/config/?\n  ❯ 1. Yes\n    2. Yes, allow reading from /home/dev/ during this session\n    3. No\n\nEsc to cancel · Tab to amend";
+        assert!(detect_interactive_prompt(text));
+        let result = parse_permission_prompt(text);
+        assert!(result.is_some());
+        let (q, opts) = result.unwrap();
+        assert!(q.contains("/home/dev/project/config/"));
+        assert_eq!(opts.len(), 3);
+    }
+
+    #[test]
+    fn test_real_prompt_generic_tui_selector() {
+        // Generic TUI menu with > selector (no footer)
+        let text = "Select mode:\n  > 1. Development\n    2. Staging\n    3. Production";
+        assert!(detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_real_prompt_enter_to_confirm() {
+        let text = "Confirm action:\n  ❯ 1. Apply changes\n    2. Review diff first\n    3. Cancel\n\nEnter to confirm · Esc to cancel";
+        assert!(detect_interactive_prompt(text));
+        let result = parse_permission_prompt(text);
+        assert!(result.is_some());
+        let (_, opts) = result.unwrap();
+        assert_eq!(opts.len(), 3);
+    }
+
+    #[test]
+    fn test_real_prompt_with_plan_before() {
+        // Answer with numbered plan, then a prompt at the end
+        let text = "Here is the plan:\n1. Update schema\n2. Migrate data\n3. Deploy service\n\nProceed with migration?\n  ❯ 1. Yes\n    2. No\n\nEsc to cancel · Tab to amend";
+        assert!(detect_interactive_prompt(text));
+        let result = parse_permission_prompt(text);
+        assert!(result.is_some());
+        let (q, opts) = result.unwrap();
+        assert_eq!(q, "Proceed with migration?");
+        assert_eq!(opts.len(), 2);
+    }
+
+    // --- Edge cases ---
+
+    #[test]
+    fn test_edge_case_question_mark_then_plain_list() {
+        // Question ending with ? followed by plain numbered list — no selector/footer
+        let text = "What should we prioritize?\n\n1. Performance optimization\n2. Bug fixes\n3. New features\n4. Technical debt\n\nLet me know your preference.";
+        assert!(parse_permission_prompt(text).is_none(), "Question + plain list = not a prompt");
+        assert!(!detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_edge_case_esc_in_text_far_from_list() {
+        // Text mentioning "Esc to cancel" far away from a numbered list — not a prompt
+        let text = "Press Esc to cancel the operation.\n\nSome other output here.\nMore output.\nEven more output.\nStill going.\nAlmost done.\nKeep going.\nYet another line.\nMore lines here.\nFinal line.\n\nHere are the steps:\n1. Open the dialog\n2. Select the file\n3. Click confirm";
+        assert!(!detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_edge_case_numbers_in_output_not_list() {
+        // Numbers that look like list items but are not
+        let text = "2026-03-28 10:00:01 Server started\n2026-03-28 10:00:02 Connected to database\n2026-03-28 10:00:03 Ready to accept requests";
+        assert!(!detect_interactive_prompt(text));
     }
 }
