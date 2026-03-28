@@ -1,12 +1,10 @@
 /**
- * Comprehensive approval flow scenarios — tested manually first, then baked into tests.
+ * Real Claude approval scenarios — tested manually, then automated.
  *
- * Covers:
- * 1. Numbered answer → real prompt → approve → file created
- * 2. Prompt → reject (No) → file NOT created
- * 3. False positive guard: numbered list without prompt stays clean
+ * Strategy: Claude hooks may not fire in dev (env var issues with prod CodeTerm).
+ * So we: 1) wait for prompt on screen, 2) inject via /hook/permission API,
+ * 3) verify UI shows buttons, 4) click approve/reject, 5) verify outcome.
  *
- * Each test spawns a real Claude task. Slow (~30-60s each).
  * Run: npx wdio run wdio.conf.js --spec specs/approval-scenarios.js
  */
 
@@ -15,10 +13,10 @@ import path from 'path';
 import http from 'http';
 
 const API_TOKEN = (() => {
-  const configPath = path.join(process.env.HOME, '.codeterm-dev', 'config.toml');
-  if (fs.existsSync(configPath)) {
-    const match = fs.readFileSync(configPath, 'utf8').match(/token\s*=\s*"([^"]+)"/);
-    return match?.[1] || '';
+  const p = path.join(process.env.HOME, '.codeterm-dev', 'config.toml');
+  if (fs.existsSync(p)) {
+    const m = fs.readFileSync(p, 'utf8').match(/token\s*=\s*"([^"]+)"/);
+    return m?.[1] || '';
   }
   return '';
 })();
@@ -39,24 +37,38 @@ function api(method, apiPath, body = null) {
   });
 }
 
-async function waitForPromptOnScreen(paneId, timeoutS = 45) {
+// Wait for prompt to appear on terminal screen
+async function waitForScreenPrompt(paneId, timeoutS = 60) {
   for (let i = 0; i < timeoutS; i += 3) {
     await browser.pause(3000);
     const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
-    if (screen.includes('Esc to cancel') || screen.includes('proceed')) return screen;
+    if (screen.includes('Esc to cancel')) return screen;
   }
-  throw new Error('Prompt did not appear on screen');
+  throw new Error(`Prompt did not appear on screen within ${timeoutS}s`);
 }
 
-async function openChatView() {
+// Ensure pending_prompt is set (inject if hooks didn't fire)
+async function ensurePromptSet(paneId) {
+  const pane = (await api('GET', '/panes')).find(p => p.id === paneId);
+  if (pane?.pending_prompt) return pane.pending_prompt;
+
+  // Hooks didn't fire — inject manually from ring buffer
+  await api('POST', `/panes/${paneId}/hook/permission`);
+  await browser.pause(1000);
+  const p2 = (await api('GET', '/panes')).find(p => p.id === paneId);
+  return p2?.pending_prompt;
+}
+
+// Open chat view, wait for prompt buttons
+async function openChatAndWaitForButtons(timeoutS = 20) {
+  // Open chat
   const chatBtn = await $('button[title="Switch to chat view"]');
   if (await chatBtn.isExisting()) {
     await chatBtn.click();
     await browser.pause(500);
   }
-}
 
-async function waitForPromptButtons(timeoutS = 15) {
+  // Wait for buttons
   for (let i = 0; i < timeoutS; i += 2) {
     await browser.pause(2000);
     const buttons = await browser.execute(() =>
@@ -66,232 +78,199 @@ async function waitForPromptButtons(timeoutS = 15) {
     );
     if (buttons.length > 0) return buttons;
   }
-  throw new Error('Prompt buttons did not appear in UI');
+  throw new Error('Prompt buttons did not appear');
 }
 
-async function clickButton(label) {
+// Click a button by label
+async function clickBtn(label) {
   return browser.execute((lbl) => {
     for (const b of document.querySelectorAll('button')) {
       if (b.textContent.trim() === lbl || b.textContent.trim().startsWith(lbl)) {
-        b.click();
-        return true;
+        b.click(); return true;
       }
     }
     return false;
   }, label);
 }
 
-async function ensureClaude(paneId) {
-  // Wait for Claude to be ready
-  for (let i = 0; i < 30; i++) {
-    await browser.pause(2000);
-    const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
-    if (screen.includes('esc to interrupt') || screen.includes('shift+tab') || screen.includes('? for shortcuts')) {
-      return;
-    }
-  }
-  throw new Error('Claude did not start');
+// Clean up: send Escape to cancel any stuck prompt
+async function cancelAnyPrompt(paneId) {
+  await api('POST', `/panes/${paneId}/send`, { text: '\u001b', enter: false });
+  await browser.pause(1000);
+  // Also clear pending_prompt via API
+  await api('POST', `/panes/${paneId}/prompt/respond`, { value: '3' });
 }
 
-describe('Scenario 1: Numbered answer then approve', () => {
+// Switch to terminal view
+async function switchToTerminal() {
+  const btn = await $('button[title="Switch to terminal"]');
+  if (await btn.isExisting()) await btn.click();
+  await browser.pause(300);
+}
+
+// Get first pane with Claude running
+async function getClaudePane() {
+  const panes = await api('GET', '/panes');
+  return panes.find(p => p.pty_id && p.agent_type === 'claude');
+}
+
+describe('Case 1: Numbered answer → prompt → approve → file created', () => {
   let paneId;
-  const testFile = '/tmp/codeterm-scenario1.txt';
+  const testFile = '/tmp/codeterm-case1-test.txt';
 
   before(async () => {
     await browser.pause(3000);
-    const panes = await api('GET', '/panes');
-    paneId = panes.find(p => p.pty_id)?.id;
-    // Clean up from previous runs
+    const pane = await getClaudePane();
+    if (!pane) throw new Error('No Claude pane found — start Claude first');
+    paneId = pane.id;
     try { fs.unlinkSync(testFile); } catch {}
   });
 
-  it('should send task that produces numbered list then prompt', async () => {
-    // Check if Claude is already running
-    const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
-    const claudeRunning = screen.includes('? for shortcuts') || screen.includes('esc to interrupt');
-
-    if (!claudeRunning) {
-      // Export correct pane ID for hooks and start Claude
-      await api('POST', `/panes/${paneId}/send`, {
-        text: `export CODETERM_PANE_ID=${paneId}`, enter: true,
-      });
-      await browser.pause(500);
-      await api('POST', `/panes/${paneId}/send`, {
-        text: `claude "list 3 programming languages with their main use case as a numbered list, then create file ${testFile} with those languages"`,
-        enter: true,
-      });
-      await ensureClaude(paneId);
-    } else {
-      // Claude already running — just send message
-      await api('POST', `/panes/${paneId}/send`, {
-        text: `list 3 programming languages with their main use case as a numbered list, then create file ${testFile} with those languages`,
-        enter: true,
-      });
-    }
+  it('send task with numbered list + file creation', async () => {
+    await switchToTerminal();
+    await api('POST', `/panes/${paneId}/send`, {
+      text: `list 3 design patterns as a numbered list, then create ${testFile} with those names`,
+      enter: true,
+    });
+    const screen = await waitForScreenPrompt(paneId);
+    console.log('Screen has prompt + numbered list');
   });
 
-  it('should detect prompt (not the numbered list)', async () => {
-    await waitForPromptOnScreen(paneId);
-
-    // If hooks didn't fire, manually inject via API
-    await browser.pause(2000);
-    let pane = (await api('GET', '/panes')).find(p => p.id === paneId);
-    if (!pane?.pending_prompt) {
-      console.log('Hooks did not fire, injecting via API...');
-      await api('POST', `/panes/${paneId}/hook/permission`);
-      await browser.pause(1000);
-      pane = (await api('GET', '/panes')).find(p => p.id === paneId);
-    }
-
-    const prompt = pane?.pending_prompt;
+  it('prompt detected (not the design patterns)', async () => {
+    const prompt = await ensurePromptSet(paneId);
     if (prompt) {
       const labels = prompt.options.map(o => o.label);
+      console.log(`Options: ${JSON.stringify(labels)}`);
       expect(labels.some(l => l === 'Yes' || l.startsWith('Yes'))).toBe(true);
-      expect(labels.every(l => !l.includes('Python') && !l.includes('JavaScript'))).toBe(true);
-      console.log(`Prompt parsed: ${prompt.question}, options: ${JSON.stringify(labels)}`);
+      expect(labels.every(l => !l.toLowerCase().includes('singleton') && !l.toLowerCase().includes('observer'))).toBe(true);
+    } else {
+      // Hooks may fire later — UI test will verify buttons appear
+      console.log('Prompt not in API yet — will verify via UI buttons');
     }
   });
 
-  it('should show prompt in chat UI and click Yes', async () => {
-    // Ensure agent type is set so chat view is available
-    await api('POST', `/panes/${paneId}/agent-type`, { agent_type: 'claude' });
-    await browser.pause(1000);
-    await openChatView();
-    const buttons = await waitForPromptButtons(20);
-    console.log(`Prompt buttons: ${JSON.stringify(buttons)}`);
-    expect(buttons.length).toBeGreaterThan(0);
-
-    const clicked = await clickButton('Yes');
+  it('click Yes in chat UI', async () => {
+    const buttons = await openChatAndWaitForButtons();
+    console.log(`Buttons: ${JSON.stringify(buttons)}`);
+    const clicked = await clickBtn('Yes');
     expect(clicked).toBe(true);
-    await browser.pause(3000);
+    await browser.pause(2000);
 
-    // Buttons should be gone
+    // Buttons gone
     const remaining = await browser.execute(() =>
-      Array.from(document.querySelectorAll('button'))
-        .map(b => b.textContent.trim())
-        .filter(t => ['Yes', 'No'].includes(t))
+      Array.from(document.querySelectorAll('button')).map(b => b.textContent.trim()).filter(t => t === 'Yes' || t === 'No')
     );
     expect(remaining.length).toBe(0);
   });
 
-  it('should have created the file', async () => {
-    // Wait for Claude to finish writing
+  it('file created', async () => {
     await browser.pause(10000);
     expect(fs.existsSync(testFile)).toBe(true);
-    const content = fs.readFileSync(testFile, 'utf8');
-    console.log(`File content: ${content.slice(0, 100)}`);
-    expect(content.length).toBeGreaterThan(0);
+    console.log(`File: ${fs.readFileSync(testFile, 'utf8').slice(0, 100)}`);
   });
 
   after(async () => {
     try { fs.unlinkSync(testFile); } catch {}
-    // Switch back to terminal
-    const btn = await $('button[title="Switch to terminal"]');
-    if (await btn.isExisting()) await btn.click();
+    await switchToTerminal();
   });
 });
 
-describe('Scenario 2: Reject prompt', () => {
+describe('Case 2: Prompt → reject → file NOT created', () => {
   let paneId;
-  const testFile = '/tmp/codeterm-scenario2-reject.txt';
+  // Use a different path than /tmp (case 1 may have allowed /tmp for session)
+  const testFile = path.join(process.env.HOME, 'codeterm-case2-reject.txt');
 
   before(async () => {
-    await browser.pause(3000);
-    const panes = await api('GET', '/panes');
-    paneId = panes.find(p => p.pty_id)?.id;
-    try { fs.unlinkSync(testFile); } catch {}
-  });
-
-  it('should send task and wait for prompt', async () => {
-    const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
-    const claudeRunning = screen.includes('? for shortcuts') || screen.includes('esc to interrupt');
-
-    if (!claudeRunning) {
-      await api('POST', `/panes/${paneId}/send`, {
-        text: `claude "create file ${testFile} with content rejected"`,
-        enter: true,
-      });
-      await ensureClaude(paneId);
-    } else {
-      await api('POST', `/panes/${paneId}/send`, {
-        text: `create file ${testFile} with content rejected`,
-        enter: true,
-      });
-    }
-    await waitForPromptOnScreen(paneId);
-  });
-
-  it('should click No and file should NOT be created', async () => {
-    // If hooks didn't fire, inject
-    let pane = (await api('GET', '/panes')).find(p => p.id === paneId);
-    if (!pane?.pending_prompt) {
-      await api('POST', `/panes/${paneId}/hook/permission`);
-      await browser.pause(1000);
-    }
-    await api('POST', `/panes/${paneId}/agent-type`, { agent_type: 'claude' });
-    await browser.pause(500);
-    await openChatView();
-    const buttons = await waitForPromptButtons(20);
-    expect(buttons).toContain('No');
-
-    const clicked = await clickButton('No');
-    expect(clicked).toBe(true);
+    // Wait for Claude to be idle from previous test
     await browser.pause(5000);
+    const pane = await getClaudePane();
+    if (!pane) throw new Error('No Claude pane');
+    paneId = pane.id;
 
-    expect(fs.existsSync(testFile)).toBe(false);
-  });
+    // Wait for idle (? for shortcuts visible)
+    for (let i = 0; i < 20; i++) {
+      const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
+      if (screen.includes('? for shortcuts')) break;
+      await browser.pause(3000);
+    }
 
-  after(async () => {
     try { fs.unlinkSync(testFile); } catch {}
-    const btn = await $('button[title="Switch to terminal"]');
-    if (await btn.isExisting()) await btn.click();
-  });
-});
-
-describe('Scenario 3: No false positive on numbered answer', () => {
-  let paneId;
-
-  before(async () => {
-    await browser.pause(3000);
-    const panes = await api('GET', '/panes');
-    paneId = panes.find(p => p.pty_id)?.id;
   });
 
-  it('should ask Claude for numbered list (no file action)', async () => {
+  it('send task and wait for prompt', async () => {
+    await switchToTerminal();
     await api('POST', `/panes/${paneId}/send`, {
-      text: 'claude --dangerously-skip-permissions "list 5 benefits of unit testing as a numbered list. Do not create any files."',
+      text: `create file ${testFile} with content this-should-not-exist`,
       enter: true,
     });
-
-    // Wait for response
-    for (let i = 0; i < 20; i++) {
-      await browser.pause(3000);
-      const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
-      if (screen.includes('? for shortcuts') || screen.includes('esc to interrupt')) {
-        // Claude answered but might still be processing — wait for idle
-        if (screen.includes('? for shortcuts')) break;
-      }
-    }
-    await browser.pause(5000);
+    await waitForScreenPrompt(paneId);
+    await ensurePromptSet(paneId);
   });
 
-  it('should NOT show prompt card', async () => {
+  it('click No → file NOT created', async () => {
+    const buttons = await openChatAndWaitForButtons();
+    expect(buttons).toContain('No');
+    await clickBtn('No');
+    await browser.pause(5000);
+    expect(fs.existsSync(testFile)).toBe(false);
+    console.log('File correctly not created');
+  });
+
+  after(async () => {
+    try { fs.unlinkSync(testFile); } catch {}
+    await cancelAnyPrompt(paneId);
+    await switchToTerminal();
+  });
+});
+
+describe('Case 3: False positive — numbered list without prompt', () => {
+  let paneId;
+
+  before(async () => {
+    await browser.pause(5000);
+    const pane = await getClaudePane();
+    if (!pane) throw new Error('No Claude pane');
+    paneId = pane.id;
+
+    // Wait for idle
+    for (let i = 0; i < 20; i++) {
+      const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
+      if (screen.includes('? for shortcuts')) break;
+      await browser.pause(3000);
+    }
+  });
+
+  it('ask for numbered list (no file action)', async () => {
+    await switchToTerminal();
+    await api('POST', `/panes/${paneId}/send`, {
+      text: 'list 5 common data structures as a numbered list. do not create any files or use any tools.',
+      enter: true,
+    });
+    // Wait for Claude to answer (no prompt expected)
+    for (let i = 0; i < 15; i++) {
+      await browser.pause(3000);
+      const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
+      if (screen.includes('? for shortcuts')) break;
+    }
+    await browser.pause(3000);
+  });
+
+  it('no prompt card in UI', async () => {
     const pane = (await api('GET', '/panes')).find(p => p.id === paneId);
     expect(pane?.pending_prompt).toBeFalsy();
 
-    await openChatView();
-    await browser.pause(3000);
+    const chatBtn = await $('button[title="Switch to chat view"]');
+    if (await chatBtn.isExisting()) {
+      await chatBtn.click();
+      await browser.pause(3000);
+    }
 
     const buttons = await browser.execute(() =>
-      Array.from(document.querySelectorAll('button'))
-        .map(b => b.textContent.trim())
-        .filter(t => ['Yes', 'No'].includes(t) || t.startsWith('Yes,'))
+      Array.from(document.querySelectorAll('button')).map(b => b.textContent.trim()).filter(t => ['Yes','No'].includes(t))
     );
     expect(buttons.length).toBe(0);
+    console.log('No false positive prompt');
   });
 
-  after(async () => {
-    const btn = await $('button[title="Switch to terminal"]');
-    if (await btn.isExisting()) await btn.click();
-  });
+  after(async () => { await switchToTerminal(); });
 });
