@@ -8,15 +8,52 @@ CodeTerm is not a terminal with AI bolted on. It's infrastructure that AI agents
 
 ## Quick ref
 
-- `./build.sh dev` — dev mode (auto-kills previous debug instance)
-- `./build.sh test` — run Rust lib tests (205 tests)
-- `./build.sh check` — cargo check
-- `./build.sh cli` — build CLI tool
-- `npx tsx src/components/ChatView/parser.test.ts` — parser tests (100 tests)
-- `CODETERM_API_URL=http://127.0.0.1:7686 pytest tests/e2e/ -v` — e2e tests (81 tests, needs running instance)
 - All code/comments in English
-- Dev logs: `~/.codeterm-dev/logs/codeterm.log` (tail -f for live view)
 - See `docs/TESTING.md` for full testing guide
+
+## Running dev & tests
+
+### Dev server
+
+**macOS/Linux:**
+```bash
+./build.sh dev                    # auto-kills previous instance
+# With WebDriver for UI tests:
+pnpm tauri dev --config src-tauri/tauri.dev.conf.json -- --features webdriver
+```
+
+**Windows (PowerShell):**
+```powershell
+# Set MSVC environment first (see build.sh for paths)
+pnpm tauri dev --config src-tauri/tauri.dev.conf.json
+# With WebDriver:
+pnpm tauri dev --config src-tauri/tauri.dev.conf.json -- --features webdriver
+```
+
+**IMPORTANT on Windows:** Do NOT use `./build.sh` — it's a bash script. Use `pnpm tauri dev` directly. Do NOT kill the dev process by terminating the shell — use Ctrl+C or close the window.
+
+### Tests
+
+```bash
+# Rust unit tests (no instance needed)
+cargo test --manifest-path src-tauri/Cargo.toml --lib    # 207 tests
+
+# TypeScript parser tests (no instance needed)
+npx tsx src/components/ChatView/parser.test.ts            # 100 tests
+
+# API e2e tests (needs running dev instance)
+CODETERM_API_URL=http://127.0.0.1:7686 pytest tests/e2e/ -v   # 81 tests
+# With explicit token (remote testing):
+CODETERM_API_URL=http://HOST:PORT CODETERM_API_TOKEN=TOKEN pytest tests/e2e/ -v
+
+# WebdriverIO UI tests (needs dev with --features webdriver)
+cd tests/webdriver && npm test                            # 19 tests
+```
+
+### Dev logs
+- macOS/Linux: `~/.codeterm-dev/logs/codeterm.log`
+- Windows: `%USERPROFILE%\.codeterm-dev\logs\codeterm.log`
+- Live view: `tail -f ~/.codeterm-dev/logs/codeterm.log`
 
 ## Agent roles
 
