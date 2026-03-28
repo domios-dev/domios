@@ -7,3 +7,4 @@ references/
 .cargo/
 codeterm-workspace/
 tests/e2e/__pycache__/
+tests/e2e/testdata_*.json
