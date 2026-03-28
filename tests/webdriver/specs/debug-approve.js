@@ -41,6 +41,14 @@ describe('Debug: Real prompt approval', () => {
     paneId = panes.find(p => p.pty_id)?.id;
     console.log(`Pane: ${paneId}`);
 
+    // Ensure CODETERM_PANE_ID is set correctly for THIS dev pane
+    // (prod CodeTerm may have set a different value in the parent shell)
+    await api('POST', `/panes/${paneId}/send`, {
+      text: `export CODETERM_PANE_ID=${paneId}`,
+      enter: true,
+    });
+    await browser.pause(500);
+
     // Start Claude WITHOUT --dangerously-skip-permissions
     // Give it a task that requires file creation (will trigger prompt)
     await api('POST', `/panes/${paneId}/send`, {
