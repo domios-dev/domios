@@ -56,21 +56,36 @@ pub trait AgentProvider: Send + Sync {
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
 
+    /// Whether this agent supports hook-based detection (vs PTY parsing fallback).
+    /// Agents with hooks get detected via API endpoints, not PTY output parsing.
+    fn has_hooks(&self) -> bool { false }
+
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
     /// Each provider knows its own status bar patterns, progress indicators, etc.
     fn is_output_noise(&self, text: &str) -> bool { let _ = text; false }
 
-    /// Detect agent-specific events from terminal output (e.g., permission requests, task completion).
-    /// Default: no events detected.
+    /// Quick check: does this chunk contain markers worth investigating?
+    /// Called on every PTY chunk (must be fast). If true, full detection runs on ring buffer.
+    /// Default: check for numbered options and keyboard hints.
+    fn has_event_markers(&self, chunk: &str) -> bool {
+        chunk.contains("❯") || chunk.contains("proceed")
+            || chunk.contains("Esc to cancel") || chunk.contains("Tab to amend")
+            || (chunk.contains("1.") && chunk.contains("2."))
+    }
+
+    /// Detect agent events from terminal output (full ring buffer text).
+    /// Default: generic structural fingerprint (numbered menu + keyboard hints).
     fn detect_events(&self, text: &str) -> Vec<crate::agent::detector::AgentEvent> {
-        let _ = text;
-        Vec::new()
+        let mut events = Vec::new();
+        if crate::agent::detector::detect_interactive_prompt(text) {
+            events.push(crate::agent::detector::AgentEvent::PermissionRequest);
+        }
+        events
     }
 
     /// Parse a pending interactive prompt from terminal output.
-    /// Default: no prompt parsing.
+    /// Default: generic numbered option parser.
     fn parse_prompt(&self, text: &str) -> Option<(String, Vec<(String, String)>)> {
-        let _ = text;
-        None
+        crate::agent::detector::parse_permission_prompt(text)
     }
 }

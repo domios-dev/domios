@@ -157,6 +157,18 @@ impl AgentProvider for ClaudeProvider {
         Some(parts.join(" "))
     }
 
+    fn has_event_markers(&self, chunk: &str) -> bool {
+        // Prompt markers
+        chunk.contains("❯") || chunk.contains("proceed")
+            || chunk.contains("Esc to cancel") || chunk.contains("Tab to amend")
+            || (chunk.contains("1.") && chunk.contains("2."))
+            // Completion marker: " for <digit>" — catches "<Verb> for 5s"
+            || chunk.contains(" for 0") || chunk.contains(" for 1") || chunk.contains(" for 2")
+            || chunk.contains(" for 3") || chunk.contains(" for 4") || chunk.contains(" for 5")
+            || chunk.contains(" for 6") || chunk.contains(" for 7") || chunk.contains(" for 8")
+            || chunk.contains(" for 9")
+    }
+
     fn detect_events(&self, text: &str) -> Vec<crate::agent::detector::AgentEvent> {
         crate::agent::detector::detect_claude_events(text)
     }
@@ -164,6 +176,8 @@ impl AgentProvider for ClaudeProvider {
     fn parse_prompt(&self, text: &str) -> Option<(String, Vec<(String, String)>)> {
         crate::agent::detector::parse_permission_prompt(text)
     }
+
+    fn has_hooks(&self) -> bool { true }
 
     fn is_output_noise(&self, text: &str) -> bool {
         let t = text.trim();

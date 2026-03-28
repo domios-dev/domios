@@ -38,6 +38,15 @@ impl AgentRegistry {
             .map(|b| b.as_ref())
     }
 
+    /// Quick check: does this chunk contain markers worth full detection?
+    pub fn has_event_markers(&self, agent_type: &str, chunk: &str) -> bool {
+        if let Some(provider) = self.get(agent_type) {
+            provider.has_event_markers(chunk)
+        } else {
+            false
+        }
+    }
+
     /// Detect events using the appropriate provider for a given agent type.
     pub fn detect_events(&self, agent_type: &str, text: &str) -> Vec<crate::agent::detector::AgentEvent> {
         if let Some(provider) = self.get(agent_type) {

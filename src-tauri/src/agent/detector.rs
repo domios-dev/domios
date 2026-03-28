@@ -205,32 +205,101 @@ pub enum AgentEvent {
     TaskComplete,
 }
 
-/// Scan text (output buffer tail) for Claude Code specific events.
-/// Text should be the last ~2000 chars of stripped terminal output.
+/// Scan text for Claude Code specific events using structural fingerprints.
+/// Detects interactive prompts by structure (numbered options + keyboard footer),
+/// NOT by matching specific question text — avoids false positives from source code.
 pub fn detect_claude_events(text: &str) -> Vec<AgentEvent> {
     let mut events = Vec::new();
 
-    // Permission/approval — must be an ACTIVE prompt (near end of output).
-    // "Esc to cancel" appears at the very end when Claude waits for input.
-    // Check last 300 chars to avoid matching old prompts in history.
-    let tail = if text.len() > 300 { &text[text.len() - 300..] } else { text };
-    if tail.contains("Esc to cancel")
-        && (tail.contains("Do you want to proceed?")
-            || (tail.contains("1. Yes") && tail.contains("2.")))
-    {
+    if detect_interactive_prompt(text) {
         events.push(AgentEvent::PermissionRequest);
     }
 
-    // Task completion — only specific Claude Code cost/timing patterns
-    // Also check tail to avoid matching old completions
-    if tail.contains("Cogitated for")
-        || tail.contains("Brewed for")
-        || tail.contains("Reasoned for")
-    {
+    // Task completion — structural fingerprint: "<Capitalized word> for <duration>"
+    // Claude uses random verbs (Cogitated, Brewed, Pounced, Preambled, etc.) + time.
+    // Pattern: word starting with uppercase + " for " + digits + s/m/h
+    if detect_task_completion(text) {
         events.push(AgentEvent::TaskComplete);
     }
 
     events
+}
+
+/// Structural fingerprint for task completion.
+/// Claude shows "<RandomVerb> for <duration>" when done thinking.
+/// Pattern: capitalized word + " for " + digits + time unit (s/m/h).
+/// Often followed by cost: "· $0.03 spent"
+fn detect_task_completion(text: &str) -> bool {
+    let lines: Vec<&str> = text.lines().collect();
+    // Check last 10 lines
+    let start = lines.len().saturating_sub(10);
+    for line in &lines[start..] {
+        let trimmed = line.trim();
+        // Pattern: "Word for Ns" or "Word for Nm Ns" or "Word for Nh Nm"
+        if let Some(pos) = trimmed.find(" for ") {
+            let word = &trimmed[..pos];
+            let after = &trimmed[pos + 5..];
+            // Word must be single capitalized word (no spaces, starts uppercase)
+            let is_single_cap_word = !word.is_empty()
+                && word.chars().next().map_or(false, |c| c.is_uppercase())
+                && !word.contains(' ')
+                && word.chars().all(|c| c.is_alphabetic());
+            // After must start with digit and contain time unit
+            let has_duration = after.starts_with(|c: char| c.is_ascii_digit())
+                && (after.contains('s') || after.contains('m') || after.contains('h'));
+            if is_single_cap_word && has_duration {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Structural fingerprint detection for interactive prompts.
+/// Matches the pattern:
+///   - 2+ numbered options (N. text) with optional ❯ selector
+///   - Keyboard hint footer (Esc/Tab/Enter keywords)
+///
+/// This is generic enough for any TUI menu, not just Claude.
+/// Source code won't have this exact structural combination.
+pub fn detect_interactive_prompt(text: &str) -> bool {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() < 3 { return false; }
+
+    // Scan from the end — prompt is always at the bottom of output
+    let scan_start = lines.len().saturating_sub(20);
+    let tail_lines = &lines[scan_start..];
+
+    let mut numbered_options = 0;
+    let mut has_selector = false;  // ❯ or > before an option
+    let mut has_footer = false;    // keyboard hint line
+
+    for line in tail_lines {
+        let trimmed = line.trim();
+
+        // Numbered option: "1. Yes", "❯ 1. Yes", "> 2. No"
+        let cleaned = trimmed.trim_start_matches('❯').trim_start_matches('>').trim();
+        if let Some(rest) = cleaned.strip_prefix(|c: char| c.is_ascii_digit()) {
+            // Handle multi-digit: "10. Something"
+            let rest = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+            if rest.starts_with(". ") {
+                numbered_options += 1;
+                if trimmed.starts_with('❯') || trimmed.starts_with('>') {
+                    has_selector = true;
+                }
+            }
+        }
+
+        // Keyboard hint footer: contains Esc/Tab/Enter as shortcuts
+        if (trimmed.contains("Esc") || trimmed.contains("Enter"))
+            && (trimmed.contains("cancel") || trimmed.contains("amend") || trimmed.contains("confirm"))
+        {
+            has_footer = true;
+        }
+    }
+
+    // Structural match: 2+ options AND (selector OR footer)
+    numbered_options >= 2 && (has_selector || has_footer)
 }
 
 /// Parse a permission prompt with numbered options from terminal output.
@@ -350,27 +419,84 @@ mod tests {
     // --- detect_claude_events tests ---
 
     #[test]
-    fn test_detect_active_permission_prompt() {
-        // Active prompt: "Esc to cancel" near end
-        let text = "Do you want to proceed?\n  1. Yes\n  2. Yes, allow\n  3. No\n\nEsc to cancel";
+    fn test_detect_claude_permission_prompt() {
+        let text = "Reading 1 file...\n\nRead file\n\nDo you want to proceed?\n  ❯ 1. Yes\n    2. Yes, allow reading during this session\n    3. No\n\nEsc to cancel · Tab to amend";
         let events = detect_claude_events(text);
         assert!(events.contains(&AgentEvent::PermissionRequest));
     }
 
     #[test]
-    fn test_detect_no_false_positive_old_prompt() {
-        // Old prompt buried in history — "Esc to cancel" not in last 300 chars
-        let padding = "x".repeat(400);
-        let text = format!("Do you want to proceed?\n1. Yes\n2. No\nEsc to cancel\n\n{}\nClaude is working on your task\nwriting files\ndone", padding);
-        let events = detect_claude_events(&text);
+    fn test_detect_prompt_without_selector() {
+        // Even without ❯, keyboard footer is enough
+        let text = "Allow this?\n  1. Yes\n  2. No\n\nEsc to cancel";
+        let events = detect_claude_events(text);
+        assert!(events.contains(&AgentEvent::PermissionRequest));
+    }
+
+    #[test]
+    fn test_detect_prompt_with_selector_no_footer() {
+        // ❯ selector is enough without footer
+        let text = "Choose:\n  ❯ 1. Option A\n    2. Option B\n    3. Option C";
+        let events = detect_claude_events(text);
+        assert!(events.contains(&AgentEvent::PermissionRequest));
+    }
+
+    #[test]
+    fn test_no_false_positive_source_code() {
+        let text = r#"if text.contains("Do you want to proceed?") && text.contains("Esc to cancel") {
+            events.push(PermissionRequest);
+        }
+        // Check for "1. Yes" and "2. No" patterns
+        let options = vec!["1. Yes", "2. No"];"#;
+        let events = detect_claude_events(text);
         assert!(!events.contains(&AgentEvent::PermissionRequest));
     }
 
     #[test]
-    fn test_detect_task_complete() {
+    fn test_no_false_positive_normal_output() {
+        let text = "Building project...\nStep 1. Compile\nStep 2. Link\nStep 3. Package\nDone!";
+        let events = detect_claude_events(text);
+        assert!(!events.contains(&AgentEvent::PermissionRequest));
+    }
+
+    #[test]
+    fn test_no_false_positive_single_option() {
+        // Only 1 numbered item — not a prompt
+        let text = "1. Yes\nEsc to cancel";
+        let events = detect_claude_events(text);
+        assert!(!events.contains(&AgentEvent::PermissionRequest));
+    }
+
+    #[test]
+    fn test_detect_task_complete_cogitated() {
         let text = "some output\nCogitated for 5s\n$0.03 spent";
         let events = detect_claude_events(text);
         assert!(events.contains(&AgentEvent::TaskComplete));
+    }
+
+    #[test]
+    fn test_detect_task_complete_random_verb() {
+        // Claude uses random verbs — structural detection catches any
+        for verb in &["Pounced", "Brewed", "Reasoned", "Preambled", "Wandered", "Mused"] {
+            let text = format!("output\n{} for 12s · $0.05 spent", verb);
+            let events = detect_claude_events(&text);
+            assert!(events.contains(&AgentEvent::TaskComplete), "Failed for verb: {}", verb);
+        }
+    }
+
+    #[test]
+    fn test_detect_task_complete_multiunit() {
+        let text = "output\nContemplated for 3m 15s";
+        let events = detect_claude_events(text);
+        assert!(events.contains(&AgentEvent::TaskComplete));
+    }
+
+    #[test]
+    fn test_no_false_completion_normal_text() {
+        // "waiting for response" should NOT match — "waiting" has lowercase start, "for" not followed by time
+        let text = "Waiting for response from server...\nCompiling for the first time";
+        let events = detect_claude_events(text);
+        assert!(!events.contains(&AgentEvent::TaskComplete));
     }
 
     #[test]
@@ -378,5 +504,71 @@ mod tests {
         let text = "Building project...\nCompilation complete\n";
         let events = detect_claude_events(text);
         assert!(events.is_empty());
+    }
+
+    // --- Structural fingerprint edge cases ---
+
+    #[test]
+    fn test_fingerprint_real_claude_bash_approval() {
+        // Real Claude output when asking to run a bash command
+        let text = "I'll run this command:\n\n  Bash(npm test)\n\nDo you want to proceed?\n  ❯ 1. Yes\n    2. Yes, and don't ask again for Bash commands\n    3. No\n\nEsc to cancel · Tab to amend";
+        assert!(detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_fingerprint_real_claude_write_approval() {
+        // Real Claude output when writing a file
+        let text = "Write file\n\n  Write(src/main.rs)\n\nDo you want to proceed?\n  ❯ 1. Yes\n    2. Yes, allow writing to src/ during this session\n    3. No\n\nEsc to cancel · Tab to amend";
+        assert!(detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_fingerprint_generic_cli_menu() {
+        // Any TUI with numbered options + selector works
+        let text = "Select an option:\n  > 1. Install\n    2. Update\n    3. Remove\n    4. Exit";
+        assert!(detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_fingerprint_no_match_markdown_list() {
+        // Markdown numbered list — no selector, no footer
+        let text = "Steps to follow:\n1. Clone the repo\n2. Install dependencies\n3. Run tests\n4. Deploy";
+        assert!(!detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_fingerprint_no_match_code_with_options() {
+        // Code that mentions options as strings
+        let text = r#"match choice {
+    "1. Yes" => proceed(),
+    "2. No" => cancel(),
+    _ => {}
+}"#;
+        assert!(!detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_fingerprint_no_match_log_output() {
+        // Log lines starting with numbers
+        let text = "2026-03-28 10:00:01 Server started\n2026-03-28 10:00:02 Listening on port 8080\n2026-03-28 10:00:03 Ready";
+        assert!(!detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_fingerprint_prompt_buried_in_output() {
+        // Prompt at the end of long output — should still match
+        let mut text = "lots of output\n".repeat(100);
+        text.push_str("Do you want to proceed?\n  ❯ 1. Yes\n    2. No\n\nEsc to cancel");
+        assert!(detect_interactive_prompt(&text));
+    }
+
+    #[test]
+    fn test_fingerprint_old_prompt_not_at_end() {
+        // Old prompt NOT in last 20 lines — should not match
+        let mut text = String::from("Old prompt:\n  ❯ 1. Yes\n    2. No\nEsc to cancel\n");
+        for _ in 0..25 {
+            text.push_str("Agent is working on something...\n");
+        }
+        assert!(!detect_interactive_prompt(&text));
     }
 }

@@ -80,25 +80,14 @@ impl ServiceContext {
         }
     }
 
-    /// Unified event dispatch — sends to Tauri frontend, external webhooks, and OS notifications.
+    /// Unified event dispatch — sends to Tauri frontend and external webhooks.
+    /// OS notifications are NOT sent here — use in-app toasts only.
     pub fn notify_event(&self, event_type: &str, payload: serde_json::Value) {
-        // 1. Tauri event to frontend
+        // 1. Tauri event to frontend (in-app toasts)
         let _ = self.app_handle.emit(event_type, &payload);
 
-        // 2. External webhooks + websockets
-        self.events.broadcast(event_type, payload.clone());
-
-        // 3. OS notification — only for user-facing notification events
-        // Agent events (permission_request, task_complete) already create notification-created,
-        // so we only send OS notification for that event type to avoid duplicates.
-        if event_type == "notification-created" {
-            let title = payload
-                .get("title")
-                .and_then(|t| t.as_str())
-                .unwrap_or("CodeTerm");
-            let body = payload.get("body").and_then(|b| b.as_str());
-            crate::api::routes::send_os_notification_if_unfocused(&self.app_handle, title, body);
-        }
+        // 2. External webhooks + websockets (Telegram, Discord, etc.)
+        self.events.broadcast(event_type, payload);
     }
 
     pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {
