@@ -10,11 +10,6 @@ use schema::{AppConfig, ThemeConfig};
 
 pub type ConfigState = Arc<Mutex<AppConfig>>;
 
-/// Get the config file path.
-pub fn config_path_pub() -> Result<PathBuf, String> {
-    crate::paths::config_path()
-}
-
 fn config_path() -> Result<PathBuf, String> {
     crate::paths::config_path()
 }

@@ -70,4 +70,17 @@ impl ServiceContext {
     pub fn set_claude_session_id(&self, pane_id: &str, session_id: Option<String>) {
         self.set_agent_session_id(pane_id, session_id);
     }
+
+    /// Respond to a pending prompt — sends the value to PTY and clears the prompt.
+    pub fn respond_prompt(&self, pane_id: &str, value: &str) -> Result<(), String> {
+        {
+            let mut mux = self.mux.lock();
+            let pane = mux.get_pane_mut(pane_id)
+                .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
+            pane.pending_prompt = None;
+        }
+        self.send_text(pane_id, value, true)?;
+        self.emit_state_changed();
+        Ok(())
+    }
 }

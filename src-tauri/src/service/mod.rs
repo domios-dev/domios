@@ -18,13 +18,14 @@ pub mod pty_io;
 mod hierarchy;
 mod orchestrator;
 mod notification;
+mod output;
 pub mod cron;
 #[cfg(test)]
 mod tests;
 
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::Emitter;
 
 use crate::agent::registry::AgentRegistry;
@@ -76,6 +77,27 @@ impl ServiceContext {
         let mut manager = self.pty.lock();
         for id in pty_ids {
             let _ = manager.kill(id);
+        }
+    }
+
+    /// Unified event dispatch — sends to Tauri frontend, external webhooks, and OS notifications.
+    pub fn notify_event(&self, event_type: &str, payload: serde_json::Value) {
+        // 1. Tauri event to frontend
+        let _ = self.app_handle.emit(event_type, &payload);
+
+        // 2. External webhooks + websockets
+        self.events.broadcast(event_type, payload.clone());
+
+        // 3. OS notification — only for user-facing notification events
+        // Agent events (permission_request, task_complete) already create notification-created,
+        // so we only send OS notification for that event type to avoid duplicates.
+        if event_type == "notification-created" {
+            let title = payload
+                .get("title")
+                .and_then(|t| t.as_str())
+                .unwrap_or("CodeTerm");
+            let body = payload.get("body").and_then(|b| b.as_str());
+            crate::api::routes::send_os_notification_if_unfocused(&self.app_handle, title, body);
         }
     }
 

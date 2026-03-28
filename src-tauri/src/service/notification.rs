@@ -37,7 +37,6 @@ impl ServiceContext {
             .lock()
             .add(title.clone(), body.clone(), parsed_level, None, None);
 
-        use tauri::Emitter;
         let mut payload = serde_json::json!({
             "id": id,
             "title": title,
@@ -52,13 +51,7 @@ impl ServiceContext {
         if let Some(s) = sticky {
             payload["sticky"] = serde_json::json!(s);
         }
-        let _ = self.app_handle.emit("notification-created", payload);
-
-        crate::api::routes::send_os_notification_if_unfocused(
-            &self.app_handle,
-            &title,
-            body.as_deref(),
-        );
+        self.notify_event("notification-created", payload);
         id
     }
 }

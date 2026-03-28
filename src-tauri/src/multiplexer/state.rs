@@ -27,6 +27,8 @@ pub struct MultiplexerState {
     panes: HashMap<String, Pane>,
     active_workspace_id: Option<String>,
     focused_pane_id: Option<String>,
+    /// Reverse lookup: pty_id -> pane_id for O(1) resolution.
+    pty_to_pane: HashMap<String, String>,
 }
 
 impl MultiplexerState {
@@ -53,6 +55,7 @@ impl MultiplexerState {
             report_target_pane_id: None,
             title_level: TitleLevel::Default,
             chat_view: false,
+            pending_prompt: None,
         };
 
         let tab = Tab {
@@ -78,6 +81,7 @@ impl MultiplexerState {
             panes,
             active_workspace_id: Some(workspace_id),
             focused_pane_id: Some(pane_id.clone()),
+            pty_to_pane: HashMap::new(),
         };
 
         (state, pane_id)
@@ -147,9 +151,13 @@ impl MultiplexerState {
             .filter_map(|pane| pane.pty_id.clone())
             .collect();
 
-        // Remove panes from the pane registry
+        // Remove panes from the pane registry and clean up reverse map
         for pid in &pane_ids {
-            self.panes.remove(pid);
+            if let Some(pane) = self.panes.remove(pid) {
+                if let Some(pty_id) = &pane.pty_id {
+                    self.pty_to_pane.remove(pty_id);
+                }
+            }
         }
 
         // If the closed workspace was active, switch to another
@@ -296,9 +304,13 @@ impl MultiplexerState {
             .filter_map(|pane| pane.pty_id.clone())
             .collect();
 
-        // Remove panes
+        // Remove panes and clean up reverse map
         for pid in &pane_ids {
-            self.panes.remove(pid);
+            if let Some(pane) = self.panes.remove(pid) {
+                if let Some(pty_id) = &pane.pty_id {
+                    self.pty_to_pane.remove(pty_id);
+                }
+            }
         }
 
         // Update active tab
@@ -352,6 +364,7 @@ impl MultiplexerState {
             report_target_pane_id: None,
             title_level: TitleLevel::Default,
             chat_view: false,
+            pending_prompt: None,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -376,6 +389,7 @@ impl MultiplexerState {
             report_target_pane_id: None,
             title_level: TitleLevel::Default,
             chat_view: false,
+            pending_prompt: None,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -540,6 +554,7 @@ impl MultiplexerState {
 
         // Get the PTY ID before removing
         if let Some(pty_id) = self.panes.get(pane_id).and_then(|p| p.pty_id.clone()) {
+            self.pty_to_pane.remove(&pty_id);
             pty_ids.push(pty_id);
         }
 
@@ -588,10 +603,20 @@ impl MultiplexerState {
         Err(format!("Pane {} not found in any split tree", pane_id))
     }
 
+    /// Resolve a PTY ID to its pane ID (O(1) lookup).
+    pub fn pane_id_for_pty(&self, pty_id: &str) -> Option<String> {
+        self.pty_to_pane.get(pty_id).cloned()
+    }
+
     /// Link a pane to a PTY instance.
     pub fn link_pty(&mut self, pane_id: &str, pty_id: String) {
         if let Some(pane) = self.panes.get_mut(pane_id) {
-            pane.pty_id = Some(pty_id);
+            // Remove old mapping if pane already had a pty_id
+            if let Some(old_pty_id) = &pane.pty_id {
+                self.pty_to_pane.remove(old_pty_id);
+            }
+            pane.pty_id = Some(pty_id.clone());
+            self.pty_to_pane.insert(pty_id, pane_id.to_string());
         }
     }
 
@@ -838,6 +863,7 @@ impl MultiplexerState {
                         report_target_pane_id: None,
                         title_level: restored_level,
                         chat_view: false,
+                        pending_prompt: None,
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }
@@ -877,6 +903,7 @@ impl MultiplexerState {
             panes,
             active_workspace_id: snapshot.active_workspace_id.clone(),
             focused_pane_id: None,
+            pty_to_pane: HashMap::new(),
         }
     }
 }

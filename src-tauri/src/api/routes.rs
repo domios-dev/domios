@@ -5,30 +5,18 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use base64::Engine as _;
 use serde::Deserialize;
-use tauri::Emitter;
 use tower_http::cors::CorsLayer;
 
-use crate::api::events::{EventBroadcasterState, WebhookRegistration};
-use crate::multiplexer::commands::MuxState;
-use crate::notification::NotifState;
+use crate::api::events::WebhookRegistration;
 use crate::screenshot::ScreenshotState;
-use crate::{AgentTrackerState, OutputBufferState, PtyState, ReportStoreState};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub mux: MuxState,
-    pub pty: PtyState,
-    pub notif: NotifState,
-    pub output_buf: OutputBufferState,
-    pub screenshot: ScreenshotState,
-    pub events: EventBroadcasterState,
-    pub app_handle: tauri::AppHandle,
-    pub token: Option<String>,
-    pub agent_tracker: AgentTrackerState,
-    pub report_store: ReportStoreState,
     pub svc: crate::service::ServiceState,
+    pub token: Option<String>,
+    #[allow(dead_code)]
+    pub screenshot: ScreenshotState,
     pub cron: crate::CronState,
     pub cron_wake: crate::CronWake,
     pub api_port: u16,
@@ -83,6 +71,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/report", post(submit_report))
         .route("/api/panes/{id}/reports", get(get_reports))
         .route("/api/panes/{id}/can-spawn", post(set_can_spawn))
+        .route("/api/panes/{id}/prompt/respond", post(respond_prompt))
         .route("/api/agents", get(list_agents))
         .route("/api/agents/hierarchy", get(get_hierarchy))
         .route("/api/agents/spawn", post(spawn_agent))
@@ -142,7 +131,7 @@ async fn list_workspaces(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let mux = state.mux.lock();
+    let mux = state.svc.mux.lock();
     let workspaces = mux.list_workspaces();
     Ok(Json(serde_json::to_value(workspaces).unwrap()))
 }
@@ -258,7 +247,7 @@ async fn list_panes(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let mux = state.mux.lock();
+    let mux = state.svc.mux.lock();
     let snapshot = mux.snapshot();
     let panes: Vec<_> = snapshot.panes.values().collect();
     Ok(Json(serde_json::to_value(panes).unwrap()))
@@ -324,6 +313,7 @@ struct OutputQuery {
     offset: Option<usize>,
     strip_ansi: Option<bool>,
     /// Include current screen text (alternate buffer) in response
+    #[allow(dead_code)]
     screen: Option<bool>,
     /// Return full untruncated output history (not just ring buffer)
     full: Option<bool>,
@@ -338,7 +328,7 @@ async fn get_pane_output(
     check_auth(&state, &headers)?;
     let pty_id = state.svc.resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-    let buf = state.output_buf.lock();
+    let buf = state.svc.output_buf.lock();
     let text = if query.full.unwrap_or(false) {
         buf.get_full_text(&pty_id).unwrap_or_default()
     } else {
@@ -374,14 +364,14 @@ async fn exec_in_pane(
     let pty_id = state.svc.resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
 
-    let start_offset = state.output_buf.lock()
+    let start_offset = state.svc.output_buf.lock()
         .get_text(&pty_id).map(|t| t.len()).unwrap_or(0);
 
     state.svc.send_text(&pane_id, &body.command, true)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
 
     let timeout_ms = body.timeout_ms.unwrap_or(10000);
-    let buf_clone = state.output_buf.clone();
+    let buf_clone = state.svc.output_buf.clone();
     let pty_clone = pty_id.clone();
 
     // Poll in a spawned task to avoid Send issues
@@ -491,7 +481,7 @@ async fn stream_pane_output(
     let pty_id = state.svc.resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
 
-    let buf = state.output_buf.clone();
+    let buf = state.svc.output_buf.clone();
     let pid = pty_id.clone();
     let mut offset = buf.lock().get_text(&pid).map(|t| t.len()).unwrap_or(0);
 
@@ -523,7 +513,7 @@ async fn list_notifications(
     Query(query): Query<ListNotifQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let store = state.notif.lock();
+    let store = state.svc.notif.lock();
     let notifs = store.list(query.unread.unwrap_or(false));
     Ok(Json(serde_json::to_value(notifs).unwrap()))
 }
@@ -557,7 +547,7 @@ async fn clear_notifications(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.notif.lock().clear(None);
+    state.svc.notif.lock().clear(None);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -573,7 +563,7 @@ async fn take_screenshot(
 ) -> Result<axum::response::Response, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 
-    let app = state.app_handle.clone();
+    let app = state.svc.app_handle.clone();
     let result = tokio::task::spawn_blocking(move || {
         crate::screenshot::capture_window(&app)
     })
@@ -679,7 +669,7 @@ async fn get_pane_screen(
     let pid = pane_id.clone();
 
     // Listen for response from frontend
-    let app = state.app_handle.clone();
+    let app = state.svc.app_handle.clone();
     use tauri::Listener;
     let handler_id = app.listen(format!("screen-capture-response-{}", pid), move |event| {
         if let Some(tx) = tx_clone.lock().take() {
@@ -694,7 +684,7 @@ async fn get_pane_screen(
 
     // Request capture from frontend
     use tauri::Emitter;
-    let _ = state.app_handle.emit("screen-capture-request", serde_json::json!({
+    let _ = state.svc.app_handle.emit("screen-capture-request", serde_json::json!({
         "pane_id": pane_id,
     }));
 
@@ -724,7 +714,7 @@ async fn list_webhooks(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let hooks = state.events.list_webhooks();
+    let hooks = state.svc.events.list_webhooks();
     Ok(Json(serde_json::to_value(hooks).unwrap()))
 }
 
@@ -757,7 +747,7 @@ async fn register_webhook(
         once: body.once,
         payload_extra: body.payload_extra,
     };
-    state.events.register_webhook(reg);
+    state.svc.events.register_webhook(reg);
     Ok(Json(serde_json::json!({"id": id, "once": body.once})))
 }
 
@@ -767,7 +757,7 @@ async fn unregister_webhook(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.events.unregister_webhook(&id);
+    state.svc.events.unregister_webhook(&id);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -950,7 +940,7 @@ async fn get_pane_children(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let mux = state.mux.lock();
+    let mux = state.svc.mux.lock();
     let child_ids = mux.get_children_ids(&id);
     let children: Vec<serde_json::Value> = child_ids.iter().filter_map(|cid| {
         let p = mux.get_pane(cid)?;
@@ -995,7 +985,7 @@ async fn get_reports(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let clear = query.clear.unwrap_or(false);
-    let reports = state.report_store.lock().get(&id, clear);
+    let reports = state.svc.report_store.lock().get(&id, clear);
     Ok(Json(serde_json::to_value(&reports).unwrap_or_default()))
 }
 
@@ -1013,6 +1003,22 @@ async fn set_can_spawn(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     state.svc.set_can_spawn(&id, body.can_spawn)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn respond_prompt(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(pane_id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let value = body.get("value")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing 'value' field".to_string()))?
+        .to_string();
+    state.svc.respond_prompt(&pane_id, &value)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -1335,7 +1341,7 @@ async fn apply_theme_api(
     use tauri::{Emitter, Manager};
 
     // Get the managed ConfigState from the app handle
-    let config_state = state.app_handle.state::<crate::config::ConfigState>();
+    let config_state = state.svc.app_handle.state::<crate::config::ConfigState>();
     let mut config = config_state.lock().clone();
     config.theme.name = body.name.clone();
     if let Some(mut theme) = crate::config::schema::get_any_theme(&body.name) {
@@ -1345,7 +1351,7 @@ async fn apply_theme_api(
     crate::config::save_config_pub(&config)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to save config"))?;
     *config_state.lock() = config.clone();
-    let _ = state.app_handle.emit("config-changed", &config);
+    let _ = state.svc.app_handle.emit("config-changed", &config);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -1549,20 +1555,11 @@ pub fn send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, bo
     }
 }
 
-/// Single notification popup — reuses existing window, auto-closes after 4s.
+/// Single notification popup via system notification API.
+/// Uses tauri-plugin-notification on all platforms — clicking focuses the app.
 pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
-    // macOS: use osascript (works in dev and production)
-    #[cfg(target_os = "macos")]
-    {
-        let msg = body.unwrap_or("");
-        let _ = std::process::Command::new("osascript")
-            .args(["-e", &format!("display notification \"{}\" with title \"{}\"", msg, title)])
-            .spawn();
-        return;
-    }
-
-    // Windows/Linux: use tauri plugin
-    #[cfg(not(target_os = "macos"))]
+    // Use tauri plugin on all platforms — produces native notifications
+    // that focus the app window when clicked (unlike raw osascript).
     {
         use tauri_plugin_notification::NotificationExt;
         let mut notif = app.notification().builder().title(title);

@@ -352,4 +352,4 @@ const ATTACH_RE = /\x00\u00ABfile:([^\u00BB]+)\u00BB/g;
 // ---------------------------------------------------------------------------
 
 console.log(`\n${passed} passed, ${failed} failed`);
-process.exit(failed > 0 ? 1 : 0);
+if (failed > 0) throw new Error(`${failed} tests failed`);

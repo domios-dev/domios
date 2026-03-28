@@ -418,7 +418,6 @@ fn launch_agent_in_background(
     });
 }
 
-use crate::shell::ShellSyntax;
 
 /// Build a single shell command that launches the agent.
 /// Uses the AgentRegistry for known providers; falls back to simple command for unknown agents.
@@ -443,6 +442,7 @@ fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::ShellSyntax;
 
     fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         SpawnAgentParams {

@@ -1,4 +1,4 @@
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtyPair, PtySize, PtySystem};
+use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -12,13 +12,16 @@ pub struct PtySession {
 }
 
 /// Ring buffer storing last N bytes of PTY output per pane.
-/// Also maintains a full (unlimited) history for chat view parsing.
+/// Also maintains a full history (capped at MAX_FULL_SIZE) for chat view parsing.
 pub struct OutputBuffer {
     buffers: HashMap<String, Vec<u8>>,
-    /// Full output history (never truncated). Used by chat view parser.
+    /// Full output history (capped at MAX_FULL_SIZE per PTY). Used by chat view parser.
     full_buffers: HashMap<String, Vec<u8>>,
     max_size: usize,
 }
+
+/// Maximum size of full_buffers per PTY (2 MB).
+const MAX_FULL_SIZE: usize = 2 * 1024 * 1024;
 
 impl OutputBuffer {
     pub fn new(max_size: usize) -> Self {
@@ -33,8 +36,13 @@ impl OutputBuffer {
             let drain = buf.len() - self.max_size;
             buf.drain(..drain);
         }
-        // Full history (never truncated)
-        self.full_buffers.entry(pty_id.to_string()).or_default().extend_from_slice(data);
+        // Full history (capped at MAX_FULL_SIZE)
+        let full = self.full_buffers.entry(pty_id.to_string()).or_default();
+        full.extend_from_slice(data);
+        if full.len() > MAX_FULL_SIZE {
+            let excess = full.len() - MAX_FULL_SIZE;
+            full.drain(..excess);
+        }
     }
 
     pub fn get(&self, pty_id: &str) -> Option<&[u8]> {

@@ -37,6 +37,24 @@ impl AgentRegistry {
             .find(|p| p.detect_from_output(text))
             .map(|b| b.as_ref())
     }
+
+    /// Detect events using the appropriate provider for a given agent type.
+    pub fn detect_events(&self, agent_type: &str, text: &str) -> Vec<crate::agent::detector::AgentEvent> {
+        if let Some(provider) = self.get(agent_type) {
+            provider.detect_events(text)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Parse a permission prompt using the appropriate provider.
+    pub fn parse_prompt(&self, agent_type: &str, text: &str) -> Option<(String, Vec<(String, String)>)> {
+        if let Some(provider) = self.get(agent_type) {
+            provider.parse_prompt(text)
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
