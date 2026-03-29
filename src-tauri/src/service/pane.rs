@@ -103,30 +103,42 @@ impl ServiceContext {
             had
         };
 
-        // Only send to PTY if there was an actual prompt — prevents phantom input
+        // Only send to PTY if prompt is actually on screen (not just in state)
         if had_prompt {
             let pty_id = self.resolve_pty_id(pane_id)?;
-            let option_index = value.parse::<usize>().unwrap_or(1).saturating_sub(1); // 1-based → 0-based
 
-            // Get navigation keystrokes from provider (Claude uses j/k, others use arrows)
-            let agent_type = self.mux.lock().get_pane(pane_id)
-                .and_then(|p| p.agent_type.clone());
-            let steps = if let Some(ref at) = agent_type {
-                self.agent_registry.get(at)
-                    .map(|p| p.build_prompt_response(option_index))
-                    .unwrap_or_else(|| self.default_prompt_response(option_index))
-            } else {
-                self.default_prompt_response(option_index)
+            // Verify prompt is on screen before sending keystrokes
+            let screen = {
+                let buf = self.output_buf.lock();
+                buf.get_text(&pty_id).unwrap_or_default()
             };
+            let clean = crate::api::routes::clean_terminal_output(&screen);
+            let prompt_on_screen = crate::agent::detector::detect_interactive_prompt(&clean);
 
-            let pty = self.pty.clone();
-            let pid = pty_id.clone();
-            std::thread::spawn(move || {
-                for step in steps {
-                    let _ = pty.lock().write(&pid, &step);
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-            });
+            if prompt_on_screen {
+                let option_index = value.parse::<usize>().unwrap_or(1).saturating_sub(1);
+
+                let agent_type = self.mux.lock().get_pane(pane_id)
+                    .and_then(|p| p.agent_type.clone());
+                let steps = if let Some(ref at) = agent_type {
+                    self.agent_registry.get(at)
+                        .map(|p| p.build_prompt_response(option_index))
+                        .unwrap_or_else(|| self.default_prompt_response(option_index))
+                } else {
+                    self.default_prompt_response(option_index)
+                };
+
+                let pty = self.pty.clone();
+                let pid = pty_id.clone();
+                std::thread::spawn(move || {
+                    for step in steps {
+                        let _ = pty.lock().write(&pid, &step);
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                });
+            } else {
+                log::debug!("[respond_prompt] Prompt not on screen — skipping PTY input for pane {}", pane_id);
+            }
         }
 
         self.emit_state_changed();
