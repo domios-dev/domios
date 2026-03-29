@@ -216,8 +216,10 @@ pub enum TitleLevel {
     Default = 0,
     /// Auto-set by CWD/directory change (OSC 7)
     Auto = 1,
-    /// Manually set by user or agent — highest priority
-    User = 2,
+    /// Set by agent via OSC title (e.g. Claude sets task summary)
+    Agent = 2,
+    /// Manually set by user — highest priority, never overwritten
+    User = 3,
 }
 
 impl Default for TitleLevel {

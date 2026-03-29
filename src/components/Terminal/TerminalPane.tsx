@@ -361,7 +361,10 @@ export function TerminalPane({
       if (title) {
         const curPane = stateRef.current.panes[paneId];
         if (curPane && curPane.title_level === TitleLevel.User) return;
-        setPaneTitle(paneId, title, TitleLevel.Auto);
+        // If an agent is running, OSC title is set by the agent (task summary) — use Agent level.
+        // Otherwise it's from the shell (e.g. CWD) — use Auto level.
+        const hasAgent = curPane?.agent_type != null;
+        setPaneTitle(paneId, title, hasAgent ? TitleLevel.Agent : TitleLevel.Auto);
         // Detect agent from OSC title
         const detectedAgent = detectAgentFromTitle(title);
         if (detectedAgent) {

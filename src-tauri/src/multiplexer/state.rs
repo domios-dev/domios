@@ -844,6 +844,7 @@ impl MultiplexerState {
                     let restored_title = title.as_deref().unwrap_or("Terminal").to_string();
                     let restored_level = match title_level.as_deref() {
                         Some("User") => TitleLevel::User,
+                        Some("Agent") => TitleLevel::Agent,
                         Some("Auto") => TitleLevel::Auto,
                         _ => if role.is_some() { TitleLevel::User } else { TitleLevel::Default },
                     };
