@@ -171,6 +171,28 @@ impl AgentProvider for ClaudeProvider {
         crate::agent::detector::parse_permission_prompt(text)
     }
 
+    fn is_idle_screen(&self, screen: &str) -> bool {
+        // Claude is idle when waiting for user input. Structural detection:
+        // - Last non-empty lines contain ❯ (input prompt selector)
+        // - Status bar visible (contains "shell" or "effort" or "shortcuts")
+        // Works for both normal mode ("? for shortcuts") and
+        // dangerously-skip-permissions ("bypass permissions on · 1 shell")
+        let lines: Vec<&str> = screen.lines().collect();
+        let tail_start = lines.len().saturating_sub(8);
+        let tail = &lines[tail_start..];
+
+        let has_input_prompt = tail.iter().any(|l| {
+            let t = l.trim();
+            // ❯ alone or ❯ followed by cursor — the input line
+            t == "❯" || t.starts_with("❯ ") || t.starts_with("> ")
+        });
+        let has_status_bar = tail.iter().any(|l| {
+            l.contains("shell") || l.contains("shortcuts") || l.contains("/effort")
+        });
+
+        has_input_prompt && has_status_bar
+    }
+
     fn has_hooks(&self) -> bool { true }
 
     fn is_output_noise(&self, text: &str) -> bool {

@@ -31,17 +31,15 @@ impl ServiceContext {
         // 1. Track status using screen content hash (not raw bytes).
         //    Cursor blinks and TUI noise don't change screen content,
         //    so they won't reset the idle timer.
+        let screen_text = self.output_buf.lock().get_screen_text(pty_id);
         let prev_status = {
-            let screen_hash = {
-                let buf = self.output_buf.lock();
-                if let Some(screen) = buf.get_screen_text(pty_id) {
-                    use sha2::{Digest, Sha256};
-                    let mut h = Sha256::new();
-                    h.update(screen.as_bytes());
-                    h.finalize().into()
-                } else {
-                    [0u8; 32]
-                }
+            let screen_hash = if let Some(ref s) = screen_text {
+                use sha2::{Digest, Sha256};
+                let mut h = Sha256::new();
+                h.update(s.as_bytes());
+                h.finalize().into()
+            } else {
+                [0u8; 32]
             };
             let mut t = self.agent_tracker.lock();
             let prev = t.get_status(pty_id);
@@ -49,10 +47,7 @@ impl ServiceContext {
             prev
         };
 
-        // 2. pending_prompt is cleared only by mux_respond_prompt (user action),
-        //    not by status transitions — status tracking is too noisy/unreliable
-        //    for this (cursor blinks, ANSI redraws cause spurious transitions).
-        let current_status = self.agent_tracker.lock().get_status(pty_id);
+        // 2. pending_prompt is cleared only by mux_respond_prompt (user action).
 
         // 3. Get agent type for this pane
         let (pane_id, agent_type) = {
@@ -61,6 +56,24 @@ impl ServiceContext {
             let at = pid.as_ref().and_then(|id| mux.get_pane(id)).and_then(|p| p.agent_type.clone());
             (pid, at)
         };
+
+        // 4. Provider-based instant idle detection — if agent's screen shows idle marker
+        //    (e.g. Claude's "? for shortcuts"), transition immediately without timeout.
+        if let (Some(ref pid), Some(ref at)) = (&pane_id, &agent_type) {
+            if let Some(ref screen) = screen_text {
+                let provider = self.agent_registry.get(at);
+                if let Some(p) = provider {
+                    if p.is_idle_screen(screen) {
+                        let mut t = self.agent_tracker.lock();
+                        if t.get_status(pty_id) != PaneStatus::Idle {
+                            t.set_idle(pty_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        let current_status = self.agent_tracker.lock().get_status(pty_id);
 
         // Agent event detection: always parse PTY output for all agents.
         // Hooks (Claude Code) provide a faster path via API endpoints
