@@ -26,6 +26,7 @@ use multiplexer::state::MultiplexerState;
 use notification::NotifState;
 use notification::store::NotificationStore;
 use pty::manager::{OutputBuffer, PtyManager};
+use pty::screen_state::ScreenState;
 use screenshot::{ScreenshotChannel, ScreenshotState};
 use service::{ServiceContext, ServiceState};
 use session::SessionState;
@@ -33,6 +34,7 @@ use session::store::SessionStore;
 
 pub type PtyState = Arc<Mutex<PtyManager>>;
 pub type OutputBufferState = Arc<Mutex<OutputBuffer>>;
+pub type ScreenStateHandle = Arc<Mutex<ScreenState>>;
 pub type AgentTrackerState = Arc<Mutex<agent::status::PaneStatusTracker>>;
 pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
 pub type PromptDetectorState = Arc<Mutex<agent::prompt::PromptDetector>>;
@@ -47,6 +49,7 @@ struct AppStates {
     notif: NotifState,
     session: SessionState,
     output_buffer: OutputBufferState,
+    screen_state: ScreenStateHandle,
     screenshot: ScreenshotState,
     agent_tracker: AgentTrackerState,
     report_store: ReportStoreState,
@@ -64,6 +67,7 @@ fn init_states() -> AppStates {
     let notif_state: NotifState = Arc::new(Mutex::new(NotificationStore::new(500)));
     let session_state: SessionState = Arc::new(Mutex::new(SessionStore::new()));
     let output_buffer: OutputBufferState = Arc::new(Mutex::new(OutputBuffer::new(65536)));
+    let screen_state: ScreenStateHandle = Arc::new(Mutex::new(ScreenState::new()));
     let screenshot_state: ScreenshotState = Arc::new(Mutex::new(ScreenshotChannel::new()));
     let agent_tracker: AgentTrackerState = Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
     let report_store: ReportStoreState = Arc::new(Mutex::new(agent::reports::ReportStore::new(200)));
@@ -108,6 +112,7 @@ fn init_states() -> AppStates {
         notif: notif_state,
         session: session_state,
         output_buffer,
+        screen_state,
         screenshot: screenshot_state,
         agent_tracker,
         report_store,
@@ -490,6 +495,7 @@ pub fn run() {
         .manage(states.notif.clone())
         .manage(states.session.clone())
         .manage(states.output_buffer.clone())
+        .manage(states.screen_state.clone())
         .manage(states.agent_tracker.clone())
         .manage(states.report_store.clone())
         .manage(states.event_broadcaster.clone())
@@ -604,6 +610,7 @@ pub fn run() {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
                 output_buf: states.output_buffer.clone(),
+                screen_state: states.screen_state.clone(),
                 notif: states.notif.clone(),
                 events: states.event_broadcaster.clone(),
                 app_handle: app_handle.clone(),

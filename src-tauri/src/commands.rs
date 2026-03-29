@@ -7,7 +7,7 @@ use tauri_plugin_updater::UpdaterExt;
 use crate::agent::git_info::{self, GitInfo};
 use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
-use crate::{AgentTrackerState, OutputBufferState, PtyState, UpdateStateHandle};
+use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle, UpdateStateHandle};
 
 #[tauri::command]
 pub async fn check_for_update(
@@ -124,6 +124,7 @@ pub async fn spawn_pty(
 pub async fn read_pty(
     state: tauri::State<'_, PtyState>,
     output_buf: tauri::State<'_, OutputBufferState>,
+    screen_state: tauri::State<'_, ScreenStateHandle>,
     mux: tauri::State<'_, MuxState>,
     tracker: tauri::State<'_, AgentTrackerState>,
     svc: tauri::State<'_, ServiceState>,
@@ -137,6 +138,7 @@ pub async fn read_pty(
     };
 
     let ob = (*output_buf).clone();
+    let ss = (*screen_state).clone();
     let pid = pty_id.clone();
 
     // Take reader from session — only one readLoop can own it at a time.
@@ -162,6 +164,7 @@ pub async fn read_pty(
         }
         buf.truncate(n);
         ob.lock().append(&pid, &buf);
+        ss.lock().process(&pid, &buf);
 
         // Return reader so next call can reuse it
         Ok((buf, reader_to_use))
@@ -314,7 +317,7 @@ pub async fn get_pane_output(
 /// Better than get_pane_output for restoring TUI apps after remount.
 #[tauri::command]
 pub async fn get_pane_screen(
-    output_buf: tauri::State<'_, OutputBufferState>,
+    screen_state: tauri::State<'_, ScreenStateHandle>,
     mux: tauri::State<'_, MuxState>,
     pane_id: String,
 ) -> Result<String, String> {
@@ -324,8 +327,8 @@ pub async fn get_pane_screen(
             .and_then(|p| p.pty_id.clone())
             .ok_or_else(|| "Pane not found or has no PTY".to_string())?
     };
-    let buf = output_buf.lock();
-    let text = buf.get_screen_text(&pty_id).unwrap_or_default();
+    let ss = screen_state.lock();
+    let text = ss.get_screen_text(&pty_id).unwrap_or_default();
     // Screen parser returns \n between rows, but xterm.js needs \r\n
     // to move cursor back to column 0 — otherwise each line starts
     // where the previous one ended ("staircase" effect).
@@ -334,7 +337,7 @@ pub async fn get_pane_screen(
 
 #[tauri::command]
 pub async fn wait_shell_ready(
-    output_buf: tauri::State<'_, OutputBufferState>,
+    screen_state: tauri::State<'_, ScreenStateHandle>,
     mux: tauri::State<'_, MuxState>,
     pane_id: String,
     timeout_ms: Option<u64>,
@@ -346,9 +349,9 @@ pub async fn wait_shell_ready(
             .ok_or_else(|| "Pane not found or has no PTY".to_string())?
     };
     let timeout = std::time::Duration::from_millis(timeout_ms.unwrap_or(10_000));
-    let ob = output_buf.inner().clone();
+    let ss = screen_state.inner().clone();
     let result = tokio::task::spawn_blocking(move || {
-        crate::service::pty_io::poll_shell_prompt(&ob, &pty_id, timeout)
+        crate::service::pty_io::poll_shell_prompt(&ss, &pty_id, timeout)
     })
     .await
     .map_err(|e| e.to_string())?;

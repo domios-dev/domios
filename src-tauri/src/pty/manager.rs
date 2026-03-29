@@ -15,13 +15,13 @@ pub struct PtySession {
 
 /// Ring buffer storing last N bytes of PTY output per pane.
 /// Also maintains a full history (capped at MAX_FULL_SIZE) for chat view parsing.
+///
+/// Screen parsing (VT100) lives in `ScreenState` behind a separate lock
+/// to avoid contention between output processing and chat view reads.
 pub struct OutputBuffer {
     buffers: HashMap<String, Vec<u8>>,
     /// Full output history (capped at MAX_FULL_SIZE per PTY). Used by chat view parser.
     full_buffers: HashMap<String, Vec<u8>>,
-    /// Per-PTY VT100 parser — tracks current screen content (what the user sees).
-    /// Updated incrementally on every append. Gives instant screen access for prompt detection.
-    screen_parsers: HashMap<String, vt100::Parser>,
     max_size: usize,
 }
 
@@ -33,7 +33,6 @@ impl OutputBuffer {
         Self {
             buffers: HashMap::new(),
             full_buffers: HashMap::new(),
-            screen_parsers: HashMap::new(),
             max_size,
         }
     }
@@ -53,10 +52,6 @@ impl OutputBuffer {
             let excess = full.len() - MAX_FULL_SIZE;
             full.drain(..excess);
         }
-        let parser = self.screen_parsers
-            .entry(pty_id.to_string())
-            .or_insert_with(|| vt100::Parser::new(50, 120, 500));
-        parser.process(data);
     }
 
     pub fn get(&self, pty_id: &str) -> Option<&[u8]> {
@@ -77,33 +72,9 @@ impl OutputBuffer {
         self.get_full(pty_id).map(|b| String::from_utf8_lossy(b).to_string())
     }
 
-    pub fn get_screen_text(&self, pty_id: &str) -> Option<String> {
-        self.screen_parsers.get(pty_id).map(|p| p.screen().contents())
-    }
-
-    pub fn get_content_hash(&self, pty_id: &str, exclude_bottom_rows: u16) -> Option<[u8; 32]> {
-        use sha2::{Digest, Sha256};
-        self.screen_parsers.get(pty_id).map(|p| {
-            let screen = p.screen();
-            let (rows, cols) = screen.size();
-            let end_row = rows.saturating_sub(exclude_bottom_rows);
-            // Hash individual rows, trimmed — immune to cursor position and trailing spaces
-            let mut h = Sha256::new();
-            for row in 0..end_row {
-                let row_text = screen.contents_between(row, 0, row, cols);
-                let trimmed = row_text.trim();
-                if !trimmed.is_empty() {
-                    h.update(trimmed.as_bytes());
-                }
-            }
-            h.finalize().into()
-        })
-    }
-
     pub fn remove(&mut self, pty_id: &str) {
         self.buffers.remove(pty_id);
         self.full_buffers.remove(pty_id);
-        self.screen_parsers.remove(pty_id);
     }
 }
 

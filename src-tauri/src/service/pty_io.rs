@@ -102,12 +102,12 @@ impl ServiceContext {
 
 /// Poll VT100 screen for a shell prompt on the last non-empty line.
 /// Uses the screen parser instead of raw buffer to avoid false positives from file content.
-pub fn poll_shell_prompt(output_buf: &crate::OutputBufferState, pty_id: &str, timeout: std::time::Duration) -> bool {
+pub fn poll_shell_prompt(screen_state: &crate::ScreenStateHandle, pty_id: &str, timeout: std::time::Duration) -> bool {
     let deadline = std::time::Instant::now() + timeout;
     loop {
         if std::time::Instant::now() > deadline { return false; }
-        let ready = output_buf.try_lock()
-            .and_then(|buf| buf.get_screen_text(pty_id).map(|screen| {
+        let ready = screen_state.try_lock()
+            .and_then(|ss| ss.get_screen_text(pty_id).map(|screen| {
                 screen_has_shell_prompt(&screen)
             }))
             .unwrap_or(false);

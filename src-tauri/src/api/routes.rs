@@ -1075,7 +1075,7 @@ async fn hook_permission(
             .and_then(|p| p.agent_type.clone());
 
         if let Some(pty_id) = pty_id {
-            let clean = state.svc.output_buf.lock().get_screen_text(&pty_id).unwrap_or_default();
+            let clean = state.svc.screen_state.lock().get_screen_text(&pty_id).unwrap_or_default();
             log::debug!("[hook_permission] screen_text len={}, agent_type={:?}", clean.len(), agent_type);
             log::debug!("[hook_permission] screen tail: {:?}", &clean[clean.len().saturating_sub(300)..]);
 

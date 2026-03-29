@@ -40,6 +40,7 @@ pub enum PromptDecision {
 }
 
 /// Centralized prompt detection state machine.
+/// Keyed by pane_id.
 pub struct PromptDetector {
     states: HashMap<String, PanePromptState>,
     cooldown_ms: u64,
