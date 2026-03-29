@@ -310,6 +310,7 @@ fn start_background_tasks(
                 for (pty_id, status) in changed {
                     let pane_id = mux.lock().pane_id_for_pty(&pty_id);
                     if let Some(pid) = pane_id {
+                        log::info!("[idle-poll] {} {:?} (pane={})", &pty_id[..pty_id.len().min(8)], status, pid);
                         use tauri::Emitter;
                         let _ = app_handle.emit("pane-status-changed", serde_json::json!({
                             "pane_id": pid,
@@ -497,12 +498,14 @@ pub fn run() {
         // ServiceState is added in .setup() after AppHandle is available
         .invoke_handler(tauri::generate_handler![
             // PTY commands
+            commands::get_windows_build_number,
             commands::get_default_cwd,
             commands::spawn_pty,
             commands::read_pty,
             commands::write_pty,
             commands::write_pty_string,
             commands::get_pane_output,
+            commands::get_pane_screen,
             commands::read_session_jsonl,
             commands::resize_pty,
             commands::kill_pty,

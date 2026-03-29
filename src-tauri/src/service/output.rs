@@ -23,6 +23,12 @@ impl ServiceContext {
     /// Process new PTY output: track status, detect agent events, dispatch notifications.
     /// Returns the previous and current status for the caller to emit status-change events.
     pub fn process_pty_output(&self, pty_id: &str, data: &[u8]) -> (PaneStatus, PaneStatus) {
+        static CALL_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if n % 500 == 0 {
+            log::info!("[output] process_pty_output #{}, pty={}, len={}", n, &pty_id[..pty_id.len().min(8)], data.len());
+        }
+
         let (pane_id, agent_type) = {
             let mux = self.mux.lock();
             let pid = mux.pane_id_for_pty(pty_id);
@@ -43,6 +49,9 @@ impl ServiceContext {
             prev
         };
         let current_status = self.agent_tracker.lock().get_status(pty_id);
+        if current_status != prev_status {
+            log::info!("[status] {} {:?} -> {:?}", &pty_id[..pty_id.len().min(8)], prev_status, current_status);
+        }
 
         if let (Some(ref pid), Some(ref at)) = (&pane_id, &agent_type) {
             if let Ok(raw) = std::str::from_utf8(data) {
