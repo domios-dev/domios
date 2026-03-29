@@ -85,9 +85,14 @@ async function injectPrompt(paneId, question = 'Do you want to proceed?', option
   return apiCall('POST', `/panes/${paneId}/hook/permission`, { question, options: opts });
 }
 
-// Helper: respond to a prompt
+// Helper: respond to a prompt (sends keystrokes to PTY)
 async function respondPrompt(paneId, value) {
   return apiCall('POST', `/panes/${paneId}/prompt/respond`, { value });
+}
+
+// Helper: clear pending_prompt state WITHOUT sending to PTY (safe for cleanup)
+async function clearPromptState(paneId) {
+  return apiCall('POST', `/panes/${paneId}/prompt/clear`);
 }
 
 // Helper: get pane data by ID
@@ -190,7 +195,7 @@ describe('Prompt Approval in Chat View', () => {
 
   afterEach(async () => {
     if (paneId) {
-      try { await respondPrompt(paneId, '3'); } catch { /* ignore */ }
+      try { await clearPromptState(paneId); } catch { /* ignore */ }
     }
   });
 
@@ -309,7 +314,7 @@ describe('Two Panes with Independent Prompts', () => {
   after(async () => {
     for (const pid of [pane1Id, pane2Id]) {
       if (pid) {
-        try { await respondPrompt(pid, '3'); } catch { /* ignore */ }
+        try { await clearPromptState(pid); } catch { /* ignore */ }
       }
     }
     if (pane2Id) {
@@ -394,7 +399,7 @@ describe('Multi-Pane UI Click Approval', () => {
 
   after(async () => {
     for (const pid of [pane1Id, pane2Id]) {
-      if (pid) try { await respondPrompt(pid, '3'); } catch { /* ignore */ }
+      if (pid) try { await clearPromptState(pid); } catch { /* ignore */ }
     }
     if (pane2Id) try { await apiCall('POST', `/panes/${pane2Id}/close`); } catch { /* ignore */ }
   });
@@ -466,7 +471,7 @@ describe('Prompt UI Button Click Flow', () => {
 
   afterEach(async () => {
     if (paneId) {
-      try { await respondPrompt(paneId, '3'); } catch { /* ignore */ }
+      try { await clearPromptState(paneId); } catch { /* ignore */ }
     }
   });
 
