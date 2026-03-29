@@ -46,6 +46,31 @@ pub async fn install_app_update(app: AppHandle) -> Result<(), String> {
 /// Spawn a new PTY. Returns the PTY ID.
 /// NO background thread — frontend polls via read_pty command.
 #[tauri::command]
+pub fn get_windows_build_number() -> u32 {
+    #[cfg(target_os = "windows")]
+    {
+        // Parse build number from Windows registry or ver command
+        use std::process::Command;
+        if let Ok(output) = Command::new("cmd").args(["/c", "ver"]).output() {
+            let ver = String::from_utf8_lossy(&output.stdout);
+            // Format: "Microsoft Windows [Version 10.0.26200.5570]"
+            if let Some(start) = ver.rfind('.') {
+                // Get the part before last dot: "10.0.XXXXX"
+                let before_last = &ver[..start];
+                if let Some(build_start) = before_last.rfind('.') {
+                    if let Ok(n) = before_last[build_start + 1..].trim().parse::<u32>() {
+                        return n;
+                    }
+                }
+            }
+        }
+        19041 // fallback
+    }
+    #[cfg(not(target_os = "windows"))]
+    { 0 }
+}
+
+#[tauri::command]
 pub fn get_default_cwd() -> Result<String, String> {
     std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
@@ -291,6 +316,29 @@ pub async fn get_pane_output(
     let buf = output_buf.lock();
     let text = buf.get_full_text(&pty_id).unwrap_or_default();
     Ok(crate::api::routes::clean_terminal_output(&text))
+}
+
+/// Get current screen state (what's visible on the terminal right now).
+/// Uses the VT100 screen parser — handles cursor positioning, overwrites, etc.
+/// Better than get_pane_output for restoring TUI apps after remount.
+#[tauri::command]
+pub async fn get_pane_screen(
+    output_buf: tauri::State<'_, OutputBufferState>,
+    mux: tauri::State<'_, MuxState>,
+    pane_id: String,
+) -> Result<String, String> {
+    let pty_id = {
+        let m = mux.lock();
+        m.get_pane(&pane_id)
+            .and_then(|p| p.pty_id.clone())
+            .ok_or_else(|| "Pane not found or has no PTY".to_string())?
+    };
+    let buf = output_buf.lock();
+    let text = buf.get_screen_text(&pty_id).unwrap_or_default();
+    // Screen parser returns \n between rows, but xterm.js needs \r\n
+    // to move cursor back to column 0 — otherwise each line starts
+    // where the previous one ended ("staircase" effect).
+    Ok(text.replace('\n', "\r\n"))
 }
 
 /// Read agent session file for a pane.
