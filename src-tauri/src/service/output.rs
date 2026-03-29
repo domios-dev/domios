@@ -28,11 +28,24 @@ impl ServiceContext {
         if n % 200 == 0 {
             log::info!("[output] process_pty_output called {} times, pty={}, data_len={}", n, &pty_id[..pty_id.len().min(8)], data.len());
         }
-        // 1. Track status
+        // 1. Track status using screen content hash (not raw bytes).
+        //    Cursor blinks and TUI noise don't change screen content,
+        //    so they won't reset the idle timer.
         let prev_status = {
+            let screen_hash = {
+                let buf = self.output_buf.lock();
+                if let Some(screen) = buf.get_screen_text(pty_id) {
+                    use sha2::{Digest, Sha256};
+                    let mut h = Sha256::new();
+                    h.update(screen.as_bytes());
+                    h.finalize().into()
+                } else {
+                    [0u8; 32]
+                }
+            };
             let mut t = self.agent_tracker.lock();
             let prev = t.get_status(pty_id);
-            t.update_output(pty_id, data);
+            t.update_output(pty_id, screen_hash);
             prev
         };
 
