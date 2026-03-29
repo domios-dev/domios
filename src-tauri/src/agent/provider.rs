@@ -22,6 +22,7 @@ pub struct AgentLaunchParams {
     pub agent_name: Option<String>,
     pub task: Option<String>,
     pub args: Option<Vec<String>>,
+    pub skip_permissions: bool,
 }
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)

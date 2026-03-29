@@ -106,10 +106,43 @@ async function switchToTerminal() {
   await browser.pause(300);
 }
 
-// Get first pane with Claude running
-async function getClaudePane() {
+// Spawn Claude via API (no --dangerously-skip-permissions)
+async function spawnClaude() {
+  // Get workspace and orchestrator pane
+  const workspaces = await api('GET', '/workspaces');
+  const wsId = workspaces[0]?.id;
   const panes = await api('GET', '/panes');
-  return panes.find(p => p.pty_id && p.agent_type === 'claude');
+  let parent = panes.find(p => p.role === 'Orchestrator' && p.pty_id);
+
+  // If no orchestrator, set one
+  if (!parent) {
+    parent = panes.find(p => p.pty_id);
+    if (parent) {
+      await api('POST', `/panes/${parent.id}/role`, { role: 'Orchestrator' });
+    }
+  }
+  if (!parent) throw new Error('No pane available');
+
+  // Spawn Claude WITHOUT skip-permissions (will ask for approval)
+  const result = await api('POST', '/agents/spawn', {
+    agent: 'claude',
+    title: 'Test Claude',
+    role: 'Worker',
+    parent_pane_id: parent.id,
+    skip_permissions: false,
+  });
+
+  const paneId = result.pane_id;
+
+  // Wait for Claude to be ready
+  for (let i = 0; i < 30; i++) {
+    await browser.pause(2000);
+    const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
+    if (screen.includes('? for shortcuts') || screen.includes('esc to interrupt') || screen.includes('bypass permissions')) {
+      return { id: paneId, agent_type: 'claude' };
+    }
+  }
+  throw new Error('Claude did not start in 60s');
 }
 
 describe('Case 1: Numbered answer → prompt → approve → file created', () => {
@@ -118,8 +151,7 @@ describe('Case 1: Numbered answer → prompt → approve → file created', () =
 
   before(async () => {
     await browser.pause(3000);
-    const pane = await getClaudePane();
-    if (!pane) throw new Error('No Claude pane found — start Claude first');
+    const pane = await spawnClaude();
     paneId = pane.id;
     try { fs.unlinkSync(testFile); } catch {}
   });
@@ -181,8 +213,8 @@ describe('Case 2: Prompt → reject → file NOT created', () => {
   before(async () => {
     // Wait for Claude to be idle from previous test
     await browser.pause(5000);
-    const pane = await getClaudePane();
-    if (!pane) throw new Error('No Claude pane');
+    const pane = await spawnClaude();
+    
     paneId = pane.id;
 
     // Wait for idle (? for shortcuts visible)
@@ -226,8 +258,8 @@ describe('Case 3: False positive — numbered list without prompt', () => {
 
   before(async () => {
     await browser.pause(5000);
-    const pane = await getClaudePane();
-    if (!pane) throw new Error('No Claude pane');
+    const pane = await spawnClaude();
+    
     paneId = pane.id;
 
     // Wait for idle
