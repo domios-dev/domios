@@ -32,7 +32,7 @@ use crate::agent::registry::AgentRegistry;
 use crate::api::events::EventBroadcaster;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::AgentRole;
-use crate::{AgentTrackerState, NotifState, OutputBufferState, PtyState, ReportStoreState};
+use crate::{AgentTrackerState, NotifState, OutputBufferState, PromptDetectorState, PtyState, ReportStoreState};
 
 // Re-export public types used by callers.
 pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
@@ -51,6 +51,7 @@ pub struct ServiceContext {
     pub agent_tracker: AgentTrackerState,
     pub report_store: ReportStoreState,
     pub agent_registry: Arc<AgentRegistry>,
+    pub prompt_detector: PromptDetectorState,
 }
 
 pub type ServiceState = Arc<ServiceContext>;

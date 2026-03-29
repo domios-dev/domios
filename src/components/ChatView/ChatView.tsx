@@ -96,12 +96,20 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
           // Only re-parse when we got new data
           const parsed = sessionParser(accumulatedJsonl.current);
           if (parsed.length !== prevMessageCount.current) {
-            // Drop optimistic messages once JSONL has caught up
+            // Keep optimistic messages until JSONL contains a matching user message
             setAllMessages(prev => {
               const optimistic = prev.filter(m => m.id.startsWith('optimistic-'));
               if (optimistic.length === 0) return parsed;
-              // If JSONL has more messages than before, it caught up — drop optimistic
-              return parsed;
+              // Check if JSONL now has a user message that matches each optimistic one
+              const lastParsedUser = [...parsed].reverse().find(m => m.type === 'user');
+              const lastOptimistic = optimistic[optimistic.length - 1];
+              if (lastParsedUser && lastOptimistic &&
+                  lastParsedUser.content.includes(lastOptimistic.content.slice(0, 40))) {
+                // JSONL caught up — drop optimistic
+                return parsed;
+              }
+              // JSONL hasn't caught up yet — keep optimistic at end
+              return [...parsed, ...optimistic];
             });
             // Auto-scroll on new messages
             if (!userScrolledUp.current) {
@@ -135,7 +143,14 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         setAllMessages(prev => {
           const optimistic = prev.filter(m => m.id.startsWith('optimistic-'));
           if (optimistic.length === 0) return parsed;
-          return parsed;
+          // Check if terminal output now has the user message
+          const lastParsedUser = [...parsed].reverse().find(m => m.type === 'user');
+          const lastOptimistic = optimistic[optimistic.length - 1];
+          if (lastParsedUser && lastOptimistic &&
+              lastParsedUser.content.includes(lastOptimistic.content.slice(0, 40))) {
+            return parsed;
+          }
+          return [...parsed, ...optimistic];
         });
         setIsLoading(false);
 
@@ -277,12 +292,18 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       poll();
     });
 
+    // Listen for mux state changes — picks up prompt detection faster
+    const unlistenState = listen("mux-state-changed", () => {
+      checkForPrompt();
+    });
+
     // Fallback polling at 2s (event-driven handles the fast path)
     const interval = setInterval(poll, 2000);
     return () => {
       active = false;
       clearInterval(interval);
       unlisten.then(fn => fn());
+      unlistenState.then(fn => fn());
     };
   }, [paneId]);
 

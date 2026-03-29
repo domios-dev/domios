@@ -35,6 +35,7 @@ pub type PtyState = Arc<Mutex<PtyManager>>;
 pub type OutputBufferState = Arc<Mutex<OutputBuffer>>;
 pub type AgentTrackerState = Arc<Mutex<agent::status::PaneStatusTracker>>;
 pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
+pub type PromptDetectorState = Arc<Mutex<agent::prompt::PromptDetector>>;
 pub use cron::scheduler::{CronState, CronWake};
 pub type UpdateStateHandle = Arc<Mutex<update::UpdateState>>;
 
@@ -594,6 +595,7 @@ pub fn run() {
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
+            let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
@@ -604,6 +606,7 @@ pub fn run() {
                 agent_tracker: states.agent_tracker.clone(),
                 report_store: states.report_store.clone(),
                 agent_registry,
+                prompt_detector,
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());

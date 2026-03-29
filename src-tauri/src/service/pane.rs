@@ -13,6 +13,7 @@ impl ServiceContext {
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
         let pty_ids = self.mux.lock().close_pane(pane_id)?;
         self.kill_ptys(&pty_ids);
+        self.prompt_detector.lock().remove_pane(pane_id);
         self.emit_state_changed();
         Ok(())
     }
@@ -82,6 +83,10 @@ impl ServiceContext {
             pane.pending_prompt = None;
             had
         };
+
+        // Transition PromptDetector to Cooldown — suppresses re-detection of the
+        // same prompt from PTY output that hasn't been cleared yet.
+        self.prompt_detector.lock().mark_responded(pane_id);
 
         // Only send to PTY if there was an actual prompt — prevents phantom input
         if had_prompt {

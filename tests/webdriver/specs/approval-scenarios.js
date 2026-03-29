@@ -10,10 +10,14 @@
 
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import http from 'http';
 
+const HOME = os.homedir();
+const TMPDIR = os.tmpdir();
+
 const API_TOKEN = (() => {
-  const p = path.join(process.env.HOME, '.codeterm-dev', 'config.toml');
+  const p = path.join(HOME, '.codeterm-dev', 'config.toml');
   if (fs.existsSync(p)) {
     const m = fs.readFileSync(p, 'utf8').match(/token\s*=\s*"([^"]+)"/);
     return m?.[1] || '';
@@ -48,15 +52,17 @@ async function waitForScreenPrompt(paneId, timeoutS = 60) {
 }
 
 // Ensure pending_prompt is set (inject if hooks didn't fire)
-async function ensurePromptSet(paneId) {
-  const pane = (await api('GET', '/panes')).find(p => p.id === paneId);
-  if (pane?.pending_prompt) return pane.pending_prompt;
+async function ensurePromptSet(paneId, retries = 3) {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const pane = (await api('GET', '/panes')).find(p => p.id === paneId);
+    if (pane?.pending_prompt) return pane.pending_prompt;
 
-  // Hooks didn't fire — inject manually from ring buffer
-  await api('POST', `/panes/${paneId}/hook/permission`);
-  await browser.pause(1000);
-  const p2 = (await api('GET', '/panes')).find(p => p.id === paneId);
-  return p2?.pending_prompt;
+    // Hooks didn't fire — inject manually from ring buffer (empty body triggers buffer parse)
+    await api('POST', `/panes/${paneId}/hook/permission`, {});
+    await browser.pause(2000);
+  }
+  const finalPane = (await api('GET', '/panes')).find(p => p.id === paneId);
+  return finalPane?.pending_prompt;
 }
 
 // Open chat view, wait for prompt buttons
@@ -114,22 +120,61 @@ async function getClaudePane() {
   return panes.find(p => p.pty_id && p.agent_type === 'claude');
 }
 
+// Ensure Claude is running — start it if needed, wait for idle prompt
+async function ensureClaudeRunning() {
+  let pane = await getClaudePane();
+  if (pane) {
+    // Check if Claude is actually running (not just detected once)
+    const screen = (await api('GET', `/panes/${pane.id}/screen`)).screen || '';
+    if (screen.includes('? for shortcuts') || screen.includes('Esc to cancel')) {
+      return pane;
+    }
+  }
+
+  // No Claude pane — get first pane and start Claude in it
+  const panes = await api('GET', '/panes');
+  const target = panes[0];
+  if (!target) throw new Error('No panes available');
+
+  await api('POST', `/panes/${target.id}/send`, { text: 'claude', enter: true });
+
+  // Wait for Claude to become idle
+  for (let i = 0; i < 30; i++) {
+    await browser.pause(3000);
+    const screen = (await api('GET', `/panes/${target.id}/screen`)).screen || '';
+    if (screen.includes('? for shortcuts')) {
+      // Re-fetch pane to get updated agent_type
+      return (await api('GET', '/panes')).find(p => p.id === target.id);
+    }
+  }
+  throw new Error('Claude did not start within 90s');
+}
+
+// Wait for Claude to return to idle state (ready for next command)
+async function waitForIdle(paneId, timeoutS = 90) {
+  for (let i = 0; i < timeoutS; i += 3) {
+    await browser.pause(3000);
+    const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
+    if (screen.includes('? for shortcuts')) return screen;
+  }
+  throw new Error(`Claude did not return to idle within ${timeoutS}s`);
+}
+
 describe('Case 1: Numbered answer → prompt → approve → file created', () => {
   let paneId;
-  const testFile = '/tmp/codeterm-case1-test.txt';
+  const testFile = path.join(TMPDIR, 'codeterm-case1-test.txt');
 
   before(async () => {
-    await browser.pause(3000);
-    const pane = await getClaudePane();
-    if (!pane) throw new Error('No Claude pane found — start Claude first');
+    const pane = await ensureClaudeRunning();
     paneId = pane.id;
     try { fs.unlinkSync(testFile); } catch {}
   });
 
   it('send task with numbered list + file creation', async () => {
     await switchToTerminal();
+    const filePath = testFile.replace(/\\/g, '/');
     await api('POST', `/panes/${paneId}/send`, {
-      text: `list 3 design patterns as a numbered list, then create ${testFile} with those names`,
+      text: `list 3 design patterns as a numbered list, then create ${filePath} with those names`,
       enter: true,
     });
     const screen = await waitForScreenPrompt(paneId);
@@ -150,6 +195,8 @@ describe('Case 1: Numbered answer → prompt → approve → file created', () =
   });
 
   it('click Yes in chat UI', async () => {
+    // Ensure prompt is injected before looking for buttons
+    await ensurePromptSet(paneId);
     const buttons = await openChatAndWaitForButtons();
     console.log(`Buttons: ${JSON.stringify(buttons)}`);
     const clicked = await clickBtn('Yes');
@@ -178,29 +225,20 @@ describe('Case 1: Numbered answer → prompt → approve → file created', () =
 describe('Case 2: Prompt → reject → file NOT created', () => {
   let paneId;
   // Use a different path than /tmp (case 1 may have allowed /tmp for session)
-  const testFile = path.join(process.env.HOME, 'codeterm-case2-reject.txt');
+  const testFile = path.join(HOME, 'codeterm-case2-reject.txt');
 
   before(async () => {
-    // Wait for Claude to be idle from previous test
-    await browser.pause(5000);
-    const pane = await getClaudePane();
-    if (!pane) throw new Error('No Claude pane');
+    const pane = await ensureClaudeRunning();
     paneId = pane.id;
-
-    // Wait for idle (? for shortcuts visible)
-    for (let i = 0; i < 20; i++) {
-      const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
-      if (screen.includes('? for shortcuts')) break;
-      await browser.pause(3000);
-    }
-
+    await waitForIdle(paneId);
     try { fs.unlinkSync(testFile); } catch {}
   });
 
   it('send task and wait for prompt', async () => {
     await switchToTerminal();
+    const filePath = testFile.replace(/\\/g, '/');
     await api('POST', `/panes/${paneId}/send`, {
-      text: `create file ${testFile} with content this-should-not-exist`,
+      text: `create file ${filePath} with content this-should-not-exist`,
       enter: true,
     });
     await waitForScreenPrompt(paneId);
@@ -208,6 +246,7 @@ describe('Case 2: Prompt → reject → file NOT created', () => {
   });
 
   it('click No → file NOT created', async () => {
+    await ensurePromptSet(paneId);
     const buttons = await openChatAndWaitForButtons();
     expect(buttons).toContain('No');
     await clickBtn('No');
@@ -227,17 +266,9 @@ describe('Case 3: False positive — numbered list without prompt', () => {
   let paneId;
 
   before(async () => {
-    await browser.pause(5000);
-    const pane = await getClaudePane();
-    if (!pane) throw new Error('No Claude pane');
+    const pane = await ensureClaudeRunning();
     paneId = pane.id;
-
-    // Wait for idle
-    for (let i = 0; i < 20; i++) {
-      const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
-      if (screen.includes('? for shortcuts')) break;
-      await browser.pause(3000);
-    }
+    await waitForIdle(paneId);
   });
 
   it('ask for numbered list (no file action)', async () => {

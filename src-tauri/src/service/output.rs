@@ -10,9 +10,8 @@ use std::time::Instant;
 use tauri::Emitter;
 
 use crate::agent::detector::AgentEvent;
+use crate::agent::prompt::PromptDecision;
 use crate::agent::status::PaneStatus;
-use crate::multiplexer::types::PendingPrompt;
-use crate::multiplexer::types::PromptOption;
 use super::ServiceContext;
 
 /// Per-pane notification cooldown: (pane_id, event_kind) → last fire time.
@@ -26,7 +25,7 @@ impl ServiceContext {
     pub fn process_pty_output(&self, pty_id: &str, data: &[u8]) -> (PaneStatus, PaneStatus) {
         static CALL_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if n % 500 == 0 {
+        if n % 200 == 0 {
             log::info!("[output] process_pty_output called {} times, pty={}, data_len={}", n, &pty_id[..pty_id.len().min(8)], data.len());
         }
         // 1. Track status
@@ -37,16 +36,10 @@ impl ServiceContext {
             prev
         };
 
-        // 2. Clear pending prompt when agent resumes from Waiting
+        // 2. pending_prompt is cleared only by mux_respond_prompt (user action),
+        //    not by status transitions — status tracking is too noisy/unreliable
+        //    for this (cursor blinks, ANSI redraws cause spurious transitions).
         let current_status = self.agent_tracker.lock().get_status(pty_id);
-        if current_status != prev_status && prev_status == PaneStatus::Waiting {
-            let mut mux = self.mux.lock();
-            if let Some(pid) = mux.pane_id_for_pty(pty_id) {
-                if let Some(pane) = mux.get_pane_mut(&pid) {
-                    pane.pending_prompt = None;
-                }
-            }
-        }
 
         // 3. Get agent type for this pane
         let (pane_id, agent_type) = {
@@ -56,22 +49,53 @@ impl ServiceContext {
             (pid, at)
         };
 
-        // Agent event detection: agents with hooks (Claude Code) get detected via API
-        // endpoints (see /api/panes/{id}/hook/permission). For agents WITHOUT hooks
-        // (Codex, Aider, generic), fall back to PTY output parsing.
+        // Agent event detection: always parse PTY output for all agents.
+        // Hooks (Claude Code) provide a faster path via API endpoints
+        // (see /api/panes/{id}/hook/permission), but PTY auto-detect is the
+        // reliable fallback — hooks may not fire on Windows (env var syntax),
+        // in dev mode, or when misconfigured.
         if let (Some(ref pid), Some(ref at)) = (&pane_id, &agent_type) {
-            let provider = self.agent_registry.get(at);
-            let has_hooks = provider.map(|p| p.has_hooks()).unwrap_or(false);
+            if let Ok(raw) = std::str::from_utf8(data) {
+                let chunk_text = crate::api::routes::clean_terminal_output(raw);
+                let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
 
-            if !has_hooks {
-                if let Ok(raw) = std::str::from_utf8(data) {
-                    let chunk_text = crate::api::routes::clean_terminal_output(raw);
-                    if self.agent_registry.has_event_markers(at, &chunk_text) {
-                        let ring_text = self.output_buf.lock().get_text(pty_id).unwrap_or_default();
-                        let clean = crate::api::routes::clean_terminal_output(&ring_text);
-                        let events = self.agent_registry.detect_events(at, &clean);
+                // For prompt detection, use the per-pane VT100 screen content.
+                // This is what the user actually sees — handles cursor positioning,
+                // alternate screen, and TUI overlays correctly.
+                let clean_text = if has_markers {
+                    self.output_buf.lock().get_screen_text(pty_id)
+                } else {
+                    None
+                };
+
+                // Delegate prompt detection to PromptDetector
+                let decision = {
+                    let mut detector = self.prompt_detector.lock();
+                    let agent_type_clone = at.clone();
+                    let registry = &self.agent_registry;
+                    detector.evaluate_pty_output(
+                        pid,
+                        has_markers,
+                        clean_text.as_deref(),
+                        |text| registry.parse_prompt(&agent_type_clone, text),
+                    )
+                };
+
+                // Apply decision to mux state
+                self.apply_prompt_decision(&decision);
+
+                // Also check for non-prompt agent events (task completion, etc.)
+                if has_markers {
+                    if let Some(ref clean) = clean_text {
+                        let events = self.agent_registry.detect_events(at, clean);
                         for event in &events {
-                            self.handle_agent_event(pty_id, pid, at, event, prev_status);
+                            if matches!(event, AgentEvent::PermissionRequest) {
+                                // PermissionRequest is handled by PromptDetector above,
+                                // but we still need to set the Waiting status
+                                self.agent_tracker.lock().set_waiting(pty_id);
+                            } else {
+                                self.handle_agent_event(pty_id, pid, at, event, prev_status);
+                            }
                         }
                     }
                 }
@@ -86,62 +110,25 @@ impl ServiceContext {
         (prev_status, current_status)
     }
 
-    /// Handle a single agent event — update state and dispatch notifications.
-    fn handle_agent_event(
-        &self,
-        pty_id: &str,
-        pane_id: &str,
-        agent_type: &str,
-        event: &AgentEvent,
-        prev_status: PaneStatus,
-    ) {
-        // Cooldown: skip if same event for same pane fired within last 30s
-        let cooldown_key = format!("{}:{:?}", pane_id, event);
-        {
-            let mut map = EVENT_COOLDOWN.lock().unwrap();
-            let now = Instant::now();
-            if let Some(last) = map.get(&cooldown_key) {
-                if now.duration_since(*last).as_secs() < 30 {
-                    return;
-                }
-            }
-            map.insert(cooldown_key, now);
-        }
-
-        match event {
-            AgentEvent::PermissionRequest => {
-                self.agent_tracker.lock().set_waiting(pty_id);
-
-                // Check if prompt already set — if so, skip (no re-notification)
-                let already_has_prompt = self.mux.lock()
-                    .get_pane(pane_id)
-                    .and_then(|p| p.pending_prompt.as_ref())
-                    .is_some();
-
-                if already_has_prompt {
-                    return; // Already notified, don't spam
-                }
-
-                // Parse prompt options from ring buffer (last 64KB, safe)
+    /// Apply a PromptDecision to mux state — set prompt on pane, emit events, notify.
+    pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
+        match decision {
+            PromptDecision::None => {},
+            PromptDecision::NewPrompt { pane_id, prompt } |
+            PromptDecision::PromptUpdated { pane_id, prompt } => {
+                // Set on pane
                 {
-                    let buf = self.output_buf.lock();
-                    let ring_text = buf.get_text(pty_id).unwrap_or_default();
-                    let clean_tail = crate::api::routes::clean_terminal_output(&ring_text);
-                    if let Some((question, opts)) = self.agent_registry.parse_prompt(agent_type, &clean_tail) {
-                        log::debug!("[prompt] Parsed: {:?} with {} options", question, opts.len());
-                        let prompt = PendingPrompt {
-                            question,
-                            options: opts.into_iter().map(|(label, value)| {
-                                PromptOption { label, value }
-                            }).collect(),
-                        };
-                        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
-                            pane.pending_prompt = Some(prompt);
-                        }
+                    let mut mux = self.mux.lock();
+                    if let Some(pane) = mux.get_pane_mut(pane_id) {
+                        pane.pending_prompt = Some(prompt.clone());
+                        log::info!("[prompt] Set pending_prompt on pane {} q={:?}", pane_id, prompt.question);
+                    } else {
+                        log::warn!("[prompt] Pane {} not found for setting pending_prompt", pane_id);
                     }
                 }
-
-                // Single event — frontend shows toast, webhooks get notified
+                // Emit state change so frontend picks up the prompt
+                self.emit_state_changed();
+                // Notify frontend + webhooks
                 let title = self.mux.lock().get_pane(pane_id).map(|p| p.title.clone());
                 if let Some(title) = title {
                     self.notify_event("agent.permission_request", serde_json::json!({
@@ -150,6 +137,35 @@ impl ServiceContext {
                         "body": "Agent is waiting for your permission",
                     }));
                 }
+            }
+        }
+    }
+
+    /// Handle a single agent event — update state and dispatch notifications.
+    /// PermissionRequest is now handled by PromptDetector; only TaskComplete goes through here.
+    fn handle_agent_event(
+        &self,
+        _pty_id: &str,
+        pane_id: &str,
+        _agent_type: &str,
+        event: &AgentEvent,
+        prev_status: PaneStatus,
+    ) {
+        // Cooldown: skip if same event for same pane fired recently.
+        let cooldown_key = format!("{}:{:?}", pane_id, event);
+        let mut map = EVENT_COOLDOWN.lock().unwrap();
+        let now = Instant::now();
+        if let Some(last) = map.get(&cooldown_key) {
+            if now.duration_since(*last).as_secs() < 30 {
+                return;
+            }
+        }
+        map.insert(cooldown_key, now);
+        drop(map);
+
+        match event {
+            AgentEvent::PermissionRequest => {
+                // Handled by PromptDetector — should not reach here
             }
             AgentEvent::TaskComplete => {
                 if prev_status == PaneStatus::Working {
