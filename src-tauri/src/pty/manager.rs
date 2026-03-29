@@ -51,7 +51,6 @@ impl OutputBuffer {
             let excess = full.len() - MAX_FULL_SIZE;
             full.drain(..excess);
         }
-        // Feed VT100 parser incrementally — always up to date with current screen
         let parser = self.screen_parsers
             .entry(pty_id.to_string())
             .or_insert_with(|| vt100::Parser::new(50, 120, 500));
@@ -76,11 +75,25 @@ impl OutputBuffer {
         self.get_full(pty_id).map(|b| String::from_utf8_lossy(b).to_string())
     }
 
-    /// Get current screen content — what the user actually sees.
-    /// Built incrementally from all PTY output, handles cursor positioning,
-    /// alternate screen, line wrapping correctly.
     pub fn get_screen_text(&self, pty_id: &str) -> Option<String> {
         self.screen_parsers.get(pty_id).map(|p| p.screen().contents())
+    }
+
+    pub fn get_content_hash(&self, pty_id: &str, exclude_bottom_rows: u16) -> Option<[u8; 32]> {
+        use sha2::{Digest, Sha256};
+        self.screen_parsers.get(pty_id).map(|p| {
+            let screen = p.screen();
+            let (rows, cols) = screen.size();
+            let end_row = rows.saturating_sub(exclude_bottom_rows);
+            let text = if end_row > 0 {
+                screen.contents_between(0, 0, end_row.saturating_sub(1), cols)
+            } else {
+                String::new()
+            };
+            let mut h = Sha256::new();
+            h.update(text.as_bytes());
+            h.finalize().into()
+        })
     }
 
     pub fn remove(&mut self, pty_id: &str) {

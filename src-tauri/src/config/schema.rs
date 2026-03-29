@@ -245,7 +245,7 @@ impl Default for AgentConfig {
     fn default() -> Self {
         Self {
             poll_interval_ms: 500,
-            idle_timeout_s: 5,
+            idle_timeout_s: 2,
             resume_sessions: true,
             resume_skip_permissions: false,
         }

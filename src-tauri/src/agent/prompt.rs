@@ -8,37 +8,34 @@ use std::time::Instant;
 
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
 
-/// Per-pane prompt state machine.
 #[derive(Debug)]
 enum PanePromptState {
-    /// No active prompt.
     Idle,
-    /// Prompt is being shown to the user.
     Active {
         prompt: PendingPrompt,
         #[allow(dead_code)]
         detected_at: Instant,
     },
-    /// User responded — suppress re-detection for cooldown_ms.
+    /// Suppress re-detection for cooldown_ms after user responds.
     Cooldown {
         responded_at: Instant,
     },
 }
 
-/// Decision returned to the caller. The caller applies it to mux state.
 #[derive(Debug, Clone)]
 pub enum PromptDecision {
-    /// Nothing to do.
     None,
-    /// A new prompt was detected — set it on the pane.
     NewPrompt {
         pane_id: String,
         prompt: PendingPrompt,
     },
-    /// The prompt changed (different options) — update the pane.
     PromptUpdated {
         pane_id: String,
         prompt: PendingPrompt,
+    },
+    /// Prompt disappeared from screen (user answered in terminal) — clear pending_prompt.
+    PromptCleared {
+        pane_id: String,
     },
 }
 
@@ -170,7 +167,6 @@ impl PromptDetector {
         self.states.remove(pane_id);
     }
 
-    /// Core detection + state transition logic.
     fn detect_and_transition<F>(
         &mut self,
         pane_id: &str,
@@ -181,12 +177,9 @@ impl PromptDetector {
         F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
     {
         let state = self.states.get(pane_id);
-        log::debug!("[prompt] detect_and_transition pane={} state={:?}", pane_id,
-            match state { Some(PanePromptState::Idle) => "Idle", Some(PanePromptState::Active{..}) => "Active", Some(PanePromptState::Cooldown{..}) => "Cooldown", None => "None" });
 
         match state {
             Some(PanePromptState::Active { prompt: existing, .. }) => {
-                // Already have an active prompt — check if it changed
                 match parse_fn(text) {
                     Some((question, opts)) => {
                         let new_prompt = build_prompt(question, opts);
@@ -206,16 +199,20 @@ impl PromptDetector {
                             }
                         }
                     }
-                    None => PromptDecision::None,
+                    None => {
+                        // Prompt gone from screen — user answered in terminal
+                        self.states.insert(pane_id.to_string(), PanePromptState::Idle);
+                        PromptDecision::PromptCleared {
+                            pane_id: pane_id.to_string(),
+                        }
+                    }
                 }
             }
 
             Some(PanePromptState::Cooldown { responded_at }) => {
-                // Skip detection during cooldown
                 if responded_at.elapsed().as_millis() < self.cooldown_ms as u128 {
                     return PromptDecision::None;
                 }
-                // Cooldown expired — transition to Idle and try detection
                 self.states.insert(pane_id.to_string(), PanePromptState::Idle);
                 self.try_detect(pane_id, text, parse_fn)
             }
@@ -226,7 +223,6 @@ impl PromptDetector {
         }
     }
 
-    /// Parse and transition to Active if prompt found.
     fn try_detect<F>(
         &mut self,
         pane_id: &str,
@@ -237,18 +233,6 @@ impl PromptDetector {
         F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
     {
         let result = parse_fn(text);
-        log::debug!("[prompt] try_detect pane={} text_len={} parse_result={}", pane_id, text.len(), result.is_some());
-        if result.is_none() {
-            // Log last 60 lines for debugging
-            let lines: Vec<&str> = text.lines().collect();
-            let start = lines.len().saturating_sub(60);
-            for (i, line) in lines[start..].iter().enumerate() {
-                let trimmed = line.trim();
-                if !trimmed.is_empty() {
-                    log::debug!("[prompt] line {}: {:?}", start + i, trimmed);
-                }
-            }
-        }
         match result {
             Some((question, opts)) => {
                 let prompt = build_prompt(question, opts);
@@ -433,6 +417,16 @@ mod tests {
         let mut det = PromptDetector::new();
         let decision = det.evaluate_pty_output("pane-1", true, Some("nothing here"), parse_yes_no);
         assert!(matches!(decision, PromptDecision::None));
+    }
+
+    #[test]
+    fn test_active_prompt_cleared_when_gone() {
+        let mut det = PromptDetector::new();
+        det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
+        // Prompt disappears from screen (user answered in terminal)
+        let decision = det.evaluate_pty_output("pane-1", true, Some("no prompt here"), parse_yes_no);
+        assert!(matches!(decision, PromptDecision::PromptCleared { .. }));
+        assert!(det.active_prompt("pane-1").is_none());
     }
 
     #[test]
