@@ -103,10 +103,7 @@ impl AgentProvider for ClaudeProvider {
         }
 
         let now = std::time::SystemTime::now();
-        // Use max_age if provided, otherwise default to 5 minutes.
-        // 30s was too aggressive — Claude may be idle waiting for input while
-        // the JSONL file sits unmodified.  5 minutes covers typical startup +
-        // first-message delays on all platforms (PowerShell on Windows is slower).
+        // 5 min default: Claude may be idle waiting for input while JSONL sits unmodified
         let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
         let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
 
@@ -152,11 +149,9 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn has_event_markers(&self, chunk: &str) -> bool {
-        // Prompt markers
         chunk.contains("❯") || chunk.contains("proceed")
             || chunk.contains("Esc to cancel") || chunk.contains("Tab to amend")
             || (chunk.contains("1.") && chunk.contains("2."))
-            // Completion marker: " for <digit>" — catches "<Verb> for 5s"
             || chunk.contains(" for 0") || chunk.contains(" for 1") || chunk.contains(" for 2")
             || chunk.contains(" for 3") || chunk.contains(" for 4") || chunk.contains(" for 5")
             || chunk.contains(" for 6") || chunk.contains(" for 7") || chunk.contains(" for 8")
@@ -174,10 +169,11 @@ impl AgentProvider for ClaudeProvider {
 
     fn has_hooks(&self) -> bool { true }
 
+    fn status_bar_rows(&self) -> u16 { 3 }
+
     fn is_output_noise(&self, text: &str) -> bool {
         let t = text.trim();
         if t.is_empty() { return true; }
-        // Claude Code TUI status bar patterns
         let noise = [
             "bypass permissions on",
             "shift+tab to cycle",

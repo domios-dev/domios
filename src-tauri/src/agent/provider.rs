@@ -61,22 +61,20 @@ pub trait AgentProvider: Send + Sync {
     fn has_hooks(&self) -> bool { false }
 
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
-    /// Each provider knows its own status bar patterns, progress indicators, etc.
     fn is_output_noise(&self, text: &str) -> bool { let _ = text; false }
 
+    /// Bottom rows occupied by status bar/chrome, excluded from idle detection hash.
+    fn status_bar_rows(&self) -> u16 { 0 }
 
 
-    /// Quick check: does this chunk contain markers worth investigating?
-    /// Called on every PTY chunk (must be fast). If true, full detection runs on ring buffer.
-    /// Default: check for numbered options and keyboard hints.
+    /// Quick pre-filter on raw PTY chunks (must be fast).
+    /// If true, full detection runs on the VT100 screen content.
     fn has_event_markers(&self, chunk: &str) -> bool {
         chunk.contains("❯") || chunk.contains("proceed")
             || chunk.contains("Esc to cancel") || chunk.contains("Tab to amend")
             || (chunk.contains("1.") && chunk.contains("2."))
     }
 
-    /// Detect agent events from terminal output (full ring buffer text).
-    /// Default: generic structural fingerprint (numbered menu + keyboard hints).
     fn detect_events(&self, text: &str) -> Vec<crate::agent::detector::AgentEvent> {
         let mut events = Vec::new();
         if crate::agent::detector::detect_interactive_prompt(text) {
@@ -85,8 +83,6 @@ pub trait AgentProvider: Send + Sync {
         events
     }
 
-    /// Parse a pending interactive prompt from terminal output.
-    /// Default: generic numbered option parser.
     fn parse_prompt(&self, text: &str) -> Option<(String, Vec<(String, String)>)> {
         crate::agent::detector::parse_permission_prompt(text)
     }
