@@ -154,6 +154,9 @@ pub struct SpawnAgentParams {
     pub force_tab: Option<bool>,
     /// Report target pane ID — for cron agents to report without joining hierarchy.
     pub report_target_pane_id: Option<String>,
+    /// Skip permissions flag — default true for backward compat.
+    /// Set false to spawn agent that asks for permission (for testing approval flow).
+    pub skip_permissions: Option<bool>,
 }
 
 impl SpawnAgentParams {
@@ -179,6 +182,7 @@ impl SpawnAgentParams {
             workspace_id: json_str(params, "workspace_id"),
             force_tab: params.get("force_tab").and_then(|v| v.as_bool()),
             report_target_pane_id: json_str(params, "report_target_pane_id"),
+            skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
         })
     }
 }
@@ -427,6 +431,7 @@ fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<
             agent_name: params.agent_name.clone(),
             task: task.map(|t| t.to_string()),
             args: params.args.clone(),
+            skip_permissions: params.skip_permissions.unwrap_or(true),
         };
         provider.build_launch_command(&launch_params)
     } else {
@@ -458,6 +463,7 @@ mod tests {
             workspace_id: None,
             force_tab: None,
             report_target_pane_id: None,
+            skip_permissions: None,
         }
     }
 

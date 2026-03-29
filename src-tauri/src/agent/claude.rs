@@ -42,7 +42,9 @@ impl AgentProvider for ClaudeProvider {
 
         parts.push(ShellSyntax::UNSET_CLAUDECODE.to_string());
         parts.push("claude".to_string());
-        parts.push("--dangerously-skip-permissions".to_string());
+        if params.skip_permissions {
+            parts.push("--dangerously-skip-permissions".to_string());
+        }
 
         if let Some(ref task) = params.task {
             parts.push(ShellSyntax::task_file_expr(task));

@@ -835,6 +835,7 @@ struct SpawnAgentBody {
     force_tab: Option<bool>,
     /// Report target pane ID — for cron agents to report without joining hierarchy
     report_target_pane_id: Option<String>,
+    skip_permissions: Option<bool>,
 }
 
 async fn spawn_agent(
@@ -856,6 +857,7 @@ async fn spawn_agent(
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
         report_target_pane_id: body.report_target_pane_id,
+            skip_permissions: None,
     };
     let result = state.svc.spawn_agent(params).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;

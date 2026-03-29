@@ -150,6 +150,7 @@ impl ServiceContext {
             workspace_id: Some(workspace_id),
             force_tab: Some(true),
             report_target_pane_id: creator_pane_id,
+            skip_permissions: None,
         };
 
         match self.spawn_agent_sync(params) {

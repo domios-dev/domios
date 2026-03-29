@@ -148,6 +148,7 @@ fn fire_job(
         workspace_id: Some(workspace_id.to_string()),
         force_tab: Some(true),
         report_target_pane_id: creator_pane_id.map(|s| s.to_string()),
+            skip_permissions: None,
     };
 
     match service.spawn_agent_sync(params) {
