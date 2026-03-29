@@ -85,13 +85,15 @@ impl OutputBuffer {
             let screen = p.screen();
             let (rows, cols) = screen.size();
             let end_row = rows.saturating_sub(exclude_bottom_rows);
-            let text = if end_row > 0 {
-                screen.contents_between(0, 0, end_row.saturating_sub(1), cols)
-            } else {
-                String::new()
-            };
+            // Hash individual rows, trimmed — immune to cursor position and trailing spaces
             let mut h = Sha256::new();
-            h.update(text.as_bytes());
+            for row in 0..end_row {
+                let row_text = screen.contents_between(row, 0, row, cols);
+                let trimmed = row_text.trim();
+                if !trimmed.is_empty() {
+                    h.update(trimmed.as_bytes());
+                }
+            }
             h.finalize().into()
         })
     }
