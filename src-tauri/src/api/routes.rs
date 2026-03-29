@@ -73,6 +73,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/can-spawn", post(set_can_spawn))
         .route("/api/panes/{id}/agent-type", post(set_agent_type))
         .route("/api/panes/{id}/prompt/respond", post(respond_prompt))
+        .route("/api/panes/{id}/prompt/clear", post(clear_prompt))
         .route("/api/panes/{id}/hook/permission", post(hook_permission))
         .route("/api/panes/{id}/hook/stop", post(hook_stop))
         .route("/api/agents", get(list_agents))
@@ -1023,6 +1024,16 @@ async fn respond_prompt(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing 'value' field".to_string()))?
         .to_string();
     state.svc.respond_prompt(&pane_id, &value)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Clear pending_prompt state without sending to PTY (safe for cleanup/reset).
+async fn clear_prompt(
+    AxumState(state): AxumState<AppState>,
+    Path(pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    state.svc.clear_prompt(&pane_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }

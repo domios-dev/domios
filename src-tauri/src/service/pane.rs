@@ -81,6 +81,16 @@ impl ServiceContext {
         self.set_agent_session_id(pane_id, session_id);
     }
 
+    /// Clear pending_prompt state without sending anything to PTY.
+    /// Used for test cleanup and state reset.
+    pub fn clear_prompt(&self, pane_id: &str) -> Result<(), String> {
+        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
+            pane.pending_prompt = None;
+        }
+        self.emit_state_changed();
+        Ok(())
+    }
+
     /// Respond to a pending prompt — sends the selection to PTY and clears the prompt.
     /// Only sends to PTY if there's actually a pending prompt (avoids phantom input).
     pub fn respond_prompt(&self, pane_id: &str, value: &str) -> Result<(), String> {
