@@ -892,24 +892,10 @@ export function TerminalPane({
           }
         }
 
-        // OSC 7 CWD tracking is now handled invisibly via env vars at PTY spawn
-        // (shell_integration.rs sets ZDOTDIR for zsh, PROMPT_COMMAND for bash).
-        // Windows PowerShell still needs prompt injection after spawn.
-        if (navigator.platform.startsWith("Win")) {
-          setTimeout(() => {
-            invoke("write_pty_string", {
-              ptyId: spawnedId,
-              data: "$e=[char]27;$b=[char]7;function prompt{$f=$pwd.Path.Replace('\\','/');\"$e]7;file:///$f$b\"+\"PS $pwd> \"};cls\r",
-            }).then(() => {
-              setTimeout(() => setShellReady(true), 400);
-            }).catch(() => {
-              setShellReady(true);
-            });
-          }, 800);
-        } else {
-          // Unix: shell integration loaded via env vars — no visible commands needed
-          setShellReady(true);
-        }
+        // OSC 7 CWD tracking is handled invisibly at PTY spawn time
+        // (shell_integration.rs: ZDOTDIR for zsh, PROMPT_COMMAND for bash,
+        // -NoExit -Command for PowerShell on Windows). No visible injection needed.
+        setShellReady(true);
 
         // If this pane had Claude Code running and we know the session ID, resume it
         if (paneData?.agent_type === "claude" && paneData?.agent_session_id) {

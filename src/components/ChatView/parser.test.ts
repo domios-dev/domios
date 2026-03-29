@@ -213,6 +213,77 @@ console.log("\n--- parseJsonlSession ---\n");
 }
 
 // ---------------------------------------------------------------------------
+// type:"message" entries (role-based dispatch)
+// ---------------------------------------------------------------------------
+
+console.log("\n--- type:message entries ---\n");
+
+// 14c. type:"message" with role:"user"
+{
+  const input = `{"type":"message","uuid":"mu1","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":[{"type":"text","text":"hello from message type"}]}}`;
+  const msgs = parseJsonlSession(input);
+  eq(msgs.length, 1, "14c. message/user: one message");
+  eq(msgs[0].type, "user", "14c. message/user: type is user");
+  eq(msgs[0].content, "hello from message type", "14c. message/user: content");
+  eq(msgs[0].timestamp, "2026-01-01T00:00:00Z", "14c. message/user: timestamp");
+}
+
+// 14d. type:"message" with role:"assistant" — text block
+{
+  const input = `{"type":"message","uuid":"ma1","timestamp":"2026-01-01T00:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"Hello!"}]}}`;
+  const msgs = parseJsonlSession(input);
+  eq(msgs.length, 1, "14d. message/assistant text: one message");
+  eq(msgs[0].type, "assistant", "14d. message/assistant text: type");
+  eq(msgs[0].content, "Hello!", "14d. message/assistant text: content");
+}
+
+// 14e. type:"message" with role:"assistant" — tool_use block
+{
+  const input = `{"type":"message","uuid":"ma2","timestamp":"2026-01-01T00:00:02Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_msg1","name":"Read","input":{"file_path":"/tmp/x.ts"}}]}}`;
+  const msgs = parseJsonlSession(input);
+  eq(msgs.length, 1, "14e. message/assistant tool_use: one message");
+  eq(msgs[0].type, "tool_call", "14e. message/assistant tool_use: type");
+  eq(msgs[0].toolName, "Read", "14e. message/assistant tool_use: toolName");
+  eq(msgs[0].toolId, "toolu_msg1", "14e. message/assistant tool_use: toolId");
+}
+
+// 14f. type:"message" with role:"assistant" — mixed blocks
+{
+  const input = `{"type":"message","uuid":"ma3","message":{"role":"assistant","content":[{"type":"text","text":"Let me look."},{"type":"tool_use","id":"toolu_msg2","name":"Bash","input":{"command":"ls"}}]}}`;
+  const msgs = parseJsonlSession(input);
+  eq(msgs.length, 2, "14f. message/assistant mixed: two messages");
+  eq(msgs[0].type, "assistant", "14f. message/assistant mixed: first is text");
+  eq(msgs[1].type, "tool_call", "14f. message/assistant mixed: second is tool_call");
+}
+
+// 14g. type:"message" with role:"user" — image attachment
+{
+  const input = `{"type":"message","uuid":"mu2","message":{"role":"user","content":[{"type":"text","text":"see this"},{"type":"image","source":{"data":"abc123","media_type":"image/png"}}]}}`;
+  const msgs = parseJsonlSession(input);
+  eq(msgs.length, 1, "14g. message/user image: one message");
+  eq(msgs[0].type, "user", "14g. message/user image: type");
+  eq(msgs[0].content, "see this", "14g. message/user image: text content");
+  assert(msgs[0].attachments !== undefined, "14g. message/user image: has attachments");
+  eq(msgs[0].attachments!.length, 1, "14g. message/user image: one attachment");
+}
+
+// 14h. type:"message" interleaved with type:"user" and type:"assistant"
+{
+  const lines = [
+    `{"type":"user","uuid":"u10","message":{"role":"user","content":[{"type":"text","text":"first"}]}}`,
+    `{"type":"message","uuid":"ma4","message":{"role":"assistant","content":[{"type":"text","text":"reply to first"}]}}`,
+    `{"type":"message","uuid":"mu3","message":{"role":"user","content":[{"type":"text","text":"second"}]}}`,
+    `{"type":"assistant","uuid":"a20","message":{"role":"assistant","content":[{"type":"text","text":"reply to second"}]}}`,
+  ].join("\n");
+  const msgs = parseJsonlSession(lines);
+  eq(msgs.length, 4, "14h. interleaved: four messages");
+  eq(msgs[0].type, "user", "14h. interleaved: 1st user");
+  eq(msgs[1].type, "assistant", "14h. interleaved: 2nd assistant");
+  eq(msgs[2].type, "user", "14h. interleaved: 3rd user");
+  eq(msgs[3].type, "assistant", "14h. interleaved: 4th assistant");
+}
+
+// ---------------------------------------------------------------------------
 // parseTerminalOutput
 // ---------------------------------------------------------------------------
 
