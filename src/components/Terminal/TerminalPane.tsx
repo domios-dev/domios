@@ -900,15 +900,15 @@ export function TerminalPane({
         // If this pane had Claude Code running and we know the session ID, resume it
         if (paneData?.agent_type === "claude" && paneData?.agent_session_id) {
           invoke<{ agent: { resume_sessions: boolean; resume_skip_permissions: boolean } }>("get_config")
-            .then((cfg) => {
+            .then(async (cfg) => {
               if (!cfg.agent.resume_sessions) return;
               const skipFlag = cfg.agent.resume_skip_permissions ? " --dangerously-skip-permissions" : "";
-              setTimeout(() => {
-                invoke("write_pty_string", {
-                  ptyId: spawnedId,
-                  data: `claude --resume ${paneData.agent_session_id}${skipFlag}\r`,
-                }).catch(() => {});
-              }, 1500);
+              await invoke<boolean>("wait_shell_ready", { paneId, timeoutMs: 10000 });
+              if (disposed) return;
+              invoke("write_pty_string", {
+                ptyId: spawnedId,
+                data: `claude --resume ${paneData.agent_session_id}${skipFlag}\r`,
+              }).catch(() => {});
             })
             .catch(() => {});
         }
