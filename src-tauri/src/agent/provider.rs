@@ -60,6 +60,20 @@ pub trait AgentProvider: Send + Sync {
     /// Agents with hooks get detected via API endpoints, not PTY output parsing.
     fn has_hooks(&self) -> bool { false }
 
+    /// Build raw bytes to navigate to and confirm a prompt option.
+    /// `option_index` is 0-based (0 = first option, already selected).
+    /// Default: arrow down keys + Enter (standard ANSI).
+    /// Providers override for agent-specific navigation (e.g. vim j/k).
+    fn build_prompt_response(&self, option_index: usize) -> Vec<Vec<u8>> {
+        let mut steps = Vec::new();
+        let arrow_down = b"\x1b[B".to_vec(); // ESC [ B
+        for _ in 0..option_index {
+            steps.push(arrow_down.clone());
+        }
+        steps.push(b"\r".to_vec()); // Enter
+        steps
+    }
+
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
     /// Each provider knows its own status bar patterns, progress indicators, etc.
     fn is_output_noise(&self, text: &str) -> bool { let _ = text; false }

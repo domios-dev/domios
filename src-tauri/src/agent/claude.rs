@@ -179,6 +179,16 @@ impl AgentProvider for ClaudeProvider {
 
     fn has_hooks(&self) -> bool { true }
 
+    /// Claude TUI supports vim j/k navigation — simpler and more reliable than arrow keys.
+    fn build_prompt_response(&self, option_index: usize) -> Vec<Vec<u8>> {
+        let mut steps = Vec::new();
+        for _ in 0..option_index {
+            steps.push(b"j".to_vec());
+        }
+        steps.push(b"\r".to_vec());
+        steps
+    }
+
     fn is_output_noise(&self, text: &str) -> bool {
         let t = text.trim();
         if t.is_empty() { return true; }
