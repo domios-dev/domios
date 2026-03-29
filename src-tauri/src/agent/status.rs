@@ -64,6 +64,12 @@ impl PaneStatusTracker {
         }
     }
 
+    pub fn set_idle(&mut self, pane_id: &str) {
+        if let Some(entry) = self.pane_statuses.get_mut(pane_id) {
+            entry.status = PaneStatus::Idle;
+        }
+    }
+
     pub fn set_dead(&mut self, pane_id: &str) {
         if let Some(entry) = self.pane_statuses.get_mut(pane_id) {
             entry.status = PaneStatus::Dead;

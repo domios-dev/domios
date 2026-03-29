@@ -64,6 +64,11 @@ pub trait AgentProvider: Send + Sync {
     /// Each provider knows its own status bar patterns, progress indicators, etc.
     fn is_output_noise(&self, text: &str) -> bool { let _ = text; false }
 
+    /// Check if the agent is idle based on screen content.
+    /// Called with the current screen text (what the user sees).
+    /// If true, status transitions to Idle immediately (bypasses timeout).
+    fn is_idle_screen(&self, _screen: &str) -> bool { false }
+
     /// Quick check: does this chunk contain markers worth investigating?
     /// Called on every PTY chunk (must be fast). If true, full detection runs on ring buffer.
     /// Default: check for numbered options and keyboard hints.
