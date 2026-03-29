@@ -4,16 +4,21 @@ use serde::Deserialize;
 use super::ServiceContext;
 
 impl ServiceContext {
+    /// Send text to PTY via bracket paste mode (ESC[200~ ... ESC[201~).
+    /// Standard terminal paste protocol — all TUI apps handle it correctly.
+    /// Prevents special chars from being interpreted as commands.
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(pane_id)?;
-        let data = if enter && !text.ends_with('\r') && !text.ends_with('\n') {
-            format!("{}\r", text)
-        } else {
-            text.to_string()
-        };
+        let mut buf = String::new();
+        buf.push_str("\x1b[200~");
+        buf.push_str(text);
+        buf.push_str("\x1b[201~");
+        if enter {
+            buf.push('\r');
+        }
         self.pty
             .lock()
-            .write(&pty_id, data.as_bytes())
+            .write(&pty_id, buf.as_bytes())
             .map_err(|e| e.to_string())
     }
 
