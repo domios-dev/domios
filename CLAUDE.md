@@ -107,8 +107,9 @@ All parking_lot Mutexes must be acquired in this order. Never hold a higher-numb
 
 1. `mux` (MultiplexerState)
 2. `output_buf` (OutputBuffer)
-3. `agent_tracker` (PaneStatusTracker)
-4. `pty` (PtyManager)
+3. `screen_state` (ScreenState)
+4. `agent_tracker` (PaneStatusTracker)
+5. `pty` (PtyManager)
 
 **Rules:**
 - Never hold two locks simultaneously if possible — lock, read/write, drop, then lock the next.

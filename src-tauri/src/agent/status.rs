@@ -1,10 +1,10 @@
-/// Per-pane agent status tracking.
+/// Per-PTY agent status tracking.
+/// Keyed by pty_id — use mux.pane_id_for_pty() to translate.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum PaneStatus {
@@ -15,7 +15,7 @@ pub enum PaneStatus {
 }
 
 pub struct PaneStatusTracker {
-    pane_statuses: HashMap<String, PaneStatusEntry>,
+    statuses: HashMap<String, PaneStatusEntry>,
 }
 
 struct PaneStatusEntry {
@@ -29,7 +29,7 @@ struct PaneStatusEntry {
 impl PaneStatusTracker {
     pub fn new() -> Self {
         Self {
-            pane_statuses: HashMap::new(),
+            statuses: HashMap::new(),
         }
     }
 
@@ -37,12 +37,12 @@ impl PaneStatusTracker {
     /// `screen_hash` is the hash of the current screen content (what user sees),
     /// NOT the raw PTY bytes. This filters out cursor blinks and TUI noise —
     /// only actual content changes count as "working".
-    pub fn update_output(&mut self, pane_id: &str, screen_hash: [u8; 32]) {
+    pub fn update_output(&mut self, pty_id: &str, screen_hash: [u8; 32]) {
         let now = Instant::now();
 
         let entry = self
-            .pane_statuses
-            .entry(pane_id.to_string())
+            .statuses
+            .entry(pty_id.to_string())
             .or_insert_with(|| PaneStatusEntry {
                 status: PaneStatus::Working,
                 last_output_hash: [0u8; 32],
@@ -58,27 +58,27 @@ impl PaneStatusTracker {
         }
     }
 
-    pub fn set_waiting(&mut self, pane_id: &str) {
-        if let Some(entry) = self.pane_statuses.get_mut(pane_id) {
+    pub fn set_waiting(&mut self, pty_id: &str) {
+        if let Some(entry) = self.statuses.get_mut(pty_id) {
             entry.status = PaneStatus::Waiting;
         }
     }
 
-    pub fn set_idle(&mut self, pane_id: &str) {
-        if let Some(entry) = self.pane_statuses.get_mut(pane_id) {
+    pub fn set_idle(&mut self, pty_id: &str) {
+        if let Some(entry) = self.statuses.get_mut(pty_id) {
             entry.status = PaneStatus::Idle;
         }
     }
 
-    pub fn set_dead(&mut self, pane_id: &str) {
-        if let Some(entry) = self.pane_statuses.get_mut(pane_id) {
+    pub fn set_dead(&mut self, pty_id: &str) {
+        if let Some(entry) = self.statuses.get_mut(pty_id) {
             entry.status = PaneStatus::Dead;
         }
     }
 
-    pub fn check_idle(&mut self, pane_id: &str, idle_timeout: Duration) {
+    pub fn check_idle(&mut self, pty_id: &str, idle_timeout: Duration) {
         let now = Instant::now();
-        if let Some(entry) = self.pane_statuses.get_mut(pane_id) {
+        if let Some(entry) = self.statuses.get_mut(pty_id) {
             entry.last_check_time = now;
             if entry.status == PaneStatus::Working
                 && now.duration_since(entry.last_output_time) > idle_timeout
@@ -88,20 +88,20 @@ impl PaneStatusTracker {
         }
     }
 
-    pub fn get_status(&self, pane_id: &str) -> PaneStatus {
-        self.pane_statuses
-            .get(pane_id)
+    pub fn get_status(&self, pty_id: &str) -> PaneStatus {
+        self.statuses
+            .get(pty_id)
             .map(|e| e.status)
             .unwrap_or(PaneStatus::Dead)
     }
 
-    pub fn remove(&mut self, pane_id: &str) {
-        self.pane_statuses.remove(pane_id);
+    pub fn remove(&mut self, pty_id: &str) {
+        self.statuses.remove(pty_id);
     }
 
-    /// Returns all tracked pane/pty IDs.
+    /// Returns all tracked pty IDs.
     pub fn all_ids(&self) -> Vec<String> {
-        self.pane_statuses.keys().cloned().collect()
+        self.statuses.keys().cloned().collect()
     }
 }
 

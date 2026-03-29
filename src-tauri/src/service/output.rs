@@ -40,7 +40,7 @@ impl ServiceContext {
             .map(|at| self.agent_registry.status_bar_rows(at))
             .unwrap_or(0);
         let prev_status = {
-            let screen_hash = self.output_buf.lock()
+            let screen_hash = self.screen_state.lock()
                 .get_content_hash(pty_id, exclude_rows)
                 .unwrap_or([0u8; 32]);
             let mut t = self.agent_tracker.lock();
@@ -59,7 +59,7 @@ impl ServiceContext {
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
 
                 let clean_text = if has_markers {
-                    self.output_buf.lock().get_screen_text(pty_id)
+                    self.screen_state.lock().get_screen_text(pty_id)
                 } else {
                     None
                 };
