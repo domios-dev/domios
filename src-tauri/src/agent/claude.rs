@@ -103,8 +103,11 @@ impl AgentProvider for ClaudeProvider {
         }
 
         let now = std::time::SystemTime::now();
-        // Only consider sessions modified in last 30 seconds — avoids picking up old sessions
-        let recency_limit = Duration::from_secs(30);
+        // Use max_age if provided, otherwise default to 5 minutes.
+        // 30s was too aggressive — Claude may be idle waiting for input while
+        // the JSONL file sits unmodified.  5 minutes covers typical startup +
+        // first-message delays on all platforms (PowerShell on Windows is slower).
+        let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
         let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
 
         if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
@@ -118,15 +121,6 @@ impl AgentProvider for ClaudeProvider {
                     {
                         if let Ok(meta) = entry.metadata() {
                             if let Ok(modified) = meta.modified() {
-                                if let Some(max) = max_age {
-                                    if let Ok(age) = now.duration_since(modified) {
-                                        if age > max {
-                                            continue;
-                                        }
-                                    }
-                                }
-                                // Only pick up sessions active in last 30s
-                                // This prevents grabbing an old session that belongs to another pane
                                 if let Ok(age) = now.duration_since(modified) {
                                     if age > recency_limit {
                                         continue;
@@ -280,10 +274,12 @@ mod tests {
         let path = p
             .session_file_path("/home/user/project", "abc-def-123-456")
             .unwrap();
-        assert!(path.to_string_lossy().contains("abc-def-123-456.jsonl"));
-        assert!(path
-            .to_string_lossy()
-            .contains(".claude/projects/-home-user-project"));
+        let path_str = path.to_string_lossy();
+        assert!(path_str.contains("abc-def-123-456.jsonl"));
+        // encode_cwd replaces non-alphanumeric chars with '-'
+        assert!(path_str.contains(".claude"));
+        assert!(path_str.contains("projects"));
+        assert!(path_str.contains("-home-user-project"));
     }
 
     #[test]

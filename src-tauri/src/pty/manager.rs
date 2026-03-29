@@ -17,6 +17,9 @@ pub struct OutputBuffer {
     buffers: HashMap<String, Vec<u8>>,
     /// Full output history (capped at MAX_FULL_SIZE per PTY). Used by chat view parser.
     full_buffers: HashMap<String, Vec<u8>>,
+    /// Per-PTY VT100 parser — tracks current screen content (what the user sees).
+    /// Updated incrementally on every append. Gives instant screen access for prompt detection.
+    screen_parsers: HashMap<String, vt100::Parser>,
     max_size: usize,
 }
 
@@ -25,7 +28,12 @@ const MAX_FULL_SIZE: usize = 2 * 1024 * 1024;
 
 impl OutputBuffer {
     pub fn new(max_size: usize) -> Self {
-        Self { buffers: HashMap::new(), full_buffers: HashMap::new(), max_size }
+        Self {
+            buffers: HashMap::new(),
+            full_buffers: HashMap::new(),
+            screen_parsers: HashMap::new(),
+            max_size,
+        }
     }
 
     pub fn append(&mut self, pty_id: &str, data: &[u8]) {
@@ -43,6 +51,11 @@ impl OutputBuffer {
             let excess = full.len() - MAX_FULL_SIZE;
             full.drain(..excess);
         }
+        // Feed VT100 parser incrementally — always up to date with current screen
+        let parser = self.screen_parsers
+            .entry(pty_id.to_string())
+            .or_insert_with(|| vt100::Parser::new(50, 120, 500));
+        parser.process(data);
     }
 
     pub fn get(&self, pty_id: &str) -> Option<&[u8]> {
@@ -63,9 +76,17 @@ impl OutputBuffer {
         self.get_full(pty_id).map(|b| String::from_utf8_lossy(b).to_string())
     }
 
+    /// Get current screen content — what the user actually sees.
+    /// Built incrementally from all PTY output, handles cursor positioning,
+    /// alternate screen, line wrapping correctly.
+    pub fn get_screen_text(&self, pty_id: &str) -> Option<String> {
+        self.screen_parsers.get(pty_id).map(|p| p.screen().contents())
+    }
+
     pub fn remove(&mut self, pty_id: &str) {
         self.buffers.remove(pty_id);
         self.full_buffers.remove(pty_id);
+        self.screen_parsers.remove(pty_id);
     }
 }
 
