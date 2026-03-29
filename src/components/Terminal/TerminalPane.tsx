@@ -119,6 +119,14 @@ export function TerminalPane({
   // Visual bell state
   const [bellFlash, setBellFlash] = useState(false);
 
+  // Windows ConPTY build number — fetched once, used for xterm windowsPty config
+  const [winBuildNumber, setWinBuildNumber] = useState<number>(19041);
+  useEffect(() => {
+    if (navigator.platform.startsWith("Win")) {
+      invoke<number>("get_windows_build_number").then(setWinBuildNumber).catch(() => {});
+    }
+  }, []);
+
   // Loading overlay — hide shell startup noise until first prompt
   const [shellReady, setShellReady] = useState(!!ptyId); // existing PTY = already ready
   const [overlayVisible, setOverlayVisible] = useState(!ptyId);
@@ -310,10 +318,11 @@ export function TerminalPane({
       theme: buildXtermTheme(theme),
       overviewRuler: { width: 4 },
       allowProposedApi: true,
-      // Critical for ConPTY on Windows — enables proper raw mode + cursor key handling
+      // Critical for ConPTY on Windows — enables proper raw mode + cursor key handling.
+      // buildNumber must match actual OS to apply correct ConPTY workarounds.
       windowsPty: {
         backend: "conpty",
-        buildNumber: 19041,
+        buildNumber: winBuildNumber,
       },
     });
 
@@ -472,11 +481,41 @@ export function TerminalPane({
       }
     }, 2000);
 
+    // HMR: force xterm to refit + repaint canvas after hot module replacement.
+    // Without this, xterm canvas goes stale after UI code changes.
+    let hmrCleanup: (() => void) | undefined;
+    if (import.meta.hot) {
+      const onHmr = () => {
+        requestAnimationFrame(() => {
+          if (!fitAddonRef.current || !xtermRef.current) return;
+          const t = xtermRef.current;
+          const ptyId = connectedPtyRef.current;
+          try {
+            fitAddonRef.current.fit();
+            t.refresh(0, t.rows - 1);
+            // Jiggle resize: ConPTY ignores same-size resize,
+            // so shrink by 1 col then restore to force SIGWINCH → TUI redraw
+            if (ptyId && t.cols > 1 && t.rows > 0) {
+              const cols = t.cols, rows = t.rows;
+              invoke("resize_pty", { ptyId, cols: cols - 1, rows }).then(() =>
+                new Promise(r => setTimeout(r, 100))
+              ).then(() => {
+                invoke("resize_pty", { ptyId, cols, rows });
+              });
+            }
+          } catch { /* ignore */ }
+        });
+      };
+      import.meta.hot.on("vite:afterUpdate", onHmr);
+      hmrCleanup = () => import.meta.hot?.off("vite:afterUpdate", onHmr);
+    }
+
     return () => {
       resizeObserver.disconnect();
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("focus", handleFocus);
       clearInterval(healTimer);
+      hmrCleanup?.();
       term.dispose();
       xtermRef.current = null;
       fitAddonRef.current = null;
@@ -496,6 +535,9 @@ export function TerminalPane({
     term.options.cursorBlink = terminalConfig?.cursor_blink ?? true;
     term.options.cursorStyle = mapCursorStyle(terminalConfig?.cursor_style);
     term.options.scrollback = terminalConfig?.scrollback ?? 10000;
+    if (navigator.platform.startsWith("Win")) {
+      term.options.windowsPty = { backend: "conpty", buildNumber: winBuildNumber };
+    }
 
     // Refit after font/theme changes
     requestAnimationFrame(() => {
@@ -505,7 +547,7 @@ export function TerminalPane({
         // ignore
       }
     });
-  }, [theme, fontConfig, terminalConfig]);
+  }, [theme, fontConfig, terminalConfig, winBuildNumber]);
 
   // Connect to PTY — spawn if needed, always set up listeners BEFORE spawning
   useEffect(() => {
@@ -529,16 +571,40 @@ export function TerminalPane({
       const predictedId = ptyId || crypto.randomUUID();
       connectedPtyRef.current = predictedId;
 
-      // Restore output buffer for existing PTY connections (e.g. after split remount)
+      // Restore screen state for existing PTY connections (e.g. after split remount, HMR)
+      // Uses screen parser (current visible state) instead of full output history —
+      // full output contains escape sequences for old terminal dimensions that cause garbled display.
       if (ptyId) {
         try {
-          const output = await invoke<string>("get_pane_output", { paneId });
-          if (output) {
-            term.write(output);
+          const screen = await invoke<string>("get_pane_screen", { paneId });
+          if (screen) {
+            term.write(screen);
           }
         } catch {
-          // ignore — pane might not have output yet
+          // Fallback to full output if screen not available
+          try {
+            const output = await invoke<string>("get_pane_output", { paneId });
+            if (output) {
+              term.write(output);
+            }
+          } catch { /* ignore */ }
         }
+        // Force TUI redraw: ConPTY ignores resize if size unchanged,
+        // so "jiggle" — shrink by 1 col then restore — to guarantee SIGWINCH.
+        requestAnimationFrame(() => {
+          try {
+            fitAddonRef.current?.fit();
+            const cols = term.cols;
+            const rows = term.rows;
+            if (cols > 1 && rows > 0) {
+              invoke("resize_pty", { ptyId, cols: cols - 1, rows }).then(() =>
+                new Promise(r => setTimeout(r, 100))
+              ).then(() => {
+                invoke("resize_pty", { ptyId, cols, rows });
+              });
+            }
+          } catch { /* ignore */ }
+        });
       }
 
       // Poll PTY output — batch writes into single animation frame for smooth scrolling

@@ -493,7 +493,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
           })}
         </div>
 
-        {/* Settings button at bottom */}
+        {/* Settings button at bottom — hmr test */}
         <div className={`border-t border-[var(--ct-border)] ${isCompact ? "px-1 py-2.5 flex justify-center" : "px-3 py-2.5"}`}>
           <button
             onClick={onOpenSettings}
@@ -996,10 +996,9 @@ function TabItem({
         {/* Active tab sliding pill indicator */}
         {isActive && (
           <div
-            className="absolute inset-y-0 left-0 right-0 rounded-[4px] pointer-events-none"
+            className="absolute inset-y-0 left-0 right-0 pointer-events-none"
             style={{
               background: "var(--ct-bg-selected, rgba(99, 102, 241, 0.12))",
-              borderLeft: "2px solid var(--ct-accent, var(--ct-blue, #6366f1))",
               transition: "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease",
             }}
           />
