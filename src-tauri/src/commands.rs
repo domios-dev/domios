@@ -240,11 +240,7 @@ pub async fn write_pty_string(
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
 
-    let mut writer = session.writer.lock().unwrap();
-    use std::io::Write;
-    writer.write_all(data.as_bytes()).map_err(|e| format!("Write failed: {}", e))?;
-    writer.flush().map_err(|e| format!("Flush failed: {}", e))?;
-    Ok(())
+    session.write_queue.send(data.into_bytes())
 }
 
 /// Write raw bytes to PTY.
@@ -259,12 +255,7 @@ pub async fn write_pty(
         manager.get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
-
-    let mut writer = session.writer.lock().unwrap();
-    use std::io::Write;
-    writer.write_all(&data).map_err(|e| format!("Write failed: {}", e))?;
-    writer.flush().map_err(|e| format!("Flush failed: {}", e))?;
-    Ok(())
+    session.write_queue.send(data)
 }
 
 /// Resize PTY.
@@ -339,6 +330,29 @@ pub async fn get_pane_screen(
     // to move cursor back to column 0 — otherwise each line starts
     // where the previous one ended ("staircase" effect).
     Ok(text.replace('\n', "\r\n"))
+}
+
+#[tauri::command]
+pub async fn wait_shell_ready(
+    output_buf: tauri::State<'_, OutputBufferState>,
+    mux: tauri::State<'_, MuxState>,
+    pane_id: String,
+    timeout_ms: Option<u64>,
+) -> Result<bool, String> {
+    let pty_id = {
+        let m = mux.lock();
+        m.get_pane(&pane_id)
+            .and_then(|p| p.pty_id.clone())
+            .ok_or_else(|| "Pane not found or has no PTY".to_string())?
+    };
+    let timeout = std::time::Duration::from_millis(timeout_ms.unwrap_or(10_000));
+    let ob = output_buf.inner().clone();
+    let result = tokio::task::spawn_blocking(move || {
+        crate::service::pty_io::poll_shell_prompt(&ob, &pty_id, timeout)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(result)
 }
 
 /// Read agent session file for a pane.
