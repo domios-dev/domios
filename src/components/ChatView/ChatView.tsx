@@ -113,7 +113,8 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
           }
         }
         // No new data — skip re-parse entirely
-      } catch {
+      } catch (err) {
+        console.warn('[ChatView] JSONL poll error:', err);
         // JSONL not available — switch to terminal fallback
         if (parseMode.current === "detecting") {
           jsonlRetryCount.current++;
@@ -146,8 +147,8 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
           });
         }
         prevOutputLen.current = len;
-      } catch {
-        // Pane might not exist yet
+      } catch (err) {
+        console.warn('[ChatView] terminal poll error:', err);
       }
     }
 

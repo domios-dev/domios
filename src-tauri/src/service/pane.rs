@@ -66,6 +66,16 @@ impl ServiceContext {
         }
     }
 
+    /// Default prompt navigation: arrow down + Enter (standard ANSI).
+    fn default_prompt_response(&self, option_index: usize) -> Vec<Vec<u8>> {
+        let mut steps = Vec::new();
+        for _ in 0..option_index {
+            steps.push(b"\x1b[B".to_vec());
+        }
+        steps.push(b"\r".to_vec());
+        steps
+    }
+
     /// Backward-compat alias for `set_agent_session_id`.
     pub fn set_claude_session_id(&self, pane_id: &str, session_id: Option<String>) {
         self.set_agent_session_id(pane_id, session_id);
@@ -86,12 +96,27 @@ impl ServiceContext {
         // Only send to PTY if there was an actual prompt — prevents phantom input
         if had_prompt {
             let pty_id = self.resolve_pty_id(pane_id)?;
-            let mut data = Vec::new();
-            if value != "1" {
-                data.extend_from_slice(value.as_bytes());
-            }
-            data.push(b'\r');
-            self.pty.lock().write(&pty_id, &data).map_err(|e| e.to_string())?;
+            let option_index = value.parse::<usize>().unwrap_or(1).saturating_sub(1); // 1-based → 0-based
+
+            // Get navigation keystrokes from provider (Claude uses j/k, others use arrows)
+            let agent_type = self.mux.lock().get_pane(pane_id)
+                .and_then(|p| p.agent_type.clone());
+            let steps = if let Some(ref at) = agent_type {
+                self.agent_registry.get(at)
+                    .map(|p| p.build_prompt_response(option_index))
+                    .unwrap_or_else(|| self.default_prompt_response(option_index))
+            } else {
+                self.default_prompt_response(option_index)
+            };
+
+            let pty = self.pty.clone();
+            let pid = pty_id.clone();
+            std::thread::spawn(move || {
+                for step in steps {
+                    let _ = pty.lock().write(&pid, &step);
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            });
         }
 
         self.emit_state_changed();

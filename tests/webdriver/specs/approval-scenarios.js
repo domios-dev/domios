@@ -95,9 +95,7 @@ async function clickBtn(label) {
 
 // Clean up: send Escape to cancel any stuck prompt
 async function cancelAnyPrompt(paneId) {
-  await api('POST', `/panes/${paneId}/send`, { text: '\u001b', enter: false });
-  await browser.pause(1000);
-  // Also clear pending_prompt via API
+  // Only clear via API — had_prompt guard prevents phantom PTY input
   await api('POST', `/panes/${paneId}/prompt/respond`, { value: '3' });
 }
 
