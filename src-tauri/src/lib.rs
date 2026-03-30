@@ -372,6 +372,8 @@ fn start_servers(
             let router = api::routes::create_router(api_state);
             let host = api_config.host.clone();
             let port = api_config.port;
+            // Set CODETERM_API_PORT so PTY children (and Claude hooks) know the correct port
+            std::env::set_var("CODETERM_API_PORT", port.to_string());
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Builder::new_multi_thread()
                     .worker_threads(4)
