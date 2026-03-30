@@ -58,7 +58,13 @@ impl ServiceContext {
                 let chunk_text = crate::api::routes::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
 
-                let clean_text = if has_markers {
+                // Read screen text if markers found OR if there's an active prompt
+                // (need screen text to detect when user answers prompt in terminal)
+                let has_active_prompt = {
+                    let mux = self.mux.lock();
+                    mux.get_pane(pid).and_then(|p| p.pending_prompt.as_ref()).is_some()
+                };
+                let clean_text = if has_markers || has_active_prompt {
                     self.screen_state.lock().get_screen_text(pty_id)
                 } else {
                     None
@@ -131,6 +137,11 @@ impl ServiceContext {
                         pane.pending_prompt = Some(prompt.clone());
                     }
                 }
+                // Emit focused event — frontend subscribes directly, no polling needed
+                let _ = self.app_handle.emit("prompt-state-changed", serde_json::json!({
+                    "pane_id": pane_id,
+                    "prompt": prompt,
+                }));
                 self.emit_state_changed();
                 let title = self.mux.lock().get_pane(pane_id).map(|p| p.title.clone());
                 if let Some(title) = title {
@@ -147,6 +158,10 @@ impl ServiceContext {
                     pane.pending_prompt = None;
                 }
                 drop(mux);
+                let _ = self.app_handle.emit("prompt-state-changed", serde_json::json!({
+                    "pane_id": pane_id,
+                    "prompt": null,
+                }));
                 self.emit_state_changed();
             }
         }

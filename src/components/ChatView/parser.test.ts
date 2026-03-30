@@ -331,7 +331,7 @@ console.log("\n--- parseTerminalOutput ---\n");
 
 // 19. Status marker with duration
 {
-  const input = "\u273B Completed in 3s";
+  const input = "\u2731 Completed in 3s";
   const msgs = parseTerminalOutput(input);
   eq(msgs.length, 1, "19. status: one message");
   eq(msgs[0].type, "status", "19. status: type");
@@ -341,7 +341,7 @@ console.log("\n--- parseTerminalOutput ---\n");
 
 // 19b. Status without duration
 {
-  const input = "\u273B Processing request";
+  const input = "\u2731 Processing request";
   const msgs = parseTerminalOutput(input);
   eq(msgs.length, 1, "19b. status no duration: one message");
   eq(msgs[0].duration, undefined, "19b. status no duration: duration undefined");
