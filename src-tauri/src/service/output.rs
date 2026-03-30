@@ -10,9 +10,8 @@ use std::time::Instant;
 use tauri::Emitter;
 
 use crate::agent::detector::AgentEvent;
+use crate::agent::prompt::PromptDecision;
 use crate::agent::status::PaneStatus;
-use crate::multiplexer::types::PendingPrompt;
-use crate::multiplexer::types::PromptOption;
 use super::ServiceContext;
 
 /// Per-pane notification cooldown: (pane_id, event_kind) → last fire time.
@@ -27,28 +26,9 @@ impl ServiceContext {
         static CALL_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if n % 500 == 0 {
-            log::info!("[output] process_pty_output called {} times, pty={}, data_len={}", n, &pty_id[..pty_id.len().min(8)], data.len());
-        }
-        // 1. Track status
-        let prev_status = {
-            let mut t = self.agent_tracker.lock();
-            let prev = t.get_status(pty_id);
-            t.update_output(pty_id, data);
-            prev
-        };
-
-        // 2. Clear pending prompt when agent resumes from Waiting
-        let current_status = self.agent_tracker.lock().get_status(pty_id);
-        if current_status != prev_status && prev_status == PaneStatus::Waiting {
-            let mut mux = self.mux.lock();
-            if let Some(pid) = mux.pane_id_for_pty(pty_id) {
-                if let Some(pane) = mux.get_pane_mut(&pid) {
-                    pane.pending_prompt = None;
-                }
-            }
+            log::info!("[output] process_pty_output #{}, pty={}, len={}", n, &pty_id[..pty_id.len().min(8)], data.len());
         }
 
-        // 3. Get agent type for this pane
         let (pane_id, agent_type) = {
             let mux = self.mux.lock();
             let pid = mux.pane_id_for_pty(pty_id);
@@ -56,29 +36,63 @@ impl ServiceContext {
             (pid, at)
         };
 
-        // Agent event detection: agents with hooks (Claude Code) get detected via API
-        // endpoints (see /api/panes/{id}/hook/permission). For agents WITHOUT hooks
-        // (Codex, Aider, generic), fall back to PTY output parsing.
-        if let (Some(ref pid), Some(ref at)) = (&pane_id, &agent_type) {
-            let provider = self.agent_registry.get(at);
-            let has_hooks = provider.map(|p| p.has_hooks()).unwrap_or(false);
+        let exclude_rows = agent_type.as_deref()
+            .map(|at| self.agent_registry.status_bar_rows(at))
+            .unwrap_or(0);
+        let prev_status = {
+            let screen_hash = self.screen_state.lock()
+                .get_content_hash(pty_id, exclude_rows)
+                .unwrap_or([0u8; 32]);
+            let mut t = self.agent_tracker.lock();
+            let prev = t.get_status(pty_id);
+            t.update_output(pty_id, screen_hash);
+            prev
+        };
+        let current_status = self.agent_tracker.lock().get_status(pty_id);
+        if current_status != prev_status {
+            log::info!("[status] {} {:?} -> {:?}", &pty_id[..pty_id.len().min(8)], prev_status, current_status);
+        }
 
-            if !has_hooks {
-                if let Ok(raw) = std::str::from_utf8(data) {
-                    let chunk_text = crate::api::routes::clean_terminal_output(raw);
-                    if self.agent_registry.has_event_markers(at, &chunk_text) {
-                        let ring_text = self.output_buf.lock().get_text(pty_id).unwrap_or_default();
-                        let clean = crate::api::routes::clean_terminal_output(&ring_text);
-                        let events = self.agent_registry.detect_events(at, &clean);
+        if let (Some(ref pid), Some(ref at)) = (&pane_id, &agent_type) {
+            if let Ok(raw) = std::str::from_utf8(data) {
+                let chunk_text = crate::api::routes::clean_terminal_output(raw);
+                let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
+
+                let clean_text = if has_markers {
+                    self.screen_state.lock().get_screen_text(pty_id)
+                } else {
+                    None
+                };
+
+                let decision = {
+                    let mut detector = self.prompt_detector.lock();
+                    let agent_type_clone = at.clone();
+                    let registry = &self.agent_registry;
+                    detector.evaluate_pty_output(
+                        pid,
+                        has_markers,
+                        clean_text.as_deref(),
+                        |text| registry.parse_prompt(&agent_type_clone, text),
+                    )
+                };
+
+                self.apply_prompt_decision(&decision);
+
+                if has_markers {
+                    if let Some(ref clean) = clean_text {
+                        let events = self.agent_registry.detect_events(at, clean);
                         for event in &events {
-                            self.handle_agent_event(pty_id, pid, at, event, prev_status);
+                            if matches!(event, AgentEvent::PermissionRequest) {
+                                self.agent_tracker.lock().set_waiting(pty_id);
+                            } else {
+                                self.handle_agent_event(pty_id, pid, at, event, prev_status);
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Signal frontend that this pane has new output
         let _ = self.app_handle.emit("pane-output-changed", serde_json::json!({
             "pty_id": pty_id,
         }));
@@ -86,33 +100,12 @@ impl ServiceContext {
         (prev_status, current_status)
     }
 
-    /// Handle a single agent event — update state and dispatch notifications.
-    fn handle_agent_event(
-        &self,
-        pty_id: &str,
-        pane_id: &str,
-        agent_type: &str,
-        event: &AgentEvent,
-        prev_status: PaneStatus,
-    ) {
-        // Cooldown: skip if same event for same pane fired within last 30s
-        let cooldown_key = format!("{}:{:?}", pane_id, event);
-        {
-            let mut map = EVENT_COOLDOWN.lock().unwrap();
-            let now = Instant::now();
-            if let Some(last) = map.get(&cooldown_key) {
-                if now.duration_since(*last).as_secs() < 30 {
-                    return;
-                }
-            }
-            map.insert(cooldown_key, now);
-        }
-
-        match event {
-            AgentEvent::PermissionRequest => {
-                self.agent_tracker.lock().set_waiting(pty_id);
-
-                // Check if this pane has auto_approve — if so, respond automatically
+    pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
+        match decision {
+            PromptDecision::None => {},
+            PromptDecision::NewPrompt { pane_id, prompt } |
+            PromptDecision::PromptUpdated { pane_id, prompt } => {
+                // Auto-approve: if pane has auto_approve set, respond immediately
                 let auto_approve = self.mux.lock()
                     .get_pane(pane_id)
                     .map(|p| p.auto_approve)
@@ -120,47 +113,25 @@ impl ServiceContext {
 
                 if auto_approve {
                     log::info!("[auto-approve] Auto-approving prompt for pane {}", pane_id);
-                    // Select first option (Yes) — send Enter to confirm pre-selected item
-                    let pty_id_owned = pty_id.to_string();
-                    let pty = self.pty.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        // First option is already selected (❯ 1.), just press Enter
-                        let _ = pty.lock().write(&pty_id_owned, b"\r");
-                    });
+                    let pty_id = self.mux.lock()
+                        .get_pane(pane_id)
+                        .and_then(|p| p.pty_id.clone());
+                    if let Some(pty_id) = pty_id {
+                        let pty = self.pty.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                            let _ = pty.lock().write(&pty_id, b"\r");
+                        });
+                    }
                     return;
                 }
-
-                // Check if prompt already set — if so, skip (no re-notification)
-                let already_has_prompt = self.mux.lock()
-                    .get_pane(pane_id)
-                    .and_then(|p| p.pending_prompt.as_ref())
-                    .is_some();
-
-                if already_has_prompt {
-                    return; // Already notified, don't spam
-                }
-
-                // Parse prompt options from ring buffer (last 64KB, safe)
                 {
-                    let buf = self.output_buf.lock();
-                    let ring_text = buf.get_text(pty_id).unwrap_or_default();
-                    let clean_tail = crate::api::routes::clean_terminal_output(&ring_text);
-                    if let Some((question, opts)) = self.agent_registry.parse_prompt(agent_type, &clean_tail) {
-                        log::debug!("[prompt] Parsed: {:?} with {} options", question, opts.len());
-                        let prompt = PendingPrompt {
-                            question,
-                            options: opts.into_iter().map(|(label, value)| {
-                                PromptOption { label, value }
-                            }).collect(),
-                        };
-                        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
-                            pane.pending_prompt = Some(prompt);
-                        }
+                    let mut mux = self.mux.lock();
+                    if let Some(pane) = mux.get_pane_mut(pane_id) {
+                        pane.pending_prompt = Some(prompt.clone());
                     }
                 }
-
-                // Single event — frontend shows toast, webhooks get notified
+                self.emit_state_changed();
                 let title = self.mux.lock().get_pane(pane_id).map(|p| p.title.clone());
                 if let Some(title) = title {
                     self.notify_event("agent.permission_request", serde_json::json!({
@@ -170,6 +141,38 @@ impl ServiceContext {
                     }));
                 }
             }
+            PromptDecision::PromptCleared { pane_id } => {
+                let mut mux = self.mux.lock();
+                if let Some(pane) = mux.get_pane_mut(pane_id) {
+                    pane.pending_prompt = None;
+                }
+                drop(mux);
+                self.emit_state_changed();
+            }
+        }
+    }
+
+    fn handle_agent_event(
+        &self,
+        _pty_id: &str,
+        pane_id: &str,
+        _agent_type: &str,
+        event: &AgentEvent,
+        prev_status: PaneStatus,
+    ) {
+        let cooldown_key = format!("{}:{:?}", pane_id, event);
+        let mut map = EVENT_COOLDOWN.lock().unwrap();
+        let now = Instant::now();
+        if let Some(last) = map.get(&cooldown_key) {
+            if now.duration_since(*last).as_secs() < 30 {
+                return;
+            }
+        }
+        map.insert(cooldown_key, now);
+        drop(map);
+
+        match event {
+            AgentEvent::PermissionRequest => {}
             AgentEvent::TaskComplete => {
                 if prev_status == PaneStatus::Working {
                     let title = self.mux.lock().get_pane(pane_id).map(|p| p.title.clone());

@@ -105,8 +105,8 @@ impl AgentProvider for ClaudeProvider {
         }
 
         let now = std::time::SystemTime::now();
-        // Only consider sessions modified in last 30 seconds — avoids picking up old sessions
-        let recency_limit = Duration::from_secs(30);
+        // 5 min default: Claude may be idle waiting for input while JSONL sits unmodified
+        let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
         let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
 
         if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
@@ -120,15 +120,6 @@ impl AgentProvider for ClaudeProvider {
                     {
                         if let Ok(meta) = entry.metadata() {
                             if let Ok(modified) = meta.modified() {
-                                if let Some(max) = max_age {
-                                    if let Ok(age) = now.duration_since(modified) {
-                                        if age > max {
-                                            continue;
-                                        }
-                                    }
-                                }
-                                // Only pick up sessions active in last 30s
-                                // This prevents grabbing an old session that belongs to another pane
                                 if let Ok(age) = now.duration_since(modified) {
                                     if age > recency_limit {
                                         continue;
@@ -160,11 +151,9 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn has_event_markers(&self, chunk: &str) -> bool {
-        // Prompt markers
         chunk.contains("❯") || chunk.contains("proceed")
             || chunk.contains("Esc to cancel") || chunk.contains("Tab to amend")
             || (chunk.contains("1.") && chunk.contains("2."))
-            // Completion marker: " for <digit>" — catches "<Verb> for 5s"
             || chunk.contains(" for 0") || chunk.contains(" for 1") || chunk.contains(" for 2")
             || chunk.contains(" for 3") || chunk.contains(" for 4") || chunk.contains(" for 5")
             || chunk.contains(" for 6") || chunk.contains(" for 7") || chunk.contains(" for 8")
@@ -179,6 +168,7 @@ impl AgentProvider for ClaudeProvider {
         crate::agent::detector::parse_permission_prompt(text)
     }
 
+
     fn has_hooks(&self) -> bool { true }
 
     /// Claude TUI supports vim j/k navigation — simpler and more reliable than arrow keys.
@@ -191,10 +181,11 @@ impl AgentProvider for ClaudeProvider {
         steps
     }
 
+    fn status_bar_rows(&self) -> u16 { 3 }
+
     fn is_output_noise(&self, text: &str) -> bool {
         let t = text.trim();
         if t.is_empty() { return true; }
-        // Claude Code TUI status bar patterns
         let noise = [
             "bypass permissions on",
             "shift+tab to cycle",
@@ -292,10 +283,12 @@ mod tests {
         let path = p
             .session_file_path("/home/user/project", "abc-def-123-456")
             .unwrap();
-        assert!(path.to_string_lossy().contains("abc-def-123-456.jsonl"));
-        assert!(path
-            .to_string_lossy()
-            .contains(".claude/projects/-home-user-project"));
+        let path_str = path.to_string_lossy();
+        assert!(path_str.contains("abc-def-123-456.jsonl"));
+        // encode_cwd replaces non-alphanumeric chars with '-'
+        assert!(path_str.contains(".claude"));
+        assert!(path_str.contains("projects"));
+        assert!(path_str.contains("-home-user-project"));
     }
 
     #[test]
