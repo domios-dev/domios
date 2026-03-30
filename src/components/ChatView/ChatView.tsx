@@ -174,8 +174,13 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       } catch { /* ignore */ }
     }
 
+    let polling = false;
     async function poll() {
-      if (!active) return;
+      if (!active || polling) return;
+      polling = true;
+      try { await doPoll(); } finally { polling = false; }
+    }
+    async function doPoll() {
       // Check for permission prompts from backend
       checkForPrompt();
 
@@ -222,12 +227,14 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
           return;
         } catch {
           jsonlRetryCount.current++;
-          if (jsonlRetryCount.current > 5) {
+          if (jsonlRetryCount.current > 3) {
+            // JSONL not available — switch to terminal mode permanently
+            // (will try to upgrade back every 10 polls)
             parseMode.current = "terminal";
             setIsLoading(false);
+            await pollTerminal();
           }
-          // Fall through to terminal for this tick
-          await pollTerminal();
+          // While still detecting (< 3 retries), just show loading — don't flash terminal
           return;
         }
       }
@@ -273,9 +280,11 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     // Defer first poll so overlay renders instantly with loading state
     setTimeout(poll, 0);
 
-    // Listen for output change events from backend — trigger immediate poll
+    // Listen for output change events from backend — debounced to prevent flicker
+    let eventPollTimer: ReturnType<typeof setTimeout> | null = null;
     const unlisten = listen<{ pty_id: string }>("pane-output-changed", () => {
-      poll();
+      if (eventPollTimer) clearTimeout(eventPollTimer);
+      eventPollTimer = setTimeout(poll, 300);
     });
 
     // Fallback polling at 2s (event-driven handles the fast path)

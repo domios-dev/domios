@@ -112,6 +112,25 @@ impl ServiceContext {
             AgentEvent::PermissionRequest => {
                 self.agent_tracker.lock().set_waiting(pty_id);
 
+                // Check if this pane has auto_approve — if so, respond automatically
+                let auto_approve = self.mux.lock()
+                    .get_pane(pane_id)
+                    .map(|p| p.auto_approve)
+                    .unwrap_or(false);
+
+                if auto_approve {
+                    log::info!("[auto-approve] Auto-approving prompt for pane {}", pane_id);
+                    // Select first option (Yes) — send Enter to confirm pre-selected item
+                    let pty_id_owned = pty_id.to_string();
+                    let pty = self.pty.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        // First option is already selected (❯ 1.), just press Enter
+                        let _ = pty.lock().write(&pty_id_owned, b"\r");
+                    });
+                    return;
+                }
+
                 // Check if prompt already set — if so, skip (no re-notification)
                 let already_has_prompt = self.mux.lock()
                     .get_pane(pane_id)

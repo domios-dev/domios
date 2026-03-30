@@ -207,6 +207,10 @@ pub struct Pane {
     /// Pending interactive prompt (permission, confirmation, etc.)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pending_prompt: Option<PendingPrompt>,
+    /// Auto-approve prompts (set when spawned with skip_permissions).
+    /// When true, detected prompts are answered automatically instead of shown to user.
+    #[serde(default)]
+    pub auto_approve: bool,
 }
 
 /// Title priority: higher levels cannot be overwritten by lower ones.

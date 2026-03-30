@@ -56,6 +56,7 @@ impl MultiplexerState {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            auto_approve: false,
         };
 
         let tab = Tab {
@@ -365,6 +366,7 @@ impl MultiplexerState {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            auto_approve: false,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -390,6 +392,7 @@ impl MultiplexerState {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            auto_approve: false,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -864,6 +867,7 @@ impl MultiplexerState {
                         title_level: restored_level,
                         chat_view: false,
                         pending_prompt: None,
+                        auto_approve: false,
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }
