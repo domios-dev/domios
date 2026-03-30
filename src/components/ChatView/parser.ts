@@ -291,7 +291,7 @@ const SUB_ITEM_MARKER = "\u23BF"; // sub
  * Parse Claude Code terminal output into structured chat messages.
  * Legacy fallback when no JSONL session is available.
  */
-export function parseTerminalOutput(text: string): ChatMessage[] {
+export function parseTerminalOutput(text: string, lineFilter?: (line: string) => boolean): ChatMessage[] {
   if (!text || !text.trim()) return [];
 
   const lines = text.split("\n");
@@ -418,6 +418,8 @@ export function parseTerminalOutput(text: string): ChatMessage[] {
       });
       currentBlock = null;
     } else if (currentBlock) {
+      // Skip noise lines (TUI status bar, update notices, etc.)
+      if (lineFilter && trimmed && !lineFilter(trimmed)) continue;
       currentBlock.lines.push(line);
     }
   }

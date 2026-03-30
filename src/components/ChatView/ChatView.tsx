@@ -25,8 +25,16 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const filterNoise = useCallback((msgs: ChatMessage[]) =>
     msgs.filter(m => !isProviderNoise(agentType, m.content)),
   [agentType]);
+  // Line-level noise filter for terminal parser — removes TUI noise before block assembly
+  const lineFilter = useCallback((line: string) =>
+    !isProviderNoise(agentType, line),
+  [agentType]);
   const sessionParser = useCallback((data: string) => filterNoise(rawSessionParser(data)), [rawSessionParser, filterNoise]);
-  const terminalParser = useCallback((data: string) => filterNoise(rawTerminalParser(data)), [rawTerminalParser, filterNoise]);
+  const terminalParser = useCallback((data: string) => {
+    // Pass line-level filter to terminal parser — removes noise before block assembly
+    const parser = rawTerminalParser as (text: string, lineFilter?: (line: string) => boolean) => ChatMessage[];
+    return filterNoise(parser(data, lineFilter));
+  }, [rawTerminalParser, filterNoise, lineFilter]);
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -195,8 +203,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       try { await doPoll(); } finally { polling = false; }
     }
     async function doPoll() {
-      // Check for permission prompts from backend
-      checkForPrompt();
+      // Prompt detection is event-driven via "prompt-state-changed" — no polling needed
 
       // On first poll or while detecting, try JSONL
       if (parseMode.current === "detecting") {
@@ -262,6 +269,9 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       }
     }
 
+    // Check for existing prompt on mount (event-driven handles subsequent changes)
+    checkForPrompt();
+
     // Defer first poll so overlay renders instantly with loading state
     setTimeout(poll, 0);
 
@@ -272,9 +282,26 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       eventPollTimer = setTimeout(poll, 300);
     });
 
-    // Listen for mux state changes — picks up prompt detection faster
-    const unlistenState = listen("mux-state-changed", () => {
-      checkForPrompt();
+    // Listen for prompt state changes — direct event, no polling needed
+    const unlistenPrompt = listen<{ pane_id: string; prompt: any }>("prompt-state-changed", ({ payload }) => {
+      if (payload.pane_id === paneId) {
+        const prompt = payload.prompt ?? null;
+        const hadPrompt = pendingPromptRef.current != null;
+        setPendingPrompt(prompt);
+        pendingPromptRef.current = prompt;
+        // Prompt appeared — scroll to it
+        if (prompt && !hadPrompt) {
+          requestAnimationFrame(() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          });
+        }
+        // Prompt cleared (user answered Yes/No) — stop waiting indicator
+        if (!prompt && hadPrompt) {
+          setWaitingForReply(false);
+          // Trigger poll to pick up Claude's response
+          poll();
+        }
+      }
     });
 
     // Fallback polling at 2s (event-driven handles the fast path)
@@ -283,7 +310,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       active = false;
       clearInterval(interval);
       unlisten.then(fn => fn());
-      unlistenState.then(fn => fn());
+      unlistenPrompt.then(fn => fn());
     };
   }, [paneId]);
 

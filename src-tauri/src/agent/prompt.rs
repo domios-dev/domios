@@ -70,7 +70,13 @@ impl PromptDetector {
     where
         F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
     {
-        if !has_markers {
+        // If pane has active prompt, always check screen (user may have answered in terminal)
+        let is_active = matches!(
+            self.states.get(pane_id),
+            Some(PanePromptState::Active { .. })
+        );
+
+        if !has_markers && !is_active {
             return PromptDecision::None;
         }
 
