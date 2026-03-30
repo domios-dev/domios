@@ -135,8 +135,14 @@ impl PromptDetector {
         F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
     {
         // Hooks are authoritative — skip cooldown, always parse
-        match parse_fn(clean_ring_text) {
+        let parsed = parse_fn(clean_ring_text);
+        log::info!("[prompt] hook_detected_parse for {}: parsed={}, text_len={}", pane_id, parsed.is_some(), clean_ring_text.len());
+        if parsed.is_none() && clean_ring_text.len() > 100 {
+            log::info!("[prompt] screen tail: {:?}", &clean_ring_text[clean_ring_text.len().saturating_sub(300)..]);
+        }
+        match parsed {
             Some((question, opts)) => {
+                log::info!("[prompt] parsed question={:?}, opts={}", question, opts.len());
                 let prompt = build_prompt(question, opts);
                 self.hook_detected_explicit(pane_id, prompt)
             }

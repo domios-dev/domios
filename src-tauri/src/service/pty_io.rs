@@ -22,6 +22,13 @@ impl ServiceContext {
             .map_err(|e| e.to_string())
     }
 
+    /// Write raw bytes to PTY without bracket paste wrapping.
+    /// Use for keystrokes that need TUI interpretation (vim j/k, arrow keys, etc).
+    pub fn write_raw(&self, pane_id: &str, data: &[u8]) -> Result<(), String> {
+        let pty_id = self.resolve_pty_id(pane_id)?;
+        self.pty.lock().write(&pty_id, data).map_err(|e| e.to_string())
+    }
+
     pub fn send_text_batch(&self, pane_id: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(pane_id)?;
         let pty = self.pty.clone();
