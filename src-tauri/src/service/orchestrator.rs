@@ -247,6 +247,12 @@ impl ServiceContext {
                     pane.report_target_pane_id = Some(rtid.clone());
                 }
             }
+            // Auto-approve prompts for bypass-permissions panes
+            if params.skip_permissions.unwrap_or(true) {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.auto_approve = true;
+                }
+            }
             // Rename
             let _ = mux.rename_pane(&result.1, &title);
             result
@@ -327,6 +333,14 @@ impl ServiceContext {
                 params.parent_pane_id.as_deref(),
                 params.can_spawn,
             )?;
+        }
+
+        // 3b. Set auto_approve if spawned with skip_permissions
+        if params.skip_permissions.unwrap_or(true) {
+            let mut mux = self.mux.lock();
+            if let Some(pane) = mux.get_pane_mut(&pane_id) {
+                pane.auto_approve = true;
+            }
         }
 
         // 4. Rename pane immediately (metadata only)

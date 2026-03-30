@@ -7,6 +7,7 @@
 #   ./build.sh build    — production build
 #   ./build.sh cli      — build CLI tool
 #   ./build.sh kill     — kill running CodeTerm processes
+#   ./build.sh webdriver — dev with WebDriver (port 4445) for UI tests
 #   ./build.sh e2e      — run E2E tests (pytest, needs running instance or auto-starts)
 
 set -e
@@ -54,6 +55,19 @@ case "$CMD" in
     echo "Starting dev mode..."
     pnpm tauri dev --config src-tauri/tauri.dev.conf.json
     ;;
+  webdriver)
+    # Clean start with WebDriver support for UI tests
+    echo "Stopping previous instances..."
+    if [[ "$OSTYPE" == darwin* ]]; then
+      pgrep -f "target/debug/codeterm" | xargs kill 2>/dev/null || true
+      lsof -ti:1420,4445 | xargs kill -9 2>/dev/null || true
+    else
+      taskkill //F //IM codeterm.exe 2>/dev/null || true
+    fi
+    sleep 2
+    echo "Starting dev with WebDriver on port 4445..."
+    pnpm tauri dev --config src-tauri/tauri.dev.conf.json -- --features webdriver
+    ;;
   e2e)
     echo "Running E2E tests..."
     cd tests/e2e
@@ -61,7 +75,7 @@ case "$CMD" in
     python3 -m pytest -v --tb=short "$@"
     ;;
   *)
-    echo "Usage: ./build.sh {dev|check|test|build|cli|kill|e2e}"
+    echo "Usage: ./build.sh {dev|check|test|build|cli|kill|webdriver|e2e}"
     exit 1
     ;;
 esac
