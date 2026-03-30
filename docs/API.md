@@ -589,4 +589,8 @@ Agent prompt templates are defined in `src-tauri/src/prompts.rs`. Role-specific 
 - **Orchestrator:** "Do NOT sleep or poll for reports" rule.
 - **Cron tasks:** Completion instruction with `cron complete --run-id` command.
 
+<<<<<<< HEAD
 <!-- revision: 17 -->
+=======
+<!-- revision: 16 -->
+>>>>>>> origin/develop
