@@ -122,15 +122,14 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         }
         // No new data — skip re-parse entirely
       } catch (err) {
-        console.warn('[ChatView] JSONL poll error:', err);
-        // JSONL not available — switch to terminal fallback
+        // JSONL read failed — only fall back to terminal during initial detection
         if (parseMode.current === "detecting") {
           jsonlRetryCount.current++;
-          // Give it a few tries before falling back (session might not be linked yet)
           if (jsonlRetryCount.current > 5) {
             parseMode.current = "terminal";
           }
         }
+        // If already in JSONL mode — stay in JSONL, just skip this poll (don't switch back)
       }
     }
 
@@ -242,49 +241,20 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
           return;
         } catch {
           jsonlRetryCount.current++;
-          if (jsonlRetryCount.current > 3) {
-            // JSONL not available — switch to terminal mode permanently
-            // (will try to upgrade back every 10 polls)
+          if (jsonlRetryCount.current > 2) {
+            // JSONL not available — use terminal mode for this session
+            // JSONL will be picked up on next ChatView mount (close/open)
             parseMode.current = "terminal";
             setIsLoading(false);
             await pollTerminal();
           }
-          // While still detecting (< 3 retries), just show loading — don't flash terminal
+          // Still detecting (retries 1-2): show loading, don't flash terminal
           return;
         }
       }
 
-      // In terminal mode, try to upgrade to JSONL every 5 seconds (every 10 polls at 500ms)
-      if (parseMode.current === "terminal") {
-        jsonlRetryCount.current++;
-        if (jsonlRetryCount.current % 10 === 0) {
-          try {
-            const data = await invoke<string>("read_session_jsonl", { paneId, offset: 0, tailBytes: 5000000 });
-            if (data && data.length > 50) {
-              // JSONL is available now — switch!
-              parseMode.current = "jsonl";
-              let jsonlData = data;
-              if (data.startsWith("__offset:")) {
-                const nlIdx = data.indexOf("\n");
-                jsonlOffset.current = parseInt(data.substring(9, nlIdx), 10);
-                jsonlData = data.substring(nlIdx + 1);
-              } else {
-                jsonlOffset.current = new TextEncoder().encode(data).length;
-              }
-              accumulatedJsonl.current = jsonlData;
-              const parsed = sessionParser(jsonlData);
-              setAllMessages(parsed);
-              prevMessageCount.current = parsed.length;
-              if (!userScrolledUp.current && parsed.length > 0) {
-                requestAnimationFrame(() => {
-                  messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-                });
-              }
-            }
-          } catch { /* still no JSONL */ }
-        }
-      }
-
+      // No runtime mode switching — once mode is set (jsonl or terminal), it stays.
+      // JSONL will be detected on next ChatView mount if it becomes available later.
       if (parseMode.current === "jsonl") {
         await pollJsonl();
       } else {
