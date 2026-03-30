@@ -284,7 +284,7 @@ const TOOL_NAMES = new Set([
 // Unicode markers
 const USER_MARKER = "\u276F"; // >
 const ASSISTANT_MARKER = "\u23FA"; // rec
-const STATUS_MARKER = "\u273B"; // *
+const STATUS_MARKER = "\u2731"; // ✱ (Claude thinking/status marker)
 const SUB_ITEM_MARKER = "\u23BF"; // sub
 
 /**
