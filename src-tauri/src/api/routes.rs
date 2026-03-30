@@ -268,6 +268,10 @@ struct SendTextBody {
     enter: bool,
     /// Batch: send multiple commands sequentially with optional delays
     batch: Option<Vec<BatchCommand>>,
+    /// Raw mode: bypass bracket paste, send bytes directly to PTY.
+    /// Use for keystrokes that need to be interpreted by TUI (e.g. vim j/k navigation).
+    #[serde(default)]
+    raw: bool,
 }
 
 #[derive(Deserialize)]
@@ -298,8 +302,16 @@ async fn send_text(
 
     // Single send
     let text = body.text.unwrap_or_default();
-    state.svc.send_text(&pane_id, &text, body.enter)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    if body.raw {
+        // Raw mode: bypass bracket paste, send directly to PTY
+        let mut buf = text;
+        if body.enter && !buf.ends_with('\r') { buf.push('\r'); }
+        state.svc.write_raw(&pane_id, buf.as_bytes())
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    } else {
+        state.svc.send_text(&pane_id, &text, body.enter)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

@@ -26,12 +26,28 @@ async function spawnClaude(opts = {}) {
 }
 
 // Wait for Claude to be ready (TUI visible on screen).
+// Auto-accepts trust prompts ("Yes, I accept") if they appear.
 async function waitForClaude(paneId, timeoutS = 60) {
   for (let i = 0; i < timeoutS; i += 2) {
     await browser.pause(2000);
     const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
     if (screen.includes('? for shortcuts') || screen.includes('esc to interrupt') || screen.includes('bypass permissions')) {
       return screen;
+    }
+    // Auto-accept trust/responsibility prompts (Claude first-run in project)
+    if (screen.includes('Yes, I accept') || screen.includes('responsibility')) {
+      // Raw mode: j to navigate down to "Yes, I accept", Enter to confirm
+      await api('POST', `/panes/${paneId}/send`, { text: 'j', raw: true, enter: false });
+      await browser.pause(200);
+      await api('POST', `/panes/${paneId}/send`, { text: '\r', raw: true, enter: false });
+      console.log('Auto-accepted trust prompt');
+    }
+    // Auto-accept "Continue without settings" if settings.json was broken
+    if (screen.includes('Continue without these settings')) {
+      await api('POST', `/panes/${paneId}/send`, { text: 'j', raw: true, enter: false });
+      await browser.pause(200);
+      await api('POST', `/panes/${paneId}/send`, { text: '\r', raw: true, enter: false });
+      console.log('Auto-accepted broken settings prompt');
     }
   }
   throw new Error(`Claude did not start within ${timeoutS}s`);
