@@ -2,6 +2,7 @@
 export enum TitleLevel {
   Default = "Default",
   Auto = "Auto",
+  Agent = "Agent",
   User = "User",
 }
 

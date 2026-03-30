@@ -52,106 +52,17 @@ export function parseJsonlSession(jsonlText: string): ChatMessage[] {
     try {
       const entry = JSON.parse(line);
 
-      if (entry.type === "user") {
-        const rawContent = entry.message?.content;
-        if (Array.isArray(rawContent)) {
-          // Collect text and images from all blocks
-          const textParts: string[] = [];
-          const attachments: ImageAttachment[] = [];
-          for (const block of rawContent) {
-            if (block.type === "text" && block.text?.trim()) {
-              textParts.push(block.text.trim());
-            } else if (block.type === "image") {
-              const source = block.source as Record<string, unknown> | undefined;
-              const mimeType = (source?.media_type as string) || "image/png";
-              // Skip storing huge base64 data — just record the attachment
-              const data = source?.data as string | undefined;
-              attachments.push({
-                id: `${entry.uuid || "user"}-img-${attachments.length}`,
-                mimeType,
-                data: data && data.length < 100_000 ? data : undefined, // only keep small images
-              });
-            }
-          }
-          const content = textParts.join("\n");
-          if (content || attachments.length > 0) {
-            messages.push({
-              id: `${entry.uuid || "user"}-text-${messages.length}`,
-              type: "user",
-              content: content || (attachments.length > 0 ? `[${attachments.length} image${attachments.length > 1 ? "s" : ""}]` : ""),
-              timestamp: entry.timestamp,
-              attachments: attachments.length > 0 ? attachments : undefined,
-            });
-          }
-        } else {
-          const content = extractText(rawContent);
-          if (content.trim()) {
-            messages.push({
-              id: entry.uuid || `user-${messages.length}`,
-              type: "user",
-              content: content.trim(),
-              timestamp: entry.timestamp,
-            });
-          }
-        }
-      } else if (entry.type === "assistant") {
-        const contentBlocks = entry.message?.content;
-        if (!Array.isArray(contentBlocks)) continue;
+      const role =
+        entry.type === "user" || entry.type === "assistant"
+          ? entry.type
+          : entry.type === "message"
+            ? entry.message?.role
+            : undefined;
 
-        for (const block of contentBlocks) {
-          if (block.type === "text" && block.text?.trim()) {
-            messages.push({
-              id: `${entry.uuid}-text-${messages.length}`,
-              type: "assistant",
-              content: block.text.trim(),
-              timestamp: entry.timestamp,
-            });
-          } else if (block.type === "tool_use") {
-            messages.push({
-              id: block.id || `tool-${messages.length}`,
-              type: "tool_call",
-              content: `${block.name}(${summarizeInput(block.input)})`,
-              toolName: block.name,
-              toolArgs: summarizeInput(block.input),
-              toolInput: block.input ?? undefined,
-              toolId: block.id,
-              collapsed: true,
-              timestamp: entry.timestamp,
-            });
-          } else if (block.type === "tool_result") {
-            const resultText =
-              typeof block.content === "string"
-                ? block.content
-                : Array.isArray(block.content)
-                  ? block.content
-                      .map((c: Record<string, unknown>) => (c.text as string) || "")
-                      .join("\n")
-                  : JSON.stringify(block.content);
-            messages.push({
-              id: `result-${block.tool_use_id || messages.length}`,
-              type: "tool_result",
-              content:
-                resultText.slice(0, 500) +
-                (resultText.length > 500 ? "..." : ""),
-              toolId: block.tool_use_id,
-              collapsed: true,
-              timestamp: entry.timestamp,
-            });
-          } else if (block.type === "image") {
-            const imgMsg = parseImageBlock(block, entry.uuid, messages.length, entry.timestamp);
-            if (imgMsg) messages.push(imgMsg);
-          } else if (block.type === "thinking" && block.text?.trim()) {
-            messages.push({
-              id: `think-${messages.length}`,
-              type: "thinking",
-              content:
-                block.text.trim().slice(0, 200) +
-                (block.text.length > 200 ? "..." : ""),
-              collapsed: true,
-              timestamp: entry.timestamp,
-            });
-          }
-        }
+      if (role === "user") {
+        parseUserEntry(entry, messages);
+      } else if (role === "assistant") {
+        parseAssistantBlocks(entry, messages);
       }
       // Skip: system, progress, file-history-snapshot, queue-operation, last-prompt
     } catch {
@@ -160,6 +71,122 @@ export function parseJsonlSession(jsonlText: string): ChatMessage[] {
   }
 
   return messages;
+}
+
+function parseUserEntry(
+  entry: Record<string, unknown>,
+  messages: ChatMessage[],
+): void {
+  const msg = entry.message as Record<string, unknown> | undefined;
+  const rawContent = msg?.content;
+  const uuid = entry.uuid as string | undefined;
+  const timestamp = entry.timestamp as string | undefined;
+
+  if (Array.isArray(rawContent)) {
+    const textParts: string[] = [];
+    const attachments: ImageAttachment[] = [];
+    for (const block of rawContent) {
+      if (block.type === "text" && block.text?.trim()) {
+        textParts.push(block.text.trim());
+      } else if (block.type === "image") {
+        const source = block.source as Record<string, unknown> | undefined;
+        const mimeType = (source?.media_type as string) || "image/png";
+        const data = source?.data as string | undefined;
+        attachments.push({
+          id: `${uuid || "user"}-img-${attachments.length}`,
+          mimeType,
+          data: data && data.length < 100_000 ? data : undefined,
+        });
+      }
+    }
+    const content = textParts.join("\n");
+    if (content || attachments.length > 0) {
+      messages.push({
+        id: `${uuid || "user"}-text-${messages.length}`,
+        type: "user",
+        content: content || (attachments.length > 0 ? `[${attachments.length} image${attachments.length > 1 ? "s" : ""}]` : ""),
+        timestamp,
+        attachments: attachments.length > 0 ? attachments : undefined,
+      });
+    }
+  } else {
+    const content = extractText(rawContent);
+    if (content.trim()) {
+      messages.push({
+        id: (uuid as string) || `user-${messages.length}`,
+        type: "user",
+        content: content.trim(),
+        timestamp,
+      });
+    }
+  }
+}
+
+function parseAssistantBlocks(
+  entry: Record<string, unknown>,
+  messages: ChatMessage[],
+): void {
+  const msg = entry.message as Record<string, unknown> | undefined;
+  const contentBlocks = msg?.content;
+  const uuid = entry.uuid as string | undefined;
+  const timestamp = entry.timestamp as string | undefined;
+
+  if (!Array.isArray(contentBlocks)) return;
+
+  for (const block of contentBlocks) {
+    if (block.type === "text" && block.text?.trim()) {
+      messages.push({
+        id: `${uuid}-text-${messages.length}`,
+        type: "assistant",
+        content: block.text.trim(),
+        timestamp,
+      });
+    } else if (block.type === "tool_use") {
+      messages.push({
+        id: block.id || `tool-${messages.length}`,
+        type: "tool_call",
+        content: `${block.name}(${summarizeInput(block.input)})`,
+        toolName: block.name,
+        toolArgs: summarizeInput(block.input),
+        toolInput: block.input ?? undefined,
+        toolId: block.id,
+        collapsed: true,
+        timestamp,
+      });
+    } else if (block.type === "tool_result") {
+      const resultText =
+        typeof block.content === "string"
+          ? block.content
+          : Array.isArray(block.content)
+            ? block.content
+                .map((c: Record<string, unknown>) => (c.text as string) || "")
+                .join("\n")
+            : JSON.stringify(block.content);
+      messages.push({
+        id: `result-${block.tool_use_id || messages.length}`,
+        type: "tool_result",
+        content:
+          resultText.slice(0, 500) +
+          (resultText.length > 500 ? "..." : ""),
+        toolId: block.tool_use_id,
+        collapsed: true,
+        timestamp,
+      });
+    } else if (block.type === "image") {
+      const imgMsg = parseImageBlock(block, uuid || "", messages.length, timestamp);
+      if (imgMsg) messages.push(imgMsg);
+    } else if (block.type === "thinking" && block.text?.trim()) {
+      messages.push({
+        id: `think-${messages.length}`,
+        type: "thinking",
+        content:
+          block.text.trim().slice(0, 200) +
+          (block.text.length > 200 ? "..." : ""),
+        collapsed: true,
+        timestamp,
+      });
+    }
+  }
 }
 
 /**

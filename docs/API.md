@@ -59,6 +59,7 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/split` | `{direction: "right"\|"down"}` | Split pane |
 | POST | `/api/panes/{id}/rename` | `{title}` | Rename pane/tab (pinned) |
 | POST | `/api/panes/{id}/resize` | `{cols, rows}` | Resize terminal |
+| POST | `/api/panes/{id}/hook/permission` | `{question?, options?: [{label, value}]}` | Notify that agent is showing a permission prompt (see below) |
 
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
@@ -97,6 +98,28 @@ Fields returned by `GET /api/panes` for each pane:
 | `parent_pane_id` | `string?` | Parent pane ID in hierarchy, or `null` |
 | `can_spawn` | `bool` | Whether this pane can spawn children. Orchestrator: true (default). Lead: true (default). Worker: always false. |
 | `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Orchestrator), 2 (Lead or Worker under Orchestrator), 3 (Worker under Lead) |
+
+#### Permission Hook (POST /api/panes/{id}/hook/permission)
+
+Called by Claude Code hooks (or any agent integration) to notify CodeTerm that the agent is showing a permission prompt. This is a faster path than PTY auto-detection and bypasses the cooldown period.
+
+**Two modes:**
+
+1. **Explicit prompt** -- provide `question` and `options` in the body. CodeTerm uses them directly.
+2. **Auto-parse** -- send an empty body `{}`. CodeTerm reads the terminal screen content and runs structural fingerprint detection to extract the prompt.
+
+```bash
+# Auto-parse (most common — Claude hooks just ping the endpoint)
+curl -X POST "http://host:7685/api/panes/$PANE/hook/permission" \
+  -H "Content-Type: application/json" -d '{}'
+
+# Explicit prompt
+curl -X POST "http://host:7685/api/panes/$PANE/hook/permission" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Allow file write?","options":[{"label":"Yes","value":"1"},{"label":"No","value":"3"}]}'
+```
+
+Response: `{"detected": true}` or `{"detected": false}`. Even when `detected: false`, the hook still fires a `agent.permission_request` webhook event (the hook firing itself signals the agent is waiting).
 
 #### Canvas (Visualizations)
 | Method | Path | Body | Description |
@@ -566,4 +589,4 @@ Agent prompt templates are defined in `src-tauri/src/prompts.rs`. Role-specific 
 - **Orchestrator:** "Do NOT sleep or poll for reports" rule.
 - **Cron tasks:** Completion instruction with `cron complete --run-id` command.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

@@ -1077,52 +1077,43 @@ async fn hook_permission(
         Some(crate::multiplexer::types::PendingPrompt { question, options })
     });
 
-    if let Some(prompt) = explicit_prompt {
-        // Use explicitly provided prompt data
-        if let Some(pane) = state.svc.mux.lock().get_pane_mut(&pane_id) {
-            pane.pending_prompt = Some(prompt);
-        }
-        state.svc.emit_state_changed();
+    let decision = if let Some(prompt) = explicit_prompt {
+        // Use explicitly provided prompt data — delegate to PromptDetector
+        state.svc.prompt_detector.lock().hook_detected_explicit(&pane_id, prompt)
     } else {
-        // Parse prompt from ring buffer
+        // Parse prompt from ring buffer via PromptDetector
         let pty_id = state.svc.mux.lock().get_pane(&pane_id)
             .and_then(|p| p.pty_id.clone());
         let agent_type = state.svc.mux.lock().get_pane(&pane_id)
             .and_then(|p| p.agent_type.clone());
 
         if let Some(pty_id) = pty_id {
-            let ring_text = state.svc.output_buf.lock().get_text(&pty_id).unwrap_or_default();
-            let clean = clean_terminal_output(&ring_text);
+            let clean = state.svc.screen_state.lock().get_screen_text(&pty_id).unwrap_or_default();
+            log::debug!("[hook_permission] screen_text len={}, agent_type={:?}", clean.len(), agent_type);
+            log::debug!("[hook_permission] screen tail: {:?}", &clean[clean.len().saturating_sub(300)..]);
 
-            let parsed = if let Some(ref at) = agent_type {
-                state.svc.agent_registry.parse_prompt(at, &clean)
-            } else {
-                crate::agent::detector::parse_permission_prompt(&clean)
-            };
-
-            if let Some((question, opts)) = parsed {
-                let prompt = crate::multiplexer::types::PendingPrompt {
-                    question: question.clone(),
-                    options: opts.into_iter().map(|(label, value)| {
-                        crate::multiplexer::types::PromptOption { label, value }
-                    }).collect(),
-                };
-                if let Some(pane) = state.svc.mux.lock().get_pane_mut(&pane_id) {
-                    pane.pending_prompt = Some(prompt);
-                }
-                state.svc.emit_state_changed();
-            }
+            let at = agent_type.unwrap_or_else(|| "claude".to_string());
+            let registry = &state.svc.agent_registry;
+            let mut detector = state.svc.prompt_detector.lock();
+            detector.hook_detected_parse(&pane_id, &clean, |text| registry.parse_prompt(&at, text))
+        } else {
+            crate::agent::prompt::PromptDecision::None
         }
-    }
+    };
 
-    // Notify frontend + webhooks
-    let title = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.title.clone());
-    if let Some(title) = title {
-        state.svc.notify_event("agent.permission_request", serde_json::json!({
-            "pane_id": &pane_id,
-            "title": format!("{} needs approval", title),
-            "body": "Agent is waiting for your permission",
-        }));
+    // Apply decision (sets prompt on pane, emits events, notifies)
+    state.svc.apply_prompt_decision(&decision);
+
+    // For hooks, always notify even if decision is None (hook firing means agent is waiting)
+    if matches!(decision, crate::agent::prompt::PromptDecision::None) {
+        let title = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.title.clone());
+        if let Some(title) = title {
+            state.svc.notify_event("agent.permission_request", serde_json::json!({
+                "pane_id": &pane_id,
+                "title": format!("{} needs approval", title),
+                "body": "Agent is waiting for your permission",
+            }));
+        }
     }
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -1393,11 +1384,53 @@ pub fn strip_ansi_codes(s: &str) -> String {
 }
 
 /// Parse raw terminal output through a VT100 emulator to get clean screen text.
+/// Clean terminal output using VT100 virtual terminal.
 /// Properly handles cursor movements, overwrites (spinners), line wraps, etc.
 pub fn clean_terminal_output(raw: &str) -> String {
     let mut parser = vt100::Parser::new(500, 200, 10000);
     parser.process(raw.as_bytes());
     parser.screen().contents()
+}
+
+/// Light ANSI strip — removes escape sequences but preserves text layout.
+/// Faster than VT100 parser and doesn't reflow text to a different terminal size.
+/// Used for prompt detection where we need to find structural patterns
+/// in the raw stream regardless of terminal dimensions.
+pub fn strip_ansi(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            match chars.peek() {
+                Some('[') => {
+                    // CSI: skip until ASCII letter (0x40-0x7E)
+                    chars.next();
+                    while let Some(&nc) = chars.peek() {
+                        chars.next();
+                        if nc.is_ascii_alphabetic() || nc == '@' || nc == '~' { break; }
+                    }
+                }
+                Some(']') => {
+                    // OSC: skip until BEL or ST (ESC \)
+                    chars.next();
+                    while let Some(nc) = chars.next() {
+                        if nc == '\x07' { break; }
+                        if nc == '\x1b' {
+                            if chars.peek() == Some(&'\\') { chars.next(); }
+                            break;
+                        }
+                    }
+                }
+                Some('(' | ')') => { chars.next(); chars.next(); } // charset
+                _ => { chars.next(); } // other ESC
+            }
+        } else if c == '\r' {
+            // Skip CR, keep LF
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 // ── Theme API ──────────────────────────────────────────────────────────

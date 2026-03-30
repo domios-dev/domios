@@ -402,7 +402,7 @@ fn launch_agent_in_background(
         match provider.map(|p| p.readiness_strategy()) {
             Some(ReadinessStrategy::PollShellPrompt { timeout }) => {
                 crate::service::pty_io::poll_shell_prompt(
-                    &svc.output_buf,
+                    &svc.screen_state,
                     &pty_id,
                     timeout,
                 );

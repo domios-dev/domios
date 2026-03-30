@@ -26,6 +26,7 @@ use multiplexer::state::MultiplexerState;
 use notification::NotifState;
 use notification::store::NotificationStore;
 use pty::manager::{OutputBuffer, PtyManager};
+use pty::screen_state::ScreenState;
 use screenshot::{ScreenshotChannel, ScreenshotState};
 use service::{ServiceContext, ServiceState};
 use session::SessionState;
@@ -33,8 +34,10 @@ use session::store::SessionStore;
 
 pub type PtyState = Arc<Mutex<PtyManager>>;
 pub type OutputBufferState = Arc<Mutex<OutputBuffer>>;
+pub type ScreenStateHandle = Arc<Mutex<ScreenState>>;
 pub type AgentTrackerState = Arc<Mutex<agent::status::PaneStatusTracker>>;
 pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
+pub type PromptDetectorState = Arc<Mutex<agent::prompt::PromptDetector>>;
 pub use cron::scheduler::{CronState, CronWake};
 pub type UpdateStateHandle = Arc<Mutex<update::UpdateState>>;
 
@@ -46,6 +49,7 @@ struct AppStates {
     notif: NotifState,
     session: SessionState,
     output_buffer: OutputBufferState,
+    screen_state: ScreenStateHandle,
     screenshot: ScreenshotState,
     agent_tracker: AgentTrackerState,
     report_store: ReportStoreState,
@@ -63,6 +67,7 @@ fn init_states() -> AppStates {
     let notif_state: NotifState = Arc::new(Mutex::new(NotificationStore::new(500)));
     let session_state: SessionState = Arc::new(Mutex::new(SessionStore::new()));
     let output_buffer: OutputBufferState = Arc::new(Mutex::new(OutputBuffer::new(65536)));
+    let screen_state: ScreenStateHandle = Arc::new(Mutex::new(ScreenState::new()));
     let screenshot_state: ScreenshotState = Arc::new(Mutex::new(ScreenshotChannel::new()));
     let agent_tracker: AgentTrackerState = Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
     let report_store: ReportStoreState = Arc::new(Mutex::new(agent::reports::ReportStore::new(200)));
@@ -107,6 +112,7 @@ fn init_states() -> AppStates {
         notif: notif_state,
         session: session_state,
         output_buffer,
+        screen_state,
         screenshot: screenshot_state,
         agent_tracker,
         report_store,
@@ -309,6 +315,7 @@ fn start_background_tasks(
                 for (pty_id, status) in changed {
                     let pane_id = mux.lock().pane_id_for_pty(&pty_id);
                     if let Some(pid) = pane_id {
+                        log::info!("[idle-poll] {} {:?} (pane={})", &pty_id[..pty_id.len().min(8)], status, pid);
                         use tauri::Emitter;
                         let _ = app_handle.emit("pane-status-changed", serde_json::json!({
                             "pane_id": pid,
@@ -488,6 +495,7 @@ pub fn run() {
         .manage(states.notif.clone())
         .manage(states.session.clone())
         .manage(states.output_buffer.clone())
+        .manage(states.screen_state.clone())
         .manage(states.agent_tracker.clone())
         .manage(states.report_store.clone())
         .manage(states.event_broadcaster.clone())
@@ -496,12 +504,15 @@ pub fn run() {
         // ServiceState is added in .setup() after AppHandle is available
         .invoke_handler(tauri::generate_handler![
             // PTY commands
+            commands::get_windows_build_number,
             commands::get_default_cwd,
             commands::spawn_pty,
             commands::read_pty,
             commands::write_pty,
             commands::write_pty_string,
             commands::get_pane_output,
+            commands::get_pane_screen,
+            commands::wait_shell_ready,
             commands::read_session_jsonl,
             commands::resize_pty,
             commands::kill_pty,
@@ -594,16 +605,19 @@ pub fn run() {
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
+            let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
                 output_buf: states.output_buffer.clone(),
+                screen_state: states.screen_state.clone(),
                 notif: states.notif.clone(),
                 events: states.event_broadcaster.clone(),
                 app_handle: app_handle.clone(),
                 agent_tracker: states.agent_tracker.clone(),
                 report_store: states.report_store.clone(),
                 agent_registry,
+                prompt_detector,
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());

@@ -105,18 +105,40 @@ impl ServiceContext {
 
 }
 
-/// Poll output buffer for shell prompt markers. Returns true if found within timeout.
-pub fn poll_shell_prompt(output_buf: &crate::OutputBufferState, pty_id: &str, timeout: std::time::Duration) -> bool {
+/// Poll VT100 screen for a shell prompt on the last non-empty line.
+/// Uses the screen parser instead of raw buffer to avoid false positives from file content.
+pub fn poll_shell_prompt(screen_state: &crate::ScreenStateHandle, pty_id: &str, timeout: std::time::Duration) -> bool {
     let deadline = std::time::Instant::now() + timeout;
     loop {
         if std::time::Instant::now() > deadline { return false; }
-        let ready = output_buf.try_lock()
-            .and_then(|buf| buf.get_text(pty_id).map(|t| {
-                t.contains("$ ") || t.contains("% ") || t.contains("> ") || t.contains("PS ")
+        let ready = screen_state.try_lock()
+            .and_then(|ss| ss.get_screen_text(pty_id).map(|screen| {
+                screen_has_shell_prompt(&screen)
             }))
             .unwrap_or(false);
         if ready { return true; }
         std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+}
+
+/// Check if the last non-empty line of screen text looks like a shell prompt.
+fn screen_has_shell_prompt(screen_text: &str) -> bool {
+    let last_line = screen_text
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty());
+    match last_line {
+        None => false,
+        Some(line) => {
+            let trimmed = line.trim_end();
+            trimmed.ends_with("$ ")
+                || trimmed.ends_with("$")
+                || trimmed.ends_with("% ")
+                || trimmed.ends_with("%")
+                || trimmed.ends_with("> ")
+                || trimmed.ends_with(">")
+                || (trimmed.starts_with("PS ") && trimmed.ends_with(">"))
+        }
     }
 }
 
@@ -216,5 +238,61 @@ mod tests {
         let json = r#"{"text": "partial", "enter": false}"#;
         let item: SendBatchItem = serde_json::from_str(json).unwrap();
         assert!(!item.enter);
+    }
+
+    // ── screen_has_shell_prompt ──
+
+    #[test]
+    fn prompt_bash_dollar() {
+        assert!(screen_has_shell_prompt("user@host:~$ "));
+    }
+
+    #[test]
+    fn prompt_bash_dollar_no_trailing_space() {
+        assert!(screen_has_shell_prompt("user@host:~$"));
+    }
+
+    #[test]
+    fn prompt_zsh_percent() {
+        assert!(screen_has_shell_prompt("user@host % "));
+    }
+
+    #[test]
+    fn prompt_powershell() {
+        assert!(screen_has_shell_prompt("PS C:\\Users\\User> "));
+    }
+
+    #[test]
+    fn prompt_powershell_no_trailing_space() {
+        assert!(screen_has_shell_prompt("PS C:\\Users\\User>"));
+    }
+
+    #[test]
+    fn prompt_generic_angle() {
+        assert!(screen_has_shell_prompt("prompt> "));
+    }
+
+    #[test]
+    fn prompt_last_nonempty_line() {
+        let screen = "some output\nmore output\nuser@host:~$ \n\n";
+        assert!(screen_has_shell_prompt(screen));
+    }
+
+    #[test]
+    fn no_prompt_in_file_content() {
+        let screen = "Reading file.txt:\ncontains PS data and > markers\nstill loading...";
+        assert!(!screen_has_shell_prompt(screen));
+    }
+
+    #[test]
+    fn no_prompt_empty_screen() {
+        assert!(!screen_has_shell_prompt(""));
+        assert!(!screen_has_shell_prompt("\n\n\n"));
+    }
+
+    #[test]
+    fn no_false_positive_mid_line_dollar() {
+        let screen = "echo $HOME is /home/user\nprocessing...";
+        assert!(!screen_has_shell_prompt(screen));
     }
 }
