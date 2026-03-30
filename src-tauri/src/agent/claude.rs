@@ -220,6 +220,7 @@ mod tests {
             agent_name: None,
             task: None,
             args: None,
+            skip_permissions: true,
         };
         let cmd = p.build_launch_command(&params);
         if cfg!(target_os = "windows") {
@@ -242,6 +243,7 @@ mod tests {
             agent_name: None,
             task: Some("count files".to_string()),
             args: None,
+            skip_permissions: true,
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains("--dangerously-skip-permissions"));
@@ -255,6 +257,7 @@ mod tests {
             agent_name: Some("architect".to_string()),
             task: None,
             args: None,
+            skip_permissions: true,
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains("--agent"));
