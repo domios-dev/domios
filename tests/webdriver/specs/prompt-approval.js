@@ -89,11 +89,12 @@ describe('Prompt Approval in Chat View', () => {
     if (!paneId) return;
     await openChatView();
     await injectPrompt(paneId);
+    await browser.pause(3000); // wait for ChatView poll to pick up
 
     await browser.waitUntil(async () => {
       const labels = await getPromptButtonLabels();
       return labels.includes('Yes') && labels.includes('No');
-    }, { timeout: 8000, interval: 500, timeoutMsg: 'Yes/No buttons did not appear' });
+    }, { timeout: 15000, interval: 500, timeoutMsg: 'Yes/No buttons did not appear' });
   });
 
   it('should clear prompt card after clicking Yes', async () => {

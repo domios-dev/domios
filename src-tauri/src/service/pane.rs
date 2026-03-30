@@ -88,6 +88,8 @@ impl ServiceContext {
         if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
             pane.pending_prompt = None;
         }
+        // Reset PromptDetector state so next inject is accepted (not blocked by same_options check)
+        self.prompt_detector.lock().clear(pane_id);
         self.emit_state_changed();
         Ok(())
     }

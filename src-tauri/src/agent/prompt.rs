@@ -144,6 +144,11 @@ impl PromptDetector {
         }
     }
 
+    /// Called when prompt is cleared via API (test cleanup) — resets to Idle.
+    pub fn clear(&mut self, pane_id: &str) {
+        self.states.remove(pane_id);
+    }
+
     /// Called when user clicks a prompt button — transitions to Cooldown.
     pub fn mark_responded(&mut self, pane_id: &str) {
         self.states.insert(

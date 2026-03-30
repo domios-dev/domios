@@ -918,11 +918,13 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
     // Build hook commands — cross-platform null device and error handling.
     // Use single quotes around the JSON body (works in sh/bash/zsh/powershell).
     let null_dev = crate::shell::ShellSyntax::NULL_DEV;
+    // Use $CODETERM_API_PORT env var (set by PTY shell integration) with compiled-in fallback.
+    // This way hooks work regardless of which CodeTerm instance (prod/dev) spawned Claude.
     let notify_cmd = format!(
-        "curl -s -X POST http://localhost:{port}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
     );
     let stop_cmd = format!(
-        "curl -s -X POST http://localhost:{port}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
     );
 
     // Ensure hooks object exists
