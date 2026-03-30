@@ -77,6 +77,8 @@ registerAgentProvider({
     /^[\s─━═]+$/,
     /^👍$/,                    // Claude emoji reaction
     /^\*\s*(Wandering|Thinking|Pondering|Cogitating|Musing)/i,  // Claude thinking status
+    /Esc to cancel.*Tab to amend/s,    // Prompt footer (rendered via prompt card instead)
+    /Enter to confirm.*Esc to cancel/s, // Prompt footer variant
   ],
   imageSend: {
     method: 'clipboard-paste',
