@@ -60,7 +60,10 @@ export function getAllProviders(): AgentProviderConfig[] {
 registerAgentProvider({
   id: "claude",
   displayName: "Claude Code",
-  titlePattern: /claude/i,
+  // Claude Code title patterns:
+  //   "claude" (startup), "✳ Claude Code" (splash), "⠐ Task name" (working spinner)
+  // The spinner uses Braille dots (⠐⠂⠈⠄⠁⠠⠰⠘) as activity indicator prefix.
+  titlePattern: /claude|^[⠁⠂⠄⠈⠐⠠⠰⠘⠃⠅⠑⠒⠔⠕⠡⠢⠤⠥⠨⠱⠲⠴⠸✳✻] /i,
   supportsChatView: true,
   supportsResume: true,
   parseSessionData: parseJsonlSession,

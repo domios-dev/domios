@@ -371,17 +371,34 @@ pub fn read_session_jsonl(
     tail_bytes: Option<u64>,
 ) -> Result<String, String> {
     // 1. Get agent_session_id, agent_type, and cwd from pane
-    let (session_id, cwd, agent_type) = {
+    let (mut session_id, cwd, agent_type) = {
         let m = mux.lock();
         let pane = m.get_pane(&pane_id)
             .ok_or_else(|| "Pane not found".to_string())?;
-        let sid = pane.agent_session_id.clone()
-            .ok_or_else(|| "No agent session linked to this pane".to_string())?;
+        let sid = pane.agent_session_id.clone();
         let cwd = pane.cwd.clone()
             .ok_or_else(|| "Pane has no CWD".to_string())?;
         let at = pane.agent_type.clone().unwrap_or_else(|| "claude".to_string());
         (sid, cwd, at)
     };
+
+    // Self-healing: if there's a newer session file, switch to it automatically.
+    // This handles the case where Claude restarted but session_id wasn't updated yet.
+    if let Some(provider) = svc.agent_registry.get(&agent_type) {
+        let exclude = Vec::new();
+        let max_age = Some(std::time::Duration::from_secs(86400));
+        if let Some(newest) = provider.detect_session_id(&cwd, &exclude, max_age) {
+            if session_id.as_deref() != Some(newest.as_str()) {
+                log::info!("[read_session_jsonl] auto-switching session: {:?} -> {}", session_id, newest);
+                svc.set_agent_session_id(&pane_id, Some(newest.clone()));
+                svc.emit_state_changed();
+                session_id = Some(newest);
+            }
+        }
+    }
+
+    let session_id = session_id
+        .ok_or_else(|| "No agent session linked to this pane".to_string())?;
 
     // 2. Build path using agent provider
     let jsonl_path = svc.agent_registry.get(&agent_type)
@@ -1056,11 +1073,14 @@ pub fn save_temp_file(data: String, extension: String, name: Option<String>) -> 
 pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        // PowerShell single-quoted strings are literal — only ' needs escaping
+        // (as ''), backslashes are NOT escape chars in PS single quotes.
+        let escaped_path = path.replace("'", "''");
         let ps_script = format!(
             r#"
             Add-Type -AssemblyName System.Windows.Forms
             Add-Type -AssemblyName System.Drawing
-            $img = [System.Drawing.Image]::FromFile('{}')
+            $img = [System.Drawing.Image]::FromFile('{escaped_path}')
             $data = New-Object System.Windows.Forms.DataObject
             $data.SetImage($img)
             $ms = New-Object System.IO.MemoryStream
@@ -1069,17 +1089,19 @@ pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
             $data.SetData('PNG', $false, $ms)
             [System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
             $img.Dispose()
-            "#,
-            path.replace("'", "''").replace('\\', "\\\\")
+            "#
         );
+        log::debug!("[clipboard] copying image to clipboard: {}", path);
         let output = std::process::Command::new("powershell")
             .args(["-NoProfile", "-STA", "-Command", &ps_script])
             .output()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("PowerShell launch failed: {}", e))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            log::error!("[clipboard] PowerShell failed: {}", stderr);
             return Err(format!("Clipboard copy failed: {}", stderr));
         }
+        log::debug!("[clipboard] image copied to clipboard successfully");
     }
 
     #[cfg(target_os = "macos")]

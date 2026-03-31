@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from helpers import CodeTermAPI, strip_ansi
+from helpers import CodeTermAPI, shell_cmd, strip_ansi
 
 
 # -- exec ------------------------------------------------------------------
@@ -31,7 +31,10 @@ def test_exec_timeout(api: CodeTermAPI, fresh_pane: str):
 
 def test_exec_multiline_output(api: CodeTermAPI, fresh_pane: str):
     """Command that prints multiple lines."""
-    result = api.exec_cmd(fresh_pane, "printf 'line1\\nline2\\nline3\\n'")
+    result = api.exec_cmd(fresh_pane, shell_cmd(
+        "printf 'line1\\nline2\\nline3\\n'",
+        'Write-Host "line1`nline2`nline3"',
+    ))
     assert "line1" in result["output"]
     assert "line2" in result["output"]
     assert "line3" in result["output"]
@@ -39,7 +42,10 @@ def test_exec_multiline_output(api: CodeTermAPI, fresh_pane: str):
 
 def test_special_characters(api: CodeTermAPI, fresh_pane: str):
     """Echo with quotes, backslashes, unicode."""
-    result = api.exec_cmd(fresh_pane, r"echo 'hello \"world\" \\ \u2603'")
+    result = api.exec_cmd(fresh_pane, shell_cmd(
+        r"echo 'hello \"world\" \\ \u2603'",
+        r'echo "hello `"world`" \\ \u2603"',
+    ))
     # At minimum the echo should execute without error
     assert "output" in result
     assert "offset" in result
@@ -151,7 +157,10 @@ def test_output_offset_cursor(api: CodeTermAPI, fresh_pane: str):
 def test_output_strip_ansi(api: CodeTermAPI, fresh_pane: str):
     """Verify strip_ansi=true removes escape codes from output."""
     # Produce colored output
-    api.exec_cmd(fresh_pane, r"printf '\033[31mRED\033[0m'")
+    api.exec_cmd(fresh_pane, shell_cmd(
+        r"printf '\033[31mRED\033[0m'",
+        'Write-Host "`e[31mRED`e[0m" -NoNewline',
+    ))
 
     # Raw output may contain escape codes
     raw = api.get_output(fresh_pane, strip_ansi_flag=False)

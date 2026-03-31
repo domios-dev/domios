@@ -31,11 +31,51 @@ def strip_ansi(text: str) -> str:
 
 # -- Platform helpers ------------------------------------------------------
 
+IS_WINDOWS = sys.platform == "win32"
+
+
 def echo_env(var_name: str) -> str:
     """Return platform-appropriate command to echo an env var."""
-    if sys.platform == "win32":
+    if IS_WINDOWS:
         return f"echo %{var_name}%"
     return f"echo ${var_name}"
+
+
+def shell_cmd(unix: str, win: str | None = None) -> str:
+    """Return platform-appropriate shell command.
+
+    If *win* is None, returns *unix* on all platforms (for commands that
+    work in both bash and PowerShell, like ``echo``).
+    """
+    if IS_WINDOWS and win is not None:
+        return win
+    return unix
+
+
+def tmp_path(filename: str) -> str:
+    """Cross-platform temp file path."""
+    import tempfile
+    from pathlib import Path
+    return str(Path(tempfile.gettempdir()) / filename)
+
+
+def inject_screen_text(api: "CodeTermAPI", pane_id: str, text: str) -> None:
+    """Output exact text to the terminal screen via a temp file.
+
+    Writes *text* to a temp file then runs ``cat`` (Unix) or
+    ``Get-Content -Raw`` (Windows) so the output appears cleanly
+    without shell continuation markers like PowerShell's ``>>``.
+    """
+    import os
+    import tempfile
+
+    fd, path = tempfile.mkstemp(suffix=".txt", text=True)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    if IS_WINDOWS:
+        api.send_text(pane_id, text=f'Get-Content -Raw "{path}"')
+    else:
+        api.send_text(pane_id, text=f'cat "{path}"')
 
 
 def unique_name(prefix: str = "e2e") -> str:

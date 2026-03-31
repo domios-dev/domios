@@ -376,9 +376,21 @@ export function TerminalPane({
         setPaneTitle(paneId, title, hasAgent ? TitleLevel.Agent : TitleLevel.Auto);
         // Detect agent from OSC title
         const detectedAgent = detectAgentFromTitle(title);
+        const prevAgent = stateRef.current.panes[paneId]?.agent_type;
+        // Agent exited: title no longer matches agent pattern → clear agent state
+        if (!detectedAgent && prevAgent) {
+          setAgentType(paneId, null);
+          invoke("mux_set_pane_agent_type", { paneId, agentType: null }).catch(() => {});
+        }
         if (detectedAgent) {
           setAgentType(paneId, detectedAgent);
           invoke("mux_set_pane_agent_type", { paneId, agentType: detectedAgent }).catch(() => {});
+          // Reset session ID when agent is first detected (prevAgent was null).
+          // This covers: fresh pane, or agent restarted after exit cleared prevAgent.
+          // Don't reset on title updates while same agent runs (frequent).
+          if (!prevAgent) {
+            invoke("mux_set_claude_session_id", { paneId, sessionId: null }).catch(() => {});
+          }
           // Detect and save the agent session ID for future resume
           // Keeps retrying because: CWD might not be set yet, JSONL might not exist yet
           const tryDetectSession = () => {
@@ -725,45 +737,50 @@ export function TerminalPane({
           return true;
         }
 
-        return true;
-      });
-
-      // Primary: xterm.js onData — with paste fix + Tab completion
-      const onDataDisposable = term.onData((data) => {
-        // Ctrl+V: text → paste text, image → save temp file + paste path
-        if (data === "\x16") {
+        // Ctrl+V: handle paste HERE (in user gesture context) so
+        // navigator.clipboard.read() has permission on WebView2/Chromium.
+        // If handled in xterm's onData, the async call loses gesture context.
+        if (e.code === "KeyV") {
+          const ptyTarget = predictedId;
           navigator.clipboard.read().then(async (items) => {
-            // Try text first
+            // Text first
             const textItem = items.find((item) => item.types.includes("text/plain"));
             if (textItem) {
               const blob = await textItem.getType("text/plain");
               const text = await blob.text();
               if (text) {
-                invoke("write_pty_string", { ptyId: predictedId, data: text });
+                invoke("write_pty_string", { ptyId: ptyTarget, data: text });
                 return;
               }
             }
-            // No text — check for image
+            // Image fallback
             for (const item of items) {
-              const imageType = item.types.find((t) => t.startsWith("image/"));
+              const imageType = item.types.find((t: string) => t.startsWith("image/"));
               if (imageType) {
                 const blob = await item.getType(imageType);
                 const ext = imageType === "image/jpeg" ? "jpg" : "png";
                 const arrayBuf = await blob.arrayBuffer();
                 const bytes = Array.from(new Uint8Array(arrayBuf));
                 const path = await invoke<string>("save_clipboard_image", { bytes, ext });
-                if (path) invoke("write_pty_string", { ptyId: predictedId, data: path });
+                if (path) invoke("write_pty_string", { ptyId: ptyTarget, data: path });
                 return;
               }
             }
           }).catch(() => {
-            // Fallback to readText
             navigator.clipboard.readText().then((text) => {
-              if (text) invoke("write_pty_string", { ptyId: predictedId, data: text });
+              if (text) invoke("write_pty_string", { ptyId: ptyTarget, data: text });
             }).catch(() => {});
           });
-          return;
+          return false; // prevent xterm from processing Ctrl+V
         }
+
+        return true;
+      });
+
+      // Primary: xterm.js onData — Tab completion + PTY write
+      const onDataDisposable = term.onData((data) => {
+        // Ctrl+V is handled in attachCustomKeyEventHandler (user gesture context)
+        if (data === "\x16") return;
 
         const tracker = trackerRef.current;
         const engine = engineRef.current;
@@ -897,20 +914,29 @@ export function TerminalPane({
         // -NoExit -Command for PowerShell on Windows). No visible injection needed.
         setShellReady(true);
 
-        // If this pane had Claude Code running and we know the session ID, resume it
-        if (paneData?.agent_type === "claude" && paneData?.agent_session_id) {
+        // If this pane had a Claude session, resume it.
+        // Check session_id only — agent_type may have been cleared by hook/stop on exit.
+        if (paneData?.agent_session_id) {
+          console.log(`[resume] pane ${paneId} has session ${paneData.agent_session_id}, checking config...`);
           invoke<{ agent: { resume_sessions: boolean; resume_skip_permissions: boolean } }>("get_config")
             .then(async (cfg) => {
-              if (!cfg.agent.resume_sessions) return;
+              if (!cfg.agent.resume_sessions) {
+                console.log(`[resume] resume_sessions disabled, skipping`);
+                return;
+              }
               const skipFlag = cfg.agent.resume_skip_permissions ? " --dangerously-skip-permissions" : "";
-              await invoke<boolean>("wait_shell_ready", { paneId, timeoutMs: 10000 });
+              console.log(`[resume] waiting for shell ready...`);
+              const ready = await invoke<boolean>("wait_shell_ready", { paneId, timeoutMs: 15000 });
+              console.log(`[resume] shell ready=${ready}, disposed=${disposed}`);
               if (disposed) return;
+              const cmd = `claude --resume ${paneData.agent_session_id}${skipFlag}`;
+              console.log(`[resume] sending: ${cmd}`);
               invoke("write_pty_string", {
                 ptyId: spawnedId,
-                data: `claude --resume ${paneData.agent_session_id}${skipFlag}\r`,
-              }).catch(() => {});
+                data: cmd + "\r",
+              }).catch((e) => console.error(`[resume] write failed:`, e));
             })
-            .catch(() => {});
+            .catch((e) => console.error(`[resume] config/ready failed:`, e));
         }
 
         // Sync PTY size with actual xterm dimensions after connection
@@ -1041,13 +1067,16 @@ export function TerminalPane({
               const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
               const ext = name.split(".").pop() || "png";
               const path = await invoke<string>("save_clipboard_image", { bytes, ext });
-              invoke("write_pty_string", { ptyId, data: path });
+              await invoke("write_pty_string", { ptyId, data: path });
+              // Delay between files so Claude processes each one
+              if (files.length > 1) await new Promise(r => setTimeout(r, 300));
             } catch (err) {
               console.error("[drop] Image error:", err);
             }
           } else {
             // Text files: read content and paste via bracketed paste mode
             // Binary/large files: paste path
+            const filePath = (file as any).path || file.name;
             const isText = /\.(txt|md|ts|tsx|js|jsx|py|rs|go|java|c|cpp|h|hpp|json|toml|yaml|yml|html|css|scss|sh|bat|ps1|csv|xml|sql|log|env|conf|cfg|ini|rb|php|swift|kt|dart|lua|r|m|pl|ex|exs|hs|clj|scala)$/i.test(name);
             if (isText) {
               try {
@@ -1055,21 +1084,18 @@ export function TerminalPane({
                 if (text.length < 100000) {
                   // Bracketed paste: \x1b[200~ ... \x1b[201~ — Claude Code shows as pasted block
                   const bracketedPaste = `\x1b[200~${text}\x1b[201~`;
-                  invoke("write_pty_string", { ptyId, data: bracketedPaste });
+                  await invoke("write_pty_string", { ptyId, data: bracketedPaste });
                 } else {
-                  // Too large — paste path with @ reference
-                  const path = (file as any).path || file.name;
-                  invoke("write_pty_string", { ptyId, data: `@${path}` });
+                  await invoke("write_pty_string", { ptyId, data: `@${filePath}` });
                 }
               } catch {
-                const path = (file as any).path || file.name;
-                invoke("write_pty_string", { ptyId, data: path });
+                await invoke("write_pty_string", { ptyId, data: filePath });
               }
             } else {
-              // Binary files: paste path
-              const path = (file as any).path || file.name;
-              invoke("write_pty_string", { ptyId, data: path });
+              // Binary/unknown files: paste path
+              await invoke("write_pty_string", { ptyId, data: filePath });
             }
+            if (files.length > 1) await new Promise(r => setTimeout(r, 200));
           }
         }
       }}

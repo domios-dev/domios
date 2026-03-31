@@ -73,11 +73,20 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn detect_from_title(&self, title: &str) -> bool {
-        title.to_lowercase().contains("claude")
+        let lower = title.to_lowercase();
+        if lower.contains("claude") {
+            return true;
+        }
+        // Claude Code v2.1+ uses Braille spinner chars or ✳ as title prefix
+        // e.g. "⠐ General coding session", "✳ Claude Code"
+        let first = title.chars().next().unwrap_or('\0');
+        (('\u{2801}'..='\u{28ff}').contains(&first) || first == '✳' || first == '✻')
+            && title.len() > 2
     }
 
     fn detect_from_output(&self, text: &str) -> bool {
-        text.contains("Do you want to proceed?")
+        text.contains("Claude Code")
+            || text.contains("Do you want to proceed?")
             || text.contains("may I proceed")
             || text.contains("Would you like me to")
             || text.contains("Yes, and don't ask again")
@@ -119,13 +128,22 @@ impl AgentProvider for ClaudeProvider {
                         && !exclude.contains(&stem.to_string())
                     {
                         if let Ok(meta) = entry.metadata() {
+                            // Recency check uses modification time — a resumed session
+                            // has an old birth time but recent writes.
                             if let Ok(modified) = meta.modified() {
                                 if let Ok(age) = now.duration_since(modified) {
                                     if age > recency_limit {
                                         continue;
                                     }
                                 }
-                                sessions.push((stem.to_string(), modified));
+                            }
+                            // Sort key uses creation time (birth) when available —
+                            // a new session creates a new file, so the newest-created
+                            // file is the current session. Falls back to modified time
+                            // (Linux without birth time, or resumed sessions).
+                            let sort_key = meta.created().or_else(|_| meta.modified());
+                            if let Ok(ts) = sort_key {
+                                sessions.push((stem.to_string(), ts));
                             }
                         }
                     }
@@ -133,6 +151,7 @@ impl AgentProvider for ClaudeProvider {
             }
         }
 
+        // Sort by newest first — the most recently CREATED file = current session
         sessions.sort_by(|a, b| b.1.cmp(&a.1));
         sessions.first().map(|(id, _)| id.clone())
     }
@@ -269,7 +288,15 @@ mod tests {
         let p = ClaudeProvider::new();
         assert!(p.detect_from_title("Claude Code"));
         assert!(p.detect_from_title("claude"));
+        // Claude v2.1+ spinner titles
+        assert!(p.detect_from_title("⠐ General coding session"));
+        assert!(p.detect_from_title("⠂ General coding session"));
+        assert!(p.detect_from_title("✳ Claude Code"));
+        assert!(p.detect_from_title("✳ Fix bug in parser"));
+        // Not Claude
         assert!(!p.detect_from_title("Aider"));
+        assert!(!p.detect_from_title("C:\\WINDOWS\\System32\\powershell.exe"));
+        assert!(!p.detect_from_title("PS C:\\Users\\User>"));
     }
 
     #[test]

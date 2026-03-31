@@ -53,6 +53,34 @@ impl ServiceContext {
             log::info!("[status] {} {:?} -> {:?}", &pty_id[..pty_id.len().min(8)], prev_status, current_status);
         }
 
+        // Auto-detect agent type from PTY output if not already set.
+        // Uses VT100-parsed screen content (not raw chunks — they may be fragmented/ANSI-wrapped).
+        let agent_type = if agent_type.is_none() {
+            if let Some(ref pid) = pane_id {
+                let screen = self.screen_state.lock().get_screen_text(pty_id).unwrap_or_default();
+                if !screen.is_empty() {
+                    if let Some(provider) = self.agent_registry.detect_from_output(&screen) {
+                        let agent_id = provider.id().to_string();
+                        log::info!("[output] auto-detected agent '{}' in pane {} from screen content", agent_id, pid);
+                        self.set_pane_agent_type(pid, Some(agent_id.clone()));
+                        // Also detect session immediately
+                        let cwd = self.mux.lock().get_pane(pid).and_then(|p| p.cwd.clone());
+                        if let Some(cwd) = cwd {
+                            let max_age = Some(std::time::Duration::from_secs(86400));
+                            if let Some(sid) = provider.detect_session_id(&cwd, &[], max_age) {
+                                log::info!("[output] auto-detected session {} for pane {}", sid, pid);
+                                self.set_agent_session_id(pid, Some(sid));
+                            }
+                        }
+                        self.emit_state_changed();
+                        Some(agent_id)
+                    } else { None }
+                } else { None }
+            } else { None }
+        } else {
+            agent_type
+        };
+
         if let (Some(ref pid), Some(ref at)) = (&pane_id, &agent_type) {
             if let Ok(raw) = std::str::from_utf8(data) {
                 let chunk_text = crate::api::routes::clean_terminal_output(raw);

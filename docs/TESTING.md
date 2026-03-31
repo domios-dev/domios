@@ -27,16 +27,28 @@ npx tsx src/components/ChatView/parser.test.ts
 
 Test full stack via REST API against a running dev instance. Create panes, send text, check output, verify prompt lifecycle.
 
+**macOS/Linux:**
 ```bash
 # Needs running dev instance (./build.sh dev)
-
-# Run all
 CODETERM_API_URL=http://127.0.0.1:7686 pytest tests/e2e/ -v
 
 # Run specific file
 CODETERM_API_URL=http://127.0.0.1:7686 pytest tests/e2e/test_hooks.py -v
+```
 
-# Remote testing (Windows/other machines)
+**Windows (BLACKSTAR) — use `dev.local.sh`:**
+```bash
+# Safe: starts dev server WITHOUT killing production instance
+bash dev.local.sh dev       # loads MSVC, starts dev, waits for API on port 7686
+bash dev.local.sh test      # runs pytest against dev instance
+bash dev.local.sh all       # dev + wait + test
+
+# WARNING: Do NOT use ./build.sh dev on Windows — it runs
+# taskkill //F //IM codeterm.exe which kills production CodeTerm!
+```
+
+**Remote testing:**
+```bash
 CODETERM_API_URL=http://HOST:PORT CODETERM_API_TOKEN=TOKEN pytest tests/e2e/ -v
 ```
 
