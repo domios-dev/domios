@@ -429,17 +429,27 @@ pub fn read_session_jsonl(
         (sid, cwd, at)
     };
 
-    // Self-healing: if there's a newer session file, switch to it automatically.
-    // This handles the case where Claude restarted but session_id wasn't updated yet.
-    if let Some(provider) = svc.agent_registry.get(&agent_type) {
-        let exclude = Vec::new();
-        let max_age = Some(std::time::Duration::from_secs(86400));
-        if let Some(newest) = provider.detect_session_id(&cwd, &exclude, max_age) {
-            if session_id.as_deref() != Some(newest.as_str()) {
-                log::info!("[read_session_jsonl] auto-switching session: {:?} -> {}", session_id, newest);
-                svc.set_agent_session_id(&pane_id, Some(newest.clone()));
+    // Self-healing: only re-detect if session_id is missing or file doesn't exist.
+    // Don't aggressively switch to newest — that causes all panes with same CWD to share one session.
+    let needs_detect = if session_id.is_none() {
+        true
+    } else if let Some(ref sid) = session_id {
+        // Check if current session file still exists
+        svc.agent_registry.get(&agent_type)
+            .and_then(|p| p.session_file_path(&cwd, sid))
+            .map(|path| !path.exists())
+            .unwrap_or(true)
+    } else { false };
+
+    if needs_detect {
+        if let Some(provider) = svc.agent_registry.get(&agent_type) {
+            let exclude = mux.lock().other_session_ids(&pane_id);
+            let max_age = Some(std::time::Duration::from_secs(86400));
+            if let Some(detected) = provider.detect_session_id(&cwd, &exclude, max_age) {
+                log::info!("[read_session_jsonl] detected session {} for pane {}", detected, pane_id);
+                svc.set_agent_session_id(&pane_id, Some(detected.clone()));
                 svc.emit_state_changed();
-                session_id = Some(newest);
+                session_id = Some(detected);
             }
         }
     }

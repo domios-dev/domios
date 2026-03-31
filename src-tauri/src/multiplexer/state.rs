@@ -442,6 +442,14 @@ impl MultiplexerState {
         self.panes.get(id)
     }
 
+    /// Collect agent_session_ids from all panes except the given one.
+    pub fn other_session_ids(&self, exclude_pane_id: &str) -> Vec<String> {
+        self.panes.values()
+            .filter(|p| p.id != exclude_pane_id)
+            .filter_map(|p| p.agent_session_id.clone())
+            .collect()
+    }
+
     pub fn get_pane_mut(&mut self, id: &str) -> Option<&mut Pane> {
         self.panes.get_mut(id)
     }
@@ -861,7 +869,14 @@ impl MultiplexerState {
                         // Don't restore agent_type — let backend detect from PTY output.
                         // Restoring it causes false positives when Claude isn't running.
                         agent_type: None,
-                        agent_session_id: claude_session_id.clone(),
+                        // Deduplicate: only assign session_id if no other pane already has it
+                        agent_session_id: claude_session_id.as_ref().and_then(|sid| {
+                            if panes.values().any(|p| p.agent_session_id.as_deref() == Some(sid.as_str())) {
+                                None // Already taken by another pane
+                            } else {
+                                Some(sid.clone())
+                            }
+                        }),
                         role: parsed_role,
                         parent_pane_id: parent_pane_id.clone(),
                         can_spawn: *can_spawn,

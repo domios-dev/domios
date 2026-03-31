@@ -78,10 +78,13 @@ impl ServiceContext {
                         log::info!("[output] auto-detected agent '{}' in pane {} from screen content", agent_id, pid);
                         self.set_pane_agent_type(pid, Some(agent_id.clone()));
                         // Also detect session immediately
-                        let cwd = self.mux.lock().get_pane(pid).and_then(|p| p.cwd.clone());
+                        let (cwd, exclude) = {
+                            let m = self.mux.lock();
+                            (m.get_pane(pid).and_then(|p| p.cwd.clone()), m.other_session_ids(pid))
+                        };
                         if let Some(cwd) = cwd {
                             let max_age = Some(std::time::Duration::from_secs(86400));
-                            if let Some(sid) = provider.detect_session_id(&cwd, &[], max_age) {
+                            if let Some(sid) = provider.detect_session_id(&cwd, &exclude, max_age) {
                                 log::info!("[output] auto-detected session {} for pane {}", sid, pid);
                                 self.set_agent_session_id(pid, Some(sid));
                             }

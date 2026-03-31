@@ -1092,7 +1092,7 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
     // Always re-check session — the newest JSONL may have changed since last detection.
     // Hook proves agent is alive, so use a generous 1-hour recency window.
     if let Some(ref cwd) = cwd {
-        let exclude = Vec::new();
+        let exclude = state.svc.mux.lock().other_session_ids(pane_id);
         // Very generous window — hook proves agent is alive, JSONL may be hours old
         // (idle session, long task, user away). 24 hours covers all realistic cases.
         let hook_max_age = Some(std::time::Duration::from_secs(86400));
