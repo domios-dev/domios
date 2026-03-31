@@ -58,8 +58,22 @@ impl ServiceContext {
         let agent_type = if agent_type.is_none() {
             if let Some(ref pid) = pane_id {
                 let screen = self.screen_state.lock().get_screen_text(pty_id).unwrap_or_default();
-                if !screen.is_empty() {
-                    if let Some(provider) = self.agent_registry.detect_from_output(&screen) {
+                // Also try raw output buffer (screen_state may be empty for alternate-screen apps)
+                let raw_text = if screen.is_empty() {
+                    self.output_buf.lock().get_text(pty_id).unwrap_or_default()
+                } else { String::new() };
+                let check_text = if !screen.is_empty() { &screen } else { &raw_text };
+                if !check_text.is_empty() {
+                    let detected = self.agent_registry.detect_from_output(check_text);
+                    // Log periodically to aid debugging
+                    static DETECT_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                    let dc = DETECT_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if dc < 5 || dc % 100 == 0 {
+                        log::debug!("[agent-detect] pane={} screen_len={} raw_len={} detected={} text_sample={:?}",
+                            pid, screen.len(), raw_text.len(), detected.is_some(),
+                            &check_text[..check_text.len().min(100)]);
+                    }
+                    if let Some(provider) = detected {
                         let agent_id = provider.id().to_string();
                         log::info!("[output] auto-detected agent '{}' in pane {} from screen content", agent_id, pid);
                         self.set_pane_agent_type(pid, Some(agent_id.clone()));

@@ -83,6 +83,7 @@ pub async fn spawn_pty(
     mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
     screen_state: tauri::State<'_, ScreenStateHandle>,
     config_state: tauri::State<'_, crate::config::ConfigState>,
+    svc: tauri::State<'_, ServiceState>,
     _app: AppHandle,
     command: Option<String>,
     cwd: Option<String>,
@@ -124,6 +125,10 @@ pub async fn spawn_pty(
         let session_id = mux_state.lock().get_pane(pid)
             .and_then(|p| p.agent_session_id.clone());
         if let Some(session_id) = session_id {
+            // Pane has a saved session → it was a Claude pane.
+            // Set agent_type now so ChatView knows it's an agent pane immediately.
+            svc.set_pane_agent_type(pid, Some("claude".to_string()));
+            svc.emit_state_changed();
             let pty_clone = state.inner().clone();
             let pty_id_for_poll = pty_id.clone();
             let pty_id_for_write = pty_id.clone();
