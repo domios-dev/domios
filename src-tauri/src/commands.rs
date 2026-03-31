@@ -130,14 +130,9 @@ pub async fn spawn_pty(
             svc.set_pane_agent_type(pid, Some("claude".to_string()));
             svc.emit_state_changed();
 
-            // Start backend PTY reader so this pane gets read even without
-            // a frontend TerminalPane mounted (Phase 0: PTY autonomy).
-            if let Err(e) = crate::service::pty_lifecycle::start_backend_reader(
-                svc.inner(),
-                &pty_id,
-            ) {
-                log::warn!("[spawn_pty] failed to start backend reader for {}: {}", pty_id, e);
-            }
+            // Backend reader is ONLY for General Agent pane (started in general_agent.rs).
+            // For regular panes, frontend TerminalPane handles reading.
+            // Starting backend reader here would steal bytes from frontend → broken UI.
 
             let pty_clone = state.inner().clone();
             let pty_id_for_poll = pty_id.clone();
