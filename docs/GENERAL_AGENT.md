@@ -1,335 +1,365 @@
-# General Agent — System Specification
+# General Agent — System Specification v2
 
 ## Overview
 
-The General Agent is an always-on AI agent that serves as the persistent "brain" of a CodeTerm installation. It lives in a protected, unclosable workspace, auto-starts with CodeTerm, recovers from failures, and can orchestrate other agents. In the future it connects to external interfaces (Telegram bot, webhooks, scheduled tasks).
+The General Agent is an always-on AI agent living in `~/.codeterm/` (platform-adjusted). It auto-starts, self-recovers, and serves as the persistent brain of a CodeTerm installation. Reachable via terminal, Telegram, Discord, or any future integration through a unified messaging bridge.
 
 ## Core Principles
 
-- **Always alive**: starts with CodeTerm, restarts on crash, recovers from failed sessions
+- **Always alive**: starts with CodeTerm, self-recovers on crash, resumes sessions
 - **Unclosable**: user cannot close the General workspace or its primary tab
-- **Self-aware**: knows it's inside CodeTerm, has full knowledge of available tools/skills
-- **Orchestrator**: can spawn agents in other workspaces, manage cron jobs
-- **Extensible**: Telegram bot, webhooks, external triggers plug into this agent
+- **Provider-agnostic**: works with Claude, Codex, or any registered provider. Instructions file name comes from provider (`CLAUDE.md`, `AGENTS.md`, etc.)
+- **Extensible**: integrations (Telegram, Discord, phone) plug in via a messaging bridge, not hardcoded per-service
+- **Self-aware**: knows it's inside CodeTerm, has full skill knowledge, can manage other agents
+
+---
+
+## Directory Structure
+
+Root: `~/.codeterm/` (macOS/Linux) or `%USERPROFILE%\.codeterm\` (Windows)
+
+```
+~/.codeterm/
+├── general/                    # General Agent workspace CWD
+│   ├── CLAUDE.md               # Auto-generated instructions (provider-specific name)
+│   ├── EXTRA_INSTRUCTIONS.md   # User-editable, never overwritten
+│   └── state/                  # Agent's own notes, memory files
+├── secrets/                    # Secrets storage (agent-readable .md files)
+│   ├── telegram.md             # Bot token, allowed users
+│   ├── discord.md              # Bot token, server config
+│   └── api_keys.md             # Any API keys agent needs
+├── integrations/               # Integration configs
+│   ├── telegram.toml           # Telegram bridge config
+│   └── discord.toml            # Discord bridge config
+├── config.toml                 # Main CodeTerm config (existing)
+├── logs/                       # Existing log directory
+└── sessions/                   # Existing session data
+```
+
+### Secrets system
+- Agent reads `~/.codeterm/secrets/*.md` for credentials
+- Each file = one service/context
+- Markdown format — human-readable, agent-parseable
+- `.gitignore`'d by default
+- Agent can create/update secrets files itself
+
+---
+
+## Instructions File
+
+### Auto-generated section
+Provider-specific filename (e.g., `CLAUDE.md` for Claude, `AGENTS.md` for Codex).
+
+Generated with markers — content between markers is overwritten on version change, content outside is preserved:
+
+```markdown
+<!-- CODETERM-AUTO-START v{version} -->
+# CodeTerm General Agent
+
+You are the General Agent — the always-on system brain of this CodeTerm installation.
+You run inside CodeTerm, an AI-first terminal multiplexer.
+
+## Your role
+- Manage this machine's CodeTerm environment
+- Respond to user requests via terminal or connected services (Telegram, Discord, etc.)
+- Spawn and coordinate agents in project workspaces
+- Manage cron jobs, notifications, system health
+- Self-recover if you crash — resume your session or start fresh
+
+## Available tools
+{codeterm_skill_content}
+
+## Machine info
+- Platform: {platform}
+- Machine: {hostname}
+- CodeTerm: v{version}
+- Provider: {agent_provider}
+
+## Connected services
+{connected_services}
+
+## Secrets
+Read credentials from ~/.codeterm/secrets/*.md when needed.
+
+## Self-management
+- You CANNOT close your own tab or workspace
+- You CAN spawn agents in other workspaces
+- You always run with skip-permissions
+- If you need to restart, use /exit — CodeTerm will auto-resume you
+- Your CWD is ~/.codeterm/general/
+<!-- CODETERM-AUTO-END -->
+
+# Extra Instructions
+See EXTRA_INSTRUCTIONS.md for user-defined instructions.
+```
+
+### EXTRA_INSTRUCTIONS.md
+- Created empty on first run
+- Never touched by CodeTerm
+- Agent told to read it
+- User puts custom rules, personality, preferences here
+
+### Provider switching
+If user changes provider in settings (e.g., Claude → Codex):
+1. Rename instructions file (`CLAUDE.md` → `AGENTS.md`)
+2. Preserve user content outside markers
+3. Regenerate auto section with new provider info
+4. Restart agent
 
 ---
 
 ## Lifecycle
 
-### Startup sequence
+### Startup
 
 ```
 CodeTerm launches
   │
-  ├─ Session restore (normal workspaces)
+  ├─ Session restore (user workspaces)
   │
-  └─ General Agent check:
+  └─ General Agent init:
+      ├─ Ensure ~/.codeterm/general/ exists + secrets/ + integrations/
+      ├─ Generate/update instructions file (marker-based, preserves user content)
+      ├─ Ensure General workspace exists (protected, always first)
       │
-      ├─ Does ~/.codeterm/general/ exist?
-      │   NO → create directory + generate CLAUDE.md
-      │   YES → continue
+      ├─ Has agent_session_id?
+      │   YES → provider.build_resume_command(session_id)
+      │   NO  → provider.build_launch_command(skip_permissions=true)
       │
-      ├─ Does General workspace exist in session?
-      │   NO → create protected workspace (name="General", cwd=~/.codeterm/general/)
-      │   YES → use existing
-      │
-      ├─ Does General pane have agent_session_id?
-      │   YES → attempt resume: `claude --resume {session_id} --dangerously-skip-permissions`
-      │   NO → fresh start: `claude --dangerously-skip-permissions`
-      │
-      └─ Wait for agent detection (PTY output)
-          │
-          ├─ Detected → healthy, done
-          │
-          └─ Not detected after 30s → recovery (see below)
+      └─ Backend spawns PTY + starts backend read loop
+          ├─ Agent detected → healthy
+          └─ Not detected 30s → recovery
 ```
 
 ### Recovery
 
 ```
-Recovery triggered when:
-  - Resume failed (Claude error, session corrupt)
+Triggered when:
+  - Resume failed
   - Agent not detected after timeout
-  - Agent crashed (process exited, shell prompt visible)
+  - Crash detected (shell prompt in screen_state)
 
-Recovery steps:
-  1. Clear agent_session_id on pane
-  2. Kill any stuck process: send Ctrl+C + Enter
-  3. Wait for shell prompt (poll_shell_prompt)
-  4. Start fresh: `claude --dangerously-skip-permissions`
-  5. If fresh start fails → wait 60s → retry (max 3 attempts)
-  6. After 3 failures → mark as "General Agent failed to start"
-     → show warning in sidebar (red dot on General workspace)
-     → user can manually retry from 3-dot menu
+Steps:
+  1. Clear agent_session_id
+  2. Send Ctrl+C + Enter (kill stuck process)
+  3. Wait for shell prompt
+  4. Fresh start via provider.build_launch_command()
+  5. Retry up to 3 times with 60s delay
+  6. After 3 fails → red dot on sidebar, manual retry available
 ```
 
 ### Shutdown
-
-```
-CodeTerm closing:
-  1. Save General pane agent_session_id (for resume on next launch)
-  2. Don't send /exit — let Claude be killed with PTY
-  3. Session saved in normal session store
-```
-
-### Restart (CodeTerm restart)
-
-```
-1. Session restore creates General workspace + pane
-2. agent_session_id exists → resume attempted
-3. Resume success → General Agent continues previous context
-4. Resume fail → recovery → fresh start
-5. Fresh start → new CLAUDE.md context loaded automatically (it's the CWD)
-```
+- Save agent_session_id for resume on next launch
+- Don't send /exit — let PTY die with process
+- Session saved normally
 
 ---
 
-## Workspace & Pane
+## Protected Workspace & Pane
 
-### Protected workspace
-
+### Workspace
 | Property | Value |
 |----------|-------|
 | Name | "General" |
-| CWD | `~/.codeterm/general/` (macOS/Linux) or `%USERPROFILE%\.codeterm\general\` (Windows) |
-| Closable | NO — 3-dot menu shows no "Delete" option |
+| CWD | `~/.codeterm/general/` |
+| Closable | NO |
 | Position | Always first in sidebar |
-| Visual | Subtle accent (e.g., different icon, faint border color) |
-| Created | On first CodeTerm launch, or if missing |
+| Visual | Subtle accent icon/color |
 
-### General pane
-
+### Pane
 | Property | Value |
 |----------|-------|
-| Alias | `general` — resolvable by name in API/CLI |
-| Tab name | "General" (title_level: User, prevents auto-rename) |
-| Closable | NO — 3-dot menu shows no "Close" option |
-| Agent | Default provider from settings (initially Claude) |
+| Alias | `general` |
+| Closable | NO |
+| Provider | From settings (default: Claude) |
 | skip_permissions | Always true |
-| Role | Orchestrator |
-| can_spawn | true |
+| Role | Orchestrator, can_spawn=true |
 
 ### Pane alias system
-
-```
-API:  POST /api/panes/general/send   → resolves "general" → UUID → sends
-CLI:  codeterm send-text --pane general "do something"
-Code: resolve_pane_id("general") checks aliases before UUID lookup
-```
-
-Alias resolution order:
-1. Check registered aliases (general → UUID)
-2. Check pane IDs (UUID match)
-3. Check pane titles (partial match, returns first)
+- `general` → resolves to UUID in API/CLI
+- Resolution: alias registry → UUID lookup (no partial title match)
+- `codeterm send-text --pane general "message"`
+- `POST /api/panes/general/send`
 
 ---
 
-## ~/.codeterm/general/ directory
+## Backend PTY Autonomy
 
-### Structure
+**The General Agent's PTY runs independently of frontend.**
 
-```
-~/.codeterm/general/
-├── CLAUDE.md          # Auto-generated, explains CodeTerm + agent role
-├── heartbeat.log      # Heartbeat cron output (if enabled)
-└── state/             # Agent's own state files (memory, notes, etc.)
-```
-
-### CLAUDE.md content (auto-generated)
-
-```markdown
-# CodeTerm General Agent
-
-You are the General Agent — the always-on system brain of this CodeTerm installation.
-
-## Your role
-- Monitor and manage this machine's CodeTerm environment
-- Respond to user requests via the terminal or connected bots (Telegram, etc.)
-- Spawn and coordinate other agents in project workspaces
-- Manage cron jobs, notifications, system health
-
-## What you can do
-
-### CodeTerm CLI
-You're running inside CodeTerm. Use the `codeterm` CLI:
-- `codeterm workspace create "name"` — create a workspace
-- `codeterm pane list` — list all panes
-- `codeterm pane screen --pane ID` — see what's on another pane's screen
-- `codeterm send-text --pane ID "text"` — send text to another pane
-- `codeterm agent spawn --title "Worker" --task "do X"` — spawn a worker agent
-- `codeterm cron create "name" --schedule "*/5 * * * *" --task "do Y"` — schedule tasks
-- `codeterm notify "title" --body "message"` — send notification
-
-### Your constraints
-- You CANNOT close your own tab or workspace
-- You CAN spawn agents in other workspaces
-- You always run with --dangerously-skip-permissions
-- Your CWD is ~/.codeterm/general/ — your workspace
-- Use /memory to persist important notes across sessions
-
-## Machine info
-- Platform: {platform}
-- Machine: {hostname}
-- CodeTerm version: {version}
-
-## Connected services
-{connected_services_section}
-```
-
-Fields `{platform}`, `{hostname}`, `{version}` filled at generation time.
-`{connected_services_section}` lists Telegram bot config if connected.
+- Backend spawns PTY directly (not via frontend TerminalPane)
+- Backend read loop feeds screen_state + output_buffer + process_pty_output
+- Coexists with frontend read loop when tab is visible (try_clone_reader)
+- Recovery monitoring runs in idle-poll, not dependent on tab focus
+- New module: `src-tauri/src/service/general_agent.rs`
 
 ---
 
-## Settings
+## Messaging Bridge (Integrations)
 
-### Settings panel: General Agent section
+### Architecture
 
+NOT per-service hardcoded. A unified bridge layer:
+
+```
+                    ┌── Telegram listener
+User message ──→   ├── Discord listener     ──→ Bridge ──→ General Agent PTY
+                    ├── Phone (future)                          │
+                    └── Webhook (future)                        │
+                                                                ↓
+User response ←─── Bridge ←── Output capture ←── PTY output
+```
+
+### Bridge responsibilities
+- Receive message from any integration
+- Validate sender (allowed users per integration)
+- Send to General Agent PTY as text + Enter
+- Capture response (wait for agent output to stabilize)
+- Send response back via integration
+- Handle long responses (chunking for Telegram 4096 char limit)
+
+### Auto-send on paste
+When message comes through bridge (or floating chat input):
+- Text is sent via `write_pty_string` with `\r`
+- NOT via bracket paste that leaves text in input unsubmitted
+- Bridge messages always auto-submit (no "pending in input" state)
+
+### Integration config (`~/.codeterm/integrations/telegram.toml`)
+```toml
+enabled = false
+# Agent reads token from ~/.codeterm/secrets/telegram.md
+allowed_users = ["186809246"]
+chunk_size = 4000
+```
+
+### Settings panel: Integrations section
 ```
 ┌─────────────────────────────────────────┐
-│ General Agent                           │
+│ Integrations                            │
 │                                         │
-│ The always-on system agent. Starts with │
-│ CodeTerm and manages background tasks.  │
+│ Connect services to the General Agent.  │
+│ Credentials stored in ~/.codeterm/secrets/ │
 │                                         │
-│ ○ Start with CodeTerm     [toggle: ON]  │
-│ ○ Agent provider          [Claude    ▼] │
+│ ── Telegram ──                          │
+│ ○ Enable              [toggle: OFF]     │
+│ ○ Allowed users       [186809246     ]  │
+│ ○ Status: Not configured                │
+│   [Configure via General Agent]         │
 │                                         │
-│ ── Heartbeat ──                         │
-│ ○ Enable heartbeat        [toggle: OFF] │
-│ ○ Interval                [10 min    ▼] │
-│ ○ Endpoint URL            [__________ ] │
+│ ── Discord ──                           │
+│ ○ Enable              [toggle: OFF]     │
+│   [Configure via General Agent]         │
 │                                         │
-│ ── Telegram Bot ──                      │
-│ ○ Enable bot              [toggle: OFF] │
-│ ○ Bot token               [__________ ] │
-│ ○ Allowed user IDs        [__________ ] │
-│ ○ Status: Not connected                 │
-│   [Test Connection]                     │
+│ ── Webhooks ──                          │
+│ ○ Enable inbound      [toggle: OFF]     │
+│ ○ Port                [7687          ]  │
 │                                         │
-│ ── Advanced ──                          │
-│ ○ Auto-restart on crash   [toggle: ON]  │
-│ ○ Max restart attempts    [3        ▼]  │
-│ ○ Restart delay (sec)     [60         ] │
-│                                         │
-│ [Restart General Agent]                 │
-│ [Open General Directory]                │
+│ "Configure via General Agent" sends a   │
+│ message to the agent asking it to set   │
+│ up the integration and store secrets.   │
 └─────────────────────────────────────────┘
 ```
 
-### Config schema (Rust)
+The agent itself handles setup — user clicks "Configure via General Agent" → CodeTerm sends a message to the General pane: "Set up Telegram integration. Ask the user for the bot token." → agent guides user through setup, stores token in secrets/.
+
+---
+
+## Config Schema
 
 ```rust
 pub struct GeneralAgentConfig {
-    pub enabled: bool,              // Start with CodeTerm
-    pub agent_provider: String,     // "claude" (default)
-    pub auto_restart: bool,         // Restart on crash
+    pub enabled: bool,              // Start with CodeTerm (default: true)
+    pub agent_provider: String,     // "claude" default
+    pub auto_restart: bool,         // true
     pub max_restart_attempts: u32,  // 3
     pub restart_delay_s: u32,       // 60
+}
 
-    // Heartbeat
-    pub heartbeat_enabled: bool,
-    pub heartbeat_interval_m: u32,  // 10
-    pub heartbeat_url: Option<String>,
-
-    // Telegram bot
+pub struct IntegrationsConfig {
     pub telegram_enabled: bool,
-    pub telegram_bot_token: Option<String>,
     pub telegram_allowed_users: Vec<String>,
+    pub discord_enabled: bool,
+    pub discord_allowed_users: Vec<String>,
+    pub webhook_enabled: bool,
+    pub webhook_port: u16,          // 7687
 }
 ```
 
 ---
 
-## Telegram Bot Integration (future)
+## Implementation Phases
 
-### Concept
-The General Agent can be reached via Telegram. Messages from allowed users are forwarded to the General Agent's PTY. Agent responses are sent back via bot.
+### Phase 0: Backend PTY autonomy (PREREQUISITE)
+- Backend read loop for protected panes
+- spawn_pty callable from backend without frontend
+- Coexists with frontend reader
+- New: `src-tauri/src/service/pty_lifecycle.rs`
 
-### Architecture
+### Phase 1: Protected workspace + pane + alias
+- `protected: bool` on Workspace and Pane
+- Guards in close_workspace/close_pane
+- Sidebar: hide delete/close for protected
+- General workspace always first
+- Pane alias registry + "general" auto-registered
+- Centralized resolve_pane_id with alias support
 
-```
-Telegram ──bot API──→ CodeTerm webhook listener
-                          │
-                          ├─ Validate user ID
-                          ├─ Send message to General pane PTY
-                          ├─ Wait for response (poll output)
-                          └─ Send response back via bot API
-```
+### Phase 2: General Agent foundation
+- `~/.codeterm/general/` + `secrets/` + `integrations/` creation
+- Instructions file generation (marker-based, provider-agnostic)
+- EXTRA_INSTRUCTIONS.md (user-owned)
+- GeneralAgentConfig in settings
+- Settings panel section
+- Auto-start on CodeTerm launch
+- `src-tauri/src/service/general_agent.rs`
 
-### How it connects
-1. User configures bot token + allowed user IDs in Settings
-2. General Agent gets `[telegram]` section in CLAUDE.md
-3. CodeTerm starts a lightweight webhook/polling listener
-4. Messages flow: Telegram → CodeTerm → General Agent PTY → response → Telegram
+### Phase 3: Startup + recovery + resume
+- Backend-driven PTY spawn for General Agent
+- Resume via provider.build_resume_command()
+- Fresh start via provider.build_launch_command()
+- Recovery: crash detection, retry with backoff
+- Sidebar warning on failure
+- Manual restart from 3-dot menu
 
-### The agent configures itself
-When Telegram is enabled, CLAUDE.md gets:
-```markdown
-## Telegram Bot
-You are connected to Telegram bot @{bot_username}.
-Messages from allowed users are forwarded to you.
-Reply normally — your responses are sent back.
-Use `codeterm notify` for proactive messages to the user.
-```
+### Phase 4: Messaging bridge
+- Bridge abstraction: `src-tauri/src/bridge/mod.rs`
+- Message in → PTY → output capture → message out
+- Auto-send (no bracket paste, always submit)
+- Response chunking for platform limits
+- Telegram implementation (first integration)
+- Discord implementation (second)
+- Webhook receiver (third)
 
----
+### Phase 5: OS autostart
+- macOS: launchd plist
+- Windows: registry key
+- Linux: .desktop autostart
+- Settings toggle
 
-## Implementation phases
-
-### Phase 1: Foundation
-- [ ] `~/.codeterm/general/` directory creation
-- [ ] CLAUDE.md generation (template + machine info)
-- [ ] Protected workspace (unclosable, always-first)
-- [ ] General pane (unclosable tab, alias "general")
-- [ ] Auto-start on CodeTerm launch
-- [ ] Config schema (GeneralAgentConfig)
-- [ ] Settings panel section
-
-### Phase 2: Reliability
-- [ ] Resume on restart (existing mechanism)
-- [ ] Recovery on failed resume (clear session, fresh start)
-- [ ] Recovery on crash (idle-poll detects shell prompt)
-- [ ] Retry with backoff (3 attempts, 60s delay)
-- [ ] Sidebar warning indicator on failure
-- [ ] Manual restart from 3-dot menu
-
-### Phase 3: Pane aliases
-- [ ] Alias registry (name → UUID)
-- [ ] "general" alias auto-registered
-- [ ] API alias resolution (routes.rs)
-- [ ] CLI alias support
-- [ ] User-defined aliases (future)
-
-### Phase 4: Heartbeat
-- [ ] Default cron job (disabled)
-- [ ] Settings toggle + interval + URL
-- [ ] Heartbeat reports: agent alive, version, machine
-
-### Phase 5: Telegram Bot
-- [ ] Settings: bot token, allowed users
-- [ ] Webhook/polling listener in Rust
-- [ ] Message forwarding to General pane
-- [ ] Response capture + send back
-- [ ] CLAUDE.md section for bot awareness
+### Phase 6: Self-management
+- Agent can read/write secrets
+- Agent can configure integrations (guided setup)
+- Agent can restart itself (/exit → CodeTerm auto-resumes)
+- Heartbeat as cron job (existing cron infra, direct HTTP from Rust — not through agent)
 
 ---
 
-## Edge cases
+## Edge Cases
 
 | Case | Behavior |
 |------|----------|
-| CodeTerm first launch | Create General workspace + directory + CLAUDE.md + start agent |
-| Resume succeeds | Agent continues with full context |
-| Resume fails (corrupt session) | Clear session_id, fresh start |
-| Agent crashes mid-session | Idle-poll detects shell prompt → auto-restart |
-| 3 restart failures | Stop trying, show warning, user retries manually |
-| CodeTerm crash (no clean shutdown) | Next launch: resume attempt → recovery if needed |
-| User tries to close General tab | Blocked (close option hidden) |
-| User tries to close General workspace | Blocked (delete option hidden) |
-| No internet (Claude can't connect) | Agent starts but may fail to respond; retry on next message |
-| Multiple CodeTerm instances | Each has own General Agent (different PIDs, same directory) |
-| Config change (different provider) | Restart General Agent with new provider |
-| Start with system enabled (OS) | CodeTerm added to autostart (launchd/Task Scheduler/systemd) |
+| First launch ever | Create dirs, generate instructions, start agent |
+| Resume succeeds | Agent continues with context |
+| Resume fails | Clear session, fresh start |
+| Agent crashes | Idle-poll detects → auto-restart |
+| 3 restart failures | Red dot, manual retry |
+| Provider changed | Rename instructions file, restart |
+| User edits EXTRA_INSTRUCTIONS.md | Preserved always, agent reads on next start |
+| CodeTerm version upgrade | Regenerate auto section (markers), preserve user content |
+| Telegram message while agent busy | Queue in bridge, deliver when agent idle |
+| Long agent response | Bridge chunks for platform limits |
+| Multiple CodeTerm instances (release) | Single-instance plugin prevents |
+| Multiple instances (debug) | Lock file in general/, second skips |
+| Message via chat bubble | write_pty_string + \r, no bracket paste hold |
+| Message via Telegram | Same: direct write + auto-submit |
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
