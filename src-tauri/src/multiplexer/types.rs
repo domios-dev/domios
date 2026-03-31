@@ -7,6 +7,8 @@ pub struct Workspace {
     pub name: String,
     pub tabs: Vec<Tab>,
     pub active_tab_id: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
 }
 
 /// A tab holds a split tree of panes.

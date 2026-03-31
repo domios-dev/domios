@@ -555,7 +555,7 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
 
 interface MultiplexerContextType {
   state: ExtendedState;
-  createWorkspace: (name: string) => void;
+  createWorkspace: (name: string, cwd?: string) => void;
   setActiveWorkspace: (id: string) => void;
   closeWorkspace: (id: string) => void;
   renameWorkspace: (id: string, name: string) => void;
@@ -812,9 +812,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     [state.workspaces],
   );
 
-  const createWorkspace = useCallback(async (name: string) => {
+  const createWorkspace = useCallback(async (name: string, cwd?: string) => {
     try {
-      await invoke("mux_create_workspace", { name });
+      await invoke("mux_create_workspace", { name, cwd: cwd ?? null });
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s && s.workspaces.length > 0) dispatch({ type: "SET_STATE", state: s });
     } catch (e) {
@@ -872,10 +872,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       // 2. Create tab + pane in backend (pane has no PTY — TerminalPane will spawn it)
       const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId });
-      // 3. Set cwd on pane — both pending map and backend
-      if (cwd) {
-        setPendingCwd(tabInfo.pane_id, cwd);
-        await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd });
+      // 3. Set cwd on pane — inherit workspace cwd if no explicit cwd given
+      const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
+      const effectiveCwd = cwd || ws?.cwd || undefined;
+      if (effectiveCwd) {
+        setPendingCwd(tabInfo.pane_id, effectiveCwd);
+        await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd: effectiveCwd });
       }
       // 4. Set active tab in backend
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });

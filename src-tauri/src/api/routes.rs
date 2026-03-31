@@ -143,6 +143,8 @@ async fn list_workspaces(
 #[derive(Deserialize)]
 struct CreateWorkspaceBody {
     name: String,
+    #[serde(default)]
+    cwd: Option<String>,
 }
 
 async fn create_workspace(
@@ -151,7 +153,7 @@ async fn create_workspace(
     Json(body): Json<CreateWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let ws = state.svc.create_workspace(body.name);
+    let ws = state.svc.create_workspace(body.name, body.cwd);
     Ok(Json(serde_json::to_value(ws).unwrap()))
 }
 

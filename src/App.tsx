@@ -241,8 +241,13 @@ function AppInner() {
         splitRight: handleSplitRight,
         splitDown: handleSplitDown,
         newWorkspace: () => {
-          const n = stateRef.current.workspaces.length + 1;
-          createWorkspace(`Workspace ${n}`);
+          openDialog({ directory: true, multiple: false, title: "Choose workspace folder" })
+            .then((folder) => {
+              if (!folder) return;
+              const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
+              createWorkspace(basename, folder);
+            })
+            .catch(() => {});
         },
         openSettings: () => setSettingsOpen(true),
         toggleSidebar: () => setSidebarOpen((v) => !v),
@@ -290,8 +295,13 @@ function AppInner() {
       if (matchesBinding(e, kb.close_pane)) { e.preventDefault(); handleCloseFocusedPane(); return; }
       if (matchesBinding(e, kb.new_workspace)) {
         e.preventDefault();
-        const n = stateRef.current.workspaces.length + 1;
-        createWorkspace(`Workspace ${n}`);
+        openDialog({ directory: true, multiple: false, title: "Choose workspace folder" })
+          .then((folder) => {
+            if (!folder) return;
+            const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
+            createWorkspace(basename, folder);
+          })
+          .catch(() => {});
         return;
       }
       if (matchesBinding(e, kb.copy)) {
