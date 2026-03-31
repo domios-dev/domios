@@ -91,6 +91,35 @@ impl ServiceContext {
                     } else { None }
                 } else { None }
             } else { None }
+        } else if let Some(ref pid) = pane_id {
+            // Agent already detected — check if it's still running.
+            // If screen shows a shell prompt (no agent markers), clear agent_type.
+            // Only check periodically to avoid overhead on every chunk.
+            static UNDETECT_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let count = UNDETECT_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if count % 50 == 0 { // Check every ~50 chunks
+                let screen = self.screen_state.lock().get_screen_text(pty_id).unwrap_or_default();
+                if !screen.is_empty() && self.agent_registry.detect_from_output(&screen).is_none() {
+                    // Screen has content but no agent markers → agent exited
+                    if let Some(last_line) = screen.lines().rev().find(|l| !l.trim().is_empty()) {
+                        let t = last_line.trim();
+                        // Confirm it's a shell prompt, not just a blank screen
+                        if t.ends_with('>') || t.ends_with('$') || t.ends_with('%') || t.ends_with('#') {
+                            log::info!("[output] agent exited in pane {} (shell prompt detected)", pid);
+                            self.set_pane_agent_type(pid, None);
+                            self.prompt_detector.lock().clear(pid);
+                            {
+                                let mut mux = self.mux.lock();
+                                if let Some(pane) = mux.get_pane_mut(pid) {
+                                    pane.pending_prompt = None;
+                                }
+                            }
+                            self.emit_state_changed();
+                            None
+                        } else { agent_type }
+                    } else { agent_type }
+                } else { agent_type }
+            } else { agent_type }
         } else {
             agent_type
         };
