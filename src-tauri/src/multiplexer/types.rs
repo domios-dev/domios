@@ -9,6 +9,9 @@ pub struct Workspace {
     pub active_tab_id: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
+    /// Protected workspaces cannot be closed via API or UI.
+    #[serde(default)]
+    pub protected: bool,
 }
 
 /// A tab holds a split tree of panes.
@@ -213,6 +216,9 @@ pub struct Pane {
     /// When true, detected prompts are answered automatically instead of shown to user.
     #[serde(default)]
     pub auto_approve: bool,
+    /// Protected panes cannot be closed via API or UI.
+    #[serde(default)]
+    pub protected: bool,
 }
 
 /// Title priority: higher levels cannot be overwritten by lower ones.

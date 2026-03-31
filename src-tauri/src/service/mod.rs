@@ -20,6 +20,8 @@ mod orchestrator;
 mod notification;
 mod output;
 pub mod cron;
+pub mod pty_lifecycle;
+pub mod general_agent;
 #[cfg(test)]
 mod tests;
 

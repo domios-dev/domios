@@ -129,6 +129,16 @@ pub async fn spawn_pty(
             // Set agent_type now so ChatView knows it's an agent pane immediately.
             svc.set_pane_agent_type(pid, Some("claude".to_string()));
             svc.emit_state_changed();
+
+            // Start backend PTY reader so this pane gets read even without
+            // a frontend TerminalPane mounted (Phase 0: PTY autonomy).
+            if let Err(e) = crate::service::pty_lifecycle::start_backend_reader(
+                svc.inner(),
+                &pty_id,
+            ) {
+                log::warn!("[spawn_pty] failed to start backend reader for {}: {}", pty_id, e);
+            }
+
             let pty_clone = state.inner().clone();
             let pty_id_for_poll = pty_id.clone();
             let pty_id_for_write = pty_id.clone();

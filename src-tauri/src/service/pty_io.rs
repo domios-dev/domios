@@ -61,10 +61,12 @@ impl ServiceContext {
             .map_err(|e| e.to_string())
     }
 
-    /// Resolve pane_id → pty_id.
+    /// Resolve pane_id (or alias) → pty_id.
     pub fn resolve_pty_id(&self, pane_id: &str) -> Result<String, String> {
         let mux = self.mux.lock();
-        mux.get_pane(pane_id)
+        let resolved = mux.resolve_pane_id(pane_id)
+            .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?;
+        mux.get_pane(&resolved)
             .and_then(|p| p.pty_id.clone())
             .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))
     }

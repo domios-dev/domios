@@ -20,6 +20,7 @@ pub struct WorkspaceInfo {
     pub tab_count: usize,
     pub is_active: bool,
     pub cwd: Option<String>,
+    pub protected: bool,
 }
 
 /// Central multiplexer state: workspaces, tabs, panes, and their relationships.
@@ -30,6 +31,8 @@ pub struct MultiplexerState {
     focused_pane_id: Option<String>,
     /// Reverse lookup: pty_id -> pane_id for O(1) resolution.
     pty_to_pane: HashMap<String, String>,
+    /// Alias registry: human-readable name -> pane_id.
+    pane_aliases: HashMap<String, String>,
 }
 
 impl MultiplexerState {
@@ -58,6 +61,7 @@ impl MultiplexerState {
             chat_view: false,
             pending_prompt: None,
             auto_approve: false,
+            protected: false,
         };
 
         let tab = Tab {
@@ -74,6 +78,7 @@ impl MultiplexerState {
             tabs: vec![tab],
             active_tab_id: Some(tab_id),
             cwd: None,
+            protected: false,
         };
 
         let mut panes = HashMap::new();
@@ -85,6 +90,7 @@ impl MultiplexerState {
             active_workspace_id: Some(workspace_id),
             focused_pane_id: Some(pane_id.clone()),
             pty_to_pane: HashMap::new(),
+            pane_aliases: HashMap::new(),
         };
 
         (state, pane_id)
@@ -101,6 +107,7 @@ impl MultiplexerState {
             tabs: vec![],
             active_tab_id: None,
             cwd: cwd.clone(),
+            protected: false,
         };
 
         self.workspaces.push(workspace);
@@ -111,6 +118,7 @@ impl MultiplexerState {
             tab_count: 1,
             is_active: false,
             cwd,
+            protected: false,
         }
     }
 
@@ -139,6 +147,10 @@ impl MultiplexerState {
             .iter()
             .position(|w| w.id == id)
             .ok_or_else(|| format!("Workspace not found: {}", id))?;
+
+        if self.workspaces[idx].protected {
+            return Err("Cannot close protected workspace".to_string());
+        }
 
         let workspace = self.workspaces.remove(idx);
 
@@ -239,6 +251,7 @@ impl MultiplexerState {
                 tab_count: w.tabs.len(),
                 is_active: self.active_workspace_id.as_deref() == Some(&w.id),
                 cwd: w.cwd.clone(),
+                protected: w.protected,
             })
             .collect()
     }
@@ -372,6 +385,7 @@ impl MultiplexerState {
             chat_view: false,
             pending_prompt: None,
             auto_approve: false,
+            protected: false,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -398,6 +412,7 @@ impl MultiplexerState {
             chat_view: false,
             pending_prompt: None,
             auto_approve: false,
+            protected: false,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -563,6 +578,12 @@ impl MultiplexerState {
     /// Close a pane: remove from split tree and pane registry.
     /// Cascade-closes all children. Returns all pty_ids that should be killed.
     pub fn close_pane(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
+        if let Some(pane) = self.panes.get(pane_id) {
+            if pane.protected {
+                return Err("Cannot close protected pane".to_string());
+            }
+        }
+
         let mut pty_ids = Vec::new();
 
         // Collect children to cascade-close BEFORE removing this pane
@@ -634,6 +655,35 @@ impl MultiplexerState {
             pane.pty_id = Some(pty_id.clone());
             self.pty_to_pane.insert(pty_id, pane_id.to_string());
         }
+    }
+
+    // ── Pane Alias Registry ──────────────────────────────────────────
+
+    /// Register a human-readable alias for a pane ID.
+    pub fn register_alias(&mut self, alias: &str, pane_id: &str) {
+        self.pane_aliases.insert(alias.to_string(), pane_id.to_string());
+    }
+
+    /// Remove a pane alias.
+    pub fn unregister_alias(&mut self, alias: &str) {
+        self.pane_aliases.remove(alias);
+    }
+
+    /// Resolve an ID-or-alias to a pane ID. Checks aliases first, then direct pane lookup.
+    /// Returns None if neither alias nor direct pane ID matches.
+    pub fn resolve_pane_id(&self, id_or_alias: &str) -> Option<String> {
+        // Check alias registry first
+        if let Some(pane_id) = self.pane_aliases.get(id_or_alias) {
+            // Verify the target pane still exists
+            if self.panes.contains_key(pane_id) {
+                return Some(pane_id.clone());
+            }
+        }
+        // Fall back to direct pane ID lookup
+        if self.panes.contains_key(id_or_alias) {
+            return Some(id_or_alias.to_string());
+        }
+        None
     }
 
     // ── Agent Hierarchy ──────────────────────────────────────────────
@@ -892,6 +942,7 @@ impl MultiplexerState {
                         chat_view: false,
                         pending_prompt: None,
                         auto_approve: false,
+                        protected: false,
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }
@@ -924,6 +975,7 @@ impl MultiplexerState {
                     }
                 }).collect(),
                 cwd: ws.cwd.clone(),
+                protected: false,
             }
         }).collect();
 
@@ -933,6 +985,7 @@ impl MultiplexerState {
             active_workspace_id: snapshot.active_workspace_id.clone(),
             focused_pane_id: None,
             pty_to_pane: HashMap::new(),
+            pane_aliases: HashMap::new(),
         }
     }
 }
@@ -1554,5 +1607,86 @@ mod tests {
         assert!(state.set_active_tab(&ws_id, "nonexistent").is_err());
         // Invalid workspace
         assert!(state.set_active_tab("nonexistent", &tab2_id).is_err());
+    }
+
+    // ── Protected Workspace/Pane Tests ───────────────────────────────
+
+    #[test]
+    fn test_protected_workspace_cannot_close() {
+        let (mut state, _) = MultiplexerState::new();
+        let ws_id = state.list_workspaces()[0].id.clone();
+        // Mark workspace as protected
+        let ws = state.workspaces.iter_mut().find(|w| w.id == ws_id).unwrap();
+        ws.protected = true;
+
+        let result = state.close_workspace(&ws_id);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Cannot close protected workspace");
+        // Workspace still exists
+        assert_eq!(state.list_workspaces().len(), 1);
+    }
+
+    #[test]
+    fn test_protected_pane_cannot_close() {
+        let (mut state, initial_pane_id) = MultiplexerState::new();
+        let new_pane_id = state.split_pane(&initial_pane_id, Orientation::Horizontal).unwrap();
+        // Mark the new pane as protected
+        state.get_pane_mut(&new_pane_id).unwrap().protected = true;
+
+        let result = state.close_pane(&new_pane_id);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Cannot close protected pane");
+        // Pane still exists
+        assert!(state.get_pane(&new_pane_id).is_some());
+    }
+
+    // ── Pane Alias Tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_alias_register_and_resolve() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        state.register_alias("main-terminal", &pane_id);
+
+        let resolved = state.resolve_pane_id("main-terminal");
+        assert_eq!(resolved, Some(pane_id.clone()));
+    }
+
+    #[test]
+    fn test_alias_not_found_falls_back_to_id() {
+        let (state, pane_id) = MultiplexerState::new();
+        // No alias registered — should resolve direct pane ID
+        let resolved = state.resolve_pane_id(&pane_id);
+        assert_eq!(resolved, Some(pane_id));
+    }
+
+    #[test]
+    fn test_resolve_nonexistent_returns_none() {
+        let (state, _) = MultiplexerState::new();
+        let resolved = state.resolve_pane_id("does-not-exist");
+        assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn test_alias_unregister() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        state.register_alias("my-pane", &pane_id);
+        assert!(state.resolve_pane_id("my-pane").is_some());
+
+        state.unregister_alias("my-pane");
+        // Alias no longer resolves
+        assert_eq!(state.resolve_pane_id("my-pane"), None);
+    }
+
+    #[test]
+    fn test_alias_to_deleted_pane_returns_none() {
+        let (mut state, initial_pane_id) = MultiplexerState::new();
+        let new_pane_id = state.split_pane(&initial_pane_id, Orientation::Horizontal).unwrap();
+        state.register_alias("ephemeral", &new_pane_id);
+
+        // Close the pane
+        state.close_pane(&new_pane_id).unwrap();
+
+        // Alias target is gone — resolve returns None
+        assert_eq!(state.resolve_pane_id("ephemeral"), None);
     }
 }
