@@ -1033,6 +1033,14 @@ function TabItem({
             {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
           </span>
         )}
+        {/* Prompt/status indicator dot */}
+        {pane?.pending_prompt && (
+          <span
+            className="shrink-0 w-2 h-2 rounded-full animate-pulse"
+            style={{ background: "var(--ct-yellow)" }}
+            title={pane.pending_prompt.question}
+          />
+        )}
         {paneCount > 1 && (
           <span className="flex items-center gap-0.5 text-[var(--ct-muted)]" title={`${paneCount} panes`}>
             <svg width="12" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1">

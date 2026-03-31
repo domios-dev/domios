@@ -11,37 +11,35 @@ interface FloatingInputProps {
   } | null;
 }
 
-export default function FloatingInput({ ptyId, agentType, paneId, pendingPrompt }: FloatingInputProps) {
-  const [expanded, setExpanded] = useState(false);
+export default function FloatingInput({ ptyId, agentType, pendingPrompt }: FloatingInputProps) {
+  const [visible, setVisible] = useState(false);
   const [input, setInput] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [inputExpanded, setInputExpanded] = useState(false);
 
-  // Auto-expand when there's a pending prompt
+  // Hide chat when prompt appears (so terminal prompt is visible)
   useEffect(() => {
-    if (pendingPrompt) setExpanded(true);
+    if (pendingPrompt) setVisible(false);
   }, [pendingPrompt]);
 
-  // Focus input when expanded
   useEffect(() => {
-    if (expanded && inputRef.current) {
-      inputRef.current.focus();
+    if (visible && textareaRef.current) {
+      textareaRef.current.focus();
     }
-  }, [expanded]);
+  }, [visible]);
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || !ptyId) return;
     const text = input.trim();
     setInput("");
+    // Reset textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
     try {
       await invoke("write_pty_string", { ptyId, data: text + "\r" });
     } catch { /* PTY might be dead */ }
   }, [input, ptyId]);
-
-  const handlePromptResponse = useCallback(async (value: string) => {
-    try {
-      await invoke("mux_respond_prompt", { paneId, value });
-    } catch { /* ignore */ }
-  }, [paneId]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -49,95 +47,146 @@ export default function FloatingInput({ ptyId, agentType, paneId, pendingPrompt 
       handleSend();
     }
     if (e.key === "Escape") {
-      setExpanded(false);
+      setVisible(false);
       setInput("");
     }
   }, [handleSend]);
 
-  // Don't show if no agent running
+  const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    // Auto-resize
+    const el = e.target;
+    if (!inputExpanded) {
+      el.style.height = "0";
+      el.style.height = Math.min(el.scrollHeight, 120) + "px";
+    }
+  }, [inputExpanded]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    // File paste (images etc)
+    const items = Array.from(e.clipboardData.items);
+    const fileItems = items.filter(item => item.kind === "file");
+    if (fileItems.length > 0 && ptyId) {
+      e.preventDefault();
+      for (const item of fileItems) {
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const base64 = (reader.result as string).split(",")[1];
+          if (base64) {
+            try {
+              const ext = item.type.split("/")[1] || "bin";
+              const path = await invoke<string>("save_temp_file", { data: base64, extension: ext, name: blob.name });
+              // Send file path to agent
+              await invoke("write_pty_string", { ptyId, data: path + "\r" });
+            } catch { /* skip */ }
+          }
+        };
+        reader.readAsDataURL(blob);
+      }
+      return;
+    }
+
+    // File path paste (Ctrl+C file in Explorer)
+    const text = e.clipboardData.getData("text/plain");
+    if (text) {
+      const trimmed = text.trim();
+      const looksLikeFile = /^([A-Za-z]:\\|\/|~\/)/.test(trimmed) && !trimmed.includes("\n") && trimmed.length < 500;
+      if (looksLikeFile && ptyId) {
+        e.preventDefault();
+        invoke("write_pty_string", { ptyId, data: trimmed + "\r" }).catch(() => {});
+        return;
+      }
+    }
+    // Regular text paste — let default handler work
+  }, [ptyId]);
+
   if (!agentType) return null;
 
   return (
-    <div className="absolute bottom-3 right-3 z-20 flex flex-col items-end gap-2">
-      {/* Pending prompt */}
-      {pendingPrompt && (
+    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2">
+      {visible ? (
         <div
-          className="rounded-lg px-3 py-2 border max-w-sm shadow-lg"
+          className="rounded-xl border shadow-xl backdrop-blur-sm"
           style={{
-            background: "color-mix(in srgb, var(--ct-yellow) 8%, var(--ct-surface))",
-            borderColor: "color-mix(in srgb, var(--ct-yellow) 30%, transparent)",
-          }}
-        >
-          <div className="text-[10px] font-medium mb-1.5" style={{ color: "var(--ct-yellow)" }}>
-            {pendingPrompt.question}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {pendingPrompt.options.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => handlePromptResponse(opt.value)}
-                className="px-2 py-1 rounded text-[10px] font-medium transition-colors hover:brightness-110"
-                style={{
-                  background: opt.value === "1"
-                    ? "color-mix(in srgb, var(--ct-green) 20%, transparent)"
-                    : "var(--ct-surface)",
-                  color: opt.value === "1" ? "var(--ct-green)" : "var(--ct-fg)",
-                  border: "1px solid color-mix(in srgb, var(--ct-border) 50%, transparent)",
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Input bubble */}
-      {expanded ? (
-        <div
-          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 border shadow-lg"
-          style={{
-            background: "var(--ct-surface)",
+            background: "color-mix(in srgb, var(--ct-surface) 95%, transparent)",
             borderColor: "var(--ct-border)",
-            minWidth: "280px",
-            maxWidth: "400px",
+            width: inputExpanded ? "min(90vw, 600px)" : "min(70vw, 420px)",
+            transition: "width 0.2s ease",
           }}
         >
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onBlur={() => { if (!input) setExpanded(false); }}
-            placeholder="Message agent..."
-            className="flex-1 bg-transparent text-xs outline-none"
-            style={{ color: "var(--ct-fg)" }}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim()}
-            className="p-1 rounded transition-colors"
-            style={{
-              color: input.trim() ? "var(--ct-blue)" : "var(--ct-muted)",
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 2L11 13" /><path d="M22 2L15 22L11 13L2 9L22 2Z" />
-            </svg>
-          </button>
+          <div className="flex items-start gap-2 p-2">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInput}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              placeholder="Message agent..."
+              rows={1}
+              className="flex-1 bg-transparent text-xs outline-none resize-none leading-relaxed"
+              style={{
+                color: "var(--ct-fg)",
+                minHeight: "24px",
+                maxHeight: inputExpanded ? "300px" : "120px",
+              }}
+            />
+            <div className="flex items-center gap-1 shrink-0 pt-0.5">
+              {/* Expand toggle */}
+              <button
+                onClick={() => setInputExpanded(v => !v)}
+                className="p-1 rounded transition-colors"
+                style={{ color: "var(--ct-muted)" }}
+                title={inputExpanded ? "Collapse" : "Expand"}
+              >
+                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                  {inputExpanded ? (
+                    <path d="M5.5 13.5L.5 8.5l5-5m5 0l5 5-5 5" stroke="currentColor" fill="none" strokeWidth="1.5"/>
+                  ) : (
+                    <path d="M.5 5.5l5-5 5 5m-10 5l5 5 5-5" stroke="currentColor" fill="none" strokeWidth="1.5"/>
+                  )}
+                </svg>
+              </button>
+              {/* Send */}
+              <button
+                onClick={handleSend}
+                disabled={!input.trim()}
+                className="p-1 rounded transition-colors"
+                style={{ color: input.trim() ? "var(--ct-blue)" : "var(--ct-muted)" }}
+                title="Send (Enter)"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+                </svg>
+              </button>
+              {/* Close */}
+              <button
+                onClick={() => { setVisible(false); setInput(""); }}
+                className="p-1 rounded transition-colors"
+                style={{ color: "var(--ct-muted)" }}
+                title="Close (Esc)"
+              >
+                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M2 2l8 8M10 2l-8 8"/>
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>
       ) : (
         <button
-          onClick={() => setExpanded(true)}
-          className="w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-110"
+          onClick={() => setVisible(true)}
+          className="w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110 hover:shadow-xl"
           style={{
-            background: "var(--ct-blue)",
-            color: "#fff",
+            background: "color-mix(in srgb, var(--ct-surface) 90%, transparent)",
+            border: "1px solid var(--ct-border)",
+            color: "var(--ct-muted-fg)",
           }}
-          title="Send message to agent"
+          title="Chat with agent (click or start typing)"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
           </svg>
         </button>
       )}
