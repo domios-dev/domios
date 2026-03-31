@@ -266,6 +266,36 @@ fn detect_task_completion(text: &str) -> bool {
 ///
 /// This is generic enough for any TUI menu, not just Claude.
 /// Source code won't have this exact structural combination.
+
+/// Known selector prefixes in prompt option lines.
+///
+/// `❯` (U+276F) is the canonical selector, `>` is the ASCII fallback.
+/// Some VT100 parsers mangle UTF-8 — the byte sequence E2 9D AF (❯) can lose
+/// the middle byte 0x9D (C1 control) and become `â¯` (U+00E2 U+00AF).
+/// We match all variants so detection works regardless of terminal encoding.
+const SELECTOR_CHARS: &[char] = &['❯', '>'];
+const GARBLED_SELECTOR: &str = "\u{00e2}\u{00af}"; // â¯ — VT100-mangled ❯
+
+/// Strip selector prefix from a line, returning the remainder trimmed.
+fn strip_selector(trimmed: &str) -> &str {
+    // Try single-char selectors first
+    let s = trimmed.trim_start_matches(SELECTOR_CHARS).trim_start();
+    if s.len() < trimmed.trim_start().len() {
+        return s;
+    }
+    // Try garbled multi-byte selector
+    if let Some(rest) = trimmed.strip_prefix(GARBLED_SELECTOR) {
+        return rest.trim_start();
+    }
+    trimmed
+}
+
+/// Check if a line starts with a known selector prefix.
+fn has_selector_prefix(trimmed: &str) -> bool {
+    SELECTOR_CHARS.iter().any(|&c| trimmed.starts_with(c))
+        || trimmed.starts_with(GARBLED_SELECTOR)
+}
+
 pub fn detect_interactive_prompt(text: &str) -> bool {
     let lines: Vec<&str> = text.lines().collect();
     if lines.len() < 3 { return false; }
@@ -283,13 +313,13 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
         let trimmed = line.trim();
 
         // Numbered option: "1. Yes", "❯ 1. Yes", "> 2. No"
-        let cleaned = trimmed.trim_start_matches('❯').trim_start_matches('>').trim();
+        let cleaned = strip_selector(trimmed);
         if let Some(rest) = cleaned.strip_prefix(|c: char| c.is_ascii_digit()) {
             // Handle multi-digit: "10. Something"
             let rest = rest.trim_start_matches(|c: char| c.is_ascii_digit());
             if rest.starts_with(". ") {
                 option_indices.push(i);
-                if trimmed.starts_with('❯') || trimmed.starts_with('>') {
+                if has_selector_prefix(trimmed) {
                     selector_idx = Some(i);
                 }
             }
@@ -343,7 +373,7 @@ pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, Strin
     let mut all_opts: Vec<(String, String, usize)> = Vec::new();
 
     for i in scan_start..lines.len() {
-        let trimmed = lines[i].trim().trim_start_matches('❯').trim_start_matches('>').trim();
+        let trimmed = strip_selector(lines[i].trim());
         let digits: String = trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
         if !digits.is_empty() {
             let after = &trimmed[digits.len()..];
@@ -376,7 +406,7 @@ pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, Strin
     // Must have interactive markers nearby: ❯/> selector OR keyboard footer
     // Without these, it's just a regular numbered list
     let has_selector = options.iter().any(|(_, _, idx)| {
-        lines[*idx].trim().starts_with('❯') || lines[*idx].trim().starts_with('>')
+        has_selector_prefix(lines[*idx].trim())
     });
     let has_footer = (last_opt..lines.len().min(last_opt + 5)).any(|i| {
         let t = lines[i].trim();
@@ -874,5 +904,85 @@ mod tests {
         // Numbers that look like list items but are not
         let text = "2026-03-28 10:00:01 Server started\n2026-03-28 10:00:02 Connected to database\n2026-03-28 10:00:03 Ready to accept requests";
         assert!(!detect_interactive_prompt(text));
+    }
+
+    // ── Garbled UTF-8 selector (VT100 C1 byte stripping) ────────────
+
+    #[test]
+    fn test_garbled_selector_detect() {
+        // VT100 parsers can mangle ❯ (E2 9D AF) → â¯ (E2 AF, 9D eaten as C1)
+        let text = "Do you want to proceed?\n  \u{00e2}\u{00af} 1. Yes\n    2. No\n\nEsc to cancel \u{00b7} Tab to amend";
+        assert!(detect_interactive_prompt(text), "Should detect garbled â¯ selector");
+    }
+
+    #[test]
+    fn test_garbled_selector_parse() {
+        let text = "Do you want to proceed?\n  \u{00e2}\u{00af} 1. Yes\n    2. No\n\nEsc to cancel";
+        let result = parse_permission_prompt(text);
+        assert!(result.is_some(), "Should parse garbled selector prompt");
+        let (q, opts) = result.unwrap();
+        assert_eq!(q, "Do you want to proceed?");
+        assert_eq!(opts.len(), 2);
+        assert_eq!(opts[0].0, "Yes");
+        assert_eq!(opts[1].0, "No");
+    }
+
+    #[test]
+    fn test_garbled_selector_3_options() {
+        // Full 3-option prompt with garbled selector — all options parsed
+        let text = "\nDo you want to proceed?\n  \u{00e2}\u{00af} 1. Yes\n    2. Yes, allow during session\n    3. No\n\nEsc to cancel \u{00b7} Tab to amend\n";
+        let result = parse_permission_prompt(text);
+        assert!(result.is_some());
+        let (_, opts) = result.unwrap();
+        assert_eq!(opts.len(), 3, "All 3 options should be parsed: {:?}", opts);
+        assert_eq!(opts[0].0, "Yes");
+        assert_eq!(opts[2].0, "No");
+    }
+
+    // ── Claude todo/task list — must NOT trigger ────────────────────
+
+    #[test]
+    fn test_claude_todo_not_prompt() {
+        // Claude Code TUI shows todo lists with ✓/□ checkboxes — not a prompt
+        let text = concat!(
+            "* Seasoning... (32s · ↓ 96 tokens)\n",
+            "  ✓ Step 1: Registration token on backend\n",
+            "  ✓ Step 2: Plugin auto-discovery via Tailscale\n",
+            "  ✓ Step 3: Auto-registration + Settings UI\n",
+            "  □ Step 4: Backend peer scanning + dashboard\n",
+            "  ✓ Backend: pending/approve flow + migration 003\n",
+            "  ✓ Dashboard: pending clients UI\n",
+        );
+        assert!(!detect_interactive_prompt(text), "Todo list must not be a prompt");
+        assert!(parse_permission_prompt(text).is_none());
+    }
+
+    #[test]
+    fn test_claude_todo_with_numbered_steps() {
+        // Numbered steps without selector or footer — not a prompt
+        let text = "Here's my plan:\n1. Fix the parser\n2. Add tests\n3. Update docs\n4. Deploy\n\nLet me start with step 1.";
+        assert!(!detect_interactive_prompt(text));
+        assert!(parse_permission_prompt(text).is_none());
+    }
+
+    // ── strip_selector / has_selector_prefix unit tests ─────────────
+
+    #[test]
+    fn test_strip_selector_variants() {
+        assert_eq!(strip_selector("❯ 1. Yes"), "1. Yes");
+        assert_eq!(strip_selector("> 1. Yes"), "1. Yes");
+        assert_eq!(strip_selector("\u{00e2}\u{00af} 1. Yes"), "1. Yes");
+        // Callers always pass .trim()'d input, so no leading spaces
+        assert_eq!(strip_selector("1. Yes"), "1. Yes");  // no selector present
+        assert_eq!(strip_selector("1. Yes"), "1. Yes");
+    }
+
+    #[test]
+    fn test_has_selector_prefix_variants() {
+        assert!(has_selector_prefix("❯ 1. Yes"));
+        assert!(has_selector_prefix("> 1. Yes"));
+        assert!(has_selector_prefix("\u{00e2}\u{00af} 1. Yes"));
+        assert!(!has_selector_prefix("1. Yes"));
+        assert!(!has_selector_prefix("  1. Yes"));
     }
 }

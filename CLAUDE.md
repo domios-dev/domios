@@ -22,15 +22,24 @@ CodeTerm is not a terminal with AI bolted on. It's infrastructure that AI agents
 pnpm tauri dev --config src-tauri/tauri.dev.conf.json -- --features webdriver
 ```
 
-**Windows (PowerShell):**
+**Windows (BLACKSTAR) — use `dev.local.sh`:**
+```bash
+# Safe way: does NOT kill production CodeTerm, runs dev alongside it
+bash dev.local.sh dev       # loads MSVC env, starts dev server, waits for API
+bash dev.local.sh test      # runs E2E tests against dev (port 7686)
+bash dev.local.sh all       # dev + wait + test in one step
+source dev.local.sh env     # just load MSVC env vars (for cargo test, etc.)
+```
+
+**WARNING:** Do NOT use `./build.sh dev` on Windows — it runs `taskkill //F //IM codeterm.exe` which kills the **production** instance. `dev.local.sh` is the safe alternative that starts dev without touching prod.
+
+**Manual start (if needed):**
 ```powershell
 # Set MSVC environment first (see build.sh for paths)
 pnpm tauri dev --config src-tauri/tauri.dev.conf.json
 # With WebDriver:
 pnpm tauri dev --config src-tauri/tauri.dev.conf.json -- --features webdriver
 ```
-
-**IMPORTANT on Windows:** Do NOT use `./build.sh` — it's a bash script. Use `pnpm tauri dev` directly. Do NOT kill the dev process by terminating the shell — use Ctrl+C or close the window.
 
 ### Tests (3 layers)
 

@@ -1067,7 +1067,56 @@ async fn set_agent_type(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-///
+/// Ensure agent state is set when a hook fires.
+/// Hooks are authoritative — if a hook calls us, an agent IS running.
+/// This fixes detection on restored panes, Windows (PowerShell doesn't reset title), etc.
+fn ensure_agent_state(state: &AppState, pane_id: &str) {
+    log::info!("[ensure_agent_state] called for pane {}", pane_id);
+    let (agent_type, session_id, cwd) = {
+        let mux = state.svc.mux.lock();
+        let pane = match mux.get_pane(pane_id) {
+            Some(p) => p,
+            None => return,
+        };
+        (pane.agent_type.clone(), pane.agent_session_id.clone(), pane.cwd.clone())
+    };
+
+    // Set agent_type if not already set
+    let agent_changed = agent_type.is_none();
+    if agent_changed {
+        // Hook comes from Claude Code hooks → agent is claude
+        state.svc.set_pane_agent_type(pane_id, Some("claude".to_string()));
+        log::info!("[hook] set agent_type=claude for pane {}", pane_id);
+    }
+
+    // Always re-check session — the newest JSONL may have changed since last detection.
+    // Hook proves agent is alive, so use a generous 1-hour recency window.
+    if let Some(ref cwd) = cwd {
+        let exclude = Vec::new();
+        // Very generous window — hook proves agent is alive, JSONL may be hours old
+        // (idle session, long task, user away). 24 hours covers all realistic cases.
+        let hook_max_age = Some(std::time::Duration::from_secs(86400));
+        log::info!("[ensure_agent_state] detecting session cwd={} current={:?}", cwd, session_id);
+        if let Some(newest_id) = state.svc.agent_registry
+            .get("claude")
+            .and_then(|p| p.detect_session_id(cwd, &exclude, hook_max_age))
+        {
+            let changed = session_id.as_deref() != Some(newest_id.as_str());
+            log::info!("[ensure_agent_state] newest={} changed={}", newest_id, changed);
+            if changed {
+                state.svc.set_agent_session_id(pane_id, Some(newest_id.clone()));
+                log::info!("[hook] session updated: {} -> {} for pane {}",
+                    session_id.as_deref().unwrap_or("none"), newest_id, pane_id);
+                state.svc.emit_state_changed();
+            }
+        }
+    }
+
+    if agent_changed {
+        state.svc.emit_state_changed();
+    }
+}
+
 /// Accepts optional JSON body with explicit prompt data:
 ///   { "question": "...", "options": [{"label": "Yes", "value": "1"}, ...] }
 /// When body is provided, bypasses ring buffer parsing (useful for testing/external integrations).
@@ -1076,6 +1125,11 @@ async fn hook_permission(
     Path(pane_id): Path<String>,
     body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Hook firing = authoritative proof that an agent is running in this pane.
+    // Ensure agent_type is set even if OSC title detection missed it
+    // (happens on restored panes, Windows PowerShell not resetting title, etc.)
+    ensure_agent_state(&state, &pane_id);
+
     // Check if explicit prompt data was provided in the request body
     let explicit_prompt = body.and_then(|Json(b)| {
         let question = b.get("question")?.as_str()?.to_string();
@@ -1100,14 +1154,33 @@ async fn hook_permission(
             .and_then(|p| p.agent_type.clone());
 
         if let Some(pty_id) = pty_id {
-            let clean = state.svc.screen_state.lock().get_screen_text(&pty_id).unwrap_or_default();
-            log::debug!("[hook_permission] screen_text len={}, agent_type={:?}", clean.len(), agent_type);
-            log::debug!("[hook_permission] screen tail: {:?}", &clean[clean.len().saturating_sub(300)..]);
-
             let at = agent_type.unwrap_or_else(|| "claude".to_string());
             let registry = &state.svc.agent_registry;
+
+            // Primary: VT100-parsed screen state (accurate screen content)
+            let clean = state.svc.screen_state.lock().get_screen_text(&pty_id).unwrap_or_default();
+            log::debug!("[hook_permission] screen_text len={}, agent_type={:?}", clean.len(), at);
+
             let mut detector = state.svc.prompt_detector.lock();
-            detector.hook_detected_parse(&pane_id, &clean, |text| registry.parse_prompt(&at, text))
+            let decision = detector.hook_detected_parse(&pane_id, &clean, |text| registry.parse_prompt(&at, text));
+
+            if !matches!(decision, crate::agent::prompt::PromptDecision::None) {
+                decision
+            } else {
+                // Fallback: raw output buffer (preserves UTF-8, contains ANSI).
+                // VT100 parser can garble multi-byte chars (C1 byte stripping),
+                // so we try the raw buffer with ANSI stripped as a second source.
+                let raw = state.svc.output_buf.lock().get_text(&pty_id).unwrap_or_default();
+                if raw.is_empty() {
+                    decision
+                } else {
+                    let stripped = strip_ansi(&raw);
+                    // Take last ~3000 chars to limit scan scope
+                    let tail = if stripped.len() > 3000 { &stripped[stripped.len() - 3000..] } else { &stripped };
+                    log::debug!("[hook_permission] fallback raw buffer len={}, tail_len={}", raw.len(), tail.len());
+                    detector.hook_detected_parse(&pane_id, tail, |text| registry.parse_prompt(&at, text))
+                }
+            }
         } else {
             crate::agent::prompt::PromptDecision::None
         }
@@ -1144,6 +1217,23 @@ async fn hook_stop(
             "body": "Task complete",
         }));
     }
+
+    // Clear agent_type so next launch gets fresh session detection.
+    // Keep agent_session_id — it's needed for session resume on CodeTerm restart.
+    // Title is preserved (user/agent renames stay).
+    // This is critical on Windows where PowerShell doesn't reset OSC title
+    // after Claude exits, so title-based exit detection doesn't work.
+    state.svc.set_pane_agent_type(&pane_id, None);
+    // Clear any pending prompt left over
+    state.svc.prompt_detector.lock().clear(&pane_id);
+    {
+        let mut mux = state.svc.mux.lock();
+        if let Some(pane) = mux.get_pane_mut(&pane_id) {
+            pane.pending_prompt = None;
+        }
+    }
+    state.svc.emit_state_changed();
+
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

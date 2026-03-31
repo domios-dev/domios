@@ -71,8 +71,18 @@ impl JsonRpcResponse {
 /// `GenericNamespaced` on Unix prepends `/tmp/` automatically,
 /// so we only provide the bare name here.
 pub fn socket_path() -> String {
-    let pid = std::process::id();
-    format!("{}-{}.sock", crate::paths::SOCKET_PREFIX, pid)
+    // Dev builds use a stable socket name (no PID) so CLI tools in existing
+    // PTY sessions survive dev server restarts. Only one dev instance at a time.
+    // Prod builds include PID to allow multiple instances.
+    #[cfg(debug_assertions)]
+    {
+        format!("{}.sock", crate::paths::SOCKET_PREFIX)
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let pid = std::process::id();
+        format!("{}-{}.sock", crate::paths::SOCKET_PREFIX, pid)
+    }
 }
 
 /// Get the full display path (for env var / user display).
@@ -81,17 +91,19 @@ pub fn socket_path() -> String {
 /// so the display path is `/tmp/{prefix}-{pid}.sock`.
 /// On Windows, it's `\\.\pipe\{prefix}-{pid}`.
 pub fn socket_display_path() -> String {
-    let pid = std::process::id();
-    let prefix = crate::paths::SOCKET_PREFIX;
+    // Must match what socket_path() produces so CLI can connect.
+    let bare = socket_path(); // includes .sock suffix
 
     #[cfg(target_os = "windows")]
     {
-        format!("\\\\.\\pipe\\{}-{}", prefix, pid)
+        // GenericNamespaced on Windows creates: \\.\pipe\{bare_name}
+        format!("\\\\.\\pipe\\{}", bare)
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        format!("/tmp/{}-{}.sock", prefix, pid)
+        // GenericNamespaced on Unix creates: /tmp/{bare_name}
+        format!("/tmp/{}", bare)
     }
 }
 

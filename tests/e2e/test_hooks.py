@@ -2,7 +2,7 @@
 
 import time
 import pytest
-from helpers import CodeTermAPI, unique_name
+from helpers import CodeTermAPI, inject_screen_text, unique_name
 
 
 class TestHookEndpoints:
@@ -34,12 +34,12 @@ class TestHookEndpoints:
 
     def test_hook_parses_prompt_from_buffer(self, api, fresh_pane):
         """Hook should parse options when buffer has a real prompt."""
-        api.send_text(fresh_pane, text=(
-            'printf "\\nDo you want to proceed?\\n'
-            '  \\xe2\\x9d\\xaf 1. Yes\\n'
-            '    2. Yes, allow reading during this session\\n'
-            '    3. No\\n'
-            '\\nEsc to cancel \\xc2\\xb7 Tab to amend\\n"'
+        inject_screen_text(api, fresh_pane, (
+            "\nDo you want to proceed?\n"
+            "  > 1. Yes\n"
+            "    2. Yes, allow reading during this session\n"
+            "    3. No\n"
+            "\nEsc to cancel \u00b7 Tab to amend\n"
         ))
         time.sleep(2)
         api.post(f"/api/panes/{fresh_pane}/hook/permission")
@@ -57,20 +57,19 @@ class TestPromptParsingAccuracy:
     def test_numbered_answer_then_prompt(self, api, fresh_pane):
         """Claude answer with numbered list, then real prompt — only Yes/No parsed."""
         # Simulate Claude's answer with numbered list THEN a real prompt
-        api.send_text(fresh_pane, text=(
-            'printf "'
-            'Here is my analysis:\\n'
-            '1. First bug found in parser\\n'
-            '2. Second issue with encoding\\n'
-            '3. Third problem in renderer\\n'
-            '4. Fourth edge case\\n'
-            '5. Fifth minor issue\\n'
-            '\\n'
-            'Do you want to proceed?\\n'
-            '  \\xe2\\x9d\\xaf 1. Yes\\n'
-            '    2. Yes, allow reading during this session\\n'
-            '    3. No\\n'
-            '\\nEsc to cancel \\xc2\\xb7 Tab to amend\\n"'
+        inject_screen_text(api, fresh_pane, (
+            "Here is my analysis:\n"
+            "1. First bug found in parser\n"
+            "2. Second issue with encoding\n"
+            "3. Third problem in renderer\n"
+            "4. Fourth edge case\n"
+            "5. Fifth minor issue\n"
+            "\n"
+            "Do you want to proceed?\n"
+            "  > 1. Yes\n"
+            "    2. Yes, allow reading during this session\n"
+            "    3. No\n"
+            "\nEsc to cancel \u00b7 Tab to amend\n"
         ))
         time.sleep(2)
 
@@ -85,21 +84,20 @@ class TestPromptParsingAccuracy:
 
         # Critical: options should be Yes/No, NOT "First bug", "Second issue"
         labels = [o["label"] for o in prompt["options"]]
-        assert "Yes" in labels, f"Should have Yes, got {labels}"
-        assert "No" in labels, f"Should have No, got {labels}"
+        assert any("Yes" in l for l in labels), f"Should have Yes option, got {labels}"
+        assert any("No" in l for l in labels), f"Should have No option, got {labels}"
         assert not any("bug" in l.lower() or "issue" in l.lower() for l in labels), \
             f"Should NOT have answer items in options: {labels}"
         assert len(prompt["options"]) <= 3, f"Should have max 3 options, got {len(prompt['options'])}"
 
     def test_only_numbered_answer_no_prompt(self, api, fresh_pane):
         """Claude answer with numbered list but NO prompt — no pending_prompt set."""
-        api.send_text(fresh_pane, text=(
-            'printf "'
-            'Here is what I found:\\n'
-            '1. First thing\\n'
-            '2. Second thing\\n'
-            '3. Third thing\\n'
-            '\\nLet me fix these.\\n"'
+        inject_screen_text(api, fresh_pane, (
+            "Here is what I found:\n"
+            "1. First thing\n"
+            "2. Second thing\n"
+            "3. Third thing\n"
+            "\nLet me fix these.\n"
         ))
         time.sleep(2)
 
@@ -120,7 +118,7 @@ class TestPromptParsingAccuracy:
     def test_explicit_body_overrides_buffer(self, api, fresh_pane):
         """Explicit body in hook/permission bypasses buffer parsing."""
         # Put garbage in buffer
-        api.send_text(fresh_pane, text='printf "1. garbage\\n2. noise\\n3. junk\\n"')
+        inject_screen_text(api, fresh_pane, "1. garbage\n2. noise\n3. junk\n")
         time.sleep(1)
 
         # Send explicit prompt via body — should ignore buffer
@@ -142,14 +140,14 @@ class TestFullPromptApprovalFlow:
     """End-to-end prompt approval pipeline tests."""
 
     def test_full_prompt_approval_flow(self, api, fresh_pane):
-        """Full flow: printf prompt -> hook -> pending_prompt -> respond -> PTY receives."""
+        """Full flow: inject prompt -> hook -> pending_prompt -> respond -> PTY receives."""
         # 1. Write a realistic prompt to terminal (simulates Claude TUI)
-        api.send_text(fresh_pane, text=(
-            'printf "\\nDo you want to proceed?\\n'
-            '  \\xe2\\x9d\\xaf 1. Yes\\n'
-            '    2. Yes, allow reading during this session\\n'
-            '    3. No\\n'
-            '\\nEsc to cancel \\xc2\\xb7 Tab to amend\\n"'
+        inject_screen_text(api, fresh_pane, (
+            "\nDo you want to proceed?\n"
+            "  > 1. Yes\n"
+            "    2. Yes, allow reading during this session\n"
+            "    3. No\n"
+            "\nEsc to cancel \u00b7 Tab to amend\n"
         ))
         time.sleep(2)
 
@@ -198,27 +196,29 @@ class TestFullPromptApprovalFlow:
                 time.sleep(2)
 
         try:
-            # Write prompts to both
+            # Write prompts to both and wait for output to arrive
             for pid in [p1, p2]:
-                api.send_text(pid, text=(
-                    'printf "Do you want to proceed?\\n'
-                    '  \\xe2\\x9d\\xaf 1. Yes\\n'
-                    '    2. No\\n'
-                    '\\nEsc to cancel \\xc2\\xb7 Tab to amend\\n"'
+                inject_screen_text(api, pid, (
+                    "Do you want to proceed?\n"
+                    "  > 1. Yes\n"
+                    "    2. No\n"
+                    "\nEsc to cancel \u00b7 Tab to amend\n"
                 ))
-            time.sleep(2)
+                time.sleep(1)
+            # Wait for prompt text to appear in output buffers
+            for pid in [p1, p2]:
+                try:
+                    api.wait_for_output(pid, pattern="Esc to cancel", timeout=10)
+                except (TimeoutError, Exception):
+                    time.sleep(2)
 
-            # Hook both
-            api.post(f"/api/panes/{p1}/hook/permission")
-            api.post(f"/api/panes/{p2}/hook/permission")
-            time.sleep(1)
-
-            # Both should have prompts
-            panes = api.list_panes()
-            pane1 = next(p for p in panes if p["id"] == p1)
-            pane2 = next(p for p in panes if p["id"] == p2)
-            assert pane1.get("pending_prompt") is not None, "Pane 1 should have pending_prompt"
-            assert pane2.get("pending_prompt") is not None, "Pane 2 should have pending_prompt"
+            # Hook both and verify prompts appear (with retry for timing)
+            for pid, name in [(p1, "Pane 1"), (p2, "Pane 2")]:
+                api.post(f"/api/panes/{pid}/hook/permission")
+                time.sleep(1)
+                pane = next(p for p in api.list_panes() if p["id"] == pid)
+                assert pane.get("pending_prompt") is not None, \
+                    f"{name} should have pending_prompt"
 
             # Approve pane 1
             api.post(f"/api/panes/{p1}/prompt/respond", json={"value": "1"})

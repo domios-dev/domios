@@ -384,10 +384,14 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
           // Provider uses clipboard paste for images (e.g. Claude Code)
           try {
             await invoke("copy_image_to_clipboard", { path: filePath });
-            await new Promise(r => setTimeout(r, 200));
+            await new Promise(r => setTimeout(r, 300));
             await invoke("write_pty_string", { ptyId: pid, data: imageStrategy.pasteKeystroke || "\x16" });
             await new Promise(r => setTimeout(r, 500));
-          } catch { /* skip */ }
+          } catch (err) {
+            // Clipboard paste failed — fall back to sending the file path
+            console.warn("[ChatView] clipboard paste failed, using path fallback:", err);
+            fileMentions.push(filePath);
+          }
         } else {
           // Non-image files: collect paths to include in text message
           fileMentions.push(filePath);
@@ -440,7 +444,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
           reader.readAsDataURL(file);
         }
       } else {
-        // No path — read as base64
+        // No path — read content and store base64 (for both images and non-images)
         const reader = new FileReader();
         reader.onload = () => {
           const dataUrl = reader.result as string;
@@ -450,7 +454,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             name: file.name,
             preview: isImage ? dataUrl : undefined,
             type: file.type,
-            _base64: isImage ? undefined : base64,
+            _base64: base64,
           }]);
         };
         reader.readAsDataURL(file);
@@ -469,7 +473,10 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       e.preventDefault();
       for (const item of fileItems) {
         const blob = item.getAsFile();
-        if (!blob) continue;
+        if (!blob) {
+          console.warn("[ChatView] paste item has no file blob:", item.type, item.kind);
+          continue;
+        }
 
         const isImage = item.type.startsWith("image/");
         const ext = item.type.split("/")[1] || "bin";
@@ -491,10 +498,28 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       return;
     }
 
-    // Text paste
+    // Text paste — check if it looks like a file path (Ctrl+C file in Explorer)
     e.preventDefault();
     const text = e.clipboardData.getData("text/plain");
     if (!text) return;
+
+    // Detect pasted file paths: Windows (C:\...) or Unix (/...) with common extensions
+    const trimmed = text.trim();
+    const looksLikeFile = /^([A-Za-z]:\\|\/|~\/)/.test(trimmed)
+      && !trimmed.includes("\n")
+      && trimmed.length < 500;
+    if (looksLikeFile) {
+      const ext = trimmed.split(".").pop()?.toLowerCase() || "";
+      const isImage = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext);
+      setAttachments(prev => [...prev, {
+        id: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        name: trimmed.split(/[\\/]/).pop() || trimmed,
+        path: trimmed,
+        type: isImage ? `image/${ext === "jpg" ? "jpeg" : ext}` : "application/octet-stream",
+      } as any]);
+      return;
+    }
+
     const el = e.target as HTMLTextAreaElement;
     const start = el.selectionStart;
     const end = el.selectionEnd;

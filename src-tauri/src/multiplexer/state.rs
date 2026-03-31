@@ -858,7 +858,9 @@ impl MultiplexerState {
                         title: restored_title,
                         cwd: cwd.clone(),
                         url: None,
-                        agent_type: agent_type.clone(),
+                        // Don't restore agent_type — let backend detect from PTY output.
+                        // Restoring it causes false positives when Claude isn't running.
+                        agent_type: None,
                         agent_session_id: claude_session_id.clone(),
                         role: parsed_role,
                         parent_pane_id: parent_pane_id.clone(),

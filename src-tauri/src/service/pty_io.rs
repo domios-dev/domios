@@ -9,17 +9,22 @@ impl ServiceContext {
     /// Prevents special chars from being interpreted as commands.
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(pane_id)?;
-        let mut buf = String::new();
-        buf.push_str("\x1b[200~");
-        buf.push_str(text);
-        buf.push_str("\x1b[201~");
+        // Bracket paste: ESC[200~ text ESC[201~
+        let paste = format!("\x1b[200~{}\x1b[201~", text);
+        self.pty.lock().write(&pty_id, paste.as_bytes()).map_err(|e| e.to_string())?;
+
         if enter {
-            buf.push('\r');
+            // Send \r as a separate raw write after a short delay.
+            // TUI apps (Claude Code/ink) process bracket paste asynchronously —
+            // \r concatenated with paste end or sent immediately is swallowed.
+            let pty = self.pty.clone();
+            let pty_id = pty_id.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                let _ = pty.lock().write(&pty_id, b"\r");
+            });
         }
-        self.pty
-            .lock()
-            .write(&pty_id, buf.as_bytes())
-            .map_err(|e| e.to_string())
+        Ok(())
     }
 
     /// Write raw bytes to PTY without bracket paste wrapping.
@@ -116,14 +121,28 @@ impl ServiceContext {
 /// Uses the screen parser instead of raw buffer to avoid false positives from file content.
 pub fn poll_shell_prompt(screen_state: &crate::ScreenStateHandle, pty_id: &str, timeout: std::time::Duration) -> bool {
     let deadline = std::time::Instant::now() + timeout;
+    let mut attempt = 0u32;
     loop {
-        if std::time::Instant::now() > deadline { return false; }
+        if std::time::Instant::now() > deadline {
+            log::warn!("[poll_shell_prompt] timeout after {}ms for pty {}", timeout.as_millis(), &pty_id[..pty_id.len().min(8)]);
+            return false;
+        }
         let ready = screen_state.try_lock()
             .and_then(|ss| ss.get_screen_text(pty_id).map(|screen| {
-                screen_has_shell_prompt(&screen)
+                let has = screen_has_shell_prompt(&screen);
+                if attempt % 10 == 0 {
+                    let last = screen.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+                    log::debug!("[poll_shell_prompt] pty={} attempt={} has_prompt={} last_line={:?}",
+                        &pty_id[..pty_id.len().min(8)], attempt, has, &last[..last.len().min(60)]);
+                }
+                has
             }))
             .unwrap_or(false);
-        if ready { return true; }
+        if ready {
+            log::info!("[poll_shell_prompt] shell ready for pty {} after {} attempts", &pty_id[..pty_id.len().min(8)], attempt);
+            return true;
+        }
+        attempt += 1;
         std::thread::sleep(std::time::Duration::from_millis(300));
     }
 }

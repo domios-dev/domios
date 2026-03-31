@@ -4,9 +4,10 @@ Each test spawns a fresh workspace with agents, waits for completion, verifies r
 These are slower (~30-60s each) but test the full agent communication pipeline.
 """
 
+import sys
 import time
 import pytest
-from helpers import CodeTermAPI, unique_name
+from helpers import CodeTermAPI, IS_WINDOWS, tmp_path, unique_name
 
 
 TOKEN_TIMEOUT = 120  # max seconds to wait for agent work
@@ -152,10 +153,11 @@ def test_scenario_worker_file_ops(api: CodeTermAPI):
     ws_id, orch = _create_workspace(api, "file-ops")
     try:
         marker = unique_name("FILE")
+        fpath = tmp_path(f"{marker}.txt")
         api.post("/api/agents/spawn", json={
             "agent": "claude", "title": "File Worker", "role": "Worker",
             "parent_pane_id": orch,
-            "task": f'Create file /tmp/{marker}.txt with content "{marker}_CONTENT". Then read it back and report the content.',
+            "task": f'Create file {fpath} with content "{marker}_CONTENT". Then read it back and report the content.',
         })
         found = _wait_for_report(api, orch, f"{marker}_CONTENT", timeout=90)
         assert found, f"File content report not received"
@@ -166,14 +168,20 @@ def test_scenario_worker_file_ops(api: CodeTermAPI):
 # ── Scenario 5: Worker runs multi-step pipeline ──────────────────────
 
 def test_scenario_pipeline(api: CodeTermAPI):
-    """Worker runs a multi-step bash pipeline and reports."""
+    """Worker runs a multi-step pipeline and reports."""
     ws_id, orch = _create_workspace(api, "pipeline")
     try:
         marker = unique_name("PIPE")
+        fpath = tmp_path(f"{marker}_pipe.txt")
         api.post("/api/agents/spawn", json={
             "agent": "claude", "title": "Pipeline Worker", "role": "Worker",
             "parent_pane_id": orch,
-            "task": f'Run these commands in sequence:\n1. echo "step1_{marker}" > /tmp/{marker}_pipe.txt\n2. echo "step2_{marker}" >> /tmp/{marker}_pipe.txt\n3. cat /tmp/{marker}_pipe.txt | wc -l\nReport how many lines the file has.',
+            "task": (
+                f'Write two lines to {fpath}:\n'
+                f'  Line 1: "step1_{marker}"\n'
+                f'  Line 2: "step2_{marker}"\n'
+                f'Then count the lines in the file and report how many lines it has.'
+            ),
         })
         found = _wait_for_report(api, orch, "2", timeout=90)
         assert found, "Pipeline worker did not report line count"
@@ -190,7 +198,7 @@ def test_scenario_cascade_close(api: CodeTermAPI):
         boss = api.post("/api/agents/spawn", json={
             "agent": "claude", "title": "Boss", "role": "Orchestrator",
             "workspace_id": ws_id, "can_spawn": True,
-            "task": "Spawn 2 workers: codeterm agent spawn claude --title W1 --role Worker --parent $CODETERM_PANE_ID --task 'wait' && codeterm agent spawn claude --title W2 --role Worker --parent $CODETERM_PANE_ID --task 'wait'. Then just wait.",
+            "task": "Spawn 2 workers using codeterm CLI. Worker-1: title W1, role Worker, task 'wait'. Worker-2: title W2, role Worker, task 'wait'. Use your own pane ID as parent. Then just wait.",
         })
         boss_id = boss["pane_id"]
         api.wait_for_pty(boss_id, timeout=20)
@@ -247,17 +255,19 @@ def test_scenario_cron_report(api: CodeTermAPI):
 # ── Scenario 8: Worker with custom cwd ────────────────────────────────
 
 def test_scenario_custom_cwd(api: CodeTermAPI):
-    """Worker starts in /tmp, verifies cwd, reports."""
+    """Worker starts in temp directory, verifies cwd, reports."""
+    import tempfile
+    temp_dir = tempfile.gettempdir()
     ws_id, orch = _create_workspace(api, "cwd")
     try:
         marker = unique_name("CWD")
         api.post("/api/agents/spawn", json={
             "agent": "claude", "title": "CWD Worker", "role": "Worker",
-            "parent_pane_id": orch, "cwd": "/tmp",
-            "task": f'Run pwd. If you are in /tmp (or /private/tmp), report "{marker}_OK". Otherwise report "{marker}_FAIL".',
+            "parent_pane_id": orch, "cwd": temp_dir,
+            "task": f'Check your current directory. If it contains "tmp" or "Temp", report "{marker}_OK". Otherwise report "{marker}_FAIL".',
         })
         found = _wait_for_report(api, orch, f"{marker}_OK", timeout=90)
-        assert found, "CWD worker did not confirm /tmp"
+        assert found, f"CWD worker did not confirm {temp_dir}"
     finally:
         _cleanup_ws(api, ws_id)
 
@@ -320,7 +330,7 @@ def test_scenario_worker_error(api: CodeTermAPI):
         api.post("/api/agents/spawn", json={
             "agent": "claude", "title": "Error Worker", "role": "Worker",
             "parent_pane_id": orch,
-            "task": f'Run: ls /nonexistent_path_12345. Report the error message including {marker}.',
+            "task": f'Try to list a nonexistent directory (e.g. /nonexistent_path_12345 or C:\\nonexistent_path_12345). Report the error message including {marker}.',
         })
         found = _wait_for_report(api, orch, marker, timeout=90)
         assert found, "Error worker did not report"
