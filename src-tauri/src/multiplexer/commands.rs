@@ -43,8 +43,9 @@ pub fn mux_get_state(state: State<'_, MuxState>) -> Result<MultiplexerSnapshot, 
 pub fn mux_create_workspace(
     svc: State<'_, ServiceState>,
     name: String,
+    cwd: Option<String>,
 ) -> Result<WorkspaceInfo, String> {
-    Ok(svc.create_workspace(name))
+    Ok(svc.create_workspace(name, cwd))
 }
 
 /// Switch the active workspace.

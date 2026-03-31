@@ -19,6 +19,7 @@ pub struct WorkspaceInfo {
     pub name: String,
     pub tab_count: usize,
     pub is_active: bool,
+    pub cwd: Option<String>,
 }
 
 /// Central multiplexer state: workspaces, tabs, panes, and their relationships.
@@ -72,6 +73,7 @@ impl MultiplexerState {
             name: "Main".to_string(),
             tabs: vec![tab],
             active_tab_id: Some(tab_id),
+            cwd: None,
         };
 
         let mut panes = HashMap::new();
@@ -90,7 +92,7 @@ impl MultiplexerState {
 
     // ── Workspace ops ────────────────────────────────────────────────
 
-    pub fn create_workspace(&mut self, name: String) -> WorkspaceInfo {
+    pub fn create_workspace(&mut self, name: String, cwd: Option<String>) -> WorkspaceInfo {
         let workspace_id = short_id();
 
         let workspace = Workspace {
@@ -98,6 +100,7 @@ impl MultiplexerState {
             name: name.clone(),
             tabs: vec![],
             active_tab_id: None,
+            cwd: cwd.clone(),
         };
 
         self.workspaces.push(workspace);
@@ -107,6 +110,7 @@ impl MultiplexerState {
             name,
             tab_count: 1,
             is_active: false,
+            cwd,
         }
     }
 
@@ -234,6 +238,7 @@ impl MultiplexerState {
                 name: w.name.clone(),
                 tab_count: w.tabs.len(),
                 is_active: self.active_workspace_id.as_deref() == Some(&w.id),
+                cwd: w.cwd.clone(),
             })
             .collect()
     }
@@ -815,6 +820,7 @@ impl MultiplexerState {
                 id: ws.id.clone(),
                 name: ws.name.clone(),
                 active_tab_id: ws.active_tab_id.clone(),
+                cwd: ws.cwd.clone(),
                 tabs: ws.tabs.iter().map(|tab| {
                     TabSnapshot {
                         id: tab.id.clone(),
@@ -917,6 +923,7 @@ impl MultiplexerState {
                         split_tree: snapshot_to_split(&tab.split_tree, &mut panes),
                     }
                 }).collect(),
+                cwd: ws.cwd.clone(),
             }
         }).collect();
 
@@ -973,7 +980,7 @@ mod tests {
     #[test]
     fn test_create_workspace() {
         let (mut state, _) = MultiplexerState::new();
-        let info = state.create_workspace("Work".to_string());
+        let info = state.create_workspace("Work".to_string(), None);
         assert_eq!(info.name, "Work");
         assert_eq!(info.tab_count, 1);
         assert!(!info.is_active); // Not active yet
@@ -983,7 +990,7 @@ mod tests {
     #[test]
     fn test_set_active_workspace() {
         let (mut state, _) = MultiplexerState::new();
-        let info = state.create_workspace("Work".to_string());
+        let info = state.create_workspace("Work".to_string(), None);
         assert!(state.set_active_workspace(&info.id).is_ok());
 
         let workspaces = state.list_workspaces();
@@ -1115,7 +1122,7 @@ mod tests {
     #[test]
     fn test_close_workspace_switches_active() {
         let (mut state, _) = MultiplexerState::new();
-        let ws2 = state.create_workspace("Second".to_string());
+        let ws2 = state.create_workspace("Second".to_string(), None);
         let ws1_id = state.list_workspaces()[0].id.clone();
 
         // Close the first workspace
@@ -1434,7 +1441,7 @@ mod tests {
     fn test_move_tab() {
         let (mut state, _) = MultiplexerState::new();
         let ws1_id = state.list_workspaces()[0].id.clone();
-        let ws2 = state.create_workspace("Second".to_string());
+        let ws2 = state.create_workspace("Second".to_string(), None);
 
         // Create a second tab in ws1
         let (tab2_id, _) = state.create_tab(&ws1_id).unwrap();
@@ -1452,7 +1459,7 @@ mod tests {
     fn test_move_last_tab_fails() {
         let (mut state, _) = MultiplexerState::new();
         let ws1_id = state.list_workspaces()[0].id.clone();
-        let ws2 = state.create_workspace("Second".to_string());
+        let ws2 = state.create_workspace("Second".to_string(), None);
         let tab_id = state.get_workspace(&ws1_id).unwrap().tabs[0].id.clone();
 
         let result = state.move_tab(&tab_id, &ws1_id, &ws2.id);
@@ -1472,7 +1479,7 @@ mod tests {
             .unwrap();
 
         // Create second workspace
-        let ws2 = state.create_workspace("Second".to_string());
+        let ws2 = state.create_workspace("Second".to_string(), None);
 
         // Snapshot
         let snap = state.to_session_snapshot();

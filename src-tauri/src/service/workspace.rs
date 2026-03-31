@@ -8,8 +8,8 @@ impl ServiceContext {
         self.mux.lock().list_workspaces()
     }
 
-    pub fn create_workspace(&self, name: String) -> WorkspaceInfo {
-        let ws = self.mux.lock().create_workspace(name);
+    pub fn create_workspace(&self, name: String, cwd: Option<String>) -> WorkspaceInfo {
+        let ws = self.mux.lock().create_workspace(name, cwd);
         self.emit_state_changed();
         ws
     }

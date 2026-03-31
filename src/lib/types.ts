@@ -11,6 +11,7 @@ export interface Workspace {
   name: string;
   tabs: Tab[];
   active_tab_id: string | null;
+  cwd: string | null;
 }
 
 export interface Tab {
@@ -67,6 +68,7 @@ export interface WorkspaceInfo {
   name: string;
   tab_count: number;
   is_active: boolean;
+  cwd: string | null;
 }
 
 export interface SplitResult {

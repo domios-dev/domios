@@ -341,10 +341,15 @@ fn dispatch(
                 .and_then(|v| v.as_str())
                 .unwrap_or("New Workspace")
                 .to_string();
+            let cwd = params
+                .as_ref()
+                .and_then(|p| p.get("cwd"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
             let info = {
                 let mut mux = mux.lock();
-                mux.create_workspace(name)
+                mux.create_workspace(name, cwd)
             };
             { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
             serde_json::to_value(&info).map_err(|e| JsonRpcError {

@@ -16,6 +16,8 @@ pub struct WorkspaceSnapshot {
     pub name: String,
     pub tabs: Vec<TabSnapshot>,
     pub active_tab_id: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

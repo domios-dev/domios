@@ -5,6 +5,7 @@ import { useMultiplexer } from "../../store/multiplexer";
 import { useCrons, CRON_SIDEBAR_RUNS_VISIBLE } from "../../store/crons";
 import { CronEditor } from "../CronEditor/CronEditor";
 import { getAgentProvider } from "../../lib/agentProviders";
+import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TitleLevel } from "../../lib/types";
 import type { Workspace, Tab, SplitNode, PaneStatus, Pane, AgentRole, CronJob, CronRunInfo } from "../../lib/types";
 
@@ -108,10 +109,17 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     }
   }, [state.active_workspace_id]);
 
-  const handleNewWorkspace = useCallback(() => {
-    const n = state.workspaces.length + 1;
-    createWorkspace(`Workspace ${n}`);
-  }, [state.workspaces.length, createWorkspace]);
+  const handleNewWorkspace = useCallback(async () => {
+    let folder: string | null;
+    try {
+      folder = await open({ directory: true, multiple: false, title: "Choose workspace folder" });
+    } catch {
+      return;
+    }
+    if (!folder) return;
+    const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
+    createWorkspace(basename, folder);
+  }, [createWorkspace]);
 
   const toggleExpanded = useCallback((wsId: string) => {
     setExpandedWorkspaces((prev) => {
@@ -336,6 +344,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                   onToggleExpand={() => toggleExpanded(ws.id)}
                   onClose={() => closeWorkspace(ws.id)}
                   onRename={(name) => renameWorkspace(ws.id, name)}
+                  onNewTerminal={() => createTab(ws.id)}
+                  onNewClaude={handleClaudeSpawn}
                   canClose={true}
                   status={wsStatus}
                   hasWaiting={hasWaiting}
@@ -447,7 +457,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                       <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
                         <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                       </svg>
-                      <span className="text-[11px]">New terminal tab</span>
+                      <span className="text-[11px]">Add Session</span>
                     </button>
                     {/* Cron jobs section */}
                     <CronSection workspaceId={ws.id} />
@@ -694,6 +704,8 @@ interface WorkspaceItemProps {
   onToggleExpand: () => void;
   onClose: () => void;
   onRename: (name: string) => void;
+  onNewTerminal: () => void;
+  onNewClaude: () => void;
   canClose: boolean;
   status: PaneStatus | null;
   hasWaiting: boolean;
@@ -709,6 +721,8 @@ function WorkspaceItem({
   onToggleExpand,
   onClose,
   onRename,
+  onNewTerminal,
+  onNewClaude,
   canClose: _canClose,
   status: _status,
   hasWaiting,
@@ -718,15 +732,6 @@ function WorkspaceItem({
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(workspace.name);
   const [dragOver, setDragOver] = useState(false);
-
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [confirmClose, setConfirmClose] = useState(false);
-
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setCtxMenu({ x: e.clientX, y: e.clientY });
-  }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -747,6 +752,25 @@ function WorkspaceItem({
     if (e.key === "Escape") { setEditing(false); }
   }, [commitRename]);
 
+  const menuItems: DropdownMenuItem[] = useMemo(() => [
+    {
+      label: "New Terminal",
+      icon: <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M2 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M8 13h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>,
+      onClick: onNewTerminal,
+    },
+    {
+      label: "New Claude Session",
+      icon: <span className="text-[11px] leading-none" style={{ color: "#d4a574" }}>{"\u2733"}</span>,
+      onClick: onNewClaude,
+    },
+    {
+      label: "Delete Workspace",
+      icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+      onClick: onClose,
+      danger: true,
+    },
+  ], [onNewTerminal, onNewClaude, onClose]);
+
   return (
     <div
       className={`
@@ -755,7 +779,6 @@ function WorkspaceItem({
         ${hasWaiting ? "bg-[var(--ct-yellow)]/10" : ""}
         ${dragOver ? "bg-[var(--ct-accent)]/20" : ""}
       `}
-      onContextMenu={handleContextMenu}
       onDragOver={(e) => {
         e.preventDefault();
         setDragOver(true);
@@ -817,7 +840,7 @@ function WorkspaceItem({
               className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
             />
           ) : (
-            <span className="text-xs font-medium truncate" onDoubleClick={handleDoubleClick}>
+            <span className="text-xs font-medium truncate" onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
               {workspace.name}
             </span>
           )}
@@ -831,48 +854,19 @@ function WorkspaceItem({
           </span>
         )}
       </div>
-      {/* Close button — visible on hover, always confirms */}
-      <button
-        onClick={(e) => { e.stopPropagation(); setConfirmClose(true); }}
-        className="shrink-0 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-all"
-        title="Close workspace"
-      >
-        <svg width="7" height="7" viewBox="0 0 10 10" fill="currentColor">
-          <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
-        </svg>
-      </button>
-      {/* Context menu */}
-      {ctxMenu && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
-          <div
-            className="fixed z-50 w-36 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1 ct-float"
-            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+      {/* 3-dot menu — visible on hover */}
+      <DropdownMenu
+        items={menuItems}
+        className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+        trigger={
+          <button
+            className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+            title="Workspace actions"
           >
-            <button
-              onClick={() => { setCtxMenu(null); setEditName(workspace.name); setEditing(true); }}
-              className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)] whitespace-nowrap"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-              Rename
-            </button>
-            <button
-              onClick={() => { setCtxMenu(null); setConfirmClose(true); }}
-              className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)] whitespace-nowrap"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-              Close
-            </button>
-          </div>
-        </>
-      )}
-      {confirmClose && (
-        <ConfirmStopDialog
-          message={`Close workspace "${workspace.name}"?`}
-          onConfirm={() => { onClose(); setConfirmClose(false); }}
-          onCancel={() => setConfirmClose(false)}
-        />
-      )}
+            <span className="text-[13px] leading-none font-bold">{"\u22EE"}</span>
+          </button>
+        }
+      />
     </div>
   );
 }
@@ -895,33 +889,6 @@ interface TabItemProps {
   isClosing?: boolean;
 }
 
-function ConfirmStopDialog({ onConfirm, onCancel, message }: { onConfirm: () => void; onCancel: () => void; message?: string }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
-      <div
-        className="bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-xl px-6 py-5 max-w-sm text-center"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <p className="text-sm text-[var(--ct-fg)] mb-4">{message || "Are you sure you want to stop the process?"}</p>
-        <div className="flex items-center justify-center gap-3">
-          <button
-            onClick={onCancel}
-            className="px-4 py-1.5 text-xs rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-4 py-1.5 text-xs rounded bg-[var(--ct-red)] hover:opacity-80 text-white font-medium transition-colors"
-          >
-            Stop
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function TabItem({
   tab,
   isActive,
@@ -941,8 +908,6 @@ function TabItem({
   const agentProvider = getAgentProvider(pane?.agent_type);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [confirmClose, setConfirmClose] = useState(false);
   const tabRef = useRef<HTMLDivElement>(null);
 
   // Close animation phases
@@ -955,14 +920,41 @@ function TabItem({
     }
   }, [isClosing, closePhase]);
 
-  const handleClose = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (hasAgent) {
-      setConfirmClose(true);
-    } else {
-      onClose();
+  // Build menu items for the 3-dot dropdown
+  const menuItems: DropdownMenuItem[] = useMemo(() => {
+    const items: DropdownMenuItem[] = [];
+    items.push({
+      label: "Rename",
+      icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>,
+      onClick: () => { setEditName(tab.title); setEditing(true); },
+    });
+    // Role management — hide for Orchestrators (default role on all tabs)
+    if (pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor") {
+      items.push({
+        label: "Remove Role",
+        icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="11" x2="23" y2="11"/></svg>,
+        onClick: () => { if (pane) invoke("mux_clear_pane_role", { paneId: pane.id }); },
+      });
     }
-  }, [hasAgent, onClose]);
+    if (pane?.role && pane.role !== "Orchestrator" && (pane.role === "Conductor" || pane.role === "Lead")) {
+      items.push({
+        label: pane.can_spawn ? "Disallow Spawning" : "Allow Spawning",
+        icon: pane.can_spawn
+          ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+          : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>,
+        onClick: () => { if (pane) invoke("mux_set_can_spawn", { paneId: pane.id, canSpawn: !pane.can_spawn }); },
+      });
+    }
+    if (canClose) {
+      items.push({
+        label: hasAgent ? "Close Session" : "Close Tab",
+        icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+        onClick: onClose,
+        danger: true,
+      });
+    }
+    return items;
+  }, [tab.title, pane, canClose, hasAgent, onClose]);
 
   // Build animation CSS class
   const animClass = isClosing
@@ -974,177 +966,114 @@ function TabItem({
       : "";
 
   return (
-    <>
-      <div
-        ref={tabRef}
-        onClick={onClick}
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.setData("text/plain", JSON.stringify({
-            tabId: tab.id,
-            fromWorkspaceId: workspaceId,
-          }));
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-        className={`
-          sidebar-tab group flex items-center justify-between pl-8 pr-2 py-1 cursor-pointer transition-colors relative
-          ${animClass}
-          ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
-        `}
-      >
-        {/* Active tab sliding pill indicator */}
-        {isActive && (
-          <div
-            className="absolute inset-y-0 left-0 right-0 pointer-events-none"
-            style={{
-              background: "var(--ct-bg-selected, rgba(99, 102, 241, 0.12))",
-              transition: "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease",
-            }}
-          />
-        )}
-        <div className="flex items-center gap-2 min-w-0 relative z-[1]">
-          {/* Icon — Lead/Worker role icon > orange sparkle for Claude Code (spins when working) > terminal icon */}
-          {/* Orchestrator uses standard icon (Claude sparkle or terminal) — it's just a user tab */}
-          {pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor" ? (
-            <span
-              className={`shrink-0 text-[11px] leading-none text-[var(--ct-muted-fg)] ${status === "Working" ? "animate-pulse" : ""}`}
-              title={`${pane.role}${status === "Working" ? " — working" : ""}`}
-            >{ROLE_ICONS[pane.role]}</span>
-          ) : hasAgent ? (
-            <span
-              className={`shrink-0 text-[11px] leading-none ${status === "Working" ? "animate-spin" : ""}`}
-              style={{ color: agentProvider?.iconColor || "#f0883e", ...(status === "Working" ? { animationDuration: "1.5s" } : {}) }}
-              title={status === "Working" ? `${agentProvider?.displayName || "Agent"} working...` : status === "Waiting" ? `${agentProvider?.displayName || "Agent"} — waiting for input` : agentProvider?.displayName || "Agent"}
-            >{agentProvider?.icon || "\u2733"}</span>
-          ) : (
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
-              <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z" />
-            </svg>
-          )}
-          {editing ? (
-            <input
-              autoFocus
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              onBlur={() => {
-                const trimmed = editName.trim();
-                setEditing(false);
-                if (trimmed && trimmed !== tab.title && _onRename) _onRename(trimmed);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  (e.target as HTMLInputElement).blur();
-                } else if (e.key === "Escape") {
-                  setEditName(tab.title);
-                  setEditing(false);
-                }
-              }}
-              className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
-            />
-          ) : (
-            <span
-              className={`text-xs truncate ${isActive ? "font-medium" : ""}`}
-              onDoubleClick={(e) => { e.stopPropagation(); setEditName(tab.title); setEditing(true); }}
-            >
-              {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
-            </span>
-          )}
-          {paneCount > 1 && (
-            <span className="flex items-center gap-0.5 text-[var(--ct-muted)]" title={`${paneCount} panes`}>
-              <svg width="12" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1">
-                {paneCount === 2 ? (
-                  /* Two panes side by side */
-                  <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /></>
-                ) : paneCount === 3 ? (
-                  /* Three panes: one left, two right stacked */
-                  <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="7" y1="5" x2="13.5" y2="5" /></>
-                ) : (
-                  /* Four+ panes: grid */
-                  <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="0.5" y1="5" x2="13.5" y2="5" /></>
-                )}
-              </svg>
-            </span>
-          )}
-        </div>
-        {/* Close button — visible on hover */}
-        {canClose && (
-          <button
-            onClick={handleClose}
-            className="sidebar-tab-close shrink-0 w-5 h-5 flex items-center justify-center rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] relative z-[1]"
-            title="Close tab"
-          >
-            <svg width="7" height="7" viewBox="0 0 10 10" fill="currentColor">
-              <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
-            </svg>
-          </button>
-        )}
-        {/* Context menu */}
-        {ctxMenu && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
-            <div
-              className="fixed z-50 w-44 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1 ct-float"
-              style={{ left: ctxMenu.x, top: ctxMenu.y }}
-            >
-              <button
-                onClick={() => { setCtxMenu(null); setEditName(tab.title); setEditing(true); }}
-                className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)] whitespace-nowrap"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                Rename
-              </button>
-              {/* Role management — hide for Orchestrators (default role on all tabs) */}
-              {pane?.role && pane.role !== "Orchestrator" && (
-                <button
-                  onClick={() => {
-                    setCtxMenu(null);
-                    if (pane) invoke("mux_clear_pane_role", { paneId: pane.id });
-                  }}
-                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-yellow)] hover:bg-[var(--ct-border)] whitespace-nowrap"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="11" x2="23" y2="11"/></svg>
-                  Remove Role
-                </button>
-              )}
-              {pane?.role && pane.role !== "Orchestrator" && (pane.role === "Conductor" || pane.role === "Lead") && (
-                <button
-                  onClick={() => {
-                    setCtxMenu(null);
-                    if (pane) invoke("mux_set_can_spawn", { paneId: pane.id, canSpawn: !pane.can_spawn });
-                  }}
-                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)] whitespace-nowrap"
-                >
-                  {pane.can_spawn ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
-                  ) : (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>
-                  )}
-                  {pane.can_spawn ? "Disallow Spawning" : "Allow Spawning"}
-                </button>
-              )}
-              <div className="h-px bg-[var(--ct-border)] my-0.5" />
-              {canClose && (
-                <button
-                  onClick={(e) => { setCtxMenu(null); handleClose(e); }}
-                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)] whitespace-nowrap"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                  Close
-                </button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-      {confirmClose && (
-        <ConfirmStopDialog
-          onConfirm={() => { onClose(); setConfirmClose(false); }}
-          onCancel={() => setConfirmClose(false)}
+    <div
+      ref={tabRef}
+      onClick={onClick}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", JSON.stringify({
+          tabId: tab.id,
+          fromWorkspaceId: workspaceId,
+        }));
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      className={`
+        sidebar-tab group flex items-center justify-between pl-8 pr-2 py-1 cursor-pointer transition-colors relative
+        ${animClass}
+        ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
+      `}
+    >
+      {/* Active tab sliding pill indicator */}
+      {isActive && (
+        <div
+          className="absolute inset-y-0 left-0 right-0 pointer-events-none"
+          style={{
+            background: "var(--ct-bg-selected, rgba(99, 102, 241, 0.12))",
+            transition: "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease",
+          }}
         />
       )}
-    </>
+      <div className="flex items-center gap-2 min-w-0 relative z-[1]">
+        {/* Icon — Lead/Worker role icon > orange sparkle for Claude Code (spins when working) > terminal icon */}
+        {/* Orchestrator uses standard icon (Claude sparkle or terminal) — it's just a user tab */}
+        {pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor" ? (
+          <span
+            className={`shrink-0 text-[11px] leading-none text-[var(--ct-muted-fg)] ${status === "Working" ? "animate-pulse" : ""}`}
+            title={`${pane.role}${status === "Working" ? " — working" : ""}`}
+          >{ROLE_ICONS[pane.role]}</span>
+        ) : hasAgent ? (
+          <span
+            className={`shrink-0 text-[11px] leading-none ${status === "Working" ? "animate-spin" : ""}`}
+            style={{ color: agentProvider?.iconColor || "#f0883e", ...(status === "Working" ? { animationDuration: "1.5s" } : {}) }}
+            title={status === "Working" ? `${agentProvider?.displayName || "Agent"} working...` : status === "Waiting" ? `${agentProvider?.displayName || "Agent"} — waiting for input` : agentProvider?.displayName || "Agent"}
+          >{agentProvider?.icon || "\u2733"}</span>
+        ) : (
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
+            <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z" />
+          </svg>
+        )}
+        {editing ? (
+          <input
+            autoFocus
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={() => {
+              const trimmed = editName.trim();
+              setEditing(false);
+              if (trimmed && trimmed !== tab.title && _onRename) _onRename(trimmed);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                (e.target as HTMLInputElement).blur();
+              } else if (e.key === "Escape") {
+                setEditName(tab.title);
+                setEditing(false);
+              }
+            }}
+            className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
+          />
+        ) : (
+          <span
+            className={`text-xs truncate ${isActive ? "font-medium" : ""}`}
+            onDoubleClick={(e) => { e.stopPropagation(); setEditName(tab.title); setEditing(true); }}
+          >
+            {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
+          </span>
+        )}
+        {paneCount > 1 && (
+          <span className="flex items-center gap-0.5 text-[var(--ct-muted)]" title={`${paneCount} panes`}>
+            <svg width="12" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1">
+              {paneCount === 2 ? (
+                /* Two panes side by side */
+                <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /></>
+              ) : paneCount === 3 ? (
+                /* Three panes: one left, two right stacked */
+                <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="7" y1="5" x2="13.5" y2="5" /></>
+              ) : (
+                /* Four+ panes: grid */
+                <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="0.5" y1="5" x2="13.5" y2="5" /></>
+              )}
+            </svg>
+          </span>
+        )}
+      </div>
+      {/* 3-dot menu — visible on hover */}
+      {canClose && (
+        <DropdownMenu
+          items={menuItems}
+          className="sidebar-tab-close shrink-0 relative z-[1]"
+          trigger={
+            <button
+              className="w-5 h-5 flex items-center justify-center rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] transition-colors"
+              title="Tab actions"
+            >
+              <span className="text-[13px] leading-none font-bold">{"\u22EE"}</span>
+            </button>
+          }
+        />
+      )}
+    </div>
   );
 }
 
