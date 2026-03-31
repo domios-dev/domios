@@ -15,9 +15,8 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
   const [visible, setVisible] = useState(false);
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [inputExpanded, setInputExpanded] = useState(false);
 
-  // Hide chat when prompt appears (so terminal prompt is visible)
+  // Hide chat when prompt appears
   useEffect(() => {
     if (pendingPrompt) setVisible(false);
   }, [pendingPrompt]);
@@ -32,7 +31,6 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
     if (!input.trim() || !ptyId) return;
     const text = input.trim();
     setInput("");
-    // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -54,16 +52,12 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
 
   const handleInput = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
-    // Auto-resize
     const el = e.target;
-    if (!inputExpanded) {
-      el.style.height = "0";
-      el.style.height = Math.min(el.scrollHeight, 120) + "px";
-    }
-  }, [inputExpanded]);
+    el.style.height = "0";
+    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+  }, []);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    // File paste (images etc)
     const items = Array.from(e.clipboardData.items);
     const fileItems = items.filter(item => item.kind === "file");
     if (fileItems.length > 0 && ptyId) {
@@ -78,7 +72,6 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
             try {
               const ext = item.type.split("/")[1] || "bin";
               const path = await invoke<string>("save_temp_file", { data: base64, extension: ext, name: blob.name });
-              // Send file path to agent
               await invoke("write_pty_string", { ptyId, data: path + "\r" });
             } catch { /* skip */ }
           }
@@ -87,8 +80,6 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
       }
       return;
     }
-
-    // File path paste (Ctrl+C file in Explorer)
     const text = e.clipboardData.getData("text/plain");
     if (text) {
       const trimmed = text.trim();
@@ -99,91 +90,65 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
         return;
       }
     }
-    // Regular text paste — let default handler work
   }, [ptyId]);
 
   if (!agentType) return null;
 
   return (
-    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2">
+    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20">
       {visible ? (
-        <div
-          className="rounded-xl border shadow-xl backdrop-blur-sm"
-          style={{
-            background: "color-mix(in srgb, var(--ct-surface) 95%, transparent)",
-            borderColor: "var(--ct-border)",
-            width: inputExpanded ? "min(90vw, 600px)" : "min(70vw, 420px)",
-            transition: "width 0.2s ease",
-          }}
-        >
-          <div className="flex items-start gap-2 p-2">
+        <div className="relative" style={{ width: "min(85vw, 520px)" }}>
+          {/* Close button — circle anchored to top-right */}
+          <button
+            onClick={() => { setVisible(false); setInput(""); }}
+            className="absolute -top-2.5 -right-2.5 w-5 h-5 rounded-full flex items-center justify-center shadow-md transition-colors z-10"
+            style={{
+              background: "var(--ct-surface)",
+              border: "1px solid var(--ct-border)",
+              color: "var(--ct-muted)",
+            }}
+            title="Close (Esc)"
+          >
+            <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M2 2l8 8M10 2l-8 8"/>
+            </svg>
+          </button>
+
+          <div
+            className="rounded-xl border shadow-xl backdrop-blur-sm overflow-hidden"
+            style={{
+              background: "color-mix(in srgb, var(--ct-surface) 95%, transparent)",
+              borderColor: "var(--ct-border)",
+            }}
+          >
             <textarea
               ref={textareaRef}
               value={input}
               onChange={handleInput}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              placeholder="Message agent..."
+              onBlur={() => { if (!input) setVisible(false); }}
+              placeholder="Message agent... (Enter to send, Esc to close)"
               rows={1}
-              className="flex-1 bg-transparent text-xs outline-none resize-none leading-relaxed"
+              className="w-full bg-transparent text-xs outline-none resize-none leading-relaxed px-3 py-2"
               style={{
                 color: "var(--ct-fg)",
-                minHeight: "24px",
-                maxHeight: inputExpanded ? "300px" : "120px",
+                minHeight: "32px",
+                maxHeight: "200px",
               }}
             />
-            <div className="flex items-center gap-1 shrink-0 pt-0.5">
-              {/* Expand toggle */}
-              <button
-                onClick={() => setInputExpanded(v => !v)}
-                className="p-1 rounded transition-colors"
-                style={{ color: "var(--ct-muted)" }}
-                title={inputExpanded ? "Collapse" : "Expand"}
-              >
-                <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-                  {inputExpanded ? (
-                    <path d="M5.5 13.5L.5 8.5l5-5m5 0l5 5-5 5" stroke="currentColor" fill="none" strokeWidth="1.5"/>
-                  ) : (
-                    <path d="M.5 5.5l5-5 5 5m-10 5l5 5 5-5" stroke="currentColor" fill="none" strokeWidth="1.5"/>
-                  )}
-                </svg>
-              </button>
-              {/* Send */}
-              <button
-                onClick={handleSend}
-                disabled={!input.trim()}
-                className="p-1 rounded transition-colors"
-                style={{ color: input.trim() ? "var(--ct-blue)" : "var(--ct-muted)" }}
-                title="Send (Enter)"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/>
-                </svg>
-              </button>
-              {/* Close */}
-              <button
-                onClick={() => { setVisible(false); setInput(""); }}
-                className="p-1 rounded transition-colors"
-                style={{ color: "var(--ct-muted)" }}
-                title="Close (Esc)"
-              >
-                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                  <path d="M2 2l8 8M10 2l-8 8"/>
-                </svg>
-              </button>
-            </div>
           </div>
         </div>
       ) : (
         <button
           onClick={() => setVisible(true)}
-          className="w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110 hover:shadow-xl"
+          className="w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110"
           style={{
             background: "color-mix(in srgb, var(--ct-surface) 90%, transparent)",
             border: "1px solid var(--ct-border)",
             color: "var(--ct-muted-fg)",
           }}
-          title="Chat with agent (click or start typing)"
+          title="Chat with agent"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>

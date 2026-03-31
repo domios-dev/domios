@@ -224,11 +224,37 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
           ...(agentType ? { agent_type: agentType } : {}),
         };
       }
+      // Detect new pending_prompts → push notification toasts with action buttons
+      const newToasts: Notification[] = [];
+      for (const [id, pane] of Object.entries(mergedPanes)) {
+        const oldPane = state.panes[id];
+        if (pane.pending_prompt && !oldPane?.pending_prompt) {
+          const prompt = pane.pending_prompt;
+          newToasts.push({
+            id: `prompt-${id}-${Date.now()}`,
+            pane_id: id,
+            workspace_id: null,
+            title: pane.title || "Agent",
+            body: prompt.question,
+            level: "Warning" as const,
+            read: false,
+            sticky: true,
+            timestamp: Date.now(),
+            actions: prompt.options.map((opt: { label: string; value: string }) => ({
+              label: opt.label,
+              type: "invoke" as const,
+              value: "mux_respond_prompt",
+              args: { paneId: id, value: opt.value },
+            })),
+          });
+        }
+      }
       return {
         ...state,
         ...action.state,
         workspaces: mergedWorkspaces,
         panes: mergedPanes,
+        toasts: [...state.toasts, ...newToasts],
       };
     }
 
