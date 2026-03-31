@@ -145,21 +145,21 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
       ) : (
         <button
           onClick={() => { setVisible(true); if (lastSent && !input) setInput(lastSent); }}
-          className="flex items-center gap-1.5 rounded-full shadow-lg transition-all hover:scale-105 px-2 py-1.5"
+          className="flex items-center gap-2 rounded-xl shadow-lg transition-all hover:brightness-125 px-3 py-1.5 backdrop-blur-md"
           style={{
-            background: "color-mix(in srgb, var(--ct-surface) 90%, transparent)",
-            border: "1px solid var(--ct-border)",
-            color: "var(--ct-muted-fg)",
-            maxWidth: "240px",
+            background: "color-mix(in srgb, var(--ct-surface) 70%, transparent)",
+            border: "1px solid color-mix(in srgb, var(--ct-border) 60%, transparent)",
+            color: "var(--ct-fg)",
+            width: "min(85vw, 520px)",
           }}
           title="Chat with agent"
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-60">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
           </svg>
-          {lastSent && (
-            <span className="text-[10px] truncate opacity-50">{lastSent}</span>
-          )}
+          <span className="text-[11px] truncate opacity-40">
+            {lastSent || "Message agent..."}
+          </span>
         </button>
       )}
     </div>
