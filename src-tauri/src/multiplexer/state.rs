@@ -21,6 +21,7 @@ pub struct WorkspaceInfo {
     pub is_active: bool,
     pub cwd: Option<String>,
     pub protected: bool,
+    pub pane_ids: Vec<String>,
 }
 
 /// Central multiplexer state: workspaces, tabs, panes, and their relationships.
@@ -113,12 +114,13 @@ impl MultiplexerState {
         self.workspaces.push(workspace);
 
         WorkspaceInfo {
-            id: workspace_id,
+            id: workspace_id.clone(),
             name,
             tab_count: 1,
             is_active: false,
             cwd,
             protected: false,
+            pane_ids: vec![],
         }
     }
 
@@ -201,6 +203,21 @@ impl MultiplexerState {
         Ok(())
     }
 
+    pub fn set_workspace_protected(&mut self, id: &str, protected: bool) {
+        if let Some(ws) = self.workspaces.iter_mut().find(|w| w.id == id) {
+            ws.protected = protected;
+        }
+    }
+
+    pub fn move_workspace_to_front(&mut self, id: &str) {
+        if let Some(idx) = self.workspaces.iter().position(|w| w.id == id) {
+            if idx > 0 {
+                let ws = self.workspaces.remove(idx);
+                self.workspaces.insert(0, ws);
+            }
+        }
+    }
+
     /// Move a tab from one workspace to another. Returns error if not found.
     pub fn move_tab(&mut self, tab_id: &str, from_workspace_id: &str, to_workspace_id: &str) -> Result<(), String> {
         if from_workspace_id == to_workspace_id {
@@ -245,13 +262,19 @@ impl MultiplexerState {
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
         self.workspaces
             .iter()
-            .map(|w| WorkspaceInfo {
-                id: w.id.clone(),
-                name: w.name.clone(),
-                tab_count: w.tabs.len(),
-                is_active: self.active_workspace_id.as_deref() == Some(&w.id),
-                cwd: w.cwd.clone(),
-                protected: w.protected,
+            .map(|w| {
+                let pane_ids: Vec<String> = w.tabs.iter()
+                    .flat_map(|t| t.split_tree.collect_pane_ids())
+                    .collect();
+                WorkspaceInfo {
+                    id: w.id.clone(),
+                    name: w.name.clone(),
+                    tab_count: w.tabs.len(),
+                    is_active: self.active_workspace_id.as_deref() == Some(&w.id),
+                    cwd: w.cwd.clone(),
+                    protected: w.protected,
+                    pane_ids,
+                }
             })
             .collect()
     }

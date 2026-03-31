@@ -494,6 +494,26 @@ fn start_servers(
             });
         }
     }
+
+    // Start General Agent (if enabled)
+    {
+        let config = states.config.lock().general_agent.clone();
+        if config.enabled {
+            let svc = service_state.clone();
+            let mux = states.mux.clone();
+            let pty = states.pty.clone();
+            let screen_state = states.screen_state.clone();
+            let config_state = states.config.clone();
+            let app_h = app_handle.clone();
+            std::thread::spawn(move || {
+                // Small delay to let other services start
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                service::general_agent::start_general_agent(
+                    &svc, &mux, &pty, &screen_state, &config_state, &app_h,
+                );
+            });
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
