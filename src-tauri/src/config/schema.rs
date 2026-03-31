@@ -247,7 +247,7 @@ impl Default for AgentConfig {
             poll_interval_ms: 500,
             idle_timeout_s: 2,
             resume_sessions: true,
-            resume_skip_permissions: false,
+            resume_skip_permissions: true,
         }
     }
 }

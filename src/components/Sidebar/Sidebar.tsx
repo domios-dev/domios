@@ -118,8 +118,14 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     }
     if (!folder) return;
     const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
-    createWorkspace(basename, folder);
-  }, [createWorkspace]);
+    await createWorkspace(basename, folder);
+    // useMemo auto-expands active workspace, but force expand all for immediate feedback
+    setExpandedWorkspaces(prev => {
+      const next = new Set(prev);
+      state.workspaces.forEach(ws => next.add(ws.id));
+      return next;
+    });
+  }, [createWorkspace, state.workspaces]);
 
   const toggleExpanded = useCallback((wsId: string) => {
     setExpandedWorkspaces((prev) => {
@@ -428,14 +434,22 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                     })()}
                     {/* Add tab button */}
                     <button
-                      onClick={() => createTab(ws.id)}
+                      onClick={async () => {
+                        try {
+                          const cfg = await invoke<{ agent: { resume_skip_permissions: boolean } }>("get_config");
+                          const skip = cfg.agent.resume_skip_permissions;
+                          spawnClaudeTab(ws.id, skip, ws.cwd ?? undefined);
+                        } catch {
+                          spawnClaudeTab(ws.id, false, ws.cwd ?? undefined);
+                        }
+                      }}
                       className="flex items-center gap-2 mx-2 mt-1 mb-0.5 px-5 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
-                      title="New tab in this workspace"
+                      title="New Claude session in this workspace"
                     >
                       <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
                         <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                       </svg>
-                      <span className="text-[11px]">Add Session</span>
+                      <span className="text-[11px]">New session</span>
                     </button>
                     {/* Cron jobs section */}
                     <CronSection workspaceId={ws.id} />
