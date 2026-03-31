@@ -14,6 +14,7 @@ interface FloatingInputProps {
 export default function FloatingInput({ ptyId, agentType, pendingPrompt }: FloatingInputProps) {
   const [visible, setVisible] = useState(false);
   const [input, setInput] = useState("");
+  const [lastSent, setLastSent] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Hide chat when prompt appears
@@ -30,6 +31,7 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
   const handleSend = useCallback(async () => {
     if (!input.trim() || !ptyId) return;
     const text = input.trim();
+    setLastSent(text);
     setInput("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -142,17 +144,21 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
       ) : (
         <button
           onClick={() => setVisible(true)}
-          className="w-8 h-8 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110"
+          className="flex items-center gap-1.5 rounded-full shadow-lg transition-all hover:scale-105 px-2 py-1.5"
           style={{
             background: "color-mix(in srgb, var(--ct-surface) 90%, transparent)",
             border: "1px solid var(--ct-border)",
             color: "var(--ct-muted-fg)",
+            maxWidth: "240px",
           }}
           title="Chat with agent"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
           </svg>
+          {lastSent && (
+            <span className="text-[10px] truncate opacity-50">{lastSent}</span>
+          )}
         </button>
       )}
     </div>
