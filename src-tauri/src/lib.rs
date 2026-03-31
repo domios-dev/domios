@@ -495,7 +495,7 @@ fn start_servers(
         }
     }
 
-    // Start General Agent (if enabled)
+    // Start General Agent (if enabled) — delayed to avoid blocking startup
     {
         let config = states.config.lock().general_agent.clone();
         if config.enabled {
@@ -506,8 +506,10 @@ fn start_servers(
             let config_state = states.config.clone();
             let app_h = app_handle.clone();
             std::thread::spawn(move || {
-                // Small delay to let other services start
-                std::thread::sleep(std::time::Duration::from_secs(2));
+                // Wait for frontend to fully initialize — prevents deadlock
+                // with mux lock during initial state sync
+                std::thread::sleep(std::time::Duration::from_secs(8));
+                log::info!("[general-agent] Delayed start beginning...");
                 service::general_agent::start_general_agent(
                     &svc, &mux, &pty, &screen_state, &config_state, &app_h,
                 );

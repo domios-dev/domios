@@ -254,11 +254,9 @@ pub fn start_general_agent(
     // 6. Start backend reader (processes output without frontend)
     super::pty_lifecycle::start_backend_reader(svc, &pty_id);
 
-    // 7. Wait for shell ready, then launch/resume agent
-    let ready = crate::service::pty_io::poll_shell_prompt(screen_state, &pty_id, std::time::Duration::from_secs(15));
-    if !ready {
-        log::warn!("[general-agent] Shell not ready after 15s, proceeding anyway");
-    }
+    // 7. Wait for shell to start — simple delay instead of poll_shell_prompt
+    // (poll_shell_prompt can deadlock with backend reader competing for screen_state lock)
+    std::thread::sleep(std::time::Duration::from_secs(3));
 
     // Build launch command
     let cmd = if let Some(ref sid) = session_id {
