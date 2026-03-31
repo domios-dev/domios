@@ -227,29 +227,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
             </span>
           )}
           <div className="flex items-center gap-1">
-            {/* Spawn Claude */}
-            <button
-              onClick={handleClaudeSpawn}
-              className="flex items-center justify-center w-6 h-6 rounded border border-[#d4a574]/30 bg-[#d4a574]/5 hover:bg-[#d4a574]/15 hover:border-[#d4a574]/50 text-[#d4a574]/70 hover:text-[#d4a574] transition-colors"
-              title="Spawn Claude Code"
-            >
-              <span className="text-[15px] leading-none">✳</span>
-            </button>
-            {/* New terminal pane */}
-            <button
-              onClick={() => {
-                const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);
-                if (ws) createTab(ws.id);
-              }}
-              className="flex items-center justify-center w-6 h-6 rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)] hover:border-[var(--ct-muted)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
-              title="New terminal"
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                <path d="M2 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M8 13h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
-            {/* New workspace (group) */}
+            {/* New workspace */}
             <button
               onClick={handleNewWorkspace}
               className="flex items-center justify-center w-6 h-6 rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)] hover:border-[var(--ct-muted)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
