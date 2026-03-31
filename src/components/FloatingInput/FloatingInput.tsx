@@ -144,7 +144,18 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
         </div>
       ) : (
         <button
-          onClick={() => { setVisible(true); if (lastSent && !input) setInput(lastSent); }}
+          onClick={() => {
+            setVisible(true);
+            if (lastSent && !input) {
+              setInput(lastSent);
+              requestAnimationFrame(() => {
+                if (textareaRef.current) {
+                  textareaRef.current.style.height = "0";
+                  textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + "px";
+                }
+              });
+            }
+          }}
           className="flex items-center gap-2 rounded-xl shadow-lg transition-all hover:brightness-125 px-3 py-1.5 backdrop-blur-md"
           style={{
             background: "color-mix(in srgb, var(--ct-surface) 70%, transparent)",
