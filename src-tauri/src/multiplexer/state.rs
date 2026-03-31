@@ -1471,7 +1471,8 @@ mod tests {
         // Check pane state was preserved
         let pane = restored.get_pane(&pane_id).unwrap();
         assert_eq!(pane.cwd.as_deref(), Some("/test/path"));
-        assert_eq!(pane.agent_type.as_deref(), Some("claude"));
+        // agent_type is NOT restored (re-detected from PTY output to prevent false positives)
+        assert_eq!(pane.agent_type, None);
         assert_eq!(pane.role, Some(AgentRole::Orchestrator));
         assert_eq!(pane.depth, 1);
         assert!(pane.can_spawn);

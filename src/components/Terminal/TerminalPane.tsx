@@ -914,30 +914,9 @@ export function TerminalPane({
         // -NoExit -Command for PowerShell on Windows). No visible injection needed.
         setShellReady(true);
 
-        // If this pane had a Claude session, resume it.
-        // Check session_id only — agent_type may have been cleared by hook/stop on exit.
-        if (paneData?.agent_session_id) {
-          console.log(`[resume] pane ${paneId} has session ${paneData.agent_session_id}, checking config...`);
-          invoke<{ agent: { resume_sessions: boolean; resume_skip_permissions: boolean } }>("get_config")
-            .then(async (cfg) => {
-              if (!cfg.agent.resume_sessions) {
-                console.log(`[resume] resume_sessions disabled, skipping`);
-                return;
-              }
-              const skipFlag = cfg.agent.resume_skip_permissions ? " --dangerously-skip-permissions" : "";
-              console.log(`[resume] waiting for shell ready...`);
-              const ready = await invoke<boolean>("wait_shell_ready", { paneId, timeoutMs: 15000 });
-              console.log(`[resume] shell ready=${ready}, disposed=${disposed}`);
-              if (disposed) return;
-              const cmd = `claude --resume ${paneData.agent_session_id}${skipFlag}`;
-              console.log(`[resume] sending: ${cmd}`);
-              invoke("write_pty_string", {
-                ptyId: spawnedId,
-                data: cmd + "\r",
-              }).catch((e) => console.error(`[resume] write failed:`, e));
-            })
-            .catch((e) => console.error(`[resume] config/ready failed:`, e));
-        }
+        // Session resume is handled by backend (spawn_pty checks agent_session_id
+        // and sends `claude --resume` after shell is ready). Works for all panes
+        // including non-visible tabs that don't have TerminalPane mounted.
 
         // Sync PTY size with actual xterm dimensions after connection
         requestAnimationFrame(() => {

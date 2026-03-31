@@ -81,6 +81,8 @@ pub fn get_default_cwd() -> Result<String, String> {
 pub async fn spawn_pty(
     state: tauri::State<'_, PtyState>,
     mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
+    screen_state: tauri::State<'_, ScreenStateHandle>,
+    config_state: tauri::State<'_, crate::config::ConfigState>,
     _app: AppHandle,
     command: Option<String>,
     cwd: Option<String>,
@@ -115,6 +117,46 @@ pub async fn spawn_pty(
     };
 
     log::info!("PTY {} spawned", pty_id);
+
+    // Auto-resume: if this pane has a saved session_id, resume it after shell is ready.
+    // This runs in backend so it works even for non-visible tabs.
+    if let Some(ref pid) = pane_id {
+        let session_id = mux_state.lock().get_pane(pid)
+            .and_then(|p| p.agent_session_id.clone());
+        if let Some(session_id) = session_id {
+            let pty_clone = state.inner().clone();
+            let pty_id_for_poll = pty_id.clone();
+            let pty_id_for_write = pty_id.clone();
+            let screen_state_clone = screen_state.inner().clone();
+            // Extract config values before spawning (MutexGuard is not Send)
+            let (resume_enabled, skip_perms) = {
+                let cfg = config_state.lock();
+                (cfg.agent.resume_sessions, cfg.agent.resume_skip_permissions)
+            };
+            tokio::spawn(async move {
+                if !resume_enabled { return; }
+                let skip_flag = if skip_perms { " --dangerously-skip-permissions" } else { "" };
+
+                // Wait for shell to be ready
+                let ready = tokio::task::spawn_blocking(move || {
+                    crate::service::pty_io::poll_shell_prompt(
+                        &screen_state_clone, &pty_id_for_poll,
+                        std::time::Duration::from_secs(15),
+                    )
+                }).await.unwrap_or(false);
+
+                if !ready {
+                    log::warn!("[resume] shell not ready for session {}, skipping", session_id);
+                    return;
+                }
+
+                let cmd = format!("claude --resume {}{}\r", session_id, skip_flag);
+                log::info!("[resume] sending: {}", cmd.trim());
+                let _ = pty_clone.lock().write(&pty_id_for_write, cmd.as_bytes());
+            });
+        }
+    }
+
     Ok(pty_id)
 }
 
