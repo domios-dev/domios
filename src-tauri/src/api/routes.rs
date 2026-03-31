@@ -94,6 +94,13 @@ pub fn create_router(state: AppState) -> Router {
         .with_state(state)
 }
 
+/// Resolve a pane ID path parameter: supports both direct IDs and aliases.
+fn resolve_pane(state: &AppState, raw_id: &str) -> Result<String, (StatusCode, &'static str)> {
+    let mux = state.svc.mux.lock();
+    mux.resolve_pane_id(raw_id)
+        .ok_or((StatusCode::NOT_FOUND, "Pane not found"))
+}
+
 // Auth check helper
 fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, &'static str)> {
     if let Some(ref expected) = state.token {
@@ -237,10 +244,11 @@ struct SplitPaneBody {
 async fn split_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     body: Option<Json<SplitPaneBody>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     let orientation = match body.as_ref().and_then(|b| b.direction.as_deref()) {
         Some("down" | "vertical") => crate::multiplexer::types::Orientation::Vertical,
         _ => crate::multiplexer::types::Orientation::Horizontal,
@@ -287,10 +295,11 @@ struct BatchCommand {
 async fn send_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     Json(body): Json<SendTextBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
     // Batch mode
     if let Some(batch) = body.batch {
@@ -320,9 +329,10 @@ async fn send_text(
 async fn focus_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     state.svc.focus_pane(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -342,10 +352,11 @@ struct OutputQuery {
 async fn get_pane_output(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     Query(query): Query<OutputQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     let pty_id = state.svc.resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     let buf = state.svc.output_buf.lock();
@@ -377,10 +388,11 @@ struct ExecBody {
 async fn exec_in_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     Json(body): Json<ExecBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     let pty_id = state.svc.resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
 
@@ -448,9 +460,10 @@ async fn open_browser(
 async fn close_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     state.svc.close_pane(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -464,10 +477,11 @@ struct RenamePaneBody {
 async fn rename_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     Json(body): Json<RenamePaneBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     state.svc.rename_pane(&pane_id, &body.title)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -482,10 +496,11 @@ struct ResizePaneBody {
 async fn resize_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     Json(body): Json<ResizePaneBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     state.svc.resize_pane(&pane_id, body.cols, body.rows)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to resize PTY"))?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -495,9 +510,10 @@ async fn resize_pane(
 async fn stream_pane_output(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
 ) -> Result<axum::response::Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     let pty_id = state.svc.resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
 
@@ -670,9 +686,10 @@ async fn serve_file(
 async fn get_pane_screen(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     // Verify pane exists by trying to resolve pty (or at least check mux)
     {
         let mux = state.svc.mux.lock();
@@ -1031,10 +1048,12 @@ async fn set_can_spawn(
 async fn respond_prompt(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)
+        .map_err(|(s, m)| (s, m.to_string()))?;
     let value = body.get("value")
         .and_then(|v| v.as_str())
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing 'value' field".to_string()))?
@@ -1047,8 +1066,10 @@ async fn respond_prompt(
 /// Clear pending_prompt state without sending to PTY (safe for cleanup/reset).
 async fn clear_prompt(
     AxumState(state): AxumState<AppState>,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let pane_id = resolve_pane(&state, &raw_pane_id)
+        .map_err(|(s, m)| (s, m.to_string()))?;
     state.svc.clear_prompt(&pane_id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -1124,9 +1145,11 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
 /// When body is provided, bypasses ring buffer parsing (useful for testing/external integrations).
 async fn hook_permission(
     AxumState(state): AxumState<AppState>,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let pane_id = resolve_pane(&state, &raw_pane_id)
+        .map_err(|(s, m)| (s, m.to_string()))?;
     // Hook firing = authoritative proof that an agent is running in this pane.
     // Ensure agent_type is set even if OSC title detection missed it
     // (happens on restored panes, Windows PowerShell not resetting title, etc.)
@@ -1209,8 +1232,10 @@ async fn hook_permission(
 /// Called by Claude Code hook (Stop matcher).
 async fn hook_stop(
     AxumState(state): AxumState<AppState>,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let pane_id = resolve_pane(&state, &raw_pane_id)
+        .map_err(|(s, m)| (s, m.to_string()))?;
     let title = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.title.clone());
     if let Some(title) = title {
         state.svc.notify_event("agent.task_complete", serde_json::json!({

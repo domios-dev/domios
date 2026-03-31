@@ -744,24 +744,29 @@ function WorkspaceItem({
     if (e.key === "Escape") { setEditing(false); }
   }, [commitRename]);
 
-  const menuItems: DropdownMenuItem[] = useMemo(() => [
-    {
-      label: "New Terminal",
-      icon: <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M2 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M8 13h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>,
-      onClick: onNewTerminal,
-    },
-    {
-      label: "New Claude Session",
-      icon: <span className="text-[11px] leading-none" style={{ color: "#d4a574" }}>{"\u2733"}</span>,
-      onClick: onNewClaude,
-    },
-    {
-      label: "Delete Workspace",
-      icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
-      onClick: onClose,
-      danger: true,
-    },
-  ], [onNewTerminal, onNewClaude, onClose]);
+  const menuItems: DropdownMenuItem[] = useMemo(() => {
+    const items: DropdownMenuItem[] = [
+      {
+        label: "New Terminal",
+        icon: <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M2 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M8 13h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>,
+        onClick: onNewTerminal,
+      },
+      {
+        label: "New Claude Session",
+        icon: <span className="text-[11px] leading-none" style={{ color: "#d4a574" }}>{"\u2733"}</span>,
+        onClick: onNewClaude,
+      },
+    ];
+    if (!workspace.protected) {
+      items.push({
+        label: "Delete Workspace",
+        icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+        onClick: onClose,
+        danger: true,
+      });
+    }
+    return items;
+  }, [onNewTerminal, onNewClaude, onClose, workspace.protected]);
 
   return (
     <div
@@ -937,7 +942,7 @@ function TabItem({
         onClick: () => { if (pane) invoke("mux_set_can_spawn", { paneId: pane.id, canSpawn: !pane.can_spawn }); },
       });
     }
-    if (canClose) {
+    if (canClose && !pane?.protected) {
       items.push({
         label: hasAgent ? "Close Session" : "Close Tab",
         icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,

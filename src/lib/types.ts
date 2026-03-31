@@ -12,6 +12,7 @@ export interface Workspace {
   tabs: Tab[];
   active_tab_id: string | null;
   cwd: string | null;
+  protected?: boolean;
 }
 
 export interface Tab {
@@ -54,6 +55,7 @@ export interface Pane {
   depth?: number;
   chat_view?: boolean;
   pending_prompt?: PendingPrompt | null;
+  protected?: boolean;
 }
 
 export interface MultiplexerState {
@@ -69,6 +71,7 @@ export interface WorkspaceInfo {
   tab_count: number;
   is_active: boolean;
   cwd: string | null;
+  protected?: boolean;
 }
 
 export interface SplitResult {
