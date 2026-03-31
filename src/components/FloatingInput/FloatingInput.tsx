@@ -47,6 +47,7 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
       handleSend();
     }
     if (e.key === "Escape") {
+      if (input.trim()) setLastSent(input.trim());
       setVisible(false);
       setInput("");
     }
@@ -102,7 +103,7 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
         <div className="relative" style={{ width: "min(85vw, 520px)" }}>
           {/* Close button — circle anchored to top-right */}
           <button
-            onClick={() => { setVisible(false); setInput(""); }}
+            onClick={() => { if (input.trim()) setLastSent(input.trim()); setVisible(false); setInput(""); }}
             className="absolute -top-2.5 -right-2.5 w-5 h-5 rounded-full flex items-center justify-center shadow-md transition-colors z-10"
             style={{
               background: "var(--ct-surface)",
@@ -129,7 +130,7 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
               onChange={handleInput}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              onBlur={() => { if (!input) setVisible(false); }}
+              onBlur={() => { if (!input) { if (lastSent) setVisible(false); } }}
               placeholder="Message agent... (Enter to send, Esc to close)"
               rows={1}
               className="w-full bg-transparent text-xs outline-none resize-none leading-relaxed px-3 py-2"
@@ -143,7 +144,7 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
         </div>
       ) : (
         <button
-          onClick={() => setVisible(true)}
+          onClick={() => { setVisible(true); if (lastSent && !input) setInput(lastSent); }}
           className="flex items-center gap-1.5 rounded-full shadow-lg transition-all hover:scale-105 px-2 py-1.5"
           style={{
             background: "color-mix(in srgb, var(--ct-surface) 90%, transparent)",
