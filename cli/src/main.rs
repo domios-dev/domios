@@ -242,6 +242,29 @@ enum PaneAction {
         #[arg(long, alias = "id")]
         pane: Option<String>,
     },
+    /// Get visible screen content of a pane (what the user sees)
+    Screen {
+        /// Pane ID (default: current focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+    },
+    /// Execute a command in a pane and return output
+    Exec {
+        /// Command to execute
+        command: String,
+        /// Pane ID (default: current focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+        /// Timeout in milliseconds
+        #[arg(long, default_value = "10000")]
+        timeout: u64,
+    },
+    /// Show agent status for a pane (type, session, prompt)
+    Status {
+        /// Pane ID (default: current focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -632,6 +655,79 @@ fn main() {
                     "pane.rename",
                     Some(serde_json::json!({ "pane_id": pane_id, "title": title })),
                 )
+            }
+            PaneAction::Screen { pane } => {
+                let pane_id = resolve_pane(&mut client, pane);
+                let (api_url, api_token) = read_api_config();
+                let http = build_http(&api_token);
+                match http.get(format!("{}/api/panes/{}/screen", api_url, pane_id)).send() {
+                    Ok(resp) => {
+                        if let Ok(val) = resp.json::<serde_json::Value>() {
+                            if let Some(screen) = val.get("screen").and_then(|v| v.as_str()) {
+                                for line in screen.lines() {
+                                    if !line.trim().is_empty() {
+                                        println!("{}", line);
+                                    }
+                                }
+                                return;
+                            }
+                        }
+                        eprintln!("No screen data");
+                        std::process::exit(1);
+                    }
+                    Err(e) => { eprintln!("Screen request failed: {}", e); std::process::exit(1); }
+                }
+            }
+            PaneAction::Exec { pane, command, timeout } => {
+                let pane_id = resolve_pane(&mut client, pane);
+                let (api_url, api_token) = read_api_config();
+                let http = build_http(&api_token);
+                match http.post(format!("{}/api/panes/{}/exec", api_url, pane_id))
+                    .json(&serde_json::json!({
+                        "command": command,
+                        "timeout_ms": timeout,
+                        "strip_ansi": true,
+                    }))
+                    .send()
+                {
+                    Ok(resp) => {
+                        if let Ok(val) = resp.json::<serde_json::Value>() {
+                            if let Some(output) = val.get("output").and_then(|v| v.as_str()) {
+                                print!("{}", output);
+                                return;
+                            }
+                        }
+                        eprintln!("Exec failed");
+                        std::process::exit(1);
+                    }
+                    Err(e) => { eprintln!("Exec request failed: {}", e); std::process::exit(1); }
+                }
+            }
+            PaneAction::Status { pane } => {
+                let pane_id = resolve_pane(&mut client, pane);
+                let (api_url, api_token) = read_api_config();
+                let http = build_http(&api_token);
+                match http.get(format!("{}/api/panes", api_url)).send() {
+                    Ok(resp) => {
+                        if let Ok(panes) = resp.json::<Vec<serde_json::Value>>() {
+                            if let Some(p) = panes.iter().find(|p| p.get("id").and_then(|v| v.as_str()) == Some(&pane_id)) {
+                                let at = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
+                                let sid = p.get("agent_session_id").and_then(|v| v.as_str()).unwrap_or("-");
+                                let pp = if p.get("pending_prompt").is_some() { "yes" } else { "no" };
+                                let cv = p.get("chat_view").and_then(|v| v.as_bool()).unwrap_or(false);
+                                println!("pane:    {}", pane_id);
+                                println!("agent:   {}", at);
+                                println!("session: {}", sid);
+                                println!("prompt:  {}", pp);
+                                println!("chat:    {}", cv);
+                                return;
+                            }
+                        }
+                        eprintln!("Pane not found");
+                        std::process::exit(1);
+                    }
+                    Err(e) => { eprintln!("Status request failed: {}", e); std::process::exit(1); }
+                }
             }
         },
 
