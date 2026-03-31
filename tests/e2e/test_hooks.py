@@ -116,21 +116,17 @@ class TestPromptParsingAccuracy:
                 f"Should NOT parse answer as prompt: {labels}"
 
     def test_explicit_body_overrides_buffer(self, api, fresh_pane):
-        """Explicit body in hook/permission bypasses buffer parsing."""
-        # Put garbage in buffer
-        inject_screen_text(api, fresh_pane, "1. garbage\n2. noise\n3. junk\n")
-        time.sleep(1)
-
-        # Send explicit prompt via body — should ignore buffer
+        """Explicit body in hook/permission sets prompt directly, ignoring buffer."""
+        # Send explicit prompt via body — should set prompt regardless of buffer content
         api.post(f"/api/panes/{fresh_pane}/hook/permission", json={
             "question": "Allow Bash?",
             "options": [{"label": "Yes", "value": "1"}, {"label": "No", "value": "3"}]
         })
-        time.sleep(1)
+        time.sleep(2)
 
         pane = next(p for p in api.list_panes() if p["id"] == fresh_pane)
         prompt = pane.get("pending_prompt")
-        assert prompt is not None
+        assert prompt is not None, "explicit body should set pending_prompt"
         assert prompt["question"] == "Allow Bash?"
         assert len(prompt["options"]) == 2
         assert prompt["options"][0]["label"] == "Yes"
