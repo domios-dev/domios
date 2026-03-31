@@ -292,6 +292,8 @@ fn start_background_tasks(
             std::time::Duration::from_millis(cfg.agent.poll_interval_ms as u64)
         };
         let app_handle = app_handle.clone();
+        let screen_state = states.screen_state.clone();
+        let output_buf = states.output_buffer.clone();
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(poll_interval);
@@ -321,6 +323,101 @@ fn start_background_tasks(
                             "pane_id": pid,
                             "status": format!("{:?}", status),
                         }));
+
+                        // When pane goes Idle and has agent_type set, check if agent is still running.
+                        // If screen shows a shell prompt → agent exited → clear agent_type.
+                        if matches!(status, crate::agent::status::PaneStatus::Idle) {
+                            let has_agent = mux.lock().get_pane(&pid)
+                                .map(|p| p.agent_type.is_some()).unwrap_or(false);
+                            if has_agent {
+                                // Check if agent is still running by looking at screen content.
+                                // If screen shows a shell prompt with no agent markers → agent exited.
+                                let screen = screen_state.lock().get_screen_text(&pty_id).unwrap_or_default();
+                                let check_text = if screen.is_empty() {
+                                    // Fallback to raw output buffer (alternate screen apps)
+                                    output_buf.lock().get_text(&pty_id).map(|r| crate::api::routes::strip_ansi(&r)).unwrap_or_default()
+                                } else { screen };
+                                if !check_text.is_empty() {
+                                    // Check for shell prompt pattern at end of screen
+                                    let has_shell_prompt = check_text.lines().rev()
+                                        .find(|l| !l.trim().is_empty())
+                                        .map(|l| {
+                                            let t = l.trim();
+                                            t.ends_with('>') || t.ends_with('$') || t.ends_with('%') || t.ends_with('#')
+                                        }).unwrap_or(false);
+                                    // Check no agent markers present
+                                    let has_agent_markers = check_text.contains("Claude Code")
+                                        || check_text.contains("Do you want to proceed")
+                                        || check_text.contains("Cogitated for")
+                                        || check_text.contains("Brewed for")
+                                        || check_text.contains("Reasoned for")
+                                        || check_text.contains("? for shortcuts");
+                                    if has_shell_prompt && !has_agent_markers {
+                                        log::info!("[idle-poll] agent exited in pane {} (shell prompt, no agent markers)", pid);
+                                        if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+                                            pane.agent_type = None;
+                                            pane.pending_prompt = None;
+                                        }
+                                        use tauri::Emitter;
+                                        let _ = app_handle.emit("mux-state-changed", ());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Periodic agent exit check — for ALL panes with agent_type set.
+                // Runs every poll cycle (not just on status change) to catch agents
+                // that exited without triggering a status transition.
+                {
+                    let t = tracker.lock();
+                    let m = mux.lock();
+                    // Collect (pty_id, pane_id) pairs that need checking
+                    let mut to_check: Vec<(String, String)> = Vec::new();
+                    for pty_id in t.all_ids() {
+                        if matches!(t.get_status(&pty_id), crate::agent::status::PaneStatus::Idle) {
+                            if let Some(pid) = m.pane_id_for_pty(&pty_id) {
+                                if let Some(pane) = m.get_pane(&pid) {
+                                    if pane.agent_type.is_some() {
+                                        to_check.push((pty_id, pid));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    drop(m);
+                    drop(t);
+
+                    for (pty_id, pid) in to_check {
+                        let screen = screen_state.lock().get_screen_text(&pty_id).unwrap_or_default();
+                        let check_text = if screen.is_empty() {
+                            output_buf.lock().get_text(&pty_id).map(|r| crate::api::routes::strip_ansi(&r)).unwrap_or_default()
+                        } else { screen };
+                        if check_text.is_empty() { continue; }
+
+                        let has_shell_prompt = check_text.lines().rev()
+                            .find(|l| !l.trim().is_empty())
+                            .map(|l| {
+                                let t = l.trim();
+                                t.ends_with('>') || t.ends_with('$') || t.ends_with('%') || t.ends_with('#')
+                            }).unwrap_or(false);
+                        let has_agent_markers = check_text.contains("Claude Code")
+                            || check_text.contains("Do you want to proceed")
+                            || check_text.contains("Cogitated for")
+                            || check_text.contains("Brewed for")
+                            || check_text.contains("Reasoned for")
+                            || check_text.contains("? for shortcuts");
+
+                        if has_shell_prompt && !has_agent_markers {
+                            log::info!("[idle-poll] agent exited in pane {} (shell prompt, no agent markers)", pid);
+                            if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+                                pane.agent_type = None;
+                                pane.pending_prompt = None;
+                            }
+                            use tauri::Emitter;
+                            let _ = app_handle.emit("mux-state-changed", ());
+                        }
                     }
                 }
             }
