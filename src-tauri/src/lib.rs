@@ -495,8 +495,10 @@ fn start_servers(
         }
     }
 
-    // Start General Agent (if enabled) — delayed to avoid blocking startup
-    {
+    // General Agent — disabled pending deadlock fix.
+    // TODO: start_general_agent calls mux.lock().create_tab() which deadlocks
+    // with frontend state sync. Need to use Tauri commands instead of direct mux access.
+    if false {
         let config = states.config.lock().general_agent.clone();
         if config.enabled {
             let svc = service_state.clone();
