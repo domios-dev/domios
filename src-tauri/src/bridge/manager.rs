@@ -35,17 +35,24 @@ pub fn create_outbound_channel() -> (OutboundSender, tokio::sync::mpsc::Unbounde
 /// State machine for accumulating text between SEND and END markers.
 /// Lives in process_pty_output context — called on every PTY chunk.
 pub struct MarkerAccumulator {
-    /// Are we between SEND and END markers?
     capturing: bool,
-    /// Accumulated clean text between markers.
     buffer: String,
-    /// User ID from SEND marker.
     user_id: Option<i64>,
+    /// Recently sent message hashes to prevent duplicates on restart/replay.
+    sent_hashes: std::collections::HashSet<u64>,
 }
 
 impl MarkerAccumulator {
     pub fn new() -> Self {
-        Self { capturing: false, buffer: String::new(), user_id: None }
+        Self { capturing: false, buffer: String::new(), user_id: None, sent_hashes: std::collections::HashSet::new() }
+    }
+
+    fn hash_message(text: &str, user_id: Option<i64>) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        text.hash(&mut hasher);
+        user_id.hash(&mut hasher);
+        hasher.finish()
     }
 
     /// Feed a line of clean (ANSI-stripped) text. Returns a complete message when END marker found.
@@ -69,6 +76,15 @@ impl MarkerAccumulator {
             self.capturing = false;
             let text = self.buffer.trim().to_string();
             if text.is_empty() { return None; }
+            // Dedup: skip if we already sent this exact message
+            let hash = Self::hash_message(&text, self.user_id);
+            if self.sent_hashes.contains(&hash) {
+                log::debug!("[bridge-detect] duplicate marker skipped: {}", &text[..text.len().min(50)]);
+                return None;
+            }
+            self.sent_hashes.insert(hash);
+            // Cap dedup cache at 100 entries
+            if self.sent_hashes.len() > 100 { self.sent_hashes.clear(); }
             return Some(OutboundTelegramMessage {
                 user_id: self.user_id.take(),
                 text,
