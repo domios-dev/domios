@@ -138,37 +138,30 @@ pub const GENERAL_ALIAS: &str = "general";
 pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::MultiplexerState) {
     let general_cwd = general_dir().to_string_lossy().to_string();
 
-    // Check if General workspace already exists (protected flag OR name "General")
-    let has_general = mux.list_workspaces().iter().any(|ws| ws.protected || ws.name == "General");
-    if has_general {
-        // Clean up duplicate "General" workspaces (from hot-reload or old runs)
-        let general_ws_ids: Vec<String> = mux.list_workspaces().iter()
-            .filter(|ws| ws.name == "General")
-            .map(|ws| ws.id.clone())
-            .collect();
-        if general_ws_ids.len() > 1 {
-            // Keep the first one, close others
-            for id in &general_ws_ids[1..] {
-                mux.set_workspace_protected(id, false); // unprotect so we can close
-                let _ = mux.close_workspace(id);
-                log::info!("[general-agent] Cleaned up duplicate General workspace {}", id);
-            }
-        }
+    // Check by protected flag — the only reliable marker
+    let protected_ws: Vec<_> = mux.list_workspaces().iter()
+        .filter(|ws| ws.protected)
+        .cloned()
+        .collect();
 
-        // Ensure it's protected + alias registered
-        let ws_info = mux.list_workspaces().iter()
-            .find(|ws| ws.protected || ws.name == "General")
-            .cloned();
-        if let Some(ws) = ws_info {
-            mux.set_workspace_protected(&ws.id, true);
-            mux.move_workspace_to_front(&ws.id);
-            if let Some(pid) = ws.pane_ids.first() {
-                if let Some(pane) = mux.get_pane_mut(pid) {
-                    pane.protected = true;
-                }
-                mux.register_alias(GENERAL_ALIAS, pid);
-                log::info!("[general-agent] Existing General workspace, alias for pane {}", pid);
+    // Clean up duplicates: keep first protected, close rest
+    if protected_ws.len() > 1 {
+        for ws in &protected_ws[1..] {
+            mux.set_workspace_protected(&ws.id, false);
+            let _ = mux.close_workspace(&ws.id);
+            log::info!("[general-agent] Cleaned up duplicate protected workspace {}", ws.id);
+        }
+    }
+
+    if !protected_ws.is_empty() {
+        let ws = &protected_ws[0];
+        mux.move_workspace_to_front(&ws.id);
+        if let Some(pid) = ws.pane_ids.first() {
+            if let Some(pane) = mux.get_pane_mut(pid) {
+                pane.protected = true;
             }
+            mux.register_alias(GENERAL_ALIAS, pid);
+            log::info!("[general-agent] Existing General workspace, alias for pane {}", pid);
         }
         return;
     }
