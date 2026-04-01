@@ -570,6 +570,43 @@ fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
 fn main() {
     let cli = Cli::parse();
 
+    // Config command uses HTTP API directly — no socket needed
+    let json_output = cli.json;
+    if let Commands::Config { ref action } = cli.command {
+        let (base_url, token) = read_api_config();
+        let http = build_http(&token);
+        let result = match action {
+            ConfigAction::Get { key } => {
+                let url = format!("{}/api/config?key={}", base_url, key);
+                match http.get(&url).send() {
+                    Ok(resp) if resp.status().is_success() => resp.json().map_err(|e| e.to_string()),
+                    Ok(_) => Err(format!("Key not found: {}", key)),
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+            ConfigAction::Set { key, value } => {
+                let json_value: serde_json::Value = serde_json::from_str(value)
+                    .unwrap_or_else(|_| serde_json::Value::String(value.clone()));
+                let body = serde_json::json!({ "key": key, "value": json_value });
+                match http.patch(&format!("{}/api/config", base_url)).json(&body).send() {
+                    Ok(resp) if resp.status().is_success() => {
+                        Ok(serde_json::json!({"ok": true, "key": key, "value": json_value}))
+                    }
+                    Ok(resp) => Err(format!("Failed: {}", resp.text().unwrap_or_default())),
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+        };
+        match result {
+            Ok(value) => {
+                if json_output { println!("{}", serde_json::to_string_pretty(&value).unwrap()); }
+                else { print_human(&value); }
+            }
+            Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+        }
+        return;
+    }
+
     let socket_path = match discover_socket() {
         Ok(p) => p,
         Err(e) => {
@@ -1307,35 +1344,8 @@ fn main() {
             }
         }
 
-        Commands::Config { action } => {
-            let (base_url, token) = read_api_config();
-            let http = build_http(&token);
-            match action {
-                ConfigAction::Get { key } => {
-                    let url = format!("{}/api/config?key={}", base_url, key);
-                    match http.get(&url).send() {
-                        Ok(resp) if resp.status().is_success() => {
-                            let body: serde_json::Value = resp.json().unwrap_or_default();
-                            Ok(body)
-                        }
-                        Ok(_) => Err(format!("Key not found: {}", key)),
-                        Err(e) => Err(e.to_string()),
-                    }
-                }
-                ConfigAction::Set { key, value } => {
-                    let json_value: serde_json::Value = serde_json::from_str(&value)
-                        .unwrap_or_else(|_| serde_json::Value::String(value.clone()));
-                    let body = serde_json::json!({ "key": key, "value": json_value });
-                    match http.patch(&format!("{}/api/config", base_url)).json(&body).send() {
-                        Ok(resp) if resp.status().is_success() => {
-                            Ok(serde_json::json!({"ok": true, "key": key, "value": json_value}))
-                        }
-                        Ok(resp) => Err(format!("Failed: {}", resp.text().unwrap_or_default())),
-                        Err(e) => Err(e.to_string()),
-                    }
-                }
-            }
-        }
+        // Config is handled before socket connect (uses HTTP API)
+        Commands::Config { .. } => unreachable!(),
 
         Commands::Screenshot { output, format } => {
             let base = "http://127.0.0.1:7685";
@@ -1385,9 +1395,13 @@ fn main() {
         }
     };
 
+    handle_result(cli.json, result);
+}
+
+fn handle_result(json: bool, result: Result<serde_json::Value, String>) {
     match result {
         Ok(value) => {
-            if cli.json {
+            if json {
                 println!("{}", serde_json::to_string_pretty(&value).unwrap());
             } else {
                 print_human(&value);
