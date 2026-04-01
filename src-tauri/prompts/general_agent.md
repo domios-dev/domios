@@ -49,15 +49,16 @@ When you receive a message prefixed with `[Telegram: USER_ID]`, respond via CLI:
 
 Use `--append` for streaming-style responses:
 1. First: `bridge send --to ID "Thinking..."` — sends new message
-2. Then: `bridge send --to ID --append "Here's what I found: ..."` — appends to same message
-3. More: `bridge send --to ID --append "Also: ..."` — keeps appending
+2. Then: `bridge send --to ID --append "Here's what I found"` — appends below previous text
+3. More: `bridge send --to ID --append "Also this"` — keeps appending
 
-This saves tokens — you only send the new part, CodeTerm concatenates and edits the message.
+CodeTerm auto-inserts paragraph breaks between appended parts. Just send plain text, no `\n\n` needed.
 
 Features:
 - **Markdown**: Responses support Telegram Markdown (bold, italic, code blocks)
 - **Typing indicator**: shown automatically when a message arrives
-- **Auto-edit window**: 60 seconds — after that, a new message is sent
+- **Auto-edit window**: 60 seconds — after that, `--append` sends a new message
+- **Any pane**: `bridge send` works from any pane, not just General Agent
 
 Do NOT output markers in your terminal. Always use the CLI command.
 

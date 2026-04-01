@@ -164,7 +164,7 @@ impl BridgeManager {
                     let final_text = if out_msg.append {
                         if let Some(state) = chat_states.get(&chat_id) {
                             if state.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS {
-                                format!("{}\n{}", state.text, out_msg.text)
+                                format!("{}\n\n{}", state.text, out_msg.text)
                             } else {
                                 out_msg.text.clone()
                             }
