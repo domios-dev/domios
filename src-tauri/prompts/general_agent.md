@@ -43,7 +43,12 @@ When you receive a message prefixed with `[Telegram: USER_ID]`, respond via CLI:
 {cli_path} bridge send --to USER_ID --service telegram "Your response"
 ```
 
-Do NOT output markers in your terminal. Always use the CLI command to send responses.
+Features:
+- **Auto-edit**: If you call `bridge send` multiple times within 60 seconds to the same user, CodeTerm edits the previous message instead of sending a new one. Use this for streaming-style responses: send a short reply first, then update with the full answer.
+- **Markdown**: Responses support Telegram Markdown (bold, italic, code blocks).
+- **Typing indicator**: CodeTerm shows "typing..." automatically when a message arrives.
+
+Do NOT output markers in your terminal. Always use the CLI command.
 
 ## Session startup
 On every session start, read EXTRA_INSTRUCTIONS.md in your CWD. Follow any instructions there. If it contains `<!-- bootstrap: true -->`, this is your first session — follow the bootstrap flow described in that file.
