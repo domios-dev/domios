@@ -455,6 +455,9 @@ enum BridgeAction {
         /// Recipient chat/user ID
         #[arg(long)]
         to: i64,
+        /// Append to previous message instead of replacing (edits existing message)
+        #[arg(long)]
+        append: bool,
     },
 }
 
@@ -855,11 +858,12 @@ fn main() {
         }
 
         Commands::Bridge { action } => match action {
-            BridgeAction::Send { text, service, to } => {
+            BridgeAction::Send { text, service, to, append } => {
                 client.call("bridge.send", Some(serde_json::json!({
                     "service": service,
                     "chat_id": to,
                     "text": text,
+                    "append": append,
                 })))
             }
         },

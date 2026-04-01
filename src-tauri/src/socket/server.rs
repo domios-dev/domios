@@ -823,11 +823,13 @@ fn dispatch(
         "bridge.send" => {
             let text = get_string_param(&params, "text")?;
             let chat_id = params.as_ref().and_then(|p| p.get("chat_id")).and_then(|v| v.as_i64());
+            let append = params.as_ref().and_then(|p| p.get("append")).and_then(|v| v.as_bool()).unwrap_or(false);
 
             if let Some(tx) = svc.bridge_outbound.lock().as_ref() {
                 let msg = crate::bridge::manager::OutboundTelegramMessage {
                     user_id: chat_id,
                     text,
+                    append,
                 };
                 tx.send(msg).map_err(|e| JsonRpcError {
                     code: -32603,

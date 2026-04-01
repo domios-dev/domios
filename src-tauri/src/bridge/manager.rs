@@ -21,6 +21,8 @@ const AUTO_EDIT_WINDOW_SECS: u64 = 60;
 pub struct OutboundTelegramMessage {
     pub user_id: Option<i64>,
     pub text: String,
+    /// If true, append text to the previous message instead of replacing.
+    pub append: bool,
 }
 
 pub type OutboundSender = Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<OutboundTelegramMessage>>>>;
@@ -30,10 +32,12 @@ pub fn create_outbound_channel() -> (OutboundSender, tokio::sync::mpsc::Unbounde
     (Arc::new(Mutex::new(Some(tx))), rx)
 }
 
-/// Track last sent message per chat for auto-edit.
+/// Track last sent message per chat for auto-edit and append.
 struct ChatState {
     message_id: i64,
     sent_at: Instant,
+    /// Accumulated text of the current message (for append mode).
+    text: String,
 }
 
 pub struct BridgeManager {
@@ -108,36 +112,51 @@ impl BridgeManager {
                         continue;
                     }
 
-                    log::info!("[bridge-outbound] sending {} chars to {}", out_msg.text.len(), chat_id);
+                    log::info!("[bridge-outbound] {} {} chars to {}",
+                        if out_msg.append { "appending" } else { "sending" }, out_msg.text.len(), chat_id);
 
-                    // Check if we can auto-edit recent message
+                    // Build final text — append to previous or replace
+                    let final_text = if out_msg.append {
+                        if let Some(state) = chat_states.get(&chat_id) {
+                            if state.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS {
+                                format!("{}\n{}", state.text, out_msg.text)
+                            } else {
+                                out_msg.text.clone()
+                            }
+                        } else {
+                            out_msg.text.clone()
+                        }
+                    } else {
+                        out_msg.text.clone()
+                    };
+
+                    // Check if we can edit recent message
                     let can_edit = chat_states.get(&chat_id)
                         .map(|s| s.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS)
                         .unwrap_or(false);
 
-                    if can_edit && out_msg.text.len() <= super::telegram::TELEGRAM_MAX_LEN {
+                    if can_edit && final_text.len() <= super::telegram::TELEGRAM_MAX_LEN {
                         let msg_id = chat_states[&chat_id].message_id;
-                        let edited = edit_message(&client, &token, chat_id, msg_id, &out_msg.text).await;
+                        let edited = edit_message(&client, &token, chat_id, msg_id, &final_text).await;
                         if !edited {
-                            // Edit failed — send as new message
-                            if let Some(new_id) = send_message(&client, &token, chat_id, &out_msg.text).await {
-                                chat_states.insert(chat_id, ChatState { message_id: new_id, sent_at: Instant::now() });
+                            if let Some(new_id) = send_message(&client, &token, chat_id, &final_text).await {
+                                chat_states.insert(chat_id, ChatState { message_id: new_id, sent_at: Instant::now(), text: final_text });
                             }
                         } else {
-                            // Update timestamp
                             if let Some(state) = chat_states.get_mut(&chat_id) {
                                 state.sent_at = Instant::now();
+                                state.text = final_text;
                             }
                         }
                     } else {
                         // Send as new message(s)
-                        let chunks: Vec<String> = super::response::chunk_message(&out_msg.text, super::telegram::TELEGRAM_MAX_LEN);
+                        let chunks: Vec<String> = super::response::chunk_message(&final_text, super::telegram::TELEGRAM_MAX_LEN);
                         let mut last_id = None;
-                        for chunk in chunks {
-                            last_id = send_message(&client, &token, chat_id, &chunk).await;
+                        for chunk in &chunks {
+                            last_id = send_message(&client, &token, chat_id, chunk).await;
                         }
                         if let Some(id) = last_id {
-                            chat_states.insert(chat_id, ChatState { message_id: id, sent_at: Instant::now() });
+                            chat_states.insert(chat_id, ChatState { message_id: id, sent_at: Instant::now(), text: final_text });
                         }
                     }
                 }
