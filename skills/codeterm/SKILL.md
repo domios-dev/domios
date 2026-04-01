@@ -374,16 +374,19 @@ Connect a Telegram bot to the General Agent. CodeTerm handles inbound routing �
 
 **How it works:**
 - Inbound (Telegram → Agent): messages arrive as `[Telegram: user_id] text` in the PTY. Rapid messages within 300ms are debounced into one delivery. Typing indicator is sent automatically.
-- Outbound (Agent → Telegram): use `codeterm bridge send` CLI command. Supports Markdown formatting (falls back to plain text).
-- Auto-edit: within 60 seconds, `bridge send` edits the previous message instead of sending a new one.
-- Append mode: `--append` concatenates text to the previous message and edits it in-place.
+- Outbound (Agent → Telegram): use `codeterm bridge send` CLI command. Supports Markdown formatting (falls back to plain text). Works from **any pane**, not just the General Agent pane.
+- `bridge send` (without `--append`) always sends a **new** message — no auto-edit.
+- `--append` concatenates text to the previous message with an automatic `\n\n` paragraph break (agent does not need to add literal `\n\n`) and edits in-place within a 60-second window. After 60s, sends new.
+- UTF-8 safe: messages are chunked safely for Cyrillic, emoji, and other multi-byte characters.
+- Resilience: if Telegram polling dies, the bridge auto-restarts after 5 seconds.
 
 **Sending messages:**
 ```bash
-# Send a new message (or auto-edit previous within 60s window)
+# Send a NEW message (always new, no auto-edit)
 codeterm bridge send --to USER_ID --service telegram "Your reply here"
 
-# Append to previous message (concatenates + edits)
+# Append to previous message (auto-inserts paragraph break, edits in-place within 60s)
+# No need to add literal \n\n — the bridge inserts it automatically
 codeterm bridge send --to USER_ID --service telegram --append "...more text"
 ```
 
@@ -403,4 +406,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->
