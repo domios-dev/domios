@@ -355,9 +355,37 @@ When asked to test the CodeTerm orchestrator:
 4. Check hierarchy (`codeterm agent hierarchy`), reports, pane outputs
 5. If issues — read each pane's output, find errors, fix skill/code, repeat from step 1
 
+## Integrations
+
+### Telegram Bridge
+Connect a Telegram bot to the General Agent. CodeTerm handles message routing — the agent just sees prefixed messages in its terminal.
+
+**Setup:**
+1. Create a bot via @BotFather on Telegram, get the token
+2. Save token: write it to `~/.codeterm/secrets/telegram.token` (create dirs if needed)
+3. Enable: `codeterm config set integrations.telegram_enabled true`
+4. Optionally restrict users: `codeterm config set integrations.telegram_allowed_users '["186809246"]'`
+5. Restart CodeTerm (hot-reload not yet supported)
+
+**How it works:**
+- Inbound (Telegram → Agent): messages arrive as `[Telegram: user_id] text` in the PTY
+- Outbound (Agent → Telegram): CodeTerm streams agent output to the Telegram chat
+- The agent doesn't call any Telegram API — CodeTerm does it all
+
+**Settings UI:** Settings → Integrations → Telegram (toggle + allowed users)
+
+### Config Management
+Read/write CodeTerm config from the CLI:
+```bash
+codeterm config get integrations.telegram_enabled    # read a value
+codeterm config set integrations.telegram_enabled true  # set a value
+codeterm config get general_agent                    # read a section
+```
+Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["array"]).
+
 ## Platform Notes
 
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

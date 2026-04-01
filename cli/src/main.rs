@@ -15,23 +15,34 @@ fn data_dir_name() -> &'static str {
     ".codeterm"
 }
 
-/// Read API config (host, port, token) from CodeTerm config.toml
+/// Read API config (host, port, token).
+/// Priority: $CODETERM_API_PORT env var (set by CodeTerm PTY) > config.toml.
+/// This ensures CLI works in both dev (7686) and prod (7685) when called from inside CodeTerm.
 fn read_api_config() -> (String, Option<String>) {
     let config_dir = dirs::home_dir().unwrap_or_default().join(data_dir_name());
     let config_path = config_dir.join("config.toml");
+
+    let (mut host, mut port, mut token) = ("127.0.0.1".to_string(), 7685i64, None);
+
     if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(val) = content.parse::<toml::Table>() {
             if let Some(api) = val.get("api").and_then(|v| v.as_table()) {
                 let raw_host = api.get("host").and_then(|v| v.as_str()).unwrap_or("127.0.0.1");
-                // 0.0.0.0 means "listen on all interfaces" — for connecting, use localhost
-                let host = if raw_host == "0.0.0.0" { "127.0.0.1" } else { raw_host };
-                let port = api.get("port").and_then(|v| v.as_integer()).unwrap_or(7685);
-                let token = api.get("token").and_then(|v| v.as_str()).map(|s| s.to_string());
-                return (format!("http://{}:{}", host, port), token);
+                host = if raw_host == "0.0.0.0" { "127.0.0.1".to_string() } else { raw_host.to_string() };
+                port = api.get("port").and_then(|v| v.as_integer()).unwrap_or(7685);
+                token = api.get("token").and_then(|v| v.as_str()).map(|s| s.to_string());
             }
         }
     }
-    ("http://127.0.0.1:7685".to_string(), None)
+
+    // Override port from env — CodeTerm sets this in spawned PTYs
+    if let Ok(env_port) = std::env::var("CODETERM_API_PORT") {
+        if let Ok(p) = env_port.parse::<i64>() {
+            port = p;
+        }
+    }
+
+    (format!("http://{}:{}", host, port), token)
 }
 
 /// Build HTTP client with optional auth header
