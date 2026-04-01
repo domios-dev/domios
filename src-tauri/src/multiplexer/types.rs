@@ -219,6 +219,9 @@ pub struct Pane {
     /// Protected panes cannot be closed via API or UI.
     #[serde(default)]
     pub protected: bool,
+    /// Connected external services (e.g. ["telegram"]). Shown as icons next to pane title.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub connected_services: Vec<String>,
 }
 
 /// Title priority: higher levels cannot be overwritten by lower ones.

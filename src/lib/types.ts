@@ -56,6 +56,7 @@ export interface Pane {
   chat_view?: boolean;
   pending_prompt?: PendingPrompt | null;
   protected?: boolean;
+  connected_services?: string[];
 }
 
 export interface MultiplexerState {
