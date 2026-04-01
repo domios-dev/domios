@@ -132,6 +132,49 @@ You can create and update secret files yourself.
 /// The well-known pane alias for the General Agent.
 pub const GENERAL_ALIAS: &str = "general";
 
+/// Ensure General workspace + pane exist in MultiplexerState.
+/// Called BEFORE mux is wrapped in Arc<Mutex<>> — no locking needed.
+/// This avoids the deadlock that occurs when creating workspace from a background thread.
+pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::MultiplexerState) {
+    let general_cwd = general_dir().to_string_lossy().to_string();
+
+    // Check if General workspace already exists (protected flag)
+    let has_general = mux.list_workspaces().iter().any(|ws| ws.protected);
+    if has_general {
+        // Re-register alias for the general pane
+        let general_pane = mux.list_workspaces().iter()
+            .find(|ws| ws.protected)
+            .and_then(|ws| ws.pane_ids.first().cloned());
+        if let Some(pid) = general_pane {
+            mux.register_alias(GENERAL_ALIAS, &pid);
+            log::info!("[general-agent] Existing General workspace found, alias registered for pane {}", pid);
+        }
+        return;
+    }
+
+    // Create General workspace
+    let ws_info = mux.create_workspace("General".to_string(), Some(general_cwd.clone()));
+    mux.set_workspace_protected(&ws_info.id, true);
+    mux.move_workspace_to_front(&ws_info.id);
+
+    // Create tab + pane
+    match mux.create_tab(&ws_info.id) {
+        Ok((_tab_id, pane_id)) => {
+            if let Some(pane) = mux.get_pane_mut(&pane_id) {
+                pane.protected = true;
+                pane.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
+                pane.can_spawn = true;
+                pane.cwd = Some(general_cwd);
+            }
+            mux.register_alias(GENERAL_ALIAS, &pane_id);
+            log::info!("[general-agent] Created General workspace {} with pane {}", ws_info.id, pane_id);
+        }
+        Err(e) => {
+            log::error!("[general-agent] Failed to create General tab: {}", e);
+        }
+    }
+}
+
 /// Start the General Agent — called from start_servers on a background thread.
 ///
 /// 1. Ensure directories + instructions file
@@ -152,73 +195,28 @@ pub fn start_general_agent(
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
 
-    // 1. Ensure directories
-    ensure_directories();
-
-    // 2. Generate/update instructions file
-    let instructions_filename = if provider_name == "claude" { "CLAUDE.md" } else { "AGENT.md" };
-    generate_instructions(provider_name, instructions_filename);
-
-    // 3. Find or create General workspace
     let general_cwd = general_dir().to_string_lossy().to_string();
-    let ws_id = {
-        let m = mux.lock();
-        m.list_workspaces().iter()
-            .find(|ws| ws.protected)
-            .map(|ws| ws.id.clone())
-    };
 
-    let ws_id = match ws_id {
-        Some(id) => id,
-        None => {
-            let mut m = mux.lock();
-            let info = m.create_workspace("General".to_string(), Some(general_cwd.clone()));
-            m.set_workspace_protected(&info.id, true);
-            m.move_workspace_to_front(&info.id);
-            log::info!("[general-agent] Created General workspace: {}", info.id);
-            info.id
-        }
-    };
-
-    // 4. Find or create General pane
+    // Find General pane (already created by ensure_general_workspace in init_states)
     let (pane_id, session_id) = {
         let m = mux.lock();
-        // Find first pane in General workspace that has an alias or is protected
-        let ws_pane = m.resolve_pane_id(GENERAL_ALIAS)
+        let pane = m.resolve_pane_id(GENERAL_ALIAS)
             .or_else(|| {
-                // Fallback: any pane in the General workspace
                 m.list_workspaces().iter()
-                    .find(|ws| ws.id == ws_id)
+                    .find(|ws| ws.protected)
                     .and_then(|ws| ws.pane_ids.first().cloned())
             });
-        if let Some(pid) = ws_pane {
-            let sid = m.get_pane(&pid).and_then(|p| p.agent_session_id.clone());
-            (pid, sid)
-        } else {
-            drop(m);
-            match mux.lock().create_tab(&ws_id) {
-                Ok((_, pane_id)) => {
-                    let mut m = mux.lock();
-                    if let Some(pane) = m.get_pane_mut(&pane_id) {
-                        pane.protected = true;
-                        pane.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
-                        pane.can_spawn = true;
-                        pane.cwd = Some(general_cwd.clone());
-                    }
-                    m.register_alias(GENERAL_ALIAS, &pane_id);
-                    log::info!("[general-agent] Created General pane: {}", pane_id);
-                    (pane_id, None)
-                }
-                Err(e) => {
-                    log::error!("[general-agent] Failed to create tab: {}", e);
-                    return;
-                }
+        match pane {
+            Some(pid) => {
+                let sid = m.get_pane(&pid).and_then(|p| p.agent_session_id.clone());
+                (pid, sid)
+            }
+            None => {
+                log::error!("[general-agent] No General pane found — ensure_general_workspace failed?");
+                return;
             }
         }
     };
-
-    // Register alias (in case it wasn't registered yet — e.g., restored from session)
-    mux.lock().register_alias(GENERAL_ALIAS, &pane_id);
 
     // 5. Spawn PTY
     let cols = 120u16;
