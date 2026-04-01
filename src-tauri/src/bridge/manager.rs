@@ -90,7 +90,7 @@ impl BridgeManager {
                 Some(msg) = rx.recv() => {
                     // Debounce: collect rapid-fire messages (user splitting text, Telegram auto-split)
                     let mut messages = vec![msg];
-                    let debounce_until = tokio::time::Instant::now() + std::time::Duration::from_millis(1500);
+                    let debounce_until = tokio::time::Instant::now() + std::time::Duration::from_millis(300);
                     loop {
                         let remaining = debounce_until.saturating_duration_since(tokio::time::Instant::now());
                         if remaining.is_zero() { break; }
