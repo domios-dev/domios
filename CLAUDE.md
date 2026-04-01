@@ -125,6 +125,17 @@ All parking_lot Mutexes must be acquired in this order. Never hold a higher-numb
 - parking_lot Mutex is NOT reentrant — `mux.lock()` inside `mux.lock()` = instant deadlock.
 - After parallel Rust refactors, grep for nested `.lock()` calls to verify ordering.
 
+## Process safety
+
+**NEVER kill prod CodeTerm.** Before killing any `codeterm.exe`, identify dev vs prod by port:
+```bash
+# Find dev PID (port 7686):
+netstat -ano | grep :7686 | grep LISTENING | awk '{print $5}'
+# Find prod PID (port 7685) — NEVER kill this:
+netstat -ano | grep :7685 | grep LISTENING | awk '{print $5}'
+```
+Only kill the dev PID. If unsure — don't kill anything, ask the user.
+
 ## Git rules
 
 **NEVER commit or push without explicit user request.** No auto-commits, no "let me commit this". Only commit when the user says "коммить", "commit", "запушь", etc.
