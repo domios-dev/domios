@@ -88,16 +88,43 @@ impl BridgeManager {
         loop {
             tokio::select! {
                 Some(msg) = rx.recv() => {
-                    log::info!("[bridge] inbound from {} ({}): {}",
-                        msg.user_name, msg.service, &msg.text[..msg.text.len().min(100)]);
+                    // Debounce: collect rapid-fire messages (user splitting text, Telegram auto-split)
+                    let mut messages = vec![msg];
+                    let debounce_until = tokio::time::Instant::now() + std::time::Duration::from_millis(1500);
+                    loop {
+                        let remaining = debounce_until.saturating_duration_since(tokio::time::Instant::now());
+                        if remaining.is_zero() { break; }
+                        match tokio::time::timeout(remaining, rx.recv()).await {
+                            Ok(Some(next)) => messages.push(next),
+                            _ => break,
+                        }
+                    }
 
-                    if let ReplyContext::Telegram { chat_id } = &msg.reply_ctx {
+                    // Merge messages from same user
+                    let merged_text: String = messages.iter()
+                        .map(|m| m.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let first = &messages[0];
+
+                    log::info!("[bridge] inbound from {} ({}, {} msg): {}",
+                        first.user_name, first.service, messages.len(),
+                        &merged_text[..merged_text.len().min(100)]);
+
+                    if let ReplyContext::Telegram { chat_id } = &first.reply_ctx {
                         *fallback_clone.lock() = Some(*chat_id);
-                        // Send typing indicator
                         send_typing(&client, &token, *chat_id).await;
                     }
 
-                    if let Err(e) = inject_message(&svc, &msg) {
+                    let merged_msg = InboundMessage {
+                        service: first.service.clone(),
+                        user_id: first.user_id,
+                        user_name: first.user_name.clone(),
+                        text: merged_text,
+                        reply_ctx: first.reply_ctx.clone(),
+                    };
+
+                    if let Err(e) = inject_message(&svc, &merged_msg) {
                         log::error!("[bridge] inject failed: {}", e);
                     }
                 }
