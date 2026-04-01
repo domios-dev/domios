@@ -1,34 +1,28 @@
-//! All agent-facing prompt templates in one place.
+//! Agent-facing prompt templates — loaded from `prompts/*.md` at compile time.
 //!
-//! Edit these strings to change what instructions agents receive.
-//! No recompilation needed if we later move to an external file.
+//! Edit the .md files in `src-tauri/prompts/` to change instructions.
+//! Rust code uses `include_str!()` so changes require recompilation.
 
 /// Appended to Worker tasks — tells them how to report back.
-pub const WORKER_SUFFIX: &str = "\nWhen done, report by running: codeterm agent report \"your summary\"";
+pub const WORKER_SUFFIX: &str = include_str!("../prompts/worker_suffix.md");
 
 /// Appended to Lead tasks — spawn instructions + no-sleep rule.
-pub const LEAD_SUFFIX: &str = concat!(
-    "\nWhen spawning workers, include in --task: 'then run: codeterm agent report your-summary'.",
-    "\nIMPORTANT: Do NOT use sleep or poll for reports.",
-    " Reports from your workers are auto-injected into your terminal as [Report from ...] messages.",
-    " Continue your work — you will see them when they arrive.",
-    " After all expected reports arrive, run: codeterm agent report \"your summary\""
-);
+pub const LEAD_SUFFIX: &str = include_str!("../prompts/lead_suffix.md");
 
 /// Appended to Orchestrator tasks — no-sleep rule.
-pub const ORCHESTRATOR_SUFFIX: &str = concat!(
-    "\nIMPORTANT: Do NOT use sleep or poll for reports.",
-    " Reports from your agents are auto-injected into your terminal as [Report from ...] messages.",
-    " Continue your work — you will see them when they arrive."
-);
+pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
 
 /// Appended to cron tasks when creator_pane_id is set.
-pub const CRON_REPORT_HINT: &str =
-    "\n\nYou can report progress back to the cron creator by running: codeterm agent report \"your message\"";
+pub const CRON_REPORT_HINT: &str = include_str!("../prompts/cron_report_hint.md");
 
 /// Appended to every cron task — completion instruction. `{}` is replaced with run_id.
-pub const CRON_COMPLETE_SUFFIX: &str = concat!(
-    "\n\nIMPORTANT: When you are completely done with this task,",
-    " you MUST run this exact command as your FINAL action:\n",
-    "codeterm cron complete --run-id {} --summary \"<your concise summary of what happened and the result>\""
-);
+pub const CRON_COMPLETE_SUFFIX: &str = include_str!("../prompts/cron_complete_suffix.md");
+
+/// CodeTerm rule installed to ~/.claude/rules/codeterm.md.
+pub const CODETERM_RULE: &str = include_str!("../prompts/codeterm_rule.md");
+
+/// General Agent CLAUDE.md template (uses format!() placeholders).
+pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.md");
+
+/// EXTRA_INSTRUCTIONS.md template for first-run bootstrap.
+pub const EXTRA_INSTRUCTIONS_TEMPLATE: &str = include_str!("../prompts/extra_instructions.md");

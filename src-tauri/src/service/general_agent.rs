@@ -12,6 +12,21 @@ pub fn general_dir() -> PathBuf {
     home.join(crate::paths::DIR_NAME).join("general")
 }
 
+/// Find the CodeTerm CLI path for use in instructions.
+fn find_codeterm_cli() -> String {
+    let candidates = [
+        PathBuf::from("C:/tools/codeterm.exe"),
+        dirs::home_dir().unwrap_or_default().join(".codeterm/bin/codeterm"),
+        PathBuf::from("/usr/local/bin/codeterm"),
+    ];
+    for path in &candidates {
+        if path.exists() {
+            return path.to_string_lossy().to_string();
+        }
+    }
+    "codeterm".to_string()
+}
+
 /// Get the secrets directory.
 pub fn secrets_dir() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -49,54 +64,17 @@ pub fn generate_instructions(provider_name: &str, instructions_filename: &str) {
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
 
-    let auto_section = format!(
-r#"<!-- CODETERM-AUTO-START v{version} -->
-# CodeTerm General Agent
+    // Find CLI path
+    let cli_path = find_codeterm_cli();
 
-You are the General Agent — the always-on system brain of this CodeTerm installation.
-You run inside CodeTerm, an AI-first terminal multiplexer.
-
-## Your role
-- Manage this machine's CodeTerm environment
-- Respond to user requests via terminal or connected services (Telegram, Discord, etc.)
-- Spawn and coordinate agents in project workspaces
-- Manage cron jobs, notifications, system health
-- Self-recover if you crash — resume your session or start fresh
-
-## Available tools
-Use the `codeterm` CLI (available in your PATH):
-- `codeterm workspace create "name"` — create a workspace
-- `codeterm pane list` — list all panes
-- `codeterm pane screen --pane ID` — see another pane's screen
-- `codeterm send-text --pane ID "text"` — send text to another pane
-- `codeterm agent spawn --title "Worker" --task "do X"` — spawn a worker
-- `codeterm cron create "name" --schedule "*/5 * * * *" --task "do Y"` — schedule tasks
-- `codeterm notify "title" --body "message"` — send notification
-
-## Your constraints
-- You CANNOT close your own tab or workspace (protected)
-- You CAN spawn agents in other workspaces
-- You always run with skip-permissions
-- If you need to restart, use /exit — CodeTerm will auto-resume you
-- Your CWD is {general_dir}
-
-## Secrets
-Read credentials from {secrets_dir}/*.md when needed.
-You can create and update secret files yourself.
-
-## Machine info
-- Platform: {platform}
-- Machine: {hostname}
-- CodeTerm: v{version}
-- Provider: {provider_name}
-<!-- CODETERM-AUTO-END -->"#,
-        version = version,
-        platform = platform,
-        hostname = hostname,
-        provider_name = provider_name,
-        general_dir = general_dir().display(),
-        secrets_dir = secrets_dir().display(),
-    );
+    let auto_section = crate::prompts::GENERAL_AGENT_TEMPLATE
+        .replace("{version}", version)
+        .replace("{platform}", platform)
+        .replace("{hostname}", &hostname)
+        .replace("{provider_name}", provider_name)
+        .replace("{general_dir}", &general_dir().to_string_lossy())
+        .replace("{secrets_dir}", &secrets_dir().to_string_lossy())
+        .replace("{cli_path}", &cli_path);
 
     // Read existing file to preserve user content outside markers
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
@@ -125,7 +103,7 @@ You can create and update secret files yourself.
     // Ensure EXTRA_INSTRUCTIONS.md exists
     let extra = general_dir().join("EXTRA_INSTRUCTIONS.md");
     if !extra.exists() {
-        let _ = std::fs::write(&extra, "# Extra Instructions\n\nAdd your custom instructions for the General Agent here.\nThis file is never overwritten by CodeTerm.\n");
+        let _ = std::fs::write(&extra, crate::prompts::EXTRA_INSTRUCTIONS_TEMPLATE);
     }
 }
 
@@ -189,6 +167,9 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
                 pane.cwd = Some(general_cwd);
             }
             mux.register_alias(GENERAL_ALIAS, &pane_id);
+            // Make General the active workspace + focused pane on first create
+            let _ = mux.set_active_workspace(&ws_info.id);
+            let _ = mux.set_focused_pane(&pane_id);
             log::info!("[general-agent] Created General workspace {} with pane {}", ws_info.id, pane_id);
         }
         Err(e) => {
@@ -271,8 +252,8 @@ pub fn start_general_agent(
     svc.set_pane_agent_type(&pane_id, Some(provider_name.to_string()));
     log::info!("[general-agent] PTY {} linked to pane {}", pty_id, pane_id);
 
-    // Wait for shell to start before sending command
-    std::thread::sleep(std::time::Duration::from_secs(3));
+    // Wait for shell prompt before sending launch command
+    std::thread::sleep(std::time::Duration::from_secs(1));
 
     // Build launch command
     let cmd = if let Some(ref sid) = session_id {

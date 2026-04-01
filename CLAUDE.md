@@ -100,7 +100,6 @@ Provider code lives in:
 - TypeScript: `src/components/ChatView/parser.ts` — output parsing
 - TypeScript: `src/components/Terminal/TerminalPane.tsx` — detection hooks (onTitleChange)
 
-<<<<<<< HEAD
 ## Multi-agent mindset
 
 **Always design for multiple agent types, not just Claude.** Every feature that interacts with agents must go through the AgentProvider abstraction. Never hardcode Claude-specific logic in generic code. If a behavior is Claude-specific (clipboard paste for images, JSONL session format, TUI noise patterns), it belongs in ClaudeProvider or the Claude provider config — not in ChatView, TerminalPane, or other generic components.
@@ -126,8 +125,6 @@ All parking_lot Mutexes must be acquired in this order. Never hold a higher-numb
 - parking_lot Mutex is NOT reentrant — `mux.lock()` inside `mux.lock()` = instant deadlock.
 - After parallel Rust refactors, grep for nested `.lock()` calls to verify ordering.
 
-=======
->>>>>>> origin/develop
 ## Git rules
 
 **NEVER commit or push without explicit user request.** No auto-commits, no "let me commit this". Only commit when the user says "коммить", "commit", "запушь", etc.

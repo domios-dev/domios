@@ -154,6 +154,12 @@ enum Commands {
         action: Option<UpdateAction>,
     },
 
+    /// Read or write CodeTerm configuration
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+
     /// Capture a screenshot of the CodeTerm window
     Screenshot {
         /// Save to file instead of printing base64 (e.g. screenshot.jpg)
@@ -418,6 +424,14 @@ enum UpdateAction {
     },
     /// Show update command or open download page
     Install,
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Get a config value (dot-notation, e.g. "integrations.telegram_enabled")
+    Get { key: String },
+    /// Set a config value (JSON-compatible: true, false, 42, "string")
+    Set { key: String, value: String },
 }
 
 #[derive(Subcommand)]
@@ -1278,6 +1292,36 @@ fn main() {
                         }
                     }
                     return;
+                }
+            }
+        }
+
+        Commands::Config { action } => {
+            let (base_url, token) = read_api_config();
+            let http = build_http(&token);
+            match action {
+                ConfigAction::Get { key } => {
+                    let url = format!("{}/api/config?key={}", base_url, key);
+                    match http.get(&url).send() {
+                        Ok(resp) if resp.status().is_success() => {
+                            let body: serde_json::Value = resp.json().unwrap_or_default();
+                            Ok(body)
+                        }
+                        Ok(_) => Err(format!("Key not found: {}", key)),
+                        Err(e) => Err(e.to_string()),
+                    }
+                }
+                ConfigAction::Set { key, value } => {
+                    let json_value: serde_json::Value = serde_json::from_str(&value)
+                        .unwrap_or_else(|_| serde_json::Value::String(value.clone()));
+                    let body = serde_json::json!({ "key": key, "value": json_value });
+                    match http.patch(&format!("{}/api/config", base_url)).json(&body).send() {
+                        Ok(resp) if resp.status().is_success() => {
+                            Ok(serde_json::json!({"ok": true, "key": key, "value": json_value}))
+                        }
+                        Ok(resp) => Err(format!("Failed: {}", resp.text().unwrap_or_default())),
+                        Err(e) => Err(e.to_string()),
+                    }
                 }
             }
         }

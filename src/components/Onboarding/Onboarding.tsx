@@ -11,7 +11,7 @@ interface OnboardingProps {
   onComplete: (config: AppConfig) => void;
 }
 
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 5;
 
 export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
   const [step, setStep] = useState(0);
@@ -22,6 +22,8 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
   const [skillsInstalled, setSkillsInstalled] = useState(false);
   const [hooksInstalled, setHooksInstalled] = useState(false);
   const [rulesInstalled, setRulesInstalled] = useState(false);
+  const [gaEnabled, setGaEnabled] = useState(config.general_agent?.enabled ?? true);
+  const [gaAutostart, setGaAutostart] = useState(false);
   const [apiToken, setApiToken] = useState<string | null>(config.api?.token ?? null);
   const [networkInfo, setNetworkInfo] = useState<{ api_url: string; tailscale_url: string | null } | null>(null);
   const [orchestratorPrompt, setOrchestratorPrompt] = useState("");
@@ -43,8 +45,10 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
 
   const finish = useCallback((cfg: AppConfig) => {
     setLeaving(true);
-    setTimeout(() => onComplete({ ...cfg, onboarding_completed: true }), 400);
-  }, [onComplete]);
+    const finalCfg = { ...cfg, general_agent: { ...cfg.general_agent, enabled: gaEnabled }, onboarding_completed: true };
+    if (gaAutostart) invoke("set_autostart_enabled", { enabled: true }).catch(() => {});
+    setTimeout(() => onComplete(finalCfg), 400);
+  }, [onComplete, gaEnabled, gaAutostart]);
 
   const next = useCallback(() => {
     if (step < TOTAL_STEPS - 1) setStep((s) => s + 1);
@@ -74,7 +78,7 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
 
   // Auto-initialize network info when reaching the network step
   useEffect(() => {
-    if (step !== 3) return;
+    if (step !== 4) return;
     (async () => {
       try {
         // Generate token if we don't have one yet
@@ -205,6 +209,12 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
               />
             )}
             {step === 3 && (
+              <StepAgents c={c}
+                gaEnabled={gaEnabled} onGaEnabled={setGaEnabled}
+                autostart={gaAutostart} onAutostart={setGaAutostart}
+              />
+            )}
+            {step === 4 && (
               <StepNetwork c={c}
                 token={apiToken} networkInfo={networkInfo}
                 orchestratorPrompt={orchestratorPrompt}
@@ -303,12 +313,12 @@ function StepWelcome({ c }: { c: C }) {
       </p>
 
       <div className="grid grid-cols-2 gap-3 text-left max-w-md mx-auto">
-        <FeatureCard c={c} icon="+" title="Split panes" desc="Organize with flexible workspace layouts" />
-        <FeatureCard c={c} icon={"\u2726"} title="Agent orchestration" desc="Spawn teams of AI agents that work in parallel and report back" />
-        <FeatureCard c={c} icon="*" title="Claude integration" desc="Skills, hooks, auto-resume, notifications" iconColor="#f0883e" />
+        <FeatureCard c={c} icon={"\u2726"} title="General Agent" desc="Always-on AI assistant — starts with CodeTerm, ready for anything" />
+        <FeatureCard c={c} icon="+" title="Agent orchestration" desc="Spawn teams of AI agents that work in parallel and report back" />
+        <FeatureCard c={c} icon="@" title="Cron jobs" desc="Schedule recurring AI tasks — agents run on a cron and report results" />
         <FeatureCard c={c} icon=">" title="Canvas panels" desc="Visualizations and localhost apps inline with terminals" />
-        <FeatureCard c={c} icon="@" title="Cron jobs" desc="Schedule recurring tasks — agents run on a cron and report results" />
-        <FeatureCard c={c} icon="!" title="Notifications" desc="OS-level alerts when agents need input or tasks complete" />
+        <FeatureCard c={c} icon="!" title="Messaging" desc="Telegram, Discord — talk to your agent from your phone" />
+        <FeatureCard c={c} icon="*" title="Model-agnostic" desc="Claude, Codex, Gemini, local models — any agent that runs in a terminal" />
       </div>
 
       <p className="text-[11px] mt-8" style={{ color: c.dimmed }}>
@@ -502,6 +512,76 @@ function SetupRow({
         >
           Install
         </button>
+      )}
+    </div>
+  );
+}
+
+// ── Step 3: General Agent ──────────────────────────────────────────
+
+function OnbSwitch({ checked, onChange, c }: { checked: boolean; onChange: (v: boolean) => void; c: C }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)}
+      className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0"
+      style={{ backgroundColor: checked ? c.green : c.border }}>
+      <span className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform"
+        style={{ transform: checked ? "translateX(16px)" : "translateX(2px)" }} />
+    </button>
+  );
+}
+
+function StepAgents({ c, gaEnabled, onGaEnabled, autostart, onAutostart }: {
+  c: C; gaEnabled: boolean; onGaEnabled: (v: boolean) => void; autostart: boolean; onAutostart: (v: boolean) => void;
+}) {
+  return (
+    <div className="text-center">
+      <div className="inline-flex items-center justify-center w-14 h-14 rounded-full mb-6"
+        style={{ backgroundColor: c.accent + "15" }}>
+        <span className="text-2xl" style={{ color: c.accent }}>&#x2726;</span>
+      </div>
+      <h2 className="text-xl font-semibold mb-1" style={{ color: c.fg }}>General Agent</h2>
+      <p className="text-sm mb-8" style={{ color: c.muted }}>
+        An always-on AI assistant that lives in a protected workspace.
+        It starts with CodeTerm and is always ready for your tasks.
+      </p>
+      <div className="max-w-md mx-auto space-y-2 text-left">
+        <div className="flex items-center justify-between px-4 py-3 rounded-lg border" style={{
+          borderColor: gaEnabled ? c.green + "40" : c.border,
+          backgroundColor: gaEnabled ? c.green + "08" : c.surface + "60",
+        }}>
+          <div className="min-w-0 mr-4">
+            <div className="text-xs font-medium" style={{ color: c.fg }}>Enable General Agent</div>
+            <div className="text-[11px]" style={{ color: c.muted }}>Creates a "General" workspace with your main AI assistant</div>
+          </div>
+          <OnbSwitch checked={gaEnabled} onChange={onGaEnabled} c={c} />
+        </div>
+        {gaEnabled && (
+          <>
+            <div className="flex items-center justify-between px-4 py-3 rounded-lg border" style={{
+              borderColor: c.accent + "30", backgroundColor: c.surface + "60",
+            }}>
+              <div className="min-w-0 mr-4">
+                <div className="text-xs font-medium" style={{ color: c.fg }}>Auto-approve tool calls</div>
+                <div className="text-[11px]" style={{ color: c.muted }}>Agent runs with --dangerously-skip-permissions (enabled by default)</div>
+              </div>
+              <span className="text-[10px] shrink-0" style={{ color: c.green }}>&#10003; On</span>
+            </div>
+            <div className="flex items-center justify-between px-4 py-3 rounded-lg border" style={{
+              borderColor: c.border, backgroundColor: c.surface + "60",
+            }}>
+              <div className="min-w-0 mr-4">
+                <div className="text-xs font-medium" style={{ color: c.fg }}>Launch at login</div>
+                <div className="text-[11px]" style={{ color: c.muted }}>Start CodeTerm automatically when you log in</div>
+              </div>
+              <OnbSwitch checked={autostart} onChange={onAutostart} c={c} />
+            </div>
+          </>
+        )}
+      </div>
+      {gaEnabled && (
+        <p className="text-[11px] mt-6 max-w-sm mx-auto" style={{ color: c.dimmed }}>
+          Your General Agent can set up Telegram and other integrations for you. Just ask it after onboarding.
+        </p>
       )}
     </div>
   );

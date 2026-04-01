@@ -1,5 +1,7 @@
 mod agent;
 mod api;
+mod autostart;
+pub mod bridge;
 mod commands;
 mod config;
 pub mod cron;
@@ -83,6 +85,7 @@ fn init_states() -> AppStates {
     }));
 
     // Try to restore last session, fallback to default workspace
+    let ga_enabled = config_state.lock().general_agent.enabled;
     let mux_state_inner = {
         let last = session_state.lock().load_last();
         match last {
@@ -97,9 +100,15 @@ fn init_states() -> AppStates {
                 MultiplexerState::from_session_snapshot(&snapshot)
             }
             _ => {
-                log::info!("No saved session, creating default workspace");
-                let (state, _) = MultiplexerState::new();
-                state
+                if ga_enabled {
+                    // GA will create its own workspace — start empty
+                    log::info!("No saved session, GA enabled — starting empty (General will be created)");
+                    MultiplexerState::empty()
+                } else {
+                    log::info!("No saved session, creating default workspace");
+                    let (state, _) = MultiplexerState::new();
+                    state
+                }
             }
         }
     };
@@ -476,6 +485,7 @@ fn start_servers(
                 cron_wake: cron_wake.clone(),
                 api_port: api_config.port,
                 update_state: states.update.clone(),
+                config: states.config.clone(),
             };
             let router = api::routes::create_router(api_state);
             let host = api_config.host.clone();
@@ -517,14 +527,35 @@ fn start_servers(
             let config_state = states.config.clone();
             let app_h = app_handle.clone();
             std::thread::spawn(move || {
-                // Wait for frontend to fully initialize — prevents deadlock
-                // with mux lock during initial state sync
-                std::thread::sleep(std::time::Duration::from_secs(8));
+                // Wait for frontend to initialize (workspace already created pre-lock in init_states)
+                std::thread::sleep(std::time::Duration::from_secs(2));
                 log::info!("[general-agent] Delayed start beginning...");
                 service::general_agent::start_general_agent(
                     &svc, &mux, &pty, &screen_state, &config_state, &app_h,
                 );
             });
+        }
+    }
+
+    // Start messaging bridge (Telegram, etc.) if configured
+    {
+        let integrations = states.config.lock().integrations.clone();
+        let svc = service_state.clone();
+        if integrations.telegram_enabled {
+            if let Some(token) = bridge::telegram::read_token() {
+                log::info!("Starting Telegram bridge");
+                let telegram = bridge::telegram::TelegramService::new(
+                    token, integrations.telegram_allowed_users.clone(),
+                );
+                let manager = bridge::BridgeManager::new((*svc).clone());
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all().build().expect("bridge runtime");
+                    rt.block_on(manager.start(vec![Box::new(telegram)]));
+                });
+            } else {
+                log::warn!("Telegram enabled but no token found");
+            }
         }
     }
 }
@@ -665,6 +696,8 @@ pub fn run() {
             commands::open_folder,
             commands::open_url,
             commands::test_notification,
+            commands::get_autostart_enabled,
+            commands::set_autostart_enabled,
             // Multiplexer commands
             multiplexer::commands::mux_get_state,
             multiplexer::commands::mux_create_workspace,

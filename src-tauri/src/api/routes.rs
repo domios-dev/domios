@@ -21,6 +21,7 @@ pub struct AppState {
     pub cron_wake: crate::CronWake,
     pub api_port: u16,
     pub update_state: crate::UpdateStateHandle,
+    pub config: crate::config::ConfigState,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -88,6 +89,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/crons/{id}/trigger", post(cron_trigger))
         .route("/api/crons/{id}/history", get(cron_history))
         // Update
+        .route("/api/config", get(get_config_api).patch(patch_config_api))
         .route("/api/update/check", get(check_update))
         .route("/api/update/install", post(install_update))
         .layer(CorsLayer::permissive())
@@ -2072,4 +2074,88 @@ async fn install_update(
             })))
         }
     }
+}
+
+// ── Config API ──────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct ConfigQuery {
+    key: Option<String>,
+}
+
+async fn get_config_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ConfigQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let cfg = state.config.lock().clone();
+    let full = serde_json::to_value(&cfg)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Config serialization failed"))?;
+    match q.key {
+        Some(key) => {
+            let val = dot_get(&full, &key)
+                .ok_or((StatusCode::NOT_FOUND, "Key not found"))?;
+            Ok(Json(serde_json::json!({ "key": key, "value": val })))
+        }
+        None => Ok(Json(full)),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct PatchConfigBody {
+    key: Option<String>,
+    value: Option<serde_json::Value>,
+    #[serde(flatten)]
+    partial: serde_json::Map<String, serde_json::Value>,
+}
+
+async fn patch_config_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PatchConfigBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let cfg = state.config.lock().clone();
+    let mut cfg_json = serde_json::to_value(&cfg)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Serialization failed"))?;
+
+    if let (Some(key), Some(value)) = (body.key.as_deref(), &body.value) {
+        dot_set(&mut cfg_json, key, value.clone())
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid key path"))?;
+    } else if !body.partial.is_empty() {
+        if let serde_json::Value::Object(ref mut map) = cfg_json {
+            for (k, v) in &body.partial {
+                if k == "key" || k == "value" { continue; }
+                map.insert(k.clone(), v.clone());
+            }
+        }
+    } else {
+        return Err((StatusCode::BAD_REQUEST, "Provide key+value or partial config"));
+    }
+
+    let new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid config value"))?;
+    *state.config.lock() = new_cfg.clone();
+    if let Err(e) = crate::config::save_config_pub(&new_cfg) {
+        log::error!("Config save failed: {}", e);
+    }
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+fn dot_get(val: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
+    let mut current = val;
+    for key in path.split('.') { current = current.get(key)?; }
+    Some(current.clone())
+}
+
+fn dot_set(val: &mut serde_json::Value, path: &str, new_val: serde_json::Value) -> Result<(), ()> {
+    let parts: Vec<&str> = path.split('.').collect();
+    if parts.is_empty() { return Err(()); }
+    let mut current = val;
+    for &key in &parts[..parts.len() - 1] { current = current.get_mut(key).ok_or(())?; }
+    if let serde_json::Value::Object(ref mut map) = current {
+        map.insert(parts.last().unwrap().to_string(), new_val);
+        Ok(())
+    } else { Err(()) }
 }
