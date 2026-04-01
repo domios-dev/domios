@@ -76,6 +76,7 @@ impl MultiplexerState {
             pending_prompt: None,
             auto_approve: false,
             protected: false,
+            connected_services: vec![],
         };
 
         let tab = Tab {
@@ -422,6 +423,7 @@ impl MultiplexerState {
             pending_prompt: None,
             auto_approve: false,
             protected: false,
+            connected_services: vec![],
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -449,6 +451,7 @@ impl MultiplexerState {
             pending_prompt: None,
             auto_approve: false,
             protected: false,
+            connected_services: vec![],
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -980,6 +983,7 @@ impl MultiplexerState {
                         pending_prompt: None,
                         auto_approve: false,
                         protected: false,
+            connected_services: vec![],
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }

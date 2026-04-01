@@ -544,6 +544,17 @@ fn start_servers(
         if integrations.telegram_enabled {
             if let Some(token) = bridge::telegram::read_token() {
                 log::info!("Starting Telegram bridge");
+                // Mark General Agent pane as connected to Telegram
+                {
+                    let mut mux = states.mux.lock();
+                    if let Some(pid) = mux.resolve_pane_id(service::general_agent::GENERAL_ALIAS) {
+                        if let Some(pane) = mux.get_pane_mut(&pid) {
+                            if !pane.connected_services.contains(&"telegram".to_string()) {
+                                pane.connected_services.push("telegram".to_string());
+                            }
+                        }
+                    }
+                }
                 let telegram = bridge::telegram::TelegramService::new(
                     token, integrations.telegram_allowed_users.clone(),
                 );
