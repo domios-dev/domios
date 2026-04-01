@@ -175,8 +175,8 @@ impl BridgeManager {
                         out_msg.text.clone()
                     };
 
-                    // Check if we can edit recent message
-                    let can_edit = chat_states.get(&chat_id)
+                    // Edit only when --append flag is set AND there's a recent message to edit
+                    let can_edit = out_msg.append && chat_states.get(&chat_id)
                         .map(|s| s.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS)
                         .unwrap_or(false);
 
