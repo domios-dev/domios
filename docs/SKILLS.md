@@ -231,4 +231,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`, so context is preserved across restarts.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

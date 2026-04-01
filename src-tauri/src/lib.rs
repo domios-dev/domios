@@ -450,7 +450,7 @@ fn start_servers(
     app: &tauri::App,
     states: &AppStates,
     service_state: &ServiceState,
-    bridge_outbound_rx: tokio::sync::mpsc::UnboundedReceiver<bridge::manager::OutboundTelegramMessage>,
+    bridge_outbound_rx: tokio::sync::mpsc::UnboundedReceiver<bridge::manager::OutboundMessage>,
 ) {
     let app_handle = app.handle().clone();
 

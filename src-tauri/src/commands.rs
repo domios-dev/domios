@@ -160,9 +160,12 @@ pub async fn spawn_pty(
                     return;
                 }
 
-                let cmd = format!("claude --resume {}{}\r", session_id, skip_flag);
-                log::info!("[resume] sending: {}", cmd.trim());
-                let _ = pty_clone.lock().write(&pty_id_for_write, cmd.as_bytes());
+                let unset = crate::shell::ShellSyntax::UNSET_CLAUDECODE;
+                let cmd = format!("{} claude --resume {}{}", unset, session_id, skip_flag);
+                log::info!("[resume] sending: {}", cmd);
+                // Use bracket paste to prevent shell from eating characters
+                let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
+                let _ = pty_clone.lock().write(&pty_id_for_write, paste.as_bytes());
             });
         }
     }

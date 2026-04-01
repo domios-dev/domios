@@ -41,7 +41,15 @@ case "$CMD" in
   cli)
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
-    echo "CLI: cli/target/release/codeterm.exe"
+    # Install to ~/.codeterm/bin/
+    BIN_DIR="$HOME/.codeterm/bin"
+    mkdir -p "$BIN_DIR"
+    if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+      cp cli/target/release/codeterm "$BIN_DIR/codeterm"
+    else
+      cp cli/target/release/codeterm.exe "$BIN_DIR/codeterm.exe"
+    fi
+    echo "CLI installed to $BIN_DIR"
     ;;
   dev)
     # Kill previous dev instances (but not production CodeTerm.app)

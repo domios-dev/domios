@@ -2,9 +2,12 @@
 
 use std::pin::Pin;
 use std::future::Future;
-use super::traits::{InboundMessage, MessagingService, ReplyContext};
+use super::traits::{InboundAttachment, InboundMessage, MessagingService, ReplyContext};
 
 pub const TELEGRAM_MAX_LEN: usize = 4096;
+
+/// Max total size of bridge-downloads dir before eviction (100 MB).
+const DOWNLOADS_MAX_BYTES: u64 = 100 * 1024 * 1024;
 
 fn token_path() -> std::path::PathBuf {
     crate::service::general_agent::secrets_dir().join("telegram.token")
@@ -56,10 +59,115 @@ impl TelegramService {
         Ok(())
     }
 
+    /// Download a file from Telegram by file_id. Returns local path on success.
+    async fn download_file(&self, file_id: &str, downloads_dir: &std::path::Path, filename_hint: Option<&str>) -> Option<String> {
+        // Step 1: getFile to get file_path
+        let resp = self.client
+            .post(&self.api_url("getFile"))
+            .json(&serde_json::json!({ "file_id": file_id }))
+            .timeout(std::time::Duration::from_secs(10))
+            .send().await.ok()?;
+        let body: serde_json::Value = resp.json().await.ok()?;
+        let tg_path = body.get("result")?.get("file_path")?.as_str()?;
+
+        // Step 2: download from https://api.telegram.org/file/bot<token>/<file_path>
+        let url = format!("https://api.telegram.org/file/bot{}/{}", self.token, tg_path);
+        let resp = self.client.get(&url)
+            .timeout(std::time::Duration::from_secs(30))
+            .send().await.ok()?;
+        if !resp.status().is_success() {
+            log::warn!("[telegram] download failed for {}: {}", file_id, resp.status());
+            return None;
+        }
+        let bytes = resp.bytes().await.ok()?;
+
+        // Determine local filename
+        let ext = std::path::Path::new(tg_path).extension()
+            .map(|e| format!(".{}", e.to_string_lossy()))
+            .unwrap_or_default();
+        let local_name = filename_hint
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| format!("{}{}", file_id.chars().take(20).collect::<String>(), ext));
+        let local_path = downloads_dir.join(&local_name);
+
+        if let Err(e) = tokio::fs::write(&local_path, &bytes).await {
+            log::error!("[telegram] failed to save file: {}", e);
+            return None;
+        }
+        log::info!("[telegram] downloaded {} ({} bytes) -> {}", file_id, bytes.len(), local_path.display());
+
+        // Evict old files if total size exceeds limit
+        evict_downloads(downloads_dir);
+
+        Some(local_path.to_string_lossy().to_string())
+    }
+
+    /// Extract a media attachment from a Telegram message, downloading the file.
+    async fn extract_attachment(&self, msg: &serde_json::Value, downloads_dir: &std::path::Path) -> Option<InboundAttachment> {
+        // Photo — array of sizes, pick largest (last)
+        if let Some(photos) = msg.get("photo").and_then(|v| v.as_array()) {
+            let best = photos.last()?;
+            let file_id = best.get("file_id")?.as_str()?;
+            let path = self.download_file(file_id, downloads_dir, None).await?;
+            return Some(InboundAttachment { path, kind: "photo".into(), filename: None, mime_type: Some("image/jpeg".into()) });
+        }
+        // Document
+        if let Some(doc) = msg.get("document") {
+            let file_id = doc.get("file_id")?.as_str()?;
+            let filename = doc.get("file_name").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let mime = doc.get("mime_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let path = self.download_file(file_id, downloads_dir, filename.as_deref()).await?;
+            return Some(InboundAttachment { path, kind: "document".into(), filename, mime_type: mime });
+        }
+        // Voice
+        if let Some(voice) = msg.get("voice") {
+            let file_id = voice.get("file_id")?.as_str()?;
+            let mime = voice.get("mime_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let path = self.download_file(file_id, downloads_dir, None).await?;
+            return Some(InboundAttachment { path, kind: "voice".into(), filename: None, mime_type: mime });
+        }
+        // Video
+        if let Some(video) = msg.get("video") {
+            let file_id = video.get("file_id")?.as_str()?;
+            let mime = video.get("mime_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let filename = video.get("file_name").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let path = self.download_file(file_id, downloads_dir, filename.as_deref()).await?;
+            return Some(InboundAttachment { path, kind: "video".into(), filename, mime_type: mime });
+        }
+        // Animation (GIF)
+        if let Some(anim) = msg.get("animation") {
+            let file_id = anim.get("file_id")?.as_str()?;
+            let mime = anim.get("mime_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let path = self.download_file(file_id, downloads_dir, None).await?;
+            return Some(InboundAttachment { path, kind: "animation".into(), filename: None, mime_type: mime });
+        }
+        // Sticker
+        if let Some(sticker) = msg.get("sticker") {
+            let file_id = sticker.get("file_id")?.as_str()?;
+            let path = self.download_file(file_id, downloads_dir, None).await?;
+            return Some(InboundAttachment { path, kind: "sticker".into(), filename: None, mime_type: Some("image/webp".into()) });
+        }
+        // Video note (round video)
+        if let Some(vnote) = msg.get("video_note") {
+            let file_id = vnote.get("file_id")?.as_str()?;
+            let path = self.download_file(file_id, downloads_dir, None).await?;
+            return Some(InboundAttachment { path, kind: "video_note".into(), filename: None, mime_type: Some("video/mp4".into()) });
+        }
+        None
+    }
+
     async fn poll_updates(self: Box<Self>, tx: tokio::sync::mpsc::Sender<InboundMessage>) {
         let mut offset: i64 = 0;
         let mut error_count: u32 = 0;
         let mut poll_count: u64 = 0;
+
+        // Create downloads directory for received media
+        let downloads_dir = crate::service::general_agent::secrets_dir()
+            .parent().unwrap_or(std::path::Path::new("."))
+            .join("bridge-downloads");
+        if let Err(e) = std::fs::create_dir_all(&downloads_dir) {
+            log::error!("[telegram] failed to create downloads dir: {}", e);
+        }
 
         loop {
             poll_count += 1;
@@ -69,7 +177,7 @@ impl TelegramService {
 
             let resp = self.client
                 .post(&self.api_url("getUpdates"))
-                .json(&serde_json::json!({ "offset": offset, "timeout": 30, "allowed_updates": ["message"] }))
+                .json(&serde_json::json!({ "offset": offset, "timeout": 30, "allowed_updates": ["message", "callback_query"] }))
                 .send().await; // client-level timeout handles this (40s)
 
             let body = match resp {
@@ -108,24 +216,99 @@ impl TelegramService {
 
             for update in updates {
                 if let Some(uid) = update.get("update_id").and_then(|v| v.as_i64()) { offset = uid + 1; }
+
+                // Handle callback_query (inline button press)
+                if let Some(cb) = update.get("callback_query") {
+                    let cb_id = cb.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                    let data = cb.get("data").and_then(|v| v.as_str()).unwrap_or("");
+                    let user_id = cb.get("from").and_then(|f| f.get("id")).and_then(|v| v.as_i64()).unwrap_or(0);
+                    let user_name = cb.get("from").and_then(|f| f.get("first_name").or_else(|| f.get("username"))).and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                    let chat_id = cb.get("message").and_then(|m| m.get("chat")).and_then(|c| c.get("id")).and_then(|v| v.as_i64()).unwrap_or(0);
+                    let msg_id = cb.get("message").and_then(|m| m.get("message_id")).and_then(|v| v.as_i64());
+
+                    if !self.is_user_allowed(user_id) { continue; }
+
+                    // Answer callback to dismiss loading indicator
+                    let _ = self.client
+                        .post(&self.api_url("answerCallbackQuery"))
+                        .json(&serde_json::json!({ "callback_query_id": cb_id }))
+                        .timeout(std::time::Duration::from_secs(5))
+                        .send().await;
+
+                    let text = format!("[callback: {}]", data);
+                    let _ = tx.send(InboundMessage {
+                        service: "telegram".into(), user_id, user_name, text,
+                        attachments: vec![], message_id: msg_id,
+                        reply_ctx: ReplyContext::Telegram { chat_id },
+                    }).await;
+                    continue;
+                }
+
+                // Handle regular message
                 let Some(msg) = update.get("message") else { continue };
-                let text = msg.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                if text.is_empty() { continue; }
                 let chat_id = msg.get("chat").and_then(|c| c.get("id")).and_then(|v| v.as_i64()).unwrap_or(0);
                 let user_id = msg.get("from").and_then(|f| f.get("id")).and_then(|v| v.as_i64()).unwrap_or(0);
                 let user_name = msg.get("from").and_then(|f| f.get("first_name").or_else(|| f.get("username"))).and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+                let message_id = msg.get("message_id").and_then(|v| v.as_i64());
 
                 if !self.is_user_allowed(user_id) {
                     log::warn!("[telegram] rejected user {}", user_id); continue;
                 }
 
-                if tx.send(InboundMessage { service: "telegram".into(), user_id, user_name, text: text.into(), reply_ctx: ReplyContext::Telegram { chat_id } }).await.is_err() {
+                // Extract text (from text or caption)
+                let text = msg.get("text").or_else(|| msg.get("caption"))
+                    .and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+                // Extract media attachments
+                let mut attachments = Vec::new();
+                if let Some(attachment) = self.extract_attachment(msg, &downloads_dir).await {
+                    attachments.push(attachment);
+                }
+
+                // Skip if no text and no attachments
+                if text.is_empty() && attachments.is_empty() { continue; }
+
+                if tx.send(InboundMessage {
+                    service: "telegram".into(), user_id, user_name, text,
+                    attachments, message_id,
+                    reply_ctx: ReplyContext::Telegram { chat_id },
+                }).await.is_err() {
                     log::error!("[telegram] channel send failed — receiver may be dead, but keeping poll alive");
-                    // Don't return — keep polling. Messages will be dropped but polling stays alive
-                    // so we can recover if receiver comes back.
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
+        }
+    }
+}
+
+/// Evict oldest files from downloads dir when total size exceeds DOWNLOADS_MAX_BYTES.
+fn evict_downloads(dir: &std::path::Path) {
+    let entries: Vec<_> = match std::fs::read_dir(dir) {
+        Ok(rd) => rd.filter_map(|e| e.ok()).collect(),
+        Err(_) => return,
+    };
+
+    let mut files: Vec<(std::path::PathBuf, u64, std::time::SystemTime)> = entries.iter()
+        .filter_map(|e| {
+            let meta = e.metadata().ok()?;
+            if !meta.is_file() { return None; }
+            let modified = meta.modified().ok()?;
+            Some((e.path(), meta.len(), modified))
+        })
+        .collect();
+
+    let total: u64 = files.iter().map(|(_, sz, _)| sz).sum();
+    if total <= DOWNLOADS_MAX_BYTES { return; }
+
+    // Sort oldest first
+    files.sort_by_key(|(_, _, t)| *t);
+
+    let mut remaining = total;
+    for (path, sz, _) in &files {
+        if remaining <= DOWNLOADS_MAX_BYTES { break; }
+        if std::fs::remove_file(path).is_ok() {
+            log::info!("[telegram] evicted {} ({} bytes)", path.display(), sz);
+            remaining -= sz;
         }
     }
 }

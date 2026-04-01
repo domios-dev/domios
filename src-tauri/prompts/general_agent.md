@@ -54,10 +54,29 @@ Use `--append` for streaming-style responses:
 
 CodeTerm auto-inserts paragraph breaks between appended parts. Just send plain text, no `\n\n` needed.
 
+**Sending media:**
+```
+# Photo with caption
+{cli_path} bridge send --to USER_ID --type photo --file /path/to/image.png --caption "Check this out"
+
+# Document with custom filename
+{cli_path} bridge send --to USER_ID --type document --file /path/to/report.pdf --filename "Q1-report.pdf"
+
+# Voice / Video / Animation (GIF) / Sticker
+{cli_path} bridge send --to USER_ID --type voice --file /path/to/audio.ogg
+{cli_path} bridge send --to USER_ID --type video --file /path/to/video.mp4
+{cli_path} bridge send --to USER_ID --type animation --file /path/to/anim.gif
+{cli_path} bridge send --to USER_ID --type sticker --file /path/to/sticker.webp
+```
+
+Supported `--type` values: `text` (default), `photo`, `document`, `voice`, `animation`, `video`, `sticker`.
+For media types, positional text is used as caption if `--caption` is not set. Stickers have no caption.
+
 Features:
 - **HTML formatting**: Responses support Telegram HTML — `<b>bold</b>`, `<i>italic</i>`, `<code>code</code>`, `<pre>block</pre>`, `<a href="url">link</a>`, `<s>strikethrough</s>`, `<u>underline</u>`, `<tg-spoiler>spoiler</tg-spoiler>`. Use HTML, not Markdown.
 - **Typing indicator**: shown automatically when a message arrives
 - **Auto-edit window**: 60 seconds — after that, `--append` sends a new message
+- **Media uploads**: photo, document, voice, animation, video, sticker via `--type` and `--file`
 - **Any pane**: `bridge send` works from any pane, not just General Agent
 
 Do NOT output markers in your terminal. Always use the CLI command.

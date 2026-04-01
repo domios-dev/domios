@@ -493,7 +493,7 @@ mod tests {
         assert!(cmd.contains("--dangerously-skip-permissions"));
         assert!(cmd.contains(".ct-task-"), "task via temp file");
         if cfg!(target_os = "windows") {
-            assert!(cmd.contains("$env:CLAUDECODE=$null;"));
+            assert!(cmd.contains("Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue;"));
             assert!(cmd.contains("(Get-Content"));
         } else {
             assert!(cmd.contains("unset CLAUDECODE &&"));
@@ -507,7 +507,7 @@ mod tests {
         let params = make_params("claude", None);
         let cmd = build_agent_command("claude", &params, None, &reg);
         if cfg!(target_os = "windows") {
-            assert_eq!(cmd, "$env:CLAUDECODE=$null; claude --dangerously-skip-permissions");
+            assert_eq!(cmd, "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; claude --dangerously-skip-permissions");
         } else {
             assert_eq!(cmd, "unset CLAUDECODE && claude --dangerously-skip-permissions");
         }
