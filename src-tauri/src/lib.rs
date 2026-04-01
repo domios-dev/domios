@@ -450,6 +450,7 @@ fn start_servers(
     app: &tauri::App,
     states: &AppStates,
     service_state: &ServiceState,
+    bridge_outbound_rx: tokio::sync::mpsc::UnboundedReceiver<bridge::manager::OutboundTelegramMessage>,
 ) {
     let app_handle = app.handle().clone();
 
@@ -563,7 +564,7 @@ fn start_servers(
                     let rt = tokio::runtime::Builder::new_multi_thread()
                         .worker_threads(2)
                         .enable_all().build().expect("bridge runtime");
-                    rt.block_on(manager.start(vec![Box::new(telegram)]));
+                    rt.block_on(manager.start(vec![Box::new(telegram)], bridge_outbound_rx));
                 });
             } else {
                 log::warn!("Telegram enabled but no token found");
@@ -783,6 +784,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
+            let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
@@ -795,11 +797,13 @@ pub fn run() {
                 report_store: states.report_store.clone(),
                 agent_registry,
                 prompt_detector,
+                bridge_outbound: bridge_outbound_tx,
+                bridge_accumulators: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
 
-            start_servers(app, &states, &service_state);
+            start_servers(app, &states, &service_state, bridge_outbound_rx);
             build_system_tray(app)?;
             start_background_tasks(&app_handle, &states);
 

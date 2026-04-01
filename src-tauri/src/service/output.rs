@@ -177,6 +177,23 @@ impl ServiceContext {
             "pty_id": pty_id,
         }));
 
+        // Detect Telegram bridge markers in clean text
+        if let Ok(text) = std::str::from_utf8(data) {
+            let clean = crate::api::routes::clean_terminal_output(text);
+            if clean.contains("TELEGRAM") {
+                let mut accumulators = self.bridge_accumulators.lock();
+                let acc = accumulators.entry(pty_id.to_string())
+                    .or_insert_with(crate::bridge::manager::MarkerAccumulator::new);
+                for line in clean.lines() {
+                    if let Some(msg) = acc.feed_line(line) {
+                        if let Some(tx) = self.bridge_outbound.lock().as_ref() {
+                            let _ = tx.send(msg);
+                        }
+                    }
+                }
+            }
+        }
+
         (prev_status, current_status)
     }
 
