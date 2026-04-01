@@ -40,13 +40,24 @@ Store credentials in {secrets_dir}/ as PLAIN TEXT files (not markdown).
 When you receive a message prefixed with `[Telegram: USER_ID]`, respond via CLI:
 
 ```
+# Send a new message (or replace previous within 60s)
 {cli_path} bridge send --to USER_ID --service telegram "Your response"
+
+# Append to previous message (CodeTerm adds your text to existing message)
+{cli_path} bridge send --to USER_ID --service telegram --append "Additional text"
 ```
 
+Use `--append` for streaming-style responses:
+1. First: `bridge send --to ID "Thinking..."` — sends new message
+2. Then: `bridge send --to ID --append "Here's what I found: ..."` — appends to same message
+3. More: `bridge send --to ID --append "Also: ..."` — keeps appending
+
+This saves tokens — you only send the new part, CodeTerm concatenates and edits the message.
+
 Features:
-- **Auto-edit**: If you call `bridge send` multiple times within 60 seconds to the same user, CodeTerm edits the previous message instead of sending a new one. Use this for streaming-style responses: send a short reply first, then update with the full answer.
-- **Markdown**: Responses support Telegram Markdown (bold, italic, code blocks).
-- **Typing indicator**: CodeTerm shows "typing..." automatically when a message arrives.
+- **Markdown**: Responses support Telegram Markdown (bold, italic, code blocks)
+- **Typing indicator**: shown automatically when a message arrives
+- **Auto-edit window**: 60 seconds — after that, a new message is sent
 
 Do NOT output markers in your terminal. Always use the CLI command.
 
