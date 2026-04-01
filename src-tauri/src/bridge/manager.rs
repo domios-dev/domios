@@ -289,18 +289,17 @@ async fn edit_message(client: &reqwest::Client, token: &str, chat_id: i64, messa
 }
 
 fn inject_message(svc: &ServiceContext, msg: &InboundMessage) -> Result<(), String> {
-    let pty_id = {
+    let pane_id = {
         let mux = svc.mux.lock();
-        let pid = mux.resolve_pane_id(general_agent::GENERAL_ALIAS)
-            .ok_or("General Agent not found")?;
-        let pane = mux.get_pane(&pid).ok_or("General Agent pane missing")?;
-        pane.pty_id.clone().ok_or("General Agent PTY not ready")?
+        mux.resolve_pane_id(general_agent::GENERAL_ALIAS)
+            .ok_or("General Agent not found")?
     };
 
-    let prefixed = format!("[{}: {}] {}\r",
+    // Use send_text (bracket paste + Enter) — handles multiline correctly
+    let prefixed = format!("[{}: {}] {}",
         capitalize(&msg.service), msg.user_id, msg.text);
 
-    svc.pty.lock().write(&pty_id, prefixed.as_bytes())
+    svc.send_text(&pane_id, &prefixed, true)
 }
 
 fn capitalize(s: &str) -> String {
