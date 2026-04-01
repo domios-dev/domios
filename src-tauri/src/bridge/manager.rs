@@ -184,6 +184,12 @@ async fn outbound_loop(svc: ServiceContext, state: Arc<OutboundState>) {
 
         log::info!("[bridge-outbound] sending {} chars to chat {}", body.len(), chat_id);
 
+        // Advance offset BEFORE sending — prevents duplicate sends on next poll cycle
+        let advance = raw.find("|-|TELEGRAM_END|-|")
+            .map(|p| p + END_MARKER.len())
+            .unwrap_or(raw.len());
+        state.offset.store(offset + advance, Ordering::Relaxed);
+
         // Send to Telegram
         for chunk in super::response::chunk_message(body, super::telegram::TELEGRAM_MAX_LEN) {
             let _ = client
@@ -196,12 +202,6 @@ async fn outbound_loop(svc: ServiceContext, state: Arc<OutboundState>) {
                 .timeout(std::time::Duration::from_secs(10))
                 .send().await;
         }
-
-        // Advance offset past end marker
-        let advance = raw.find("|-|TELEGRAM_END|-|")
-            .map(|p| p + END_MARKER.len())
-            .unwrap_or(raw.len());
-        state.offset.store(offset + advance, Ordering::Relaxed);
     }
 }
 
