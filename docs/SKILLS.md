@@ -45,6 +45,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 17. **List cron jobs**: `codeterm cron list`, **trigger manually**: `codeterm cron trigger ID`
 18. **Read config**: `codeterm config get integrations.telegram_enabled` (dot-notation)
 19. **Write config**: `codeterm config set integrations.telegram_enabled true` (JSON values)
+20. **Send to Telegram**: `codeterm bridge send --to USER_ID --service telegram "text"` (auto-edits within 60s, `--append` to concatenate)
 
 ## Screenshots for Debugging
 
@@ -82,19 +83,29 @@ codeterm workspace list --json
 
 ### Telegram Bridge
 CodeTerm routes messages between Telegram and the General Agent:
-- **Inbound:** Messages arrive as `[Telegram: user_id] text` in the agent's PTY
-- **Outbound:** Agent output is streamed to the Telegram chat when idle
+- **Inbound:** Messages arrive as `[Telegram: user_id] text` in the agent's PTY. Rapid messages within 300ms are debounced. Typing indicator is sent automatically.
+- **Outbound:** Agent sends replies via CLI: `codeterm bridge send --to USER_ID --service telegram "text"`. Within 60s, messages auto-edit the previous one. Use `--append` to concatenate text.
 
 Setup via CLI:
 ```bash
 # Save token to secrets dir
-echo "BOT_TOKEN" > ~/.codeterm/secrets/telegram.token
+mkdir -p ~/.codeterm/secrets
+echo -n "BOT_TOKEN" > ~/.codeterm/secrets/telegram.token
 
 # Enable
 codeterm config set integrations.telegram_enabled true
 codeterm config set integrations.telegram_allowed_users '["USER_ID"]'
 
 # Restart CodeTerm (hot-reload not yet supported)
+```
+
+Sending messages from the agent:
+```bash
+# Send a new message
+codeterm bridge send --to 186809246 --service telegram "Hello from CodeTerm"
+
+# Append to the previous message (edits in-place)
+codeterm bridge send --to 186809246 --service telegram --append "...continued"
 ```
 
 Connected panes show service icons in the sidebar (`connected_services` field).
@@ -220,4 +231,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`, so context is preserved across restarts.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->
