@@ -143,7 +143,7 @@ pub fn poll_shell_prompt(screen_state: &crate::ScreenStateHandle, pty_id: &str, 
                 if attempt % 10 == 0 {
                     let last = screen.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
                     log::debug!("[poll_shell_prompt] pty={} attempt={} has_prompt={} last_line={:?}",
-                        &pty_id[..pty_id.len().min(8)], attempt, has, &last[..last.len().min(60)]);
+                        &pty_id[..pty_id.len().min(8)], attempt, has, &last.chars().take(60).collect::<String>());
                 }
                 has
             }))

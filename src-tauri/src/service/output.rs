@@ -71,7 +71,7 @@ impl ServiceContext {
                     if dc < 5 || dc % 100 == 0 {
                         log::debug!("[agent-detect] pane={} screen_len={} raw_len={} detected={} text_sample={:?}",
                             pid, screen.len(), raw_text.len(), detected.is_some(),
-                            &check_text[..check_text.len().min(100)]);
+                            &check_text.chars().take(100).collect::<String>());
                     }
                     if let Some(provider) = detected {
                         let agent_id = provider.id().to_string();
