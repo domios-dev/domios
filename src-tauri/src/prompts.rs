@@ -24,5 +24,5 @@ pub const CODETERM_RULE: &str = include_str!("../prompts/codeterm_rule.md");
 /// General Agent CLAUDE.md template (uses format!() placeholders).
 pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.md");
 
-/// EXTRA_INSTRUCTIONS.md template for first-run bootstrap.
-pub const EXTRA_INSTRUCTIONS_TEMPLATE: &str = include_str!("../prompts/extra_instructions.md");
+/// Bootstrap instructions template — becomes the agent's personal config file after first run.
+pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str = include_str!("../prompts/bootstrap_instructions.md");

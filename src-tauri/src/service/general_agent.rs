@@ -88,7 +88,7 @@ pub fn generate_instructions(provider_name: &str, instructions_filename: &str) {
         format!("{}{}{}", &existing[..start], auto_section, &existing[end..])
     } else if existing.is_empty() {
         // Fresh file — add auto section + pointer to extra instructions
-        format!("{}\n\n# Extra Instructions\nSee EXTRA_INSTRUCTIONS.md for user-defined instructions.\n", auto_section)
+        format!("{}\n\nSee EXTRA_INSTRUCTIONS.md for your personal config (identity, user, integrations).\n", auto_section)
     } else {
         // File exists but no markers — prepend auto section, keep everything
         format!("{}\n\n{}", auto_section, existing)
@@ -100,10 +100,10 @@ pub fn generate_instructions(provider_name: &str, instructions_filename: &str) {
         log::info!("[general-agent] Instructions file updated: {:?}", path);
     }
 
-    // Ensure EXTRA_INSTRUCTIONS.md exists
+    // Ensure EXTRA_INSTRUCTIONS.md exists (personal config + bootstrap)
     let extra = general_dir().join("EXTRA_INSTRUCTIONS.md");
     if !extra.exists() {
-        let _ = std::fs::write(&extra, crate::prompts::EXTRA_INSTRUCTIONS_TEMPLATE);
+        let _ = std::fs::write(&extra, crate::prompts::BOOTSTRAP_INSTRUCTIONS_TEMPLATE);
     }
 }
 
