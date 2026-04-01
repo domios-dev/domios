@@ -126,17 +126,32 @@ async fn outbound_loop(svc: ServiceContext, state: Arc<OutboundState>) {
 
     log::info!("[bridge-outbound] streaming started for PTY {}, offset={}", &pty_id[..8.min(pty_id.len())], initial_offset);
 
+    // Track when output buffer last changed — send after it stabilizes
+    let mut last_buf_len: usize = initial_offset;
+    let mut stable_since: Option<tokio::time::Instant> = None;
+    const STABLE_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
+
     loop {
         tokio::time::sleep(std::time::Duration::from_millis(OUTBOUND_POLL_MS)).await;
 
         let chat_id = *state.chat_id.lock();
         let Some(chat_id) = chat_id else { continue };
 
-        // Check if agent is idle (only send complete responses, not mid-stream)
-        let status = svc.agent_tracker.lock().get_status(&pty_id);
-        if status == crate::agent::status::PaneStatus::Working {
-            continue; // Wait until agent finishes
+        // Check if output buffer has grown
+        let current_buf_len = svc.output_buf.lock()
+            .get_full(&pty_id).map(|b| b.len()).unwrap_or(0);
+
+        if current_buf_len != last_buf_len {
+            // Buffer changed — reset stability timer
+            last_buf_len = current_buf_len;
+            stable_since = Some(tokio::time::Instant::now());
+            continue;
         }
+
+        // Buffer unchanged — check if stable long enough
+        let Some(since) = stable_since else { continue };
+        if since.elapsed() < STABLE_DELAY { continue; }
+        stable_since = None; // Reset so we don't send again
 
         let last_offset = state.offset.load(Ordering::Relaxed);
         let new_content = {
