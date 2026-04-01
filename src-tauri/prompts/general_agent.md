@@ -35,6 +35,18 @@ CodeTerm CLI: `{cli_path}`
 Read credentials from {secrets_dir}/*.md when needed.
 You can create and update secret files yourself.
 
+## Telegram responses
+When you receive a message prefixed with `[Telegram: USER_ID]`, your response must be wrapped in markers so CodeTerm knows what to send back:
+
+```
+|-|TELEGRAM_SEND: USER_ID|-|
+Your response text here.
+Can be multiple lines.
+|-|TELEGRAM_END|-|
+```
+
+CodeTerm watches your output for these markers and streams everything between them to Telegram. Without markers, nothing gets sent. Always include both markers.
+
 ## Session startup
 On every session start, read EXTRA_INSTRUCTIONS.md in your CWD. Follow any instructions there. If it contains `<!-- bootstrap: true -->`, this is your first session — follow the bootstrap flow described in that file.
 
