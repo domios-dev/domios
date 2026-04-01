@@ -358,7 +358,7 @@ When asked to test the CodeTerm orchestrator:
 ## Integrations
 
 ### Telegram Bridge
-Connect a Telegram bot to the General Agent. CodeTerm handles message routing — the agent just sees prefixed messages in its terminal.
+Connect a Telegram bot to the General Agent. CodeTerm handles inbound routing — the agent sends replies via CLI.
 
 **Setup:**
 1. Create a bot via @BotFather on Telegram, get the token
@@ -373,9 +373,19 @@ Connect a Telegram bot to the General Agent. CodeTerm handles message routing �
 5. Restart CodeTerm (hot-reload not yet supported)
 
 **How it works:**
-- Inbound (Telegram → Agent): messages arrive as `[Telegram: user_id] text` in the PTY
-- Outbound (Agent → Telegram): CodeTerm streams agent output to the Telegram chat
-- The agent doesn't call any Telegram API — CodeTerm does it all
+- Inbound (Telegram → Agent): messages arrive as `[Telegram: user_id] text` in the PTY. Rapid messages within 300ms are debounced into one delivery. Typing indicator is sent automatically.
+- Outbound (Agent → Telegram): use `codeterm bridge send` CLI command. Supports Markdown formatting (falls back to plain text).
+- Auto-edit: within 60 seconds, `bridge send` edits the previous message instead of sending a new one.
+- Append mode: `--append` concatenates text to the previous message and edits it in-place.
+
+**Sending messages:**
+```bash
+# Send a new message (or auto-edit previous within 60s window)
+codeterm bridge send --to USER_ID --service telegram "Your reply here"
+
+# Append to previous message (concatenates + edits)
+codeterm bridge send --to USER_ID --service telegram --append "...more text"
+```
 
 **Settings UI:** Settings → Integrations → Telegram (toggle + allowed users)
 
@@ -393,4 +403,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

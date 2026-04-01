@@ -124,7 +124,7 @@ Response: `{"detected": true}` or `{"detected": false}`. Even when `detected: fa
 
 #### Stop Hook (POST /api/panes/{id}/hook/stop)
 
-Called by Claude Code hooks (Stop matcher) to notify CodeTerm that the agent has completed its task. Triggers `agent.task_complete` webhook event and updates pane status.
+Called by Claude Code hooks (Stop matcher) to notify CodeTerm that the agent has completed its task. Triggers `agent.task_complete` webhook event and updates pane status. For protected panes (e.g. General Agent), the stop hook does NOT clear `agent_type` — the pane retains its agent identity.
 
 ```bash
 curl -X POST "http://host:7685/api/panes/$PANE/hook/stop" \
@@ -162,6 +162,28 @@ Webhook events: `agent.permission_request`, `agent.task_complete`, `agent.report
 | POST | `/api/themes/apply` | `{name}` | Apply a theme by name |
 
 Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/.codeterm/themes/` (macOS/Linux).
+
+#### Bridge (Telegram / External Services)
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/bridge/send` | `{text, chat_id?, service?, append?}` | Send message to external service (Telegram) |
+
+**POST /api/bridge/send** — sends an outbound message through the bridge. Parameters:
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `text` | `string` | *(required)* | Message text (Markdown supported, falls back to plain text) |
+| `chat_id` | `number?` | last inbound | Telegram user/chat ID. Defaults to the last inbound sender. |
+| `service` | `string?` | `"telegram"` | Target service (currently only `telegram`) |
+| `append` | `bool` | `false` | Append text to previous message (edits via `editMessageText`) instead of sending new |
+
+**Auto-edit window:** Within 60 seconds of the last sent message to a chat, `bridge send` (without `--append`) edits the previous message instead of sending a new one. With `--append`, text is concatenated to the previous message and edited in-place.
+
+**Typing indicator:** On every inbound Telegram message, CodeTerm sends a `sendChatAction("typing")` to show the typing bubble.
+
+**Inbound debounce:** Rapid-fire Telegram messages within a 300ms window are merged into a single delivery to the agent PTY.
+
+Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge is not active.
 
 #### Setup (Skills, Rules, Hooks)
 | Method | Path | Body | Description |
@@ -459,6 +481,7 @@ Newline-delimited JSON:
 | `cron.trigger` | `{id}` | Manually trigger cron job |
 | `cron.history` | `{id}` | Get run history |
 | `cron.complete` | `{run_id, summary?}` | Mark a cron run as complete |
+| `bridge.send` | `{text, chat_id?, service?, append?}` | Send message to external service (Telegram). `append`: concatenate to previous message. |
 
 ## CLI
 
@@ -544,6 +567,12 @@ codeterm cron complete --run-id UUID --summary "result"
 codeterm config get <key>                      # Get config value (dot-notation, e.g. "integrations.telegram_enabled")
 codeterm config set <key> <value>              # Set config value (JSON: true, false, 42, "string", ["array"])
 
+# Bridge (Telegram / External Services)
+codeterm bridge send --to CHAT_ID --service telegram "message text"
+                                               # Send message to Telegram user/chat
+codeterm bridge send --to CHAT_ID --service telegram --append "more text"
+                                               # Append to previous message (edits in-place)
+
 # Screenshot
 codeterm screenshot                            # Capture window, print JSON (data URL + dimensions)
 codeterm screenshot --output screenshot.jpg    # Capture window, save to file
@@ -624,4 +653,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
