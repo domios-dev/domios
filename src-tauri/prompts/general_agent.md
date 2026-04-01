@@ -37,16 +37,13 @@ Store credentials in {secrets_dir}/ as PLAIN TEXT files (not markdown).
 - Other secrets: `{secrets_dir}/<name>.token` — same format, plain text only
 
 ## Telegram responses
-When you receive a message prefixed with `[Telegram: USER_ID]`, your response must be wrapped in markers so CodeTerm knows what to send back:
+When you receive a message prefixed with `[Telegram: USER_ID]`, respond via CLI:
 
 ```
-|-|TELEGRAM_SEND: USER_ID|-|
-Your response text here.
-Can be multiple lines.
-|-|TELEGRAM_END|-|
+{cli_path} bridge send --to USER_ID --service telegram "Your response"
 ```
 
-CodeTerm watches your output for these markers and streams everything between them to Telegram. Without markers, nothing gets sent. Always include both markers.
+Do NOT output markers in your terminal. Always use the CLI command to send responses.
 
 ## Session startup
 On every session start, read EXTRA_INSTRUCTIONS.md in your CWD. Follow any instructions there. If it contains `<!-- bootstrap: true -->`, this is your first session — follow the bootstrap flow described in that file.
