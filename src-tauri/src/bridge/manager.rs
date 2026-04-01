@@ -233,7 +233,7 @@ async fn send_message(client: &reqwest::Client, token: &str, chat_id: i64, text:
         .json(&serde_json::json!({
             "chat_id": chat_id,
             "text": text,
-            "parse_mode": "Markdown",
+            "parse_mode": "HTML",
             "disable_web_page_preview": true,
         }))
         .timeout(std::time::Duration::from_secs(10))
@@ -267,7 +267,7 @@ async fn edit_message(client: &reqwest::Client, token: &str, chat_id: i64, messa
             "chat_id": chat_id,
             "message_id": message_id,
             "text": text,
-            "parse_mode": "Markdown",
+            "parse_mode": "HTML",
             "disable_web_page_preview": true,
         }))
         .timeout(std::time::Duration::from_secs(10))

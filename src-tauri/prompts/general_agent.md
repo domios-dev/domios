@@ -55,7 +55,7 @@ Use `--append` for streaming-style responses:
 CodeTerm auto-inserts paragraph breaks between appended parts. Just send plain text, no `\n\n` needed.
 
 Features:
-- **Markdown**: Responses support Telegram Markdown (bold, italic, code blocks)
+- **HTML formatting**: Responses support Telegram HTML — `<b>bold</b>`, `<i>italic</i>`, `<code>code</code>`, `<pre>block</pre>`, `<a href="url">link</a>`, `<s>strikethrough</s>`, `<u>underline</u>`, `<tg-spoiler>spoiler</tg-spoiler>`. Use HTML, not Markdown.
 - **Typing indicator**: shown automatically when a message arrives
 - **Auto-edit window**: 60 seconds — after that, `--append` sends a new message
 - **Any pane**: `bridge send` works from any pane, not just General Agent
