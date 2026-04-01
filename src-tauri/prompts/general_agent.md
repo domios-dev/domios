@@ -32,8 +32,9 @@ CodeTerm CLI: `{cli_path}`
 - Your CWD is {general_dir}
 
 ## Secrets
-Read credentials from {secrets_dir}/*.md when needed.
-You can create and update secret files yourself.
+Store credentials in {secrets_dir}/ as PLAIN TEXT files (not markdown).
+- Telegram bot token: `{secrets_dir}/telegram.token` — file contains ONLY the token string, nothing else
+- Other secrets: `{secrets_dir}/<name>.token` — same format, plain text only
 
 ## Telegram responses
 When you receive a message prefixed with `[Telegram: USER_ID]`, your response must be wrapped in markers so CodeTerm knows what to send back:
