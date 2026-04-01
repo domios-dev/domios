@@ -119,7 +119,12 @@ impl TelegramService {
                     log::warn!("[telegram] rejected user {}", user_id); continue;
                 }
 
-                if tx.send(InboundMessage { service: "telegram".into(), user_id, user_name, text: text.into(), reply_ctx: ReplyContext::Telegram { chat_id } }).await.is_err() { return; }
+                if tx.send(InboundMessage { service: "telegram".into(), user_id, user_name, text: text.into(), reply_ctx: ReplyContext::Telegram { chat_id } }).await.is_err() {
+                    log::error!("[telegram] channel send failed — receiver may be dead, but keeping poll alive");
+                    // Don't return — keep polling. Messages will be dropped but polling stays alive
+                    // so we can recover if receiver comes back.
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
             }
         }
     }
