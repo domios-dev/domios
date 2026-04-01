@@ -784,7 +784,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
-            let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
+            let (bridge_outbound_tx, bridge_outbound_rx, activate_at) = bridge::manager::create_outbound_channel();
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
@@ -799,6 +799,7 @@ pub fn run() {
                 prompt_detector,
                 bridge_outbound: bridge_outbound_tx,
                 bridge_accumulators: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+                bridge_activate_at: bridge::manager::create_activation_time(activate_at),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());

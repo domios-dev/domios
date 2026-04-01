@@ -27,9 +27,20 @@ pub struct OutboundTelegramMessage {
 pub type OutboundSender = Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<OutboundTelegramMessage>>>>;
 
 /// Create a new outbound channel pair.
-pub fn create_outbound_channel() -> (OutboundSender, tokio::sync::mpsc::UnboundedReceiver<OutboundTelegramMessage>) {
+/// Create outbound channel with delayed activation.
+/// Returns (sender, receiver, activation_time).
+/// Markers detected before activation_time are ignored to skip PTY output replay.
+pub fn create_outbound_channel() -> (OutboundSender, tokio::sync::mpsc::UnboundedReceiver<OutboundTelegramMessage>, std::time::Instant) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    (Arc::new(Mutex::new(Some(tx))), rx)
+    let activate_at = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    (Arc::new(Mutex::new(Some(tx))), rx, activate_at)
+}
+
+/// Shared activation timestamp — markers before this time are dropped.
+pub type ActivationTime = Arc<Mutex<std::time::Instant>>;
+
+pub fn create_activation_time(at: std::time::Instant) -> ActivationTime {
+    Arc::new(Mutex::new(at))
 }
 
 /// State machine for accumulating text between SEND and END markers.

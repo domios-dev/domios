@@ -177,7 +177,9 @@ impl ServiceContext {
             "pty_id": pty_id,
         }));
 
-        // Detect Telegram bridge markers — feed every chunk through accumulator
+        // Detect Telegram bridge markers — only after activation delay (skip startup replay)
+        let bridge_active = std::time::Instant::now() >= *self.bridge_activate_at.lock();
+        if bridge_active {
         if let Ok(text) = std::str::from_utf8(data) {
             let clean = crate::api::routes::clean_terminal_output(text);
             if !clean.is_empty() {
@@ -194,6 +196,7 @@ impl ServiceContext {
                 }
             }
         }
+        } // bridge_active
 
         (prev_status, current_status)
     }

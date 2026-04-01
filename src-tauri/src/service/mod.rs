@@ -59,6 +59,8 @@ pub struct ServiceContext {
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
     /// Per-PTY marker accumulators for Telegram bridge.
     pub bridge_accumulators: Arc<parking_lot::Mutex<std::collections::HashMap<String, crate::bridge::manager::MarkerAccumulator>>>,
+    /// Activation time — markers before this are ignored (skip PTY output replay on startup).
+    pub bridge_activate_at: crate::bridge::manager::ActivationTime,
 }
 
 pub type ServiceState = Arc<ServiceContext>;
