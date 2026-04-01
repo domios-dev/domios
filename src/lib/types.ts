@@ -240,6 +240,23 @@ export interface ApiConfig {
   cors: boolean;
 }
 
+export interface GeneralAgentConfig {
+  enabled: boolean;
+  agent_provider: string;
+  auto_restart: boolean;
+  max_restart_attempts: number;
+  restart_delay_s: number;
+}
+
+export interface IntegrationsConfig {
+  telegram_enabled: boolean;
+  telegram_allowed_users: string[];
+  discord_enabled: boolean;
+  discord_allowed_users: string[];
+  webhook_enabled: boolean;
+  webhook_port: number;
+}
+
 export interface AppConfig {
   theme: ThemeConfig;
   font: FontConfig;
@@ -249,5 +266,7 @@ export interface AppConfig {
   socket: SocketConfigSettings;
   agent: AgentConfig;
   api: ApiConfig;
+  general_agent: GeneralAgentConfig;
+  integrations: IntegrationsConfig;
   onboarding_completed: boolean;
 }

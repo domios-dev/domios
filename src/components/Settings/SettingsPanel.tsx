@@ -14,6 +14,7 @@ enum SettingsTab {
   Keybindings = "keybindings",
   Notifications = "notifications",
   Agents = "agents",
+  Integrations = "integrations",
   Network = "network",
   About = "about",
 }
@@ -24,6 +25,7 @@ const TAB_ICONS: Record<SettingsTab, string> = {
   [SettingsTab.Keybindings]: "M6.5 1.75a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 .75.75v3a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1-.75-.75ZM8 8a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0v-5.5A.75.75 0 0 1 8 8Zm-3.5 1.5a.75.75 0 0 0-1.5 0v4.75a.75.75 0 0 0 1.5 0Zm-1.5-6a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5h-1.5A.75.75 0 0 1 3 3.5Zm9.5 6a.75.75 0 0 0-1.5 0v4.75a.75.75 0 0 0 1.5 0Z",
   [SettingsTab.Notifications]: "M8 16a2 2 0 0 0 1.985-1.75c.017-.137-.097-.25-.235-.25h-3.5c-.138 0-.252.113-.235.25A2 2 0 0 0 8 16ZM3 5a5 5 0 0 1 10 0c0 1.862.818 2.726 1.49 3.434.233.246.46.485.653.752.19.262.357.571.357.974 0 .593-.477 1.09-1.107 1.168C13.477 11.44 12.025 11.5 8 11.5c-4.025 0-5.477-.06-6.393-.172C.977 11.24.5 10.743.5 10.16c0-.403.167-.712.356-.974a6.96 6.96 0 0 0 .653-.752C2.182 7.726 3 6.862 3 5Z",
   [SettingsTab.Agents]: "M5.75 7.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75Zm5.25.75a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0ZM6 1h4a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V5a4 4 0 0 1 4-4Zm-.25 1.5A2.75 2.75 0 0 0 3 5.25v5.5A2.75 2.75 0 0 0 5.75 13.5h4.5a2.75 2.75 0 0 0 2.75-2.75v-5.5A2.75 2.75 0 0 0 10.25 2.5Z",
+  [SettingsTab.Integrations]: "M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5ZM8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16Zm0-1.5a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z",
   [SettingsTab.Network]: "M1.5 8a6.5 6.5 0 1 1 13 0 6.5 6.5 0 0 1-13 0ZM8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0ZM6.379 1.588C4.468 2.46 3 4.96 3 8c0 3.04 1.468 5.54 3.379 6.412A6.504 6.504 0 0 1 1.5 8c0-3.043 2.094-5.6 4.879-6.412ZM8 14.5c1.94 0 3.5-2.91 3.5-6.5S9.94 1.5 8 1.5 4.5 4.41 4.5 8s1.56 6.5 3.5 6.5Z",
   [SettingsTab.About]: "M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z",
 };
@@ -34,6 +36,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: SettingsTab.Keybindings, label: "Keybindings" },
   { id: SettingsTab.Notifications, label: "Notifications" },
   { id: SettingsTab.Agents, label: "Agents" },
+  { id: SettingsTab.Integrations, label: "Integrations" },
   { id: SettingsTab.Network, label: "Network & API" },
   { id: SettingsTab.About, label: "About" },
 ];
@@ -331,6 +334,10 @@ export function SettingsPanel({
 
             {activeTab === SettingsTab.Agents && (
               <AgentsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
+            )}
+
+            {activeTab === SettingsTab.Integrations && (
+              <IntegrationsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
             )}
 
             {activeTab === SettingsTab.Network && (
@@ -879,6 +886,29 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
 
   return (
     <div className="space-y-5">
+      {/* General Agent */}
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+        <div className="text-sm font-medium text-[var(--ct-fg)]">General Agent</div>
+        <div className="text-xs text-[var(--ct-muted-fg)]">
+          Always-on AI assistant in a protected workspace. Starts automatically with CodeTerm.
+        </div>
+        <Toggle
+          label="Enable General Agent"
+          checked={config.general_agent?.enabled ?? true}
+          onChange={(v) => onUpdate("general_agent", { enabled: v })}
+        />
+        {config.general_agent?.enabled && (
+          <Toggle
+            label="Auto-restart on crash"
+            checked={config.general_agent?.auto_restart ?? true}
+            onChange={(v) => onUpdate("general_agent", { auto_restart: v })}
+          />
+        )}
+        <div className="text-[10px] text-[var(--ct-muted)]">
+          Requires restart to take effect.
+        </div>
+      </div>
+
       {/* Session resume settings */}
       <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
         <div className="text-sm font-medium text-[var(--ct-fg)]">Session Resume</div>
@@ -989,6 +1019,67 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
 
       <div className="text-[10px] text-[var(--ct-muted)] text-center">
         Restart Claude Code after installing.
+      </div>
+    </div>
+  );
+}
+
+function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
+  const [allowedUsersText, setAllowedUsersText] = useState(
+    (config.integrations?.telegram_allowed_users ?? []).join(", ")
+  );
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Telegram</div>
+          {config.integrations?.telegram_enabled && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">enabled</span>
+          )}
+        </div>
+        <div className="text-xs text-[var(--ct-muted-fg)]">
+          Send messages to your General Agent via Telegram bot. Responses are captured and sent back.
+        </div>
+        <Toggle
+          label="Enable Telegram bridge"
+          checked={config.integrations?.telegram_enabled ?? false}
+          onChange={(v) => onUpdate("integrations", { telegram_enabled: v })}
+        />
+        {config.integrations?.telegram_enabled && (
+          <>
+            <div className="text-xs text-[var(--ct-muted-fg)]">
+              Token: <span className="font-mono text-[var(--ct-fg)]">~/.codeterm/secrets/telegram.token</span>
+            </div>
+            <div className="space-y-1">
+              <div className="text-xs text-[var(--ct-muted-fg)]">Allowed user IDs (comma-separated, empty = all)</div>
+              <input
+                type="text"
+                value={allowedUsersText}
+                onChange={(e) => {
+                  setAllowedUsersText(e.target.value);
+                  const ids = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
+                  onUpdate("integrations", { telegram_allowed_users: ids });
+                }}
+                placeholder="e.g. 186809246, 123456789"
+                className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none font-mono"
+              />
+            </div>
+            <div className="text-[10px] text-[var(--ct-muted)]">
+              Requires restart. Create a bot via @BotFather and save the token.
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3 opacity-50">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Discord</div>
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-border)] text-[var(--ct-muted-fg)]">coming soon</span>
+        </div>
+        <div className="text-xs text-[var(--ct-muted-fg)]">
+          Connect a Discord bot to interact with your General Agent.
+        </div>
       </div>
     </div>
   );

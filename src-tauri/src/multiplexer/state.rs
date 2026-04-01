@@ -37,6 +37,19 @@ pub struct MultiplexerState {
 }
 
 impl MultiplexerState {
+    /// Create an empty state with no workspaces.
+    /// Used when General Agent will create its own workspace.
+    pub fn empty() -> Self {
+        Self {
+            workspaces: vec![],
+            panes: HashMap::new(),
+            active_workspace_id: None,
+            focused_pane_id: None,
+            pty_to_pane: HashMap::new(),
+            pane_aliases: HashMap::new(),
+        }
+    }
+
     /// Create a new state with a default "Main" workspace, one tab, and one pane.
     /// Returns (state, initial_pane_id).
     pub fn new() -> (Self, String) {

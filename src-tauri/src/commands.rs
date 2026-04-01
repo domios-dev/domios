@@ -697,34 +697,7 @@ pub fn get_skills_prompt() -> Result<String, String> {
 }
 
 /// Embedded CodeTerm rule for Claude Code
-const CODETERM_RULE: &str = r#"## CodeTerm Terminal
-
-You are running inside CodeTerm — an AI-first terminal multiplexer. Use the `/codeterm` skill for all terminal operations.
-
-### When to use CodeTerm CLI
-
-- "in terminal" / "в терминале" / "в консоли" → CodeTerm workspace/pane, NOT filesystem
-- "create project X" → `codeterm workspace create "X"`
-- "split" / "сплитни" → `codeterm pane split`
-- "run tests there" → `codeterm send-text PANE_ID "command"`
-- Any visual content (diagrams, dashboards) → `codeterm browser open file:///path`
-- Notify on completion → `codeterm notify "Done" --level info`
-
-### On session start
-
-Immediately rename your tab to the task summary:
-```bash
-PANE_ID=$(C:/tools/codeterm.exe pane list --json | jq -r '.[0].id')
-C:/tools/codeterm.exe pane rename "$PANE_ID" "short task name"
-```
-
-### Do NOT
-
-- Do NOT use `start` or `open` for browser — use `codeterm browser open`
-- Do NOT create filesystem directories when user says "create project" — create a workspace
-
-<!-- revision: 3 -->
-"#;
+use crate::prompts::CODETERM_RULE;
 
 /// Install CodeTerm rule to ~/.claude/rules/codeterm.md
 #[tauri::command]
@@ -826,6 +799,16 @@ pub fn open_url(url: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     { let _ = std::process::Command::new("xdg-open").arg(&url).spawn(); }
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_autostart_enabled() -> bool {
+    crate::autostart::is_enabled()
+}
+
+#[tauri::command]
+pub fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
+    if enabled { crate::autostart::enable() } else { crate::autostart::disable() }
 }
 
 // ---------------------------------------------------------------------------
