@@ -129,8 +129,9 @@ You can create and update secret files yourself.
     }
 }
 
-/// The well-known pane alias for the General Agent.
 pub const GENERAL_ALIAS: &str = "general";
+pub const GENERAL_WORKSPACE_NAME: &str = "General";
+pub const GENERAL_PANE_TITLE: &str = "Main";
 
 /// Ensure General workspace + pane exist in MultiplexerState.
 /// Called BEFORE mux is wrapped in Arc<Mutex<>> — no locking needed.
@@ -155,10 +156,17 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
 
     if !protected_ws.is_empty() {
         let ws = &protected_ws[0];
+        if ws.name != GENERAL_WORKSPACE_NAME {
+            let _ = mux.rename_workspace(&ws.id, GENERAL_WORKSPACE_NAME);
+        }
         mux.move_workspace_to_front(&ws.id);
         if let Some(pid) = ws.pane_ids.first() {
             if let Some(pane) = mux.get_pane_mut(pid) {
                 pane.protected = true;
+                if pane.title != GENERAL_PANE_TITLE {
+                    pane.title = GENERAL_PANE_TITLE.to_string();
+                    pane.title_level = crate::multiplexer::types::TitleLevel::User;
+                }
             }
             mux.register_alias(GENERAL_ALIAS, pid);
             log::info!("[general-agent] Existing General workspace, alias for pane {}", pid);
@@ -167,7 +175,7 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
     }
 
     // Create General workspace
-    let ws_info = mux.create_workspace("Main".to_string(), Some(general_cwd.clone()));
+    let ws_info = mux.create_workspace(GENERAL_WORKSPACE_NAME.to_string(), Some(general_cwd.clone()));
     mux.set_workspace_protected(&ws_info.id, true);
     mux.move_workspace_to_front(&ws_info.id);
 
@@ -176,6 +184,8 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
         Ok((_tab_id, pane_id)) => {
             if let Some(pane) = mux.get_pane_mut(&pane_id) {
                 pane.protected = true;
+                pane.title = GENERAL_PANE_TITLE.to_string();
+                pane.title_level = crate::multiplexer::types::TitleLevel::User;
                 pane.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
                 pane.can_spawn = true;
                 pane.cwd = Some(general_cwd);
