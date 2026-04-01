@@ -18,9 +18,14 @@ Rename your tab to the task summary using $CODETERM_PANE_ID (always available in
 codeterm pane rename --pane "$CODETERM_PANE_ID" "short task name"
 ```
 
+### Integrations & config
+
+- Set up Telegram, config options → read the `/codeterm` skill for details
+- `codeterm config get/set` for reading/writing config from CLI
+
 ### Do NOT
 
 - Do NOT use `start` or `open` for browser — use `codeterm browser open`
 - Do NOT create filesystem directories when user says "create project" — create a workspace
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
