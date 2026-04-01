@@ -1,28 +1,84 @@
-//! BridgeManager v2 — marker-based bridge between General Agent PTY and external services.
+//! BridgeManager v3 — channel-based bridge between General Agent PTY and Telegram.
 //!
-//! Outbound: watches PTY output for |-|TELEGRAM_SEND: USER_ID|-| ... |-|TELEGRAM_END|-| markers.
-//! Inbound: receives messages from services, injects into PTY with [Service: user_id] prefix.
+//! Outbound: process_pty_output detects |-|TELEGRAM_SEND/END|-| markers, sends to channel.
+//!           BridgeManager reads from channel and sends to Telegram. No raw buffer scanning.
+//! Inbound: receives messages from Telegram, injects into PTY with [Telegram: user_id] prefix.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::mpsc;
+use parking_lot::Mutex;
 
 use super::traits::{InboundMessage, MessagingService, ReplyContext};
 use crate::service::general_agent;
 use crate::service::ServiceContext;
 
-/// How often to poll OutputBuffer for new markers (ms).
-const POLL_MS: u64 = 300;
+/// Marker constants — agent wraps Telegram responses in these.
+pub const SEND_MARKER_PREFIX: &str = "|-|TELEGRAM_SEND:";
+pub const END_MARKER: &str = "|-|TELEGRAM_END|-|";
 
-/// Marker constants.
-const SEND_MARKER: &str = "|-|TELEGRAM_SEND:";
-const END_MARKER: &str = "|-|TELEGRAM_END|-|";
+/// A complete outbound message extracted from markers.
+#[derive(Debug, Clone)]
+pub struct OutboundTelegramMessage {
+    pub user_id: Option<i64>,
+    pub text: String,
+}
 
-struct OutboundState {
-    /// Fallback chat_id from last inbound message (used if marker doesn't specify).
-    chat_id: parking_lot::Mutex<Option<i64>>,
-    /// Last scanned offset into full output buffer.
-    offset: AtomicUsize,
+/// Shared sender for outbound messages — process_pty_output sends here.
+pub type OutboundSender = Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<OutboundTelegramMessage>>>>;
+
+/// Create a new outbound channel pair.
+pub fn create_outbound_channel() -> (OutboundSender, tokio::sync::mpsc::UnboundedReceiver<OutboundTelegramMessage>) {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    (Arc::new(Mutex::new(Some(tx))), rx)
+}
+
+/// State machine for accumulating text between SEND and END markers.
+/// Lives in process_pty_output context — called on every PTY chunk.
+pub struct MarkerAccumulator {
+    /// Are we between SEND and END markers?
+    capturing: bool,
+    /// Accumulated clean text between markers.
+    buffer: String,
+    /// User ID from SEND marker.
+    user_id: Option<i64>,
+}
+
+impl MarkerAccumulator {
+    pub fn new() -> Self {
+        Self { capturing: false, buffer: String::new(), user_id: None }
+    }
+
+    /// Feed a line of clean (ANSI-stripped) text. Returns a complete message when END marker found.
+    pub fn feed_line(&mut self, line: &str) -> Option<OutboundTelegramMessage> {
+        let trimmed = line.trim();
+
+        if !self.capturing {
+            // Look for SEND marker
+            if let Some(rest) = trimmed.strip_prefix(SEND_MARKER_PREFIX) {
+                let rest = rest.trim().trim_end_matches("|-|").trim();
+                self.user_id = rest.parse::<i64>().ok();
+                self.capturing = true;
+                self.buffer.clear();
+            }
+            return None;
+        }
+
+        // We're capturing — check for END marker
+        if trimmed.contains(END_MARKER) {
+            self.capturing = false;
+            let text = self.buffer.trim().to_string();
+            if text.is_empty() { return None; }
+            return Some(OutboundTelegramMessage {
+                user_id: self.user_id.take(),
+                text,
+            });
+        }
+
+        // Accumulate line
+        if !self.buffer.is_empty() { self.buffer.push('\n'); }
+        self.buffer.push_str(trimmed);
+        None
+    }
 }
 
 pub struct BridgeManager {
@@ -34,175 +90,99 @@ impl BridgeManager {
         Self { svc }
     }
 
-    pub async fn start(self, services: Vec<Box<dyn MessagingService>>) {
+    pub async fn start(
+        self,
+        services: Vec<Box<dyn MessagingService>>,
+        mut outbound_rx: tokio::sync::mpsc::UnboundedReceiver<OutboundTelegramMessage>,
+    ) {
         let (tx, mut rx) = mpsc::channel::<InboundMessage>(64);
+        let fallback_chat_id: Arc<Mutex<Option<i64>>> = Arc::new(Mutex::new(None));
 
+        // Start each service's polling loop
         for service in services {
             let tx_clone = tx.clone();
             let id = service.id().to_string();
             tokio::spawn(async move {
                 log::info!("[bridge] starting service: {}", id);
                 service.start(tx_clone).await;
+                log::warn!("[bridge] service stopped: {}", id);
             });
         }
 
-        let outbound = Arc::new(OutboundState {
-            chat_id: parking_lot::Mutex::new(None),
-            offset: AtomicUsize::new(0),
-        });
+        let token = super::telegram::read_token().unwrap_or_default();
+        let client = reqwest::Client::new();
 
-        // Start outbound watcher (Agent → Telegram via markers)
-        {
-            let svc = self.svc.clone();
-            let out = outbound.clone();
-            tokio::spawn(async move {
-                outbound_loop(svc, out).await;
-            });
+        log::info!("[bridge] manager v3 started (channel mode)");
+
+        // Run inbound and outbound concurrently
+        let fallback_clone = fallback_chat_id.clone();
+        let svc = self.svc.clone();
+        let client_clone = client.clone();
+        let token_clone = token.clone();
+
+        loop {
+            tokio::select! {
+                // Inbound: Telegram → Agent PTY
+                Some(msg) = rx.recv() => {
+                    log::info!("[bridge] inbound from {} ({}): {}",
+                        msg.user_name, msg.service, &msg.text[..msg.text.len().min(100)]);
+
+                    if let ReplyContext::Telegram { chat_id } = &msg.reply_ctx {
+                        *fallback_clone.lock() = Some(*chat_id);
+                    }
+
+                    if let Err(e) = inject_message(&svc, &msg) {
+                        log::error!("[bridge] inject failed: {}", e);
+                    }
+                }
+
+                // Outbound: marker channel → Telegram
+                Some(out_msg) = outbound_rx.recv() => {
+                    let chat_id = out_msg.user_id
+                        .or_else(|| *fallback_clone.lock())
+                        .unwrap_or(0);
+
+                    if chat_id == 0 {
+                        log::warn!("[bridge-outbound] no chat_id, dropping message");
+                        continue;
+                    }
+
+                    log::info!("[bridge-outbound] sending {} chars to {}", out_msg.text.len(), chat_id);
+
+                    for chunk in super::response::chunk_message(&out_msg.text, super::telegram::TELEGRAM_MAX_LEN) {
+                        let _ = client_clone
+                            .post(format!("https://api.telegram.org/bot{}/sendMessage", token_clone))
+                            .json(&serde_json::json!({
+                                "chat_id": chat_id,
+                                "text": chunk,
+                                "disable_web_page_preview": true,
+                            }))
+                            .timeout(std::time::Duration::from_secs(10))
+                            .send().await;
+                    }
+                }
+
+                else => break,
+            }
         }
 
-        log::info!("[bridge] manager v2 started (marker mode)");
-
-        // Inbound loop (Telegram → Agent)
-        while let Some(msg) = rx.recv().await {
-            log::info!("[bridge] inbound from {} ({}): {}",
-                msg.user_name, msg.service, &msg.text[..msg.text.len().min(100)]);
-
-            if let ReplyContext::Telegram { chat_id } = &msg.reply_ctx {
-                *outbound.chat_id.lock() = Some(*chat_id);
-            }
-
-            if let Err(e) = self.inject_message(&msg) {
-                log::error!("[bridge] inject failed: {}", e);
-            }
-        }
-    }
-
-    fn inject_message(&self, msg: &InboundMessage) -> Result<(), String> {
-        let pty_id = {
-            let mux = self.svc.mux.lock();
-            let pid = mux.resolve_pane_id(general_agent::GENERAL_ALIAS)
-                .ok_or("General Agent not found")?;
-            let pane = mux.get_pane(&pid).ok_or("General Agent pane missing")?;
-            pane.pty_id.clone().ok_or("General Agent PTY not ready")?
-        };
-
-        let prefixed = format!("[{}: {}] {}\r",
-            capitalize(&msg.service), msg.user_id, msg.text);
-
-        self.svc.pty.lock().write(&pty_id, prefixed.as_bytes())
+        log::warn!("[bridge] manager stopped");
     }
 }
 
-/// Outbound loop — watches raw output buffer for TELEGRAM_SEND/TELEGRAM_END markers.
-async fn outbound_loop(svc: ServiceContext, state: Arc<OutboundState>) {
-    let token = match super::telegram::read_token() {
-        Some(t) => t,
-        None => {
-            log::warn!("[bridge-outbound] no Telegram token, outbound disabled");
-            return;
-        }
-    };
-    let client = reqwest::Client::new();
-
-    // Wait for General Agent to start
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-    let pty_id = loop {
-        let id = {
-            let mux = svc.mux.lock();
-            mux.resolve_pane_id(general_agent::GENERAL_ALIAS)
-                .and_then(|pid| mux.get_pane(&pid).and_then(|p| p.pty_id.clone()))
-        };
-        if let Some(id) = id { break id; }
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+fn inject_message(svc: &ServiceContext, msg: &InboundMessage) -> Result<(), String> {
+    let pty_id = {
+        let mux = svc.mux.lock();
+        let pid = mux.resolve_pane_id(general_agent::GENERAL_ALIAS)
+            .ok_or("General Agent not found")?;
+        let pane = mux.get_pane(&pid).ok_or("General Agent pane missing")?;
+        pane.pty_id.clone().ok_or("General Agent PTY not ready")?
     };
 
-    // Start scanning from current position
-    let initial = svc.output_buf.lock()
-        .get_full(&pty_id).map(|b| b.len()).unwrap_or(0);
-    state.offset.store(initial, Ordering::Relaxed);
+    let prefixed = format!("[{}: {}] {}\r",
+        capitalize(&msg.service), msg.user_id, msg.text);
 
-    log::info!("[bridge-outbound] marker watcher started for PTY {}", &pty_id[..8.min(pty_id.len())]);
-
-    loop {
-        tokio::time::sleep(std::time::Duration::from_millis(POLL_MS)).await;
-
-        let offset = state.offset.load(Ordering::Relaxed);
-        let raw = {
-            let buf = svc.output_buf.lock();
-            buf.get_full(&pty_id).and_then(|b| {
-                if b.len() > offset {
-                    Some(String::from_utf8_lossy(&b[offset..]).to_string())
-                } else {
-                    None
-                }
-            })
-        };
-
-        let Some(raw) = raw else { continue };
-
-        // Look for complete marker pairs
-        let clean = super::response::strip_ansi(&raw);
-        let Some(send_pos) = clean.find(SEND_MARKER) else { continue };
-        let Some(end_pos) = clean.find(END_MARKER) else { continue };
-        if end_pos <= send_pos { continue; }
-
-        // Extract the content between markers
-        let header_end = send_pos + SEND_MARKER.len();
-        let after_header = &clean[header_end..end_pos];
-
-        // Parse user_id from header: "|-|TELEGRAM_SEND: 186809246|-|"
-        let (user_id_str, body) = if let Some(marker_close) = after_header.find("|-|") {
-            let uid = after_header[..marker_close].trim();
-            let content = after_header[marker_close + 3..].trim();
-            (uid, content)
-        } else {
-            ("", after_header.trim())
-        };
-
-        if body.is_empty() {
-            // Advance offset past end marker
-            let advance = raw.find("|-|TELEGRAM_END|-|")
-                .map(|p| p + END_MARKER.len())
-                .unwrap_or(raw.len());
-            state.offset.store(offset + advance, Ordering::Relaxed);
-            continue;
-        }
-
-        // Determine chat_id
-        let chat_id = if let Ok(uid) = user_id_str.parse::<i64>() {
-            uid
-        } else {
-            match *state.chat_id.lock() {
-                Some(id) => id,
-                None => {
-                    log::warn!("[bridge-outbound] no chat_id, skipping");
-                    continue;
-                }
-            }
-        };
-
-        log::info!("[bridge-outbound] sending {} chars to chat {}", body.len(), chat_id);
-
-        // Advance offset BEFORE sending — prevents duplicate sends on next poll cycle
-        let advance = raw.find("|-|TELEGRAM_END|-|")
-            .map(|p| p + END_MARKER.len())
-            .unwrap_or(raw.len());
-        state.offset.store(offset + advance, Ordering::Relaxed);
-
-        // Send to Telegram
-        for chunk in super::response::chunk_message(body, super::telegram::TELEGRAM_MAX_LEN) {
-            let _ = client
-                .post(format!("https://api.telegram.org/bot{}/sendMessage", token))
-                .json(&serde_json::json!({
-                    "chat_id": chat_id,
-                    "text": chunk,
-                    "disable_web_page_preview": true,
-                }))
-                .timeout(std::time::Duration::from_secs(10))
-                .send().await;
-        }
-    }
+    svc.pty.lock().write(&pty_id, prefixed.as_bytes())
 }
 
 fn capitalize(s: &str) -> String {
@@ -218,25 +198,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_capitalize() {
-        assert_eq!(capitalize("telegram"), "Telegram");
-        assert_eq!(capitalize(""), "");
+    fn test_marker_accumulator_basic() {
+        let mut acc = MarkerAccumulator::new();
+        assert!(acc.feed_line("some output").is_none());
+        assert!(acc.feed_line("|-|TELEGRAM_SEND: 186809246|-|").is_none());
+        assert!(acc.feed_line("Hello from agent!").is_none());
+        let msg = acc.feed_line("|-|TELEGRAM_END|-|").unwrap();
+        assert_eq!(msg.user_id, Some(186809246));
+        assert_eq!(msg.text, "Hello from agent!");
     }
 
     #[test]
-    fn test_marker_parsing() {
-        let text = "some output\n|-|TELEGRAM_SEND: 186809246|-|\nHello from agent!\n|-|TELEGRAM_END|-|\nmore output";
-        let send_pos = text.find(SEND_MARKER).unwrap();
-        let end_pos = text.find(END_MARKER).unwrap();
-        assert!(end_pos > send_pos);
+    fn test_marker_accumulator_multiline() {
+        let mut acc = MarkerAccumulator::new();
+        acc.feed_line("|-|TELEGRAM_SEND: 123|-|");
+        acc.feed_line("Line 1");
+        acc.feed_line("Line 2");
+        let msg = acc.feed_line("|-|TELEGRAM_END|-|").unwrap();
+        assert_eq!(msg.text, "Line 1\nLine 2");
+    }
 
-        let header_end = send_pos + SEND_MARKER.len();
-        let after_header = &text[header_end..end_pos];
-        let marker_close = after_header.find("|-|").unwrap();
-        let uid = after_header[..marker_close].trim();
-        let body = after_header[marker_close + 3..].trim();
+    #[test]
+    fn test_marker_accumulator_ignores_non_markers() {
+        let mut acc = MarkerAccumulator::new();
+        assert!(acc.feed_line("random text").is_none());
+        assert!(acc.feed_line("more text").is_none());
+        // No message produced
+    }
 
-        assert_eq!(uid, "186809246");
-        assert_eq!(body, "Hello from agent!");
+    #[test]
+    fn test_marker_accumulator_empty_body() {
+        let mut acc = MarkerAccumulator::new();
+        acc.feed_line("|-|TELEGRAM_SEND: 123|-|");
+        assert!(acc.feed_line("|-|TELEGRAM_END|-|").is_none()); // empty = skip
+    }
+
+    #[test]
+    fn test_capitalize() {
+        assert_eq!(capitalize("telegram"), "Telegram");
+        assert_eq!(capitalize(""), "");
     }
 }
