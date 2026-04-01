@@ -62,8 +62,26 @@ impl BridgeManager {
             let id = service.id().to_string();
             tokio::spawn(async move {
                 log::info!("[bridge] starting service: {}", id);
-                service.start(tx_clone).await;
-                log::warn!("[bridge] service stopped: {}", id);
+                service.start(tx_clone.clone()).await;
+                // Service died — restart loop with new instance
+                log::warn!("[bridge] service {} stopped, entering restart loop", id);
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    log::info!("[bridge] restarting service: {}", id);
+                    let token = super::telegram::read_token();
+                    if let Some(token) = token {
+                        let config = crate::config::load_config();
+                        let new_svc = super::telegram::TelegramService::new(
+                            token, config.integrations.telegram_allowed_users.clone(),
+                        );
+                        let new_svc: Box<dyn MessagingService> = Box::new(new_svc);
+                        new_svc.start(tx_clone.clone()).await;
+                        log::warn!("[bridge] service {} stopped again", id);
+                    } else {
+                        log::error!("[bridge] no token for restart, waiting 30s");
+                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    }
+                }
             });
         }
 
