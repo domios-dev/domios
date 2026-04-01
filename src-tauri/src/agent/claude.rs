@@ -245,7 +245,7 @@ mod tests {
         if cfg!(target_os = "windows") {
             assert_eq!(
                 cmd,
-                "$env:CLAUDECODE=$null; claude --dangerously-skip-permissions"
+                "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; claude --dangerously-skip-permissions"
             );
         } else {
             assert_eq!(

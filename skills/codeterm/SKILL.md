@@ -374,7 +374,7 @@ Connect a Telegram bot to the General Agent. CodeTerm handles inbound routing �
 
 **How it works:**
 - Inbound (Telegram → Agent): messages arrive as `[Telegram: user_id] text` in the PTY. Rapid messages within 300ms are debounced into one delivery. Typing indicator is sent automatically.
-- Outbound (Agent → Telegram): use `codeterm bridge send` CLI command. Supports Markdown formatting (falls back to plain text). Works from **any pane**, not just the General Agent pane.
+- Outbound (Agent → Telegram): use `codeterm bridge send` CLI command. Supports HTML formatting (falls back to plain text). Works from **any pane**, not just the General Agent pane.
 - `bridge send` (without `--append`) always sends a **new** message — no auto-edit.
 - `--append` concatenates text to the previous message with an automatic `\n\n` paragraph break (agent does not need to add literal `\n\n`) and edits in-place within a 60-second window. After 60s, sends new.
 - UTF-8 safe: messages are chunked safely for Cyrillic, emoji, and other multi-byte characters.
@@ -386,9 +386,25 @@ Connect a Telegram bot to the General Agent. CodeTerm handles inbound routing �
 codeterm bridge send --to USER_ID --service telegram "Your reply here"
 
 # Append to previous message (auto-inserts paragraph break, edits in-place within 60s)
-# No need to add literal \n\n — the bridge inserts it automatically
 codeterm bridge send --to USER_ID --service telegram --append "...more text"
 ```
+
+**Sending media:**
+```bash
+# Photo with caption
+codeterm bridge send --to USER_ID --type photo --file /path/to/image.png --caption "Check this out"
+
+# Document with custom filename
+codeterm bridge send --to USER_ID --type document --file /path/to/report.pdf --filename "Q1-report.pdf"
+
+# Voice / Video / Animation (GIF) / Sticker
+codeterm bridge send --to USER_ID --type voice --file /path/to/audio.ogg
+codeterm bridge send --to USER_ID --type video --file /path/to/video.mp4
+codeterm bridge send --to USER_ID --type animation --file /path/to/anim.gif
+codeterm bridge send --to USER_ID --type sticker --file /path/to/sticker.webp
+```
+
+Supported `--type`: `text` (default), `photo`, `document`, `voice`, `animation`, `video`, `sticker`. Positional text is used as caption if `--caption` not set. Stickers have no caption.
 
 **Settings UI:** Settings → Integrations → Telegram (toggle + allowed users)
 
@@ -406,4 +422,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

@@ -166,16 +166,20 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 #### Bridge (Telegram / External Services)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| POST | `/api/bridge/send` | `{text, chat_id?, service?, append?}` | Send message to external service (Telegram) |
+| POST | `/api/bridge/send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram) |
 
-**POST /api/bridge/send** — sends an outbound message through the bridge. Parameters:
+**POST /api/bridge/send** — sends an outbound message or media through the bridge. Parameters:
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `text` | `string` | *(required)* | Message text (Markdown supported, falls back to plain text) |
+| `text` | `string` | *(required for text)* | Message text (HTML parse mode). Required when `type` is `text` or omitted. Used as caption fallback for media types if `caption` is not set. |
 | `chat_id` | `number?` | last inbound | Telegram user/chat ID. Defaults to the last inbound sender. |
 | `service` | `string?` | `"telegram"` | Target service (currently only `telegram`) |
 | `append` | `bool` | `false` | Append text to previous message (edits via `editMessageText`) instead of sending new |
+| `type` | `string?` | `"text"` | Message type: `text`, `photo`, `document`, `voice`, `animation`, `video`, `sticker` |
+| `file` | `string?` | — | Absolute path to the file to send. Required for all media types. |
+| `caption` | `string?` | — | Caption for media messages. If not set, positional `text` is used as caption. Stickers do not support captions. |
+| `filename` | `string?` | — | Custom filename for `document` type (overrides the original filename). |
 
 **Behavior:** `bridge send` (without `--append`) always sends a **new** message — no auto-edit. With `--append`, text is concatenated to the previous message (with an automatic `\n\n` paragraph break) and edited in-place, provided the previous message was sent within the last 60 seconds. If the 60-second window has expired, `--append` sends a new message instead.
 
@@ -487,7 +491,7 @@ Newline-delimited JSON:
 | `cron.trigger` | `{id}` | Manually trigger cron job |
 | `cron.history` | `{id}` | Get run history |
 | `cron.complete` | `{run_id, summary?}` | Mark a cron run as complete |
-| `bridge.send` | `{text, chat_id?, service?, append?}` | Send message to external service (Telegram). `append`: concatenate to previous message. |
+| `bridge.send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram). `type`: `text`/`photo`/`document`/`voice`/`animation`/`video`/`sticker`. `file`: absolute path for media. `append`: concatenate to previous message. |
 
 ## CLI
 
@@ -578,6 +582,12 @@ codeterm bridge send --to CHAT_ID --service telegram "message text"
                                                # Send message to Telegram user/chat
 codeterm bridge send --to CHAT_ID --service telegram --append "more text"
                                                # Append to previous message (edits in-place)
+codeterm bridge send --to CHAT_ID --type photo --file /path/to/img.png --caption "Look"
+                                               # Send photo with caption
+codeterm bridge send --to CHAT_ID --type document --file /path/to/f.pdf --filename "report.pdf"
+                                               # Send document with custom filename
+codeterm bridge send --to CHAT_ID --type voice --file /path/to/audio.ogg
+                                               # Send voice/video/animation/sticker
 
 # Screenshot
 codeterm screenshot                            # Capture window, print JSON (data URL + dimensions)
@@ -659,4 +669,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

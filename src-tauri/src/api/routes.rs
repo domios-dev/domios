@@ -2163,10 +2163,13 @@ async fn bridge_send_api(
     let tx = state.svc.bridge_outbound.lock();
     let tx = tx.as_ref().ok_or((StatusCode::SERVICE_UNAVAILABLE, "Bridge not active"))?;
     let append = body.get("append").and_then(|v| v.as_bool()).unwrap_or(false);
-    tx.send(crate::bridge::manager::OutboundTelegramMessage {
+    let buttons: Option<crate::bridge::traits::InlineKeyboard> = body.get("buttons")
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+    tx.send(crate::bridge::manager::OutboundMessage {
         user_id: chat_id,
-        text: text.to_string(),
+        content: crate::bridge::traits::OutboundContent::Text { text: text.to_string() },
         append,
+        buttons,
     }).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Send failed"))?;
 
     Ok(Json(serde_json::json!({"ok": true})))

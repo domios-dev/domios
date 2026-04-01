@@ -14,9 +14,10 @@ pub fn general_dir() -> PathBuf {
 
 /// Find the CodeTerm CLI path for use in instructions.
 fn find_codeterm_cli() -> String {
+    let home = dirs::home_dir().unwrap_or_default();
+    let bin_name = if cfg!(windows) { "codeterm.exe" } else { "codeterm" };
     let candidates = [
-        PathBuf::from("C:/tools/codeterm.exe"),
-        dirs::home_dir().unwrap_or_default().join(".codeterm/bin/codeterm"),
+        home.join(".codeterm").join("bin").join(bin_name),
         PathBuf::from("/usr/local/bin/codeterm"),
     ];
     for path in &candidates {
@@ -277,7 +278,9 @@ pub fn start_general_agent(
     };
 
     log::info!("[general-agent] Launching: {}", cmd);
-    if let Err(e) = pty.lock().write(&pty_id, format!("{}\r", cmd).as_bytes()) {
+    // Use bracket paste to prevent shell from eating first character
+    let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
+    if let Err(e) = pty.lock().write(&pty_id, paste.as_bytes()) {
         log::error!("[general-agent] Failed to write launch command: {}", e);
     }
 

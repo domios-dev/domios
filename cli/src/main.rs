@@ -447,8 +447,8 @@ enum UpdateAction {
 enum BridgeAction {
     /// Send a message to Telegram or other service
     Send {
-        /// Message text
-        text: String,
+        /// Message text (also used as caption for media types)
+        text: Option<String>,
         /// Target service
         #[arg(long, default_value = "telegram")]
         service: String,
@@ -458,6 +458,32 @@ enum BridgeAction {
         /// Append to previous message instead of replacing (edits existing message)
         #[arg(long)]
         append: bool,
+        /// Content type: text, photo, document, voice, animation, video, sticker
+        #[arg(long, default_value = "text", rename_all = "lowercase")]
+        r#type: String,
+        /// File path for media types
+        #[arg(long)]
+        file: Option<String>,
+        /// Caption for media (alternative to positional text)
+        #[arg(long)]
+        caption: Option<String>,
+        /// Override filename for document uploads
+        #[arg(long)]
+        filename: Option<String>,
+        /// Inline keyboard buttons as JSON: [[{"text":"Yes","data":"yes"},{"text":"No","data":"no"}]]
+        #[arg(long)]
+        buttons: Option<String>,
+    },
+    /// Set an emoji reaction on a message
+    React {
+        /// Recipient chat/user ID
+        #[arg(long)]
+        to: i64,
+        /// Message ID to react to
+        #[arg(long)]
+        message_id: i64,
+        /// Emoji to react with (e.g. "👍", "✅", "❤")
+        emoji: String,
     },
 }
 
@@ -858,12 +884,42 @@ fn main() {
         }
 
         Commands::Bridge { action } => match action {
-            BridgeAction::Send { text, service, to, append } => {
-                client.call("bridge.send", Some(serde_json::json!({
+            BridgeAction::Send { text, service, to, append, r#type, file, caption, filename, buttons } => {
+                let mut params = serde_json::json!({
                     "service": service,
                     "chat_id": to,
-                    "text": text,
+                    "type": r#type,
                     "append": append,
+                });
+                if let Some(t) = text {
+                    params["text"] = serde_json::Value::String(t);
+                }
+                if let Some(f) = file {
+                    params["file"] = serde_json::Value::String(f);
+                }
+                if let Some(c) = caption {
+                    params["caption"] = serde_json::Value::String(c);
+                }
+                if let Some(n) = filename {
+                    params["filename"] = serde_json::Value::String(n);
+                }
+                if let Some(b) = buttons {
+                    // Parse buttons JSON
+                    match serde_json::from_str::<serde_json::Value>(&b) {
+                        Ok(v) => { params["buttons"] = v; }
+                        Err(e) => {
+                            eprintln!("Invalid buttons JSON: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                client.call("bridge.send", Some(params))
+            }
+            BridgeAction::React { to, message_id, emoji } => {
+                client.call("bridge.react", Some(serde_json::json!({
+                    "chat_id": to,
+                    "message_id": message_id,
+                    "emoji": emoji,
                 })))
             }
         },
