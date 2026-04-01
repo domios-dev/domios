@@ -161,12 +161,10 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
         }
         mux.move_workspace_to_front(&ws.id);
         if let Some(pid) = ws.pane_ids.first() {
+            // Ensure pane + tab titled "Main"
+            let _ = mux.rename_pane(pid, GENERAL_PANE_TITLE);
             if let Some(pane) = mux.get_pane_mut(pid) {
                 pane.protected = true;
-                if pane.title != GENERAL_PANE_TITLE {
-                    pane.title = GENERAL_PANE_TITLE.to_string();
-                    pane.title_level = crate::multiplexer::types::TitleLevel::User;
-                }
             }
             mux.register_alias(GENERAL_ALIAS, pid);
             log::info!("[general-agent] Existing General workspace, alias for pane {}", pid);
@@ -182,10 +180,10 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
     // Create tab + pane
     match mux.create_tab(&ws_info.id) {
         Ok((_tab_id, pane_id)) => {
+            // Rename pane + tab to "Main"
+            let _ = mux.rename_pane(&pane_id, GENERAL_PANE_TITLE);
             if let Some(pane) = mux.get_pane_mut(&pane_id) {
                 pane.protected = true;
-                pane.title = GENERAL_PANE_TITLE.to_string();
-                pane.title_level = crate::multiplexer::types::TitleLevel::User;
                 pane.role = Some(crate::multiplexer::types::AgentRole::Orchestrator);
                 pane.can_spawn = true;
                 pane.cwd = Some(general_cwd);
