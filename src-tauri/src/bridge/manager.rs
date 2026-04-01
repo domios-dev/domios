@@ -70,7 +70,8 @@ impl BridgeManager {
             .tcp_keepalive(std::time::Duration::from_secs(15))
             .build().unwrap_or_else(|_| reqwest::Client::new());
 
-        drop(tx);
+        // Keep tx alive — if we drop it and telegram service dies, rx closes and select! breaks.
+        let _keep_tx = tx;
 
         // Per-chat state for auto-edit
         let mut chat_states: HashMap<i64, ChatState> = HashMap::new();
