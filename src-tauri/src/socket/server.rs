@@ -320,7 +320,8 @@ fn dispatch(
                     "cron.disable",
                     "cron.trigger",
                     "cron.history",
-                    "cron.complete"
+                    "cron.complete",
+                    "bridge.send"
                 ]
             }))
         }
@@ -817,6 +818,28 @@ fn dispatch(
             svc.cron_complete(&cron_state, &run_id, summary)
                 .map_err(|e| JsonRpcError { code: -32603, message: e })?;
             Ok(serde_json::json!({"ok": true}))
+        }
+
+        "bridge.send" => {
+            let text = get_string_param(&params, "text")?;
+            let chat_id = params.as_ref().and_then(|p| p.get("chat_id")).and_then(|v| v.as_i64());
+
+            if let Some(tx) = svc.bridge_outbound.lock().as_ref() {
+                let msg = crate::bridge::manager::OutboundTelegramMessage {
+                    user_id: chat_id,
+                    text,
+                };
+                tx.send(msg).map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: format!("Bridge send failed: {}", e),
+                })?;
+                Ok(serde_json::json!({"ok": true}))
+            } else {
+                Err(JsonRpcError {
+                    code: -32603,
+                    message: "Bridge not active".to_string(),
+                })
+            }
         }
 
         _ => Err(JsonRpcError {

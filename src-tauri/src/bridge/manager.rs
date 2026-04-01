@@ -1,7 +1,6 @@
-//! BridgeManager v3 — channel-based bridge between General Agent PTY and Telegram.
+//! BridgeManager v4 — CLI-based bridge between agents and Telegram.
 //!
-//! Outbound: process_pty_output detects |-|TELEGRAM_SEND/END|-| markers, sends to channel.
-//!           BridgeManager reads from channel and sends to Telegram. No raw buffer scanning.
+//! Outbound: agents call `codeterm bridge send` CLI → socket → channel → Telegram API.
 //! Inbound: receives messages from Telegram, injects into PTY with [Telegram: user_id] prefix.
 
 use std::sync::Arc;
@@ -12,101 +11,20 @@ use super::traits::{InboundMessage, MessagingService, ReplyContext};
 use crate::service::general_agent;
 use crate::service::ServiceContext;
 
-/// Marker constants — agent wraps Telegram responses in these.
-pub const SEND_MARKER_PREFIX: &str = "|-|TELEGRAM_SEND:";
-pub const END_MARKER: &str = "|-|TELEGRAM_END|-|";
-
-/// A complete outbound message extracted from markers.
+/// A complete outbound message to send via Telegram.
 #[derive(Debug, Clone)]
 pub struct OutboundTelegramMessage {
     pub user_id: Option<i64>,
     pub text: String,
 }
 
-/// Shared sender for outbound messages — process_pty_output sends here.
+/// Shared sender for outbound messages — socket/REST bridge.send writes here.
 pub type OutboundSender = Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<OutboundTelegramMessage>>>>;
 
-/// Create a new outbound channel pair.
-/// Create outbound channel with delayed activation.
-/// Returns (sender, receiver, activation_time).
-/// Markers detected before activation_time are ignored to skip PTY output replay.
-pub fn create_outbound_channel() -> (OutboundSender, tokio::sync::mpsc::UnboundedReceiver<OutboundTelegramMessage>, std::time::Instant) {
+/// Create a new outbound channel pair. Returns (sender, receiver).
+pub fn create_outbound_channel() -> (OutboundSender, tokio::sync::mpsc::UnboundedReceiver<OutboundTelegramMessage>) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let activate_at = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    (Arc::new(Mutex::new(Some(tx))), rx, activate_at)
-}
-
-/// Shared activation timestamp — markers before this time are dropped.
-pub type ActivationTime = Arc<Mutex<std::time::Instant>>;
-
-pub fn create_activation_time(at: std::time::Instant) -> ActivationTime {
-    Arc::new(Mutex::new(at))
-}
-
-/// State machine for accumulating text between SEND and END markers.
-/// Lives in process_pty_output context — called on every PTY chunk.
-pub struct MarkerAccumulator {
-    capturing: bool,
-    buffer: String,
-    user_id: Option<i64>,
-    /// Recently sent message hashes to prevent duplicates on restart/replay.
-    sent_hashes: std::collections::HashSet<u64>,
-}
-
-impl MarkerAccumulator {
-    pub fn new() -> Self {
-        Self { capturing: false, buffer: String::new(), user_id: None, sent_hashes: std::collections::HashSet::new() }
-    }
-
-    fn hash_message(text: &str, user_id: Option<i64>) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        text.hash(&mut hasher);
-        user_id.hash(&mut hasher);
-        hasher.finish()
-    }
-
-    /// Feed a line of clean (ANSI-stripped) text. Returns a complete message when END marker found.
-    pub fn feed_line(&mut self, line: &str) -> Option<OutboundTelegramMessage> {
-        let trimmed = line.trim();
-
-        if !self.capturing {
-            // Look for SEND marker anywhere in the line (Claude TUI may prepend bullets/icons)
-            if let Some(pos) = trimmed.find(SEND_MARKER_PREFIX) {
-                let rest = &trimmed[pos + SEND_MARKER_PREFIX.len()..];
-                let rest = rest.trim().trim_end_matches("|-|").trim();
-                self.user_id = rest.parse::<i64>().ok();
-                self.capturing = true;
-                self.buffer.clear();
-            }
-            return None;
-        }
-
-        // We're capturing — check for END marker
-        if trimmed.contains(END_MARKER) {
-            self.capturing = false;
-            let text = self.buffer.trim().to_string();
-            if text.is_empty() { return None; }
-            // Dedup: skip if we already sent this exact message
-            let hash = Self::hash_message(&text, self.user_id);
-            if self.sent_hashes.contains(&hash) {
-                log::debug!("[bridge-detect] duplicate marker skipped: {}", &text[..text.len().min(50)]);
-                return None;
-            }
-            self.sent_hashes.insert(hash);
-            // Cap dedup cache at 100 entries
-            if self.sent_hashes.len() > 100 { self.sent_hashes.clear(); }
-            return Some(OutboundTelegramMessage {
-                user_id: self.user_id.take(),
-                text,
-            });
-        }
-
-        // Accumulate line
-        if !self.buffer.is_empty() { self.buffer.push('\n'); }
-        self.buffer.push_str(trimmed);
-        None
-    }
+    (Arc::new(Mutex::new(Some(tx))), rx)
 }
 
 pub struct BridgeManager {
@@ -236,44 +154,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_marker_accumulator_basic() {
-        let mut acc = MarkerAccumulator::new();
-        assert!(acc.feed_line("some output").is_none());
-        assert!(acc.feed_line("|-|TELEGRAM_SEND: 186809246|-|").is_none());
-        assert!(acc.feed_line("Hello from agent!").is_none());
-        let msg = acc.feed_line("|-|TELEGRAM_END|-|").unwrap();
-        assert_eq!(msg.user_id, Some(186809246));
-        assert_eq!(msg.text, "Hello from agent!");
-    }
-
-    #[test]
-    fn test_marker_accumulator_multiline() {
-        let mut acc = MarkerAccumulator::new();
-        acc.feed_line("|-|TELEGRAM_SEND: 123|-|");
-        acc.feed_line("Line 1");
-        acc.feed_line("Line 2");
-        let msg = acc.feed_line("|-|TELEGRAM_END|-|").unwrap();
-        assert_eq!(msg.text, "Line 1\nLine 2");
-    }
-
-    #[test]
-    fn test_marker_accumulator_ignores_non_markers() {
-        let mut acc = MarkerAccumulator::new();
-        assert!(acc.feed_line("random text").is_none());
-        assert!(acc.feed_line("more text").is_none());
-        // No message produced
-    }
-
-    #[test]
-    fn test_marker_accumulator_empty_body() {
-        let mut acc = MarkerAccumulator::new();
-        acc.feed_line("|-|TELEGRAM_SEND: 123|-|");
-        assert!(acc.feed_line("|-|TELEGRAM_END|-|").is_none()); // empty = skip
-    }
-
-    #[test]
     fn test_capitalize() {
         assert_eq!(capitalize("telegram"), "Telegram");
         assert_eq!(capitalize(""), "");
+    }
+
+    #[test]
+    fn test_create_outbound_channel() {
+        let (sender, _rx) = create_outbound_channel();
+        assert!(sender.lock().is_some());
     }
 }

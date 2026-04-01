@@ -55,12 +55,8 @@ pub struct ServiceContext {
     pub report_store: ReportStoreState,
     pub agent_registry: Arc<AgentRegistry>,
     pub prompt_detector: PromptDetectorState,
-    /// Channel for outbound Telegram messages (bridge markers detected in process_pty_output).
+    /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
-    /// Per-PTY marker accumulators for Telegram bridge.
-    pub bridge_accumulators: Arc<parking_lot::Mutex<std::collections::HashMap<String, crate::bridge::manager::MarkerAccumulator>>>,
-    /// Activation time — markers before this are ignored (skip PTY output replay on startup).
-    pub bridge_activate_at: crate::bridge::manager::ActivationTime,
 }
 
 pub type ServiceState = Arc<ServiceContext>;

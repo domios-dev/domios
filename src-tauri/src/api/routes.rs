@@ -92,6 +92,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/config", get(get_config_api).patch(patch_config_api))
         .route("/api/update/check", get(check_update))
         .route("/api/update/install", post(install_update))
+        .route("/api/bridge/send", post(bridge_send_api))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -2147,6 +2148,26 @@ fn dot_get(val: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
     let mut current = val;
     for key in path.split('.') { current = current.get(key)?; }
     Some(current.clone())
+}
+
+async fn bridge_send_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let text = body.get("text").and_then(|v| v.as_str())
+        .ok_or((StatusCode::BAD_REQUEST, "text required"))?;
+    let chat_id = body.get("chat_id").and_then(|v| v.as_i64());
+
+    let tx = state.svc.bridge_outbound.lock();
+    let tx = tx.as_ref().ok_or((StatusCode::SERVICE_UNAVAILABLE, "Bridge not active"))?;
+    tx.send(crate::bridge::manager::OutboundTelegramMessage {
+        user_id: chat_id,
+        text: text.to_string(),
+    }).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Send failed"))?;
+
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 fn dot_set(val: &mut serde_json::Value, path: &str, new_val: serde_json::Value) -> Result<(), ()> {

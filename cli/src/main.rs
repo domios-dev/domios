@@ -171,6 +171,12 @@ enum Commands {
         action: ConfigAction,
     },
 
+    /// Send a message to an external service (Telegram, etc.)
+    Bridge {
+        #[command(subcommand)]
+        action: BridgeAction,
+    },
+
     /// Capture a screenshot of the CodeTerm window
     Screenshot {
         /// Save to file instead of printing base64 (e.g. screenshot.jpg)
@@ -435,6 +441,21 @@ enum UpdateAction {
     },
     /// Show update command or open download page
     Install,
+}
+
+#[derive(Subcommand)]
+enum BridgeAction {
+    /// Send a message to Telegram or other service
+    Send {
+        /// Message text
+        text: String,
+        /// Target service
+        #[arg(long, default_value = "telegram")]
+        service: String,
+        /// Recipient chat/user ID
+        #[arg(long)]
+        to: i64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -832,6 +853,16 @@ fn main() {
             }
             client.call("notification.create", Some(params))
         }
+
+        Commands::Bridge { action } => match action {
+            BridgeAction::Send { text, service, to } => {
+                client.call("bridge.send", Some(serde_json::json!({
+                    "service": service,
+                    "chat_id": to,
+                    "text": text,
+                })))
+            }
+        },
 
         Commands::Notifications { action, unread } => match action {
             Some(NotificationAction::Clear) => client.call("notification.clear", None),
