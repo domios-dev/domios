@@ -126,8 +126,9 @@ async fn outbound_loop(svc: ServiceContext, state: Arc<OutboundState>) {
 
     log::info!("[bridge-outbound] streaming started for PTY {}, offset={}", &pty_id[..8.min(pty_id.len())], initial_offset);
 
-    // Track when output buffer last changed — send after it stabilizes
-    let mut last_buf_len: usize = initial_offset;
+    // Track screen text changes — VT100 parsed screen doesn't have cursor blink noise
+    let mut last_screen = svc.screen_state.lock()
+        .get_screen_text(&pty_id).unwrap_or_default();
     let mut stable_since: Option<tokio::time::Instant> = None;
     const STABLE_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -137,22 +138,23 @@ async fn outbound_loop(svc: ServiceContext, state: Arc<OutboundState>) {
         let chat_id = *state.chat_id.lock();
         let Some(chat_id) = chat_id else { continue };
 
-        // Check if output buffer has grown
-        let current_buf_len = svc.output_buf.lock()
-            .get_full(&pty_id).map(|b| b.len()).unwrap_or(0);
+        // Get current screen text (VT100 parsed — no ANSI noise)
+        let current_screen = svc.screen_state.lock()
+            .get_screen_text(&pty_id).unwrap_or_default();
 
-        if current_buf_len != last_buf_len {
-            // Buffer changed — reset stability timer
-            last_buf_len = current_buf_len;
+        if current_screen != last_screen {
+            // Screen changed — reset stability timer
+            last_screen = current_screen;
             stable_since = Some(tokio::time::Instant::now());
             continue;
         }
 
-        // Buffer unchanged — check if stable long enough
+        // Screen unchanged — check if stable long enough
         let Some(since) = stable_since else { continue };
         if since.elapsed() < STABLE_DELAY { continue; }
-        stable_since = None; // Reset so we don't send again
+        stable_since = None;
 
+        // Extract new content from raw buffer since last sent offset
         let last_offset = state.offset.load(Ordering::Relaxed);
         let new_content = {
             let buf = svc.output_buf.lock();
@@ -166,8 +168,6 @@ async fn outbound_loop(svc: ServiceContext, state: Arc<OutboundState>) {
         };
 
         let Some(raw) = new_content else { continue };
-        if raw.trim().is_empty() { continue; }
-
         let clean = super::response::strip_ansi(&raw);
         if clean.is_empty() { continue; }
 
