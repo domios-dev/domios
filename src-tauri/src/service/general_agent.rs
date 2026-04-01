@@ -138,16 +138,37 @@ pub const GENERAL_ALIAS: &str = "general";
 pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::MultiplexerState) {
     let general_cwd = general_dir().to_string_lossy().to_string();
 
-    // Check if General workspace already exists (protected flag)
-    let has_general = mux.list_workspaces().iter().any(|ws| ws.protected);
+    // Check if General workspace already exists (protected flag OR name "General")
+    let has_general = mux.list_workspaces().iter().any(|ws| ws.protected || ws.name == "General");
     if has_general {
-        // Re-register alias for the general pane
-        let general_pane = mux.list_workspaces().iter()
-            .find(|ws| ws.protected)
-            .and_then(|ws| ws.pane_ids.first().cloned());
-        if let Some(pid) = general_pane {
-            mux.register_alias(GENERAL_ALIAS, &pid);
-            log::info!("[general-agent] Existing General workspace found, alias registered for pane {}", pid);
+        // Clean up duplicate "General" workspaces (from hot-reload or old runs)
+        let general_ws_ids: Vec<String> = mux.list_workspaces().iter()
+            .filter(|ws| ws.name == "General")
+            .map(|ws| ws.id.clone())
+            .collect();
+        if general_ws_ids.len() > 1 {
+            // Keep the first one, close others
+            for id in &general_ws_ids[1..] {
+                mux.set_workspace_protected(id, false); // unprotect so we can close
+                let _ = mux.close_workspace(id);
+                log::info!("[general-agent] Cleaned up duplicate General workspace {}", id);
+            }
+        }
+
+        // Ensure it's protected + alias registered
+        let ws_info = mux.list_workspaces().iter()
+            .find(|ws| ws.protected || ws.name == "General")
+            .cloned();
+        if let Some(ws) = ws_info {
+            mux.set_workspace_protected(&ws.id, true);
+            mux.move_workspace_to_front(&ws.id);
+            if let Some(pid) = ws.pane_ids.first() {
+                if let Some(pane) = mux.get_pane_mut(pid) {
+                    pane.protected = true;
+                }
+                mux.register_alias(GENERAL_ALIAS, pid);
+                log::info!("[general-agent] Existing General workspace, alias for pane {}", pid);
+            }
         }
         return;
     }
@@ -249,11 +270,7 @@ pub fn start_general_agent(
     svc.set_pane_agent_type(&pane_id, Some(provider_name.to_string()));
     log::info!("[general-agent] PTY {} linked to pane {}", pty_id, pane_id);
 
-    // 6. Start backend reader (processes output without frontend)
-    super::pty_lifecycle::start_backend_reader(svc, &pty_id);
-
-    // 7. Wait for shell to start — simple delay instead of poll_shell_prompt
-    // (poll_shell_prompt can deadlock with backend reader competing for screen_state lock)
+    // Wait for shell to start before sending command
     std::thread::sleep(std::time::Duration::from_secs(3));
 
     // Build launch command

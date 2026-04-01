@@ -894,6 +894,7 @@ impl MultiplexerState {
                 name: ws.name.clone(),
                 active_tab_id: ws.active_tab_id.clone(),
                 cwd: ws.cwd.clone(),
+                protected: ws.protected,
                 tabs: ws.tabs.iter().map(|tab| {
                     TabSnapshot {
                         id: tab.id.clone(),
@@ -998,7 +999,7 @@ impl MultiplexerState {
                     }
                 }).collect(),
                 cwd: ws.cwd.clone(),
-                protected: false,
+                protected: ws.protected,
             }
         }).collect();
 
