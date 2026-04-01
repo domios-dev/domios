@@ -39,7 +39,29 @@ impl SocketClient {
     ///
     /// On Windows, `socket_path` should be the namespaced name (e.g. `codeterm-1234`),
     /// NOT the full `\\.\pipe\codeterm-1234` path.
+    /// Tries both with and without `.sock` suffix for compatibility across versions.
     pub fn connect(socket_path: &str) -> Result<Self, String> {
+        // Try as-is first
+        if let Ok(client) = Self::try_connect(socket_path) {
+            return Ok(client);
+        }
+        // Try with .sock suffix if not already present
+        if !socket_path.ends_with(".sock") {
+            let with_sock = format!("{}.sock", socket_path);
+            if let Ok(client) = Self::try_connect(&with_sock) {
+                return Ok(client);
+            }
+        }
+        // Try without .sock suffix if present
+        if let Some(without) = socket_path.strip_suffix(".sock") {
+            if let Ok(client) = Self::try_connect(without) {
+                return Ok(client);
+            }
+        }
+        Err(format!("Failed to connect to '{}' (tried with/without .sock)", socket_path))
+    }
+
+    fn try_connect(socket_path: &str) -> Result<Self, String> {
         let name = socket_path
             .to_ns_name::<GenericNamespaced>()
             .map_err(|e| format!("Invalid socket name '{}': {}", socket_path, e))?;
