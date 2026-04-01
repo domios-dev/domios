@@ -53,8 +53,9 @@ impl MarkerAccumulator {
         let trimmed = line.trim();
 
         if !self.capturing {
-            // Look for SEND marker
-            if let Some(rest) = trimmed.strip_prefix(SEND_MARKER_PREFIX) {
+            // Look for SEND marker anywhere in the line (Claude TUI may prepend bullets/icons)
+            if let Some(pos) = trimmed.find(SEND_MARKER_PREFIX) {
+                let rest = &trimmed[pos + SEND_MARKER_PREFIX.len()..];
                 let rest = rest.trim().trim_end_matches("|-|").trim();
                 self.user_id = rest.parse::<i64>().ok();
                 self.capturing = true;
