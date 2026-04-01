@@ -24,7 +24,14 @@ pub struct TelegramService {
 
 impl TelegramService {
     pub fn new(token: String, allowed_users: Vec<String>) -> Self {
-        Self { token, allowed_users, client: reqwest::Client::new() }
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(40)) // > Telegram's 30s long poll
+            .tcp_keepalive(std::time::Duration::from_secs(15))
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        Self { token, allowed_users, client }
     }
 
     fn api_url(&self, method: &str) -> String {
@@ -51,19 +58,48 @@ impl TelegramService {
 
     async fn poll_updates(self: Box<Self>, tx: tokio::sync::mpsc::Sender<InboundMessage>) {
         let mut offset: i64 = 0;
+        let mut error_count: u32 = 0;
+        let mut poll_count: u64 = 0;
+
         loop {
+            poll_count += 1;
+            if poll_count % 10 == 1 {
+                log::info!("[telegram] poll #{}, offset={}, errors={}", poll_count, offset, error_count);
+            }
+
             let resp = self.client
                 .post(&self.api_url("getUpdates"))
                 .json(&serde_json::json!({ "offset": offset, "timeout": 30, "allowed_updates": ["message"] }))
-                .timeout(std::time::Duration::from_secs(35))
-                .send().await;
+                .send().await; // client-level timeout handles this (40s)
 
             let body = match resp {
-                Ok(r) => match r.json::<serde_json::Value>().await {
-                    Ok(v) => v,
-                    Err(e) => { log::warn!("[telegram] parse error: {}", e); tokio::time::sleep(std::time::Duration::from_secs(5)).await; continue; }
-                },
-                Err(e) => { log::warn!("[telegram] poll error: {}", e); tokio::time::sleep(std::time::Duration::from_secs(5)).await; continue; }
+                Ok(r) if r.status().is_success() => {
+                    error_count = 0;
+                    match r.json::<serde_json::Value>().await {
+                        Ok(v) => v,
+                        Err(e) => { log::warn!("[telegram] parse error: {}", e); tokio::time::sleep(std::time::Duration::from_secs(1)).await; continue; }
+                    }
+                }
+                Ok(r) if r.status().as_u16() == 429 => {
+                    let wait = 30u64; // Telegram rate limit
+                    log::warn!("[telegram] rate limited, waiting {}s", wait);
+                    tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                    continue;
+                }
+                Ok(r) => {
+                    error_count += 1;
+                    log::warn!("[telegram] API error {}", r.status());
+                    let backoff = (2u64.pow(error_count.min(6))).min(60);
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
+                    continue;
+                }
+                Err(e) => {
+                    error_count += 1;
+                    log::warn!("[telegram] poll error (count={}): {}", error_count, e);
+                    let backoff = (2u64.pow(error_count.min(6))).min(60);
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
+                    continue;
+                }
             };
 
             let Some(updates) = body.get("result").and_then(|v| v.as_array()) else {

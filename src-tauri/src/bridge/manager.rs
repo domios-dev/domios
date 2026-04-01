@@ -110,7 +110,13 @@ impl BridgeManager {
         }
 
         let token = super::telegram::read_token().unwrap_or_default();
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(15))
+            .build().unwrap_or_else(|_| reqwest::Client::new());
+
+        // Drop original tx so rx closes when all service tasks die
+        drop(tx);
 
         log::info!("[bridge] manager v3 started (channel mode)");
 
@@ -162,7 +168,11 @@ impl BridgeManager {
                     }
                 }
 
-                else => break,
+                else => {
+                    log::error!("[bridge] all channels closed — this should not happen");
+                    // Sleep and retry rather than dying
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                }
             }
         }
 
