@@ -1248,11 +1248,11 @@ async fn hook_stop(
     }
 
     // Clear agent_type so next launch gets fresh session detection.
-    // Keep agent_session_id — it's needed for session resume on CodeTerm restart.
-    // Title is preserved (user/agent renames stay).
-    // This is critical on Windows where PowerShell doesn't reset OSC title
-    // after Claude exits, so title-based exit detection doesn't work.
-    state.svc.set_pane_agent_type(&pane_id, None);
+    // BUT: skip for protected panes (General Agent) — agent_type is permanent there.
+    let is_protected = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.protected).unwrap_or(false);
+    if !is_protected {
+        state.svc.set_pane_agent_type(&pane_id, None);
+    }
     // Clear any pending prompt left over
     state.svc.prompt_detector.lock().clear(&pane_id);
     {
