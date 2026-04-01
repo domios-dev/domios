@@ -43,6 +43,8 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 15. **Edit cron job**: `codeterm cron edit ID --schedule "*/15 * * * *"` (prefer over delete+recreate to preserve history)
 16. **Complete cron run**: `codeterm cron complete --run-id UUID --summary "result"`
 17. **List cron jobs**: `codeterm cron list`, **trigger manually**: `codeterm cron trigger ID`
+18. **Read config**: `codeterm config get integrations.telegram_enabled` (dot-notation)
+19. **Write config**: `codeterm config set integrations.telegram_enabled true` (JSON values)
 
 ## Screenshots for Debugging
 
@@ -75,6 +77,36 @@ All CLI commands support the `--json` flag for machine-readable output:
 codeterm pane list --json
 codeterm workspace list --json
 ```
+
+## Integrations
+
+### Telegram Bridge
+CodeTerm routes messages between Telegram and the General Agent:
+- **Inbound:** Messages arrive as `[Telegram: user_id] text` in the agent's PTY
+- **Outbound:** Agent output is streamed to the Telegram chat when idle
+
+Setup via CLI:
+```bash
+# Save token to secrets dir
+echo "BOT_TOKEN" > ~/.codeterm/secrets/telegram.token
+
+# Enable
+codeterm config set integrations.telegram_enabled true
+codeterm config set integrations.telegram_allowed_users '["USER_ID"]'
+
+# Restart CodeTerm (hot-reload not yet supported)
+```
+
+Connected panes show service icons in the sidebar (`connected_services` field).
+
+### Config Management
+Read/write CodeTerm config at runtime:
+```bash
+codeterm config get integrations.telegram_enabled
+codeterm config set integrations.telegram_enabled true
+codeterm config get general_agent                    # read entire section
+```
+Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["array"]).
 
 ## Agent Integration
 
@@ -188,4 +220,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`, so context is preserved across restarts.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
