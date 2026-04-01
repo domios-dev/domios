@@ -295,11 +295,27 @@ fn inject_message(svc: &ServiceContext, msg: &InboundMessage) -> Result<(), Stri
             .ok_or("General Agent not found")?
     };
 
-    // Use send_text (bracket paste + Enter) — handles multiline correctly
     let prefixed = format!("[{}: {}] {}",
         capitalize(&msg.service), msg.user_id, msg.text);
 
-    svc.send_text(&pane_id, &prefixed, true)
+    // Bracket paste the text
+    let pty_id = svc.resolve_pty_id(&pane_id)?;
+    let paste = format!("\x1b[200~{}\x1b[201~", prefixed);
+    svc.pty.lock().write(&pty_id, paste.as_bytes()).map_err(|e| e.to_string())?;
+
+    // Send Enter with retry — Claude TUI needs time to process paste
+    let pty = svc.pty.clone();
+    let pty_id = pty_id.clone();
+    std::thread::spawn(move || {
+        // First attempt after 500ms
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let _ = pty.lock().write(&pty_id, b"\r");
+        // Retry after 2s if first didn't take
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+        let _ = pty.lock().write(&pty_id, b"\r");
+    });
+
+    Ok(())
 }
 
 fn capitalize(s: &str) -> String {
