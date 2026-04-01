@@ -167,7 +167,7 @@ pub fn ensure_general_workspace(mux: &mut crate::multiplexer::state::Multiplexer
     }
 
     // Create General workspace
-    let ws_info = mux.create_workspace("General".to_string(), Some(general_cwd.clone()));
+    let ws_info = mux.create_workspace("Main".to_string(), Some(general_cwd.clone()));
     mux.set_workspace_protected(&ws_info.id, true);
     mux.move_workspace_to_front(&ws_info.id);
 
