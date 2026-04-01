@@ -19,10 +19,18 @@ impl ServiceContext {
             // \r concatenated with paste end or sent immediately is swallowed.
             let pty = self.pty.clone();
             let pty_id = pty_id.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
-                let _ = pty.lock().write(&pty_id, b"\r");
-            });
+            if tokio::runtime::Handle::try_current().is_ok() {
+                tokio::spawn(async move {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                    let _ = pty.lock().write(&pty_id, b"\r");
+                });
+            } else {
+                // Called outside tokio (socket API, cron, std::thread) — blocking fallback
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(150));
+                    let _ = pty.lock().write(&pty_id, b"\r");
+                });
+            }
         }
         Ok(())
     }
