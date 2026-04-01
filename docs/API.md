@@ -97,6 +97,7 @@ Fields returned by `GET /api/panes` for each pane:
 | `role` | `string?` | `"Orchestrator"`, `"Lead"`, `"Worker"`, or `null` |
 | `parent_pane_id` | `string?` | Parent pane ID in hierarchy, or `null` |
 | `can_spawn` | `bool` | Whether this pane can spawn children. Orchestrator: true (default). Lead: true (default). Worker: always false. |
+| `connected_services` | `string[]` | External services connected to this pane (e.g. `["telegram"]`). Shown as icons in sidebar. |
 | `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Orchestrator), 2 (Lead or Worker under Orchestrator), 3 (Worker under Lead) |
 
 #### Permission Hook (POST /api/panes/{id}/hook/permission)
@@ -120,6 +121,15 @@ curl -X POST "http://host:7685/api/panes/$PANE/hook/permission" \
 ```
 
 Response: `{"detected": true}` or `{"detected": false}`. Even when `detected: false`, the hook still fires a `agent.permission_request` webhook event (the hook firing itself signals the agent is waiting).
+
+#### Stop Hook (POST /api/panes/{id}/hook/stop)
+
+Called by Claude Code hooks (Stop matcher) to notify CodeTerm that the agent has completed its task. Triggers `agent.task_complete` webhook event and updates pane status.
+
+```bash
+curl -X POST "http://host:7685/api/panes/$PANE/hook/stop" \
+  -H "Content-Type: application/json" -d '{}'
+```
 
 #### Canvas (Visualizations)
 | Method | Path | Body | Description |
@@ -177,6 +187,20 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/crons/:id/disable` | — | Disable cron job |
 | POST | `/api/crons/:id/trigger` | — | Manually trigger cron job |
 | GET | `/api/crons/:id/history` | — | Get run history for cron job |
+
+#### Configuration
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/config` | `?key=dot.path` | Get full config or a single key (dot-notation) |
+| PATCH | `/api/config` | `{key, value}` or partial merge | Set a config value by dot-notation key, or merge a partial config object |
+
+**GET /api/config** — without `key`, returns the full `AppConfig` as JSON. With `?key=integrations.telegram_enabled`, returns `{"key": "...", "value": ...}`.
+
+**PATCH /api/config** — two modes:
+1. **Dot-notation key+value:** `{"key": "integrations.telegram_enabled", "value": true}` — sets a single key.
+2. **Partial merge:** send top-level config sections as JSON — they are merged into the existing config.
+
+The config is saved to disk and a `config-changed` Tauri event is emitted.
 
 #### Updates
 | Method | Path | Body / Query | Description |
@@ -516,6 +540,10 @@ codeterm cron history ID                       # Show run history
 codeterm cron complete --run-id UUID --summary "result"
                                                # Mark cron run as complete (called by spawned agent)
 
+# Configuration
+codeterm config get <key>                      # Get config value (dot-notation, e.g. "integrations.telegram_enabled")
+codeterm config set <key> <value>              # Set config value (JSON: true, false, 42, "string", ["array"])
+
 # Screenshot
 codeterm screenshot                            # Capture window, print JSON (data URL + dimensions)
 codeterm screenshot --output screenshot.jpg    # Capture window, save to file
@@ -535,6 +563,8 @@ These are Tauri IPC commands (invoked from frontend via `invoke()`), not REST en
 | `mux_set_claude_session_id` | `pane_id, session_id` | Links pane to a Claude Code session for `--resume` support |
 | `get_default_cwd` | — | Returns the application's current working directory |
 | `mux_batch` | `commands: [{method, params, id?}]` | Execute batch commands with $ref resolution (same semantics as POST /api/batch). Delegates to the unified ServiceContext. |
+| `get_autostart_enabled` | — | Returns whether OS autostart (launch at login) is enabled |
+| `set_autostart_enabled` | `enabled: bool` | Enable/disable OS autostart. Windows: HKCU registry. macOS: LaunchAgent plist. Linux: .desktop file. |
 
 ## Environment Variables
 
@@ -549,6 +579,7 @@ Set automatically in every PTY spawned by CodeTerm:
 | `CODETERM_WORKSPACE_ID` | `b4e2c8d1` | Current workspace ID (8-char hex) |
 | `CODETERM_ROLE` | `Orchestrator` | Agent role: `Orchestrator`, `Lead`, or `Worker` (empty if no role). Set at PTY spawn. |
 | `CODETERM_PARENT_PANE_ID` | `b4e2c8d1` | Parent pane ID in hierarchy (empty if Orchestrator or no role). Set at PTY spawn. |
+| `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by CodeTerm so CLI and hooks use the correct port (dev: 7686, prod: 7685). |
 | `TERM` | `xterm-256color` | Terminal type |
 | `COLORTERM` | `truecolor` | Color support |
 | `TERM_PROGRAM` | `CodeTerm` | Terminal name |
@@ -583,14 +614,14 @@ Dev builds (`tauri.dev.conf.json`) use identifier `com.codeterm.dev` and are ful
 
 ## Agent Prompts
 
-Agent prompt templates are defined in `src-tauri/src/prompts.rs`. Role-specific suffixes are appended to tasks at spawn time:
-- **Worker:** Instructions to report back via `codeterm agent report`.
-- **Lead:** Spawn instructions + "Do NOT sleep or poll for reports" rule.
-- **Orchestrator:** "Do NOT sleep or poll for reports" rule.
-- **Cron tasks:** Completion instruction with `cron complete --run-id` command.
+Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and loaded at compile time via `include_str!()`. Role-specific suffixes are appended to tasks at spawn time:
+- **Worker** (`worker_suffix.md`): Instructions to report back via `codeterm agent report`.
+- **Lead** (`lead_suffix.md`): Spawn instructions + "Do NOT sleep or poll for reports" rule.
+- **Orchestrator** (`orchestrator_suffix.md`): "Do NOT sleep or poll for reports" rule.
+- **Cron tasks** (`cron_complete_suffix.md`): Completion instruction with `cron complete --run-id` command.
+- **General Agent** (`general_agent.md`): System prompt for the always-on General Agent.
+- **CodeTerm Rule** (`codeterm_rule.md`): Base rules injected into all agent prompts.
+- **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
+- **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<<<<<<< HEAD
-<!-- revision: 17 -->
-=======
-<!-- revision: 16 -->
->>>>>>> origin/develop
+<!-- revision: 18 -->
