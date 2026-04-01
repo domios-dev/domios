@@ -103,6 +103,17 @@ fn init_states() -> AppStates {
             }
         }
     };
+    // Ensure General Agent workspace exists (before any threading/locking — no deadlock)
+    let general_config = config_state.lock().general_agent.clone();
+    #[allow(unused_mut)]
+    let mut mux_state_inner = mux_state_inner;
+    if general_config.enabled {
+        service::general_agent::ensure_directories();
+        let instructions_file = if general_config.agent_provider == "claude" { "CLAUDE.md" } else { "AGENT.md" };
+        service::general_agent::generate_instructions(&general_config.agent_provider, instructions_file);
+        service::general_agent::ensure_general_workspace(&mut mux_state_inner);
+    }
+
     let mux_state: MuxState = Arc::new(Mutex::new(mux_state_inner));
 
     AppStates {
@@ -495,10 +506,8 @@ fn start_servers(
         }
     }
 
-    // General Agent — disabled pending deadlock fix.
-    // TODO: start_general_agent calls mux.lock().create_tab() which deadlocks
-    // with frontend state sync. Need to use Tauri commands instead of direct mux access.
-    if false {
+    // Start General Agent PTY + launch agent (workspace/pane already created in init_states)
+    {
         let config = states.config.lock().general_agent.clone();
         if config.enabled {
             let svc = service_state.clone();
