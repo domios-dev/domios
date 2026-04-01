@@ -21,13 +21,13 @@ impl ServiceContext {
             let pty_id = pty_id.clone();
             if tokio::runtime::Handle::try_current().is_ok() {
                 tokio::spawn(async move {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                     let _ = pty.lock().write(&pty_id, b"\r");
                 });
             } else {
                 // Called outside tokio (socket API, cron, std::thread) — blocking fallback
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(150));
+                    std::thread::sleep(std::time::Duration::from_millis(500));
                     let _ = pty.lock().write(&pty_id, b"\r");
                 });
             }
