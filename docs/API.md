@@ -177,11 +177,17 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | `service` | `string?` | `"telegram"` | Target service (currently only `telegram`) |
 | `append` | `bool` | `false` | Append text to previous message (edits via `editMessageText`) instead of sending new |
 
-**Auto-edit window:** Within 60 seconds of the last sent message to a chat, `bridge send` (without `--append`) edits the previous message instead of sending a new one. With `--append`, text is concatenated to the previous message and edited in-place.
+**Behavior:** `bridge send` (without `--append`) always sends a **new** message — no auto-edit. With `--append`, text is concatenated to the previous message (with an automatic `\n\n` paragraph break) and edited in-place, provided the previous message was sent within the last 60 seconds. If the 60-second window has expired, `--append` sends a new message instead.
 
 **Typing indicator:** On every inbound Telegram message, CodeTerm sends a `sendChatAction("typing")` to show the typing bubble.
 
 **Inbound debounce:** Rapid-fire Telegram messages within a 300ms window are merged into a single delivery to the agent PTY.
+
+**UTF-8 safe chunking:** Messages exceeding Telegram's 4096-character limit are split into chunks. The chunker uses `floor_char_boundary()` to avoid slicing multi-byte UTF-8 characters (Cyrillic, emoji, CJK), preventing panics on non-ASCII text.
+
+**Any-pane sending:** `bridge send` works from any pane, not just the General Agent pane. The CLI routes through the socket API without pane restrictions.
+
+**Service resilience:** If the Telegram polling service dies (network error, API failure), the bridge manager automatically restarts it after a 5-second backoff. The manager never exits — it loops indefinitely, logging panics instead of dying silently.
 
 Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge is not active.
 
@@ -653,4 +659,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

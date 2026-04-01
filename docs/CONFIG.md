@@ -145,7 +145,7 @@ External service integrations are configured under `[integrations]`.
 
 Connect a Telegram bot to the General Agent. Messages are routed bidirectionally:
 - **Inbound** (Telegram to Agent): Messages arrive as `[Telegram: user_id] text` in the PTY. Rapid messages within 300ms are debounced into a single delivery. A typing indicator is sent on every inbound message.
-- **Outbound** (Agent to Telegram): The agent sends replies via CLI: `codeterm bridge send --to USER_ID --service telegram "text"`. Within a 60-second window, messages auto-edit the previous one instead of sending new. Use `--append` to concatenate text to the previous message.
+- **Outbound** (Agent to Telegram): The agent sends replies via CLI: `codeterm bridge send --to USER_ID --service telegram "text"`. Without `--append`, always sends a new message. Use `--append` to concatenate text to the previous message (auto-inserts `\n\n` paragraph break, edits in-place within 60s window). Works from any pane, not just the General Agent.
 
 ```toml
 [integrations]
@@ -253,4 +253,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
