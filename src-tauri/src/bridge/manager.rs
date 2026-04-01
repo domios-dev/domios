@@ -127,7 +127,7 @@ impl BridgeManager {
 
                     log::info!("[bridge] inbound from {} ({}, {} msg): {}",
                         first.user_name, first.service, messages.len(),
-                        &merged_text[..merged_text.len().min(100)]);
+                        &merged_text.chars().take(100).collect::<String>());
 
                     if let ReplyContext::Telegram { chat_id } = &first.reply_ctx {
                         *fallback_clone.lock() = Some(*chat_id);
