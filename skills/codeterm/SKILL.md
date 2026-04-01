@@ -362,7 +362,12 @@ Connect a Telegram bot to the General Agent. CodeTerm handles message routing â€
 
 **Setup:**
 1. Create a bot via @BotFather on Telegram, get the token
-2. Save token: write it to `~/.codeterm/secrets/telegram.token` (create dirs if needed)
+2. Save token as PLAIN TEXT (just the token, nothing else) to `~/.codeterm/secrets/telegram.token`:
+   ```bash
+   mkdir -p ~/.codeterm/secrets
+   echo -n "YOUR_BOT_TOKEN_HERE" > ~/.codeterm/secrets/telegram.token
+   ```
+   IMPORTANT: The file must contain ONLY the token string â€” no markdown, no headers, no extra text.
 3. Enable: `codeterm config set integrations.telegram_enabled true`
 4. Optionally restrict users: `codeterm config set integrations.telegram_allowed_users '["186809246"]'`
 5. Restart CodeTerm (hot-reload not yet supported)
