@@ -60,15 +60,33 @@ pub fn strip_ansi(input: &str) -> String {
     result.trim().to_string()
 }
 
+/// Find the largest byte index <= `max_bytes` that lies on a char boundary.
+fn floor_char_boundary(s: &str, max_bytes: usize) -> usize {
+    if max_bytes >= s.len() { return s.len(); }
+    let mut i = max_bytes;
+    while i > 0 && !s.is_char_boundary(i) { i -= 1; }
+    i
+}
+
 pub fn chunk_message(text: &str, max_len: usize) -> Vec<String> {
     if text.len() <= max_len { return vec![text.to_string()]; }
     let mut chunks = Vec::new();
     let mut remaining = text;
     while !remaining.is_empty() {
         if remaining.len() <= max_len { chunks.push(remaining.to_string()); break; }
-        let slice = &remaining[..max_len];
-        let break_at = slice.rfind('\n').unwrap_or(max_len);
-        let break_at = if break_at == 0 { max_len } else { break_at };
+        // Find a safe byte boundary that doesn't split a multi-byte char
+        let safe_end = floor_char_boundary(remaining, max_len);
+        if safe_end == 0 {
+            // Degenerate case: max_len is smaller than a single character
+            // Take the first char regardless
+            let first_char_end = remaining.char_indices().nth(1).map(|(i, _)| i).unwrap_or(remaining.len());
+            chunks.push(remaining[..first_char_end].to_string());
+            remaining = &remaining[first_char_end..];
+            continue;
+        }
+        let slice = &remaining[..safe_end];
+        let break_at = slice.rfind('\n').unwrap_or(safe_end);
+        let break_at = if break_at == 0 { safe_end } else { break_at };
         chunks.push(remaining[..break_at].to_string());
         remaining = remaining[break_at..].trim_start_matches('\n');
     }
@@ -96,5 +114,38 @@ mod tests {
         let text = format!("{}\n{}", "a".repeat(100), "b".repeat(100));
         let chunks = chunk_message(&text, 150);
         assert_eq!(chunks.len(), 2);
+    }
+
+    #[test]
+    fn test_chunk_multibyte_utf8() {
+        // Russian text: each Cyrillic char is 2 bytes in UTF-8
+        let text = "Привет ".repeat(600); // ~4200 bytes
+        let chunks = chunk_message(&text, 100);
+        assert!(chunks.len() > 1);
+        for chunk in &chunks {
+            assert!(chunk.len() <= 100);
+            // Verify all chunks are valid UTF-8 (would panic if not)
+            let _ = chunk.as_str();
+        }
+    }
+
+    #[test]
+    fn test_chunk_emoji() {
+        // Emoji: 4 bytes each in UTF-8
+        let text = "🔥".repeat(30); // 120 bytes
+        let chunks = chunk_message(&text, 10);
+        assert!(chunks.len() > 1);
+        for chunk in &chunks {
+            assert!(chunk.len() <= 12); // 4-byte emoji, so max overshoot is a single char boundary
+        }
+    }
+
+    #[test]
+    fn test_floor_char_boundary() {
+        let s = "Привет"; // П=2bytes, р=2, и=2, в=2, е=2, т=2 = 12 bytes
+        assert_eq!(floor_char_boundary(s, 3), 2); // lands between П and р
+        assert_eq!(floor_char_boundary(s, 4), 4);
+        assert_eq!(floor_char_boundary(s, 0), 0);
+        assert_eq!(floor_char_boundary(s, 100), 12);
     }
 }

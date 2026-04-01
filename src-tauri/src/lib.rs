@@ -560,11 +560,18 @@ fn start_servers(
                     token, integrations.telegram_allowed_users.clone(),
                 );
                 let manager = bridge::BridgeManager::new((*svc).clone());
-                // Use Tauri's async runtime — lives for app lifetime, no dying threads
+                // Use Tauri's async runtime — lives for app lifetime, no dying threads.
+                // Wrap in spawn to catch panics — if the inner task panics, we log it
+                // instead of silently dying.
                 tauri::async_runtime::spawn(async move {
                     log::info!("[bridge] spawned on tauri async runtime");
-                    manager.start(vec![Box::new(telegram)], bridge_outbound_rx).await;
-                    log::error!("[bridge] manager exited — should never happen");
+                    let result = tokio::task::spawn(async move {
+                        manager.start(vec![Box::new(telegram)], bridge_outbound_rx).await;
+                    }).await;
+                    match result {
+                        Ok(()) => log::error!("[bridge] manager exited — should never happen"),
+                        Err(e) => log::error!("[bridge] manager PANICKED: {}", e),
+                    }
                 });
             } else {
                 log::warn!("Telegram enabled but no token found");

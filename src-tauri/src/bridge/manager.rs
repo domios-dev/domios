@@ -207,8 +207,10 @@ impl BridgeManager {
                 }
 
                 else => {
-                    log::error!("[bridge] all channels closed");
-                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                    log::error!("[bridge] select! else branch — both rx channels returned None. This should not happen.");
+                    log::error!("[bridge] rx closed={}, outbound_rx will be checked next iteration", rx.is_closed());
+                    // Don't break — sleep and retry. Channels may recover.
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
         }
