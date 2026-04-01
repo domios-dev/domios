@@ -814,7 +814,7 @@ function WorkspaceItem({
         {/* Icon + name (click to activate, double-click to rename) */}
         <div className="flex items-center gap-2 min-w-0" onClick={onClick}>
           {workspace.protected ? (
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="var(--ct-blue)" className="shrink-0">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="var(--ct-muted)" className="shrink-0">
               <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0Zm0 2a2.5 2.5 0 0 1 0 5 2.5 2.5 0 0 1 0-5ZM4 11.5c0-1.66 1.34-3 3-3h2c1.66 0 3 1.34 3 3v.5H4v-.5Z"/>
             </svg>
           ) : (
