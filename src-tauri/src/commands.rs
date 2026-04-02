@@ -1643,9 +1643,11 @@ pub async fn mesh_approve_pairing(
     };
     client.send_pair_accept(&accept).await?;
 
-    // Store peer (mesh_token placeholder — filled on confirm)
+    // Store peer (mesh_token placeholder — filled on confirm via /api/mesh/pair/confirm)
     {
         let mut m = mesh.lock();
+        log::info!("[mesh] Approve: storing peer {} with empty token, waiting for confirm",
+            request.from_instance_id);
         let peer = crate::mesh::types::PairedPeer {
             instance_id: request.from_instance_id.clone(),
             instance_name: request.from_instance_name.clone(),
