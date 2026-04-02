@@ -12,7 +12,7 @@ use super::types::{DiscoveredPeer, DiscoveryMethod, PeerAddress};
 use super::MeshManager;
 
 const SERVICE_TYPE: &str = "_codeterm._tcp.local.";
-const PEER_TTL_SECS: u64 = 30;
+const PEER_TTL_SECS: u64 = 300; // 5 minutes — mDNS re-announces are infrequent
 
 /// Start mDNS discovery (advertise + browse). Returns a handle to stop it.
 pub fn start_mdns(
