@@ -138,6 +138,7 @@ async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
+        "build": env!("BUILD_HASH"),
         "name": "CodeTerm"
     }))
 }
