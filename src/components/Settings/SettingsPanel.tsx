@@ -16,7 +16,6 @@ enum SettingsTab {
   Notifications = "notifications",
   Agents = "agents",
   Integrations = "integrations",
-  Mesh = "mesh",
   Network = "network",
   About = "about",
 }
@@ -28,7 +27,6 @@ const TAB_ICONS: Record<SettingsTab, string> = {
   [SettingsTab.Notifications]: "M8 16a2 2 0 0 0 1.985-1.75c.017-.137-.097-.25-.235-.25h-3.5c-.138 0-.252.113-.235.25A2 2 0 0 0 8 16ZM3 5a5 5 0 0 1 10 0c0 1.862.818 2.726 1.49 3.434.233.246.46.485.653.752.19.262.357.571.357.974 0 .593-.477 1.09-1.107 1.168C13.477 11.44 12.025 11.5 8 11.5c-4.025 0-5.477-.06-6.393-.172C.977 11.24.5 10.743.5 10.16c0-.403.167-.712.356-.974a6.96 6.96 0 0 0 .653-.752C2.182 7.726 3 6.862 3 5Z",
   [SettingsTab.Agents]: "M5.75 7.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75Zm5.25.75a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0ZM6 1h4a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V5a4 4 0 0 1 4-4Zm-.25 1.5A2.75 2.75 0 0 0 3 5.25v5.5A2.75 2.75 0 0 0 5.75 13.5h4.5a2.75 2.75 0 0 0 2.75-2.75v-5.5A2.75 2.75 0 0 0 10.25 2.5Z",
   [SettingsTab.Integrations]: "M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5ZM8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16Zm0-1.5a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z",
-  [SettingsTab.Mesh]: "M8 1a1 1 0 0 1 1 1v1.07A5.5 5.5 0 0 1 12.93 7H14a1 1 0 1 1 0 2h-1.07A5.5 5.5 0 0 1 9 12.93V14a1 1 0 1 1-2 0v-1.07A5.5 5.5 0 0 1 3.07 9H2a1 1 0 0 1 0-2h1.07A5.5 5.5 0 0 1 7 3.07V2a1 1 0 0 1 1-1Zm0 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
   [SettingsTab.Network]: "M1.5 8a6.5 6.5 0 1 1 13 0 6.5 6.5 0 0 1-13 0ZM8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0ZM6.379 1.588C4.468 2.46 3 4.96 3 8c0 3.04 1.468 5.54 3.379 6.412A6.504 6.504 0 0 1 1.5 8c0-3.043 2.094-5.6 4.879-6.412ZM8 14.5c1.94 0 3.5-2.91 3.5-6.5S9.94 1.5 8 1.5 4.5 4.41 4.5 8s1.56 6.5 3.5 6.5Z",
   [SettingsTab.About]: "M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z",
 };
@@ -40,7 +38,6 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: SettingsTab.Notifications, label: "Notifications" },
   { id: SettingsTab.Agents, label: "Agents" },
   { id: SettingsTab.Integrations, label: "Integrations" },
-  { id: SettingsTab.Mesh, label: "Mesh" },
   { id: SettingsTab.Network, label: "Network & API" },
   { id: SettingsTab.About, label: "About" },
 ];
@@ -342,10 +339,6 @@ export function SettingsPanel({
 
             {activeTab === SettingsTab.Integrations && (
               <IntegrationsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
-            )}
-
-            {activeTab === SettingsTab.Mesh && (
-              <MeshTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
             )}
 
             {activeTab === SettingsTab.Network && (
@@ -742,12 +735,14 @@ function NetworkTab({
     setTokenRefreshing(false);
   }, [net, onUpdate, buildPrompt]);
 
+  const apiEnabled = cfg.api?.enabled ?? false;
+
   return (
     <div className="space-y-6">
       <Group title="REST API">
         <Toggle
           label="Enable API"
-          checked={cfg.api?.enabled ?? false}
+          checked={apiEnabled}
           onChange={(v) => onUpdate("api", { enabled: v })}
         />
         <div className="text-[10px] text-[var(--ct-muted)] -mt-1">
@@ -787,15 +782,10 @@ function NetworkTab({
         )}
       </Group>
 
-      <Group title="Webhooks">
-        <div className="text-xs text-[var(--ct-muted-fg)] space-y-1">
-          <p>Register webhooks to receive real-time agent events. External orchestrators get instant feedback when agents need attention.</p>
-          <CopyRow label="Endpoint" value="POST /api/webhooks" />
-          <div className="text-[10px] text-[var(--ct-muted)]">
-            Body: <code className="bg-[var(--ct-bg)] px-1 rounded">{"{ url, events? }"}</code>
-          </div>
-        </div>
-      </Group>
+      {/* Mesh section — dimmed when API is off */}
+      <div className={!apiEnabled ? "opacity-40 pointer-events-none" : ""}>
+        <MeshSection config={cfg} onUpdate={onUpdate} apiEnabled={apiEnabled} />
+      </div>
 
       <Group title="OpenClaw / External Orchestrator">
         <div className="text-xs text-[var(--ct-muted-fg)] mb-2">
@@ -845,8 +835,6 @@ function NetworkTab({
           <EndpointGroup title="Integration" endpoints={[
             ["POST", "/api/browser/open", "Open URL {url}"],
             ["POST", "/api/notifications", "Create {title, body, level}"],
-            ["POST", "/api/webhooks", "Register webhook {url, events}"],
-            ["GET", "/api/webhooks", "List webhooks"],
             ["GET", "/api/network", "Connection info + IPs"],
             ["GET", "/api/screenshot", "Capture screenshot"],
             ["GET", "/api/serve-file", "Serve local file {?path=}"],
@@ -1032,7 +1020,7 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
   );
 }
 
-function MeshTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
+function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void; apiEnabled: boolean }) {
   const [status, setStatus] = useState<MeshStatus | null>(null);
   const [peers, setPeers] = useState<MeshPeersResponse | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -1144,42 +1132,45 @@ function MeshTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends
     : "...";
 
   return (
-    <div className="space-y-5">
-      {/* Instance Identity */}
-      <Group title="Instance">
-        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-[var(--ct-muted)]">Name</span>
-            <input
-              type="text"
-              value={config.mesh?.instance_name ?? ""}
-              onChange={(e) => onUpdate("mesh", { instance_name: e.target.value })}
-              className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-0.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none w-48 text-right"
-            />
-          </div>
-          {status && <CopyRow label="Instance ID" value={status.instance_id} />}
-          <InfoRow label="Discovery" value={discoveryLabel} />
-          <Toggle
-            label="Enable mesh networking"
-            checked={config.mesh?.enabled ?? false}
-            onChange={(v) => onUpdate("mesh", { enabled: v })}
+    <Group title="Mesh">
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2.5">
+        {!apiEnabled && (
+          <div className="text-[10px] text-[var(--ct-yellow)] mb-1">Enable REST API above to use mesh networking.</div>
+        )}
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-[var(--ct-muted)]">Name</span>
+          <input
+            type="text"
+            value={config.mesh?.instance_name ?? ""}
+            onChange={(e) => onUpdate("mesh", { instance_name: e.target.value })}
+            className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-0.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none w-48 text-right"
           />
-          {config.mesh?.enabled && (
-            <>
-              <Toggle
-                label="Auto-discover peers"
-                checked={config.mesh?.auto_discover ?? true}
-                onChange={(v) => onUpdate("mesh", { auto_discover: v })}
-              />
-              <Toggle
-                label="Stealth mode (don't broadcast, listen only)"
-                checked={config.mesh?.stealth ?? false}
-                onChange={(v) => onUpdate("mesh", { stealth: v })}
-              />
-            </>
-          )}
         </div>
-      </Group>
+        {status && <CopyRow label="Instance ID" value={status.instance_id} />}
+        <InfoRow label="Discovery" value={discoveryLabel} />
+        <Toggle
+          label="Enable mesh networking"
+          checked={config.mesh?.enabled ?? false}
+          onChange={(v) => {
+            if (v && !apiEnabled) return;
+            onUpdate("mesh", { enabled: v });
+          }}
+        />
+        {config.mesh?.enabled && (
+          <>
+            <Toggle
+              label="Auto-discover peers"
+              checked={config.mesh?.auto_discover ?? true}
+              onChange={(v) => onUpdate("mesh", { auto_discover: v })}
+            />
+            <Toggle
+              label="Stealth mode (don't broadcast, listen only)"
+              checked={config.mesh?.stealth ?? false}
+              onChange={(v) => onUpdate("mesh", { stealth: v })}
+            />
+          </>
+        )}
+      </div>
 
       {config.mesh?.enabled && (
         <>
@@ -1338,7 +1329,7 @@ function MeshTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends
           </div>
         </>
       )}
-    </div>
+    </Group>
   );
 }
 
