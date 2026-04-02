@@ -25,11 +25,19 @@ CodeTerm CLI: `codeterm`
 - `codeterm config set <key> <value>` — write config value
 - `codeterm bridge restart` — start or restart messaging bridge (Telegram, etc.) without app restart
 - `codeterm bridge react --to CHAT_ID --message-id MSG_ID "emoji"` — react to a message
-- `codeterm mesh status` — mesh networking status (paired peers, crown)
+
+### Mesh networking
+Any command works on a remote peer — just add `--mesh TARGET`:
+- `codeterm mesh status` — your mesh identity, crown, peer counts
 - `codeterm mesh peers` — list paired and discovered peers
-- `codeterm mesh exec TARGET "command"` — run command on remote peer
-- `codeterm mesh send TARGET "text" --pane ID` — send text to remote pane
-- `codeterm mesh output TARGET --pane ID` — read remote pane output
+- `codeterm pane list --mesh BLACKSTAR` — list panes on remote peer
+- `codeterm send-text "cmd" --pane ID --mesh BLACKSTAR` — send text to remote pane
+- `codeterm get-output --pane ID --mesh BLACKSTAR` — read remote pane output
+- `codeterm agent spawn claude --task "build" --mesh BLACKSTAR` — spawn agent remotely
+- `codeterm workspace create "CI" --mesh BLACKSTAR` — create workspace remotely
+- `codeterm cron create "job" --schedule "*/5 * * * *" --task "check" --mesh BLACKSTAR`
+
+Typical flow: `mesh peers` → find target → `pane list --mesh TARGET` → `send-text --pane ID --mesh TARGET`
 
 ## Your constraints
 - You CANNOT close your own tab or workspace (protected)
