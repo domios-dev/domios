@@ -1,11 +1,6 @@
-# General Agent — Personal Config
+# General Agent — Bootstrap
 
 <!-- bootstrap: true -->
-
-This file is yours — CodeTerm never overwrites it.
-After bootstrap, this becomes your persistent identity and user profile.
-
-## First-run bootstrap
 
 You just came online for the first time. This is a CONVERSATION, not a script to rush through.
 Do ONE step at a time. Wait for the user's response before moving on.
@@ -34,29 +29,8 @@ Wait for their response.
 
 ### Step 5: Save and finish
 Only AFTER you've talked through steps 1-4 with actual user responses:
-1. Fill in the Identity, User, and Integrations sections below with what you learned
-2. Remove the `<!-- bootstrap: true -->` line and the entire "First-run bootstrap" section above
-3. Confirm to the user that you're set up and ready
-
-This file IS your memory for personal config. Save everything here — identity, user preferences, integrations.
+1. Add what you learned to your CLAUDE.md — outside the `<!-- CODETERM-AUTO-START -->` / `<!-- CODETERM-AUTO-END -->` markers. Include identity, user info, communication style, integrations.
+2. Delete this `bootstrap.md` file (you won't need it again).
+3. Confirm to the user that you're set up and ready.
 
 Do NOT skip steps. Do NOT fill in sections before talking to the user. Do NOT rush.
-
----
-
-## Identity
-
-- **Name:** (ask the user what to name you)
-- **Personality:** (figure out together)
-
-## User
-
-- **Name:**
-- **What to call them:**
-- **Timezone:**
-- **What they work on:**
-- **Communication style:**
-
-## Integrations
-
-(fill in after step 4)

@@ -737,41 +737,62 @@ export function TerminalPane({
           return true;
         }
 
-        // Ctrl+V: handle paste HERE (in user gesture context) so
-        // navigator.clipboard.read() has permission on WebView2/Chromium.
-        // If handled in xterm's onData, the async call loses gesture context.
+        // Cmd/Ctrl+V paste handling.
+        // macOS: Cmd+V triggers a native paste event that xterm.js handles via its
+        // internal textarea — text paste works automatically. We only intercept for
+        // image clipboard (write path to PTY). Return true to let xterm handle text.
+        // Windows: Ctrl+V does NOT trigger a native paste event, so we must handle
+        // both text and images manually via clipboard API.
         if (e.code === "KeyV") {
-          const ptyTarget = predictedId;
-          navigator.clipboard.read().then(async (items) => {
-            // Text first
-            const textItem = items.find((item) => item.types.includes("text/plain"));
-            if (textItem) {
-              const blob = await textItem.getType("text/plain");
-              const text = await blob.text();
-              if (text) {
-                invoke("write_pty_string", { ptyId: ptyTarget, data: text });
-                return;
+          if (isMac) {
+            // Only handle image paste — text is handled by xterm natively
+            const ptyTarget = predictedId;
+            navigator.clipboard.read().then(async (items) => {
+              for (const item of items) {
+                const imageType = item.types.find((t: string) => t.startsWith("image/"));
+                if (imageType) {
+                  const blob = await item.getType(imageType);
+                  const ext = imageType === "image/jpeg" ? "jpg" : "png";
+                  const arrayBuf = await blob.arrayBuffer();
+                  const bytes = Array.from(new Uint8Array(arrayBuf));
+                  const path = await invoke<string>("save_clipboard_image", { bytes, ext });
+                  if (path) invoke("write_pty_string", { ptyId: ptyTarget, data: path });
+                }
               }
-            }
-            // Image fallback
-            for (const item of items) {
-              const imageType = item.types.find((t: string) => t.startsWith("image/"));
-              if (imageType) {
-                const blob = await item.getType(imageType);
-                const ext = imageType === "image/jpeg" ? "jpg" : "png";
-                const arrayBuf = await blob.arrayBuffer();
-                const bytes = Array.from(new Uint8Array(arrayBuf));
-                const path = await invoke<string>("save_clipboard_image", { bytes, ext });
-                if (path) invoke("write_pty_string", { ptyId: ptyTarget, data: path });
-                return;
-              }
-            }
-          }).catch(() => {
-            navigator.clipboard.readText().then((text) => {
-              if (text) invoke("write_pty_string", { ptyId: ptyTarget, data: text });
             }).catch(() => {});
-          });
-          return false; // prevent xterm from processing Ctrl+V
+            return true; // let xterm handle the native paste for text
+          } else {
+            // Windows/Linux: no native paste event — handle everything manually
+            const ptyTarget = predictedId;
+            navigator.clipboard.read().then(async (items) => {
+              const textItem = items.find((item) => item.types.includes("text/plain"));
+              if (textItem) {
+                const blob = await textItem.getType("text/plain");
+                const text = await blob.text();
+                if (text) {
+                  invoke("write_pty_string", { ptyId: ptyTarget, data: text });
+                  return;
+                }
+              }
+              for (const item of items) {
+                const imageType = item.types.find((t: string) => t.startsWith("image/"));
+                if (imageType) {
+                  const blob = await item.getType(imageType);
+                  const ext = imageType === "image/jpeg" ? "jpg" : "png";
+                  const arrayBuf = await blob.arrayBuffer();
+                  const bytes = Array.from(new Uint8Array(arrayBuf));
+                  const path = await invoke<string>("save_clipboard_image", { bytes, ext });
+                  if (path) invoke("write_pty_string", { ptyId: ptyTarget, data: path });
+                  return;
+                }
+              }
+            }).catch(() => {
+              navigator.clipboard.readText().then((text) => {
+                if (text) invoke("write_pty_string", { ptyId: ptyTarget, data: text });
+              }).catch(() => {});
+            });
+            return false; // prevent xterm from processing Ctrl+V
+          }
         }
 
         return true;
