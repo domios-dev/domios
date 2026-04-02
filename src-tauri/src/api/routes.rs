@@ -2335,26 +2335,36 @@ async fn mesh_pair_accept(
 }
 
 /// Receive crown public info update from a peer.
+/// Receive crown transfer or crown public info update.
+/// If body has "version" + "from_instance_id" → this is a transfer, generate keypair locally.
+/// If body has "public_key" + "crown_jwt" → this is a broadcast update from another peer.
 async fn mesh_receive_crown(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(public_info): Json<crate::mesh::crown::CrownPublicInfo>,
+    Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // Verify mesh token auth
-    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
-    let token = auth.strip_prefix("Bearer ").unwrap_or("");
-    let from_peer = state.mesh.lock().authenticate_request(token);
-    if from_peer.is_none() {
-        return Err((StatusCode::UNAUTHORIZED, "Invalid mesh token".to_string()));
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+
+    // Transfer request: { version, from_instance_id }
+    if let (Some(version), Some(from_id)) = (
+        body.get("version").and_then(|v| v.as_u64()),
+        body.get("from_instance_id").and_then(|v| v.as_str()),
+    ) {
+        let public_info = state.mesh.lock().accept_crown(version, from_id)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+        return Ok(Json(serde_json::json!({"ok": true, "crown_public": public_info})));
     }
 
-    // If this instance is the new crown holder, it should receive the keypair too
-    // For now, just update public info (keypair transfer is TODO for full security)
-    state.mesh.lock().update_crown_public(public_info)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    // Broadcast update: CrownPublicInfo
+    if let Ok(public_info) = serde_json::from_value::<crate::mesh::crown::CrownPublicInfo>(body) {
+        state.mesh.lock().update_crown_public(public_info)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+        return Ok(Json(serde_json::json!({"ok": true})));
+    }
 
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
-    Ok(Json(serde_json::json!({"ok": true})))
+    Err((StatusCode::BAD_REQUEST, "Invalid crown payload".to_string()))
 }
 
 /// Legacy confirm endpoint — no-op, kept for compat.

@@ -1794,19 +1794,39 @@ pub async fn mesh_transfer_crown(
     svc: tauri::State<'_, crate::service::ServiceState>,
     instance_id: String,
 ) -> Result<(), String> {
-    // Transfer crown locally — returns new CrownPublicInfo
-    let public_info = mesh.lock().transfer_crown(&instance_id)?;
-    let public_info_json = serde_json::to_string(&public_info).map_err(|e| e.to_string())?;
-
-    // Notify all peers about crown transfer
-    let clients: Vec<_> = {
-        let m = mesh.lock();
-        m.paired_peers.keys()
-            .filter_map(|pid| m.client_for(pid))
-            .collect()
+    // Relinquish crown — get next version number
+    let (next_version, our_id, target_client) = {
+        let mut m = mesh.lock();
+        let v = m.transfer_crown(&instance_id)?;
+        let id = m.identity.instance_id.clone();
+        let client = m.client_for(&instance_id);
+        (v, id, client)
     };
-    for client in clients {
-        let _ = client.send_crown_update(&public_info_json).await;
+
+    // Tell target to accept crown — they generate keypair locally
+    if let Some(client) = target_client {
+        let body = serde_json::json!({"version": next_version, "from_instance_id": our_id});
+        let resp = client.auth_post_json("/api/mesh/crown", &body).await
+            .map_err(|e| format!("Crown transfer failed: {}", e))?;
+        // Response contains new CrownPublicInfo — broadcast to all peers
+        if let Some(public_info_json) = resp.get("crown_public") {
+            let info_str = serde_json::to_string(public_info_json).unwrap_or_default();
+            // Update our own crown_public
+            if let Ok(info) = serde_json::from_str::<crate::mesh::crown::CrownPublicInfo>(&info_str) {
+                let _ = mesh.lock().update_crown_public(info);
+            }
+            // Broadcast to other peers
+            let other_clients: Vec<_> = {
+                let m = mesh.lock();
+                m.paired_peers.keys()
+                    .filter(|pid| pid.as_str() != instance_id)
+                    .filter_map(|pid| m.client_for(pid))
+                    .collect()
+            };
+            for c in other_clients {
+                let _ = c.send_crown_update(&info_str).await;
+            }
+        }
     }
 
     let _ = svc.app_handle.emit("mesh-state-changed", ());
