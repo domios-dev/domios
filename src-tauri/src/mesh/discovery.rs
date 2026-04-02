@@ -157,6 +157,7 @@ pub fn start_mdns(
                             api_port: port,
                             discovery_method: DiscoveryMethod::Mdns,
                             last_seen: now,
+                            dev: false, // mDNS doesn't carry dev flag yet
                         };
 
                         log::debug!("[mesh/mdns] Discovered: {} ({})", name, id);
@@ -274,6 +275,8 @@ struct Beacon {
     id: String,
     name: String,
     port: u16,
+    #[serde(default)]
+    dev: bool,
 }
 
 /// Start UDP broadcast discovery (fallback when mDNS fails).
@@ -292,6 +295,7 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
         id: instance_id.clone(),
         name: instance_name,
         port: api_port,
+        dev: cfg!(debug_assertions),
     };
     let beacon_json = serde_json::to_vec(&beacon).map_err(|e| e.to_string())?;
 
@@ -371,6 +375,7 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
                         api_port: beacon.port,
                         discovery_method: DiscoveryMethod::Udp,
                         last_seen: now,
+                        dev: beacon.dev,
                     };
 
                     let mut m = mesh_clone.lock();

@@ -1288,6 +1288,11 @@ function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUp
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-border)] text-[var(--ct-muted-fg)]">
                         {peer.discovery_method}
                       </span>
+                      {peer.dev && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]">
+                          dev
+                        </span>
+                      )}
                     </div>
                     <button
                       onClick={() => handleConnect(peer.instance_id)}
