@@ -97,6 +97,12 @@ const DEFAULT_CONFIG: AppConfig = {
     webhook_enabled: false,
     webhook_port: 9090,
   },
+  mesh: {
+    enabled: false,
+    instance_name: "",
+    auto_discover: true,
+    stealth: false,
+  },
   onboarding_completed: false,
 };
 

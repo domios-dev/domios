@@ -16,6 +16,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub integrations: IntegrationsConfig,
     #[serde(default)]
+    pub mesh: MeshConfig,
+    #[serde(default)]
     pub onboarding_completed: bool,
 }
 
@@ -32,6 +34,7 @@ impl Default for AppConfig {
             api: ApiConfig::default(),
             general_agent: GeneralAgentConfig::default(),
             integrations: IntegrationsConfig::default(),
+            mesh: MeshConfig::default(),
             onboarding_completed: false,
         }
     }
@@ -299,6 +302,28 @@ impl Default for IntegrationsConfig {
             discord_allowed_users: Vec::new(),
             webhook_enabled: false,
             webhook_port: 7687,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MeshConfig {
+    pub enabled: bool,
+    pub instance_name: String,
+    pub auto_discover: bool,
+    pub stealth: bool,
+}
+
+impl Default for MeshConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            instance_name: hostname::get()
+                .map(|h| h.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "CodeTerm".to_string()),
+            auto_discover: true,
+            stealth: false,
         }
     }
 }

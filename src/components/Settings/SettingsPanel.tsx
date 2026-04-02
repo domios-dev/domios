@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { AppConfig } from "../../lib/types";
+import type { AppConfig, MeshPeersResponse, MeshStatus } from "../../lib/types";
+import { listen } from "@tauri-apps/api/event";
 
 interface SettingsPanelProps {
   config: AppConfig;
@@ -15,6 +16,7 @@ enum SettingsTab {
   Notifications = "notifications",
   Agents = "agents",
   Integrations = "integrations",
+  Mesh = "mesh",
   Network = "network",
   About = "about",
 }
@@ -26,6 +28,7 @@ const TAB_ICONS: Record<SettingsTab, string> = {
   [SettingsTab.Notifications]: "M8 16a2 2 0 0 0 1.985-1.75c.017-.137-.097-.25-.235-.25h-3.5c-.138 0-.252.113-.235.25A2 2 0 0 0 8 16ZM3 5a5 5 0 0 1 10 0c0 1.862.818 2.726 1.49 3.434.233.246.46.485.653.752.19.262.357.571.357.974 0 .593-.477 1.09-1.107 1.168C13.477 11.44 12.025 11.5 8 11.5c-4.025 0-5.477-.06-6.393-.172C.977 11.24.5 10.743.5 10.16c0-.403.167-.712.356-.974a6.96 6.96 0 0 0 .653-.752C2.182 7.726 3 6.862 3 5Z",
   [SettingsTab.Agents]: "M5.75 7.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75Zm5.25.75a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0ZM6 1h4a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V5a4 4 0 0 1 4-4Zm-.25 1.5A2.75 2.75 0 0 0 3 5.25v5.5A2.75 2.75 0 0 0 5.75 13.5h4.5a2.75 2.75 0 0 0 2.75-2.75v-5.5A2.75 2.75 0 0 0 10.25 2.5Z",
   [SettingsTab.Integrations]: "M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5ZM8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16Zm0-1.5a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z",
+  [SettingsTab.Mesh]: "M8 1a1 1 0 0 1 1 1v1.07A5.5 5.5 0 0 1 12.93 7H14a1 1 0 1 1 0 2h-1.07A5.5 5.5 0 0 1 9 12.93V14a1 1 0 1 1-2 0v-1.07A5.5 5.5 0 0 1 3.07 9H2a1 1 0 0 1 0-2h1.07A5.5 5.5 0 0 1 7 3.07V2a1 1 0 0 1 1-1Zm0 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
   [SettingsTab.Network]: "M1.5 8a6.5 6.5 0 1 1 13 0 6.5 6.5 0 0 1-13 0ZM8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0ZM6.379 1.588C4.468 2.46 3 4.96 3 8c0 3.04 1.468 5.54 3.379 6.412A6.504 6.504 0 0 1 1.5 8c0-3.043 2.094-5.6 4.879-6.412ZM8 14.5c1.94 0 3.5-2.91 3.5-6.5S9.94 1.5 8 1.5 4.5 4.41 4.5 8s1.56 6.5 3.5 6.5Z",
   [SettingsTab.About]: "M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z",
 };
@@ -37,6 +40,7 @@ const TABS: { id: SettingsTab; label: string }[] = [
   { id: SettingsTab.Notifications, label: "Notifications" },
   { id: SettingsTab.Agents, label: "Agents" },
   { id: SettingsTab.Integrations, label: "Integrations" },
+  { id: SettingsTab.Mesh, label: "Mesh" },
   { id: SettingsTab.Network, label: "Network & API" },
   { id: SettingsTab.About, label: "About" },
 ];
@@ -338,6 +342,10 @@ export function SettingsPanel({
 
             {activeTab === SettingsTab.Integrations && (
               <IntegrationsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
+            )}
+
+            {activeTab === SettingsTab.Mesh && (
+              <MeshTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
             )}
 
             {activeTab === SettingsTab.Network && (
@@ -1020,6 +1028,316 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
       <div className="text-[10px] text-[var(--ct-muted)] text-center">
         Restart Claude Code after installing.
       </div>
+    </div>
+  );
+}
+
+function MeshTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
+  const [status, setStatus] = useState<MeshStatus | null>(null);
+  const [peers, setPeers] = useState<MeshPeersResponse | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [manualAddr, setManualAddr] = useState("");
+  const [showManual, setShowManual] = useState(false);
+
+  const fetchData = useCallback(() => {
+    invoke<MeshStatus>("mesh_get_status").then(setStatus).catch(() => {});
+    invoke<MeshPeersResponse>("mesh_list_peers").then(setPeers).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    const unlisten = listen("mesh-state-changed", () => fetchData());
+    return () => { unlisten.then((f) => f()); };
+  }, [fetchData]);
+
+  // Periodic refresh for online status
+  useEffect(() => {
+    if (!config.mesh?.enabled) return;
+    const interval = setInterval(fetchData, 15000);
+    return () => clearInterval(interval);
+  }, [config.mesh?.enabled, fetchData]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await invoke("mesh_refresh_discovery");
+      fetchData();
+    } catch {}
+    setTimeout(() => setRefreshing(false), 1000);
+  }, [fetchData]);
+
+  const handleConnect = useCallback(async (instanceId: string) => {
+    setConnecting(instanceId);
+    try {
+      await invoke("mesh_connect", { instanceId });
+    } catch (e) {
+      console.error("Mesh connect failed:", e);
+    }
+    setConnecting(null);
+  }, []);
+
+  const handleApprove = useCallback(async (requestId: string) => {
+    try {
+      await invoke("mesh_approve_pairing", { requestId });
+    } catch (e) {
+      console.error("Mesh approve failed:", e);
+    }
+  }, []);
+
+  const handleReject = useCallback(async (requestId: string) => {
+    try {
+      await invoke("mesh_reject_pairing", { requestId });
+    } catch (e) {
+      console.error("Mesh reject failed:", e);
+    }
+  }, []);
+
+  const handleDisconnect = useCallback(async (instanceId: string) => {
+    try {
+      await invoke("mesh_disconnect", { instanceId });
+    } catch (e) {
+      console.error("Mesh disconnect failed:", e);
+    }
+  }, []);
+
+  const handleSetPrimary = useCallback(async (instanceId: string) => {
+    try {
+      await invoke("mesh_set_primary", { instanceId });
+    } catch (e) {
+      console.error("Mesh set primary failed:", e);
+    }
+  }, []);
+
+  const handleAddManual = useCallback(async () => {
+    const parts = manualAddr.split(":");
+    const address = parts[0];
+    const port = parseInt(parts[1] || "7685", 10);
+    if (!address) return;
+    try {
+      await invoke("mesh_add_manual", { address, port });
+      setManualAddr("");
+      setShowManual(false);
+    } catch (e) {
+      console.error("Mesh manual add failed:", e);
+    }
+  }, [manualAddr]);
+
+  const formatTimeAgo = (iso: string | null) => {
+    if (!iso) return "";
+    const diff = Date.now() - new Date(iso).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
+  };
+
+  const discoveryLabel = status
+    ? [
+        status.discovery_active ? "mDNS" : null,
+        status.tailscale_ip ? "Tailscale" : null,
+      ]
+        .filter(Boolean)
+        .join(" + ") || "inactive"
+    : "...";
+
+  return (
+    <div className="space-y-5">
+      {/* Instance Identity */}
+      <Group title="Instance">
+        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[var(--ct-muted)]">Name</span>
+            <input
+              type="text"
+              value={config.mesh?.instance_name ?? ""}
+              onChange={(e) => onUpdate("mesh", { instance_name: e.target.value })}
+              className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-0.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none w-48 text-right"
+            />
+          </div>
+          {status && <CopyRow label="Instance ID" value={status.instance_id} />}
+          <InfoRow label="Discovery" value={discoveryLabel} />
+          <Toggle
+            label="Enable mesh networking"
+            checked={config.mesh?.enabled ?? false}
+            onChange={(v) => onUpdate("mesh", { enabled: v })}
+          />
+          {config.mesh?.enabled && (
+            <>
+              <Toggle
+                label="Auto-discover peers"
+                checked={config.mesh?.auto_discover ?? true}
+                onChange={(v) => onUpdate("mesh", { auto_discover: v })}
+              />
+              <Toggle
+                label="Stealth mode (don't broadcast, listen only)"
+                checked={config.mesh?.stealth ?? false}
+                onChange={(v) => onUpdate("mesh", { stealth: v })}
+              />
+            </>
+          )}
+        </div>
+      </Group>
+
+      {config.mesh?.enabled && (
+        <>
+          {/* Paired Instances */}
+          {peers && peers.paired.length > 0 && (
+            <Group title="Paired">
+              <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 divide-y divide-[var(--ct-border)]">
+                {peers.paired.map((peer) => (
+                  <div key={peer.instance_id} className="p-3 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${peer.online ? "bg-[var(--ct-green)]" : "bg-[var(--ct-muted)]"}`} />
+                        <span className="text-xs font-medium text-[var(--ct-fg)]">{peer.instance_name}</span>
+                        {peer.is_primary && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)]">primary</span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-[var(--ct-muted)] font-mono">
+                        {peer.addresses[0]?.ip || ""}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-[var(--ct-muted)]">
+                        {peer.online ? "Online" : "Offline"} · Paired {formatTimeAgo(peer.paired_at)}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {!peer.is_primary && (
+                          <button
+                            onClick={() => handleSetPrimary(peer.instance_id)}
+                            className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+                          >
+                            Set Primary
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDisconnect(peer.instance_id)}
+                          className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors"
+                        >
+                          Disconnect
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Group>
+          )}
+
+          {/* Incoming Pairing Requests */}
+          {peers && peers.incoming_requests.length > 0 && (
+            <Group title="Incoming Requests">
+              <div className="rounded-lg border border-[var(--ct-accent)]/30 bg-[var(--ct-accent)]/5 divide-y divide-[var(--ct-border)]">
+                {peers.incoming_requests.map((req) => (
+                  <div key={req.request_id} className="p-3 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-[var(--ct-fg)]">
+                        {req.from_instance_name} wants to pair
+                      </span>
+                      <span className="text-[10px] text-[var(--ct-muted)] font-mono">{req.from_address}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleApprove(req.request_id)}
+                        className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => handleReject(req.request_id)}
+                        className="text-[10px] px-3 py-1 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Group>
+          )}
+
+          {/* Discovered Instances */}
+          <div>
+            <div className="flex items-center justify-between mb-2.5">
+              <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)]">Discovered</h3>
+              <button
+                onClick={handleRefresh}
+                disabled={refreshing}
+                className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors disabled:opacity-50"
+              >
+                {refreshing ? "Scanning..." : "Refresh"}
+              </button>
+            </div>
+            {peers && peers.discovered.length > 0 ? (
+              <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 divide-y divide-[var(--ct-border)]">
+                {peers.discovered.map((peer) => (
+                  <div key={peer.instance_id} className="p-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full border border-[var(--ct-muted)]" />
+                      <span className="text-xs text-[var(--ct-fg)]">{peer.instance_name}</span>
+                      <span className="text-[10px] text-[var(--ct-muted)] font-mono">{peer.addresses[0]?.ip || ""}</span>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-border)] text-[var(--ct-muted-fg)]">
+                        {peer.discovery_method}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => handleConnect(peer.instance_id)}
+                      disabled={connecting === peer.instance_id}
+                      className="text-[10px] px-3 py-1 rounded bg-[var(--ct-green)] text-white hover:brightness-110 transition-all disabled:opacity-50"
+                    >
+                      {connecting === peer.instance_id ? "Connecting..." : "Connect"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 text-center text-xs text-[var(--ct-muted)]">
+                No peers discovered yet
+              </div>
+            )}
+          </div>
+
+          {/* Manual add */}
+          <div>
+            {showManual ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={manualAddr}
+                  onChange={(e) => setManualAddr(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddManual()}
+                  placeholder="192.168.1.50:7685"
+                  className="flex-1 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none font-mono"
+                  autoFocus
+                />
+                <button
+                  onClick={handleAddManual}
+                  className="text-[10px] px-3 py-1.5 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all"
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => { setShowManual(false); setManualAddr(""); }}
+                  className="text-[10px] px-2 py-1.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowManual(true)}
+                className="text-[10px] text-[var(--ct-accent)] hover:underline"
+              >
+                + Add peer manually...
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
