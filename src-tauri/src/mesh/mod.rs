@@ -280,6 +280,13 @@ impl MeshManager {
                 return Err("Stale crown version".to_string());
             }
         }
+        // If someone else is the legitimate crown holder, relinquish ours
+        if public_info.holder_id != self.identity.instance_id && self.crown_keypair.is_some() {
+            log::info!("[mesh] Another crown holder detected ({}), relinquishing our crown",
+                public_info.holder_id);
+            crown::delete_crown_keypair();
+            self.crown_keypair = None;
+        }
         let _ = crown::save_crown_public_info(&public_info);
         self.crown_public = Some(public_info);
         Ok(())
