@@ -212,17 +212,19 @@ codeterm mesh status                              # Your identity, crown, peer c
 codeterm mesh peers                               # List paired + discovered peers
 ```
 
-**Execute commands on remote machines:**
+**Run any command on a remote machine — just add `--mesh TARGET`:**
 ```bash
-codeterm mesh exec BLACKSTAR "ls -la"             # Run command on remote peer's pane
-codeterm mesh send BLACKSTAR "npm test" --pane general  # Send text to remote pane
-codeterm mesh output BLACKSTAR --pane general     # Read output from remote pane
-codeterm mesh panes BLACKSTAR                     # List panes on remote peer
+codeterm pane list --mesh BLACKSTAR               # List panes on BLACKSTAR
+codeterm send-text "npm test" --mesh BLACKSTAR    # Send text to remote pane
+codeterm get-output --mesh BLACKSTAR              # Read remote output
+codeterm agent spawn claude --task "build" --mesh BLACKSTAR  # Spawn agent remotely
+codeterm workspace create "Remote" --mesh BLACKSTAR          # Create workspace remotely
+codeterm notify "Done" --mesh BLACKSTAR           # Send notification remotely
 ```
 
-Target can be instance name (e.g. `BLACKSTAR`) or instance ID.
+Any existing `codeterm` command works remotely with `--mesh`. Target can be instance name or ID.
 
-**When to use mesh:** If a task needs resources on another machine (different OS, GPU, specific environment), use mesh to delegate. Check `codeterm mesh peers` first to see what's available. Only paired peers with `trusted` status accept relay commands.
+**When to use mesh:** If a task needs resources on another machine (different OS, GPU, specific environment), use `--mesh` to delegate. Check `codeterm mesh peers` first to see what's available. Only paired peers with `trusted` status accept commands.
 
 **Report syntax:** `codeterm agent report "message"` — message is the FIRST positional argument. Do NOT use `--message`, `--to`, or `--from` flags.
 
