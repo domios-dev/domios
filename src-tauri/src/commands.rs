@@ -1751,10 +1751,16 @@ pub async fn mesh_disconnect(
     let (peer, signed_token, our_id) = {
         let m = mesh.lock();
         let peer = m.paired_peers.get(&instance_id).cloned();
-        let token = m.sign_request().ok();
+        let token = match m.sign_request() {
+            Ok(t) => Some(t),
+            Err(e) => { log::error!("[mesh] Failed to sign disconnect: {}", e); None }
+        };
         let id = m.identity.instance_id.clone();
         (peer, token, id)
     };
+    if signed_token.is_none() {
+        log::warn!("[mesh] No signed token — disconnect notification skipped");
+    }
     if let (Some(peer), Some(token)) = (peer, signed_token) {
         let addr = peer.addresses.iter()
             .find(|a| a.is_tailscale).or_else(|| peer.addresses.first());
