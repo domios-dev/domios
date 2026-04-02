@@ -101,7 +101,11 @@ impl MeshManager {
             incoming_requests: self
                 .pending_requests
                 .values()
-                .filter(|r| r.status == types::PairingStatus::Pending)
+                // Only show requests FROM others, not our own outgoing ones
+                .filter(|r| {
+                    r.status == types::PairingStatus::Pending
+                        && r.from_instance_id != self.identity.instance_id
+                })
                 .cloned()
                 .collect(),
         }
@@ -150,6 +154,11 @@ impl MeshManager {
 
     /// Validate and store an incoming pairing request.
     pub fn receive_pairing_request(&mut self, request: PairingRequest) -> Result<(), String> {
+        // Ignore our own requests
+        if request.from_instance_id == self.identity.instance_id {
+            return Err("Own request".to_string());
+        }
+
         // Check blocked
         if self.is_blocked(&request.from_instance_id) {
             return Err("Instance is blocked".to_string());
