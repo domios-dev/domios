@@ -31,9 +31,7 @@ pub struct MeshManager {
     pub tailscale_ip: Option<String>,
     pub local_ip: Option<String>,
     pub api_port: u16,
-    /// Ephemeral X25519 keypairs for in-flight pairing requests (request_id → private key bytes).
-    pub pairing_keypairs: HashMap<String, [u8; 32]>,
-    /// Target peer address for outgoing pairing requests (request_id → (address, port, instance_id)).
+    /// Outgoing pairing target info (request_id → (address, port, instance_id)).
     pub pairing_targets: HashMap<String, (String, u16, String)>,
     /// Crown keypair — only present if this instance is the crown holder.
     pub crown_keypair: Option<crown::CrownKeyPair>,
@@ -74,7 +72,6 @@ impl MeshManager {
             tailscale_ip: None,
             local_ip: None,
             api_port,
-            pairing_keypairs: HashMap::new(),
             pairing_targets: HashMap::new(),
             crown_keypair,
             crown_public,
@@ -395,41 +392,28 @@ impl MeshManager {
         });
     }
 
-    /// Authenticate a mesh token — returns the peer's instance_id if valid.
-    /// Supports both legacy mesh_token (Bearer) and signed JWT (MeshJWT).
-    pub fn authenticate_mesh_token(&self, token: &str) -> Option<String> {
-        // Try signed JWT first
+    /// Authenticate a signed mesh request. Returns the sender's instance_id if valid.
+    pub fn authenticate_request(&self, signed_token: &str) -> Option<String> {
         let known_keys = self.known_public_keys();
-        log::debug!("[mesh/auth] Trying JWT auth, known_keys: {:?}", known_keys.keys().collect::<Vec<_>>());
-        match crown::verify_signed_request(token, &known_keys) {
+        match crown::verify_signed_request(signed_token, &known_keys) {
             Ok(peer_id) => {
                 if !self.is_revoked(&peer_id) {
-                    log::debug!("[mesh/auth] JWT verified: {}", peer_id);
                     return Some(peer_id);
                 }
+                log::warn!("[mesh/auth] Peer {} is revoked", peer_id);
+                None
             }
             Err(e) => {
-                log::debug!("[mesh/auth] JWT failed: {}", e);
+                log::debug!("[mesh/auth] Signature verification failed: {}", e);
+                None
             }
         }
-        // Fall back to legacy mesh_token
-        for (id, peer) in &self.paired_peers {
-            if peer.mesh_token == token {
-                if self.is_revoked(id) {
-                    return None;
-                }
-                return Some(id.clone());
-            }
-        }
-        None
     }
 
     /// Get map of instance_id → public_key for all known peers.
     pub fn known_public_keys(&self) -> HashMap<String, String> {
         self.paired_peers.iter()
-            .filter_map(|(id, peer)| {
-                peer.peer_public_key.as_ref().map(|pk| (id.clone(), pk.clone()))
-            })
+            .map(|(id, peer)| (id.clone(), peer.public_key.clone()))
             .collect()
     }
 
@@ -438,5 +422,15 @@ impl MeshManager {
         let priv_key = self.identity.private_key.as_ref()
             .ok_or("No private key in identity")?;
         crown::sign_request(priv_key, &self.identity.instance_id)
+    }
+
+    /// Create an authenticated PeerClient for a paired peer.
+    pub fn client_for(&self, peer_id: &str) -> Option<transport::PeerClient> {
+        let peer = self.paired_peers.get(peer_id)?;
+        let addr = peer.addresses.iter()
+            .find(|a| a.is_tailscale)
+            .or_else(|| peer.addresses.first())?;
+        let token = self.sign_request().ok()?;
+        Some(transport::PeerClient::new_signed(&addr.ip, peer.api_port, &token))
     }
 }

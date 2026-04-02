@@ -55,11 +55,8 @@ pub struct PairedPeer {
     pub instance_name: String,
     pub addresses: Vec<PeerAddress>,
     pub api_port: u16,
-    /// Dedicated mesh token for this peer (legacy, kept for compat).
-    pub mesh_token: String,
-    /// Peer's Ed25519 public key (base64) for verifying signed requests.
-    #[serde(default)]
-    pub peer_public_key: Option<String>,
+    /// Peer's Ed25519 public key (base64) — used to verify all signed requests.
+    pub public_key: String,
     /// ISO 8601 timestamp.
     pub paired_at: String,
     pub last_seen: Option<String>,
@@ -106,6 +103,7 @@ pub enum Permission {
 }
 
 // ── Pairing protocol ────────────────────────────────────────────────
+// Clean Ed25519-only pairing: exchange public keys, no DH/encrypted tokens.
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -123,13 +121,8 @@ pub struct PairingRequest {
     pub from_instance_name: String,
     pub from_address: String,
     pub from_port: u16,
-    /// X25519 ephemeral public key (32 bytes, base64) for key exchange.
+    /// Ed25519 public key (base64) — the ONLY auth credential exchanged.
     pub public_key: String,
-    /// Ed25519 identity public key (base64) for future request signing.
-    #[serde(default)]
-    pub identity_public_key: Option<String>,
-    /// AES-GCM nonce (12 bytes, base64-encoded).
-    pub nonce: String,
     /// Unix timestamp (seconds). Reject if >60s old.
     pub timestamp: u64,
     #[serde(default = "default_pairing_status")]
@@ -140,25 +133,14 @@ fn default_pairing_status() -> PairingStatus {
     PairingStatus::Pending
 }
 
-/// Response sent when accepting a pairing request.
+/// Accept response — approver sends their public key back.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PairingAccept {
     pub request_id: String,
-    /// Acceptor's X25519 ephemeral public key (base64).
+    pub from_instance_id: String,
+    pub from_instance_name: String,
+    /// Approver's Ed25519 public key (base64).
     pub public_key: String,
-    /// Encrypted mesh token (base64, AES-256-GCM).
-    pub encrypted_mesh_token: String,
-    /// Acceptor's Ed25519 identity public key (base64).
-    #[serde(default)]
-    pub identity_public_key: Option<String>,
-}
-
-/// Final confirmation with the requester's encrypted mesh token.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PairingConfirm {
-    pub request_id: String,
-    /// Encrypted mesh token (base64, AES-256-GCM).
-    pub encrypted_mesh_token: String,
 }
 
 // ── Gossip sync ─────────────────────────────────────────────────────

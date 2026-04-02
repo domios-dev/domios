@@ -294,9 +294,10 @@ fn start_background_tasks(
                         // Clean up expired pairing requests
                         mesh.lock().cleanup_expired_requests();
                         // Ping all paired peers
-                        let (peers, sync_payload) = {
+                        let (peers, sync_payload, signed_token) = {
                             let m = mesh.lock();
                             let peers: Vec<_> = m.paired_peers.values().cloned().collect();
+                            let token = m.sign_request().ok();
                             let payload = mesh::types::MeshSyncPayload {
                                 peers: m.paired_peers.values()
                                     .map(|p| mesh::types::GossipPeerInfo {
@@ -310,11 +311,19 @@ fn start_background_tasks(
                                 crown_public: m.crown_public.clone(),
                                 trust_declarations: m.trust_declarations.clone(),
                             };
-                            (peers, payload)
+                            (peers, payload, token)
                         };
                         let mut changed = false;
                         for peer in &peers {
-                            if let Some(client) = mesh::transport::PeerClient::from_peer(peer) {
+                            let addr = peer.addresses.iter()
+                                .find(|a| a.is_tailscale)
+                                .or_else(|| peer.addresses.first());
+                            let Some(addr) = addr else { continue };
+                            let client = if let Some(ref tok) = signed_token {
+                                mesh::transport::PeerClient::new_signed(&addr.ip, peer.api_port, tok)
+                            } else {
+                                mesh::transport::PeerClient::new_unauthenticated(&addr.ip, peer.api_port)
+                            };
                                 let online = client.ping().await;
                                 let was_online = {
                                     let mut m = mesh.lock();
@@ -355,7 +364,6 @@ fn start_background_tasks(
                                         changed = true;
                                     }
                                 }
-                            }
                         }
                         if changed {
                             let _ = app_h.emit("mesh-state-changed", ());

@@ -1546,52 +1546,56 @@ pub async fn mesh_connect(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     instance_id: String,
 ) -> Result<(), String> {
-    let (request, private_key, target_addr, target_port) = {
+    let (request, target_addr, target_port) = {
         let m = mesh.lock();
-        let peer = m
-            .discovered_peers
-            .get(&instance_id)
+        let peer = m.discovered_peers.get(&instance_id)
             .ok_or_else(|| "Peer not found in discovered list".to_string())?;
-        let addr = peer
-            .addresses
-            .iter()
+        let addr = peer.addresses.iter()
             .find(|a| a.is_tailscale)
             .or_else(|| peer.addresses.first())
             .ok_or_else(|| "No address for peer".to_string())?;
 
-        let local_addr = m
-            .tailscale_ip
-            .clone()
+        let local_addr = m.tailscale_ip.clone()
             .or_else(|| m.local_ip.clone())
             .unwrap_or_else(|| "127.0.0.1".to_string());
+        let public_key = m.identity.public_key.clone()
+            .ok_or("No identity keypair")?;
 
-        let (request, private_key) = crate::mesh::pairing::create_pairing_request(
-            &m.identity.instance_id,
-            &m.instance_name,
-            &local_addr,
-            m.api_port,
-            m.identity.public_key.as_deref(),
-        );
-        (request, private_key, addr.ip.clone(), peer.api_port)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+        let request = crate::mesh::types::PairingRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            from_instance_id: m.identity.instance_id.clone(),
+            from_instance_name: m.instance_name.clone(),
+            from_address: local_addr,
+            from_port: m.api_port,
+            public_key,
+            timestamp: now,
+            status: crate::mesh::types::PairingStatus::Pending,
+        };
+        (request, addr.ip.clone(), peer.api_port)
     };
 
-    // Store the keypair, outgoing request, and target info for the accept handler
+    // Store target info for the accept handler
     {
         let mut m = mesh.lock();
-        m.pairing_keypairs
-            .insert(request.request_id.clone(), private_key);
         m.pairing_targets.insert(
             request.request_id.clone(),
             (target_addr.clone(), target_port, instance_id.clone()),
         );
-        // Store the outgoing request so accept handler can find nonce
-        m.pending_requests
-            .insert(request.request_id.clone(), request.clone());
+        m.pending_requests.insert(request.request_id.clone(), request.clone());
     }
 
-    // Send the request to the peer
-    let client = crate::mesh::transport::PeerClient::new(&target_addr, target_port, "");
-    client.send_pair_request(&request).await?;
+    // Send request
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+    let url = format!("http://{}:{}/api/mesh/pair/request", target_addr, target_port);
+    let resp = client.post(&url).json(&request).send().await
+        .map_err(|e| format!("Network error: {}", e))?;
+    if !resp.status().is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Pair request rejected: {}", body));
+    }
 
     log::info!("[mesh] Pairing request sent to {}", instance_id);
     Ok(())
@@ -1603,67 +1607,37 @@ pub async fn mesh_approve_pairing(
     svc: tauri::State<'_, crate::service::ServiceState>,
     request_id: String,
 ) -> Result<(), String> {
-    let request = {
+    // Get the pending request and our identity
+    let (request, our_pubkey, our_id, our_name) = {
         let m = mesh.lock();
-        m.pending_requests
-            .get(&request_id)
-            .cloned()
-            .ok_or_else(|| "Request not found".to_string())?
+        let req = m.pending_requests.get(&request_id).cloned()
+            .ok_or_else(|| "Request not found".to_string())?;
+        let pk = m.identity.public_key.clone().ok_or("No identity keypair")?;
+        let id = m.identity.instance_id.clone();
+        let name = m.instance_name.clone();
+        (req, pk, id, name)
     };
 
-    let (our_private_key, our_public_key_b64) = crate::mesh::pairing::generate_keypair();
-    let mesh_token_for_requester = crate::mesh::pairing::generate_mesh_token();
-
-    let encrypted_token = crate::mesh::pairing::encrypt_with_shared_secret(
-        &our_private_key,
-        &request.public_key,
-        &request.nonce,
-        &mesh_token_for_requester,
-    )?;
-
-    // Store keypair for confirm step
-    {
-        let mut m = mesh.lock();
-        m.pairing_keypairs
-            .insert(request_id.clone(), our_private_key);
-        if let Some(req) = m.pending_requests.get_mut(&request_id) {
-            req.status = crate::mesh::types::PairingStatus::Accepted;
-        }
-    }
-
-    // Send acceptance to requester — response contains requester's encrypted token
-    let client = crate::mesh::transport::PeerClient::new(
-        &request.from_address,
-        request.from_port,
-        "",
-    );
-    let our_identity_pubkey = mesh.lock().identity.public_key.clone();
+    // Send our public key to the requester
     let accept = crate::mesh::types::PairingAccept {
         request_id: request_id.clone(),
-        public_key: our_public_key_b64.clone(),
-        encrypted_mesh_token: encrypted_token,
-        identity_public_key: our_identity_pubkey,
+        from_instance_id: our_id.clone(),
+        from_instance_name: our_name,
+        public_key: our_pubkey,
     };
-    let response = client.send_pair_accept_and_read(&accept).await?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+    let url = format!("http://{}:{}/api/mesh/pair/accept", request.from_address, request.from_port);
+    let resp = client.post(&url).json(&accept).send().await
+        .map_err(|e| format!("Network error: {}", e))?;
+    if !resp.status().is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Accept rejected: {}", body));
+    }
 
-    // Decrypt requester's mesh token from the response
-    let their_encrypted_token = response
-        .get("encrypted_mesh_token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "No encrypted_mesh_token in accept response".to_string())?;
-
-    let their_mesh_token = crate::mesh::pairing::decrypt_with_shared_secret(
-        &our_private_key,
-        &request.public_key,
-        &request.nonce,
-        their_encrypted_token,
-    )?;
-
-    // Store peer with BOTH tokens resolved — no confirm step needed
+    // Store requester as paired peer (we have their public_key from the request)
     {
         let mut m = mesh.lock();
-        log::info!("[mesh] Approve: storing peer {} with token (len={})",
-            request.from_instance_id, their_mesh_token.len());
         let peer = crate::mesh::types::PairedPeer {
             instance_id: request.from_instance_id.clone(),
             instance_name: request.from_instance_name.clone(),
@@ -1672,9 +1646,7 @@ pub async fn mesh_approve_pairing(
                 is_tailscale: false,
             }],
             api_port: request.from_port,
-            mesh_token: their_mesh_token,
-            peer_public_key: request.identity_public_key.clone()
-                .or_else(|| response.get("identity_public_key").and_then(|v| v.as_str()).map(|s| s.to_string())),
+            public_key: request.public_key.clone(),
             paired_at: chrono::Utc::now().to_rfc3339(),
             last_seen: Some(chrono::Utc::now().to_rfc3339()),
             online: true,
@@ -1683,22 +1655,17 @@ pub async fn mesh_approve_pairing(
             trust_level: String::new(),
             version: None,
         };
-        m.paired_peers
-            .insert(request.from_instance_id.clone(), peer);
-        // Cleanup
+        m.paired_peers.insert(request.from_instance_id.clone(), peer);
         m.pending_requests.remove(&request_id);
-        m.pairing_keypairs.remove(&request_id);
-        // Approver gets crown if nobody has it yet
         m.claim_crown_if_unclaimed();
         let _ = m.save();
     }
 
     let _ = svc.app_handle.emit("mesh-state-changed", ());
-    log::info!("[mesh] Pairing complete (approver side) with {}", request.from_instance_id);
+    log::info!("[mesh] Pairing complete (approver) with {} — pubkey exchanged", request.from_instance_id);
 
-    // Gossip sync — share peer list and crown info with new peer
-    // Extract everything needed before async (parking_lot guards aren't Send)
-    let (sync_payload, peer_for_sync) = {
+    // Gossip sync
+    let (sync_payload, peer_for_sync, signed_token) = {
         let m = mesh.lock();
         let payload = crate::mesh::types::MeshSyncPayload {
             peers: m.paired_peers.values()
@@ -1714,35 +1681,35 @@ pub async fn mesh_approve_pairing(
             trust_declarations: m.trust_declarations.clone(),
         };
         let peer = m.paired_peers.get(&request.from_instance_id).cloned();
-        (payload, peer)
+        let token = m.sign_request().ok();
+        (payload, peer, token)
     };
 
-    if let Some(peer) = peer_for_sync {
-        if let Some(client) = crate::mesh::transport::PeerClient::from_peer(&peer) {
-            match client.send_sync(&sync_payload).await {
-                Ok(their_payload) => {
-                    log::info!("[mesh/gossip] Sync with {} — received {} peers",
-                        request.from_instance_id, their_payload.peers.len());
-                    let mut m = mesh.lock();
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs();
-                    for p in their_payload.peers {
-                        if p.instance_id == m.identity.instance_id { continue; }
-                        if m.paired_peers.contains_key(&p.instance_id) { continue; }
-                        m.discovered_peers.insert(p.instance_id.clone(), crate::mesh::types::DiscoveredPeer {
-                            instance_id: p.instance_id,
-                            instance_name: p.instance_name,
-                            addresses: p.addresses,
-                            api_port: p.api_port,
-                            discovery_method: crate::mesh::types::DiscoveryMethod::Mdns,
-                            last_seen: now,
-                            dev: p.dev,
-                        });
+    if let (Some(peer), Some(token)) = (peer_for_sync, signed_token) {
+        if let Some(addr) = peer.addresses.first() {
+            let sync_url = format!("http://{}:{}/api/mesh/sync", addr.ip, peer.api_port);
+            match client.post(&sync_url)
+                .header("Authorization", format!("Bearer {}", token))
+                .json(&sync_payload).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    if let Ok(their_payload) = resp.json::<crate::mesh::types::MeshSyncPayload>().await {
+                        log::info!("[mesh/gossip] Synced — received {} peers", their_payload.peers.len());
+                        let mut m = mesh.lock();
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                        for p in their_payload.peers {
+                            if p.instance_id == m.identity.instance_id { continue; }
+                            if m.paired_peers.contains_key(&p.instance_id) { continue; }
+                            m.discovered_peers.insert(p.instance_id.clone(), crate::mesh::types::DiscoveredPeer {
+                                instance_id: p.instance_id, instance_name: p.instance_name,
+                                addresses: p.addresses, api_port: p.api_port,
+                                discovery_method: crate::mesh::types::DiscoveryMethod::Udp,
+                                last_seen: now, dev: p.dev,
+                            });
+                        }
                     }
                 }
-                Err(e) => log::warn!("[mesh/gossip] Sync failed: {}", e),
+                _ => log::warn!("[mesh/gossip] Sync failed"),
             }
         }
     }
@@ -1825,21 +1792,15 @@ pub async fn mesh_transfer_crown(
     let public_info = mesh.lock().transfer_crown(&instance_id)?;
     let public_info_json = serde_json::to_string(&public_info).map_err(|e| e.to_string())?;
 
-    // Notify the target peer to receive crown (they get the full keypair via encrypted channel)
-    // For now, send public info — target becomes holder
-    let peer = mesh.lock().paired_peers.get(&instance_id).cloned()
-        .ok_or_else(|| "Peer not found".to_string())?;
-    if let Some(client) = crate::mesh::transport::PeerClient::from_peer(&peer) {
-        client.send_crown_update(&public_info_json).await?;
-    }
-
-    // Notify all other peers about the new crown holder (public info only)
-    let all_peers: Vec<_> = mesh.lock().paired_peers.values().cloned().collect();
-    for p in &all_peers {
-        if p.instance_id == instance_id { continue; }
-        if let Some(c) = crate::mesh::transport::PeerClient::from_peer(p) {
-            let _ = c.send_crown_update(&public_info_json).await;
-        }
+    // Notify all peers about crown transfer
+    let clients: Vec<_> = {
+        let m = mesh.lock();
+        m.paired_peers.keys()
+            .filter_map(|pid| m.client_for(pid))
+            .collect()
+    };
+    for client in clients {
+        let _ = client.send_crown_update(&public_info_json).await;
     }
 
     let _ = svc.app_handle.emit("mesh-state-changed", ());
@@ -1902,15 +1863,19 @@ pub async fn mesh_set_trust(
     };
 
     // Send updated trust declarations via sync to all peers
-    for p in &all_peers {
-        if let Some(client) = crate::mesh::transport::PeerClient::from_peer(p) {
-            let payload = crate::mesh::types::MeshSyncPayload {
-                peers: vec![],
-                crown_public: None,
-                trust_declarations: vec![decl.clone()],
-            };
-            let _ = client.send_sync(&payload).await;
-        }
+    let clients: Vec<_> = {
+        let m = mesh.lock();
+        m.paired_peers.keys()
+            .filter_map(|pid| m.client_for(pid))
+            .collect()
+    };
+    let payload = crate::mesh::types::MeshSyncPayload {
+        peers: vec![],
+        crown_public: None,
+        trust_declarations: vec![decl.clone()],
+    };
+    for client in clients {
+        let _ = client.send_sync(&payload).await;
     }
 
     let _ = svc.app_handle.emit("mesh-state-changed", ());

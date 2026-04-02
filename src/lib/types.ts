@@ -289,6 +289,7 @@ export interface PairedPeer {
   instance_name: string;
   addresses: PeerAddress[];
   api_port: number;
+  public_key: string;
   paired_at: string;
   last_seen: string | null;
   online: boolean;
