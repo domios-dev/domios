@@ -121,19 +121,43 @@ fn resolve_pane(state: &AppState, raw_id: &str) -> Result<String, (StatusCode, &
         .ok_or((StatusCode::NOT_FOUND, "Pane not found"))
 }
 
-// Auth check helper
+/// Unified auth: accepts Ed25519 signed JWT.
+/// - Local instance's own signature → full access
+/// - Paired peer's signature → mesh access (check trust for restricted endpoints)
+/// - Legacy Bearer API token → full access (temporary, will be removed)
 fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, &'static str)> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let token = auth.strip_prefix("Bearer ").unwrap_or("");
+    if token.is_empty() {
+        return Err((StatusCode::UNAUTHORIZED, "Missing authorization"));
+    }
+
+    // Try Ed25519 signed JWT
+    let mesh = state.mesh.lock();
+    let our_id = mesh.identity.instance_id.clone();
+
+    // Build known keys: our own + all paired peers
+    let mut known_keys = mesh.known_public_keys();
+    if let Some(ref pk) = mesh.identity.public_key {
+        known_keys.insert(our_id.clone(), pk.clone());
+    }
+    drop(mesh);
+
+    if let Ok(_sender_id) = crate::mesh::crown::verify_signed_request(token, &known_keys) {
+        return Ok(());
+    }
+
+    // Legacy Bearer token fallback (temporary)
     if let Some(ref expected) = state.token {
-        let auth = headers
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        let token = auth.strip_prefix("Bearer ").unwrap_or("");
-        if token != expected {
-            return Err((StatusCode::UNAUTHORIZED, "Invalid or missing token"));
+        if token == expected {
+            return Ok(());
         }
     }
-    Ok(())
+
+    Err((StatusCode::UNAUTHORIZED, "Invalid or missing token"))
 }
 
 async fn health() -> Json<serde_json::Value> {
