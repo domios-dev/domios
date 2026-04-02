@@ -104,6 +104,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/pair/accept", post(mesh_pair_accept))
         .route("/api/mesh/pair/confirm", post(mesh_pair_confirm))
         .route("/api/mesh/pair/reject", post(mesh_pair_reject))
+        .route("/api/mesh/crown", post(mesh_receive_crown))
         .route("/api/mesh/peers/{id}", axum::routing::delete(mesh_unpair))
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -2329,6 +2330,30 @@ async fn mesh_pair_accept(
         "ok": true,
         "encrypted_mesh_token": encrypted_our_token
     })))
+}
+
+/// Receive crown transfer from another peer.
+async fn mesh_receive_crown(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Verify mesh token auth
+    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let token = auth.strip_prefix("Bearer ").unwrap_or("");
+    let from_peer = state.mesh.lock().authenticate_mesh_token(token);
+    if from_peer.is_none() {
+        return Err((StatusCode::UNAUTHORIZED, "Invalid mesh token".to_string()));
+    }
+
+    let crown_token = body["crown_token"].as_str()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing crown_token".to_string()))?;
+    let from_id = body["from_instance_id"].as_str()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing from_instance_id".to_string()))?;
+
+    state.mesh.lock().receive_crown(crown_token, from_id);
+    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 /// Legacy confirm endpoint — kept for compatibility but no longer needed.

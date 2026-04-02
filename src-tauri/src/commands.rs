@@ -1734,12 +1734,31 @@ pub async fn mesh_disconnect(
 }
 
 #[tauri::command]
-pub fn mesh_set_primary(
+pub async fn mesh_transfer_crown(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     svc: tauri::State<'_, crate::service::ServiceState>,
     instance_id: String,
 ) -> Result<(), String> {
-    mesh.lock().set_primary(&instance_id)?;
+    // Transfer crown locally — returns new crown token
+    let new_token = mesh.lock().transfer_crown(&instance_id)?;
+    let our_id = mesh.lock().identity.instance_id.clone();
+
+    // Notify the target peer to receive crown
+    let peer = mesh.lock().paired_peers.get(&instance_id).cloned()
+        .ok_or_else(|| "Peer not found".to_string())?;
+    if let Some(client) = crate::mesh::transport::PeerClient::from_peer(&peer) {
+        client.send_crown_transfer(&new_token, &our_id).await?;
+    }
+
+    // Notify all other peers about the new crown holder
+    let all_peers: Vec<_> = mesh.lock().paired_peers.values().cloned().collect();
+    for p in &all_peers {
+        if p.instance_id == instance_id { continue; }
+        if let Some(c) = crate::mesh::transport::PeerClient::from_peer(p) {
+            let _ = c.send_crown_transfer(&new_token, &our_id).await;
+        }
+    }
+
     let _ = svc.app_handle.emit("mesh-state-changed", ());
     Ok(())
 }
@@ -1783,6 +1802,9 @@ pub fn mesh_start_discovery(
     if !mesh_config.enabled {
         return Err("Mesh is not enabled".to_string());
     }
+
+    // Claim crown if first instance
+    mesh.lock().claim_crown_if_unclaimed();
 
     // Detect network addresses
     crate::mesh::discovery::detect_tailscale(&mesh);

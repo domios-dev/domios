@@ -985,7 +985,7 @@ pub fn run() {
             commands::mesh_approve_pairing,
             commands::mesh_reject_pairing,
             commands::mesh_disconnect,
-            commands::mesh_set_primary,
+            commands::mesh_transfer_crown,
             commands::mesh_add_manual,
             commands::mesh_start_discovery,
         ])
