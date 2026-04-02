@@ -25,6 +25,11 @@ CodeTerm CLI: `codeterm`
 - `codeterm config set <key> <value>` — write config value
 - `codeterm bridge restart` — start or restart messaging bridge (Telegram, etc.) without app restart
 - `codeterm bridge react --to CHAT_ID --message-id MSG_ID "emoji"` — react to a message
+- `codeterm mesh status` — mesh networking status (paired peers, crown)
+- `codeterm mesh peers` — list paired and discovered peers
+- `codeterm mesh exec TARGET "command"` — run command on remote peer
+- `codeterm mesh send TARGET "text" --pane ID` — send text to remote pane
+- `codeterm mesh output TARGET --pane ID` — read remote pane output
 
 ## Your constraints
 - You CANNOT close your own tab or workspace (protected)

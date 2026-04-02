@@ -203,6 +203,27 @@ If `$CODETERM_ROLE` is empty (Orchestrator):
 - Spawn leads/workers with `codeterm agent spawn`
 - After spawning, stay operational — continue your work. Do NOT block with sleep or polling. Reports arrive automatically as `[Report from ...]` messages. React when you see them.
 
+## Mesh Networking
+
+CodeTerm instances can form a mesh — discover, pair, and communicate across machines. Check mesh status to see available peers:
+
+```bash
+codeterm mesh status                              # Your identity, crown, peer counts
+codeterm mesh peers                               # List paired + discovered peers
+```
+
+**Execute commands on remote machines:**
+```bash
+codeterm mesh exec BLACKSTAR "ls -la"             # Run command on remote peer's pane
+codeterm mesh send BLACKSTAR "npm test" --pane general  # Send text to remote pane
+codeterm mesh output BLACKSTAR --pane general     # Read output from remote pane
+codeterm mesh panes BLACKSTAR                     # List panes on remote peer
+```
+
+Target can be instance name (e.g. `BLACKSTAR`) or instance ID.
+
+**When to use mesh:** If a task needs resources on another machine (different OS, GPU, specific environment), use mesh to delegate. Check `codeterm mesh peers` first to see what's available. Only paired peers with `trusted` status accept relay commands.
+
 **Report syntax:** `codeterm agent report "message"` — message is the FIRST positional argument. Do NOT use `--message`, `--to`, or `--from` flags.
 
 **Hierarchy:** Orchestrator (depth 1) → Lead (depth 2) → Worker (depth 3). Leads can spawn Workers. Workers cannot spawn. IDs are 8-char hex.

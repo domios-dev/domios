@@ -703,37 +703,9 @@ function NetworkTab({
     local_ip: string; tailscale_ip: string | null;
     api_port: number; api_url: string; tailscale_url: string | null;
   } | null>(null);
-  const [copiedPrompt, setCopiedPrompt] = useState(false);
-  const [tokenRefreshing, setTokenRefreshing] = useState(false);
-
   useEffect(() => {
     invoke<typeof net>("get_network_info").then(setNet).catch(() => {});
   }, []);
-
-  const [openclawPrompt, setOpenclawPrompt] = useState("");
-
-  const buildPrompt = useCallback((netInfo: typeof net, token: string | null) => {
-    if (!netInfo) return;
-    invoke<string>("get_skills_prompt").then((base) => {
-      const url = netInfo.tailscale_url || netInfo.api_url;
-      const authLine = token ? `\nAuthorization: Bearer ${token}` : "";
-      setOpenclawPrompt(`CodeTerm API: ${url}${authLine}\n\n${base}`);
-    }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    buildPrompt(net, cfg.api?.token ?? null);
-  }, [net, cfg.api?.token, buildPrompt]);
-
-  const refreshToken = useCallback(async () => {
-    setTokenRefreshing(true);
-    try {
-      const token = await invoke<string>("generate_api_token");
-      onUpdate("api", { token });
-      buildPrompt(net, token);
-    } catch {}
-    setTokenRefreshing(false);
-  }, [net, onUpdate, buildPrompt]);
 
   const apiEnabled = cfg.api?.enabled ?? false;
 
@@ -756,58 +728,10 @@ function NetworkTab({
         </div>
       </Group>
 
-      <Group title="API Token">
-        <div className="text-[10px] text-[var(--ct-muted)] mb-2">
-          Bearer token required for all API requests. Included in the orchestrator prompt automatically.
-        </div>
-        {cfg.api?.token ? (
-          <div className="flex items-center gap-2">
-            <CopyRow label="Token" value={cfg.api.token} />
-            <button
-              onClick={refreshToken}
-              disabled={tokenRefreshing}
-              className="shrink-0 px-2 py-1 text-[10px] rounded bg-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-muted)] transition-colors disabled:opacity-50"
-            >
-              {tokenRefreshing ? "..." : "Regenerate"}
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={refreshToken}
-            disabled={tokenRefreshing}
-            className="px-3 py-1.5 text-[11px] rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all disabled:opacity-50"
-          >
-            {tokenRefreshing ? "Generating..." : "Generate Token"}
-          </button>
-        )}
-      </Group>
-
       {/* Mesh section — dimmed when API is off */}
       <div className={!apiEnabled ? "opacity-40 pointer-events-none" : ""}>
         <MeshSection config={cfg} onUpdate={onUpdate} apiEnabled={apiEnabled} />
       </div>
-
-      <Group title="OpenClaw / External Orchestrator">
-        <div className="text-xs text-[var(--ct-muted-fg)] mb-2">
-          Copy this prompt and give it to your external orchestrator (OpenClaw, etc.) so it knows how to control CodeTerm. {cfg.api?.token ? "Includes your API token." : "Generate a token above to include authentication."}
-        </div>
-        <div className="relative">
-          <pre className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded p-3 text-[10px] text-[var(--ct-muted-fg)] font-mono whitespace-pre-wrap max-h-[160px] overflow-y-auto leading-relaxed">
-            {openclawPrompt || "Loading..."}
-          </pre>
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(openclawPrompt).then(() => {
-                setCopiedPrompt(true);
-                setTimeout(() => setCopiedPrompt(false), 2000);
-              });
-            }}
-            className="absolute top-2 right-2 px-2 py-1 text-[10px] rounded bg-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-muted)] transition-colors"
-          >
-            {copiedPrompt ? "Copied!" : "Copy"}
-          </button>
-        </div>
-      </Group>
 
       <Collapsible title="API Endpoints Reference">
         <div className="space-y-3">
