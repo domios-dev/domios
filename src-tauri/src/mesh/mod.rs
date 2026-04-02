@@ -159,13 +159,13 @@ impl MeshManager {
             .count()
     }
 
-    /// Remove a paired peer and revoke its token.
+    /// Remove a paired peer. No revocation needed — without the peer in
+    /// paired_peers, their public key isn't in known_keys, so auth fails naturally.
     pub fn unpair(&mut self, instance_id: &str) -> Option<PairedPeer> {
         let removed = self.paired_peers.remove(instance_id);
         if removed.is_some() {
-            if !self.revocation_list.revoked.contains(&instance_id.to_string()) {
-                self.revocation_list.revoked.push(instance_id.to_string());
-            }
+            // Clean revocation list too — peer can re-pair later
+            self.revocation_list.revoked.retain(|id| id != instance_id);
             let _ = self.save();
         }
         removed
@@ -393,22 +393,17 @@ impl MeshManager {
     }
 
     /// Authenticate a signed mesh request. Returns the sender's instance_id if valid.
+    /// With Ed25519 auth, if a peer is unpaired their public key is removed from
+    /// known_keys — no separate revocation needed.
     pub fn authenticate_request(&self, signed_token: &str) -> Option<String> {
         let known_keys = self.known_public_keys();
-        log::info!("[mesh/auth] Verifying token (len={}, has_dot={}), known_keys={:?}",
-            signed_token.len(), signed_token.contains('.'),
-            known_keys.keys().collect::<Vec<_>>());
         match crown::verify_signed_request(signed_token, &known_keys) {
             Ok(peer_id) => {
-                if !self.is_revoked(&peer_id) {
-                    log::info!("[mesh/auth] OK — peer {} verified", peer_id);
-                    return Some(peer_id);
-                }
-                log::warn!("[mesh/auth] Peer {} is revoked", peer_id);
-                None
+                log::debug!("[mesh/auth] OK — peer {} verified", peer_id);
+                Some(peer_id)
             }
             Err(e) => {
-                log::warn!("[mesh/auth] FAILED: {}", e);
+                log::debug!("[mesh/auth] FAILED: {}", e);
                 None
             }
         }
