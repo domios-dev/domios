@@ -269,6 +269,8 @@ export interface MeshStatus {
   enabled: boolean;
   instance_id: string;
   instance_name: string;
+  is_crown: boolean;
+  crown_holder: string | null;
   discovery_active: boolean;
   tailscale_ip: string | null;
   local_ip: string | null;

@@ -1089,11 +1089,11 @@ function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUp
     }
   }, []);
 
-  const handleSetPrimary = useCallback(async (instanceId: string) => {
+  const handleTransferCrown = useCallback(async (instanceId: string) => {
     try {
-      await invoke("mesh_set_primary", { instanceId });
+      await invoke("mesh_transfer_crown", { instanceId });
     } catch (e) {
-      console.error("Mesh set primary failed:", e);
+      console.error("Mesh transfer crown failed:", e);
     }
   }, []);
 
@@ -1147,6 +1147,16 @@ function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUp
           />
         </div>
         {status && <CopyRow label="Instance ID" value={status.instance_id} />}
+        {status && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[var(--ct-muted)]">Role</span>
+            {status.is_crown ? (
+              <span className="text-[var(--ct-yellow)]">Crown Holder</span>
+            ) : (
+              <span className="text-[var(--ct-muted-fg)]">Member</span>
+            )}
+          </div>
+        )}
         <InfoRow label="Discovery" value={discoveryLabel} />
         <Toggle
           label="Enable mesh networking"
@@ -1188,8 +1198,8 @@ function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUp
                       <div className="flex items-center gap-2">
                         <div className={`w-2 h-2 rounded-full ${peer.online ? "bg-[var(--ct-green)]" : "bg-[var(--ct-muted)]"}`} />
                         <span className="text-xs font-medium text-[var(--ct-fg)]">{peer.instance_name}</span>
-                        {peer.is_primary && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)]">primary</span>
+                        {status?.crown_holder === peer.instance_id && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]">crown</span>
                         )}
                       </div>
                       <span className="text-[10px] text-[var(--ct-muted)] font-mono">
@@ -1201,12 +1211,12 @@ function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUp
                         {peer.online ? "Online" : "Offline"} · Paired {formatTimeAgo(peer.paired_at)}
                       </span>
                       <div className="flex items-center gap-1.5">
-                        {!peer.is_primary && (
+                        {status?.is_crown && status?.crown_holder !== peer.instance_id && (
                           <button
-                            onClick={() => handleSetPrimary(peer.instance_id)}
-                            className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+                            onClick={() => handleTransferCrown(peer.instance_id)}
+                            className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-yellow)]/70 hover:text-[var(--ct-yellow)] hover:bg-[var(--ct-yellow)]/10 transition-colors"
                           >
-                            Set Primary
+                            Transfer Crown
                           </button>
                         )}
                         <button

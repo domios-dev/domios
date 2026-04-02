@@ -102,6 +102,27 @@ impl PeerClient {
         }
     }
 
+    /// Transfer crown to this peer.
+    pub async fn send_crown_transfer(&self, crown_token: &str, from_id: &str) -> Result<(), String> {
+        let url = format!("{}/api/mesh/crown", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.mesh_token))
+            .json(&serde_json::json!({
+                "crown_token": crown_token,
+                "from_instance_id": from_id,
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err("Crown transfer failed".to_string())
+        }
+    }
+
     /// Notify a peer that we're unpairing.
     pub async fn send_unpair(&self, our_instance_id: &str) -> Result<(), String> {
         let url = format!("{}/api/mesh/peers/{}", self.base_url, our_instance_id);
