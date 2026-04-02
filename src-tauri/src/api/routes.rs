@@ -2593,22 +2593,27 @@ async fn mesh_unpair(
     headers: HeaderMap,
     Path(instance_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // Check if this is a remote unpair notification (mesh token) or local (API token)
     let auth = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
 
+    // Local API token = can unpair anyone (user action from UI)
     let is_local_auth = state
         .token
         .as_ref()
         .map(|t| t == token)
         .unwrap_or(true);
-    let is_mesh_auth = state.mesh.lock().authenticate_mesh_token(token).is_some();
 
-    if !is_local_auth && !is_mesh_auth {
-        return Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_string()));
+    if !is_local_auth {
+        // Remote mesh token = can only unpair YOURSELF (not others)
+        let sender_id = state.mesh.lock().authenticate_mesh_token(token)
+            .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))?;
+        if sender_id != instance_id {
+            return Err((StatusCode::FORBIDDEN,
+                format!("Can only disconnect yourself ({}), not {}", sender_id, instance_id)));
+        }
     }
 
     let mut mesh = state.mesh.lock();
