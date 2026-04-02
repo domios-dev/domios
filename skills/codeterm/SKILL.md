@@ -218,23 +218,23 @@ All existing flags (`--pane`, `--workspace`, `--role`, etc.) work with `--mesh`.
 
 ```bash
 # List remote panes/workspaces
-codeterm pane list --mesh BLACKSTAR
-codeterm workspace list --mesh BLACKSTAR
+codeterm pane list --mesh PEER_NAME
+codeterm workspace list --mesh PEER_NAME
 
 # Send text to a specific pane on remote machine
-codeterm send-text "npm test" --pane PANE_ID --mesh BLACKSTAR
+codeterm send-text "npm test" --pane PANE_ID --mesh PEER_NAME
 
 # Read output from a specific pane
-codeterm get-output --pane PANE_ID --mesh BLACKSTAR
+codeterm get-output --pane PANE_ID --mesh PEER_NAME
 
 # Spawn agent on remote machine in a specific workspace
-codeterm agent spawn claude --task "build project" --workspace WS_ID --mesh BLACKSTAR
-codeterm agent spawn claude --task "run tests" --role Worker --parent PANE_ID --mesh BLACKSTAR
+codeterm agent spawn claude --task "build project" --workspace WS_ID --mesh PEER_NAME
+codeterm agent spawn claude --task "run tests" --role Worker --parent PANE_ID --mesh PEER_NAME
 
 # Create workspace, cron, send notifications remotely
-codeterm workspace create "CI" --mesh BLACKSTAR
-codeterm cron create "health" --schedule "*/5 * * * *" --task "check services" --mesh BLACKSTAR
-codeterm notify "Deploy complete" --level info --mesh BLACKSTAR
+codeterm workspace create "CI" --mesh PEER_NAME
+codeterm cron create "health" --schedule "*/5 * * * *" --task "check services" --mesh PEER_NAME
+codeterm notify "Deploy complete" --level info --mesh PEER_NAME
 ```
 
 **Typical workflow for remote delegation:**
@@ -243,16 +243,18 @@ codeterm notify "Deploy complete" --level info --mesh BLACKSTAR
 codeterm mesh peers
 
 # 2. See what's running on BLACKSTAR
-codeterm pane list --mesh BLACKSTAR
+codeterm pane list --mesh PEER_NAME
 
 # 3. Spawn a worker there
-codeterm agent spawn claude --task "build and test on Windows" --mesh BLACKSTAR
+codeterm agent spawn claude --task "build and test" --mesh PEER_NAME
 
 # 4. Check output
-codeterm get-output --pane PANE_ID --mesh BLACKSTAR
+codeterm get-output --pane PANE_ID --mesh PEER_NAME
 ```
 
-**When to use mesh:** If a task needs resources on another machine (different OS, GPU, specific environment), use `--mesh` to delegate. Check `codeterm mesh peers` first. Only paired peers with `trusted` status accept commands.
+**Discovering mesh peers:** Run `codeterm mesh peers` to see available machines. Output shows paired peers (online/offline, trust level) and discovered but unpaired peers. Run `codeterm mesh status` for your own identity and crown status.
+
+**When to use mesh:** If a task needs resources on another machine (different OS, GPU, specific environment), use `--mesh` to delegate. Only paired peers with `trusted` status accept commands.
 
 **Report syntax:** `codeterm agent report "message"` — message is the FIRST positional argument. Do NOT use `--message`, `--to`, or `--from` flags.
 
