@@ -157,10 +157,47 @@ fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             }
             _ => ("GET".into(), "/api/agents".into(), None),
         },
-        // Mesh commands run locally even with --mesh (meta)
+        Commands::Notifications { unread, .. } => {
+            let qs = if *unread { "?unread=true" } else { "" };
+            ("GET".into(), format!("/api/notifications{}", qs), None)
+        }
+        Commands::Browser { action } => match action {
+            BrowserAction::Open { url } => ("POST".into(), "/api/browser/open".into(),
+                Some(serde_json::json!({"url": url}).to_string())),
+        },
+        Commands::Cron { action } => match action {
+            CronAction::List { .. } => ("GET".into(), "/api/crons".into(), None),
+            CronAction::Create { name, schedule, task, workspace, agent, cwd, description, .. } => {
+                let mut body = serde_json::json!({"name": name, "schedule": schedule, "task": task, "agent": agent});
+                if let Some(w) = workspace { body["workspace_id"] = serde_json::json!(w); }
+                if let Some(c) = cwd { body["cwd"] = serde_json::json!(c); }
+                if let Some(d) = description { body["description"] = serde_json::json!(d); }
+                ("POST".into(), "/api/crons".into(), Some(body.to_string()))
+            }
+            CronAction::Delete { id } => ("DELETE".into(), format!("/api/crons/{}", id), None),
+            CronAction::Enable { id } => ("POST".into(), format!("/api/crons/{}/enable", id), None),
+            CronAction::Disable { id } => ("POST".into(), format!("/api/crons/{}/disable", id), None),
+            CronAction::Trigger { id } => ("POST".into(), format!("/api/crons/{}/trigger", id), None),
+            CronAction::History { id } => ("GET".into(), format!("/api/crons/{}/history", id), None),
+            _ => ("GET".into(), "/api/crons".into(), None),
+        },
+        Commands::Config { action } => match action {
+            ConfigAction::Get { key } => ("GET".into(), format!("/api/config?key={}", key), None),
+            ConfigAction::Set { key, value } => {
+                let v: serde_json::Value = serde_json::from_str(value).unwrap_or(serde_json::json!(value));
+                ("PATCH".into(), "/api/config".into(), Some(serde_json::json!({"key": key, "value": v}).to_string()))
+            }
+        },
+        Commands::Screenshot { .. } => ("GET".into(), "/api/screenshot".into(), None),
+        Commands::Update { .. } => ("GET".into(), "/api/update/check".into(), None),
+        // Mesh subcommands run locally (no recursion)
         Commands::Mesh { .. } => ("GET".into(), "/api/mesh/status".into(), None),
-        // Fallback: just get health
-        _ => ("GET".into(), "/api/health".into(), None),
+        // Bridge, Theme — best effort
+        Commands::Bridge { .. } => ("GET".into(), "/api/health".into(), None),
+        Commands::Theme { action } => match action {
+            ThemeAction::List => ("GET".into(), "/api/themes".into(), None),
+            _ => ("GET".into(), "/api/themes".into(), None),
+        },
     }
 }
 
@@ -749,19 +786,6 @@ enum MeshAction {
     Panes {
         /// Target peer name or instance ID
         target: String,
-    },
-    /// Generic API proxy — call any API endpoint on a remote peer
-    Api {
-        /// Target peer name or instance ID
-        target: String,
-        /// HTTP method (GET, POST, DELETE, etc.)
-        #[arg(long, default_value = "GET")]
-        method: String,
-        /// API path (e.g. /api/panes, /api/agents/spawn)
-        path: String,
-        /// JSON body for POST/PUT/PATCH
-        #[arg(long)]
-        body: Option<String>,
     },
 }
 
@@ -1762,10 +1786,6 @@ fn main() {
                 }
                 MeshAction::Panes { target } => {
                     mesh_relay_cmd(&http, &base, &token, &target, "panes", "", "", cli.json);
-                    return;
-                }
-                MeshAction::Api { target, method, path, body } => {
-                    mesh_relay_generic(&http, &base, &token, &target, &method, &path, body.as_deref(), cli.json);
                     return;
                 }
             }
