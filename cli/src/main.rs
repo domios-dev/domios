@@ -177,6 +177,12 @@ enum Commands {
         action: BridgeAction,
     },
 
+    /// Mesh networking — peer discovery, pairing, relay
+    Mesh {
+        #[command(subcommand)]
+        action: MeshAction,
+    },
+
     /// Capture a screenshot of the CodeTerm window
     Screenshot {
         /// Save to file instead of printing base64 (e.g. screenshot.jpg)
@@ -579,6 +585,47 @@ enum CronAction {
         /// Summary of what happened
         #[arg(long)]
         summary: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum MeshAction {
+    /// Show mesh status (identity, crown, discovery)
+    Status,
+    /// List all peers (paired + discovered)
+    Peers,
+    /// Execute a command on a remote mesh peer
+    Exec {
+        /// Target peer name or instance ID
+        target: String,
+        /// Command to execute
+        command: String,
+        /// Target pane on remote instance (default: general)
+        #[arg(long, default_value = "general")]
+        pane: String,
+    },
+    /// Send text to a pane on a remote mesh peer
+    Send {
+        /// Target peer name or instance ID
+        target: String,
+        /// Text to send
+        text: String,
+        /// Target pane on remote instance (default: general)
+        #[arg(long, default_value = "general")]
+        pane: String,
+    },
+    /// Get output from a pane on a remote mesh peer
+    Output {
+        /// Target peer name or instance ID
+        target: String,
+        /// Target pane on remote instance (default: general)
+        #[arg(long, default_value = "general")]
+        pane: String,
+    },
+    /// List panes on a remote mesh peer
+    Panes {
+        /// Target peer name or instance ID
+        target: String,
     },
 }
 
@@ -1488,6 +1535,191 @@ fn main() {
                 }
             }
             return;
+        }
+
+        Commands::Mesh { action } => {
+            let (base, token) = read_api_config();
+            let http = build_http(&token);
+            match action {
+                MeshAction::Status => {
+                    match http.get(format!("{}/api/mesh/status", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                let name = val.get("instance_name").and_then(|v| v.as_str()).unwrap_or("?");
+                                let id = val.get("instance_id").and_then(|v| v.as_str()).unwrap_or("?");
+                                let crown = val.get("is_crown").and_then(|v| v.as_bool()).unwrap_or(false);
+                                let paired = val.get("paired_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                                let discovered = val.get("discovered_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                                println!("{} ({})", name, &id[..8]);
+                                println!("Crown: {}", if crown { "yes" } else { "no" });
+                                println!("Paired: {}, Discovered: {}", paired, discovered);
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Peers => {
+                    match http.get(format!("{}/api/mesh/peers", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                if let Some(paired) = val.get("paired").and_then(|v| v.as_array()) {
+                                    if !paired.is_empty() { println!("Paired:"); }
+                                    for p in paired {
+                                        let name = p.get("instance_name").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let online = p.get("online").and_then(|v| v.as_bool()).unwrap_or(false);
+                                        let trust = p.get("trust_level").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let ip = p.get("addresses").and_then(|v| v.as_array())
+                                            .and_then(|a| a.first())
+                                            .and_then(|a| a.get("ip")).and_then(|v| v.as_str()).unwrap_or("?");
+                                        let dot = if online { "●" } else { "○" };
+                                        println!("  {} {} ({}) [{}] {}", dot, name, ip, trust,
+                                            if p.get("is_primary").and_then(|v| v.as_bool()).unwrap_or(false) { "★" } else { "" });
+                                    }
+                                }
+                                if let Some(discovered) = val.get("discovered").and_then(|v| v.as_array()) {
+                                    if !discovered.is_empty() { println!("Discovered:"); }
+                                    for d in discovered {
+                                        let name = d.get("instance_name").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let method = d.get("discovery_method").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let ip = d.get("addresses").and_then(|v| v.as_array())
+                                            .and_then(|a| a.first())
+                                            .and_then(|a| a.get("ip")).and_then(|v| v.as_str()).unwrap_or("?");
+                                        let dev = d.get("dev").and_then(|v| v.as_bool()).unwrap_or(false);
+                                        println!("  ◇ {} ({}) [{}]{}", name, ip, method, if dev { " [dev]" } else { "" });
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Exec { target, command, pane } | MeshAction::Send { target, text: command, pane } => {
+                    let action = if matches!(action, MeshAction::Exec { .. }) { "exec" } else { "send" };
+                    // Find the peer by name or ID
+                    let peers_resp = http.get(format!("{}/api/mesh/peers", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .send().ok().and_then(|r| r.json::<serde_json::Value>().ok());
+                    let peer = peers_resp.as_ref()
+                        .and_then(|v| v.get("paired")).and_then(|v| v.as_array())
+                        .and_then(|arr| arr.iter().find(|p| {
+                            p.get("instance_name").and_then(|v| v.as_str()) == Some(&target)
+                            || p.get("instance_id").and_then(|v| v.as_str()) == Some(&target)
+                        }));
+                    let Some(peer) = peer else {
+                        eprintln!("Peer '{}' not found", target);
+                        std::process::exit(1);
+                    };
+                    let ip = peer.get("addresses").and_then(|v| v.as_array())
+                        .and_then(|a| a.first()).and_then(|a| a.get("ip")).and_then(|v| v.as_str()).unwrap_or("127.0.0.1");
+                    let port = peer.get("api_port").and_then(|v| v.as_u64()).unwrap_or(7685);
+                    let mesh_token = peer.get("mesh_token").and_then(|v| v.as_str()).unwrap_or("");
+                    let peer_url = format!("http://{}:{}", ip, port);
+
+                    let relay = serde_json::json!({
+                        "action": action,
+                        "pane_id": pane,
+                        "payload": command,
+                    });
+                    match http.post(format!("{}/api/mesh/relay", peer_url))
+                        .header("Authorization", format!("Bearer {}", mesh_token))
+                        .json(&relay).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if let Some(data) = val.get("data") {
+                                println!("{}", serde_json::to_string_pretty(data).unwrap());
+                            } else if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
+                                eprintln!("Error: {}", err);
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Output { target, pane } => {
+                    let peers_resp = http.get(format!("{}/api/mesh/peers", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .send().ok().and_then(|r| r.json::<serde_json::Value>().ok());
+                    let peer = peers_resp.as_ref()
+                        .and_then(|v| v.get("paired")).and_then(|v| v.as_array())
+                        .and_then(|arr| arr.iter().find(|p| {
+                            p.get("instance_name").and_then(|v| v.as_str()) == Some(&target)
+                            || p.get("instance_id").and_then(|v| v.as_str()) == Some(&target)
+                        }));
+                    let Some(peer) = peer else {
+                        eprintln!("Peer '{}' not found", target);
+                        std::process::exit(1);
+                    };
+                    let ip = peer.get("addresses").and_then(|v| v.as_array())
+                        .and_then(|a| a.first()).and_then(|a| a.get("ip")).and_then(|v| v.as_str()).unwrap_or("127.0.0.1");
+                    let port = peer.get("api_port").and_then(|v| v.as_u64()).unwrap_or(7685);
+                    let mesh_token = peer.get("mesh_token").and_then(|v| v.as_str()).unwrap_or("");
+                    let peer_url = format!("http://{}:{}", ip, port);
+
+                    let relay = serde_json::json!({ "action": "output", "pane_id": pane });
+                    match http.post(format!("{}/api/mesh/relay", peer_url))
+                        .header("Authorization", format!("Bearer {}", mesh_token))
+                        .json(&relay).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if let Some(text) = val.get("data").and_then(|d| d.get("text")).and_then(|v| v.as_str()) {
+                                print!("{}", text);
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Panes { target } => {
+                    let peers_resp = http.get(format!("{}/api/mesh/peers", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .send().ok().and_then(|r| r.json::<serde_json::Value>().ok());
+                    let peer = peers_resp.as_ref()
+                        .and_then(|v| v.get("paired")).and_then(|v| v.as_array())
+                        .and_then(|arr| arr.iter().find(|p| {
+                            p.get("instance_name").and_then(|v| v.as_str()) == Some(&target)
+                            || p.get("instance_id").and_then(|v| v.as_str()) == Some(&target)
+                        }));
+                    let Some(peer) = peer else {
+                        eprintln!("Peer '{}' not found", target);
+                        std::process::exit(1);
+                    };
+                    let ip = peer.get("addresses").and_then(|v| v.as_array())
+                        .and_then(|a| a.first()).and_then(|a| a.get("ip")).and_then(|v| v.as_str()).unwrap_or("127.0.0.1");
+                    let port = peer.get("api_port").and_then(|v| v.as_u64()).unwrap_or(7685);
+                    let mesh_token = peer.get("mesh_token").and_then(|v| v.as_str()).unwrap_or("");
+                    let peer_url = format!("http://{}:{}", ip, port);
+
+                    let relay = serde_json::json!({ "action": "panes" });
+                    match http.post(format!("{}/api/mesh/relay", peer_url))
+                        .header("Authorization", format!("Bearer {}", mesh_token))
+                        .json(&relay).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if let Some(data) = val.get("data") {
+                                println!("{}", serde_json::to_string_pretty(data).unwrap());
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+            }
         }
     };
 
