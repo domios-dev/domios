@@ -23,7 +23,6 @@ fn read_api_config() -> (String, Option<String>) {
     let config_path = config_dir.join("config.toml");
 
     let (mut host, mut port) = ("127.0.0.1".to_string(), 7685i64);
-    let mut legacy_token: Option<String> = None;
 
     if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(val) = content.parse::<toml::Table>() {
@@ -31,7 +30,6 @@ fn read_api_config() -> (String, Option<String>) {
                 let raw_host = api.get("host").and_then(|v| v.as_str()).unwrap_or("127.0.0.1");
                 host = if raw_host == "0.0.0.0" { "127.0.0.1".to_string() } else { raw_host.to_string() };
                 port = api.get("port").and_then(|v| v.as_integer()).unwrap_or(7685);
-                legacy_token = api.get("token").and_then(|v| v.as_str()).map(|s| s.to_string());
             }
         }
     }
@@ -43,18 +41,15 @@ fn read_api_config() -> (String, Option<String>) {
         }
     }
 
-    // Try Ed25519 signed token from identity (primary auth)
-    let mesh_dir = config_dir.join("mesh");
-    let identity_path = mesh_dir.join("identity.json");
-    let token = if let Ok(content) = std::fs::read_to_string(&identity_path) {
-        if let Ok(id) = serde_json::from_str::<serde_json::Value>(&content) {
-            let priv_key = id.get("private_key").and_then(|v| v.as_str());
-            let instance_id = id.get("instance_id").and_then(|v| v.as_str());
-            if let (Some(pk), Some(iid)) = (priv_key, instance_id) {
-                sign_request(pk, iid).ok()
-            } else { legacy_token }
-        } else { legacy_token }
-    } else { legacy_token };
+    // Sign with Ed25519 identity key
+    let identity_path = config_dir.join("mesh").join("identity.json");
+    let token = std::fs::read_to_string(&identity_path).ok()
+        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+        .and_then(|id| {
+            let pk = id.get("private_key")?.as_str()?;
+            let iid = id.get("instance_id")?.as_str()?;
+            sign_request(pk, iid).ok()
+        });
 
     (format!("http://{}:{}", host, port), token)
 }
