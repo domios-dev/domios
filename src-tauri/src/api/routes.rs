@@ -2371,12 +2371,19 @@ async fn mesh_pair_confirm(
     // Update the paired peer with A's actual mesh token
     {
         let mut mesh = state.mesh.lock();
-        if let Some(peer) = mesh.paired_peers.get_mut(&original_request.from_instance_id) {
+        let peer_id = &original_request.from_instance_id;
+        if let Some(peer) = mesh.paired_peers.get_mut(peer_id) {
+            log::info!("[mesh] Storing mesh_token for peer {} (len={})", peer_id, their_mesh_token.len());
             peer.mesh_token = their_mesh_token;
+        } else {
+            log::error!("[mesh] Confirm: peer {} not found in paired_peers! Keys: {:?}",
+                peer_id, mesh.paired_peers.keys().collect::<Vec<_>>());
         }
         mesh.pending_requests.remove(&confirm.request_id);
         mesh.pairing_keypairs.remove(&confirm.request_id);
-        let _ = mesh.save();
+        if let Err(e) = mesh.save() {
+            log::error!("[mesh] Failed to save after confirm: {}", e);
+        }
     }
 
     log::info!(
