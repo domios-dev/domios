@@ -1513,3 +1513,242 @@ mod tests {
         assert!(cmd.contains("$CODETERM_PANE_ID"));
     }
 }
+
+// ── Mesh commands ───────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn mesh_get_status(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+) -> Result<serde_json::Value, String> {
+    let m = mesh.lock();
+    serde_json::to_value(m.status()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn mesh_list_peers(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+) -> Result<serde_json::Value, String> {
+    let m = mesh.lock();
+    serde_json::to_value(m.peers_response()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn mesh_refresh_discovery(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+) -> Result<serde_json::Value, String> {
+    let m = mesh.lock();
+    let discovered: Vec<_> = m.discovered_peers.values().cloned().collect();
+    serde_json::to_value(discovered).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn mesh_connect(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    instance_id: String,
+) -> Result<(), String> {
+    let (request, private_key, target_addr, target_port) = {
+        let m = mesh.lock();
+        let peer = m
+            .discovered_peers
+            .get(&instance_id)
+            .ok_or_else(|| "Peer not found in discovered list".to_string())?;
+        let addr = peer
+            .addresses
+            .iter()
+            .find(|a| a.is_tailscale)
+            .or_else(|| peer.addresses.first())
+            .ok_or_else(|| "No address for peer".to_string())?;
+
+        let local_addr = m
+            .tailscale_ip
+            .clone()
+            .or_else(|| m.local_ip.clone())
+            .unwrap_or_else(|| "127.0.0.1".to_string());
+
+        let (request, private_key) = crate::mesh::pairing::create_pairing_request(
+            &m.identity.instance_id,
+            &m.instance_name,
+            &local_addr,
+            m.api_port,
+        );
+        (request, private_key, addr.ip.clone(), peer.api_port)
+    };
+
+    // Store the keypair, outgoing request, and target info for the accept handler
+    {
+        let mut m = mesh.lock();
+        m.pairing_keypairs
+            .insert(request.request_id.clone(), private_key);
+        m.pairing_targets.insert(
+            request.request_id.clone(),
+            (target_addr.clone(), target_port, instance_id.clone()),
+        );
+        // Store the outgoing request so accept handler can find nonce
+        m.pending_requests
+            .insert(request.request_id.clone(), request.clone());
+    }
+
+    // Send the request to the peer
+    let client = crate::mesh::transport::PeerClient::new(&target_addr, target_port, "");
+    client.send_pair_request(&request).await?;
+
+    log::info!("[mesh] Pairing request sent to {}", instance_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn mesh_approve_pairing(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    request_id: String,
+) -> Result<(), String> {
+    let request = {
+        let m = mesh.lock();
+        m.pending_requests
+            .get(&request_id)
+            .cloned()
+            .ok_or_else(|| "Request not found".to_string())?
+    };
+
+    let (our_private_key, our_public_key_b64) = crate::mesh::pairing::generate_keypair();
+    let mesh_token_for_requester = crate::mesh::pairing::generate_mesh_token();
+
+    let encrypted_token = crate::mesh::pairing::encrypt_with_shared_secret(
+        &our_private_key,
+        &request.public_key,
+        &request.nonce,
+        &mesh_token_for_requester,
+    )?;
+
+    // Store keypair for confirm step
+    {
+        let mut m = mesh.lock();
+        m.pairing_keypairs
+            .insert(request_id.clone(), our_private_key);
+        if let Some(req) = m.pending_requests.get_mut(&request_id) {
+            req.status = crate::mesh::types::PairingStatus::Accepted;
+        }
+    }
+
+    // Send acceptance
+    let client = crate::mesh::transport::PeerClient::new(
+        &request.from_address,
+        request.from_port,
+        "",
+    );
+    let accept = crate::mesh::types::PairingAccept {
+        request_id: request_id.clone(),
+        public_key: our_public_key_b64,
+        encrypted_mesh_token: encrypted_token,
+    };
+    client.send_pair_accept(&accept).await?;
+
+    // Store peer (mesh_token placeholder — filled on confirm)
+    {
+        let mut m = mesh.lock();
+        let peer = crate::mesh::types::PairedPeer {
+            instance_id: request.from_instance_id.clone(),
+            instance_name: request.from_instance_name.clone(),
+            addresses: vec![crate::mesh::types::PeerAddress {
+                ip: request.from_address.clone(),
+                is_tailscale: false,
+            }],
+            api_port: request.from_port,
+            mesh_token: String::new(),
+            paired_at: chrono::Utc::now().to_rfc3339(),
+            last_seen: Some(chrono::Utc::now().to_rfc3339()),
+            online: true,
+            is_primary: false,
+            access_level: crate::mesh::types::AccessLevel::Full,
+            version: None,
+        };
+        m.paired_peers
+            .insert(request.from_instance_id.clone(), peer);
+    }
+
+    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn mesh_reject_pairing(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    request_id: String,
+) -> Result<(), String> {
+    let mut m = mesh.lock();
+    let block_id = if let Some(req) = m.pending_requests.get_mut(&request_id) {
+        req.status = crate::mesh::types::PairingStatus::Rejected;
+        Some(req.from_instance_id.clone())
+    } else {
+        None
+    };
+    if let Some(id) = block_id {
+        if !m.revocation_list.blocked.contains(&id) {
+            m.revocation_list.blocked.push(id);
+        }
+        let _ = m.save();
+    }
+    drop(m);
+    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn mesh_disconnect(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    instance_id: String,
+) -> Result<(), String> {
+    // Best-effort notify the other side
+    let peer = mesh.lock().paired_peers.get(&instance_id).cloned();
+    if let Some(peer) = peer {
+        if let Some(client) = crate::mesh::transport::PeerClient::from_peer(&peer) {
+            let our_id = mesh.lock().identity.instance_id.clone();
+            let _ = client.send_unpair(&our_id).await;
+        }
+    }
+    mesh.lock().unpair(&instance_id);
+    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn mesh_set_primary(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    instance_id: String,
+) -> Result<(), String> {
+    mesh.lock().set_primary(&instance_id)?;
+    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn mesh_add_manual(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    address: String,
+    port: u16,
+) -> Result<(), String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let peer = crate::mesh::types::DiscoveredPeer {
+        instance_id: format!("manual-{}", uuid::Uuid::new_v4()),
+        instance_name: format!("{}:{}", address, port),
+        addresses: vec![crate::mesh::types::PeerAddress {
+            ip: address,
+            is_tailscale: false,
+        }],
+        api_port: port,
+        discovery_method: crate::mesh::types::DiscoveryMethod::Manual,
+        last_seen: now,
+    };
+    mesh.lock()
+        .discovered_peers
+        .insert(peer.instance_id.clone(), peer);
+    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    Ok(())
+}

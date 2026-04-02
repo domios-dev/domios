@@ -5,6 +5,7 @@ pub mod bridge;
 mod commands;
 mod config;
 pub mod cron;
+pub mod mesh;
 pub mod multiplexer;
 mod notification;
 pub mod paths;
@@ -20,7 +21,7 @@ pub mod update;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use config::ConfigState;
 use multiplexer::commands::MuxState;
@@ -42,6 +43,7 @@ pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
 pub type PromptDetectorState = Arc<Mutex<agent::prompt::PromptDetector>>;
 pub use cron::scheduler::{CronState, CronWake};
 pub type UpdateStateHandle = Arc<Mutex<update::UpdateState>>;
+pub type MeshStateHandle = mesh::MeshState;
 
 /// All shared application states, grouped for easier passing between init functions.
 struct AppStates {
@@ -57,6 +59,7 @@ struct AppStates {
     report_store: ReportStoreState,
     event_broadcaster: api::events::EventBroadcasterState,
     update: UpdateStateHandle,
+    mesh: MeshStateHandle,
 }
 
 /// Create and initialize all application states.
@@ -74,6 +77,13 @@ fn init_states() -> AppStates {
     let agent_tracker: AgentTrackerState = Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
     let report_store: ReportStoreState = Arc::new(Mutex::new(agent::reports::ReportStore::new(200)));
     let event_broadcaster: api::events::EventBroadcasterState = Arc::new(api::events::EventBroadcaster::new());
+
+    // Initialize mesh state
+    let mesh_config = config_state.lock().mesh.clone();
+    let api_port = config_state.lock().api.port;
+    let mesh_state: MeshStateHandle = Arc::new(Mutex::new(
+        mesh::MeshManager::new(mesh_config.instance_name.clone(), api_port),
+    ));
 
     // Detect install method and init update state
     let install_method = update::detect_install_method();
@@ -138,6 +148,7 @@ fn init_states() -> AppStates {
         report_store,
         event_broadcaster,
         update: update_state,
+        mesh: mesh_state,
     }
 }
 
@@ -261,6 +272,49 @@ fn start_background_tasks(
                 }
             }
         });
+    }
+
+    // Mesh: periodic health check + stale peer cleanup
+    {
+        let mesh = states.mesh.clone();
+        let mesh_enabled = states.config.lock().mesh.enabled;
+        if mesh_enabled {
+            let app_h = app_handle.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(10));
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Failed to create mesh health runtime");
+                rt.block_on(async {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                        // Clean up stale discovered peers
+                        mesh::discovery::cleanup_stale_peers(&mesh);
+                        // Clean up expired pairing requests
+                        mesh.lock().cleanup_expired_requests();
+                        // Ping all paired peers
+                        let peers: Vec<_> = mesh.lock().paired_peers.values().cloned().collect();
+                        let mut changed = false;
+                        for peer in &peers {
+                            if let Some(client) = mesh::transport::PeerClient::from_peer(peer) {
+                                let online = client.ping().await;
+                                let mut m = mesh.lock();
+                                if let Some(p) = m.paired_peers.get_mut(&peer.instance_id) {
+                                    if p.online != online {
+                                        p.online = online;
+                                        changed = true;
+                                    }
+                                }
+                            }
+                        }
+                        if changed {
+                            let _ = app_h.emit("mesh-state-changed", ());
+                        }
+                    }
+                });
+            });
+        }
     }
 
     // Background update check (5s delay to not slow startup)
@@ -584,6 +638,7 @@ fn start_servers(
                 api_port: api_config.port,
                 update_state: states.update.clone(),
                 config: states.config.clone(),
+                mesh: states.mesh.clone(),
             };
             let router = api::routes::create_router(api_state);
             let host = api_config.host.clone();
@@ -632,6 +687,26 @@ fn start_servers(
                     &svc, &mux, &pty, &screen_state, &config_state, &app_h,
                 );
             });
+        }
+    }
+
+    // Start mesh discovery if enabled
+    {
+        let mesh_config = states.config.lock().mesh.clone();
+        if mesh_config.enabled {
+            let mesh = states.mesh.clone();
+            mesh::discovery::detect_tailscale(&mesh);
+            mesh::discovery::detect_local_ip(&mesh);
+            if mesh_config.auto_discover {
+                match mesh::discovery::start_mdns(mesh.clone(), mesh_config.stealth) {
+                    Ok(_handle) => {
+                        log::info!("[mesh] mDNS discovery started");
+                        // Handle is leaked intentionally — runs for app lifetime
+                        std::mem::forget(_handle);
+                    }
+                    Err(e) => log::error!("[mesh] mDNS start failed: {}", e),
+                }
+            }
         }
     }
 
@@ -800,6 +875,7 @@ pub fn run() {
         .manage(states.event_broadcaster.clone())
         .manage(states.screenshot.clone())
         .manage(states.update.clone())
+        .manage(states.mesh.clone())
         // ServiceState is added in .setup() after AppHandle is available
         .invoke_handler(tauri::generate_handler![
             // PTY commands
@@ -897,6 +973,16 @@ pub fn run() {
             commands::cron_trigger,
             commands::cron_history,
             commands::cron_read_log,
+            // Mesh commands
+            commands::mesh_get_status,
+            commands::mesh_list_peers,
+            commands::mesh_refresh_discovery,
+            commands::mesh_connect,
+            commands::mesh_approve_pairing,
+            commands::mesh_reject_pairing,
+            commands::mesh_disconnect,
+            commands::mesh_set_primary,
+            commands::mesh_add_manual,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
