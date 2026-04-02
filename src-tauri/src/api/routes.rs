@@ -97,6 +97,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/bridge/send", post(bridge_send_api))
         // Mesh networking
         .route("/api/mesh/ping", get(mesh_ping))
+        .route("/api/mesh/debug/sign", get(mesh_debug_sign))
         .route("/api/mesh/status", get(mesh_status))
         .route("/api/mesh/peers", get(mesh_peers))
         .route("/api/mesh/discover", post(mesh_discover))
@@ -2196,6 +2197,19 @@ async fn bridge_send_api(
 /// Lightweight health check — no auth, minimal fingerprint.
 async fn mesh_ping() -> Json<serde_json::Value> {
     Json(serde_json::json!({"mesh": true}))
+}
+
+/// Debug: return a signed token for testing auth (requires local API token).
+async fn mesh_debug_sign(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let mesh = state.mesh.lock();
+    match mesh.sign_request() {
+        Ok(token) => Ok(Json(serde_json::json!({"token": token, "instance_id": mesh.identity.instance_id}))),
+        Err(e) => Ok(Json(serde_json::json!({"error": e}))),
+    }
 }
 
 /// Mesh status — auth required.

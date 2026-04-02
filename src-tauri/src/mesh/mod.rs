@@ -395,16 +395,20 @@ impl MeshManager {
     /// Authenticate a signed mesh request. Returns the sender's instance_id if valid.
     pub fn authenticate_request(&self, signed_token: &str) -> Option<String> {
         let known_keys = self.known_public_keys();
+        log::info!("[mesh/auth] Verifying token (len={}, has_dot={}), known_keys={:?}",
+            signed_token.len(), signed_token.contains('.'),
+            known_keys.keys().collect::<Vec<_>>());
         match crown::verify_signed_request(signed_token, &known_keys) {
             Ok(peer_id) => {
                 if !self.is_revoked(&peer_id) {
+                    log::info!("[mesh/auth] OK — peer {} verified", peer_id);
                     return Some(peer_id);
                 }
                 log::warn!("[mesh/auth] Peer {} is revoked", peer_id);
                 None
             }
             Err(e) => {
-                log::debug!("[mesh/auth] Signature verification failed: {}", e);
+                log::warn!("[mesh/auth] FAILED: {}", e);
                 None
             }
         }
