@@ -2483,69 +2483,51 @@ fn check_mesh_trust(state: &AppState, headers: &HeaderMap) -> Result<String, (St
 }
 
 /// Relay — execute commands on this instance from a mesh peer.
+/// Generic API proxy — forwards any API call from a trusted mesh peer.
+/// The relay simply calls the local API endpoint as if it were a local request.
 async fn mesh_relay(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(cmd): Json<crate::mesh::types::RelayCommand>,
 ) -> Result<Json<crate::mesh::types::RelayResponse>, (StatusCode, String)> {
     let sender_id = check_mesh_trust(&state, &headers)?;
-    log::info!("[mesh/relay] {} from {}", serde_json::to_string(&cmd.action).unwrap_or_default(), sender_id);
+    log::info!("[mesh/relay] {} {} from {}", cmd.method, cmd.path, sender_id);
 
-    match cmd.action {
-        crate::mesh::types::RelayAction::Status => {
-            let mesh = state.mesh.lock();
-            Ok(Json(crate::mesh::types::RelayResponse {
-                ok: true, data: Some(serde_json::to_value(mesh.status()).unwrap()), error: None,
-            }))
-        }
-        crate::mesh::types::RelayAction::Panes => {
-            let mux = state.svc.mux.lock();
-            let workspaces = mux.list_workspaces();
-            Ok(Json(crate::mesh::types::RelayResponse {
-                ok: true, data: Some(serde_json::to_value(workspaces).unwrap()), error: None,
-            }))
-        }
-        crate::mesh::types::RelayAction::Output => {
-            let pane_id = cmd.pane_id.as_deref()
-                .ok_or_else(|| (StatusCode::BAD_REQUEST, "pane_id required".to_string()))?;
-            let resolved = resolve_pane(&state, pane_id).map_err(|(s, e)| (s, e.to_string()))?;
-            let offset = cmd.params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-            let pty_id = {
-                let mux = state.svc.mux.lock();
-                mux.get_pane(&resolved)
-                    .and_then(|p| p.pty_id.clone())
-                    .ok_or_else(|| (StatusCode::NOT_FOUND, "Pane has no PTY".to_string()))?
-            };
-            let buf = state.svc.output_buf.lock();
-            let text = buf.get_text(&pty_id).unwrap_or_default();
-            Ok(Json(crate::mesh::types::RelayResponse {
-                ok: true, data: Some(serde_json::json!({"text": text})), error: None,
-            }))
-        }
-        crate::mesh::types::RelayAction::Send => {
-            let pane_id = cmd.pane_id.as_deref()
-                .ok_or_else(|| (StatusCode::BAD_REQUEST, "pane_id required".to_string()))?;
-            let text = cmd.payload.as_deref().unwrap_or("");
-            let resolved = resolve_pane(&state, pane_id).map_err(|(s, e)| (s, e.to_string()))?;
-            state.svc.send_text(&resolved, text, true)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-            Ok(Json(crate::mesh::types::RelayResponse {
-                ok: true, data: Some(serde_json::json!({"sent": true})), error: None,
-            }))
-        }
-        crate::mesh::types::RelayAction::Exec => {
-            let pane_id = cmd.pane_id.as_deref()
-                .ok_or_else(|| (StatusCode::BAD_REQUEST, "pane_id required".to_string()))?;
-            let command = cmd.payload.as_deref().unwrap_or("");
-            let resolved = resolve_pane(&state, pane_id).map_err(|(s, e)| (s, e.to_string()))?;
-            // Send command and return immediately (exec with wait requires async — simplify for now)
-            state.svc.send_text(&resolved, command, true)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-            Ok(Json(crate::mesh::types::RelayResponse {
-                ok: true, data: Some(serde_json::json!({"executed": true})), error: None,
-            }))
-        }
-    }
+    // Build local URL — relay to ourselves
+    let local_url = format!("http://127.0.0.1:{}{}", state.api_port, cmd.path);
+
+    // Sign with our own key for local auth
+    let signed_token = state.mesh.lock().sign_request()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Sign failed: {}", e)))?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build().unwrap_or_default();
+
+    let req = match cmd.method.to_uppercase().as_str() {
+        "GET" => client.get(&local_url),
+        "POST" => client.post(&local_url).json(&cmd.body),
+        "PUT" => client.put(&local_url).json(&cmd.body),
+        "PATCH" => client.patch(&local_url).json(&cmd.body),
+        "DELETE" => client.delete(&local_url),
+        _ => return Err((StatusCode::BAD_REQUEST, format!("Unsupported method: {}", cmd.method))),
+    };
+
+    let resp = req
+        .header("Authorization", format!("Bearer {}", signed_token))
+        .send()
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Local relay failed: {}", e)))?;
+
+    let status = resp.status().as_u16();
+    let data: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!(null));
+
+    Ok(Json(crate::mesh::types::RelayResponse {
+        ok: status < 400,
+        status,
+        data: Some(data),
+        error: if status >= 400 { Some(format!("HTTP {}", status)) } else { None },
+    }))
 }
 
 /// Reject a pairing request.
