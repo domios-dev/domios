@@ -160,23 +160,31 @@ impl MdnsHandle {
 }
 
 /// Detect Tailscale IP and store it in mesh state.
+/// Checks multiple paths: `tailscale` in PATH (Linux/Windows),
+/// macOS app bundle, and common install locations.
 pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
-    let output = std::process::Command::new("tailscale")
-        .args(["ip", "-4"])
-        .output();
+    let candidates = [
+        "tailscale".to_string(),
+        // macOS app bundle
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale".to_string(),
+        // Linux common paths
+        "/usr/bin/tailscale".to_string(),
+        "/usr/local/bin/tailscale".to_string(),
+    ];
 
-    match output {
-        Ok(out) if out.status.success() => {
-            let ip = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !ip.is_empty() {
-                log::info!("[mesh] Tailscale IP detected: {}", ip);
-                mesh.lock().tailscale_ip = Some(ip);
+    for cmd in &candidates {
+        if let Ok(output) = std::process::Command::new(cmd).args(["ip", "-4"]).output() {
+            if output.status.success() {
+                let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !ip.is_empty() {
+                    log::info!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
+                    mesh.lock().tailscale_ip = Some(ip);
+                    return;
+                }
             }
         }
-        _ => {
-            log::debug!("[mesh] Tailscale not available");
-        }
     }
+    log::debug!("[mesh] Tailscale not available");
 }
 
 /// Detect local IP address.
