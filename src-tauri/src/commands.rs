@@ -1670,6 +1670,7 @@ pub async fn mesh_approve_pairing(
             }],
             api_port: request.from_port,
             mesh_token: their_mesh_token,
+            peer_public_key: None, // TODO: exchange during pairing
             paired_at: chrono::Utc::now().to_rfc3339(),
             last_seen: Some(chrono::Utc::now().to_rfc3339()),
             online: true,

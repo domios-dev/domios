@@ -52,8 +52,11 @@ pub fn load_or_create_identity() -> MeshIdentity {
             return id;
         }
     }
+    let (priv_key, pub_key) = super::crown::generate_peer_keypair();
     let id = MeshIdentity {
         instance_id: uuid::Uuid::new_v4().to_string(),
+        private_key: Some(priv_key),
+        public_key: Some(pub_key),
     };
     if let Ok(json) = serde_json::to_string_pretty(&id) {
         let _ = std::fs::write(&path, json);
@@ -159,6 +162,8 @@ struct PairedPeerFlat {
     pub is_primary: bool,
     #[serde(default)]
     pub access_level: super::types::AccessLevel,
+    #[serde(default)]
+    pub peer_public_key: Option<String>,
     pub version: Option<String>,
 }
 
@@ -193,6 +198,7 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
                 addresses: on_disk.peer.addresses,
                 api_port: on_disk.peer.api_port,
                 mesh_token,
+                peer_public_key: on_disk.peer.peer_public_key,
                 paired_at: on_disk.peer.paired_at,
                 last_seen: on_disk.peer.last_seen,
                 online: false, // runtime state, not persisted
@@ -223,6 +229,7 @@ pub fn save_peers(peers: &HashMap<String, PairedPeer>) -> Result<(), String> {
                     last_seen: peer.last_seen.clone(),
                     is_primary: peer.is_primary,
                     access_level: peer.access_level.clone(),
+                    peer_public_key: peer.peer_public_key.clone(),
                     version: peer.version.clone(),
                 },
                 mesh_token_encrypted: encrypted,

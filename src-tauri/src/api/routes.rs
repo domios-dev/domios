@@ -2310,6 +2310,7 @@ async fn mesh_pair_accept(
             }],
             api_port: b_port,
             mesh_token: their_mesh_token,
+            peer_public_key: None,
             paired_at: chrono::Utc::now().to_rfc3339(),
             last_seen: Some(chrono::Utc::now().to_rfc3339()),
             online: true,

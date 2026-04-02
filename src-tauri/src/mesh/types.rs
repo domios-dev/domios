@@ -8,6 +8,12 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshIdentity {
     pub instance_id: String,
+    /// This peer's Ed25519 private key (base64). Used to sign mesh requests.
+    #[serde(default)]
+    pub private_key: Option<String>,
+    /// This peer's Ed25519 public key (base64). Shared with peers during pairing.
+    #[serde(default)]
+    pub public_key: Option<String>,
 }
 
 // ── Discovery ───────────────────────────────────────────────────────
@@ -49,9 +55,11 @@ pub struct PairedPeer {
     pub instance_name: String,
     pub addresses: Vec<PeerAddress>,
     pub api_port: u16,
-    /// Dedicated mesh token for this peer (NOT the main API token).
-    /// Exposed in API for CLI relay commands. Protected by API token auth.
+    /// Dedicated mesh token for this peer (legacy, kept for compat).
     pub mesh_token: String,
+    /// Peer's Ed25519 public key (base64) for verifying signed requests.
+    #[serde(default)]
+    pub peer_public_key: Option<String>,
     /// ISO 8601 timestamp.
     pub paired_at: String,
     pub last_seen: Option<String>,
