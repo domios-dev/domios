@@ -272,17 +272,23 @@ impl MeshManager {
 
     /// Update crown public info (called on all peers when crown transfers).
     pub fn update_crown_public(&mut self, public_info: crown::CrownPublicInfo) -> Result<(), String> {
-        // Verify JWT signature (self-signed by crown holder's key in the JWT)
-        if let Err(e) = crown::verify_crown_jwt(&public_info.crown_jwt, &public_info.public_key) {
-            log::warn!("[mesh/crown] JWT verification failed: {} — accepting anyway if version higher", e);
-        }
+        // Verify JWT signature and extract trusted claims
+        let verified_claims = crown::verify_crown_jwt(&public_info.crown_jwt, &public_info.public_key)
+            .map_err(|e| format!("Crown JWT invalid: {}", e))?;
+
+        // Use version from SIGNED claims, not from the outer JSON (anti-tamper)
+        let verified_version = verified_claims.version;
+        let verified_holder = &verified_claims.holder_id;
+
         // Accept only if version is higher (or we have no crown info yet)
         if let Some(existing) = &self.crown_public {
-            if public_info.version <= existing.version {
-                return Err(format!("Stale crown version ({} <= {})", public_info.version, existing.version));
+            if let Ok(existing_claims) = crown::verify_crown_jwt(&existing.crown_jwt, &existing.public_key) {
+                if verified_version <= existing_claims.version {
+                    return Err(format!("Stale crown version ({} <= {})", verified_version, existing_claims.version));
+                }
             }
         }
-        log::info!("[mesh/crown] Accepting crown v{} holder={}", public_info.version, public_info.holder_id);
+        log::info!("[mesh/crown] Accepting crown v{} holder={}", verified_version, verified_holder);
         // If someone else is the legitimate crown holder, relinquish ours
         if public_info.holder_id != self.identity.instance_id && self.crown_keypair.is_some() {
             log::info!("[mesh/crown] Relinquishing our crown — {} is the legitimate holder",
