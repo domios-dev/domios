@@ -1685,6 +1685,72 @@ pub async fn mesh_approve_pairing(
         (payload, peer, token)
     };
 
+    // Auto-pair: introduce new peer to all existing peers and vice versa
+    {
+        let (new_peer, existing_peers, our_signed_token) = {
+            let m = mesh.lock();
+            let new_p = m.paired_peers.get(&request.from_instance_id).cloned();
+            let existing: Vec<_> = m.paired_peers.values()
+                .filter(|p| p.instance_id != request.from_instance_id)
+                .cloned()
+                .collect();
+            let token = m.sign_request().ok();
+            (new_p, existing, token)
+        };
+
+        if let (Some(new_peer), Some(token)) = (new_peer, our_signed_token) {
+            let our_id = mesh.lock().identity.instance_id.clone();
+            let http_client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+
+            // Introduce new peer to each existing peer
+            for existing in &existing_peers {
+                if let Some(addr) = existing.addresses.first() {
+                    let intro = crate::mesh::types::PeerIntroduction {
+                        instance_id: new_peer.instance_id.clone(),
+                        instance_name: new_peer.instance_name.clone(),
+                        addresses: new_peer.addresses.clone(),
+                        api_port: new_peer.api_port,
+                        public_key: new_peer.public_key.clone(),
+                        introduced_by: our_id.clone(),
+                    };
+                    let url = format!("http://{}:{}/api/mesh/introduce", addr.ip, existing.api_port);
+                    match http_client.post(&url)
+                        .header("Authorization", format!("Bearer {}", token))
+                        .json(&intro).send().await {
+                        Ok(resp) if resp.status().is_success() => {
+                            log::info!("[mesh/introduce] Introduced {} to {}", new_peer.instance_name, existing.instance_name);
+                        }
+                        Ok(resp) => log::warn!("[mesh/introduce] {} rejected introduction: {}", existing.instance_name, resp.status()),
+                        Err(e) => log::warn!("[mesh/introduce] Failed to introduce to {}: {}", existing.instance_name, e),
+                    }
+                }
+
+                // Introduce existing peer to new peer
+                if let Some(addr) = new_peer.addresses.first() {
+                    let intro = crate::mesh::types::PeerIntroduction {
+                        instance_id: existing.instance_id.clone(),
+                        instance_name: existing.instance_name.clone(),
+                        addresses: existing.addresses.clone(),
+                        api_port: existing.api_port,
+                        public_key: existing.public_key.clone(),
+                        introduced_by: our_id.clone(),
+                    };
+                    let url = format!("http://{}:{}/api/mesh/introduce", addr.ip, new_peer.api_port);
+                    match http_client.post(&url)
+                        .header("Authorization", format!("Bearer {}", token))
+                        .json(&intro).send().await {
+                        Ok(resp) if resp.status().is_success() => {
+                            log::info!("[mesh/introduce] Introduced {} to {}", existing.instance_name, new_peer.instance_name);
+                        }
+                        Ok(resp) => log::warn!("[mesh/introduce] {} rejected introduction: {}", new_peer.instance_name, resp.status()),
+                        Err(e) => log::warn!("[mesh/introduce] Failed to introduce to {}: {}", new_peer.instance_name, e),
+                    }
+                }
+            }
+        }
+    }
+
     // Gossip broadcast to ALL paired peers (not just the new one)
     if let Some(token) = signed_token {
         let all_peers: Vec<_> = mesh.lock().paired_peers.values().cloned().collect();
