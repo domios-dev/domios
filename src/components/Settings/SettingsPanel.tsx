@@ -1112,9 +1112,9 @@ function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUp
 
       {config.mesh?.enabled && (
         <>
-          {/* Paired Instances */}
+          {/* Mesh Members */}
           {peers && peers.paired.length > 0 && (
-            <Group title="Paired">
+            <Group title={status?.crown_holder ? `Mesh · ${peers.paired.find(p => p.instance_id === status.crown_holder)?.instance_name || "unknown"}'s mesh` : "Mesh"}>
               <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 divide-y divide-[var(--ct-border)]">
                 {peers.paired.map((peer) => (
                   <div key={peer.instance_id} className="p-3 space-y-1.5">
@@ -1222,7 +1222,38 @@ function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUp
             </div>
             {peers && peers.discovered.length > 0 ? (
               <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 divide-y divide-[var(--ct-border)]">
-                {peers.discovered.map((peer) => (
+                {/* If multiple peers discovered and we're not in a mesh yet, show as mesh group */}
+                {peers.paired.length === 0 && peers.discovered.length > 1 && (
+                  <div className="p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-[var(--ct-fg)]">Mesh Network</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)]">
+                          {peers.discovered.length} peers
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleConnect(peers.discovered[0].instance_id)}
+                        disabled={connecting !== null}
+                        className="text-[10px] px-3 py-1 rounded bg-[var(--ct-green)] text-white hover:brightness-110 transition-all disabled:opacity-50"
+                      >
+                        {connecting ? "Joining..." : "Join Mesh"}
+                      </button>
+                    </div>
+                    <div className="space-y-1">
+                      {peers.discovered.map((peer) => (
+                        <div key={peer.instance_id} className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)] pl-2">
+                          <div className="w-1.5 h-1.5 rounded-full border border-[var(--ct-muted)]" />
+                          <span>{peer.instance_name}</span>
+                          <span className="font-mono text-[var(--ct-muted)]">{peer.addresses[0]?.ip || ""}</span>
+                          {peer.dev && <span className="text-[var(--ct-yellow)]">dev</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Single peer or already in mesh — show individual connect */}
+                {(peers.paired.length > 0 || peers.discovered.length === 1) && peers.discovered.map((peer) => (
                   <div key={peer.instance_id} className="p-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full border border-[var(--ct-muted)]" />
