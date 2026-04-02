@@ -2310,7 +2310,7 @@ async fn mesh_pair_accept(
             }],
             api_port: b_port,
             mesh_token: their_mesh_token,
-            peer_public_key: None,
+            peer_public_key: accept.identity_public_key.clone(),
             paired_at: chrono::Utc::now().to_rfc3339(),
             last_seen: Some(chrono::Utc::now().to_rfc3339()),
             online: true,
@@ -2329,10 +2329,12 @@ async fn mesh_pair_accept(
     log::info!("[mesh] Pairing complete (requester side) for request {}", accept.request_id);
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
 
-    // Return our encrypted mesh token so B (approver) can decrypt it
+    // Return our encrypted mesh token + identity public key so B can store both
+    let our_identity_pubkey = state.mesh.lock().identity.public_key.clone();
     Ok(Json(serde_json::json!({
         "ok": true,
-        "encrypted_mesh_token": encrypted_our_token
+        "encrypted_mesh_token": encrypted_our_token,
+        "identity_public_key": our_identity_pubkey
     })))
 }
 

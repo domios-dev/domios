@@ -123,8 +123,11 @@ pub struct PairingRequest {
     pub from_instance_name: String,
     pub from_address: String,
     pub from_port: u16,
-    /// X25519 public key (32 bytes, base64-encoded for JSON).
+    /// X25519 ephemeral public key (32 bytes, base64) for key exchange.
     pub public_key: String,
+    /// Ed25519 identity public key (base64) for future request signing.
+    #[serde(default)]
+    pub identity_public_key: Option<String>,
     /// AES-GCM nonce (12 bytes, base64-encoded).
     pub nonce: String,
     /// Unix timestamp (seconds). Reject if >60s old.
@@ -141,10 +144,13 @@ fn default_pairing_status() -> PairingStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PairingAccept {
     pub request_id: String,
-    /// Acceptor's X25519 public key (base64).
+    /// Acceptor's X25519 ephemeral public key (base64).
     pub public_key: String,
     /// Encrypted mesh token (base64, AES-256-GCM).
     pub encrypted_mesh_token: String,
+    /// Acceptor's Ed25519 identity public key (base64).
+    #[serde(default)]
+    pub identity_public_key: Option<String>,
 }
 
 /// Final confirmation with the requester's encrypted mesh token.

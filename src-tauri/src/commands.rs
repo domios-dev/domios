@@ -1570,6 +1570,7 @@ pub async fn mesh_connect(
             &m.instance_name,
             &local_addr,
             m.api_port,
+            m.identity.public_key.as_deref(),
         );
         (request, private_key, addr.ip.clone(), peer.api_port)
     };
@@ -1636,10 +1637,12 @@ pub async fn mesh_approve_pairing(
         request.from_port,
         "",
     );
+    let our_identity_pubkey = mesh.lock().identity.public_key.clone();
     let accept = crate::mesh::types::PairingAccept {
         request_id: request_id.clone(),
         public_key: our_public_key_b64.clone(),
         encrypted_mesh_token: encrypted_token,
+        identity_public_key: our_identity_pubkey,
     };
     let response = client.send_pair_accept_and_read(&accept).await?;
 
@@ -1670,7 +1673,8 @@ pub async fn mesh_approve_pairing(
             }],
             api_port: request.from_port,
             mesh_token: their_mesh_token,
-            peer_public_key: None, // TODO: exchange during pairing
+            peer_public_key: request.identity_public_key.clone()
+                .or_else(|| response.get("identity_public_key").and_then(|v| v.as_str()).map(|s| s.to_string())),
             paired_at: chrono::Utc::now().to_rfc3339(),
             last_seen: Some(chrono::Utc::now().to_rfc3339()),
             online: true,
