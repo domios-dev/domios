@@ -294,15 +294,64 @@ fn start_background_tasks(
                         // Clean up expired pairing requests
                         mesh.lock().cleanup_expired_requests();
                         // Ping all paired peers
-                        let peers: Vec<_> = mesh.lock().paired_peers.values().cloned().collect();
+                        let (peers, sync_payload) = {
+                            let m = mesh.lock();
+                            let peers: Vec<_> = m.paired_peers.values().cloned().collect();
+                            let payload = mesh::types::MeshSyncPayload {
+                                peers: m.paired_peers.values()
+                                    .map(|p| mesh::types::GossipPeerInfo {
+                                        instance_id: p.instance_id.clone(),
+                                        instance_name: p.instance_name.clone(),
+                                        addresses: p.addresses.clone(),
+                                        api_port: p.api_port,
+                                        dev: false,
+                                    })
+                                    .collect(),
+                                crown_public: m.crown_public.clone(),
+                                trust_declarations: m.trust_declarations.clone(),
+                            };
+                            (peers, payload)
+                        };
                         let mut changed = false;
                         for peer in &peers {
                             if let Some(client) = mesh::transport::PeerClient::from_peer(peer) {
                                 let online = client.ping().await;
-                                let mut m = mesh.lock();
-                                if let Some(p) = m.paired_peers.get_mut(&peer.instance_id) {
-                                    if p.online != online {
-                                        p.online = online;
+                                let was_online = {
+                                    let mut m = mesh.lock();
+                                    if let Some(p) = m.paired_peers.get_mut(&peer.instance_id) {
+                                        let was = p.online;
+                                        if p.online != online {
+                                            p.online = online;
+                                            changed = true;
+                                        }
+                                        was
+                                    } else { false }
+                                };
+                                // Peer came back online → sync
+                                if online && !was_online {
+                                    log::info!("[mesh] Peer {} reconnected — syncing", peer.instance_name);
+                                    if let Ok(their_payload) = client.send_sync(&sync_payload).await {
+                                        let mut m = mesh.lock();
+                                        let now = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap_or_default()
+                                            .as_secs();
+                                        for p in their_payload.peers {
+                                            if p.instance_id == m.identity.instance_id { continue; }
+                                            if m.paired_peers.contains_key(&p.instance_id) { continue; }
+                                            m.discovered_peers.insert(p.instance_id.clone(), mesh::types::DiscoveredPeer {
+                                                instance_id: p.instance_id,
+                                                instance_name: p.instance_name,
+                                                addresses: p.addresses,
+                                                api_port: p.api_port,
+                                                discovery_method: mesh::types::DiscoveryMethod::Udp,
+                                                last_seen: now,
+                                                dev: p.dev,
+                                            });
+                                        }
+                                        if let Some(crown) = their_payload.crown_public {
+                                            let _ = m.update_crown_public(crown);
+                                        }
                                         changed = true;
                                     }
                                 }
