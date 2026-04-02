@@ -8,6 +8,7 @@ pub mod peers;
 pub mod discovery;
 pub mod pairing;
 pub mod transport;
+pub mod crown;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -34,11 +35,14 @@ pub struct MeshManager {
     pub pairing_keypairs: HashMap<String, [u8; 32]>,
     /// Target peer address for outgoing pairing requests (request_id → (address, port, instance_id)).
     pub pairing_targets: HashMap<String, (String, u16, String)>,
-    /// The mesh-wide crown token that all peers agree on.
-    /// Only the holder of this token is the legitimate crown holder.
-    pub mesh_crown_token: Option<String>,
-    /// Instance ID of the current crown holder (as known by this peer).
-    pub crown_holder_id: Option<String>,
+    /// Crown keypair — only present if this instance is the crown holder.
+    pub crown_keypair: Option<crown::CrownKeyPair>,
+    /// Public crown info — known to all peers, used to verify crown commands.
+    pub crown_public: Option<crown::CrownPublicInfo>,
+    /// Trust declarations signed by the crown holder.
+    pub trust_declarations: Vec<crown::TrustDeclaration>,
+    /// Emergency election votes (pending).
+    pub emergency_votes: Vec<crown::EmergencyVote>,
 }
 
 impl MeshManager {
@@ -47,16 +51,17 @@ impl MeshManager {
         let paired_peers = peers::load_peers();
         let revocation_list = peers::load_revocation_list();
 
+        let crown_keypair = crown::load_crown_keypair();
+
         log::info!(
             "[mesh] Initialized: id={}, name={}, {} paired peers, crown={}",
             identity.instance_id,
             instance_name,
             paired_peers.len(),
-            identity.crown_token.is_some()
+            crown_keypair.is_some()
         );
-
-        let crown_token = identity.crown_token.clone();
-        let holder_id = crown_token.as_ref().map(|_| identity.instance_id.clone());
+        let crown_public = crown::load_crown_public_info();
+        let trust_declarations = crown::load_trust_declarations();
 
         Self {
             identity,
@@ -71,8 +76,10 @@ impl MeshManager {
             api_port,
             pairing_keypairs: HashMap::new(),
             pairing_targets: HashMap::new(),
-            mesh_crown_token: crown_token,
-            crown_holder_id: holder_id,
+            crown_keypair,
+            crown_public,
+            trust_declarations,
+            emergency_votes: Vec::new(),
         }
     }
 
@@ -89,8 +96,8 @@ impl MeshManager {
             enabled: true,
             instance_id: self.identity.instance_id.clone(),
             instance_name: self.instance_name.clone(),
-            is_crown: self.identity.crown_token.is_some(),
-            crown_holder: self.crown_holder_id.clone(),
+            is_crown: self.is_crown_holder(),
+            crown_holder: self.crown_holder_id(),
             discovery_active: self.discovery_active,
             tailscale_ip: self.tailscale_ip.clone(),
             local_ip: self.local_ip.clone(),
@@ -154,61 +161,167 @@ impl MeshManager {
         removed
     }
 
-    /// Transfer the crown to a paired peer. Only works if we hold the crown_token.
-    pub fn transfer_crown(&mut self, instance_id: &str) -> Result<String, String> {
-        if self.identity.crown_token.is_none() {
-            return Err("Only the crown holder can transfer the crown".to_string());
+    /// Whether this instance is the crown holder.
+    pub fn is_crown_holder(&self) -> bool {
+        self.crown_keypair.is_some()
+    }
+
+    /// Get the crown holder's instance ID (as known by this peer).
+    pub fn crown_holder_id(&self) -> Option<String> {
+        self.crown_public.as_ref().map(|c| c.holder_id.clone())
+    }
+
+    /// Claim crown if nobody has it (first accept = coronation).
+    pub fn claim_crown_if_unclaimed(&mut self) {
+        if self.crown_keypair.is_some() || self.crown_public.is_some() {
+            return; // Already have crown or know who does
         }
-        if !self.paired_peers.contains_key(instance_id) {
+        let keypair = crown::CrownKeyPair::generate();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let mesh_id = uuid::Uuid::new_v4().to_string();
+        let claims = crown::CrownClaims {
+            holder_id: self.identity.instance_id.clone(),
+            mesh_id,
+            crowned_at: now,
+            version: keypair.version,
+            emergency: false,
+            voted_by: vec![],
+            iat: now,
+        };
+        match crown::create_crown_jwt(&keypair, &claims) {
+            Ok(jwt) => {
+                let public_info = crown::CrownPublicInfo {
+                    public_key: keypair.public_key.clone(),
+                    crown_jwt: jwt,
+                    version: keypair.version,
+                    holder_id: self.identity.instance_id.clone(),
+                };
+                let _ = crown::save_crown_keypair(&keypair);
+                let _ = crown::save_crown_public_info(&public_info);
+                self.crown_keypair = Some(keypair);
+                self.crown_public = Some(public_info);
+                log::info!("[mesh] Claimed crown — this instance is now the leader");
+            }
+            Err(e) => log::error!("[mesh] Failed to create crown JWT: {}", e),
+        }
+    }
+
+    /// Transfer crown to a paired peer. Only crown holder can call this.
+    /// Returns the CrownPublicInfo to send to the target and all peers.
+    pub fn transfer_crown(&mut self, target_id: &str) -> Result<crown::CrownPublicInfo, String> {
+        let keypair = self.crown_keypair.as_ref()
+            .ok_or("Only the crown holder can transfer the crown")?;
+        if !self.paired_peers.contains_key(target_id) {
             return Err("Peer not found".to_string());
         }
-        // Generate new crown token for the transfer
-        let new_token = uuid::Uuid::new_v4().to_string();
+
+        // Generate new keypair for the new holder
+        let mut new_keypair = crown::CrownKeyPair::generate();
+        new_keypair.version = keypair.version + 1;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let mesh_id = self.crown_public.as_ref()
+            .map(|c| {
+                crown::verify_crown_jwt(&c.crown_jwt, &c.public_key)
+                    .map(|cl| cl.mesh_id)
+                    .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string())
+            })
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+        let claims = crown::CrownClaims {
+            holder_id: target_id.to_string(),
+            mesh_id,
+            crowned_at: now,
+            version: new_keypair.version,
+            emergency: false,
+            voted_by: vec![],
+            iat: now,
+        };
+        let jwt = crown::create_crown_jwt(&new_keypair, &claims)?;
+        let public_info = crown::CrownPublicInfo {
+            public_key: new_keypair.public_key.clone(),
+            crown_jwt: jwt,
+            version: new_keypair.version,
+            holder_id: target_id.to_string(),
+        };
+
         // Relinquish our crown
-        self.identity.crown_token = None;
-        peers::save_identity(&self.identity);
-        // Update mesh-wide tracking
-        self.mesh_crown_token = Some(new_token.clone());
-        self.crown_holder_id = Some(instance_id.to_string());
-        log::info!("[mesh] Crown transferred to {}", instance_id);
-        let _ = self.save();
-        Ok(new_token)
+        crown::delete_crown_keypair();
+        self.crown_keypair = None;
+        self.crown_public = Some(public_info.clone());
+        let _ = crown::save_crown_public_info(&public_info);
+
+        log::info!("[mesh] Crown transferred to {} (v{})", target_id, new_keypair.version);
+
+        // Return new_keypair and public_info — caller sends to target
+        // Store new_keypair temporarily for the transfer
+        // The target will receive it encrypted via mesh token
+        Ok(public_info)
     }
 
-    /// Receive the crown from a transfer.
-    pub fn receive_crown(&mut self, crown_token: &str, from_id: &str) {
-        // Verify the sender is a known peer (can't receive from strangers)
-        if !self.paired_peers.contains_key(from_id) {
-            log::warn!("[mesh] Crown transfer from unknown peer {}", from_id);
-            return;
-        }
-        self.identity.crown_token = Some(crown_token.to_string());
-        self.mesh_crown_token = Some(crown_token.to_string());
-        self.crown_holder_id = Some(self.identity.instance_id.clone());
-        peers::save_identity(&self.identity);
-        log::info!("[mesh] Received crown from {} — this instance is now primary", from_id);
+    /// Receive crown (called on the target instance during transfer).
+    pub fn receive_crown(&mut self, keypair: crown::CrownKeyPair, public_info: crown::CrownPublicInfo) {
+        let _ = crown::save_crown_keypair(&keypair);
+        let _ = crown::save_crown_public_info(&public_info);
+        self.crown_keypair = Some(keypair);
+        self.crown_public = Some(public_info);
+        log::info!("[mesh] Received crown — this instance is now the leader");
     }
 
-    /// Claim crown if nobody has it (first instance to enable mesh).
-    pub fn claim_crown_if_unclaimed(&mut self) {
-        if self.identity.crown_token.is_some() {
-            return;
+    /// Update crown public info (called on all peers when crown transfers).
+    pub fn update_crown_public(&mut self, public_info: crown::CrownPublicInfo) -> Result<(), String> {
+        // Verify the JWT is valid
+        crown::verify_crown_jwt(&public_info.crown_jwt, &public_info.public_key)?;
+        // Accept only if version is higher
+        if let Some(existing) = &self.crown_public {
+            if public_info.version <= existing.version {
+                return Err("Stale crown version".to_string());
+            }
         }
-        // If we have no paired peers, we're the first — claim it
-        if self.paired_peers.is_empty() {
-            let token = uuid::Uuid::new_v4().to_string();
-            self.identity.crown_token = Some(token.clone());
-            self.mesh_crown_token = Some(token);
-            self.crown_holder_id = Some(self.identity.instance_id.clone());
-            peers::save_identity(&self.identity);
-            log::info!("[mesh] Claimed crown — first instance in mesh");
-        }
+        let _ = crown::save_crown_public_info(&public_info);
+        self.crown_public = Some(public_info);
+        Ok(())
     }
 
-    /// Update crown info received from a peer (e.g. during gossip sync).
-    pub fn update_crown_info(&mut self, crown_token: &str, holder_id: &str) {
-        self.mesh_crown_token = Some(crown_token.to_string());
-        self.crown_holder_id = Some(holder_id.to_string());
+    /// Create a signed trust declaration for a peer.
+    pub fn set_trust_level(&mut self, peer_id: &str, level: crown::TrustLevel) -> Result<crown::TrustDeclaration, String> {
+        let keypair = self.crown_keypair.as_ref()
+            .ok_or("Only the crown holder can set trust levels")?;
+        let version = self.trust_declarations.iter()
+            .filter(|d| d.peer_id == peer_id)
+            .map(|d| d.version)
+            .max()
+            .unwrap_or(0) + 1;
+        let decl = crown::create_trust_declaration(
+            keypair, peer_id, level, &self.identity.instance_id, version,
+        )?;
+        // Replace existing declaration for this peer
+        self.trust_declarations.retain(|d| d.peer_id != peer_id);
+        self.trust_declarations.push(decl.clone());
+        let _ = crown::save_trust_declarations(&self.trust_declarations);
+        Ok(decl)
+    }
+
+    /// Get trust level for a peer.
+    pub fn get_trust_level(&self, peer_id: &str) -> crown::TrustLevel {
+        self.trust_declarations.iter()
+            .filter(|d| d.peer_id == peer_id)
+            .max_by_key(|d| d.version)
+            .map(|d| d.trust_level.clone())
+            .unwrap_or(crown::TrustLevel::Untrusted)
+    }
+
+    /// Count trusted peers (for quorum calculation).
+    pub fn trusted_peer_count(&self) -> usize {
+        self.paired_peers.keys()
+            .filter(|id| self.get_trust_level(id) == crown::TrustLevel::Trusted)
+            .count()
     }
 
     /// Validate and store an incoming pairing request.

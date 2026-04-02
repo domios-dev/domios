@@ -8,11 +8,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshIdentity {
     pub instance_id: String,
-    /// Crown token — if present, this instance is the crown holder.
-    /// The token is a signed UUID that peers verify. Can't be faked
-    /// by editing config — peers track the legitimate crown_token.
-    #[serde(default)]
-    pub crown_token: Option<String>,
 }
 
 // ── Discovery ───────────────────────────────────────────────────────

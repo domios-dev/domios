@@ -102,24 +102,23 @@ impl PeerClient {
         }
     }
 
-    /// Transfer crown to this peer.
-    pub async fn send_crown_transfer(&self, crown_token: &str, from_id: &str) -> Result<(), String> {
+    /// Send crown public info update to a peer.
+    pub async fn send_crown_update(&self, public_info_json: &str) -> Result<(), String> {
         let url = format!("{}/api/mesh/crown", self.base_url);
+        let body: serde_json::Value = serde_json::from_str(public_info_json)
+            .map_err(|e| format!("Bad JSON: {}", e))?;
         let resp = self
             .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.mesh_token))
-            .json(&serde_json::json!({
-                "crown_token": crown_token,
-                "from_instance_id": from_id,
-            }))
+            .json(&body)
             .send()
             .await
             .map_err(|e| format!("Network error: {}", e))?;
         if resp.status().is_success() {
             Ok(())
         } else {
-            Err("Crown transfer failed".to_string())
+            Err("Crown update failed".to_string())
         }
     }
 
