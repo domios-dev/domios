@@ -1685,31 +1685,53 @@ pub async fn mesh_approve_pairing(
         (payload, peer, token)
     };
 
-    if let (Some(peer), Some(token)) = (peer_for_sync, signed_token) {
-        if let Some(addr) = peer.addresses.first() {
-            let sync_url = format!("http://{}:{}/api/mesh/sync", addr.ip, peer.api_port);
-            match client.post(&sync_url)
-                .header("Authorization", format!("Bearer {}", token))
-                .json(&sync_payload).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    if let Ok(their_payload) = resp.json::<crate::mesh::types::MeshSyncPayload>().await {
-                        log::info!("[mesh/gossip] Synced — received {} peers", their_payload.peers.len());
-                        let mut m = mesh.lock();
-                        let now = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
-                        for p in their_payload.peers {
-                            if p.instance_id == m.identity.instance_id { continue; }
-                            if m.paired_peers.contains_key(&p.instance_id) { continue; }
-                            m.discovered_peers.insert(p.instance_id.clone(), crate::mesh::types::DiscoveredPeer {
-                                instance_id: p.instance_id, instance_name: p.instance_name,
-                                addresses: p.addresses, api_port: p.api_port,
-                                discovery_method: crate::mesh::types::DiscoveryMethod::Udp,
-                                last_seen: now, dev: p.dev,
-                            });
+    // Gossip broadcast to ALL paired peers (not just the new one)
+    if let Some(token) = signed_token {
+        let all_peers: Vec<_> = mesh.lock().paired_peers.values().cloned().collect();
+        // Rebuild sync payload with updated peer list (includes the newly paired peer)
+        let fresh_payload = {
+            let m = mesh.lock();
+            crate::mesh::types::MeshSyncPayload {
+                peers: m.paired_peers.values()
+                    .map(|p| crate::mesh::types::GossipPeerInfo {
+                        instance_id: p.instance_id.clone(),
+                        instance_name: p.instance_name.clone(),
+                        addresses: p.addresses.clone(),
+                        api_port: p.api_port,
+                        dev: false,
+                    })
+                    .collect(),
+                crown_public: m.crown_public.clone(),
+                trust_declarations: m.trust_declarations.clone(),
+            }
+        };
+        for peer in &all_peers {
+            if let Some(addr) = peer.addresses.first() {
+                let sync_url = format!("http://{}:{}/api/mesh/sync", addr.ip, peer.api_port);
+                match client.post(&sync_url)
+                    .header("Authorization", format!("Bearer {}", token))
+                    .json(&fresh_payload).send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        if let Ok(their_payload) = resp.json::<crate::mesh::types::MeshSyncPayload>().await {
+                            log::info!("[mesh/gossip] Synced with {} — received {} peers",
+                                peer.instance_name, their_payload.peers.len());
+                            let mut m = mesh.lock();
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                            for p in their_payload.peers {
+                                if p.instance_id == m.identity.instance_id { continue; }
+                                if m.paired_peers.contains_key(&p.instance_id) { continue; }
+                                m.discovered_peers.insert(p.instance_id.clone(), crate::mesh::types::DiscoveredPeer {
+                                    instance_id: p.instance_id, instance_name: p.instance_name,
+                                    addresses: p.addresses, api_port: p.api_port,
+                                    discovery_method: crate::mesh::types::DiscoveryMethod::Udp,
+                                    last_seen: now, dev: p.dev,
+                                });
+                            }
                         }
                     }
+                    _ => log::warn!("[mesh/gossip] Sync with {} failed", peer.instance_name),
                 }
-                _ => log::warn!("[mesh/gossip] Sync failed"),
             }
         }
     }
