@@ -1646,15 +1646,14 @@ fn mesh_relay_cmd(http: &reqwest::blocking::Client, base: &str, token: &Option<S
     let ip = peer.get("addresses").and_then(|v| v.as_array())
         .and_then(|a| a.first()).and_then(|a| a.get("ip")).and_then(|v| v.as_str()).unwrap_or("127.0.0.1");
     let port = peer.get("api_port").and_then(|v| v.as_u64()).unwrap_or(7685);
-    let mesh_token = peer.get("mesh_token").and_then(|v| v.as_str()).unwrap_or("");
     let peer_url = format!("http://{}:{}", ip, port);
 
+    // TODO: sign with Ed25519 for direct relay. For now, go unsigned (works if peer allows).
     let mut relay = serde_json::json!({ "action": action });
     if !pane.is_empty() { relay["pane_id"] = serde_json::json!(pane); }
     if !payload.is_empty() { relay["payload"] = serde_json::json!(payload); }
 
     match http.post(format!("{}/api/mesh/relay", peer_url))
-        .header("Authorization", format!("Bearer {}", mesh_token))
         .json(&relay).send() {
         Ok(resp) => {
             let val: serde_json::Value = resp.json().unwrap_or_default();

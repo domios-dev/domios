@@ -121,41 +121,7 @@ pub fn decrypt_with_shared_secret(
     String::from_utf8(plaintext).map_err(|e| format!("UTF-8 decode: {}", e))
 }
 
-/// Generate a fresh mesh token (UUID v4).
-pub fn generate_mesh_token() -> String {
-    uuid::Uuid::new_v4().to_string()
-}
-
-/// Create a pairing request from this instance to a discovered peer.
-pub fn create_pairing_request(
-    instance_id: &str,
-    instance_name: &str,
-    local_address: &str,
-    local_port: u16,
-    identity_public_key: Option<&str>,
-) -> (PairingRequest, [u8; 32]) {
-    let (private_key, public_key_b64) = generate_keypair();
-    let nonce = generate_nonce();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let request = PairingRequest {
-        request_id: uuid::Uuid::new_v4().to_string(),
-        from_instance_id: instance_id.to_string(),
-        from_instance_name: instance_name.to_string(),
-        from_address: local_address.to_string(),
-        from_port: local_port,
-        public_key: public_key_b64,
-        identity_public_key: identity_public_key.map(|s| s.to_string()),
-        nonce,
-        timestamp: now,
-        status: PairingStatus::Pending,
-    };
-
-    (request, private_key)
-}
+// Legacy pairing functions removed — pairing now just exchanges Ed25519 public keys.
 
 // ── Tests ───────────────────────────────────────────────────────────
 
