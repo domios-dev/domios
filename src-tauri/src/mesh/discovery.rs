@@ -261,3 +261,138 @@ pub fn cleanup_stale_peers(mesh: &Arc<Mutex<MeshManager>>) {
         .discovered_peers
         .retain(|_, p| now.saturating_sub(p.last_seen) < PEER_TTL_SECS);
 }
+
+// ── UDP Broadcast fallback ──────────────────────────────────────────
+
+// No separate broadcast port — we use the API port (TCP/UDP don't conflict)
+const BROADCAST_INTERVAL_SECS: u64 = 10;
+const BROADCAST_MAGIC: &[u8] = b"CODETERM1";
+
+/// Beacon payload: magic + JSON.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Beacon {
+    id: String,
+    name: String,
+    port: u16,
+}
+
+/// Start UDP broadcast discovery (fallback when mDNS fails).
+/// Sends beacon every 10s to 255.255.255.255:7687 and listens for others.
+pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
+    let (instance_id, instance_name, api_port) = {
+        let m = mesh.lock();
+        (
+            m.identity.instance_id.clone(),
+            m.instance_name.clone(),
+            m.api_port,
+        )
+    };
+
+    let beacon = Beacon {
+        id: instance_id.clone(),
+        name: instance_name,
+        port: api_port,
+    };
+    let beacon_json = serde_json::to_vec(&beacon).map_err(|e| e.to_string())?;
+
+    // Build packet: MAGIC + json
+    let mut packet = Vec::with_capacity(BROADCAST_MAGIC.len() + beacon_json.len());
+    packet.extend_from_slice(BROADCAST_MAGIC);
+    packet.extend_from_slice(&beacon_json);
+
+    // Sender thread
+    let packet_clone = packet.clone();
+    std::thread::spawn(move || {
+        let sock = match std::net::UdpSocket::bind("0.0.0.0:0") {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("[mesh/udp] Failed to bind sender: {}", e);
+                return;
+            }
+        };
+        let _ = sock.set_broadcast(true);
+        log::info!("[mesh/udp] Broadcast sender started, target port {}", api_port);
+        loop {
+            if let Err(e) = sock.send_to(
+                &packet_clone,
+                format!("255.255.255.255:{}", api_port),
+            ) {
+                log::debug!("[mesh/udp] Send failed: {}", e);
+            }
+            std::thread::sleep(std::time::Duration::from_secs(BROADCAST_INTERVAL_SECS));
+        }
+    });
+
+    // Listener thread
+    let mesh_clone = mesh.clone();
+    std::thread::spawn(move || {
+        let sock = match std::net::UdpSocket::bind(format!("0.0.0.0:{}", api_port)) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("[mesh/udp] Failed to bind listener on port {}: {}", api_port, e);
+                return;
+            }
+        };
+        let _ = sock.set_broadcast(true);
+        log::info!("[mesh/udp] Broadcast listener started on port {}", api_port);
+
+        let mut buf = [0u8; 1024];
+        loop {
+            match sock.recv_from(&mut buf) {
+                Ok((len, src_addr)) => {
+                    if len <= BROADCAST_MAGIC.len() {
+                        continue;
+                    }
+                    if &buf[..BROADCAST_MAGIC.len()] != BROADCAST_MAGIC {
+                        continue;
+                    }
+                    let json_data = &buf[BROADCAST_MAGIC.len()..len];
+                    let beacon: Beacon = match serde_json::from_slice(json_data) {
+                        Ok(b) => b,
+                        Err(_) => continue,
+                    };
+                    // Skip our own broadcasts
+                    if beacon.id == instance_id {
+                        continue;
+                    }
+
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+
+                    let peer = DiscoveredPeer {
+                        instance_id: beacon.id.clone(),
+                        instance_name: beacon.name,
+                        addresses: vec![PeerAddress {
+                            ip: src_addr.ip().to_string(),
+                            is_tailscale: false,
+                        }],
+                        api_port: beacon.port,
+                        discovery_method: DiscoveryMethod::Manual, // reuse Manual for UDP broadcast
+                        last_seen: now,
+                    };
+
+                    let mut m = mesh_clone.lock();
+                    let is_new = !m.discovered_peers.contains_key(&beacon.id);
+                    m.discovered_peers.insert(beacon.id.clone(), peer);
+                    drop(m);
+
+                    if is_new {
+                        log::info!(
+                            "[mesh/udp] Discovered peer: {} ({}) at {}",
+                            beacon.id, src_addr.ip(), beacon.port
+                        );
+                    }
+                }
+                Err(e) => {
+                    log::debug!("[mesh/udp] Recv error: {}", e);
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+            }
+        }
+    });
+
+    log::info!("[mesh/udp] UDP broadcast discovery started");
+    Ok(())
+}
