@@ -445,6 +445,104 @@ fn start_background_tasks(
     }
 }
 
+/// Install bundled CLI binary to ~/.codeterm/bin/ on startup (runs in background).
+fn install_bundled_cli(app: &tauri::App) {
+    let bin_name = if cfg!(windows) { "codeterm.exe" } else { "codeterm" };
+
+    let resource_path = app.path()
+        .resolve(format!("cli/{}", bin_name), tauri::path::BaseDirectory::Resource);
+
+    let src = match resource_path {
+        Ok(p) if p.exists() => p,
+        _ => {
+            log::debug!("[cli-install] No bundled CLI found (dev mode?), skipping");
+            return;
+        }
+    };
+
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => { log::error!("[cli-install] Cannot determine home directory"); return; }
+    };
+
+    // Run in background to not block app startup
+    std::thread::spawn(move || {
+        let dest_dir = home.join(".codeterm").join("bin");
+        let dest = dest_dir.join(bin_name);
+
+        // Skip if already installed with same size
+        if dest.exists() {
+            let src_size = std::fs::metadata(&src).map(|m| m.len()).unwrap_or(0);
+            let dest_size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+            if src_size == dest_size && src_size > 0 {
+                return;
+            }
+        }
+
+        if let Err(e) = std::fs::create_dir_all(&dest_dir) {
+            log::error!("[cli-install] Failed to create dir: {}", e);
+            return;
+        }
+
+        match std::fs::copy(&src, &dest) {
+            Ok(bytes) => {
+                log::info!("[cli-install] Installed CLI ({} bytes) to {}", bytes, dest.display());
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
+                    // Symlink to ~/.local/bin/ for PATH access (user-local, no sudo)
+                    let local_bin = home.join(".local").join("bin");
+                    let _ = std::fs::create_dir_all(&local_bin);
+                    let link = local_bin.join("codeterm");
+                    if !link.exists() {
+                        if let Err(e) = std::os::unix::fs::symlink(&dest, &link) {
+                            log::debug!("[cli-install] Symlink to ~/.local/bin failed: {}", e);
+                        }
+                    }
+                }
+                #[cfg(windows)]
+                add_to_user_path(&dest_dir);
+            }
+            Err(e) => log::error!("[cli-install] Failed to copy CLI: {}", e),
+        }
+    });
+}
+
+/// Add a directory to the Windows User PATH (persistent, no admin needed).
+#[cfg(windows)]
+fn add_to_user_path(dir: &std::path::Path) {
+    let dir_str = dir.to_string_lossy().replace('/', "\\");
+    let output = std::process::Command::new("reg")
+        .args(["query", "HKCU\\Environment", "/v", "Path"])
+        .output();
+    let current = match output {
+        Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
+        Err(_) => String::new(),
+    };
+    if current.contains(&*dir_str) {
+        return;
+    }
+    let current_val = current.lines()
+        .find(|l| l.contains("REG_") && l.contains("Path"))
+        .and_then(|l| l.split("REG_EXPAND_SZ").nth(1).or_else(|| l.split("REG_SZ").nth(1)))
+        .map(|v| v.trim().to_string())
+        .unwrap_or_default();
+    let new_val = if current_val.is_empty() {
+        dir_str.to_string()
+    } else {
+        format!("{};{}", current_val, dir_str)
+    };
+    let result = std::process::Command::new("reg")
+        .args(["add", "HKCU\\Environment", "/v", "Path", "/t", "REG_EXPAND_SZ", "/d", &new_val, "/f"])
+        .output();
+    if let Ok(o) = result {
+        if o.status.success() {
+            log::info!("[cli-install] Added {} to User PATH", dir_str);
+        }
+    }
+}
+
 /// Start socket server, REST API server, and cron scheduler.
 fn start_servers(
     app: &tauri::App,
@@ -809,6 +907,7 @@ pub fn run() {
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
 
+            install_bundled_cli(app);
             start_servers(app, &states, &service_state, bridge_outbound_rx);
             build_system_tray(app)?;
             start_background_tasks(&app_handle, &states);

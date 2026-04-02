@@ -12,22 +12,6 @@ pub fn general_dir() -> PathBuf {
     home.join(crate::paths::DIR_NAME).join("general")
 }
 
-/// Find the CodeTerm CLI path for use in instructions.
-fn find_codeterm_cli() -> String {
-    let home = dirs::home_dir().unwrap_or_default();
-    let bin_name = if cfg!(windows) { "codeterm.exe" } else { "codeterm" };
-    let candidates = [
-        home.join(".codeterm").join("bin").join(bin_name),
-        PathBuf::from("/usr/local/bin/codeterm"),
-    ];
-    for path in &candidates {
-        if path.exists() {
-            return path.to_string_lossy().to_string();
-        }
-    }
-    "codeterm".to_string()
-}
-
 /// Get the secrets directory.
 pub fn secrets_dir() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -65,17 +49,13 @@ pub fn generate_instructions(provider_name: &str, instructions_filename: &str) {
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
 
-    // Find CLI path
-    let cli_path = find_codeterm_cli();
-
     let auto_section = crate::prompts::GENERAL_AGENT_TEMPLATE
         .replace("{version}", version)
         .replace("{platform}", platform)
         .replace("{hostname}", &hostname)
         .replace("{provider_name}", provider_name)
         .replace("{general_dir}", &general_dir().to_string_lossy())
-        .replace("{secrets_dir}", &secrets_dir().to_string_lossy())
-        .replace("{cli_path}", &cli_path);
+        .replace("{secrets_dir}", &secrets_dir().to_string_lossy());
 
     // Read existing file to preserve user content outside markers
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
