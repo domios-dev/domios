@@ -213,18 +213,46 @@ codeterm mesh peers                               # List paired + discovered pee
 ```
 
 **Run any command on a remote machine — just add `--mesh TARGET`:**
+
+All existing flags (`--pane`, `--workspace`, `--role`, etc.) work with `--mesh`. Target = instance name or ID.
+
 ```bash
-codeterm pane list --mesh BLACKSTAR               # List panes on BLACKSTAR
-codeterm send-text "npm test" --mesh BLACKSTAR    # Send text to remote pane
-codeterm get-output --mesh BLACKSTAR              # Read remote output
-codeterm agent spawn claude --task "build" --mesh BLACKSTAR  # Spawn agent remotely
-codeterm workspace create "Remote" --mesh BLACKSTAR          # Create workspace remotely
-codeterm notify "Done" --mesh BLACKSTAR           # Send notification remotely
+# List remote panes/workspaces
+codeterm pane list --mesh BLACKSTAR
+codeterm workspace list --mesh BLACKSTAR
+
+# Send text to a specific pane on remote machine
+codeterm send-text "npm test" --pane PANE_ID --mesh BLACKSTAR
+
+# Read output from a specific pane
+codeterm get-output --pane PANE_ID --mesh BLACKSTAR
+
+# Spawn agent on remote machine in a specific workspace
+codeterm agent spawn claude --task "build project" --workspace WS_ID --mesh BLACKSTAR
+codeterm agent spawn claude --task "run tests" --role Worker --parent PANE_ID --mesh BLACKSTAR
+
+# Create workspace, cron, send notifications remotely
+codeterm workspace create "CI" --mesh BLACKSTAR
+codeterm cron create "health" --schedule "*/5 * * * *" --task "check services" --mesh BLACKSTAR
+codeterm notify "Deploy complete" --level info --mesh BLACKSTAR
 ```
 
-Any existing `codeterm` command works remotely with `--mesh`. Target can be instance name or ID.
+**Typical workflow for remote delegation:**
+```bash
+# 1. Check who's in the mesh
+codeterm mesh peers
 
-**When to use mesh:** If a task needs resources on another machine (different OS, GPU, specific environment), use `--mesh` to delegate. Check `codeterm mesh peers` first to see what's available. Only paired peers with `trusted` status accept commands.
+# 2. See what's running on BLACKSTAR
+codeterm pane list --mesh BLACKSTAR
+
+# 3. Spawn a worker there
+codeterm agent spawn claude --task "build and test on Windows" --mesh BLACKSTAR
+
+# 4. Check output
+codeterm get-output --pane PANE_ID --mesh BLACKSTAR
+```
+
+**When to use mesh:** If a task needs resources on another machine (different OS, GPU, specific environment), use `--mesh` to delegate. Check `codeterm mesh peers` first. Only paired peers with `trusted` status accept commands.
 
 **Report syntax:** `codeterm agent report "message"` — message is the FIRST positional argument. Do NOT use `--message`, `--to`, or `--from` flags.
 
