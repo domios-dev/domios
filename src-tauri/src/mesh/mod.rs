@@ -278,11 +278,9 @@ impl MeshManager {
 
         let verified_holder = &verified_claims.holder_id;
 
-        // Reject crown from unknown peer (must be paired or ourselves)
-        if *verified_holder != self.identity.instance_id
-            && !self.paired_peers.contains_key(verified_holder) {
-            return Err(format!("Crown from unknown peer {} rejected", verified_holder));
-        }
+        // Crown holder doesn't need to be directly paired with us —
+        // we trust the crown info if it came via sync from a paired peer.
+        // The JWT signature proves authenticity.
 
         log::info!("[mesh/crown] Crown info: holder={}", verified_holder);
 
