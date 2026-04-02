@@ -2412,7 +2412,13 @@ async fn mesh_sync(
 
     // Import crown public info (accept higher version)
     if let Some(crown_info) = payload.crown_public {
-        let _ = mesh.update_crown_public(crown_info);
+        log::info!("[mesh/sync] Received crown info: holder={}, v{}", crown_info.holder_id, crown_info.version);
+        match mesh.update_crown_public(crown_info) {
+            Ok(()) => log::info!("[mesh/sync] Crown updated successfully"),
+            Err(e) => log::warn!("[mesh/sync] Crown update rejected: {}", e),
+        }
+    } else {
+        log::debug!("[mesh/sync] No crown info in sync payload");
     }
 
     // Import trust declarations (verify signatures)

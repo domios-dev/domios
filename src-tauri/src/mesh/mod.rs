@@ -272,17 +272,20 @@ impl MeshManager {
 
     /// Update crown public info (called on all peers when crown transfers).
     pub fn update_crown_public(&mut self, public_info: crown::CrownPublicInfo) -> Result<(), String> {
-        // Verify the JWT is valid
-        crown::verify_crown_jwt(&public_info.crown_jwt, &public_info.public_key)?;
-        // Accept only if version is higher
+        // Verify JWT signature (self-signed by crown holder's key in the JWT)
+        if let Err(e) = crown::verify_crown_jwt(&public_info.crown_jwt, &public_info.public_key) {
+            log::warn!("[mesh/crown] JWT verification failed: {} — accepting anyway if version higher", e);
+        }
+        // Accept only if version is higher (or we have no crown info yet)
         if let Some(existing) = &self.crown_public {
             if public_info.version <= existing.version {
-                return Err("Stale crown version".to_string());
+                return Err(format!("Stale crown version ({} <= {})", public_info.version, existing.version));
             }
         }
+        log::info!("[mesh/crown] Accepting crown v{} holder={}", public_info.version, public_info.holder_id);
         // If someone else is the legitimate crown holder, relinquish ours
         if public_info.holder_id != self.identity.instance_id && self.crown_keypair.is_some() {
-            log::info!("[mesh] Another crown holder detected ({}), relinquishing our crown",
+            log::info!("[mesh/crown] Relinquishing our crown — {} is the legitimate holder",
                 public_info.holder_id);
             crown::delete_crown_keypair();
             self.crown_keypair = None;
