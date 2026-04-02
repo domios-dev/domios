@@ -21,6 +21,26 @@ pub fn start_mdns(
 ) -> Result<MdnsHandle, String> {
     let daemon = mdns_sd::ServiceDaemon::new().map_err(|e| format!("mDNS init failed: {}", e))?;
 
+    // Disable IPv6 to avoid issues on mixed networks — we only need IPv4 for LAN discovery
+    if let Err(e) = daemon.disable_interface(mdns_sd::IfKind::IPv6) {
+        log::warn!("[mesh/mdns] Failed to disable IPv6: {}", e);
+    }
+
+    // Monitor daemon events for diagnostics (interface errors, etc.)
+    let daemon_for_monitor = daemon.clone();
+    std::thread::spawn(move || {
+        if let Ok(monitor) = daemon_for_monitor.monitor() {
+            loop {
+                match monitor.recv() {
+                    Ok(event) => {
+                        log::info!("[mesh/mdns] DaemonEvent: {:?}", event);
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+    });
+
     // Register our service (unless stealth mode)
     if !stealth {
         let (instance_id, instance_name, api_port) = {
@@ -69,7 +89,8 @@ pub fn start_mdns(
             api_port,
             properties,
         )
-        .map_err(|e| format!("mDNS service info error: {}", e))?;
+        .map_err(|e| format!("mDNS service info error: {}", e))?
+        .enable_addr_auto();
 
         daemon
             .register(my_service)
@@ -145,7 +166,15 @@ pub fn start_mdns(
                         log::debug!("[mesh/mdns] Service removed: {}", full_name);
                         // Will be cleaned up by TTL
                     }
-                    _ => {}
+                    mdns_sd::ServiceEvent::SearchStarted(msg) => {
+                        log::info!("[mesh/mdns] Browse started: {}", msg);
+                    }
+                    mdns_sd::ServiceEvent::ServiceFound(ty, name) => {
+                        log::info!("[mesh/mdns] ServiceFound: type={}, name={}", ty, name);
+                    }
+                    mdns_sd::ServiceEvent::SearchStopped(ty) => {
+                        log::info!("[mesh/mdns] Browse stopped: {}", ty);
+                    }
                 },
                 Err(e) => {
                     log::warn!("[mesh/mdns] Browse receiver error: {}", e);
