@@ -1780,17 +1780,34 @@ pub async fn mesh_disconnect(
     svc: tauri::State<'_, crate::service::ServiceState>,
     instance_id: String,
 ) -> Result<(), String> {
-    // Notify the other side to disconnect too
-    let peer = mesh.lock().paired_peers.get(&instance_id).cloned();
-    if let Some(peer) = peer {
-        if let Some(client) = crate::mesh::transport::PeerClient::from_peer(&peer) {
-            let our_id = mesh.lock().identity.instance_id.clone();
-            match client.send_unpair(&our_id).await {
-                Ok(()) => log::info!("[mesh] Notified {} about disconnect", instance_id),
+    // Notify the other side to disconnect too (use signed JWT auth)
+    let (peer, signed_token, our_id) = {
+        let m = mesh.lock();
+        let peer = m.paired_peers.get(&instance_id).cloned();
+        let token = m.sign_request().ok();
+        let id = m.identity.instance_id.clone();
+        (peer, token, id)
+    };
+    if let (Some(peer), Some(token)) = (peer, signed_token) {
+        let addr = peer.addresses.iter()
+            .find(|a| a.is_tailscale).or_else(|| peer.addresses.first());
+        if let Some(addr) = addr {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(5))
+                .build().unwrap_or_default();
+            let url = format!("http://{}:{}/api/mesh/peers/{}", addr.ip, peer.api_port, our_id);
+            match client.delete(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    log::info!("[mesh] Notified {} about disconnect", instance_id);
+                }
+                Ok(resp) => {
+                    let body = resp.text().await.unwrap_or_default();
+                    log::warn!("[mesh] Disconnect notify rejected by {}: {}", instance_id, body);
+                }
                 Err(e) => log::warn!("[mesh] Failed to notify {} about disconnect: {}", instance_id, e),
             }
-        } else {
-            log::warn!("[mesh] Can't notify {} — no valid address", instance_id);
         }
     }
     mesh.lock().unpair(&instance_id);
