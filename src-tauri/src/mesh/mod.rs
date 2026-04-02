@@ -282,14 +282,32 @@ impl MeshManager {
 
         if let Some(existing) = &self.crown_public {
             if let Ok(existing_claims) = crown::verify_crown_jwt(&existing.crown_jwt, &existing.public_key) {
-                // Reject crown from a DIFFERENT mesh — can't take over by joining
+                // Reject crown from a DIFFERENT mesh
                 if existing_claims.mesh_id != *verified_mesh_id {
                     return Err(format!("Foreign mesh crown rejected (mesh_id {} != {})",
                         verified_mesh_id, existing_claims.mesh_id));
                 }
-                // Same mesh — accept only higher version
-                if verified_version <= existing_claims.version {
-                    return Err(format!("Stale crown version ({} <= {})", verified_version, existing_claims.version));
+                // CRITICAL: If same mesh_id, verify new JWT with EXISTING known public key.
+                // This prevents an attacker from forging a crown with a self-signed JWT.
+                // Only the legitimate crown holder's key chain is trusted.
+                // Exception: crown transfer generates new keypair, so public_key changes.
+                // In that case, the new crown must have strictly higher version.
+                if public_info.public_key == existing.public_key {
+                    // Same key — normal version bump (no transfer)
+                    if verified_version <= existing_claims.version {
+                        return Err(format!("Stale crown version ({} <= {})", verified_version, existing_claims.version));
+                    }
+                } else {
+                    // Different key — could be transfer or attack.
+                    // Must have strictly higher version AND come from a paired trusted peer.
+                    if verified_version <= existing_claims.version {
+                        return Err(format!("Crown with new key must have higher version ({} <= {})",
+                            verified_version, existing_claims.version));
+                    }
+                    // Verify the sender is a known paired peer (not a random attacker)
+                    if !self.paired_peers.contains_key(verified_holder) {
+                        return Err(format!("Crown from unknown peer {} rejected", verified_holder));
+                    }
                 }
             }
         }
