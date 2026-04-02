@@ -81,6 +81,89 @@ fn sign_request(private_key_b64: &str, instance_id: &str) -> Result<String, Stri
     Ok(format!("{}.{}", payload_b64, sig_b64))
 }
 
+/// Execute a CLI command on a remote mesh peer via relay.
+/// Reconstructs the command as an API call and sends through relay proxy.
+fn run_via_mesh(cli: &Cli, target: &str) {
+    let (base, token) = read_api_config();
+    let http = build_http(&token);
+
+    // Map CLI command to API path + method + body
+    let (method, path, body) = cli_command_to_api(&cli.command);
+
+    mesh_relay_generic(&http, &base, &token, target, &method, &path, body.as_deref(), cli.json);
+}
+
+/// Map a CLI command to its corresponding API call.
+fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
+    match cmd {
+        Commands::Identify => ("GET".into(), "/api/identify".into(), None),
+        Commands::Capabilities => ("GET".into(), "/api/identify".into(), None),
+        Commands::GetOutput { pane, lines } => {
+            let p = pane.as_deref().unwrap_or("general");
+            ("GET".into(), format!("/api/panes/{}/output?lines={}", p, lines), None)
+        }
+        Commands::SendText { text, pane } => {
+            let p = pane.as_deref().unwrap_or("general");
+            ("POST".into(), format!("/api/panes/{}/send", p),
+                Some(serde_json::json!({"text": text, "enter": true}).to_string()))
+        }
+        Commands::Notify { title, body, level } => {
+            ("POST".into(), "/api/notifications".into(),
+                Some(serde_json::json!({"title": title, "body": body, "level": level}).to_string()))
+        }
+        Commands::Workspace { action } => match action {
+            WorkspaceAction::List => ("GET".into(), "/api/workspaces".into(), None),
+            WorkspaceAction::Create { name, .. } => ("POST".into(), "/api/workspaces".into(),
+                Some(serde_json::json!({"name": name}).to_string())),
+            WorkspaceAction::Focus { id } => ("POST".into(), format!("/api/workspaces/{}/focus", id), None),
+            WorkspaceAction::Rename { id, name } => ("POST".into(), format!("/api/workspaces/{}/rename", id),
+                Some(serde_json::json!({"name": name}).to_string())),
+            WorkspaceAction::Close { id } => ("POST".into(), format!("/api/workspaces/{}/close", id), None),
+            _ => ("GET".into(), "/api/workspaces".into(), None),
+        },
+        Commands::Pane { action } => match action {
+            PaneAction::List => ("GET".into(), "/api/panes".into(), None),
+            PaneAction::Split { id, direction } => {
+                let pane = id.as_deref().unwrap_or("general");
+                ("POST".into(), format!("/api/panes/{}/split", pane),
+                    Some(serde_json::json!({"direction": direction}).to_string()))
+            }
+            PaneAction::Focus { id } => ("POST".into(), format!("/api/panes/{}/focus", id), None),
+            PaneAction::Close { id } => ("POST".into(), format!("/api/panes/{}/close", id), None),
+            PaneAction::Rename { title, pane } => {
+                let p = pane.as_deref().unwrap_or("general");
+                ("POST".into(), format!("/api/panes/{}/rename", p),
+                    Some(serde_json::json!({"title": title}).to_string()))
+            }
+            _ => ("GET".into(), "/api/panes".into(), None),
+        },
+        Commands::Agent { action } => match action {
+            AgentAction::List => ("GET".into(), "/api/agents".into(), None),
+            AgentAction::Hierarchy => ("GET".into(), "/api/agents/hierarchy".into(), None),
+            AgentAction::Spawn { agent, title, task, role, parent, workspace, can_spawn, cwd, args, .. } => {
+                let agent_name = agent.as_str();
+                let mut body = serde_json::json!({
+                    "agent": agent_name,
+                    "title": title,
+                    "task": task,
+                });
+                if let Some(r) = role { body["role"] = serde_json::json!(r); }
+                if let Some(p) = parent { body["parent_pane_id"] = serde_json::json!(p); }
+                if let Some(w) = workspace { body["workspace_id"] = serde_json::json!(w); }
+                if *can_spawn { body["can_spawn"] = serde_json::json!(true); }
+                if let Some(c) = cwd { body["cwd"] = serde_json::json!(c); }
+                if let Some(a) = args { if !a.is_empty() { body["args"] = serde_json::json!(a); } }
+                ("POST".into(), "/api/agents/spawn".into(), Some(body.to_string()))
+            }
+            _ => ("GET".into(), "/api/agents".into(), None),
+        },
+        // Mesh commands run locally even with --mesh (meta)
+        Commands::Mesh { .. } => ("GET".into(), "/api/mesh/status".into(), None),
+        // Fallback: just get health
+        _ => ("GET".into(), "/api/health".into(), None),
+    }
+}
+
 /// Build HTTP client with auth header
 fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
     let mut headers = reqwest::header::HeaderMap::new();
@@ -101,6 +184,10 @@ struct Cli {
     /// Output raw JSON instead of human-readable text
     #[arg(long, global = true)]
     json: bool,
+
+    /// Execute command on a remote mesh peer instead of locally
+    #[arg(long, global = true)]
+    mesh: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -717,6 +804,12 @@ fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
 
 fn main() {
     let cli = Cli::parse();
+
+    // --mesh TARGET: proxy entire command to a remote peer via relay
+    if let Some(ref mesh_target) = cli.mesh {
+        run_via_mesh(&cli, mesh_target);
+        return;
+    }
 
     // Config command uses HTTP API directly — no socket needed
     let json_output = cli.json;
