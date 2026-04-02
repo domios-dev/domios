@@ -105,6 +105,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/pair/confirm", post(mesh_pair_confirm))
         .route("/api/mesh/pair/reject", post(mesh_pair_reject))
         .route("/api/mesh/crown", post(mesh_receive_crown))
+        .route("/api/mesh/sync", post(mesh_sync))
+        .route("/api/mesh/relay", post(mesh_relay))
         .route("/api/mesh/peers/{id}", axum::routing::delete(mesh_unpair))
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -2362,6 +2364,193 @@ async fn mesh_pair_confirm(
     Json(_confirm): Json<crate::mesh::types::PairingConfirm>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Mesh sync — exchange peer lists and crown info after pairing.
+async fn mesh_sync(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<crate::mesh::types::MeshSyncPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Auth: mesh token or API token
+    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let token = auth.strip_prefix("Bearer ").unwrap_or("");
+    let is_mesh = state.mesh.lock().authenticate_mesh_token(token).is_some();
+    let is_api = state.token.as_ref().map(|t| t == token).unwrap_or(true);
+    if !is_mesh && !is_api {
+        return Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_string()));
+    }
+
+    let mut mesh = state.mesh.lock();
+
+    // Import discovered peers from sync
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    for peer_info in &payload.peers {
+        // Skip ourselves and already-paired peers
+        if peer_info.instance_id == mesh.identity.instance_id { continue; }
+        if mesh.paired_peers.contains_key(&peer_info.instance_id) { continue; }
+        // Add to discovered
+        mesh.discovered_peers.insert(
+            peer_info.instance_id.clone(),
+            crate::mesh::types::DiscoveredPeer {
+                instance_id: peer_info.instance_id.clone(),
+                instance_name: peer_info.instance_name.clone(),
+                addresses: peer_info.addresses.clone(),
+                api_port: peer_info.api_port,
+                discovery_method: crate::mesh::types::DiscoveryMethod::Mdns, // from gossip
+                last_seen: now,
+                dev: peer_info.dev,
+            },
+        );
+        log::info!("[mesh/gossip] Learned about peer {} ({})", peer_info.instance_name, peer_info.instance_id);
+    }
+
+    // Import crown public info (accept higher version)
+    if let Some(crown_info) = payload.crown_public {
+        let _ = mesh.update_crown_public(crown_info);
+    }
+
+    // Import trust declarations (verify signatures)
+    let crown_pubkey = mesh.crown_public.as_ref().map(|c| c.public_key.clone());
+    if let Some(pubkey) = crown_pubkey {
+        for decl in &payload.trust_declarations {
+            if crate::mesh::crown::verify_trust_declaration(decl, &pubkey).is_ok() {
+                let existing_ver = mesh.trust_declarations.iter()
+                    .filter(|d| d.peer_id == decl.peer_id)
+                    .map(|d| d.version)
+                    .max()
+                    .unwrap_or(0);
+                if decl.version > existing_ver {
+                    mesh.trust_declarations.retain(|d| d.peer_id != decl.peer_id);
+                    mesh.trust_declarations.push(decl.clone());
+                }
+            }
+        }
+        let _ = crate::mesh::crown::save_trust_declarations(&mesh.trust_declarations);
+    }
+
+    drop(mesh);
+
+    // Return our own sync payload
+    let mesh = state.mesh.lock();
+    let our_payload = build_sync_payload(&mesh);
+    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    Ok(Json(serde_json::to_value(our_payload).unwrap()))
+}
+
+/// Build sync payload from current mesh state.
+fn build_sync_payload(mesh: &crate::mesh::MeshManager) -> crate::mesh::types::MeshSyncPayload {
+    let peers: Vec<crate::mesh::types::GossipPeerInfo> = mesh.paired_peers.values()
+        .map(|p| crate::mesh::types::GossipPeerInfo {
+            instance_id: p.instance_id.clone(),
+            instance_name: p.instance_name.clone(),
+            addresses: p.addresses.clone(),
+            api_port: p.api_port,
+            dev: false,
+        })
+        .collect();
+    crate::mesh::types::MeshSyncPayload {
+        peers,
+        crown_public: mesh.crown_public.clone(),
+        trust_declarations: mesh.trust_declarations.clone(),
+    }
+}
+
+/// Helper: check if sender has trusted access for relay commands.
+fn check_mesh_trust(state: &AppState, headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
+    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let token = auth.strip_prefix("Bearer ").unwrap_or("");
+
+    // API token = full access (local)
+    if let Some(ref expected) = state.token {
+        if token == expected { return Ok("local".to_string()); }
+    }
+
+    // Mesh token = check trust level
+    let mesh = state.mesh.lock();
+    let peer_id = mesh.authenticate_mesh_token(token)
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Invalid token".to_string()))?;
+    let trust = mesh.get_trust_level(&peer_id);
+    match trust {
+        crate::mesh::crown::TrustLevel::Trusted => Ok(peer_id),
+        _ => {
+            // Crown holder can also relay
+            if mesh.crown_public.as_ref().map(|c| c.holder_id == peer_id).unwrap_or(false) {
+                Ok(peer_id)
+            } else {
+                Err((StatusCode::FORBIDDEN, format!("Peer {} is {:?} — relay denied", peer_id, trust)))
+            }
+        }
+    }
+}
+
+/// Relay — execute commands on this instance from a mesh peer.
+async fn mesh_relay(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(cmd): Json<crate::mesh::types::RelayCommand>,
+) -> Result<Json<crate::mesh::types::RelayResponse>, (StatusCode, String)> {
+    let sender_id = check_mesh_trust(&state, &headers)?;
+    log::info!("[mesh/relay] {} from {}", serde_json::to_string(&cmd.action).unwrap_or_default(), sender_id);
+
+    match cmd.action {
+        crate::mesh::types::RelayAction::Status => {
+            let mesh = state.mesh.lock();
+            Ok(Json(crate::mesh::types::RelayResponse {
+                ok: true, data: Some(serde_json::to_value(mesh.status()).unwrap()), error: None,
+            }))
+        }
+        crate::mesh::types::RelayAction::Panes => {
+            let mux = state.svc.mux.lock();
+            let workspaces = mux.list_workspaces();
+            Ok(Json(crate::mesh::types::RelayResponse {
+                ok: true, data: Some(serde_json::to_value(workspaces).unwrap()), error: None,
+            }))
+        }
+        crate::mesh::types::RelayAction::Output => {
+            let pane_id = cmd.pane_id.as_deref()
+                .ok_or_else(|| (StatusCode::BAD_REQUEST, "pane_id required".to_string()))?;
+            let resolved = resolve_pane(&state, pane_id).map_err(|(s, e)| (s, e.to_string()))?;
+            let offset = cmd.params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let pty_id = {
+                let mux = state.svc.mux.lock();
+                mux.get_pane(&resolved)
+                    .and_then(|p| p.pty_id.clone())
+                    .ok_or_else(|| (StatusCode::NOT_FOUND, "Pane has no PTY".to_string()))?
+            };
+            let buf = state.svc.output_buf.lock();
+            let text = buf.get_text(&pty_id).unwrap_or_default();
+            Ok(Json(crate::mesh::types::RelayResponse {
+                ok: true, data: Some(serde_json::json!({"text": text})), error: None,
+            }))
+        }
+        crate::mesh::types::RelayAction::Send => {
+            let pane_id = cmd.pane_id.as_deref()
+                .ok_or_else(|| (StatusCode::BAD_REQUEST, "pane_id required".to_string()))?;
+            let text = cmd.payload.as_deref().unwrap_or("");
+            let resolved = resolve_pane(&state, pane_id).map_err(|(s, e)| (s, e.to_string()))?;
+            state.svc.send_text(&resolved, text, true)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            Ok(Json(crate::mesh::types::RelayResponse {
+                ok: true, data: Some(serde_json::json!({"sent": true})), error: None,
+            }))
+        }
+        crate::mesh::types::RelayAction::Exec => {
+            let pane_id = cmd.pane_id.as_deref()
+                .ok_or_else(|| (StatusCode::BAD_REQUEST, "pane_id required".to_string()))?;
+            let command = cmd.payload.as_deref().unwrap_or("");
+            let resolved = resolve_pane(&state, pane_id).map_err(|(s, e)| (s, e.to_string()))?;
+            // Send command and return immediately (exec with wait requires async — simplify for now)
+            state.svc.send_text(&resolved, command, true)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            Ok(Json(crate::mesh::types::RelayResponse {
+                ok: true, data: Some(serde_json::json!({"executed": true})), error: None,
+            }))
+        }
+    }
 }
 
 /// Reject a pairing request.
