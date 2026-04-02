@@ -300,7 +300,7 @@ export interface DiscoveredPeer {
   instance_name: string;
   addresses: PeerAddress[];
   api_port: number;
-  discovery_method: "mdns" | "tailscale" | "manual";
+  discovery_method: "mdns" | "tailscale" | "udp" | "manual";
   last_seen: number;
 }
 
