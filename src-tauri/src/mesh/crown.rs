@@ -305,13 +305,16 @@ pub fn verify_signed_request(
     let req: SignedRequest = serde_json::from_slice(&payload_bytes)
         .map_err(|e| format!("Bad request claims: {}", e))?;
 
-    // Check timestamp (5 minute window)
+    // Check timestamp (5 minute window, reject future-dated)
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
     if now.saturating_sub(req.timestamp) > 300 {
         return Err("Request expired".to_string());
+    }
+    if req.timestamp.saturating_sub(now) > 30 {
+        return Err("Request timestamp too far in the future".to_string());
     }
 
     // Find public key for this instance

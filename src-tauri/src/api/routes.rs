@@ -2347,10 +2347,33 @@ async fn mesh_receive_crown(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
 
     // Transfer request: { version, from_instance_id }
+    // Verify sender is the actual current crown holder
     if let (Some(version), Some(from_id)) = (
         body.get("version").and_then(|v| v.as_u64()),
         body.get("from_instance_id").and_then(|v| v.as_str()),
     ) {
+        // Verify the authenticated sender matches from_instance_id
+        let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
+        let token = auth.strip_prefix("Bearer ").unwrap_or("");
+        let mesh = state.mesh.lock();
+        let mut kk = mesh.known_public_keys();
+        if let Some(ref pk) = mesh.identity.public_key {
+            kk.insert(mesh.identity.instance_id.clone(), pk.clone());
+        }
+        let actual_sender = crate::mesh::crown::verify_signed_request(token, &kk)
+            .map_err(|_| (StatusCode::UNAUTHORIZED, "Bad signature".to_string()))?;
+        if actual_sender != from_id {
+            return Err((StatusCode::FORBIDDEN, "Sender doesn't match from_instance_id".to_string()));
+        }
+        // Verify sender is the current crown holder
+        if let Some(ref cp) = mesh.crown_public {
+            if cp.holder_id != from_id {
+                return Err((StatusCode::FORBIDDEN,
+                    format!("Only crown holder can transfer. Current: {}, sender: {}", cp.holder_id, from_id)));
+            }
+        }
+        drop(mesh);
+
         let public_info = state.mesh.lock().accept_crown(version, from_id)
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
         let _ = state.svc.app_handle.emit("mesh-state-changed", ());
@@ -2397,6 +2420,14 @@ async fn mesh_introduce(
     // Already paired?
     if state.mesh.lock().paired_peers.contains_key(&intro.instance_id) {
         return Ok(Json(serde_json::json!({"ok": true, "skipped": "already_paired"})));
+    }
+
+    // Check blocked/revoked list — prevent re-introduction of removed peers
+    {
+        let mesh = state.mesh.lock();
+        if mesh.is_blocked(&intro.instance_id) {
+            return Err((StatusCode::FORBIDDEN, format!("Peer {} is blocked", intro.instance_id)));
+        }
     }
 
     log::info!("[mesh/introduce] {} introduced by {} — auto-pairing",
