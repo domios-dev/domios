@@ -132,6 +132,7 @@ pub fn create_pairing_request(
     instance_name: &str,
     local_address: &str,
     local_port: u16,
+    identity_public_key: Option<&str>,
 ) -> (PairingRequest, [u8; 32]) {
     let (private_key, public_key_b64) = generate_keypair();
     let nonce = generate_nonce();
@@ -147,6 +148,7 @@ pub fn create_pairing_request(
         from_address: local_address.to_string(),
         from_port: local_port,
         public_key: public_key_b64,
+        identity_public_key: identity_public_key.map(|s| s.to_string()),
         nonce,
         timestamp: now,
         status: PairingStatus::Pending,
