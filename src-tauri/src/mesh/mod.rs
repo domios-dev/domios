@@ -400,9 +400,16 @@ impl MeshManager {
     pub fn authenticate_mesh_token(&self, token: &str) -> Option<String> {
         // Try signed JWT first
         let known_keys = self.known_public_keys();
-        if let Ok(peer_id) = crown::verify_signed_request(token, &known_keys) {
-            if !self.is_revoked(&peer_id) {
-                return Some(peer_id);
+        log::debug!("[mesh/auth] Trying JWT auth, known_keys: {:?}", known_keys.keys().collect::<Vec<_>>());
+        match crown::verify_signed_request(token, &known_keys) {
+            Ok(peer_id) => {
+                if !self.is_revoked(&peer_id) {
+                    log::debug!("[mesh/auth] JWT verified: {}", peer_id);
+                    return Some(peer_id);
+                }
+            }
+            Err(e) => {
+                log::debug!("[mesh/auth] JWT failed: {}", e);
             }
         }
         // Fall back to legacy mesh_token
