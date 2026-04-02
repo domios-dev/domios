@@ -17,6 +17,7 @@ pub struct MeshIdentity {
 pub enum DiscoveryMethod {
     Mdns,
     Tailscale,
+    Udp,
     Manual,
 }
 

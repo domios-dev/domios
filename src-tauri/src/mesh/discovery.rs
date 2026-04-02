@@ -369,7 +369,7 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
                             is_tailscale: false,
                         }],
                         api_port: beacon.port,
-                        discovery_method: DiscoveryMethod::Manual, // reuse Manual for UDP broadcast
+                        discovery_method: DiscoveryMethod::Udp,
                         last_seen: now,
                     };
 

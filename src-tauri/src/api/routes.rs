@@ -2254,14 +2254,7 @@ async fn mesh_pair_accept(
             .ok_or_else(|| (StatusCode::NOT_FOUND, "No keypair for this request".to_string()))?
     };
 
-    // We need the nonce from the original request we sent.
-    // The accept includes B's public key. We need to find the original nonce.
-    // Since A created the request, A knows the nonce — but we didn't store the full request.
-    // Fix: store the full outgoing request in pending_requests too.
-    // For now, we'll look it up from discovered peers to get address info.
-    // Actually, let's use a dedicated store for outgoing requests.
-
-    // The nonce should have been stored with the request. Let's check pending_requests.
+    // Get our outgoing request (stored in mesh_connect) for the nonce
     let outgoing_request = {
         let mesh = state.mesh.lock();
         mesh.pending_requests

@@ -320,7 +320,11 @@ impl Default for MeshConfig {
         Self {
             enabled: false,
             instance_name: hostname::get()
-                .map(|h| h.to_string_lossy().to_string())
+                .map(|h| {
+                    let name = h.to_string_lossy().to_string();
+                    // Strip .local suffix (macOS adds it)
+                    name.trim_end_matches(".local").to_string()
+                })
                 .unwrap_or_else(|_| "CodeTerm".to_string()),
             auto_discover: true,
             stealth: false,
