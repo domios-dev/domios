@@ -1630,7 +1630,7 @@ pub async fn mesh_approve_pairing(
         }
     }
 
-    // Send acceptance
+    // Send acceptance to requester — response contains requester's encrypted token
     let client = crate::mesh::transport::PeerClient::new(
         &request.from_address,
         request.from_port,
@@ -1638,16 +1638,29 @@ pub async fn mesh_approve_pairing(
     );
     let accept = crate::mesh::types::PairingAccept {
         request_id: request_id.clone(),
-        public_key: our_public_key_b64,
+        public_key: our_public_key_b64.clone(),
         encrypted_mesh_token: encrypted_token,
     };
-    client.send_pair_accept(&accept).await?;
+    let response = client.send_pair_accept_and_read(&accept).await?;
 
-    // Store peer (mesh_token placeholder — filled on confirm via /api/mesh/pair/confirm)
+    // Decrypt requester's mesh token from the response
+    let their_encrypted_token = response
+        .get("encrypted_mesh_token")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "No encrypted_mesh_token in accept response".to_string())?;
+
+    let their_mesh_token = crate::mesh::pairing::decrypt_with_shared_secret(
+        &our_private_key,
+        &request.public_key,
+        &request.nonce,
+        their_encrypted_token,
+    )?;
+
+    // Store peer with BOTH tokens resolved — no confirm step needed
     {
         let mut m = mesh.lock();
-        log::info!("[mesh] Approve: storing peer {} with empty token, waiting for confirm",
-            request.from_instance_id);
+        log::info!("[mesh] Approve: storing peer {} with token (len={})",
+            request.from_instance_id, their_mesh_token.len());
         let peer = crate::mesh::types::PairedPeer {
             instance_id: request.from_instance_id.clone(),
             instance_name: request.from_instance_name.clone(),
@@ -1656,7 +1669,7 @@ pub async fn mesh_approve_pairing(
                 is_tailscale: false,
             }],
             api_port: request.from_port,
-            mesh_token: String::new(),
+            mesh_token: their_mesh_token,
             paired_at: chrono::Utc::now().to_rfc3339(),
             last_seen: Some(chrono::Utc::now().to_rfc3339()),
             online: true,
@@ -1666,9 +1679,14 @@ pub async fn mesh_approve_pairing(
         };
         m.paired_peers
             .insert(request.from_instance_id.clone(), peer);
+        // Cleanup
+        m.pending_requests.remove(&request_id);
+        m.pairing_keypairs.remove(&request_id);
+        let _ = m.save();
     }
 
     let _ = svc.app_handle.emit("mesh-state-changed", ());
+    log::info!("[mesh] Pairing complete (approver side) with {}", request.from_instance_id);
     Ok(())
 }
 
