@@ -3,6 +3,7 @@ mod api;
 mod autostart;
 pub mod bridge;
 mod commands;
+mod commands_mesh;
 mod config;
 pub mod cron;
 pub mod mesh;
@@ -1034,17 +1035,17 @@ pub fn run() {
             commands::cron_history,
             commands::cron_read_log,
             // Mesh commands
-            commands::mesh_get_status,
-            commands::mesh_list_peers,
-            commands::mesh_refresh_discovery,
-            commands::mesh_connect,
-            commands::mesh_approve_pairing,
-            commands::mesh_reject_pairing,
-            commands::mesh_disconnect,
-            commands::mesh_transfer_crown,
-            commands::mesh_add_manual,
-            commands::mesh_set_trust,
-            commands::mesh_start_discovery,
+            commands_mesh::mesh_get_status,
+            commands_mesh::mesh_list_peers,
+            commands_mesh::mesh_refresh_discovery,
+            commands_mesh::mesh_connect,
+            commands_mesh::mesh_approve_pairing,
+            commands_mesh::mesh_reject_pairing,
+            commands_mesh::mesh_disconnect,
+            commands_mesh::mesh_transfer_crown,
+            commands_mesh::mesh_add_manual,
+            commands_mesh::mesh_set_trust,
+            commands_mesh::mesh_start_discovery,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
