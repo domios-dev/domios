@@ -48,7 +48,17 @@ fn revocation_path() -> PathBuf {
 pub fn load_or_create_identity() -> MeshIdentity {
     let path = identity_path();
     if let Ok(data) = std::fs::read_to_string(&path) {
-        if let Ok(id) = serde_json::from_str::<MeshIdentity>(&data) {
+        if let Ok(mut id) = serde_json::from_str::<MeshIdentity>(&data) {
+            // Migrate: generate keypair if missing (identity created before Ed25519 support)
+            if id.private_key.is_none() || id.public_key.is_none() {
+                let (priv_key, pub_key) = super::crown::generate_peer_keypair();
+                id.private_key = Some(priv_key);
+                id.public_key = Some(pub_key);
+                if let Ok(json) = serde_json::to_string_pretty(&id) {
+                    let _ = std::fs::write(&path, json);
+                }
+                log::info!("[mesh] Migrated identity — generated Ed25519 keypair");
+            }
             return id;
         }
     }
