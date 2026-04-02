@@ -2240,7 +2240,8 @@ async fn mesh_pair_request(
 
 /// Receive pairing acceptance from the approver (B→A).
 /// Called on the REQUESTER (A) when B approves and sends their accept.
-/// A decrypts B's mesh_token, encrypts A's, sends confirm back to B.
+/// A decrypts B's mesh_token, encrypts A's, returns it in the HTTP response.
+/// No separate confirm step needed — B reads A's token from the response.
 async fn mesh_pair_accept(
     AxumState(state): AxumState<AppState>,
     Json(accept): Json<crate::mesh::types::PairingAccept>,
@@ -2272,7 +2273,7 @@ async fn mesh_pair_accept(
     )
     .map_err(|e| (StatusCode::BAD_REQUEST, format!("Decrypt failed: {}", e)))?;
 
-    // Generate our mesh token for B and encrypt it
+    // Generate our mesh token for B and encrypt it — returned in HTTP response
     let our_mesh_token = crate::mesh::pairing::generate_mesh_token();
     let encrypted_our_token = crate::mesh::pairing::encrypt_with_shared_secret(
         &our_private_key,
@@ -2282,7 +2283,7 @@ async fn mesh_pair_accept(
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    // Get B's address from the stored pairing target
+    // Get B's info from the stored pairing target
     let (b_address, b_port, b_instance_id) = {
         let mesh = state.mesh.lock();
         mesh.pairing_targets
@@ -2291,21 +2292,9 @@ async fn mesh_pair_accept(
             .ok_or_else(|| (StatusCode::NOT_FOUND, "Target peer info not found".to_string()))?
     };
 
-    // Send confirmation
-    let client = crate::mesh::transport::PeerClient::new(&b_address, b_port, "");
-    let confirm = crate::mesh::types::PairingConfirm {
-        request_id: accept.request_id.clone(),
-        encrypted_mesh_token: encrypted_our_token,
-    };
-    client
-        .send_pair_confirm(&confirm)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
-
-    // Store B as a paired peer
+    // Store B as a paired peer (requester side complete)
     {
         let mut mesh = state.mesh.lock();
-        // Use the discovered peer's name if available
         let b_name = mesh.discovered_peers.get(&b_instance_id)
             .map(|p| p.instance_name.clone())
             .unwrap_or_else(|| b_address.clone());
@@ -2334,64 +2323,20 @@ async fn mesh_pair_accept(
 
     log::info!("[mesh] Pairing complete (requester side) for request {}", accept.request_id);
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
-    Ok(Json(serde_json::json!({"ok": true})))
+
+    // Return our encrypted mesh token so B (approver) can decrypt it
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "encrypted_mesh_token": encrypted_our_token
+    })))
 }
 
-/// Receive pairing confirmation from the requester (A→B).
-/// Called on the APPROVER (B) when A sends the confirm with their encrypted mesh_token.
+/// Legacy confirm endpoint — kept for compatibility but no longer needed.
+/// The new flow returns the requester's token in the accept response.
 async fn mesh_pair_confirm(
-    AxumState(state): AxumState<AppState>,
-    Json(confirm): Json<crate::mesh::types::PairingConfirm>,
+    AxumState(_state): AxumState<AppState>,
+    Json(_confirm): Json<crate::mesh::types::PairingConfirm>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // B stored its private key and the original request when approving
-    let (our_private_key, original_request) = {
-        let mesh = state.mesh.lock();
-        let key = mesh
-            .pairing_keypairs
-            .get(&confirm.request_id)
-            .copied()
-            .ok_or_else(|| (StatusCode::NOT_FOUND, "No keypair for this request".to_string()))?;
-        let request = mesh
-            .pending_requests
-            .get(&confirm.request_id)
-            .cloned()
-            .ok_or_else(|| (StatusCode::NOT_FOUND, "Request not found".to_string()))?;
-        (key, request)
-    };
-
-    // Decrypt A's mesh token using B's private key + A's public key from the original request
-    let their_mesh_token = crate::mesh::pairing::decrypt_with_shared_secret(
-        &our_private_key,
-        &original_request.public_key,
-        &original_request.nonce,
-        &confirm.encrypted_mesh_token,
-    )
-    .map_err(|e| (StatusCode::BAD_REQUEST, format!("Decrypt failed: {}", e)))?;
-
-    // Update the paired peer with A's actual mesh token
-    {
-        let mut mesh = state.mesh.lock();
-        let peer_id = &original_request.from_instance_id;
-        if let Some(peer) = mesh.paired_peers.get_mut(peer_id) {
-            log::info!("[mesh] Storing mesh_token for peer {} (len={})", peer_id, their_mesh_token.len());
-            peer.mesh_token = their_mesh_token;
-        } else {
-            log::error!("[mesh] Confirm: peer {} not found in paired_peers! Keys: {:?}",
-                peer_id, mesh.paired_peers.keys().collect::<Vec<_>>());
-        }
-        mesh.pending_requests.remove(&confirm.request_id);
-        mesh.pairing_keypairs.remove(&confirm.request_id);
-        if let Err(e) = mesh.save() {
-            log::error!("[mesh] Failed to save after confirm: {}", e);
-        }
-    }
-
-    log::info!(
-        "[mesh] Pairing complete (approver side) with {} ({})",
-        original_request.from_instance_name,
-        original_request.from_instance_id
-    );
-    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

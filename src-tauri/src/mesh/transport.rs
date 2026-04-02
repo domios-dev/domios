@@ -61,8 +61,11 @@ impl PeerClient {
         }
     }
 
-    /// Send pairing acceptance.
-    pub async fn send_pair_accept(&self, accept: &PairingAccept) -> Result<(), String> {
+    /// Send pairing acceptance and read the response (contains requester's encrypted token).
+    pub async fn send_pair_accept_and_read(
+        &self,
+        accept: &PairingAccept,
+    ) -> Result<serde_json::Value, String> {
         let url = format!("{}/api/mesh/pair/accept", self.base_url);
         let resp = self
             .client
@@ -72,7 +75,9 @@ impl PeerClient {
             .await
             .map_err(|e| format!("Network error: {}", e))?;
         if resp.status().is_success() {
-            Ok(())
+            resp.json::<serde_json::Value>()
+                .await
+                .map_err(|e| format!("Failed to parse accept response: {}", e))
         } else {
             let body = resp.text().await.unwrap_or_default();
             Err(format!("Pair accept failed: {}", body))
