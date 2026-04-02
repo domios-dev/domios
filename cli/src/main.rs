@@ -663,6 +663,19 @@ enum MeshAction {
         /// Target peer name or instance ID
         target: String,
     },
+    /// Generic API proxy — call any API endpoint on a remote peer
+    Api {
+        /// Target peer name or instance ID
+        target: String,
+        /// HTTP method (GET, POST, DELETE, etc.)
+        #[arg(long, default_value = "GET")]
+        method: String,
+        /// API path (e.g. /api/panes, /api/agents/spawn)
+        path: String,
+        /// JSON body for POST/PUT/PATCH
+        #[arg(long)]
+        body: Option<String>,
+    },
 }
 
 /// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
@@ -1658,6 +1671,10 @@ fn main() {
                     mesh_relay_cmd(&http, &base, &token, &target, "panes", "", "", cli.json);
                     return;
                 }
+                MeshAction::Api { target, method, path, body } => {
+                    mesh_relay_generic(&http, &base, &token, &target, &method, &path, body.as_deref(), cli.json);
+                    return;
+                }
             }
         }
     };
@@ -1665,7 +1682,23 @@ fn main() {
     handle_result(cli.json, result);
 }
 
+/// Shortcut relay — maps old-style actions to new generic relay format.
 fn mesh_relay_cmd(http: &reqwest::blocking::Client, base: &str, token: &Option<String>, target: &str, action: &str, payload: &str, pane: &str, json_mode: bool) {
+    let (method, path, body) = match action {
+        "exec" | "send" => ("POST", format!("/api/panes/{}/send", if pane.is_empty() { "general" } else { pane }),
+            serde_json::json!({"text": payload, "enter": true})),
+        "output" => ("GET", format!("/api/panes/{}/output", if pane.is_empty() { "general" } else { pane }),
+            serde_json::json!(null)),
+        "panes" => ("GET", "/api/panes".to_string(), serde_json::json!(null)),
+        "status" => ("GET", "/api/mesh/status".to_string(), serde_json::json!(null)),
+        _ => { eprintln!("Unknown action: {}", action); std::process::exit(1); }
+    };
+    mesh_relay_generic(http, base, token, target, method, &path, if body.is_null() { None } else { Some(&body.to_string()) }, json_mode);
+}
+
+/// Generic relay — send any API call through mesh to a remote peer.
+fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &Option<String>, target: &str, method: &str, path: &str, body: Option<&str>, json_mode: bool) {
+    // Resolve peer address
     let peers_resp = http.get(format!("{}/api/mesh/peers", base))
         .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
         .send().ok().and_then(|r| r.json::<serde_json::Value>().ok());
@@ -1684,23 +1717,28 @@ fn mesh_relay_cmd(http: &reqwest::blocking::Client, base: &str, token: &Option<S
     let port = peer.get("api_port").and_then(|v| v.as_u64()).unwrap_or(7685);
     let peer_url = format!("http://{}:{}", ip, port);
 
-    // TODO: sign with Ed25519 for direct relay. For now, go unsigned (works if peer allows).
-    let mut relay = serde_json::json!({ "action": action });
-    if !pane.is_empty() { relay["pane_id"] = serde_json::json!(pane); }
-    if !payload.is_empty() { relay["payload"] = serde_json::json!(payload); }
+    // Sign with our identity for auth
+    let signed_token = token.as_deref().unwrap_or("");
+
+    let relay = serde_json::json!({
+        "method": method,
+        "path": path,
+        "body": body.and_then(|b| serde_json::from_str::<serde_json::Value>(b).ok()).unwrap_or(serde_json::json!(null)),
+    });
 
     match http.post(format!("{}/api/mesh/relay", peer_url))
+        .header("Authorization", format!("Bearer {}", signed_token))
         .json(&relay).send() {
         Ok(resp) => {
             let val: serde_json::Value = resp.json().unwrap_or_default();
             if json_mode {
                 println!("{}", serde_json::to_string_pretty(&val).unwrap());
-            } else if action == "output" {
-                if let Some(text) = val.get("data").and_then(|d| d.get("text")).and_then(|v| v.as_str()) {
-                    print!("{}", text);
-                }
             } else if let Some(data) = val.get("data") {
-                println!("{}", serde_json::to_string_pretty(data).unwrap());
+                if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
+                    print!("{}", text); // raw output for output command
+                } else {
+                    println!("{}", serde_json::to_string_pretty(data).unwrap());
+                }
             } else if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
                 eprintln!("Error: {}", err);
             }

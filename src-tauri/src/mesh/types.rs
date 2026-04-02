@@ -168,39 +168,26 @@ pub struct MeshSyncPayload {
 
 // ── Relay ───────────────────────────────────────────────────────────
 
-/// Relay command sent between mesh peers.
+/// Generic relay — proxy any API call to a mesh peer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelayCommand {
-    /// Action to perform.
-    pub action: RelayAction,
-    /// Target pane ID (for pane-specific actions).
-    pub pane_id: Option<String>,
-    /// Command/text payload.
-    pub payload: Option<String>,
-    /// Additional params.
+    /// API method: GET, POST, PUT, DELETE, PATCH.
+    #[serde(default = "default_method")]
+    pub method: String,
+    /// API path (e.g. "/api/panes", "/api/agents/spawn").
+    pub path: String,
+    /// Request body (for POST/PUT/PATCH).
     #[serde(default)]
-    pub params: serde_json::Value,
+    pub body: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RelayAction {
-    /// Execute command in a pane and return output.
-    Exec,
-    /// Send text to a pane (fire & forget).
-    Send,
-    /// Get pane output.
-    Output,
-    /// List panes on this instance.
-    Panes,
-    /// Get instance status.
-    Status,
-}
+fn default_method() -> String { "GET".to_string() }
 
 /// Relay response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelayResponse {
     pub ok: bool,
+    pub status: u16,
     pub data: Option<serde_json::Value>,
     pub error: Option<String>,
 }
