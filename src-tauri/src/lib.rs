@@ -688,7 +688,6 @@ fn start_servers(
         if api_config.enabled {
             let api_state = api::routes::AppState {
                 svc: service_state.clone(),
-                token: api_config.token.clone(),
                 screenshot: states.screenshot.clone(),
                 cron: cron_state.clone(),
                 cron_wake: cron_wake.clone(),

@@ -15,7 +15,6 @@ use crate::screenshot::ScreenshotState;
 #[derive(Clone)]
 pub struct AppState {
     pub svc: crate::service::ServiceState,
-    pub token: Option<String>,
     #[allow(dead_code)]
     pub screenshot: ScreenshotState,
     pub cron: crate::CronState,
@@ -121,10 +120,9 @@ fn resolve_pane(state: &AppState, raw_id: &str) -> Result<String, (StatusCode, &
         .ok_or((StatusCode::NOT_FOUND, "Pane not found"))
 }
 
-/// Unified auth: accepts Ed25519 signed JWT.
+/// Unified auth: Ed25519 signed JWT only.
 /// - Local instance's own signature → full access
-/// - Paired peer's signature → mesh access (check trust for restricted endpoints)
-/// - Legacy Bearer API token → full access (temporary, will be removed)
+/// - Paired peer's signature → mesh access
 fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, &'static str)> {
     let auth = headers
         .get("authorization")
@@ -135,26 +133,15 @@ fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, 
         return Err((StatusCode::UNAUTHORIZED, "Missing authorization"));
     }
 
-    // Try Ed25519 signed JWT
     let mesh = state.mesh.lock();
-    let our_id = mesh.identity.instance_id.clone();
-
-    // Build known keys: our own + all paired peers
     let mut known_keys = mesh.known_public_keys();
     if let Some(ref pk) = mesh.identity.public_key {
-        known_keys.insert(our_id.clone(), pk.clone());
+        known_keys.insert(mesh.identity.instance_id.clone(), pk.clone());
     }
     drop(mesh);
 
-    if let Ok(_sender_id) = crate::mesh::crown::verify_signed_request(token, &known_keys) {
+    if crate::mesh::crown::verify_signed_request(token, &known_keys).is_ok() {
         return Ok(());
-    }
-
-    // Legacy Bearer token fallback (temporary)
-    if let Some(ref expected) = state.token {
-        if token == expected {
-            return Ok(());
-        }
     }
 
     Err((StatusCode::UNAUTHORIZED, "Invalid or missing token"))
@@ -2384,14 +2371,7 @@ async fn mesh_sync(
     headers: HeaderMap,
     Json(payload): Json<crate::mesh::types::MeshSyncPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    // Auth: mesh token or API token
-    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
-    let token = auth.strip_prefix("Bearer ").unwrap_or("");
-    let is_mesh = state.mesh.lock().authenticate_request(token).is_some();
-    let is_api = state.token.as_ref().map(|t| t == token).unwrap_or(true);
-    if !is_mesh && !is_api {
-        return Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_string()));
-    }
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
 
     let mut mesh = state.mesh.lock();
 
@@ -2476,15 +2456,18 @@ fn check_mesh_trust(state: &AppState, headers: &HeaderMap) -> Result<String, (St
     let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
 
-    // API token = full access (local)
-    if let Some(ref expected) = state.token {
-        if token == expected { return Ok("local".to_string()); }
-    }
-
-    // Mesh token = check trust level
+    // Verify Ed25519 signature and check trust
     let mesh = state.mesh.lock();
-    let peer_id = mesh.authenticate_request(token)
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Invalid token".to_string()))?;
+    let mut known_keys = mesh.known_public_keys();
+    // Include own key for local CLI access
+    if let Some(ref pk) = mesh.identity.public_key {
+        known_keys.insert(mesh.identity.instance_id.clone(), pk.clone());
+    }
+    let our_id = mesh.identity.instance_id.clone();
+    let peer_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid token".to_string()))?;
+    // Local instance = full access
+    if peer_id == our_id { return Ok("local".to_string()); }
     let trust = mesh.get_trust_level(&peer_id);
     match trust {
         crate::mesh::crown::TrustLevel::Trusted => Ok(peer_id),
@@ -2600,27 +2583,24 @@ async fn mesh_unpair(
     headers: HeaderMap,
     Path(instance_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let auth = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    // Verify JWT — determine if local or remote
+    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
+    let mesh = state.mesh.lock();
+    let mut known_keys = mesh.known_public_keys();
+    if let Some(ref pk) = mesh.identity.public_key {
+        known_keys.insert(mesh.identity.instance_id.clone(), pk.clone());
+    }
+    let our_id = mesh.identity.instance_id.clone();
+    drop(mesh);
 
-    // Local API token = can unpair anyone (user action from UI)
-    let is_local_auth = state
-        .token
-        .as_ref()
-        .map(|t| t == token)
-        .unwrap_or(true);
+    let sender_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))?;
 
-    if !is_local_auth {
-        // Remote mesh token = can only unpair YOURSELF (not others)
-        let sender_id = state.mesh.lock().authenticate_request(token)
-            .ok_or_else(|| (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))?;
-        if sender_id != instance_id {
-            return Err((StatusCode::FORBIDDEN,
-                format!("Can only disconnect yourself ({}), not {}", sender_id, instance_id)));
-        }
+    // Remote peer can only unpair THEMSELVES, local can unpair anyone
+    if sender_id != our_id && sender_id != instance_id {
+        return Err((StatusCode::FORBIDDEN,
+            format!("Can only disconnect yourself ({}), not {}", sender_id, instance_id)));
     }
 
     let mut mesh = state.mesh.lock();
