@@ -36,6 +36,9 @@ pub struct DiscoveredPeer {
     pub discovery_method: DiscoveryMethod,
     /// Unix timestamp (seconds) when last seen via discovery.
     pub last_seen: u64,
+    /// Whether this is a dev build.
+    #[serde(default)]
+    pub dev: bool,
 }
 
 // ── Paired peers ──────────────────────────────────────���─────────────

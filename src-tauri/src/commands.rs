@@ -1682,6 +1682,8 @@ pub async fn mesh_approve_pairing(
         // Cleanup
         m.pending_requests.remove(&request_id);
         m.pairing_keypairs.remove(&request_id);
+        // Approver gets crown if nobody has it yet
+        m.claim_crown_if_unclaimed();
         let _ = m.save();
     }
 
@@ -1720,12 +1722,17 @@ pub async fn mesh_disconnect(
     svc: tauri::State<'_, crate::service::ServiceState>,
     instance_id: String,
 ) -> Result<(), String> {
-    // Best-effort notify the other side
+    // Notify the other side to disconnect too
     let peer = mesh.lock().paired_peers.get(&instance_id).cloned();
     if let Some(peer) = peer {
         if let Some(client) = crate::mesh::transport::PeerClient::from_peer(&peer) {
             let our_id = mesh.lock().identity.instance_id.clone();
-            let _ = client.send_unpair(&our_id).await;
+            match client.send_unpair(&our_id).await {
+                Ok(()) => log::info!("[mesh] Notified {} about disconnect", instance_id),
+                Err(e) => log::warn!("[mesh] Failed to notify {} about disconnect: {}", instance_id, e),
+            }
+        } else {
+            log::warn!("[mesh] Can't notify {} — no valid address", instance_id);
         }
     }
     mesh.lock().unpair(&instance_id);
@@ -1785,6 +1792,7 @@ pub fn mesh_add_manual(
         api_port: port,
         discovery_method: crate::mesh::types::DiscoveryMethod::Manual,
         last_seen: now,
+        dev: false,
     };
     mesh.lock()
         .discovered_peers

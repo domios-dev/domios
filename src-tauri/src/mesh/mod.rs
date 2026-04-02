@@ -171,11 +171,12 @@ impl MeshManager {
         self.crown_public.as_ref().map(|c| c.holder_id.clone())
     }
 
-    /// Claim crown if nobody has it (first accept = coronation).
+    /// Claim crown if nobody has it. Called after first accept.
     pub fn claim_crown_if_unclaimed(&mut self) {
         if self.crown_keypair.is_some() || self.crown_public.is_some() {
             return; // Already have crown or know who does
         }
+        log::info!("[mesh] No crown exists — claiming as first approver");
         let keypair = crown::CrownKeyPair::generate();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
