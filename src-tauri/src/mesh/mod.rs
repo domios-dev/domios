@@ -272,55 +272,28 @@ impl MeshManager {
 
     /// Update crown public info (called on all peers when crown transfers).
     pub fn update_crown_public(&mut self, public_info: crown::CrownPublicInfo) -> Result<(), String> {
-        // Verify JWT signature and extract trusted claims
+        // Verify JWT signature
         let verified_claims = crown::verify_crown_jwt(&public_info.crown_jwt, &public_info.public_key)
             .map_err(|e| format!("Crown JWT invalid: {}", e))?;
 
-        let verified_version = verified_claims.version;
         let verified_holder = &verified_claims.holder_id;
-        let verified_mesh_id = &verified_claims.mesh_id;
 
-        if let Some(existing) = &self.crown_public {
-            if let Ok(existing_claims) = crown::verify_crown_jwt(&existing.crown_jwt, &existing.public_key) {
-                // Reject crown from a DIFFERENT mesh
-                if existing_claims.mesh_id != *verified_mesh_id {
-                    return Err(format!("Foreign mesh crown rejected (mesh_id {} != {})",
-                        verified_mesh_id, existing_claims.mesh_id));
-                }
-                // CRITICAL: If same mesh_id, verify new JWT with EXISTING known public key.
-                // This prevents an attacker from forging a crown with a self-signed JWT.
-                // Only the legitimate crown holder's key chain is trusted.
-                // Exception: crown transfer generates new keypair, so public_key changes.
-                // In that case, the new crown must have strictly higher version.
-                if public_info.public_key == existing.public_key {
-                    // Same key — normal version bump (no transfer)
-                    if verified_version <= existing_claims.version {
-                        return Err(format!("Stale crown version ({} <= {})", verified_version, existing_claims.version));
-                    }
-                } else {
-                    // Different key — could be transfer or attack.
-                    // Must have strictly higher version AND come from a paired trusted peer.
-                    if verified_version <= existing_claims.version {
-                        return Err(format!("Crown with new key must have higher version ({} <= {})",
-                            verified_version, existing_claims.version));
-                    }
-                    // Verify the sender is a known paired peer (not a random attacker)
-                    if !self.paired_peers.contains_key(verified_holder) {
-                        return Err(format!("Crown from unknown peer {} rejected", verified_holder));
-                    }
-                }
-            }
+        // Reject crown from unknown peer (must be paired or ourselves)
+        if *verified_holder != self.identity.instance_id
+            && !self.paired_peers.contains_key(verified_holder) {
+            return Err(format!("Crown from unknown peer {} rejected", verified_holder));
         }
-        // First crown we ever see — accept (joining a mesh for the first time)
-        log::info!("[mesh/crown] Accepting crown v{} holder={} mesh={}",
-            verified_version, verified_holder, verified_mesh_id);
-        // If someone else is the legitimate crown holder, relinquish ours
+
+        log::info!("[mesh/crown] Crown info: holder={}", verified_holder);
+
+        // If someone else is crown holder → relinquish ours
         if *verified_holder != self.identity.instance_id && self.crown_keypair.is_some() {
             log::info!("[mesh/crown] Relinquishing our crown — {} is the legitimate holder",
                 verified_holder);
             crown::delete_crown_keypair();
             self.crown_keypair = None;
         }
+
         let _ = crown::save_crown_public_info(&public_info);
         self.crown_public = Some(public_info);
         Ok(())
