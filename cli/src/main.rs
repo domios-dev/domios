@@ -1693,7 +1693,8 @@ fn mesh_relay_cmd(http: &reqwest::blocking::Client, base: &str, token: &Option<S
         "status" => ("GET", "/api/mesh/status".to_string(), serde_json::json!(null)),
         _ => { eprintln!("Unknown action: {}", action); std::process::exit(1); }
     };
-    mesh_relay_generic(http, base, token, target, method, &path, if body.is_null() { None } else { Some(&body.to_string()) }, json_mode);
+    let body_str = if body.is_null() { None } else { Some(body.to_string()) };
+    mesh_relay_generic(http, base, token, target, method, &path, body_str.as_deref(), json_mode);
 }
 
 /// Generic relay — send any API call through mesh to a remote peer.
