@@ -106,6 +106,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/pair/confirm", post(mesh_pair_confirm))
         .route("/api/mesh/pair/reject", post(mesh_pair_reject))
         .route("/api/mesh/crown", post(mesh_receive_crown))
+        .route("/api/mesh/introduce", post(mesh_introduce))
         .route("/api/mesh/sync", post(mesh_sync))
         .route("/api/mesh/relay", post(mesh_relay))
         .route("/api/mesh/peers/{id}", axum::routing::delete(mesh_unpair))
@@ -2365,6 +2366,76 @@ async fn mesh_receive_crown(
     }
 
     Err((StatusCode::BAD_REQUEST, "Invalid crown payload".to_string()))
+}
+
+/// Auto-pair via introduction from a trusted mediator.
+/// A paired peer vouches for a new peer — auto-add to paired_peers.
+async fn mesh_introduce(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(intro): Json<crate::mesh::types::PeerIntroduction>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    // Verify the sender is a paired peer (the mediator)
+    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let token = auth.strip_prefix("Bearer ").unwrap_or("");
+    let mesh = state.mesh.lock();
+    let mut known_keys = mesh.known_public_keys();
+    if let Some(ref pk) = mesh.identity.public_key {
+        known_keys.insert(mesh.identity.instance_id.clone(), pk.clone());
+    }
+    let our_id = mesh.identity.instance_id.clone();
+    drop(mesh);
+
+    let sender_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
+        .map_err(|_| (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))?;
+
+    // Don't introduce ourselves
+    if intro.instance_id == our_id {
+        return Ok(Json(serde_json::json!({"ok": true, "skipped": "self"})));
+    }
+
+    // Already paired?
+    if state.mesh.lock().paired_peers.contains_key(&intro.instance_id) {
+        return Ok(Json(serde_json::json!({"ok": true, "skipped": "already_paired"})));
+    }
+
+    log::info!("[mesh/introduce] {} introduced by {} — auto-pairing",
+        intro.instance_name, sender_id);
+
+    // Auto-pair: add to paired_peers with their public key
+    let mut mesh = state.mesh.lock();
+    let peer = crate::mesh::types::PairedPeer {
+        instance_id: intro.instance_id.clone(),
+        instance_name: intro.instance_name.clone(),
+        addresses: intro.addresses.clone(),
+        api_port: intro.api_port,
+        public_key: intro.public_key.clone(),
+        paired_at: chrono::Utc::now().to_rfc3339(),
+        last_seen: Some(chrono::Utc::now().to_rfc3339()),
+        online: true,
+        is_primary: false,
+        access_level: crate::mesh::types::AccessLevel::Full,
+        trust_level: String::new(),
+        version: None,
+    };
+    mesh.paired_peers.insert(intro.instance_id.clone(), peer);
+    // Remove from discovered if present
+    mesh.discovered_peers.remove(&intro.instance_id);
+    let _ = mesh.save();
+    drop(mesh);
+
+    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+
+    // Return our own info so the mediator can introduce us back
+    let mesh = state.mesh.lock();
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "instance_id": mesh.identity.instance_id,
+        "instance_name": mesh.instance_name,
+        "public_key": mesh.identity.public_key,
+        "api_port": mesh.api_port,
+        "local_ip": mesh.local_ip,
+    })))
 }
 
 /// Legacy confirm endpoint — no-op, kept for compat.

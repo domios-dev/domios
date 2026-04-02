@@ -192,6 +192,22 @@ pub struct RelayResponse {
     pub error: Option<String>,
 }
 
+// ── Introduction (auto-pair via mediator) ───────────────────────────
+
+/// Peer introduction — sent by a trusted mediator to auto-pair two peers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerIntroduction {
+    /// The peer being introduced.
+    pub instance_id: String,
+    pub instance_name: String,
+    pub addresses: Vec<PeerAddress>,
+    pub api_port: u16,
+    /// Ed25519 public key for signing verification.
+    pub public_key: String,
+    /// Who introduced them (the mediator's instance_id).
+    pub introduced_by: String,
+}
+
 // ── Peer status ─────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
