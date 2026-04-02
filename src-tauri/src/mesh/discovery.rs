@@ -43,11 +43,29 @@ pub fn start_mdns(
         let clean_host = raw_hostname.trim_end_matches(".local").trim_end_matches('.');
         let host_fqdn = format!("{}.local.", clean_host);
 
+        // Resolve local IP to bind the service to
+        let local_ip = {
+            let m = mesh.lock();
+            m.local_ip.clone().unwrap_or_default()
+        };
+        // If we don't have a local IP yet, detect it now
+        let bind_ip = if local_ip.is_empty() {
+            let sock = std::net::UdpSocket::bind("0.0.0.0:0").ok();
+            sock.and_then(|s| { s.connect("8.8.8.8:80").ok()?; s.local_addr().ok() })
+                .map(|a| a.ip().to_string())
+                .unwrap_or_default()
+        } else {
+            local_ip
+        };
+
+        log::info!("[mesh/mdns] Registering service: type={}, name={}, host={}, ip={}, port={}",
+            SERVICE_TYPE, service_name, host_fqdn, bind_ip, api_port);
+
         let my_service = mdns_sd::ServiceInfo::new(
             SERVICE_TYPE,
             &service_name,
             &host_fqdn,
-            "",
+            bind_ip.as_str(),
             api_port,
             properties,
         )
