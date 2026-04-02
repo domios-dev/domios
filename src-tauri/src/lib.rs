@@ -698,13 +698,17 @@ fn start_servers(
             mesh::discovery::detect_tailscale(&mesh);
             mesh::discovery::detect_local_ip(&mesh);
             if mesh_config.auto_discover {
+                // mDNS (standards-based, works when OS mDNS stack is available)
                 match mesh::discovery::start_mdns(mesh.clone(), mesh_config.stealth) {
                     Ok(_handle) => {
                         log::info!("[mesh] mDNS discovery started");
-                        // Handle is leaked intentionally — runs for app lifetime
                         std::mem::forget(_handle);
                     }
                     Err(e) => log::error!("[mesh] mDNS start failed: {}", e),
+                }
+                // UDP broadcast fallback (works even when mDNS/firewall blocks multicast)
+                if let Err(e) = mesh::discovery::start_udp_broadcast(mesh.clone()) {
+                    log::error!("[mesh] UDP broadcast start failed: {}", e);
                 }
             }
         }

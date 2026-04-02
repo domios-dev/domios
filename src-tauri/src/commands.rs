@@ -1779,7 +1779,11 @@ pub fn mesh_start_discovery(
                 log::info!("[mesh] mDNS discovery started dynamically");
                 std::mem::forget(handle);
             }
-            Err(e) => return Err(format!("mDNS start failed: {}", e)),
+            Err(e) => log::error!("[mesh] mDNS start failed: {}", e),
+        }
+        // UDP broadcast fallback
+        if let Err(e) = crate::mesh::discovery::start_udp_broadcast(mesh.inner().clone()) {
+            log::error!("[mesh] UDP broadcast start failed: {}", e);
         }
     }
 
