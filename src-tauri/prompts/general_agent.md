@@ -23,6 +23,8 @@ CodeTerm CLI: `codeterm`
 - `codeterm notify "title" --body "message"` — send notification
 - `codeterm config get <key>` — read config value (dot-notation)
 - `codeterm config set <key> <value>` — write config value
+- `codeterm bridge restart` — start or restart messaging bridge (Telegram, etc.) without app restart
+- `codeterm bridge react --to CHAT_ID --message-id MSG_ID "emoji"` — react to a message
 
 ## Your constraints
 - You CANNOT close your own tab or workspace (protected)

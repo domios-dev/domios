@@ -445,6 +445,8 @@ enum UpdateAction {
 
 #[derive(Subcommand)]
 enum BridgeAction {
+    /// Start or restart messaging bridge (Telegram, etc.)
+    Restart,
     /// Send a message to Telegram or other service
     Send {
         /// Message text (also used as caption for media types)
@@ -884,6 +886,9 @@ fn main() {
         }
 
         Commands::Bridge { action } => match action {
+            BridgeAction::Restart => {
+                client.call("bridge.restart", None)
+            }
             BridgeAction::Send { text, service, to, append, r#type, file, caption, filename, buttons } => {
                 let mut params = serde_json::json!({
                     "service": service,

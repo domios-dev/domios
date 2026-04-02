@@ -61,6 +61,7 @@ case "$CMD" in
     pnpm tauri build
     ;;
   cli)
+    touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
     BIN_DIR="$HOME/.codeterm/bin"
     mkdir -p "$BIN_DIR"
