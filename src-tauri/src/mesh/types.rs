@@ -50,7 +50,7 @@ pub struct PairedPeer {
     pub addresses: Vec<PeerAddress>,
     pub api_port: u16,
     /// Dedicated mesh token for this peer (NOT the main API token).
-    #[serde(skip_serializing)]
+    /// Exposed in API for CLI relay commands. Protected by API token auth.
     pub mesh_token: String,
     /// ISO 8601 timestamp.
     pub paired_at: String,
