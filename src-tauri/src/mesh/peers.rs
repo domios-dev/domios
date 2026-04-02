@@ -54,7 +54,6 @@ pub fn load_or_create_identity() -> MeshIdentity {
     }
     let id = MeshIdentity {
         instance_id: uuid::Uuid::new_v4().to_string(),
-        crown_token: None,
     };
     if let Ok(json) = serde_json::to_string_pretty(&id) {
         let _ = std::fs::write(&path, json);

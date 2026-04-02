@@ -2332,11 +2332,11 @@ async fn mesh_pair_accept(
     })))
 }
 
-/// Receive crown transfer from another peer.
+/// Receive crown public info update from a peer.
 async fn mesh_receive_crown(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(body): Json<serde_json::Value>,
+    Json(public_info): Json<crate::mesh::crown::CrownPublicInfo>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     // Verify mesh token auth
     let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
@@ -2346,12 +2346,11 @@ async fn mesh_receive_crown(
         return Err((StatusCode::UNAUTHORIZED, "Invalid mesh token".to_string()));
     }
 
-    let crown_token = body["crown_token"].as_str()
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing crown_token".to_string()))?;
-    let from_id = body["from_instance_id"].as_str()
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing from_instance_id".to_string()))?;
+    // If this instance is the new crown holder, it should receive the keypair too
+    // For now, just update public info (keypair transfer is TODO for full security)
+    state.mesh.lock().update_crown_public(public_info)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    state.mesh.lock().receive_crown(crown_token, from_id);
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
 }

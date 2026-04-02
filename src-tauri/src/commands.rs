@@ -1739,23 +1739,24 @@ pub async fn mesh_transfer_crown(
     svc: tauri::State<'_, crate::service::ServiceState>,
     instance_id: String,
 ) -> Result<(), String> {
-    // Transfer crown locally — returns new crown token
-    let new_token = mesh.lock().transfer_crown(&instance_id)?;
-    let our_id = mesh.lock().identity.instance_id.clone();
+    // Transfer crown locally — returns new CrownPublicInfo
+    let public_info = mesh.lock().transfer_crown(&instance_id)?;
+    let public_info_json = serde_json::to_string(&public_info).map_err(|e| e.to_string())?;
 
-    // Notify the target peer to receive crown
+    // Notify the target peer to receive crown (they get the full keypair via encrypted channel)
+    // For now, send public info — target becomes holder
     let peer = mesh.lock().paired_peers.get(&instance_id).cloned()
         .ok_or_else(|| "Peer not found".to_string())?;
     if let Some(client) = crate::mesh::transport::PeerClient::from_peer(&peer) {
-        client.send_crown_transfer(&new_token, &our_id).await?;
+        client.send_crown_update(&public_info_json).await?;
     }
 
-    // Notify all other peers about the new crown holder
+    // Notify all other peers about the new crown holder (public info only)
     let all_peers: Vec<_> = mesh.lock().paired_peers.values().cloned().collect();
     for p in &all_peers {
         if p.instance_id == instance_id { continue; }
         if let Some(c) = crate::mesh::transport::PeerClient::from_peer(p) {
-            let _ = c.send_crown_transfer(&new_token, &our_id).await;
+            let _ = c.send_crown_update(&public_info_json).await;
         }
     }
 
