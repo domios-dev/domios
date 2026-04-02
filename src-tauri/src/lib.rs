@@ -983,6 +983,7 @@ pub fn run() {
             commands::mesh_disconnect,
             commands::mesh_set_primary,
             commands::mesh_add_manual,
+            commands::mesh_start_discovery,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {

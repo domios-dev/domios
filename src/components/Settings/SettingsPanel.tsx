@@ -1154,6 +1154,10 @@ function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUp
           onChange={(v) => {
             if (v && !apiEnabled) return;
             onUpdate("mesh", { enabled: v });
+            if (v) {
+              // Start discovery dynamically without restart
+              setTimeout(() => invoke("mesh_start_discovery").catch(console.error), 500);
+            }
           }}
         />
         {config.mesh?.enabled && (
