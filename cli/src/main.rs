@@ -312,7 +312,7 @@ pub enum PaneAction {
 }
 
 #[derive(Subcommand)]
-enum BrowserAction {
+pub enum BrowserAction {
     /// Open a URL in the canvas panel
     Open {
         /// URL to open
@@ -321,13 +321,13 @@ enum BrowserAction {
 }
 
 #[derive(Subcommand)]
-enum NotificationAction {
+pub enum NotificationAction {
     /// Clear all notifications
     Clear,
 }
 
 #[derive(Subcommand)]
-enum ThemeAction {
+pub enum ThemeAction {
     /// List available themes
     List,
     /// Apply a theme by name
@@ -355,7 +355,7 @@ enum ThemeAction {
 }
 
 #[derive(Subcommand)]
-enum AgentAction {
+pub enum AgentAction {
     /// List all agent panes (with roles)
     List,
     /// Show full hierarchy tree
@@ -453,7 +453,7 @@ enum AgentAction {
 }
 
 #[derive(Subcommand)]
-enum UpdateAction {
+pub enum UpdateAction {
     /// Check for available updates
     Check {
         /// Force re-check (ignore cache)
@@ -465,7 +465,7 @@ enum UpdateAction {
 }
 
 #[derive(Subcommand)]
-enum BridgeAction {
+pub enum BridgeAction {
     /// Start or restart messaging bridge (Telegram, etc.)
     Restart,
     /// Send a message to Telegram or other service
@@ -511,7 +511,7 @@ enum BridgeAction {
 }
 
 #[derive(Subcommand)]
-enum ConfigAction {
+pub enum ConfigAction {
     /// Get a config value (dot-notation, e.g. "integrations.telegram_enabled")
     Get { key: String },
     /// Set a config value (JSON-compatible: true, false, 42, "string")
@@ -519,7 +519,7 @@ enum ConfigAction {
 }
 
 #[derive(Subcommand)]
-enum CronAction {
+pub enum CronAction {
     /// List cron jobs
     List {
         /// Filter by workspace ID
