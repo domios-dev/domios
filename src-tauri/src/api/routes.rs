@@ -98,6 +98,7 @@ pub fn create_router(state: AppState) -> Router {
         // Mesh networking
         .route("/api/mesh/ping", get(mesh_ping))
         .route("/api/mesh/debug/sign", get(mesh_debug_sign))
+        .route("/api/mesh/debug/logs", get(mesh_debug_logs))
         .route("/api/mesh/status", get(mesh_status))
         .route("/api/mesh/peers", get(mesh_peers))
         .route("/api/mesh/discover", post(mesh_discover))
@@ -2193,6 +2194,24 @@ async fn bridge_send_api(
 }
 
 // ── Mesh networking routes ───────────────────────────────────────────
+
+/// Debug: return last mesh-related log lines (requires local API token).
+async fn mesh_debug_logs(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let log_path = crate::paths::data_dir().join("logs").join("codeterm.log");
+    let lines: Vec<String> = std::fs::read_to_string(&log_path)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| l.contains("mesh"))
+        .rev()
+        .take(50)
+        .map(|s| s.to_string())
+        .collect();
+    Ok(Json(serde_json::json!({"lines": lines})))
+}
 
 /// Lightweight health check — no auth, minimal fingerprint.
 async fn mesh_ping() -> Json<serde_json::Value> {
