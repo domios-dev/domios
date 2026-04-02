@@ -22,7 +22,8 @@ fn read_api_config() -> (String, Option<String>) {
     let config_dir = dirs::home_dir().unwrap_or_default().join(data_dir_name());
     let config_path = config_dir.join("config.toml");
 
-    let (mut host, mut port, mut token) = ("127.0.0.1".to_string(), 7685i64, None);
+    let (mut host, mut port) = ("127.0.0.1".to_string(), 7685i64);
+    let mut legacy_token: Option<String> = None;
 
     if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(val) = content.parse::<toml::Table>() {
@@ -30,7 +31,7 @@ fn read_api_config() -> (String, Option<String>) {
                 let raw_host = api.get("host").and_then(|v| v.as_str()).unwrap_or("127.0.0.1");
                 host = if raw_host == "0.0.0.0" { "127.0.0.1".to_string() } else { raw_host.to_string() };
                 port = api.get("port").and_then(|v| v.as_integer()).unwrap_or(7685);
-                token = api.get("token").and_then(|v| v.as_str()).map(|s| s.to_string());
+                legacy_token = api.get("token").and_then(|v| v.as_str()).map(|s| s.to_string());
             }
         }
     }
@@ -42,10 +43,50 @@ fn read_api_config() -> (String, Option<String>) {
         }
     }
 
+    // Try Ed25519 signed token from identity (primary auth)
+    let mesh_dir = config_dir.join("mesh");
+    let identity_path = mesh_dir.join("identity.json");
+    let token = if let Ok(content) = std::fs::read_to_string(&identity_path) {
+        if let Ok(id) = serde_json::from_str::<serde_json::Value>(&content) {
+            let priv_key = id.get("private_key").and_then(|v| v.as_str());
+            let instance_id = id.get("instance_id").and_then(|v| v.as_str());
+            if let (Some(pk), Some(iid)) = (priv_key, instance_id) {
+                sign_request(pk, iid).ok()
+            } else { legacy_token }
+        } else { legacy_token }
+    } else { legacy_token };
+
     (format!("http://{}:{}", host, port), token)
 }
 
-/// Build HTTP client with optional auth header
+/// Sign a mesh request with Ed25519 (same as server-side crown::sign_request).
+fn sign_request(private_key_b64: &str, instance_id: &str) -> Result<String, String> {
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD;
+
+    let key_bytes = b64.decode(private_key_b64).map_err(|e| e.to_string())?;
+    if key_bytes.len() != 32 { return Err("Invalid key length".to_string()); }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&key_bytes);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&arr);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    let payload = serde_json::json!({
+        "from_instance_id": instance_id,
+        "timestamp": now,
+        "nonce": uuid::Uuid::new_v4().to_string(),
+    });
+    let payload_bytes = serde_json::to_vec(&payload).map_err(|e| e.to_string())?;
+    let payload_b64 = b64.encode(&payload_bytes);
+
+    use ed25519_dalek::Signer;
+    let signature = signing_key.sign(payload_b64.as_bytes());
+    let sig_b64 = b64.encode(signature.to_bytes());
+    Ok(format!("{}.{}", payload_b64, sig_b64))
+}
+
+/// Build HTTP client with auth header
 fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
     let mut headers = reqwest::header::HeaderMap::new();
     if let Some(t) = token {
