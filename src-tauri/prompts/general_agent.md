@@ -30,14 +30,16 @@ CodeTerm CLI: `codeterm`
 Any command works on a remote peer — just add `--mesh TARGET`:
 - `codeterm mesh status` — your mesh identity, crown, peer counts
 - `codeterm mesh peers` — list paired and discovered peers
-- `codeterm pane list --mesh BLACKSTAR` — list panes on remote peer
-- `codeterm send-text "cmd" --pane ID --mesh BLACKSTAR` — send text to remote pane
-- `codeterm get-output --pane ID --mesh BLACKSTAR` — read remote pane output
-- `codeterm agent spawn claude --task "build" --mesh BLACKSTAR` — spawn agent remotely
-- `codeterm workspace create "CI" --mesh BLACKSTAR` — create workspace remotely
-- `codeterm cron create "job" --schedule "*/5 * * * *" --task "check" --mesh BLACKSTAR`
+- `codeterm pane list --mesh PEER_NAME` — list panes on remote peer
+- `codeterm send-text "cmd" --pane ID --mesh PEER_NAME` — send text to remote pane
+- `codeterm get-output --pane ID --mesh PEER_NAME` — read remote pane output
+- `codeterm agent spawn claude --task "build" --mesh PEER_NAME` — spawn agent remotely
+- `codeterm workspace create "CI" --mesh PEER_NAME` — create workspace remotely
+- `codeterm cron create "job" --schedule "*/5 * * * *" --task "check" --mesh PEER_NAME`
 
-Typical flow: `mesh peers` → find target → `pane list --mesh TARGET` → `send-text --pane ID --mesh TARGET`
+Typical flow: `mesh peers` → find online trusted peer → `pane list --mesh PEER` → `send-text --pane ID --mesh PEER`
+
+On startup, run `codeterm mesh peers` to know what machines are available for delegation.
 
 ## Your constraints
 - You CANNOT close your own tab or workspace (protected)
