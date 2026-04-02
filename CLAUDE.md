@@ -16,17 +16,19 @@ CodeTerm is not a terminal with AI bolted on. It's infrastructure that AI agents
 All commands go through `build.sh` — one script for all platforms. Safe on Windows: never kills production CodeTerm, only dev instance (port 7686).
 
 ```bash
-./build.sh dev              # start dev server (incremental, hot reload)
+./build.sh dev              # start dev server (incremental, hot reload, auto-builds CLI on start)
 ./build.sh check            # cargo check only (~2s incremental)
 ./build.sh test             # Rust unit tests
-./build.sh build            # production build
-./build.sh cli              # build CLI → ~/.codeterm/bin/
+./build.sh build            # production build (includes CLI + bundling)
+./build.sh cli              # rebuild CLI only → ~/.codeterm/bin/ (no dev restart needed)
 ./build.sh clean            # wipe build cache (next build from scratch)
 ./build.sh kill             # kill dev instance only (safe)
 ./build.sh webdriver        # dev with WebDriver for UI tests
 ./build.sh e2e              # E2E tests against dev (port 7686)
 source build.sh env         # load MSVC env into shell (Windows, for manual cargo commands)
 ```
+
+**CLI note:** `./build.sh dev` auto-builds CLI on first start. Rust hot reload does NOT rebuild CLI — use `./build.sh cli` separately if CLI code changed (cli/ crate). No dev restart needed, just rebuild CLI.
 
 ### Tests (3 layers)
 

@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build && cargo build --release --manifest-path cli/Cargo.toml && node scripts/bundle-cli.js"
+    "beforeDevCommand": "touch cli/src/main.rs && cargo build --release --manifest-path cli/Cargo.toml && node scripts/bundle-cli.js && pnpm dev",
+    "beforeBuildCommand": "pnpm build && touch cli/src/main.rs && cargo build --release --manifest-path cli/Cargo.toml && node scripts/bundle-cli.js"
   },
   "app": {
     "withGlobalTauri": true,

@@ -322,7 +322,8 @@ fn dispatch(
                     "cron.history",
                     "cron.complete",
                     "bridge.send",
-                    "bridge.react"
+                    "bridge.react",
+                    "bridge.restart"
                 ]
             }))
         }
@@ -819,6 +820,11 @@ fn dispatch(
             svc.cron_complete(&cron_state, &run_id, summary)
                 .map_err(|e| JsonRpcError { code: -32603, message: e })?;
             Ok(serde_json::json!({"ok": true}))
+        }
+
+        "bridge.restart" => {
+            crate::start_telegram_bridge(svc);
+            Ok(serde_json::json!({"ok": true, "message": "Telegram bridge starting"}))
         }
 
         "bridge.send" => {
