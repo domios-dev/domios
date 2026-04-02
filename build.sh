@@ -21,8 +21,11 @@ setup_env() {
     BT_BASE="C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools"
     SDK_VER="10.0.22621.0"
     SDK_BASE="C:/Program Files (x86)/Windows Kits/10"
+    export CC="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/bin/Hostx64/x64/cl.exe"
+    export CXX="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/bin/Hostx64/x64/cl.exe"
     export LIB="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/lib/x64;$SDK_BASE/Lib/$SDK_VER/ucrt/x64;$SDK_BASE/Lib/$SDK_VER/um/x64"
     export INCLUDE="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/include;$SDK_BASE/Include/$SDK_VER/ucrt;$SDK_BASE/Include/$SDK_VER/um;$SDK_BASE/Include/$SDK_VER/shared"
+    export RC="$SDK_BASE/bin/$SDK_VER/x64/rc.exe"
     # Use /c/ prefix for git bash PATH compatibility
     export PATH="/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/$MSVC_VER/bin/HostX64/x64:/c/Program Files (x86)/Windows Kits/10/bin/$SDK_VER/x64:$PATH"
     echo "MSVC env loaded (VS 2022 BuildTools, MSVC $MSVC_VER)"
