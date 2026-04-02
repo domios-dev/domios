@@ -38,10 +38,15 @@ pub fn start_mdns(
         properties.insert("name".to_string(), instance_name);
         properties.insert("port".to_string(), api_port.to_string());
 
+        let raw_hostname = hostname::get().unwrap_or_default().to_string_lossy().to_string();
+        // Strip existing .local suffix to avoid double .local.local
+        let clean_host = raw_hostname.trim_end_matches(".local").trim_end_matches('.');
+        let host_fqdn = format!("{}.local.", clean_host);
+
         let my_service = mdns_sd::ServiceInfo::new(
             SERVICE_TYPE,
             &service_name,
-            &format!("{}.local.", hostname::get().unwrap_or_default().to_string_lossy()),
+            &host_fqdn,
             "",
             api_port,
             properties,
