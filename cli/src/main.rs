@@ -1721,7 +1721,7 @@ fn main() {
                                 let crown = val.get("is_crown").and_then(|v| v.as_bool()).unwrap_or(false);
                                 let paired = val.get("paired_count").and_then(|v| v.as_u64()).unwrap_or(0);
                                 let discovered = val.get("discovered_count").and_then(|v| v.as_u64()).unwrap_or(0);
-                                println!("{} ({})", name, &id[..8]);
+                                println!("{} ({})", name, &id[..id.len().min(8)]);
                                 println!("Crown: {}", if crown { "yes" } else { "no" });
                                 println!("Paired: {}, Discovered: {}", paired, discovered);
                             }

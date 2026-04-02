@@ -222,67 +222,52 @@ impl MeshManager {
 
     /// Transfer crown to a paired peer. Only crown holder can call this.
     /// Returns the CrownPublicInfo to send to the target and all peers.
-    pub fn transfer_crown(&mut self, target_id: &str) -> Result<crown::CrownPublicInfo, String> {
+    pub fn transfer_crown(&mut self, target_id: &str) -> Result<u64, String> {
         let keypair = self.crown_keypair.as_ref()
             .ok_or("Only the crown holder can transfer the crown")?;
         if !self.paired_peers.contains_key(target_id) {
             return Err("Peer not found".to_string());
         }
+        let next_version = keypair.version + 1;
 
-        // Generate new keypair for the new holder
-        let mut new_keypair = crown::CrownKeyPair::generate();
-        new_keypair.version = keypair.version + 1;
+        // Relinquish our crown — target will generate its own keypair
+        crown::delete_crown_keypair();
+        self.crown_keypair = None;
+        log::info!("[mesh] Crown relinquished, transferring to {} (v{})", target_id, next_version);
+        Ok(next_version)
+    }
+
+    /// Accept crown transfer — generate keypair locally, return public info for broadcast.
+    pub fn accept_crown(&mut self, version: u64, from_id: &str) -> Result<crown::CrownPublicInfo, String> {
+        if !self.paired_peers.contains_key(from_id) {
+            return Err(format!("Unknown sender: {}", from_id));
+        }
+        let mut keypair = crown::CrownKeyPair::generate();
+        keypair.version = version;
 
         let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
         let mesh_id = self.crown_public.as_ref()
-            .map(|c| {
-                crown::verify_crown_jwt(&c.crown_jwt, &c.public_key)
-                    .map(|cl| cl.mesh_id)
-                    .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string())
-            })
+            .and_then(|c| crown::verify_crown_jwt(&c.crown_jwt, &c.public_key).ok())
+            .map(|cl| cl.mesh_id)
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
         let claims = crown::CrownClaims {
-            holder_id: target_id.to_string(),
-            mesh_id,
-            crowned_at: now,
-            version: new_keypair.version,
-            emergency: false,
-            voted_by: vec![],
-            iat: now,
+            holder_id: self.identity.instance_id.clone(),
+            mesh_id, crowned_at: now, version,
+            emergency: false, voted_by: vec![], iat: now,
         };
-        let jwt = crown::create_crown_jwt(&new_keypair, &claims)?;
+        let jwt = crown::create_crown_jwt(&keypair, &claims)?;
         let public_info = crown::CrownPublicInfo {
-            public_key: new_keypair.public_key.clone(),
-            crown_jwt: jwt,
-            version: new_keypair.version,
-            holder_id: target_id.to_string(),
+            public_key: keypair.public_key.clone(), crown_jwt: jwt,
+            version, holder_id: self.identity.instance_id.clone(),
         };
-
-        // Relinquish our crown
-        crown::delete_crown_keypair();
-        self.crown_keypair = None;
-        self.crown_public = Some(public_info.clone());
-        let _ = crown::save_crown_public_info(&public_info);
-
-        log::info!("[mesh] Crown transferred to {} (v{})", target_id, new_keypair.version);
-
-        // Return new_keypair and public_info — caller sends to target
-        // Store new_keypair temporarily for the transfer
-        // The target will receive it encrypted via mesh token
-        Ok(public_info)
-    }
-
-    /// Receive crown (called on the target instance during transfer).
-    pub fn receive_crown(&mut self, keypair: crown::CrownKeyPair, public_info: crown::CrownPublicInfo) {
         let _ = crown::save_crown_keypair(&keypair);
         let _ = crown::save_crown_public_info(&public_info);
         self.crown_keypair = Some(keypair);
-        self.crown_public = Some(public_info);
-        log::info!("[mesh] Received crown — this instance is now the leader");
+        self.crown_public = Some(public_info.clone());
+        log::info!("[mesh] Accepted crown from {} — this instance is now leader (v{})", from_id, version);
+        Ok(public_info)
     }
 
     /// Update crown public info (called on all peers when crown transfers).

@@ -46,6 +46,17 @@ impl PeerClient {
         matches!(self.client.get(&url).send().await, Ok(resp) if resp.status().is_success())
     }
 
+    /// Authenticated POST, returns parsed JSON.
+    pub async fn auth_post_json(&self, path: &str, body: &impl serde::Serialize) -> Result<serde_json::Value, String> {
+        let resp = self.auth_post(path, body).await?;
+        if resp.status().is_success() {
+            resp.json().await.map_err(|e| format!("Bad response: {}", e))
+        } else {
+            let body = resp.text().await.unwrap_or_default();
+            Err(format!("HTTP error: {}", body))
+        }
+    }
+
     /// Authenticated POST helper.
     async fn auth_post(&self, path: &str, body: &impl serde::Serialize) -> Result<reqwest::Response, String> {
         let url = format!("{}{}", self.base_url, path);
