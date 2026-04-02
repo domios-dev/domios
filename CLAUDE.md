@@ -13,47 +13,34 @@ CodeTerm is not a terminal with AI bolted on. It's infrastructure that AI agents
 
 ## Running dev & tests
 
-### Dev server
+All commands go through `build.sh` — one script for all platforms. Safe on Windows: never kills production CodeTerm, only dev instance (port 7686).
 
-**macOS/Linux:**
 ```bash
-./build.sh dev                    # auto-kills previous instance
-# With WebDriver for UI tests:
-pnpm tauri dev --config src-tauri/tauri.dev.conf.json -- --features webdriver
-```
-
-**Windows (BLACKSTAR) — use `dev.local.sh`:**
-```bash
-# Safe way: does NOT kill production CodeTerm, runs dev alongside it
-bash dev.local.sh dev       # loads MSVC env, starts dev server, waits for API
-bash dev.local.sh test      # runs E2E tests against dev (port 7686)
-bash dev.local.sh all       # dev + wait + test in one step
-source dev.local.sh env     # just load MSVC env vars (for cargo test, etc.)
-```
-
-**WARNING:** Do NOT use `./build.sh dev` on Windows — it runs `taskkill //F //IM codeterm.exe` which kills the **production** instance. `dev.local.sh` is the safe alternative that starts dev without touching prod.
-
-**Manual start (if needed):**
-```powershell
-# Set MSVC environment first (see build.sh for paths)
-pnpm tauri dev --config src-tauri/tauri.dev.conf.json
-# With WebDriver:
-pnpm tauri dev --config src-tauri/tauri.dev.conf.json -- --features webdriver
+./build.sh dev              # start dev server (incremental, hot reload)
+./build.sh check            # cargo check only (~2s incremental)
+./build.sh test             # Rust unit tests
+./build.sh build            # production build
+./build.sh cli              # build CLI → ~/.codeterm/bin/
+./build.sh clean            # wipe build cache (next build from scratch)
+./build.sh kill             # kill dev instance only (safe)
+./build.sh webdriver        # dev with WebDriver for UI tests
+./build.sh e2e              # E2E tests against dev (port 7686)
+source build.sh env         # load MSVC env into shell (Windows, for manual cargo commands)
 ```
 
 ### Tests (3 layers)
 
 ```bash
 # 1. UNIT — no instance needed, fast
-cargo test --manifest-path src-tauri/Cargo.toml --lib    # Rust (210 tests)
-npx tsx src/components/ChatView/parser.test.ts            # TS (100 tests)
+./build.sh test                                           # Rust (~290 tests)
+npx tsx src/components/ChatView/parser.test.ts             # TS (~100 tests)
 
 # 2. E2E — needs running dev instance (./build.sh dev)
-CODETERM_API_URL=http://127.0.0.1:7686 pytest tests/e2e/ -v   # 84 tests
+./build.sh e2e                                            # runs against port 7686
 # Remote: CODETERM_API_URL=http://HOST:PORT CODETERM_API_TOKEN=TOKEN pytest tests/e2e/ -v
 
-# 3. UI — needs dev with WebDriver (pnpm tauri dev ... -- --features webdriver)
-cd tests/webdriver && npm test                            # 19 tests
+# 3. UI — needs dev with WebDriver (./build.sh webdriver)
+cd tests/webdriver && npm test
 ```
 
 ### Dev logs
