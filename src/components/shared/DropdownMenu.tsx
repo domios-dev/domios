@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 export interface DropdownMenuItem {
   label: string;
@@ -16,6 +17,7 @@ interface DropdownMenuProps {
 
 /**
  * Compact dropdown menu anchored to a trigger element.
+ * Renders via portal to escape overflow/transform containers.
  * Closes on click outside, Escape, or item click.
  */
 export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
@@ -23,36 +25,36 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
   const triggerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const calcPos = useCallback(() => {
+    if (!triggerRef.current) return null;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const menuHeight = items.length * 28 + 8;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const top = spaceBelow < menuHeight ? rect.top - menuHeight : rect.bottom + 2;
+    // Anchor to trigger left, clamp to viewport
+    const menuWidth = menuRef.current?.offsetWidth || 160;
+    const left = Math.max(4, Math.min(rect.left, window.innerWidth - menuWidth - 8));
+    return { top, left };
+  }, [items.length]);
+
   const toggle = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    // Force re-read position on every open
     setOpen((v) => {
-      if (!v && triggerRef.current) {
-        const rect = triggerRef.current.getBoundingClientRect();
-        const menuHeight = items.length * 28 + 8;
-        const spaceBelow = window.innerHeight - rect.bottom;
-        const top = spaceBelow < menuHeight ? rect.top - menuHeight : rect.bottom + 2;
-        const left = Math.max(4, Math.min(rect.right - 140, window.innerWidth - 148));
-        setPos({ top, left });
-      }
+      if (!v) setPos(calcPos());
       return !v;
     });
-  }, [items.length]);
+  }, [calcPos]);
 
-  // Position state — anchored below trigger, flipped if near bottom
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
+  // Reposition after render (menu width now known)
   useEffect(() => {
-    if (!open || !triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    const menuHeight = items.length * 28 + 8; // estimate
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const top = spaceBelow < menuHeight ? rect.top - menuHeight : rect.bottom + 2;
-    // Align right edge with trigger right edge, but clamp to viewport
-    const left = Math.max(4, Math.min(rect.right - 140, window.innerWidth - 148));
-    setPos({ top, left });
-  }, [open, items.length]);
+    if (!open) return;
+    // RAF to let the menu render and measure
+    const id = requestAnimationFrame(() => setPos(calcPos()));
+    return () => cancelAnimationFrame(id);
+  }, [open, calcPos]);
 
   // Close on click outside
   useEffect(() => {
@@ -82,13 +84,14 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
       <div ref={triggerRef} onMouseDown={toggle} className={className}>
         {trigger}
       </div>
-      {open && pos && (
+      {open && pos && createPortal(
         <>
           {/* Invisible backdrop to catch clicks */}
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          {/* Backdrop — pointer-events:none so it doesn't block hover on menu items.
+              Closing is handled by the mousedown document listener above. */}
           <div
             ref={menuRef}
-            className="fixed z-50 w-[140px] bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1 ct-float"
+            className="fixed z-50 w-max min-w-[140px] bg-[var(--ct-surface)] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 ct-float"
             style={{ top: pos.top, left: pos.left }}
           >
             {items.map((item, i) => (
@@ -99,10 +102,10 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
                   setOpen(false);
                   item.onClick();
                 }}
-                className={`flex items-center gap-2 w-full px-3 py-1.5 text-[11px] whitespace-nowrap transition-colors ${
+                className={`flex items-center gap-2 w-full px-3 py-1.5 text-[11px] whitespace-nowrap transition-colors rounded-sm mx-0.5 ${
                   item.danger
-                    ? "text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10"
-                    : "text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
+                    ? "text-[var(--ct-muted-fg)] hover:bg-[rgba(239,68,68,0.15)] hover:text-[var(--ct-red)]"
+                    : "text-[var(--ct-fg)] hover:bg-[rgba(255,255,255,0.08)]"
                 }`}
               >
                 {item.icon && <span className="shrink-0 w-3 h-3 flex items-center justify-center">{item.icon}</span>}
@@ -110,7 +113,8 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
               </button>
             ))}
           </div>
-        </>
+        </>,
+        document.body
       )}
     </>
   );

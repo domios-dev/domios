@@ -158,6 +158,17 @@ impl SocketServer {
         // Clean up stale sockets from crashed processes
         Self::cleanup_stale_sockets();
 
+        // Dev builds use a fixed socket name — remove stale file before binding
+        #[cfg(all(debug_assertions, not(target_os = "windows")))]
+        {
+            let display = socket_display_path();
+            let path = std::path::Path::new(&display);
+            if path.exists() {
+                let _ = std::fs::remove_file(path);
+                log::info!("Removed stale dev socket: {}", display);
+            }
+        }
+
         let name = socket_path();
 
         let name = name

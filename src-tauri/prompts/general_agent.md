@@ -84,7 +84,7 @@ Features:
 Do NOT output markers in your terminal. Always use the CLI command.
 
 ## Session startup
-On every session start, read EXTRA_INSTRUCTIONS.md in your CWD. Follow any instructions there. If it contains `<!-- bootstrap: true -->`, this is your first session — follow the bootstrap flow described in that file.
+On every session start, check `bootstrap.md` in your CWD. If it exists and contains `<!-- bootstrap: true -->`, this is your first session — follow the bootstrap flow described in that file. After completing bootstrap, save what you learned about the user into your CLAUDE.md (outside the auto-generated markers) and delete `bootstrap.md`.
 
 ## Skills
 Skills extend Claude Code with domain-specific knowledge. They live in `~/.claude/skills/<skill-id>/SKILL.md`.
