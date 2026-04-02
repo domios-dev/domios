@@ -143,6 +143,68 @@ pub struct PairingConfirm {
     pub encrypted_mesh_token: String,
 }
 
+// ── Gossip sync ─────────────────────────────────────────────────────
+
+/// Peer info shared during gossip (no secrets — just addressing).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GossipPeerInfo {
+    pub instance_id: String,
+    pub instance_name: String,
+    pub addresses: Vec<PeerAddress>,
+    pub api_port: u16,
+    pub dev: bool,
+}
+
+/// Mesh sync payload — exchanged after pairing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeshSyncPayload {
+    /// Known peers in the mesh (addresses only, no tokens).
+    pub peers: Vec<GossipPeerInfo>,
+    /// Crown public info (so new peer knows who's crowned).
+    pub crown_public: Option<super::crown::CrownPublicInfo>,
+    /// Trust declarations (signed by crown, verifiable).
+    pub trust_declarations: Vec<super::crown::TrustDeclaration>,
+}
+
+// ── Relay ───────────────────────────────────────────────────────────
+
+/// Relay command sent between mesh peers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayCommand {
+    /// Action to perform.
+    pub action: RelayAction,
+    /// Target pane ID (for pane-specific actions).
+    pub pane_id: Option<String>,
+    /// Command/text payload.
+    pub payload: Option<String>,
+    /// Additional params.
+    #[serde(default)]
+    pub params: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelayAction {
+    /// Execute command in a pane and return output.
+    Exec,
+    /// Send text to a pane (fire & forget).
+    Send,
+    /// Get pane output.
+    Output,
+    /// List panes on this instance.
+    Panes,
+    /// Get instance status.
+    Status,
+}
+
+/// Relay response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayResponse {
+    pub ok: bool,
+    pub data: Option<serde_json::Value>,
+    pub error: Option<String>,
+}
+
 // ── Peer status ─────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

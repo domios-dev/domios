@@ -122,6 +122,54 @@ impl PeerClient {
         }
     }
 
+    /// Send mesh sync payload and receive theirs.
+    pub async fn send_sync(
+        &self,
+        payload: &super::types::MeshSyncPayload,
+    ) -> Result<super::types::MeshSyncPayload, String> {
+        let url = format!("{}/api/mesh/sync", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.mesh_token))
+            .json(payload)
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+        if resp.status().is_success() {
+            resp.json::<super::types::MeshSyncPayload>()
+                .await
+                .map_err(|e| format!("Bad sync response: {}", e))
+        } else {
+            Err("Sync failed".to_string())
+        }
+    }
+
+    /// Send relay command to a peer.
+    pub async fn send_relay(
+        &self,
+        cmd: &super::types::RelayCommand,
+    ) -> Result<super::types::RelayResponse, String> {
+        let url = format!("{}/api/mesh/relay", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.mesh_token))
+            .json(cmd)
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+        if resp.status().is_success() {
+            resp.json::<super::types::RelayResponse>()
+                .await
+                .map_err(|e| format!("Bad relay response: {}", e))
+        } else {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            Err(format!("Relay failed ({}): {}", status, body))
+        }
+    }
+
     /// Notify a peer that we're unpairing.
     pub async fn send_unpair(&self, our_instance_id: &str) -> Result<(), String> {
         let url = format!("{}/api/mesh/peers/{}", self.base_url, our_instance_id);
