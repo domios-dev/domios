@@ -395,7 +395,16 @@ impl MeshManager {
     }
 
     /// Authenticate a mesh token — returns the peer's instance_id if valid.
+    /// Supports both legacy mesh_token (Bearer) and signed JWT (MeshJWT).
     pub fn authenticate_mesh_token(&self, token: &str) -> Option<String> {
+        // Try signed JWT first
+        let known_keys = self.known_public_keys();
+        if let Ok(peer_id) = crown::verify_signed_request(token, &known_keys) {
+            if !self.is_revoked(&peer_id) {
+                return Some(peer_id);
+            }
+        }
+        // Fall back to legacy mesh_token
         for (id, peer) in &self.paired_peers {
             if peer.mesh_token == token {
                 if self.is_revoked(id) {
@@ -405,5 +414,21 @@ impl MeshManager {
             }
         }
         None
+    }
+
+    /// Get map of instance_id → public_key for all known peers.
+    pub fn known_public_keys(&self) -> HashMap<String, String> {
+        self.paired_peers.iter()
+            .filter_map(|(id, peer)| {
+                peer.peer_public_key.as_ref().map(|pk| (id.clone(), pk.clone()))
+            })
+            .collect()
+    }
+
+    /// Sign a request with this instance's private key.
+    pub fn sign_request(&self) -> Result<String, String> {
+        let priv_key = self.identity.private_key.as_ref()
+            .ok_or("No private key in identity")?;
+        crown::sign_request(priv_key, &self.identity.instance_id)
     }
 }

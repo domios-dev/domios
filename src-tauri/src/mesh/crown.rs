@@ -242,6 +242,97 @@ pub fn check_quorum(votes: &[EmergencyVote], total_trusted: usize) -> bool {
     unique_voters.len() > total_trusted / 2
 }
 
+// ── Peer request signing (JWT-like) ─────────────────────────────────
+
+/// Signed mesh request — replaces Bearer mesh_token auth.
+/// Format: base64(json_payload).base64(ed25519_signature)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedRequest {
+    pub from_instance_id: String,
+    pub timestamp: u64,
+    /// Nonce to prevent replay (UUID).
+    pub nonce: String,
+}
+
+/// Generate Ed25519 keypair for peer identity.
+pub fn generate_peer_keypair() -> (String, String) {
+    let kp = CrownKeyPair::generate();
+    (kp.private_key, kp.public_key)
+}
+
+/// Sign a mesh request with this peer's private key.
+/// Returns "Authorization: MeshJWT <signed_token>" value.
+pub fn sign_request(private_key_b64: &str, instance_id: &str) -> Result<String, String> {
+    let key_bytes = B64.decode(private_key_b64).map_err(|e| e.to_string())?;
+    if key_bytes.len() != 32 {
+        return Err("Invalid private key length".to_string());
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&key_bytes);
+    let signing_key = SigningKey::from_bytes(&arr);
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let req = SignedRequest {
+        from_instance_id: instance_id.to_string(),
+        timestamp: now,
+        nonce: uuid::Uuid::new_v4().to_string(),
+    };
+
+    let payload = serde_json::to_vec(&req).map_err(|e| e.to_string())?;
+    let payload_b64 = B64.encode(&payload);
+    let signature = signing_key.sign(payload_b64.as_bytes());
+    let sig_b64 = B64.encode(signature.to_bytes());
+    Ok(format!("{}.{}", payload_b64, sig_b64))
+}
+
+/// Verify a signed mesh request. Returns the sender's instance_id if valid.
+/// `known_keys`: map of instance_id → public_key_b64.
+pub fn verify_signed_request(
+    token: &str,
+    known_keys: &std::collections::HashMap<String, String>,
+) -> Result<String, String> {
+    let parts: Vec<&str> = token.splitn(2, '.').collect();
+    if parts.len() != 2 {
+        return Err("Invalid signed request format".to_string());
+    }
+
+    // Decode payload to get instance_id
+    let payload_bytes = B64.decode(parts[0]).map_err(|e| format!("Bad payload: {}", e))?;
+    let req: SignedRequest = serde_json::from_slice(&payload_bytes)
+        .map_err(|e| format!("Bad request claims: {}", e))?;
+
+    // Check timestamp (5 minute window)
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if now.saturating_sub(req.timestamp) > 300 {
+        return Err("Request expired".to_string());
+    }
+
+    // Find public key for this instance
+    let pubkey_b64 = known_keys.get(&req.from_instance_id)
+        .ok_or_else(|| format!("Unknown peer: {}", req.from_instance_id))?;
+
+    // Verify signature
+    let vk = verifying_key_from_b64(pubkey_b64)?;
+    let sig_bytes = B64.decode(parts[1]).map_err(|e| format!("Bad signature: {}", e))?;
+    if sig_bytes.len() != 64 {
+        return Err("Invalid signature length".to_string());
+    }
+    let mut sig_arr = [0u8; 64];
+    sig_arr.copy_from_slice(&sig_bytes);
+    let signature = ed25519_dalek::Signature::from_bytes(&sig_arr);
+    vk.verify(parts[0].as_bytes(), &signature)
+        .map_err(|_| "Invalid signature".to_string())?;
+
+    Ok(req.from_instance_id)
+}
+
 // ── Storage ─────────────────────────────────────────────────────────
 
 /// Load crown keypair from disk.
@@ -456,6 +547,40 @@ mod tests {
 
         // Only 1 unique voter out of 3 — no quorum
         assert!(!check_quorum(&votes, 3));
+    }
+
+    #[test]
+    fn test_peer_sign_verify_roundtrip() {
+        let (priv_key, pub_key) = generate_peer_keypair();
+        let token = sign_request(&priv_key, "peer-abc").unwrap();
+        assert!(!token.is_empty());
+        assert!(token.contains('.'));
+
+        let mut known = std::collections::HashMap::new();
+        known.insert("peer-abc".to_string(), pub_key);
+        let sender = verify_signed_request(&token, &known).unwrap();
+        assert_eq!(sender, "peer-abc");
+    }
+
+    #[test]
+    fn test_peer_sign_wrong_key_rejected() {
+        let (priv_key_a, _pub_key_a) = generate_peer_keypair();
+        let (_priv_key_b, pub_key_b) = generate_peer_keypair();
+        let token = sign_request(&priv_key_a, "peer-a").unwrap();
+
+        // Verify with B's key — should fail
+        let mut known = std::collections::HashMap::new();
+        known.insert("peer-a".to_string(), pub_key_b);
+        assert!(verify_signed_request(&token, &known).is_err());
+    }
+
+    #[test]
+    fn test_peer_sign_unknown_peer_rejected() {
+        let (priv_key, _pub_key) = generate_peer_keypair();
+        let token = sign_request(&priv_key, "peer-unknown").unwrap();
+
+        let known = std::collections::HashMap::new(); // empty
+        assert!(verify_signed_request(&token, &known).is_err());
     }
 
     #[test]
