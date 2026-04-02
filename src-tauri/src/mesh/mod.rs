@@ -96,6 +96,7 @@ impl MeshManager {
             enabled: true,
             instance_id: self.identity.instance_id.clone(),
             instance_name: self.instance_name.clone(),
+            build: env!("BUILD_HASH").to_string(),
             is_crown: self.is_crown_holder(),
             crown_holder: self.crown_holder_id(),
             discovery_active: self.discovery_active,

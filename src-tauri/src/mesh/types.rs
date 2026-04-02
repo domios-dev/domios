@@ -240,6 +240,7 @@ pub struct MeshStatus {
     pub enabled: bool,
     pub instance_id: String,
     pub instance_name: String,
+    pub build: String,
     pub is_crown: bool,
     pub crown_holder: Option<String>,
     pub discovery_active: bool,
