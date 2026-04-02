@@ -276,23 +276,30 @@ impl MeshManager {
         let verified_claims = crown::verify_crown_jwt(&public_info.crown_jwt, &public_info.public_key)
             .map_err(|e| format!("Crown JWT invalid: {}", e))?;
 
-        // Use version from SIGNED claims, not from the outer JSON (anti-tamper)
         let verified_version = verified_claims.version;
         let verified_holder = &verified_claims.holder_id;
+        let verified_mesh_id = &verified_claims.mesh_id;
 
-        // Accept only if version is higher (or we have no crown info yet)
         if let Some(existing) = &self.crown_public {
             if let Ok(existing_claims) = crown::verify_crown_jwt(&existing.crown_jwt, &existing.public_key) {
+                // Reject crown from a DIFFERENT mesh — can't take over by joining
+                if existing_claims.mesh_id != *verified_mesh_id {
+                    return Err(format!("Foreign mesh crown rejected (mesh_id {} != {})",
+                        verified_mesh_id, existing_claims.mesh_id));
+                }
+                // Same mesh — accept only higher version
                 if verified_version <= existing_claims.version {
                     return Err(format!("Stale crown version ({} <= {})", verified_version, existing_claims.version));
                 }
             }
         }
-        log::info!("[mesh/crown] Accepting crown v{} holder={}", verified_version, verified_holder);
+        // First crown we ever see — accept (joining a mesh for the first time)
+        log::info!("[mesh/crown] Accepting crown v{} holder={} mesh={}",
+            verified_version, verified_holder, verified_mesh_id);
         // If someone else is the legitimate crown holder, relinquish ours
-        if public_info.holder_id != self.identity.instance_id && self.crown_keypair.is_some() {
+        if *verified_holder != self.identity.instance_id && self.crown_keypair.is_some() {
             log::info!("[mesh/crown] Relinquishing our crown — {} is the legitimate holder",
-                public_info.holder_id);
+                verified_holder);
             crown::delete_crown_keypair();
             self.crown_keypair = None;
         }
