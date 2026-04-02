@@ -109,8 +109,20 @@ impl MeshManager {
 
     /// Get all peers for the UI.
     pub fn peers_response(&self) -> MeshPeersResponse {
+        let paired: Vec<PairedPeer> = self.paired_peers.values()
+            .map(|p| {
+                let trust = self.get_trust_level(&p.instance_id);
+                let mut peer = p.clone();
+                peer.trust_level = match trust {
+                    crown::TrustLevel::Trusted => "trusted".to_string(),
+                    crown::TrustLevel::Observer => "observer".to_string(),
+                    crown::TrustLevel::Untrusted => "untrusted".to_string(),
+                };
+                peer
+            })
+            .collect();
         MeshPeersResponse {
-            paired: self.paired_peers.values().cloned().collect(),
+            paired,
             discovered: self
                 .discovered_peers
                 .values()

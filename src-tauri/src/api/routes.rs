@@ -2315,6 +2315,7 @@ async fn mesh_pair_accept(
             online: true,
             is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
+            trust_level: String::new(),
             version: None,
         };
         mesh.paired_peers.insert(b_instance_id, peer);

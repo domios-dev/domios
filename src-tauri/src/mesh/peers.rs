@@ -198,6 +198,7 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
                 online: false, // runtime state, not persisted
                 is_primary: on_disk.peer.is_primary,
                 access_level: on_disk.peer.access_level,
+                trust_level: String::new(), // populated at runtime from trust declarations
                 version: on_disk.peer.version,
             },
         );

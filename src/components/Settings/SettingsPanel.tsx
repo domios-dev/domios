@@ -1211,6 +1211,25 @@ function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUp
                         {peer.online ? "Online" : "Offline"} · Paired {formatTimeAgo(peer.paired_at)}
                       </span>
                       <div className="flex items-center gap-1.5">
+                        {status?.is_crown && (
+                          <select
+                            value={peer.trust_level || "untrusted"}
+                            onChange={(e) => invoke("mesh_set_trust", { instanceId: peer.instance_id, trustLevel: e.target.value }).catch(console.error)}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                          >
+                            <option value="untrusted">Untrusted</option>
+                            <option value="trusted">Trusted</option>
+                          </select>
+                        )}
+                        {!status?.is_crown && (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                            peer.trust_level === "trusted" ? "bg-[var(--ct-green)]/20 text-[var(--ct-green)]" :
+                            peer.trust_level === "observer" ? "bg-[var(--ct-accent)]/20 text-[var(--ct-accent)]" :
+                            "bg-[var(--ct-border)] text-[var(--ct-muted-fg)]"
+                          }`}>
+                            {peer.trust_level || "untrusted"}
+                          </span>
+                        )}
                         {status?.is_crown && status?.crown_holder !== peer.instance_id && (
                           <button
                             onClick={() => handleTransferCrown(peer.instance_id)}

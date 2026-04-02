@@ -1675,6 +1675,7 @@ pub async fn mesh_approve_pairing(
             online: true,
             is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
+            trust_level: String::new(),
             version: None,
         };
         m.paired_peers
@@ -1850,6 +1851,48 @@ pub fn mesh_add_manual(
         .discovered_peers
         .insert(peer.instance_id.clone(), peer);
     let _ = svc.app_handle.emit("mesh-state-changed", ());
+    Ok(())
+}
+
+/// Set trust level for a peer (only crown holder can do this).
+#[tauri::command]
+pub async fn mesh_set_trust(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    instance_id: String,
+    trust_level: String,
+) -> Result<(), String> {
+    let level = match trust_level.as_str() {
+        "trusted" => crate::mesh::crown::TrustLevel::Trusted,
+        "untrusted" => crate::mesh::crown::TrustLevel::Untrusted,
+        "observer" => crate::mesh::crown::TrustLevel::Observer,
+        _ => return Err(format!("Invalid trust level: {}", trust_level)),
+    };
+
+    let decl = mesh.lock().set_trust_level(&instance_id, level)?;
+
+    // Broadcast trust declaration to all peers
+    let (all_peers, decl_json) = {
+        let m = mesh.lock();
+        let peers: Vec<_> = m.paired_peers.values().cloned().collect();
+        let json = serde_json::to_string(&vec![&decl]).unwrap_or_default();
+        (peers, json)
+    };
+
+    // Send updated trust declarations via sync to all peers
+    for p in &all_peers {
+        if let Some(client) = crate::mesh::transport::PeerClient::from_peer(p) {
+            let payload = crate::mesh::types::MeshSyncPayload {
+                peers: vec![],
+                crown_public: None,
+                trust_declarations: vec![decl.clone()],
+            };
+            let _ = client.send_sync(&payload).await;
+        }
+    }
+
+    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    log::info!("[mesh] Set trust for {} to {}", instance_id, trust_level);
     Ok(())
 }
 

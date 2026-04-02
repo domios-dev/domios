@@ -294,6 +294,7 @@ export interface PairedPeer {
   online: boolean;
   is_primary: boolean;
   access_level: string;
+  trust_level: string;
   version: string | null;
 }
 

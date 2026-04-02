@@ -50,6 +50,7 @@ pub struct PairedPeer {
     pub addresses: Vec<PeerAddress>,
     pub api_port: u16,
     /// Dedicated mesh token for this peer (NOT the main API token).
+    #[serde(skip_serializing)]
     pub mesh_token: String,
     /// ISO 8601 timestamp.
     pub paired_at: String,
@@ -60,6 +61,9 @@ pub struct PairedPeer {
     pub is_primary: bool,
     #[serde(default)]
     pub access_level: AccessLevel,
+    /// Trust level from crown's signed declarations.
+    #[serde(default, skip_deserializing)]
+    pub trust_level: String,
     pub version: Option<String>,
 }
 

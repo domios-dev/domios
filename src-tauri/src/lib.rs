@@ -1036,6 +1036,7 @@ pub fn run() {
             commands::mesh_disconnect,
             commands::mesh_transfer_crown,
             commands::mesh_add_manual,
+            commands::mesh_set_trust,
             commands::mesh_start_discovery,
         ])
         .setup(move |app| {
