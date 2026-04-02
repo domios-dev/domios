@@ -321,8 +321,12 @@ impl MeshManager {
         Ok(decl)
     }
 
-    /// Get trust level for a peer.
+    /// Get trust level for a peer. Crown holder is always trusted.
     pub fn get_trust_level(&self, peer_id: &str) -> crown::TrustLevel {
+        // Crown holder is always trusted
+        if self.crown_public.as_ref().map(|c| c.holder_id.as_str()) == Some(peer_id) {
+            return crown::TrustLevel::Trusted;
+        }
         self.trust_declarations.iter()
             .filter(|d| d.peer_id == peer_id)
             .max_by_key(|d| d.version)
