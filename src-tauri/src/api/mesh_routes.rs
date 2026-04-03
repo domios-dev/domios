@@ -318,6 +318,15 @@ pub async fn mesh_pair_accept(
     log::info!("[mesh] Paired (requester) with {}", accept.from_instance_id);
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
 
+    // Delayed introductions — wait for approver to finish storing us in paired_peers
+    let intro_data = state.mesh.lock().prepare_introductions(&accept.from_instance_id);
+    if let Some((new_peer, existing, our_id, token)) = intro_data {
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            crate::mesh::broadcast_introductions(new_peer, existing, our_id, token).await;
+        });
+    }
+
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
