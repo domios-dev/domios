@@ -160,32 +160,6 @@ pub async fn mesh_pair_accept(
 
     log::info!("[mesh] Paired (requester) with {}", accept.from_instance_id);
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
-
-    // Pre-sync: deliver crown + trust to new peer before their approve handler claims crown
-    let (sync_payload, peer_addr, peer_port, signed_token) = {
-        let m = state.mesh.lock();
-        let payload = m.build_sync_payload();
-        let peer = m.paired_peers.get(&accept.from_instance_id);
-        let addr = peer.and_then(|p| p.addresses.first().map(|a| a.ip.clone()));
-        let port = peer.map(|p| p.api_port).unwrap_or(7685);
-        let token = m.sign_request().ok();
-        (payload, addr, port, token)
-    };
-    if let (Some(addr), Some(token)) = (peer_addr, signed_token) {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
-        let url = format!("http://{}:{}/api/mesh/sync", addr, peer_port);
-        match client.post(&url)
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&sync_payload).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                log::info!("[mesh] Pre-sync to {} ok", accept.from_instance_id);
-            }
-            Ok(resp) => log::warn!("[mesh] Pre-sync to {} failed: {}", accept.from_instance_id, resp.status()),
-            Err(e) => log::warn!("[mesh] Pre-sync to {}: {}", accept.from_instance_id, e),
-        }
-    }
-
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
