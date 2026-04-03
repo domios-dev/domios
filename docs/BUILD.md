@@ -44,6 +44,32 @@ Dev builds (`npx tauri dev`) run with `tauri.dev.conf.json` overrides:
 - **Socket prefix:** `codeterm-dev` (vs `codeterm`)
 - **Single-instance:** Disabled (dev and prod can run side by side)
 
+## macOS Code Signing
+
+**Release builds MUST be signed.** Unsigned DMGs trigger Gatekeeper ("unidentified developer").
+
+```bash
+# Signing identity (required for release builds)
+APPLE_SIGNING_IDENTITY="Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)"
+
+# Build signed DMG
+APPLE_SIGNING_IDENTITY="Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)" pnpm tauri build
+APPLE_SIGNING_IDENTITY="Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)" pnpm tauri build --target x86_64-apple-darwin
+```
+
+Add to `.env` in project root (gitignored) so `build.sh` picks it up automatically:
+```
+UPDATER_TOKEN=<github PAT>
+APPLE_SIGNING_IDENTITY=Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)
+```
+
+For notarization (optional, removes "downloaded from internet" warning):
+```bash
+APPLE_ID=<apple-id-email>
+APPLE_PASSWORD=<app-specific-password>
+APPLE_TEAM_ID=JMMWQ9LWF7
+```
+
 ## Build Output
 
 After `npx tauri build`:
