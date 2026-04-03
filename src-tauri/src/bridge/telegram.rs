@@ -19,6 +19,11 @@ pub fn read_token() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Empty list = nobody allowed. Only explicitly listed IDs pass.
+fn user_allowed(allowed: &[String], user_id: i64) -> bool {
+    !allowed.is_empty() && allowed.contains(&user_id.to_string())
+}
+
 pub struct TelegramService {
     token: String,
     allowed_users: Vec<String>,
@@ -42,7 +47,9 @@ impl TelegramService {
     }
 
     fn is_user_allowed(&self, user_id: i64) -> bool {
-        self.allowed_users.is_empty() || self.allowed_users.contains(&user_id.to_string())
+        // Always read fresh config — CLI/UI may change allowed_users at any time.
+        let allowed = &crate::config::load_config().integrations.telegram_allowed_users;
+        user_allowed(allowed, user_id)
     }
 
     pub async fn send_message(&self, chat_id: i64, text: &str) -> Result<(), String> {
@@ -325,15 +332,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_allowed_users_empty() {
-        let svc = TelegramService::new("t".into(), vec![]);
-        assert!(svc.is_user_allowed(123));
+    fn test_allowed_users_empty_blocks_all() {
+        assert!(!user_allowed(&[], 123));
     }
 
     #[test]
     fn test_allowed_users_filter() {
-        let svc = TelegramService::new("t".into(), vec!["111".into(), "222".into()]);
-        assert!(svc.is_user_allowed(111));
-        assert!(!svc.is_user_allowed(333));
+        let list = vec!["111".into(), "222".into()];
+        assert!(user_allowed(&list, 111));
+        assert!(user_allowed(&list, 222));
+        assert!(!user_allowed(&list, 333));
     }
 }

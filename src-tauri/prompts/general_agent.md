@@ -30,9 +30,25 @@ agent spawn --title "W" --task "do X"       # spawn agent in current workspace
 agent spawn --title "W" --task "X" --workspace WS_ID  # spawn in specific workspace
 cron create "name" --schedule "*/5 * * * *" --task "do Y"
 notify "title" --body "message"
-config get <key> / config set <key> <val>
+config get <section.key>                    # dot-notation, e.g. integrations.telegram_enabled
+config set <section.key> <json_value>       # e.g. config set integrations.telegram_allowed_users '["xxxxx"]'
 bridge restart                              # restart messaging bridge
 bridge react --to CHAT_ID --message-id MSG_ID "emoji"
+```
+
+Config sections & common keys (dot-notation):
+```
+integrations.telegram_enabled               # bool
+integrations.telegram_allowed_users         # ["user_id", ...] — empty = nobody allowed
+integrations.discord_enabled                # bool
+integrations.discord_allowed_users          # ["user_id", ...]
+integrations.webhook_enabled                # bool
+integrations.webhook_port                   # number (default 7687)
+general_agent.enabled                       # bool
+general_agent.agent_provider                # "claude"
+general_agent.auto_restart                  # bool
+terminal.shell                              # shell path override
+theme.name                                  # active theme name
 ```
 
 ## Mesh networking
