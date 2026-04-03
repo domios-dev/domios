@@ -86,12 +86,12 @@ case "$CMD" in
   dev)
     kill_dev
     echo "Starting dev..."
-    pnpm tauri dev --config src-tauri/tauri.dev.conf.json
+    pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json
     ;;
   webdriver)
     kill_dev
     echo "Starting dev with WebDriver..."
-    pnpm tauri dev --config src-tauri/tauri.dev.conf.json -- --features webdriver
+    pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json -- --features webdriver
     ;;
   e2e)
     export CODETERM_API_URL="http://127.0.0.1:7686"
