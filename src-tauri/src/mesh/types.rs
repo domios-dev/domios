@@ -33,6 +33,22 @@ pub struct PeerAddress {
     pub is_tailscale: bool,
 }
 
+impl PeerAddress {
+    pub fn from_ip(ip: &str) -> Self {
+        Self { ip: ip.to_string(), is_tailscale: is_tailscale_ip(ip) }
+    }
+}
+
+/// Tailscale CGNAT range: 100.64.0.0/10
+pub fn is_tailscale_ip(ip: &str) -> bool {
+    if let Ok(addr) = ip.parse::<std::net::Ipv4Addr>() {
+        let o = addr.octets();
+        o[0] == 100 && (64..128).contains(&o[1])
+    } else {
+        false
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredPeer {
     pub instance_id: String,
