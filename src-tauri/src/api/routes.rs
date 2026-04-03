@@ -26,7 +26,7 @@ pub struct AppState {
 }
 
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/api/health", get(health))
         .route("/api/identify", get(identify))
         .route("/api/workspaces", get(list_workspaces).post(create_workspace))
@@ -97,7 +97,6 @@ pub fn create_router(state: AppState) -> Router {
         // Mesh networking (handlers in mesh_routes.rs)
         .route("/api/mesh/ping", get(super::mesh_routes::mesh_ping))
         .route("/api/mesh/debug/sign", get(super::mesh_routes::mesh_debug_sign))
-        .route("/api/mesh/debug/logs", get(super::mesh_routes::mesh_debug_logs))
         .route("/api/mesh/status", get(super::mesh_routes::mesh_status))
         .route("/api/mesh/peers", get(super::mesh_routes::mesh_peers))
         .route("/api/mesh/discover", post(super::mesh_routes::mesh_discover))
@@ -114,7 +113,13 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/introduce", post(super::mesh_routes::mesh_introduce))
         .route("/api/mesh/sync", post(super::mesh_routes::mesh_sync))
         .route("/api/mesh/relay", post(super::mesh_routes::mesh_relay))
-        .route("/api/mesh/peers/{id}", axum::routing::delete(super::mesh_routes::mesh_unpair))
+        .route("/api/mesh/peers/{id}", axum::routing::delete(super::mesh_routes::mesh_unpair));
+
+    // Debug endpoint — dev builds only, no auth, accessible from any machine
+    #[cfg(debug_assertions)]
+    let router = router.route("/api/debug", get(super::mesh_routes::debug_endpoint));
+
+    router
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

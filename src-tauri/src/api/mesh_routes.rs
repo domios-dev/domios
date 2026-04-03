@@ -12,21 +12,56 @@ use super::routes::{AppState, check_auth};
 
 // ── Debug endpoints ─────────────────────────────────────────────────
 
-pub async fn mesh_debug_logs(
+/// Debug endpoint — NO AUTH, dev builds only (route not registered in release).
+/// ?filter=mesh&limit=100&level=INFO
+pub async fn debug_endpoint(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+    query: axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let filter = query.get("filter").map(|s| s.as_str()).unwrap_or("");
+    let limit: usize = query.get("limit").and_then(|s| s.parse().ok()).unwrap_or(100);
+    let level_filter = query.get("level").map(|s| s.to_uppercase()).unwrap_or_default();
+
     let log_path = crate::paths::data_dir().join("logs").join("codeterm.log");
     let lines: Vec<String> = std::fs::read_to_string(&log_path)
         .unwrap_or_default()
         .lines()
-        .filter(|l| l.contains("mesh"))
+        .filter(|l| filter.is_empty() || l.contains(filter))
+        .filter(|l| level_filter.is_empty() || l.contains(&level_filter))
         .rev()
-        .take(50)
+        .take(limit)
         .map(|s| s.to_string())
         .collect();
-    Ok(Json(serde_json::json!({"lines": lines})))
+
+    let mesh = state.mesh.lock();
+    let declarations: Vec<serde_json::Value> = mesh.trust_declarations.iter()
+        .map(|d| serde_json::json!({
+            "peer_id": d.peer_id,
+            "trust_level": format!("{:?}", d.trust_level),
+            "declared_by": d.declared_by,
+            "version": d.version,
+        }))
+        .collect();
+    let paired: Vec<serde_json::Value> = mesh.paired_peers.values()
+        .map(|p| serde_json::json!({
+            "id": p.instance_id,
+            "name": p.instance_name,
+            "trust": &p.trust_level,
+            "online": p.online,
+        }))
+        .collect();
+    let crown_holder = mesh.crown_public.as_ref().map(|c| c.holder_id.clone());
+    let our_id = mesh.identity.instance_id.clone();
+    let our_name = mesh.instance_name.clone();
+    drop(mesh);
+
+    Json(serde_json::json!({
+        "instance": {"id": our_id, "name": our_name},
+        "crown_holder": crown_holder,
+        "paired": paired,
+        "trust_declarations": declarations,
+        "logs": lines,
+    }))
 }
 
 pub async fn mesh_ping() -> Json<serde_json::Value> {
