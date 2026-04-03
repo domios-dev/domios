@@ -176,11 +176,9 @@ impl MeshManager {
         let removed = self.paired_peers.remove(instance_id);
         if removed.is_some() {
             self.revocation_list.revoked.retain(|id| id != instance_id);
-            // Revoke trust for disconnected peer — reconnect starts fresh as untrusted
             self.trust_declarations.retain(|d| d.peer_id != instance_id);
             let _ = crown::save_trust_declarations(&self.trust_declarations);
-            log::info!("[mesh] Unpaired {} — trust declarations revoked", instance_id);
-            // If no peers left, clear mesh state (crown, trust)
+            log::info!("[mesh] Unpaired {} — trust revoked", instance_id);
             if self.paired_peers.is_empty() {
                 log::info!("[mesh] Last peer removed — clearing mesh state");
                 if self.crown_keypair.is_some() {
@@ -208,12 +206,12 @@ impl MeshManager {
         self.crown_public.as_ref().map(|c| c.holder_id.clone())
     }
 
-    /// Claim crown if nobody has it. Called after first accept.
+    /// Claim crown if nobody has it yet. Skips if crown_public already received via sync.
     pub fn claim_crown_if_unclaimed(&mut self) {
         if self.crown_keypair.is_some() || self.crown_public.is_some() {
-            return; // Already have crown or know who does
+            return;
         }
-        log::info!("[mesh] No crown exists — claiming as first approver");
+        log::info!("[mesh] No crown — claiming");
         let keypair = crown::CrownKeyPair::generate();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -305,16 +303,26 @@ impl MeshManager {
 
         let verified_holder = &verified_claims.holder_id;
 
-        // Crown holder doesn't need to be directly paired with us —
-        // we trust the crown info if it came via sync from a paired peer.
-        // The JWT signature proves authenticity.
+        log::info!("[mesh/crown] Crown info: holder={}, v{}", verified_holder, public_info.version);
 
-        log::info!("[mesh/crown] Crown info: holder={}", verified_holder);
+        if let Some(ref existing) = self.crown_public {
+            if existing.holder_id == *verified_holder {
+                if public_info.version <= existing.version {
+                    return Err(format!("Stale crown: have v{}, got v{}", existing.version, public_info.version));
+                }
+            } else {
+                if public_info.version <= existing.version {
+                    return Err(format!("Stale crown: have v{} from {}, got v{} from {}",
+                        existing.version, existing.holder_id, public_info.version, verified_holder));
+                }
+                if public_info.version != existing.version + 1 {
+                    return Err(format!("Non-sequential crown: have v{}, got v{}", existing.version, public_info.version));
+                }
+            }
+        }
 
-        // If someone else is crown holder → relinquish ours
         if *verified_holder != self.identity.instance_id && self.crown_keypair.is_some() {
-            log::info!("[mesh/crown] Relinquishing our crown — {} is the legitimate holder",
-                verified_holder);
+            log::info!("[mesh/crown] Relinquishing crown to {} v{}", verified_holder, public_info.version);
             crown::delete_crown_keypair();
             self.crown_keypair = None;
         }
