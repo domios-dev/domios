@@ -235,7 +235,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                       </div>
                       <button onClick={() => handleConnect(peers.discovered[0].instance_id)}
                         disabled={connecting !== null}
-                        className="text-[10px] px-3 py-1 rounded bg-[var(--ct-green)] text-white hover:brightness-110 transition-all disabled:opacity-50">
+                        className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-[var(--ct-fg)] hover:brightness-110 transition-all disabled:opacity-50">
                         {connecting ? "Joining..." : "Join Mesh"}
                       </button>
                     </div>
@@ -262,9 +262,9 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                       )}
                     </div>
                     <button onClick={() => handleConnect(peer.instance_id)}
-                      disabled={connecting === peer.instance_id}
-                      className="text-[10px] px-3 py-1 rounded bg-[var(--ct-green)] text-white hover:brightness-110 transition-all disabled:opacity-50">
-                      {connecting === peer.instance_id ? "Connecting..." : "Connect"}
+                      disabled={connecting !== null}
+                      className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-[var(--ct-fg)] hover:brightness-110 transition-all disabled:opacity-50">
+                      {connecting === peer.instance_id ? "Connecting..." : peers.paired.length > 0 ? "Add to Mesh" : "Connect"}
                     </button>
                   </div>
                 ))}
