@@ -252,7 +252,17 @@ codeterm agent spawn claude --task "build and test" --mesh PEER_NAME
 codeterm get-output --pane PANE_ID --mesh PEER_NAME
 ```
 
-**Discovering mesh peers:** Run `codeterm mesh peers` to see available machines. Output shows paired peers (online/offline, trust level) and discovered but unpaired peers. Run `codeterm mesh status` for your own identity and crown status.
+**Mesh message prefixes:** When a mesh peer sends you a message, it arrives as:
+```
+[Mesh: BLACKSTAR pane=a3f1b2c7] can you run the tests?
+```
+Reply to the source pane on the source peer:
+```
+codeterm send-text "tests pass" --pane a3f1b2c7 --mesh BLACKSTAR
+```
+By default, send requests to a peer's General Agent (`--pane general`). Include "report back" if you need a response.
+
+**Discovering mesh peers:** Run `codeterm mesh peers` to see available machines. Run `codeterm mesh status` for your own identity and crown status.
 
 **When to use mesh:** If a task needs resources on another machine (different OS, GPU, specific environment), use `--mesh` to delegate. Only paired peers with `trusted` status accept commands.
 
