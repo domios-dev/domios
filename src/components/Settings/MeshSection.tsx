@@ -12,6 +12,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
   const [manualAddr, setManualAddr] = useState("");
   const [showManual, setShowManual] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [exiting, setExiting] = useState(false);
 
   const fetchData = useCallback(() => {
     invoke<MeshStatus>("mesh_get_status").then(setStatus).catch(() => {});
@@ -69,6 +70,16 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
       setManualAddr(""); setShowManual(false);
     } catch (e) { console.error("Mesh manual add failed:", e); }
   }, [manualAddr]);
+
+  const handleExit = useCallback(async () => {
+    setExiting(true);
+    try { await invoke("mesh_exit"); } catch (e) { console.error("Exit mesh failed:", e); }
+    setExiting(false);
+  }, []);
+
+  // Can this instance manage mesh (add/disconnect peers)?
+  // Crown holder or trusted = can manage. Untrusted = can only exit.
+  const canManage = status?.is_crown || peers?.paired.some(p => p.instance_id === status?.instance_id && p.trust_level === "trusted") || (status?.is_crown === false && !peers?.paired.length);
 
   const formatTimeAgo = (iso: string | null) => {
     if (!iso) return "";
@@ -146,6 +157,16 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
         )}
       </div>
 
+      {config.mesh?.enabled && peers && peers.paired.length > 0 && (
+        <div className="flex justify-end">
+          <button onClick={handleExit} disabled={exiting || (status?.is_crown ?? false)}
+            title={status?.is_crown ? "Transfer crown before exiting" : "Leave the mesh"}
+            className="text-[10px] px-3 py-1 rounded border border-[var(--ct-red)]/30 text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:border-[var(--ct-red)] transition-colors disabled:opacity-30">
+            {exiting ? "Exiting..." : "Exit Mesh"}
+          </button>
+        </div>
+      )}
+
       {config.mesh?.enabled && (
         <div className="space-y-2.5">
           {/* Incoming Pairing Requests — inside mesh section */}
@@ -217,10 +238,12 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                             Transfer Crown
                           </button>
                         )}
-                        <button onClick={() => handleDisconnect(peer.instance_id)}
-                          className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors">
-                          Disconnect
-                        </button>
+                        {canManage && (
+                          <button onClick={() => handleDisconnect(peer.instance_id)}
+                            className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors">
+                            Disconnect
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -278,7 +301,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                       )}
                     </div>
                     <button onClick={() => handleConnect(peer.instance_id)}
-                      disabled={connecting !== null}
+                      disabled={connecting !== null || (!canManage && peers.paired.length > 0)}
                       className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-[var(--ct-fg)] hover:brightness-110 transition-all disabled:opacity-50">
                       {connecting === peer.instance_id ? "Connecting..." : peers.paired.length > 0 ? "Add to Mesh" : "Connect"}
                     </button>
