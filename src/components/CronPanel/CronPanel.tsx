@@ -3,18 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useCrons } from "../../store/crons";
 import type { CronRunInfo } from "../../lib/types";
 import { ArrowLeftIcon, CloseIcon16 } from "../Icons";
-import { describeSchedule, formatTime } from "../../lib/formatters";
-
-// ── Schedule helpers ─────────────────────────────────────────────
-
-const SCHEDULE_PRESETS = [
-  { label: "Every minute", value: "* * * * *" },
-  { label: "Every 5 min", value: "*/5 * * * *" },
-  { label: "Every hour", value: "0 * * * *" },
-  { label: "Every 6h", value: "0 */6 * * *" },
-  { label: "Daily 9 AM", value: "0 9 * * *" },
-  { label: "Weekly Mon 9 AM", value: "0 9 * * 1" },
-] as const;
+import { describeSchedule, formatTime, SCHEDULE_PRESETS } from "../../lib/formatters";
 
 
 // ── Types ────────────────────────────────────────────────────────

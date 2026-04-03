@@ -45,6 +45,7 @@ impl ServiceContext {
                     results.push(val);
                 }
                 Err(e) => {
+                    log::warn!("[batch] {} failed: {}", cmd.method, e);
                     results.push(serde_json::json!({"error": e, "method": cmd.method}));
                 }
             }
@@ -202,23 +203,15 @@ impl ServiceContext {
             .or(params.agent_name.as_deref())
             .unwrap_or(&agent_cmd).to_string();
 
-        // 1. Find workspace
-        let ws_id = if let Some(ref parent_id) = params.parent_pane_id {
-            self.mux.lock().find_workspace_for_pane(parent_id)
-                .or(params.workspace_id.clone())
-                .or_else(|| {
-                    let mux = self.mux.lock();
-                    mux.snapshot().active_workspace_id.clone()
-                        .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                })
-                .ok_or("No workspace found for parent pane")?
-        } else {
-            params.workspace_id.clone()
-                .or_else(|| {
-                    let mux = self.mux.lock();
-                    mux.snapshot().active_workspace_id.clone()
-                        .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                })
+        // 1. Find workspace — lock once, resolve everything
+        let ws_id = {
+            let mux = self.mux.lock();
+            let from_parent = params.parent_pane_id.as_ref()
+                .and_then(|pid| mux.find_workspace_for_pane(pid));
+            from_parent
+                .or_else(|| params.workspace_id.clone())
+                .or_else(|| mux.snapshot().active_workspace_id.clone())
+                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
                 .ok_or("No workspace found")?
         };
 
@@ -238,7 +231,9 @@ impl ServiceContext {
                 let role = Self::parse_role(role_str)?;
                 mux.set_pane_role(&result.1, role, params.parent_pane_id.as_deref())?;
                 if let Some(cs) = params.can_spawn {
-                    let _ = mux.set_can_spawn(&result.1, cs);
+                    if let Err(e) = mux.set_can_spawn(&result.1, cs) {
+                        log::warn!("[spawn] set_can_spawn failed: {}", e);
+                    }
                 }
             }
             // Set report target for cron agents
@@ -254,7 +249,9 @@ impl ServiceContext {
                 }
             }
             // Rename
-            let _ = mux.rename_pane(&result.1, &title);
+            if let Err(e) = mux.rename_pane(&result.1, &title) {
+                log::warn!("[spawn] rename_pane failed: {}", e);
+            }
             result
         };
         self.emit_state_changed();
@@ -282,23 +279,15 @@ impl ServiceContext {
             .or(params.agent_name.as_deref())
             .unwrap_or(agent_cmd);
 
-        // 1. Find workspace — prefer parent's workspace, then explicit, then active, then first
-        let ws_id = if let Some(ref parent_id) = params.parent_pane_id {
-            self.mux.lock().find_workspace_for_pane(parent_id)
+        // 1. Find workspace — lock once, resolve everything
+        let ws_id = {
+            let mux = self.mux.lock();
+            let from_parent = params.parent_pane_id.as_ref()
+                .and_then(|pid| mux.find_workspace_for_pane(pid));
+            from_parent
                 .or_else(|| params.workspace_id.clone())
-                .or_else(|| {
-                    let mux = self.mux.lock();
-                    mux.snapshot().active_workspace_id.clone()
-                        .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                })
-                .ok_or("No workspace found for parent pane")?
-        } else {
-            params.workspace_id.clone()
-                .or_else(|| {
-                    let mux = self.mux.lock();
-                    mux.snapshot().active_workspace_id.clone()
-                        .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                })
+                .or_else(|| mux.snapshot().active_workspace_id.clone())
+                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
                 .ok_or("No workspace found")?
         };
 

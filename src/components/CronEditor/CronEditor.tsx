@@ -1,14 +1,7 @@
 import { useState, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { CronJob } from "../../lib/types";
-import { describeSchedule } from "../../lib/formatters";
-
-const SCHEDULE_PRESETS = [
-  { label: "Every hour", value: "0 * * * *" },
-  { label: "Every 6h", value: "0 */6 * * *" },
-  { label: "Daily 9 AM", value: "0 9 * * *" },
-  { label: "Weekly Mon 9 AM", value: "0 9 * * 1" },
-] as const;
+import { describeSchedule, SCHEDULE_PRESETS } from "../../lib/formatters";
 
 interface CronEditorProps {
   workspaceId: string;
