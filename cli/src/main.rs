@@ -488,8 +488,12 @@ pub enum UpdateAction {
         #[arg(long)]
         force: bool,
     },
-    /// Show update command or open download page
-    Install,
+    /// Install update (--auto for automatic download + install + restart)
+    Install {
+        /// Use Tauri built-in updater: download, install, and restart automatically
+        #[arg(long)]
+        auto: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1478,8 +1482,13 @@ fn main() {
                     }
                     return;
                 }
-                UpdateAction::Install => {
-                    match http.post(format!("{}/api/update/install", base_url)).send() {
+                UpdateAction::Install { auto } => {
+                    let url = if auto {
+                        format!("{}/api/update/install?method=auto", base_url)
+                    } else {
+                        format!("{}/api/update/install", base_url)
+                    };
+                    match http.post(&url).send() {
                         Ok(resp) if resp.status().is_success() => {
                             let body: serde_json::Value = resp.json().unwrap_or_default();
                             if cli.json {
@@ -1495,6 +1504,11 @@ fn main() {
                                     }
                                     "browser_opened" => {
                                         println!("Opened download page in browser.");
+                                    }
+                                    "updating" => {
+                                        if let Some(msg) = body["message"].as_str() {
+                                            println!("{}", msg);
+                                        }
                                     }
                                     _ => println!("{}", body),
                                 }

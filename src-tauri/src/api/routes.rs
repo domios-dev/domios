@@ -2024,9 +2024,16 @@ async fn check_update(
     Ok(Json(serde_json::to_value(info).unwrap_or_default()))
 }
 
+#[derive(Deserialize)]
+struct InstallUpdateQuery {
+    /// "auto" = use Tauri built-in updater (download + install + restart)
+    method: Option<String>,
+}
+
 async fn install_update(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    Query(q): Query<InstallUpdateQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 
@@ -2042,23 +2049,62 @@ async fn install_update(
         return Ok(Json(serde_json::json!({"status": "up_to_date"})));
     }
 
-    match info.update_command {
-        Some(cmd) => Ok(Json(serde_json::json!({
-            "status": "command",
-            "command": cmd,
-            "message": format!("Run: {}", cmd)
-        }))),
-        None => {
-            let url = info
-                .download_url
-                .as_deref()
-                .unwrap_or(&info.release_url);
-            let _ = crate::commands::open_url(url.to_string());
-            Ok(Json(serde_json::json!({
-                "status": "browser_opened",
-                "url": url,
-                "message": "Opened download page in browser"
-            })))
+    // Auto mode: use Tauri built-in updater (download + install + restart)
+    if q.method.as_deref() == Some("auto") {
+        let app = state.svc.app_handle.clone();
+        let latest = info.latest_version.clone();
+        // Spawn the entire updater flow on a non-Send-constrained task
+        std::thread::spawn(move || {
+            use tauri_plugin_updater::UpdaterExt;
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime");
+            rt.block_on(async {
+                let updater = match app.updater() {
+                    Ok(u) => u,
+                    Err(e) => { log::error!("[updater] Init failed: {}", e); return; }
+                };
+                let update = match updater.check().await {
+                    Ok(Some(u)) => u,
+                    Ok(None) => { log::info!("[updater] No update found"); return; }
+                    Err(e) => { log::error!("[updater] Check failed: {}", e); return; }
+                };
+                log::info!("[updater] Downloading and installing v{}...", update.version);
+                match update.download_and_install(|_, _| {}, || {}).await {
+                    Ok(()) => {
+                        log::info!("[updater] Installed, restarting...");
+                        app.restart();
+                    }
+                    Err(e) => log::error!("[updater] Install failed: {}", e),
+                }
+            });
+        });
+        return Ok(Json(serde_json::json!({
+            "status": "updating",
+            "version": latest,
+            "message": format!("Downloading and installing v{}. App will restart.", latest)
+        })));
+    } else {
+        // Legacy mode: return command or open browser
+        match info.update_command {
+            Some(cmd) => Ok(Json(serde_json::json!({
+                "status": "command",
+                "command": cmd,
+                "message": format!("Run: {}", cmd)
+            }))),
+            None => {
+                let url = info
+                    .download_url
+                    .as_deref()
+                    .unwrap_or(&info.release_url);
+                let _ = crate::commands::open_url(url.to_string());
+                Ok(Json(serde_json::json!({
+                    "status": "browser_opened",
+                    "url": url,
+                    "message": "Opened download page in browser"
+                })))
+            }
         }
     }
 }
