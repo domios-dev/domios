@@ -176,6 +176,10 @@ impl MeshManager {
         let removed = self.paired_peers.remove(instance_id);
         if removed.is_some() {
             self.revocation_list.revoked.retain(|id| id != instance_id);
+            // Revoke trust for disconnected peer — reconnect starts fresh as untrusted
+            self.trust_declarations.retain(|d| d.peer_id != instance_id);
+            let _ = crown::save_trust_declarations(&self.trust_declarations);
+            log::info!("[mesh] Unpaired {} — trust declarations revoked", instance_id);
             // If no peers left, clear mesh state (crown, trust)
             if self.paired_peers.is_empty() {
                 log::info!("[mesh] Last peer removed — clearing mesh state");

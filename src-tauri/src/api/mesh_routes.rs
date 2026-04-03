@@ -201,9 +201,39 @@ pub async fn mesh_unpair(
         log::info!("[mesh] Peer {} requested removal of {} from our mesh", sender_id, instance_id);
     }
 
+    // Get the target peer info before removing (need address to notify them)
+    let target_peer = state.mesh.lock().paired_peers.get(&instance_id).cloned();
+    let signed_token = state.mesh.lock().sign_request().ok();
+
     let mut mesh = state.mesh.lock();
     if mesh.unpair(&instance_id).is_some() {
         log::info!("[mesh] Unpaired from {}", instance_id);
+    }
+    let our_id = mesh.identity.instance_id.clone();
+    drop(mesh);
+
+    // If this is a cascade removal (sender != target), notify the removed peer
+    // so they also remove us from their paired list
+    if sender_id != instance_id {
+        if let (Some(peer), Some(token)) = (target_peer, signed_token) {
+            let addr = peer.addresses.iter()
+                .find(|a| a.is_tailscale).or_else(|| peer.addresses.first());
+            if let Some(addr) = addr {
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(3)).build().unwrap_or_default();
+                let url = format!("http://{}:{}/api/mesh/peers/{}", addr.ip, peer.api_port, our_id);
+                tokio::spawn(async move {
+                    match client.delete(&url)
+                        .header("Authorization", format!("Bearer {}", token))
+                        .send().await {
+                        Ok(resp) if resp.status().is_success() => {
+                            log::info!("[mesh/cascade] Notified {} to remove us ({})", instance_id, our_id);
+                        }
+                        _ => log::debug!("[mesh/cascade] Could not notify {} about removal", instance_id),
+                    }
+                });
+            }
+        }
     }
 
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
