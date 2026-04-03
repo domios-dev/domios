@@ -3,6 +3,36 @@ mod mesh_cli;
 
 use clap::{Parser, Subcommand};
 use client::{discover_socket, SocketClient};
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // Skip ESC sequences: ESC [ ... final_byte
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&nc) = chars.peek() {
+                    chars.next();
+                    if nc.is_ascii_alphabetic() || nc == '~' || nc == 'h' || nc == 'l' { break; }
+                }
+            } else if chars.peek() == Some(&']') {
+                // OSC sequence: ESC ] ... BEL or ST
+                chars.next();
+                while let Some(&nc) = chars.peek() {
+                    chars.next();
+                    if nc == '\x07' { break; }
+                    if nc == '\x1b' { chars.next(); break; }
+                }
+            }
+        } else if c == '\r' {
+            // Skip carriage return
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
 pub use mesh_cli::MeshAction;
 
 /// Determine the CodeTerm data directory.
@@ -874,7 +904,6 @@ fn main() {
 
         Commands::GetOutput { pane, lines } => {
             let pane_id = resolve_pane(&mut client, pane);
-            // Approximate: ~80 bytes per line
             let max_bytes = (lines as u64) * 80;
             let result = client.call(
                 "pane.get_output",
@@ -883,9 +912,11 @@ fn main() {
             match result {
                 Ok(value) => {
                     if let Some(output) = value.get("output").and_then(|v| v.as_str()) {
-                        print!("{}", output);
-                    } else if cli.json {
-                        println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                        if cli.json {
+                            println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                        } else {
+                            print!("{}", strip_ansi(output));
+                        }
                     }
                     return;
                 }
