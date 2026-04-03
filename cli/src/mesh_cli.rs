@@ -93,8 +93,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         }
         Commands::SendText { text, pane } => {
             let p = pane.as_deref().unwrap_or("general");
+            let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
             ("POST".into(), format!("/api/panes/{}/send", p),
-                Some(serde_json::json!({"text": text, "enter": true}).to_string()))
+                Some(serde_json::json!({"text": text, "enter": true, "source_pane": source}).to_string()))
         }
         Commands::Notify { title, body, level } => {
             ("POST".into(), "/api/notifications".into(),
