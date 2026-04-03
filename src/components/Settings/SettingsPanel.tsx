@@ -506,7 +506,7 @@ export function Toggle({ label, checked, onChange }: { label: string; checked: b
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-          checked ? "bg-[var(--ct-green)]" : "bg-[var(--ct-border)]"
+          checked ? "bg-[var(--ct-accent)]" : "bg-[var(--ct-border)]"
         }`}
       >
         <span
