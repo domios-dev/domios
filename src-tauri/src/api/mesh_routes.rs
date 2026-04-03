@@ -48,6 +48,8 @@ pub async fn debug_endpoint(
             "name": p.instance_name,
             "trust": &p.trust_level,
             "online": p.online,
+            "addresses": p.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>(),
+            "port": p.api_port,
         }))
         .collect();
     let crown_holder = mesh.crown_public.as_ref().map(|c| c.holder_id.clone());

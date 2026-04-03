@@ -59,7 +59,16 @@ impl MeshManager {
             crown_keypair.is_some()
         );
         let crown_public = crown::load_crown_public_info();
-        let trust_declarations = crown::load_trust_declarations();
+        let mut trust_declarations = crown::load_trust_declarations();
+        // Purge declarations with invalid signatures (stale keys from old crown versions)
+        if let Some(ref cp) = crown_public {
+            let before = trust_declarations.len();
+            trust_declarations.retain(|d| crown::verify_trust_declaration(d, &cp.public_key).is_ok());
+            if trust_declarations.len() < before {
+                log::info!("[mesh] Purged {} stale trust declarations", before - trust_declarations.len());
+                let _ = crown::save_trust_declarations(&trust_declarations);
+            }
+        }
 
         Self {
             identity,
