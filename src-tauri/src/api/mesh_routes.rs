@@ -160,6 +160,12 @@ pub async fn mesh_pair_accept(
 
     log::info!("[mesh] Paired (requester) with {}", accept.from_instance_id);
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+
+    let intro_data = state.mesh.lock().prepare_introductions(&accept.from_instance_id);
+    if let Some((new_peer, existing, our_id, token)) = intro_data {
+        crate::mesh::broadcast_introductions(new_peer, existing, our_id, token).await;
+    }
+
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
