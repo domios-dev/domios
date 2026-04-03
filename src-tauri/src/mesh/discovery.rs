@@ -157,7 +157,8 @@ pub fn start_mdns(
                             api_port: port,
                             discovery_method: DiscoveryMethod::Mdns,
                             last_seen: now,
-                            dev: false, // mDNS doesn't carry dev flag yet
+                            dev: false,
+                            mesh_id: None,
                         };
 
                         log::debug!("[mesh/mdns] Discovered: {} ({})", name, id);
@@ -277,6 +278,8 @@ struct Beacon {
     port: u16,
     #[serde(default)]
     dev: bool,
+    #[serde(default)]
+    mesh_id: Option<String>,
 }
 
 /// Start UDP broadcast discovery (fallback when mDNS fails).
@@ -291,22 +294,13 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
         )
     };
 
-    let beacon = Beacon {
-        id: instance_id.clone(),
-        name: instance_name,
-        port: api_port,
-        dev: cfg!(debug_assertions),
-    };
-    let beacon_json = serde_json::to_vec(&beacon).map_err(|e| e.to_string())?;
-
-    // Build packet: MAGIC + json
-    let mut packet = Vec::with_capacity(BROADCAST_MAGIC.len() + beacon_json.len());
-    packet.extend_from_slice(BROADCAST_MAGIC);
-    packet.extend_from_slice(&beacon_json);
-
-    // Sender thread
-    let packet_clone = packet.clone();
+    // Sender thread — rebuilds beacon each cycle to pick up mesh_id changes
+    let mesh_for_sender = mesh.clone();
+    let sender_instance_id = instance_id.clone();
+    let sender_instance_name = instance_name.clone();
     std::thread::spawn(move || {
+        let instance_id = sender_instance_id;
+        let instance_name = sender_instance_name;
         let sock = match std::net::UdpSocket::bind("0.0.0.0:0") {
             Ok(s) => s,
             Err(e) => {
@@ -317,11 +311,28 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
         let _ = sock.set_broadcast(true);
         log::info!("[mesh/udp] Broadcast sender started, target port {}", api_port);
         loop {
-            if let Err(e) = sock.send_to(
-                &packet_clone,
-                format!("255.255.255.255:{}", api_port),
-            ) {
-                log::debug!("[mesh/udp] Send failed: {}", e);
+            // Rebuild beacon each cycle to pick up mesh_id changes
+            let mesh_id = {
+                let m = mesh_for_sender.lock();
+                m.crown_public.as_ref().and_then(|c| {
+                    crate::mesh::crown::verify_crown_jwt(&c.crown_jwt, &c.public_key)
+                        .ok().map(|cl| cl.mesh_id)
+                })
+            };
+            let beacon = Beacon {
+                id: instance_id.clone(),
+                name: instance_name.clone(),
+                port: api_port,
+                dev: cfg!(debug_assertions),
+                mesh_id,
+            };
+            if let Ok(json) = serde_json::to_vec(&beacon) {
+                let mut packet = Vec::with_capacity(BROADCAST_MAGIC.len() + json.len());
+                packet.extend_from_slice(BROADCAST_MAGIC);
+                packet.extend_from_slice(&json);
+                if let Err(e) = sock.send_to(&packet, format!("255.255.255.255:{}", api_port)) {
+                    log::debug!("[mesh/udp] Send failed: {}", e);
+                }
             }
             std::thread::sleep(std::time::Duration::from_secs(BROADCAST_INTERVAL_SECS));
         }
@@ -376,6 +387,7 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
                         discovery_method: DiscoveryMethod::Udp,
                         last_seen: now,
                         dev: beacon.dev,
+                        mesh_id: beacon.mesh_id.clone(),
                     };
 
                     let mut m = mesh_clone.lock();

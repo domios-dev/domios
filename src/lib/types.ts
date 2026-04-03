@@ -308,6 +308,7 @@ export interface DiscoveredPeer {
   discovery_method: "mdns" | "tailscale" | "udp" | "manual";
   last_seen: number;
   dev: boolean;
+  mesh_id: string | null;
 }
 
 export interface MeshPairingRequest {

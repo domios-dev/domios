@@ -45,6 +45,9 @@ pub struct DiscoveredPeer {
     /// Whether this is a dev build.
     #[serde(default)]
     pub dev: bool,
+    /// Mesh ID this peer belongs to (if any).
+    #[serde(default)]
+    pub mesh_id: Option<String>,
 }
 
 // ── Paired peers ──────────────────────────────────────���─────────────

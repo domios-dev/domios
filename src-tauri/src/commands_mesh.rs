@@ -277,7 +277,7 @@ pub async fn mesh_approve_pairing(
                                     instance_id: p.instance_id, instance_name: p.instance_name,
                                     addresses: p.addresses, api_port: p.api_port,
                                     discovery_method: crate::mesh::types::DiscoveryMethod::Udp,
-                                    last_seen: now, dev: p.dev,
+                                    last_seen: now, dev: p.dev, mesh_id: None,
                                 });
                             }
                         }
@@ -497,6 +497,7 @@ pub fn mesh_add_manual(
         discovery_method: crate::mesh::types::DiscoveryMethod::Manual,
         last_seen: now,
         dev: false,
+        mesh_id: None,
     };
     mesh.lock()
         .discovered_peers
