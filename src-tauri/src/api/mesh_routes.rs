@@ -84,8 +84,45 @@ pub async fn debug_action(
             Ok(Json(serde_json::json!({"ok": true, "action": "disconnect", "instance_id": instance_id})))
         }
         "connect" => {
-            // Trigger connect via Tauri command proxy
-            Err((StatusCode::NOT_IMPLEMENTED, "Use UI for connect".to_string()))
+            let (request, target_addr, target_port) = {
+                let m = state.mesh.lock();
+                let peer = m.discovered_peers.get(instance_id)
+                    .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {} not in discovered", instance_id)))?;
+                let addr = peer.addresses.iter()
+                    .find(|a| a.is_tailscale).or_else(|| peer.addresses.first())
+                    .ok_or_else(|| (StatusCode::BAD_REQUEST, "No address".to_string()))?;
+                let local_addr = m.tailscale_ip.clone().or_else(|| m.local_ip.clone()).unwrap_or_else(|| "127.0.0.1".to_string());
+                let public_key = m.identity.public_key.clone().ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "No keypair".to_string()))?;
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                let req = crate::mesh::types::PairingRequest {
+                    request_id: uuid::Uuid::new_v4().to_string(),
+                    from_instance_id: m.identity.instance_id.clone(),
+                    from_instance_name: m.instance_name.clone(),
+                    from_address: local_addr,
+                    from_port: m.api_port,
+                    public_key, timestamp: now,
+                    status: crate::mesh::types::PairingStatus::Pending,
+                };
+                (req, addr.ip.clone(), peer.api_port)
+            };
+            {
+                let mut m = state.mesh.lock();
+                m.pairing_targets.insert(request.request_id.clone(), (target_addr.clone(), target_port, instance_id.to_string()));
+                m.pending_requests.insert(request.request_id.clone(), request.clone());
+            }
+            let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+            let url = format!("http://{}:{}/api/mesh/pair/request", target_addr, target_port);
+            client.post(&url).json(&request).send().await
+                .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Network: {}", e)))?;
+            log::info!("[mesh/debug] Connect request sent to {}", instance_id);
+            Ok(Json(serde_json::json!({"ok": true, "action": "connect", "instance_id": instance_id})))
+        }
+        "discovered" => {
+            let mesh = state.mesh.lock();
+            let discovered: Vec<_> = mesh.discovered_peers.values()
+                .map(|p| serde_json::json!({"id": p.instance_id, "name": p.instance_name, "addresses": p.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>(), "port": p.api_port}))
+                .collect();
+            Ok(Json(serde_json::json!({"discovered": discovered})))
         }
         _ => Err((StatusCode::BAD_REQUEST, format!("Unknown action: {}", action))),
     }
