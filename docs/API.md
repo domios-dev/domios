@@ -163,6 +163,21 @@ Webhook events: `agent.permission_request`, `agent.task_complete`, `agent.report
 
 Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/.codeterm/themes/` (macOS/Linux).
 
+#### Mesh Networking
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/mesh/status` | — | Mesh identity, crown, discovery status |
+| GET | `/api/mesh/peers` | — | List all peers (paired + discovered) |
+| POST | `/api/mesh/discover` | — | Trigger discovery, return discovered peers |
+| POST | `/api/mesh/connect` | `{instance_id}` | Initiate pairing with a discovered peer (crypto handled server-side) |
+| POST | `/api/mesh/approve` | `{request_id}` | Accept an incoming pairing request |
+| POST | `/api/mesh/reject` | `{request_id}` | Reject and block an incoming pairing request |
+| POST | `/api/mesh/disconnect` | `{instance_id}` | Unpair from a paired peer (notifies remote side) |
+| POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
+| DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (used internally by disconnect broadcast) |
+
+The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level — they handle crypto, key exchange, and peer notification automatically. These mirror the Tauri IPC commands used by the UI. Management commands are local-only and cannot be relayed via `--mesh`.
+
 #### Bridge (Telegram / External Services)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -589,6 +604,19 @@ codeterm bridge send --to CHAT_ID --type document --file /path/to/f.pdf --filena
 codeterm bridge send --to CHAT_ID --type voice --file /path/to/audio.ogg
                                                # Send voice/video/animation/sticker
 
+# Mesh Networking
+codeterm mesh status                           # Show mesh identity, crown, discovery
+codeterm mesh peers                            # List paired + discovered peers
+codeterm mesh discover                         # Trigger discovery scan, list discovered peers
+codeterm mesh connect INSTANCE_ID              # Initiate pairing with discovered peer
+codeterm mesh approve REQUEST_ID               # Accept incoming pairing request
+codeterm mesh reject REQUEST_ID                # Reject + block incoming pairing request
+codeterm mesh disconnect INSTANCE_ID           # Unpair from a paired peer
+codeterm mesh exec TARGET "command" [--pane ID]  # Execute command on remote peer
+codeterm mesh send TARGET "text" [--pane ID]   # Send text to remote peer
+codeterm mesh output TARGET [--pane ID]        # Get output from remote peer
+codeterm mesh panes TARGET                     # List panes on remote peer
+
 # Screenshot
 codeterm screenshot                            # Capture window, print JSON (data URL + dimensions)
 codeterm screenshot --output screenshot.jpg    # Capture window, save to file
@@ -669,4 +697,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->
