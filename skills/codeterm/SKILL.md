@@ -1,12 +1,18 @@
 ---
 name: codeterm
 description: Control CodeTerm terminal multiplexer — workspaces, panes, notifications, layouts, agent hierarchy, cron jobs. Use when user mentions splitting panes, creating workspaces, sending commands to other panes, visualizations, managing terminal sessions, spawning workers/agents, orchestrating parallel tasks, setting up multi-pane layouts, or scheduling recurring tasks. Also use when user says "in terminal", "split", "new pane", "run X there", "orchestrator", "conductor", "lead", "worker", "cron", "schedule", "every hour", "recurring", or wants to delegate tasks to sub-agents.
-version: 0.4.0
+version: 0.5.0
 ---
 
 # CodeTerm — AI Terminal Control
 
 You are running inside CodeTerm, an AI-first terminal multiplexer. CLI: `codeterm`
+
+**Your scope:** This skill is the "spinal cord" — it teaches you how to use CodeTerm tools. You are NOT the General Agent (the machine-level brain). You are a project agent working in a specific workspace. If you need machine-level context (what other projects exist, system state, who's online in mesh), ask the local General Agent:
+```bash
+codeterm send-text "what projects are open right now?" --pane general
+```
+The General Agent's response arrives in your terminal. Use this when you don't know something about the environment rather than guessing.
 
 **CRITICAL — Cron jobs / scheduled tasks / recurring tasks:**
 Do NOT use the built-in CronCreate/CronList tools. CodeTerm has its own cron system. Always use `codeterm cron` commands:
@@ -56,14 +62,14 @@ Commands default to the **current focused pane** when no ID is given.
 - `$CODETERM_SOCKET_PATH` — socket path for CLI communication
 - `$CODETERM` — always `1` when running inside CodeTerm
 
-**Important:** Always use `$CODETERM_PANE_ID` to reference your own pane — `pane current` returns the *focused* pane (which may be a different pane). When splitting, always pass `--id $CODETERM_PANE_ID` to split *your* pane. Use `pane current --last` to get the ID of the newly created pane after a split.
+**Important:** Always use `$CODETERM_PANE_ID` to reference your own pane — `pane current` returns the *focused* pane (which may be a different pane).
 
 ```
 codeterm pane list                              # List panes
 codeterm pane current                           # Get focused pane ID (may not be yours!)
 codeterm pane current --last                    # Get last created pane ID
-codeterm pane split --id $CODETERM_PANE_ID      # Split YOUR pane right
-codeterm pane split --id $CODETERM_PANE_ID --direction down  # Split YOUR pane down
+codeterm pane split --id $CODETERM_PANE_ID      # Split pane right (only when user asks)
+codeterm pane split --id $CODETERM_PANE_ID --direction down  # Split pane down
 codeterm pane rename "title"                    # Rename your tab
 codeterm pane rename "title" --pane PANE_ID     # Rename specific pane
 codeterm pane focus PANE_ID                     # Focus pane
@@ -109,30 +115,6 @@ codeterm notifications clear
 ```
 
 Levels: `info` (blue), `warning` (yellow), `error` (red)
-
-## Common Layouts
-
-### Side-by-side (split + run command)
-```bash
-codeterm pane split
-NEW_PANE=$(codeterm pane current --last)
-codeterm send-text "npm test" --pane $NEW_PANE
-```
-
-### Three-panel (editor left, two panes right)
-```bash
-# Split right → capture top-right pane
-codeterm pane split
-TOP_RIGHT=$(codeterm pane current --last)
-
-# Split that pane down → capture bottom-right pane
-codeterm pane split --id $TOP_RIGHT --direction down
-BOT_RIGHT=$(codeterm pane current --last)
-
-# Send commands to each pane
-codeterm send-text "npm test -- --watch" --pane $TOP_RIGHT
-codeterm send-text "tail -f /var/log/app.log" --pane $BOT_RIGHT
-```
 
 ## Agent Hierarchy
 
@@ -205,70 +187,30 @@ If `$CODETERM_ROLE` is empty (Orchestrator):
 
 ## Mesh Networking
 
-CodeTerm instances can form a mesh — discover, pair, and communicate across machines. Check mesh status to see available peers:
+CodeTerm instances form a mesh — discover, pair, and communicate across machines.
 
+**Any command works on a remote peer — add `--mesh TARGET` (name or ID):**
 ```bash
-codeterm mesh status                              # Your identity, crown, peer counts
-codeterm mesh peers                               # List paired + discovered peers
+codeterm mesh status                           # Your identity, crown, peers
+codeterm mesh peers                            # Paired + discovered peers
+codeterm pane list --mesh PEER                 # Remote panes
+codeterm send-text "cmd" --pane ID --mesh PEER # Send to remote pane
+codeterm get-output --pane ID --mesh PEER      # Read remote output
+codeterm agent spawn claude --task "build" --mesh PEER  # Spawn remotely
+codeterm workspace create "CI" --mesh PEER     # Create workspace remotely
 ```
 
-**Run any command on a remote machine — just add `--mesh TARGET`:**
+**Flow:** `mesh peers` → find trusted peer → `pane list --mesh PEER` → interact. Only `trusted` peers accept commands.
 
-All existing flags (`--pane`, `--workspace`, `--role`, etc.) work with `--mesh`. Target = instance name or ID.
-
-```bash
-# List remote panes/workspaces
-codeterm pane list --mesh PEER_NAME
-codeterm workspace list --mesh PEER_NAME
-
-# Send text to a specific pane on remote machine
-codeterm send-text "npm test" --pane PANE_ID --mesh PEER_NAME
-
-# Read output from a specific pane
-codeterm get-output --pane PANE_ID --mesh PEER_NAME
-
-# Spawn agent on remote machine in a specific workspace
-codeterm agent spawn claude --task "build project" --workspace WS_ID --mesh PEER_NAME
-codeterm agent spawn claude --task "run tests" --role Worker --parent PANE_ID --mesh PEER_NAME
-
-# Create workspace, cron, send notifications remotely
-codeterm workspace create "CI" --mesh PEER_NAME
-codeterm cron create "health" --schedule "*/5 * * * *" --task "check services" --mesh PEER_NAME
-codeterm notify "Deploy complete" --level info --mesh PEER_NAME
-```
-
-**Typical workflow for remote delegation:**
-```bash
-# 1. Check who's in the mesh
-codeterm mesh peers
-
-# 2. See what's running on BLACKSTAR
-codeterm pane list --mesh PEER_NAME
-
-# 3. Spawn a worker there
-codeterm agent spawn claude --task "build and test" --mesh PEER_NAME
-
-# 4. Check output
-codeterm get-output --pane PANE_ID --mesh PEER_NAME
-```
-
-**Mesh message prefixes:** When a mesh peer sends you a message, it arrives as:
+**Mesh message prefixes:** Incoming messages from mesh peers arrive as:
 ```
 [Mesh: BLACKSTAR pane=a3f1b2c7] can you run the tests?
 ```
 Reply to the source pane on the source peer:
-```
+```bash
 codeterm send-text "tests pass" --pane a3f1b2c7 --mesh BLACKSTAR
 ```
-By default, send requests to a peer's General Agent (`--pane general`). Include "report back" if you need a response.
-
-**Discovering mesh peers:** Run `codeterm mesh peers` to see available machines. Run `codeterm mesh status` for your own identity and crown status.
-
-**When to use mesh:** If a task needs resources on another machine (different OS, GPU, specific environment), use `--mesh` to delegate. Only paired peers with `trusted` status accept commands.
-
-**Report syntax:** `codeterm agent report "message"` — message is the FIRST positional argument. Do NOT use `--message`, `--to`, or `--from` flags.
-
-**Hierarchy:** Orchestrator (depth 1) → Lead (depth 2) → Worker (depth 3). Leads can spawn Workers. Workers cannot spawn. IDs are 8-char hex.
+To message a peer's General Agent: `--pane general --mesh PEER`. Include "report back" if you need a response.
 
 ### Orchestrator pattern (batch API — REST and Tauri IPC)
 ```bash
@@ -289,22 +231,6 @@ curl -X POST http://localhost:7685/api/batch \
 
 Batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `can-spawn`, `report`.
 Use `$id` to reference results from earlier commands (resolves to pane_id).
-
-### Orchestrator pattern (manual -- split + link)
-```bash
-# 1. Mark self as orchestrator
-codeterm agent set-conductor --pane $CODETERM_PANE_ID
-
-# 2. Split and assign workers
-codeterm pane split
-WORKER=$(codeterm pane current --last)
-codeterm agent link --parent $CODETERM_PANE_ID --pane $WORKER
-
-# 3. Send work to worker pane
-codeterm send-text "npm test" --pane $WORKER
-
-# 4. Reports arrive automatically as [Report from ...] in your PTY -- no polling needed
-```
 
 ## Multi-agent Workflow
 ```bash
@@ -485,4 +411,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 21 -->
+<!-- revision: 23 -->

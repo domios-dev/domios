@@ -4,7 +4,7 @@
 
 ## Vision
 
-CodeTerm is not a terminal with AI bolted on. It's infrastructure that AI agents need — lifecycle management, observability, coordination, verification — wrapped in a terminal because that's where developers work. Model-agnostic: Claude, Codex, Gemini, local models — any agent that runs in a terminal.
+CodeTerm is a **distributed OS for AI agents**. The CLI and APIs are the "spinal cord" — low-level reflexes any agent uses to act in the environment. The General Agent is the brain of one machine; other agents get the spinal cord (skill) but not its identity. Agent-agnostic: Claude, Codex, Gemini, local models. Mesh evolves toward unified distributed fabric with shared memory and project awareness. Full vision: `VISION.md`.
 
 ## Quick ref
 
