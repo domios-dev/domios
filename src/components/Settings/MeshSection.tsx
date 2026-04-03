@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AppConfig, MeshPeersResponse, MeshStatus } from "../../lib/types";
-import { Toggle, CopyRow, InfoRow } from "./SettingsPanel";
+import { Toggle, CopyRow } from "./SettingsPanel";
 
 export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void; apiEnabled: boolean }) {
   const [status, setStatus] = useState<MeshStatus | null>(null);
