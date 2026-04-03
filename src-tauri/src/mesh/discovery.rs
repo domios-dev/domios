@@ -21,10 +21,7 @@ pub fn start_mdns(
 ) -> Result<MdnsHandle, String> {
     let daemon = mdns_sd::ServiceDaemon::new().map_err(|e| format!("mDNS init failed: {}", e))?;
 
-    // Disable IPv6 to avoid issues on mixed networks — we only need IPv4 for LAN discovery
-    if let Err(e) = daemon.disable_interface(mdns_sd::IfKind::IPv6) {
-        log::warn!("[mesh/mdns] Failed to disable IPv6: {}", e);
-    }
+    // Note: don't disable IPv6 — it breaks interface enumeration on machines with many bridges
 
     // Monitor daemon events for diagnostics (interface errors, etc.)
     let daemon_for_monitor = daemon.clone();
