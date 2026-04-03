@@ -14,6 +14,13 @@
 
 set -e
 
+# --- Load .env (build secrets like UPDATER_TOKEN) ---
+if [ -f ".env" ]; then
+  set -a
+  source .env
+  set +a
+fi
+
 # --- MSVC environment (Windows only) ---
 setup_env() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
