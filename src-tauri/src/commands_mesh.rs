@@ -143,7 +143,6 @@ pub async fn mesh_approve_pairing(
         };
         m.paired_peers.insert(request.from_instance_id.clone(), peer);
         m.pending_requests.remove(&request_id);
-        m.claim_crown_if_unclaimed();
         let _ = m.save();
     }
 
@@ -268,6 +267,25 @@ pub async fn mesh_approve_pairing(
                             log::info!("[mesh/gossip] Synced with {} — received {} peers",
                                 peer.instance_name, their_payload.peers.len());
                             let mut m = mesh.lock();
+                            // Process crown from sync response
+                            if let Some(crown_info) = their_payload.crown_public {
+                                let _ = m.update_crown_public(crown_info);
+                            }
+                            // Process trust declarations
+                            if let Some(ref cpub) = m.crown_public {
+                                let pk = cpub.public_key.clone();
+                                for decl in &their_payload.trust_declarations {
+                                    if crate::mesh::crown::verify_trust_declaration(decl, &pk).is_ok() {
+                                        let existing_ver = m.trust_declarations.iter()
+                                            .filter(|d| d.peer_id == decl.peer_id).map(|d| d.version).max().unwrap_or(0);
+                                        if decl.version > existing_ver {
+                                            m.trust_declarations.retain(|d| d.peer_id != decl.peer_id);
+                                            m.trust_declarations.push(decl.clone());
+                                        }
+                                    }
+                                }
+                                let _ = crate::mesh::crown::save_trust_declarations(&m.trust_declarations);
+                            }
                             let now = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
                             for p in their_payload.peers {
@@ -287,6 +305,9 @@ pub async fn mesh_approve_pairing(
             }
         }
     }
+
+    // Claim crown only if nobody in the mesh has one (fresh mesh, both peers new)
+    mesh.lock().claim_crown_if_unclaimed();
 
     Ok(())
 }
