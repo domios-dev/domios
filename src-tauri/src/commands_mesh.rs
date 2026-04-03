@@ -95,7 +95,8 @@ pub async fn mesh_approve_pairing(
 ) -> Result<(), String> {
     {
         let m = mesh.lock();
-        if !m.can_manage_mesh() {
+        let has_crown = m.crown_public.is_some();
+        if has_crown && !m.can_manage_mesh() {
             return Err("Only crown holder or trusted peers can approve pairing requests".to_string());
         }
     }

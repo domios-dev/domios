@@ -271,7 +271,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                   </div>
                   <span className="text-[10px] text-[var(--ct-muted)] font-mono">{req.from_address}</span>
                 </div>
-                {canManage ? (
+                {(canManage || !hasPeers) ? (
                   <div className="flex items-center gap-2">
                     <button onClick={() => handleApprove(req.request_id)}
                       className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all">
