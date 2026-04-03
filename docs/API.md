@@ -31,7 +31,6 @@ Then: `Authorization: Bearer your-secret-token`
 | GET | `/api/health` | — | Health check |
 | GET | `/api/identify` | — | Version, platform, features |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
-| GET | `/api/screenshot` | `?format=json\|jpeg` | Capture window screenshot (see below) |
 
 
 #### Workspaces
@@ -378,41 +377,6 @@ curl -N "http://host:7685/api/panes/$PANE/output/stream"
 # data: {"output": "more text", "offset": 1300}
 ```
 
-### Screenshot (GET /api/screenshot)
-
-Captures the CodeTerm window as a JPEG image. Works even when the window is behind other windows.
-
-**Platform implementation:**
-- **Windows:** PrintWindow API (captures occluded windows)
-- **macOS:** `screencapture -l` (captures by window ID)
-- **Linux:** `xdotool` + `import` (X11 window capture)
-
-**Query parameters:**
-
-| Param | Values | Default | Description |
-|-------|--------|---------|-------------|
-| `format` | `json`, `jpeg` | `json` | Response format |
-
-**format=json** (default) — returns JSON with base64 data URL and metadata:
-```json
-{
-  "data_url": "data:image/jpeg;base64,/9j/4AAQ...",
-  "width": 1920,
-  "height": 1080,
-  "size_kb": 287
-}
-```
-
-**format=jpeg** — returns raw JPEG bytes with `Content-Type: image/jpeg`.
-
-```bash
-# Get screenshot as JSON (data URL + metadata)
-curl http://host:7685/api/screenshot
-
-# Save raw JPEG to file
-curl http://host:7685/api/screenshot?format=jpeg -o screenshot.jpg
-```
-
 ### Examples
 
 ```bash
@@ -617,9 +581,6 @@ codeterm mesh send TARGET "text" [--pane ID]   # Send text to remote peer
 codeterm mesh output TARGET [--pane ID]        # Get output from remote peer
 codeterm mesh panes TARGET                     # List panes on remote peer
 
-# Screenshot
-codeterm screenshot                            # Capture window, print JSON (data URL + dimensions)
-codeterm screenshot --output screenshot.jpg    # Capture window, save to file
 ```
 
 Add `--json` flag for machine-readable output.

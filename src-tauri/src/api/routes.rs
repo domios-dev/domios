@@ -10,13 +10,10 @@ use tauri::Emitter;
 use tower_http::cors::CorsLayer;
 
 use crate::api::events::WebhookRegistration;
-use crate::screenshot::ScreenshotState;
 
 #[derive(Clone)]
 pub struct AppState {
     pub svc: crate::service::ServiceState,
-    #[allow(dead_code)]
-    pub screenshot: ScreenshotState,
     pub cron: crate::CronState,
     pub cron_wake: crate::CronWake,
     pub api_port: u16,
@@ -52,7 +49,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/notifications/clear", post(clear_notifications))
         .route("/api/webhooks", get(list_webhooks).post(register_webhook))
         .route("/api/webhooks/{id}", axum::routing::delete(unregister_webhook))
-        .route("/api/screenshot", get(take_screenshot))
         .route("/api/network", get(network_info))
         .route("/api/themes", get(list_themes_api).post(save_theme_api))
         .route("/api/themes/{id}", axum::routing::delete(delete_theme_api))
@@ -141,6 +137,14 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (S
         return Err((StatusCode::UNAUTHORIZED, "Missing authorization"));
     }
 
+    // Check simple API token from config first
+    if let Some(ref api_token) = state.config.lock().api.token {
+        if !api_token.is_empty() && token == api_token {
+            return Ok(());
+        }
+    }
+
+    // Check mesh signed request
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
     if let Some(ref pk) = mesh.identity.public_key {
@@ -625,61 +629,6 @@ async fn clear_notifications(
     check_auth(&state, &headers)?;
     state.svc.notif.lock().clear(None);
     Ok(Json(serde_json::json!({"ok": true})))
-}
-
-#[derive(Deserialize)]
-struct ScreenshotQuery {
-    format: Option<String>,
-}
-
-async fn take_screenshot(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Query(query): Query<ScreenshotQuery>,
-) -> Result<axum::response::Response, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-
-    let app = state.svc.app_handle.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        crate::screenshot::capture_window(&app)
-    })
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Screenshot task failed"))?
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Screenshot capture failed"))?;
-
-    let format = query.format.as_deref().unwrap_or("json");
-
-    match format {
-        "jpeg" | "jpg" => {
-            // Return raw JPEG bytes
-            let b64 = result.data_url
-                .strip_prefix("data:image/jpeg;base64,")
-                .unwrap_or(&result.data_url);
-            let bytes = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                b64,
-            )
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Invalid base64"))?;
-
-            Ok(axum::response::Response::builder()
-                .header("Content-Type", "image/jpeg")
-                .body(axum::body::Body::from(bytes))
-                .unwrap())
-        }
-        _ => {
-            // JSON with data URL + metadata
-            let json = serde_json::json!({
-                "screenshot": result.data_url,
-                "width": result.width,
-                "height": result.height,
-                "size_kb": result.size_bytes / 1024,
-            });
-            Ok(axum::response::Response::builder()
-                .header("Content-Type", "application/json")
-                .body(axum::body::Body::from(serde_json::to_string(&json).unwrap()))
-                .unwrap())
-        }
-    }
 }
 
 #[derive(Deserialize)]

@@ -73,15 +73,23 @@ pub fn read_api_config() -> (String, Option<String>) {
         }
     }
 
-    // Sign with Ed25519 identity key
+    // Try Ed25519 signed token first, fall back to simple API token from config
     let identity_path = config_dir.join("mesh").join("identity.json");
-    let token = std::fs::read_to_string(&identity_path).ok()
+    let signed_token = std::fs::read_to_string(&identity_path).ok()
         .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
         .and_then(|id| {
             let pk = id.get("private_key")?.as_str()?;
             let iid = id.get("instance_id")?.as_str()?;
             mesh_cli::sign_request(pk, iid).ok()
         });
+
+    let token = signed_token.or_else(|| {
+        // Fall back to simple API token from config.toml
+        let config_path = config_dir.join("config.toml");
+        std::fs::read_to_string(&config_path).ok()
+            .and_then(|content| content.parse::<toml::Table>().ok())
+            .and_then(|val| val.get("api")?.as_table()?.get("token")?.as_str().map(String::from))
+    });
 
     (format!("http://{}:{}", host, port), token)
 }
@@ -228,16 +236,6 @@ pub enum Commands {
         action: MeshAction,
     },
 
-    /// Capture a screenshot of the CodeTerm window
-    Screenshot {
-        /// Save to file instead of printing base64 (e.g. screenshot.jpg)
-        #[arg(long)]
-        output: Option<String>,
-
-        /// Output format: json (default, data URL), file (save to --output)
-        #[arg(long, default_value = "json")]
-        format: String,
-    },
 }
 
 #[derive(Subcommand)]
@@ -689,7 +687,15 @@ fn main() {
                 let url = format!("{}/api/config?key={}", base_url, key);
                 match http.get(&url).send() {
                     Ok(resp) if resp.status().is_success() => resp.json().map_err(|e| e.to_string()),
-                    Ok(_) => Err(format!("Key not found: {}", key)),
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let body = resp.text().unwrap_or_default();
+                        if status.as_u16() == 404 {
+                            Err(format!("Key not found: {}", key))
+                        } else {
+                            Err(format!("API error ({}): {}", status, body))
+                        }
+                    }
                     Err(e) => Err(e.to_string()),
                 }
             }
@@ -708,8 +714,18 @@ fn main() {
         };
         match result {
             Ok(value) => {
-                if json_output { println!("{}", serde_json::to_string_pretty(&value).unwrap()); }
-                else { print_human(&value); }
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                } else if let Some(v) = value.get("value") {
+                    // For config get: print just the value
+                    match v {
+                        serde_json::Value::String(s) => println!("{}", s),
+                        serde_json::Value::Null => println!("null"),
+                        other => println!("{}", other),
+                    }
+                } else {
+                    print_human(&value);
+                }
             }
             Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
         }
@@ -1501,52 +1517,6 @@ fn main() {
         // Config is handled before socket connect (uses HTTP API)
         Commands::Config { .. } => unreachable!(),
 
-        Commands::Screenshot { output, format } => {
-            let base = "http://127.0.0.1:7685";
-            let http = reqwest::blocking::Client::new();
-
-            if format == "file" || output.is_some() {
-                // Save JPEG to file
-                let path = output.unwrap_or_else(|| "screenshot.jpg".to_string());
-                match http.get(format!("{}/api/screenshot?format=jpeg", base)).send() {
-                    Ok(resp) => {
-                        if resp.status().is_success() {
-                            let bytes = resp.bytes().unwrap_or_default();
-                            if let Err(e) = std::fs::write(&path, &bytes) {
-                                eprintln!("Error writing file: {}", e);
-                                std::process::exit(1);
-                            }
-                            println!("{} ({}KB)", path, bytes.len() / 1024);
-                        } else {
-                            eprintln!("Error: {}", resp.status());
-                            std::process::exit(1);
-                        }
-                    }
-                    Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
-                }
-            } else {
-                // JSON with data URL
-                match http.get(format!("{}/api/screenshot", base)).send() {
-                    Ok(resp) => {
-                        let val: serde_json::Value = resp.json().unwrap_or_default();
-                        if cli.json {
-                            println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                        } else {
-                            println!("{}x{} ({}KB)",
-                                val.get("width").and_then(|v| v.as_u64()).unwrap_or(0),
-                                val.get("height").and_then(|v| v.as_u64()).unwrap_or(0),
-                                val.get("size_kb").and_then(|v| v.as_u64()).unwrap_or(0),
-                            );
-                            if let Some(data) = val.get("screenshot").and_then(|v| v.as_str()) {
-                                println!("{}", data);
-                            }
-                        }
-                    }
-                    Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
-                }
-            }
-            return;
-        }
 
         Commands::Mesh { action } => {
             let (base, token) = read_api_config();

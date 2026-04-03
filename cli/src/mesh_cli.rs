@@ -225,7 +225,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("PATCH".into(), "/api/config".into(), Some(serde_json::json!({"key": key, "value": v}).to_string()))
             }
         },
-        Commands::Screenshot { .. } => ("GET".into(), "/api/screenshot".into(), None),
         Commands::Update { .. } => ("GET".into(), "/api/update/check".into(), None),
         // Mesh subcommands — management commands are local-only (not relayable)
         Commands::Mesh { action } => match action {
