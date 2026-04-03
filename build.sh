@@ -49,6 +49,15 @@ kill_dev() {
 }
 
 setup_env
+
+# Auto-install node deps if lockfile is newer than node_modules
+ensure_deps() {
+  if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules/.package-lock.json ] 2>/dev/null; then
+    echo "Installing dependencies..."
+    pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+  fi
+}
+
 CMD="${1:-dev}"
 
 case "$CMD" in
@@ -62,6 +71,7 @@ case "$CMD" in
     cargo test --manifest-path src-tauri/Cargo.toml --lib
     ;;
   build)
+    ensure_deps
     pnpm tauri build
     ;;
   cli)
@@ -85,11 +95,13 @@ case "$CMD" in
     ;;
   dev)
     kill_dev
+    ensure_deps
     echo "Starting dev..."
     pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json
     ;;
   webdriver)
     kill_dev
+    ensure_deps
     echo "Starting dev with WebDriver..."
     pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json -- --features webdriver
     ;;
