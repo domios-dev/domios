@@ -78,8 +78,8 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
   }, []);
 
   // Can this instance manage mesh (add/disconnect peers)?
-  // Crown holder or trusted = can manage. Untrusted = can only exit.
-  const canManage = status?.is_crown || peers?.paired.some(p => p.instance_id === status?.instance_id && p.trust_level === "trusted") || (status?.is_crown === false && !peers?.paired.length);
+  // Server computes: crown holder or trusted = true, untrusted = false.
+  const canManage = status?.can_manage ?? true;
 
   const formatTimeAgo = (iso: string | null) => {
     if (!iso) return "";

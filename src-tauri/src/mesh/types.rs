@@ -232,6 +232,7 @@ pub struct MeshStatus {
     pub tailscale_ip: Option<String>,
     pub local_ip: Option<String>,
     pub api_port: u16,
+    pub can_manage: bool,
     pub paired_count: usize,
     pub discovered_count: usize,
 }
