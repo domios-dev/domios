@@ -11,6 +11,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
   const [connecting, setConnecting] = useState<string | null>(null);
   const [manualAddr, setManualAddr] = useState("");
   const [showManual, setShowManual] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   const fetchData = useCallback(() => {
     invoke<MeshStatus>("mesh_get_status").then(setStatus).catch(() => {});
@@ -81,7 +82,22 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
   };
 
   return (
-    <Group title="Mesh">
+    <div>
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)]">Mesh</h3>
+        <button onClick={() => setShowHelp(!showHelp)}
+          className="w-3.5 h-3.5 rounded-full border border-[var(--ct-muted)] text-[var(--ct-muted)] text-[8px] flex items-center justify-center hover:text-[var(--ct-fg)] hover:border-[var(--ct-fg)] transition-colors">
+          ?
+        </button>
+      </div>
+      {showHelp && (
+        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/80 p-3 mb-2.5 text-[10px] text-[var(--ct-muted-fg)] space-y-1.5">
+          <p><strong className="text-[var(--ct-fg)]">Mesh Networking</strong> connects your CodeTerm instances across machines. Agents can discover peers, delegate tasks, and execute commands remotely.</p>
+          <p><strong className="text-[var(--ct-fg)]">How it works:</strong> Enable mesh, discover nearby instances automatically (local network + Tailscale), and connect. One instance becomes the <strong>Crown Holder</strong> — the mesh leader who manages trust levels.</p>
+          <p><strong className="text-[var(--ct-fg)]">Security:</strong> All communication uses Ed25519 signed requests. Each instance has a unique keypair. Pairing requires manual approval. Crown holder assigns trust: <em>trusted</em> peers can execute commands, <em>untrusted</em> peers can only receive.</p>
+          <p><strong className="text-[var(--ct-fg)]">For agents:</strong> Use <code className="bg-[var(--ct-bg)] px-1 rounded">--mesh PEER</code> flag on any <code className="bg-[var(--ct-bg)] px-1 rounded">codeterm</code> command to run it on a remote peer.</p>
+        </div>
+      )}
       <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2.5">
         <div className="flex items-center justify-between text-xs">
           <span className="text-[var(--ct-muted)]">Name</span>
@@ -307,6 +323,6 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
           </div>
         </>
       )}
-    </Group>
+    </div>
   );
 }
