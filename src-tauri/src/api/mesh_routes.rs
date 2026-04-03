@@ -415,6 +415,22 @@ pub async fn mesh_relay(
     let sender_id = check_mesh_trust(&state, &headers)?;
     log::info!("[mesh/relay] {} {} from {}", cmd.method, cmd.path, sender_id);
 
+    // Get sender's name for message prefix
+    let sender_name = {
+        let mesh = state.mesh.lock();
+        mesh.paired_peers.get(&sender_id)
+            .map(|p| p.instance_name.clone())
+            .unwrap_or_else(|| sender_id.clone())
+    };
+
+    // Prefix text with [Mesh: ...] for send endpoints
+    let mut body = cmd.body.clone();
+    if cmd.path.contains("/send") && cmd.method.eq_ignore_ascii_case("POST") {
+        if let Some(text) = body.get("text").and_then(|v| v.as_str()) {
+            body["text"] = serde_json::json!(format!("[Mesh: {}] {}", sender_name, text));
+        }
+    }
+
     let local_url = format!("http://127.0.0.1:{}{}", state.api_port, cmd.path);
     let signed_token = state.mesh.lock().sign_request()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Sign failed: {}", e)))?;
@@ -423,9 +439,9 @@ pub async fn mesh_relay(
         .timeout(std::time::Duration::from_secs(30)).build().unwrap_or_default();
     let req = match cmd.method.to_uppercase().as_str() {
         "GET" => client.get(&local_url),
-        "POST" => client.post(&local_url).json(&cmd.body),
-        "PUT" => client.put(&local_url).json(&cmd.body),
-        "PATCH" => client.patch(&local_url).json(&cmd.body),
+        "POST" => client.post(&local_url).json(&body),
+        "PUT" => client.put(&local_url).json(&body),
+        "PATCH" => client.patch(&local_url).json(&body),
         "DELETE" => client.delete(&local_url),
         _ => return Err((StatusCode::BAD_REQUEST, format!("Unsupported method: {}", cmd.method))),
     };

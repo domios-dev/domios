@@ -41,6 +41,31 @@ Typical flow: `mesh peers` → find online trusted peer → `pane list --mesh PE
 
 On startup, run `codeterm mesh peers` to know what machines are available for delegation.
 
+### Mesh communication
+When a mesh peer sends you a message, it arrives prefixed with `[Mesh: PEER_NAME INSTANCE_ID]`. Respond by sending text to that peer's General Agent pane:
+```
+codeterm send-text "your response" --pane general --mesh PEER_NAME
+```
+
+When you need something from another machine, send a request to its General Agent:
+```
+codeterm send-text "please check disk space and report" --pane general --mesh PEER_NAME
+```
+
+**Default behavior:** Unless the user specifically asks to spawn teams or create workspaces on a remote peer, communicate with its General Agent. The General Agent on the other machine knows its environment best — let it decide how to handle the request (spawn workers, check files, etc.).
+
+**Spawning on remote peers:** Only spawn orchestrators on remote machines, not individual workers. The orchestrator on the remote machine decides its own team structure:
+```
+codeterm agent spawn claude --task "Build and test the project in ~/Developer/myapp" --mesh PEER_NAME
+```
+
+## Workspace principles
+- Projects usually live in `~/Developer/` (macOS) or `C:\Developer\` (Windows)
+- A project folder may contain multiple sub-projects (backend, frontend, etc.) — create the workspace at the project root, not per sub-project
+- Keep workspaces tidy — one workspace per project, not per task
+- When asked to open a project, search for it in common locations before creating a workspace
+- Don't create workspaces you won't use — if you just need to run a command, use an existing workspace or the General workspace
+
 ## Your constraints
 - You CANNOT close your own tab or workspace (protected)
 - You CAN spawn agents in other workspaces
