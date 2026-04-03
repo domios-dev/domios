@@ -147,7 +147,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
       </div>
 
       {config.mesh?.enabled && (
-        <>
+        <div className="space-y-2.5">
           {/* Incoming Pairing Requests — inside mesh section */}
           {peers && peers.incoming_requests.length > 0 && (
             <Group title="Incoming Requests">
@@ -321,7 +321,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
               </button>
             )}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
