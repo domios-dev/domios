@@ -10,35 +10,29 @@ interface SettingsPanelProps {
 }
 
 enum SettingsTab {
-  Appearance = "appearance",
-  Terminal = "terminal",
-  Keybindings = "keybindings",
+  General = "general",
+  Mesh = "mesh",
   Notifications = "notifications",
   Agents = "agents",
   Integrations = "integrations",
-  Network = "network",
   About = "about",
 }
 
 const TAB_ICONS: Record<SettingsTab, string> = {
-  [SettingsTab.Appearance]: "M1 3.5A2.5 2.5 0 0 1 3.5 1h9A2.5 2.5 0 0 1 15 3.5v9a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 1 12.5Zm2.5-1a1 1 0 0 0-1 1v5.586l2.293-2.293a1 1 0 0 1 1.414 0L9 10.086l1.293-1.293a1 1 0 0 1 1.414 0L14 11.086V3.5a1 1 0 0 0-1-1Zm7 3.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z",
-  [SettingsTab.Terminal]: "M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z",
-  [SettingsTab.Keybindings]: "M6.5 1.75a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 .75.75v3a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1-.75-.75ZM8 8a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0v-5.5A.75.75 0 0 1 8 8Zm-3.5 1.5a.75.75 0 0 0-1.5 0v4.75a.75.75 0 0 0 1.5 0Zm-1.5-6a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5h-1.5A.75.75 0 0 1 3 3.5Zm9.5 6a.75.75 0 0 0-1.5 0v4.75a.75.75 0 0 0 1.5 0Z",
+  [SettingsTab.General]: "M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16ZM7 6.5C7 5.672 7.448 5 8 5s1 .672 1 1.5S8.552 8 8 8s-1-.672-1-1.5ZM4.255 9.515a.75.75 0 0 1 .98.058 3.997 3.997 0 0 0 5.53 0 .75.75 0 0 1 1.037 1.085 5.497 5.497 0 0 1-7.607 0 .75.75 0 0 1 .058-.98Z",
+  [SettingsTab.Mesh]: "M8 1a1 1 0 0 1 1 1v1.07A5.5 5.5 0 0 1 12.93 7H14a1 1 0 1 1 0 2h-1.07A5.5 5.5 0 0 1 9 12.93V14a1 1 0 1 1-2 0v-1.07A5.5 5.5 0 0 1 3.07 9H2a1 1 0 0 1 0-2h1.07A5.5 5.5 0 0 1 7 3.07V2a1 1 0 0 1 1-1Zm0 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
   [SettingsTab.Notifications]: "M8 16a2 2 0 0 0 1.985-1.75c.017-.137-.097-.25-.235-.25h-3.5c-.138 0-.252.113-.235.25A2 2 0 0 0 8 16ZM3 5a5 5 0 0 1 10 0c0 1.862.818 2.726 1.49 3.434.233.246.46.485.653.752.19.262.357.571.357.974 0 .593-.477 1.09-1.107 1.168C13.477 11.44 12.025 11.5 8 11.5c-4.025 0-5.477-.06-6.393-.172C.977 11.24.5 10.743.5 10.16c0-.403.167-.712.356-.974a6.96 6.96 0 0 0 .653-.752C2.182 7.726 3 6.862 3 5Z",
   [SettingsTab.Agents]: "M5.75 7.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75Zm5.25.75a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0ZM6 1h4a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V5a4 4 0 0 1 4-4Zm-.25 1.5A2.75 2.75 0 0 0 3 5.25v5.5A2.75 2.75 0 0 0 5.75 13.5h4.5a2.75 2.75 0 0 0 2.75-2.75v-5.5A2.75 2.75 0 0 0 10.25 2.5Z",
   [SettingsTab.Integrations]: "M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5ZM8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16Zm0-1.5a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z",
-  [SettingsTab.Network]: "M1.5 8a6.5 6.5 0 1 1 13 0 6.5 6.5 0 0 1-13 0ZM8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0ZM6.379 1.588C4.468 2.46 3 4.96 3 8c0 3.04 1.468 5.54 3.379 6.412A6.504 6.504 0 0 1 1.5 8c0-3.043 2.094-5.6 4.879-6.412ZM8 14.5c1.94 0 3.5-2.91 3.5-6.5S9.94 1.5 8 1.5 4.5 4.41 4.5 8s1.56 6.5 3.5 6.5Z",
   [SettingsTab.About]: "M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z",
 };
 
 const TABS: { id: SettingsTab; label: string }[] = [
-  { id: SettingsTab.Appearance, label: "Appearance" },
-  { id: SettingsTab.Terminal, label: "Terminal" },
-  { id: SettingsTab.Keybindings, label: "Keybindings" },
+  { id: SettingsTab.General, label: "General" },
+  { id: SettingsTab.Mesh, label: "Mesh" },
   { id: SettingsTab.Notifications, label: "Notifications" },
   { id: SettingsTab.Agents, label: "Agents" },
   { id: SettingsTab.Integrations, label: "Integrations" },
-  { id: SettingsTab.Network, label: "Network & API" },
   { id: SettingsTab.About, label: "About" },
 ];
 
@@ -47,7 +41,7 @@ export function SettingsPanel({
   onUpdateConfig,
   onClose,
 }: SettingsPanelProps) {
-  const [activeTab, setActiveTab] = useState(SettingsTab.Appearance);
+  const [activeTab, setActiveTab] = useState(SettingsTab.General);
   const [localConfig, setLocalConfig] = useState<AppConfig>(config);
   const [themes, setThemes] = useState<string[]>([]);
   const [configPath, setConfigPath] = useState<string>("");
@@ -129,7 +123,7 @@ export function SettingsPanel({
 
           {/* Content area */}
           <div className="flex-1 overflow-y-auto px-5 py-4">
-            {activeTab === SettingsTab.Appearance && (
+            {activeTab === SettingsTab.General && (
               <div className="space-y-6">
                 <Group title="Color Theme">
                   <Label text="Theme">
@@ -224,11 +218,7 @@ export function SettingsPanel({
                     onChange={(v) => update("font", { ligatures: v })}
                   />
                 </Group>
-              </div>
-            )}
 
-            {activeTab === SettingsTab.Terminal && (
-              <div className="space-y-6">
                 <Group title="Cursor">
                   <Label text="Style">
                     <select
@@ -269,11 +259,7 @@ export function SettingsPanel({
                     onChange={(v) => update("terminal", { copy_on_select: v })}
                   />
                 </Group>
-              </div>
-            )}
 
-            {activeTab === SettingsTab.Keybindings && (
-              <div className="space-y-4">
                 <KeybindGroup title="Tabs" bindings={[
                   ["new_tab", "New Tab"],
                   ["close_tab", "Close Tab"],
@@ -341,7 +327,7 @@ export function SettingsPanel({
               <IntegrationsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
             )}
 
-            {activeTab === SettingsTab.Network && (
+            {activeTab === SettingsTab.Mesh && (
               <NetworkTab
                 config={localConfig}
                 onUpdate={(section, patch) => update(section, patch)}
