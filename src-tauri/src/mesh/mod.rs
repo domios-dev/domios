@@ -165,8 +165,20 @@ impl MeshManager {
     pub fn unpair(&mut self, instance_id: &str) -> Option<PairedPeer> {
         let removed = self.paired_peers.remove(instance_id);
         if removed.is_some() {
-            // Clean revocation list too — peer can re-pair later
             self.revocation_list.revoked.retain(|id| id != instance_id);
+            // If no peers left, clear mesh state (crown, trust)
+            if self.paired_peers.is_empty() {
+                log::info!("[mesh] Last peer removed — clearing mesh state");
+                if self.crown_keypair.is_some() {
+                    crown::delete_crown_keypair();
+                    self.crown_keypair = None;
+                }
+                self.crown_public = None;
+                self.trust_declarations.clear();
+                let _ = crown::save_trust_declarations(&[]);
+                let path = peers::mesh_dir().join("crown_public.json");
+                let _ = std::fs::remove_file(&path);
+            }
             let _ = self.save();
         }
         removed
@@ -392,6 +404,9 @@ impl MeshManager {
         self.trust_declarations.clear();
         let _ = self.save();
         let _ = crown::save_trust_declarations(&[]);
+        // Delete crown_public.json so beacon stops broadcasting old mesh_id
+        let path = peers::mesh_dir().join("crown_public.json");
+        let _ = std::fs::remove_file(&path);
         log::info!("[mesh] Exited mesh — removed {} peers", peers.len());
         peers
     }
