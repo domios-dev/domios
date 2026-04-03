@@ -149,8 +149,19 @@ Orchestrator with hierarchy:
 - Agent spawns do NOT auto-switch active tab.
 - `workspace create` creates an empty workspace (no auto-tab).
 
+Configuration CLI:
+- `codeterm config get <key>` — read config value (dot-notation, e.g. `integrations.telegram_enabled`)
+- `codeterm config set <key> <value>` — write config value (JSON: true, false, 42, "string", ["array"])
+- Top-level sections: theme, font, terminal, notifications, keybindings, socket, agent, api, general_agent, integrations, mesh
+- Integrations keys: `integrations.telegram_enabled`, `integrations.telegram_allowed_users`, `integrations.discord_enabled`, `integrations.webhook_enabled`, `integrations.webhook_port`
+- Changes apply immediately (saved to disk, triggers config-changed event).
+
+Bridge CLI:
+- `codeterm bridge send --to CHAT_ID --service telegram "text"` — send message (auto-edits within 60s, `--append` to concatenate)
+- `codeterm bridge restart` — restart bridge services (reloads config)
+
 Updates:
 - GET /api/update/check?force=true — check for available updates
 - POST /api/update/install — download and install pending update
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

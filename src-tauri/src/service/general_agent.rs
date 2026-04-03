@@ -252,8 +252,18 @@ pub fn start_general_agent(
     svc.set_pane_agent_type(&pane_id, Some(provider_name.to_string()));
     log::info!("[general-agent] PTY {} linked to pane {}", pty_id, pane_id);
 
-    // Wait for shell prompt before sending launch command
-    std::thread::sleep(std::time::Duration::from_secs(1));
+    // Start backend reader so screen_state gets populated (needed for prompt detection)
+    if let Err(e) = crate::service::pty_lifecycle::start_backend_reader(svc, &pty_id) {
+        log::error!("[general-agent] Failed to start backend reader: {}", e);
+    }
+
+    // Wait for shell prompt (PowerShell on Windows can take several seconds)
+    let ready = crate::service::pty_io::poll_shell_prompt(
+        screen_state, &pty_id, std::time::Duration::from_secs(15),
+    );
+    if !ready {
+        log::warn!("[general-agent] Shell prompt not detected within 15s, sending command anyway");
+    }
 
     // Build launch command
     let cmd = if let Some(ref sid) = session_id {
@@ -276,16 +286,69 @@ pub fn start_general_agent(
             .unwrap_or_else(|| "claude --dangerously-skip-permissions".to_string())
     };
 
-    log::info!("[general-agent] Launching: {}", cmd);
-    // Use bracket paste to prevent shell from eating first character
-    let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
-    if let Err(e) = pty.lock().write(&pty_id, paste.as_bytes()) {
-        log::error!("[general-agent] Failed to write launch command: {}", e);
+    // Retry loop: send command, check if agent started, retry if not.
+    // Claude sets an OSC title containing "claude" or a Braille spinner on startup.
+    let max_attempts = 5;
+    for attempt in 1..=max_attempts {
+        log::info!("[general-agent] Launch attempt {}/{}: {}", attempt, max_attempts, cmd);
+
+        // Wait for shell prompt before (re-)sending (skip on first attempt — already polled above)
+        if attempt > 1 {
+            let ready = crate::service::pty_io::poll_shell_prompt(
+                screen_state, &pty_id, std::time::Duration::from_secs(10),
+            );
+            if !ready {
+                log::warn!("[general-agent] Attempt {}: shell prompt not detected, trying anyway", attempt);
+            }
+        }
+
+        // Send launch command via bracket paste
+        let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
+        if let Err(e) = pty.lock().write(&pty_id, paste.as_bytes()) {
+            log::error!("[general-agent] Failed to write launch command: {}", e);
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            continue;
+        }
+
+        // Poll screen for agent detection (up to 10s)
+        let launched = poll_agent_started(screen_state, &svc.agent_registry, &pty_id, std::time::Duration::from_secs(10));
+        if launched {
+            log::info!("[general-agent] Agent detected on attempt {}", attempt);
+            break;
+        }
+
+        if attempt == max_attempts {
+            log::error!("[general-agent] Agent not detected after {} attempts — giving up", max_attempts);
+        } else {
+            log::warn!("[general-agent] Attempt {}: agent not detected, will retry", attempt);
+        }
     }
 
     // Emit state changed so frontend picks up the new workspace/pane
     svc.emit_state_changed();
     log::info!("[general-agent] Started successfully (pane={}, pty={})", pane_id, pty_id);
+}
+
+/// Poll screen_state for signs that the agent has started.
+/// Checks screen text against the agent registry's output detection.
+fn poll_agent_started(
+    screen_state: &crate::ScreenStateHandle,
+    registry: &crate::agent::registry::AgentRegistry,
+    pty_id: &str,
+    timeout: std::time::Duration,
+) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if std::time::Instant::now() > deadline { return false; }
+        let detected = screen_state.try_lock()
+            .and_then(|ss| ss.get_screen_text(pty_id).map(|screen| {
+                // Check if any agent provider recognizes the output
+                registry.detect_from_output(&screen).is_some()
+            }))
+            .unwrap_or(false);
+        if detected { return true; }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
 }
 
 #[cfg(test)]
