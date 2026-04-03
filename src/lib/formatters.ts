@@ -1,3 +1,13 @@
+/** Common cron schedule presets for UI selectors. */
+export const SCHEDULE_PRESETS = [
+  { label: "Every minute", value: "* * * * *" },
+  { label: "Every 5 min", value: "*/5 * * * *" },
+  { label: "Every hour", value: "0 * * * *" },
+  { label: "Every 6h", value: "0 */6 * * *" },
+  { label: "Daily 9 AM", value: "0 9 * * *" },
+  { label: "Weekly Mon 9 AM", value: "0 9 * * 1" },
+] as const;
+
 /** Describe a cron schedule string in human-readable form. */
 export function describeSchedule(cron: string): string {
   const parts = cron.trim().split(/\s+/);

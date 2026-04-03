@@ -19,7 +19,9 @@ impl ServiceContext {
         let mut mux = self.mux.lock();
         mux.set_pane_role(pane_id, role, parent_pane_id)?;
         if let Some(cs) = can_spawn {
-            let _ = mux.set_can_spawn(pane_id, cs);
+            if let Err(e) = mux.set_can_spawn(pane_id, cs) {
+                log::warn!("[hierarchy] set_can_spawn({}) failed: {}", pane_id, e);
+            }
         }
         drop(mux);
         self.emit_state_changed();
