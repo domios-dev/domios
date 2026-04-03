@@ -51,13 +51,22 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            src-tauri
+            cli
 
       - name: Install frontend dependencies
         run: pnpm install
 
       - name: TypeScript check + Vite build
         run: pnpm build
+
+      - name: Build CLI (needed for bundled-cli resource)
+        run: |
+          cargo build --manifest-path cli/Cargo.toml
+          mkdir -p src-tauri/bundled-cli
+          cp cli/target/debug/codeterm${{ runner.os == 'Windows' && '.exe' || '' }} src-tauri/bundled-cli/
+        shell: bash
 
       - name: Rust check
         run: cargo check --manifest-path src-tauri/Cargo.toml
