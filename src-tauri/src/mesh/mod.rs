@@ -60,8 +60,31 @@ impl MeshManager {
         );
         let crown_public = crown::load_crown_public_info();
         let mut trust_declarations = crown::load_trust_declarations();
-        // Purge declarations with invalid signatures (stale keys from old crown versions)
-        if let Some(ref cp) = crown_public {
+        // Crown holder: re-sign stale declarations with current keypair
+        // Non-crown: purge declarations that don't verify against current crown key
+        if let Some(ref kp) = crown_keypair {
+            let mut re_signed = Vec::new();
+            for decl in &trust_declarations {
+                if let Some(ref cp) = crown_public {
+                    if crown::verify_trust_declaration(decl, &cp.public_key).is_ok() {
+                        re_signed.push(decl.clone());
+                        continue;
+                    }
+                }
+                // Stale declaration — re-sign with current keypair
+                match crown::create_trust_declaration(kp, &decl.peer_id, decl.trust_level.clone(), &identity.instance_id, decl.version + 1) {
+                    Ok(new_decl) => {
+                        log::info!("[mesh] Re-signed trust declaration for {} v{}", decl.peer_id, decl.version + 1);
+                        re_signed.push(new_decl);
+                    }
+                    Err(e) => log::warn!("[mesh] Failed to re-sign declaration for {}: {}", decl.peer_id, e),
+                }
+            }
+            if re_signed.len() != trust_declarations.len() || re_signed.iter().any(|d| !trust_declarations.iter().any(|od| od.peer_id == d.peer_id && od.version == d.version)) {
+                trust_declarations = re_signed;
+                let _ = crown::save_trust_declarations(&trust_declarations);
+            }
+        } else if let Some(ref cp) = crown_public {
             let before = trust_declarations.len();
             trust_declarations.retain(|d| crown::verify_trust_declaration(d, &cp.public_key).is_ok());
             if trust_declarations.len() < before {
@@ -380,8 +403,15 @@ impl MeshManager {
             .count()
     }
 
-    /// Build sync payload from current state.
+    /// Build sync payload from current state. Only includes valid trust declarations.
     pub fn build_sync_payload(&self) -> types::MeshSyncPayload {
+        let valid_decls = if let Some(ref cp) = self.crown_public {
+            self.trust_declarations.iter()
+                .filter(|d| crown::verify_trust_declaration(d, &cp.public_key).is_ok())
+                .cloned().collect()
+        } else {
+            vec![]
+        };
         types::MeshSyncPayload {
             peers: self.paired_peers.values()
                 .map(|p| types::GossipPeerInfo {
@@ -392,7 +422,7 @@ impl MeshManager {
                     dev: false,
                 }).collect(),
             crown_public: self.crown_public.clone(),
-            trust_declarations: self.trust_declarations.clone(),
+            trust_declarations: valid_decls,
         }
     }
 
