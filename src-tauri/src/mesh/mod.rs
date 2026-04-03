@@ -100,6 +100,7 @@ impl MeshManager {
             tailscale_ip: self.tailscale_ip.clone(),
             local_ip: self.local_ip.clone(),
             api_port: self.api_port,
+            can_manage: self.can_manage_mesh(),
             paired_count: self.paired_peers.len(),
             discovered_count: self.discovered_peers.len(),
         }
