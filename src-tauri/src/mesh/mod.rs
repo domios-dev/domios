@@ -583,7 +583,11 @@ pub async fn broadcast_introductions(
                 .json(&intro).send().await {
                 Ok(resp) if resp.status().is_success() =>
                     log::info!("[mesh/introduce] {} → {}", new_peer.instance_name, existing.instance_name),
-                _ => log::warn!("[mesh/introduce] Failed: {} → {}", new_peer.instance_name, existing.instance_name),
+                Ok(resp) => {
+                    let body = resp.text().await.unwrap_or_default();
+                    log::warn!("[mesh/introduce] {} → {} rejected: {}", new_peer.instance_name, existing.instance_name, body);
+                }
+                Err(e) => log::warn!("[mesh/introduce] {} → {} error: {}", new_peer.instance_name, existing.instance_name, e),
             }
         }
         // existing → new
@@ -601,7 +605,11 @@ pub async fn broadcast_introductions(
                 .json(&intro).send().await {
                 Ok(resp) if resp.status().is_success() =>
                     log::info!("[mesh/introduce] {} → {}", existing.instance_name, new_peer.instance_name),
-                _ => log::warn!("[mesh/introduce] Failed: {} → {}", existing.instance_name, new_peer.instance_name),
+                Ok(resp) => {
+                    let body = resp.text().await.unwrap_or_default();
+                    log::warn!("[mesh/introduce] {} → {} rejected: {}", existing.instance_name, new_peer.instance_name, body);
+                }
+                Err(e) => log::warn!("[mesh/introduce] {} → {} error: {}", existing.instance_name, new_peer.instance_name, e),
             }
         }
     }
