@@ -33,14 +33,68 @@ Tomorrow: mesh becomes a **unified fabric**. All CodeTerm instances across all m
 - **Distributed apps** — internal tools that replicate across the mesh (dashboards, monitors, shared notebooks).
 - **Unified delegation** — "build this" finds the best machine (has GPU, has the repo, is idle) without the user specifying which peer.
 
+## Plugin system
+
+CodeTerm is extensible through plugins. Two tiers:
+
+### Process plugins (Tier B) — for serious capabilities
+Long-running processes that communicate via JSON-RPC over stdin/stdout. CodeTerm manages their lifecycle.
+
+```toml
+# ~/.codeterm/plugins/memory/plugin.toml
+name = "memory"
+version = "0.1.0"
+entrypoint = "python3 main.py"
+provides = ["memory.save", "memory.search", "memory.recall"]
+settings = [
+  { key = "embedding_model", type = "string", default = "nomic-embed-text" },
+  { key = "auto_compact_save", type = "bool", default = true },
+]
+mesh_sync = true  # participates in mesh sync cycle
+```
+
+Plugin capabilities:
+- **CLI exposure** — methods auto-register as `codeterm memory search "query"`, available to all agents
+- **Settings UI** — `settings` array renders in Settings panel, editable by user and agents via `config get/set`
+- **Mesh sync hook** — plugins with `mesh_sync = true` are asked "what do you want to sync?" during periodic mesh sync. They provide data, CodeTerm handles transport.
+- **Agent access** — agents use plugin methods through CLI, same as any other codeterm command
+
+### Script plugins (Tier C) — for simple tasks
+Single-file scripts invoked on demand. No lifecycle, no state.
+
+```toml
+# ~/.codeterm/plugins/format-json/plugin.toml
+name = "format-json"
+entrypoint = "python3 format.py"
+provides = ["format.json"]
+```
+
+### Memory plugin (first default plugin)
+
+The memory plugin is built-in and uses:
+- **SQLite + sqlite-vss** for vector storage (zero external deps)
+- **Embedded model** (ONNX runtime, ~100MB) for embeddings — no ollama/lmstudio needed
+- **Auto-save before compact** — when agent approaches context limit, saves important context to memory
+- **Semantic recall** — `codeterm memory recall "mesh networking"` returns relevant memories ranked by similarity
+- **Mesh replication** — memories sync across mesh peers during sync cycle. Crown holds authoritative index.
+
+Agent flow:
+```
+agent working... context filling up...
+→ codeterm memory save "what I learned" --tags "project,auth"
+→ /compact (or auto-compact)
+→ new context starts
+→ codeterm memory recall "auth system" → gets relevant memories back
+```
+
 ## Future capabilities
 
 Things we'll likely build:
-- **Vector DB / embeddings** for project indexing and semantic recall across workspaces
+- **Project indexing** — each machine indexes its projects into memory plugin. Any agent can query "where is the backend repo?" across mesh.
 - **Mini LLMs** running inside CodeTerm for fast local tasks (classification, routing, summarization) without API calls
 - **Context-dependent recall** — the system surfaces relevant knowledge based on what project/task/person you're working with, not all at once
 - **Terminal as API** — agents spawn raw terminals, execute commands, read output, without needing a human shell. CodeTerm becomes the bridge between agents and the real OS.
-- **Replicating knowledge base** — mesh peers sync relevant knowledge (project state, agent learnings, user preferences) so any machine has what it needs
+- **Distributed plugin state** — plugins sync their state across mesh (e.g., memory plugin replicates memories, a monitoring plugin shares health data)
 
 ## Design principles
 

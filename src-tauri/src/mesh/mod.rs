@@ -89,6 +89,15 @@ impl MeshManager {
 
     /// Get mesh status summary.
     pub fn status(&self) -> MeshStatus {
+        let trust = if self.is_crown_holder() {
+            "crown".to_string()
+        } else {
+            match self.get_trust_level(&self.identity.instance_id) {
+                crown::TrustLevel::Trusted => "trusted".to_string(),
+                crown::TrustLevel::Observer => "observer".to_string(),
+                crown::TrustLevel::Untrusted => "untrusted".to_string(),
+            }
+        };
         MeshStatus {
             enabled: true,
             instance_id: self.identity.instance_id.clone(),
@@ -103,6 +112,7 @@ impl MeshManager {
             can_manage: self.can_manage_mesh(),
             paired_count: self.paired_peers.len(),
             discovered_count: self.discovered_peers.len(),
+            trust_level: trust,
         }
     }
 

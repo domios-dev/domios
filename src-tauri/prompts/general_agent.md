@@ -49,6 +49,15 @@ workspace create "CI" --mesh PEER
 cron create "job" --schedule "*/5 * * * *" --task "check" --mesh PEER
 ```
 
+**Mesh management (only you, not project agents):**
+```
+mesh discover                                    # trigger discovery scan
+mesh connect INSTANCE_ID                         # initiate pairing with discovered peer
+mesh approve REQUEST_ID                          # accept incoming pair request
+mesh reject REQUEST_ID                           # reject + block incoming request
+mesh disconnect INSTANCE_ID                      # unpair from a peer
+```
+
 **Flow:** `mesh peers` → find trusted peer → `pane list --mesh PEER` → interact. On startup, run `mesh peers` to know available machines.
 
 **Incoming messages** arrive prefixed with source info:

@@ -41,6 +41,28 @@ pub enum MeshAction {
         /// Target peer name or instance ID
         target: String,
     },
+    /// Initiate pairing with a discovered peer
+    Connect {
+        /// Instance ID of the discovered peer
+        instance_id: String,
+    },
+    /// Accept an incoming pairing request
+    Approve {
+        /// Request ID of the pending pairing request
+        request_id: String,
+    },
+    /// Reject and block an incoming pairing request
+    Reject {
+        /// Request ID of the pending pairing request
+        request_id: String,
+    },
+    /// Disconnect (unpair) from a paired peer
+    Disconnect {
+        /// Instance ID of the paired peer
+        instance_id: String,
+    },
+    /// Trigger mesh discovery scan (list discovered peers)
+    Discover,
 }
 
 /// Sign a mesh request with Ed25519 (same as server-side crown::sign_request).
@@ -73,8 +95,33 @@ pub fn sign_request(private_key_b64: &str, instance_id: &str) -> Result<String, 
 /// Execute a CLI command on a remote mesh peer via relay.
 /// Reconstructs the command as an API call and sends through relay proxy.
 pub fn run_via_mesh(cli: &super::Cli, target: &str) {
+    // Mesh management commands are local-only — cannot be relayed
+    if let super::Commands::Mesh { action } = &cli.command {
+        match action {
+            MeshAction::Connect { .. } | MeshAction::Approve { .. } |
+            MeshAction::Reject { .. } | MeshAction::Disconnect { .. } |
+            MeshAction::Discover => {
+                eprintln!("Error: mesh management commands (connect/approve/reject/disconnect/discover) are local-only and cannot be relayed via --mesh");
+                std::process::exit(1);
+            }
+            _ => {} // Status, Peers, Exec, Send, Output, Panes — relayable
+        }
+    }
+
     let (base, token) = super::read_api_config();
     let http = super::build_http(&token);
+
+    // Check own trust level — untrusted peers cannot send relay commands
+    if let Ok(resp) = http.get(format!("{}/api/mesh/status", base)).send() {
+        if let Ok(status) = resp.json::<serde_json::Value>() {
+            let our_trust = status.get("trust_level").and_then(|v| v.as_str()).unwrap_or("unknown");
+            if our_trust == "untrusted" {
+                eprintln!("Error: this device is untrusted in the mesh — you cannot send commands to other peers.");
+                eprintln!("Only the crown holder can grant trust. Ask the mesh admin to trust this device.");
+                std::process::exit(1);
+            }
+        }
+    }
 
     // Map CLI command to API path + method + body
     let (method, path, body) = cli_command_to_api(&cli.command);
@@ -180,8 +227,22 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         },
         Commands::Screenshot { .. } => ("GET".into(), "/api/screenshot".into(), None),
         Commands::Update { .. } => ("GET".into(), "/api/update/check".into(), None),
-        // Mesh subcommands run locally (no recursion)
-        Commands::Mesh { .. } => ("GET".into(), "/api/mesh/status".into(), None),
+        // Mesh subcommands — management commands are local-only (not relayable)
+        Commands::Mesh { action } => match action {
+            MeshAction::Status => ("GET".into(), "/api/mesh/status".into(), None),
+            MeshAction::Peers => ("GET".into(), "/api/mesh/peers".into(), None),
+            MeshAction::Discover => ("POST".into(), "/api/mesh/discover".into(), None),
+            MeshAction::Connect { instance_id } => ("POST".into(), "/api/mesh/connect".into(),
+                Some(serde_json::json!({"instance_id": instance_id}).to_string())),
+            MeshAction::Approve { request_id } => ("POST".into(), "/api/mesh/approve".into(),
+                Some(serde_json::json!({"request_id": request_id}).to_string())),
+            MeshAction::Reject { request_id } => ("POST".into(), "/api/mesh/reject".into(),
+                Some(serde_json::json!({"request_id": request_id}).to_string())),
+            MeshAction::Disconnect { instance_id } => ("POST".into(), "/api/mesh/disconnect".into(),
+                Some(serde_json::json!({"instance_id": instance_id}).to_string())),
+            // Remote relay commands — these map to generic API calls
+            _ => ("GET".into(), "/api/mesh/status".into(), None),
+        },
         // Bridge, Theme — best effort
         Commands::Bridge { .. } => ("GET".into(), "/api/health".into(), None),
         Commands::Theme { action } => match action {

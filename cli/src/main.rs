@@ -1602,6 +1602,120 @@ fn main() {
                     mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "panes", "", "", cli.json);
                     return;
                 }
+                MeshAction::Connect { instance_id } => {
+                    let body = serde_json::json!({"instance_id": instance_id});
+                    match http.post(format!("{}/api/mesh/connect", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .json(&body).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                                println!("Pairing request sent to {}", instance_id);
+                                if let Some(rid) = val.get("request_id").and_then(|v| v.as_str()) {
+                                    println!("Request ID: {}", rid);
+                                }
+                            } else {
+                                let err = val.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                                eprintln!("Error: {}", err);
+                                std::process::exit(1);
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Approve { request_id } => {
+                    let body = serde_json::json!({"request_id": request_id});
+                    match http.post(format!("{}/api/mesh/approve", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .json(&body).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                                println!("Pairing request {} approved", request_id);
+                            } else {
+                                let err = val.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                                eprintln!("Error: {}", err);
+                                std::process::exit(1);
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Reject { request_id } => {
+                    let body = serde_json::json!({"request_id": request_id});
+                    match http.post(format!("{}/api/mesh/reject", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .json(&body).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                                println!("Pairing request {} rejected and blocked", request_id);
+                            } else {
+                                let err = val.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                                eprintln!("Error: {}", err);
+                                std::process::exit(1);
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Disconnect { instance_id } => {
+                    let body = serde_json::json!({"instance_id": instance_id});
+                    match http.post(format!("{}/api/mesh/disconnect", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .json(&body).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                                println!("Disconnected from {}", instance_id);
+                            } else {
+                                let err = val.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                                eprintln!("Error: {}", err);
+                                std::process::exit(1);
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Discover => {
+                    match http.post(format!("{}/api/mesh/discover", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if let Some(arr) = val.as_array() {
+                                if arr.is_empty() {
+                                    println!("No discovered peers");
+                                } else {
+                                    for p in arr {
+                                        let name = p.get("instance_name").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let id = p.get("instance_id").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let method = p.get("discovery_method").and_then(|v| v.as_str()).unwrap_or("?");
+                                        println!("  {} ({}) [{}]", name, id, method);
+                                    }
+                                }
+                            } else {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
             }
         }
     };

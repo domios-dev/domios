@@ -1,18 +1,20 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AppConfig, MeshPeersResponse, MeshStatus } from "../../lib/types";
-import { Group, Toggle, CopyRow, InfoRow } from "./SettingsPanel";
+import { Toggle, CopyRow, InfoRow } from "./SettingsPanel";
 
 export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void; apiEnabled: boolean }) {
   const [status, setStatus] = useState<MeshStatus | null>(null);
   const [peers, setPeers] = useState<MeshPeersResponse | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [pendingTimers, setPendingTimers] = useState<Record<string, number>>({});
   const [manualAddr, setManualAddr] = useState("");
   const [showManual, setShowManual] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [exiting, setExiting] = useState(false);
+  const pendingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchData = useCallback(() => {
     invoke<MeshStatus>("mesh_get_status").then(setStatus).catch(() => {});
@@ -31,6 +33,23 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
     return () => clearInterval(interval);
   }, [config.mesh?.enabled, fetchData]);
 
+  // Pending connection timer — counts up from when connect was initiated
+  useEffect(() => {
+    if (!connecting) {
+      if (pendingTimerRef.current) { clearInterval(pendingTimerRef.current); pendingTimerRef.current = null; }
+      return;
+    }
+    setPendingTimers((prev) => ({ ...prev, [connecting]: 0 }));
+    pendingTimerRef.current = setInterval(() => {
+      setPendingTimers((prev) => {
+        const id = connecting;
+        if (!id) return prev;
+        return { ...prev, [id]: (prev[id] ?? 0) + 1 };
+      });
+    }, 1000);
+    return () => { if (pendingTimerRef.current) clearInterval(pendingTimerRef.current); };
+  }, [connecting]);
+
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try { await invoke("mesh_refresh_discovery"); fetchData(); } catch {}
@@ -38,7 +57,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
   }, [fetchData]);
 
   const handleConnect = useCallback(async (instanceId: string) => {
-    if (connecting) return; // prevent double-click
+    if (connecting) return;
     setConnecting(instanceId);
     try { await invoke("mesh_connect", { instanceId }); } catch (e) { console.error("Mesh connect failed:", e); }
     setConnecting(null);
@@ -77,9 +96,12 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
     setExiting(false);
   }, []);
 
-  // Can this instance manage mesh (add/disconnect peers)?
-  // Server computes: crown holder or trusted = true, untrusted = false.
   const canManage = status?.can_manage ?? true;
+  const isCrown = status?.is_crown ?? false;
+  const hasPeers = (peers?.paired.length ?? 0) > 0;
+  const meshName = hasPeers && status?.crown_holder
+    ? `${peers?.paired.find(p => p.instance_id === status.crown_holder)?.instance_name || "Unknown"}'s Mesh`
+    : null;
 
   const formatTimeAgo = (iso: string | null) => {
     if (!iso) return "";
@@ -92,8 +114,15 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
     return `${Math.floor(hrs / 24)}d ago`;
   };
 
+  const formatSeconds = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+  };
+
   return (
     <div className="space-y-2.5">
+      {/* Header */}
       <div className="flex items-center gap-1.5 mb-2.5">
         <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)]">Mesh</h3>
         <button onClick={() => setShowHelp(!showHelp)}
@@ -103,39 +132,41 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
       </div>
       {showHelp && (
         <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/80 p-3 mb-2.5 text-[10px] text-[var(--ct-muted-fg)] space-y-1.5">
-          <p><strong className="text-[var(--ct-fg)]">Mesh Networking</strong> connects your CodeTerm instances across machines. Agents can discover peers, delegate tasks, and execute commands remotely.</p>
-          <p><strong className="text-[var(--ct-fg)]">How it works:</strong> Enable mesh, discover nearby instances automatically (local network + Tailscale), and connect. One instance becomes the <strong>Crown Holder</strong> — the mesh leader who manages trust levels.</p>
-          <p><strong className="text-[var(--ct-fg)]">Security:</strong> All communication uses Ed25519 signed requests. Each instance has a unique keypair. Pairing requires manual approval. Crown holder assigns trust: <em>trusted</em> peers can execute commands, <em>untrusted</em> peers can only receive.</p>
-          <p><strong className="text-[var(--ct-fg)]">For agents:</strong> Use <code className="bg-[var(--ct-bg)] px-1 rounded">--mesh PEER</code> flag on any <code className="bg-[var(--ct-bg)] px-1 rounded">codeterm</code> command to run it on a remote peer.</p>
+          <p><strong className="text-[var(--ct-fg)]">Mesh Networking</strong> connects CodeTerm instances across machines. Agents discover peers, delegate tasks, and run commands remotely.</p>
+          <p><strong className="text-[var(--ct-fg)]">Security:</strong> Ed25519 signed requests. Manual approval for pairing. Crown holder assigns trust: <em>trusted</em> peers can send commands, <em>untrusted</em> can only receive.</p>
         </div>
       )}
+
+      {/* Identity block: Mesh Name, Role + PC Name, toggles */}
       <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2.5">
+        {/* Mesh Name — top, immutable for members */}
+        {hasPeers && meshName && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[var(--ct-accent)]">Mesh</span>
+            <span className="text-[var(--ct-fg)] font-medium">{meshName}</span>
+          </div>
+        )}
+        {/* Role + PC Name in one row */}
         <div className="flex items-center justify-between text-xs">
-          <span className="text-[var(--ct-muted)]">Name</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[var(--ct-accent)]">
+              {isCrown ? "Crown" : hasPeers ? "Member" : "Role"}
+            </span>
+          </div>
           <input
             type="text"
             value={config.mesh?.instance_name ?? ""}
             onChange={(e) => onUpdate("mesh", { instance_name: e.target.value })}
             className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-0.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none w-48 text-right"
+            placeholder="Device name"
           />
         </div>
-        {status && (
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-[var(--ct-muted)]">Role</span>
-            {status.is_crown ? (
-              <span className="text-[var(--ct-yellow)]">Crown Holder</span>
-            ) : (
-              <span className="text-[var(--ct-muted-fg)]">Member</span>
-            )}
-          </div>
-        )}
         <Toggle
           label="Enable mesh networking"
           checked={config.mesh?.enabled ?? false}
           onChange={(v) => {
             onUpdate("mesh", { enabled: v });
             if (v) {
-              // Auto-enable API if not already
               if (!apiEnabled) { onUpdate("api" as any, { enabled: true }); }
               setTimeout(() => invoke("mesh_start_discovery").catch(console.error), 500);
             }
@@ -157,181 +188,151 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
         )}
       </div>
 
-      {config.mesh?.enabled && peers && peers.paired.length > 0 && (
+      {/* Exit Mesh button */}
+      {config.mesh?.enabled && hasPeers && (
         <div className="flex justify-end">
-          <button onClick={handleExit} disabled={exiting || (status?.is_crown ?? false)}
-            title={status?.is_crown ? "Transfer crown before exiting" : "Leave the mesh"}
+          <button onClick={handleExit} disabled={exiting || isCrown}
+            title={isCrown ? "Transfer crown before exiting" : "Leave the mesh"}
             className="text-[10px] px-3 py-1 rounded border border-[var(--ct-red)]/30 text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:border-[var(--ct-red)] transition-colors disabled:opacity-30">
             {exiting ? "Exiting..." : "Exit Mesh"}
           </button>
         </div>
       )}
 
+      {/* Devices in Mesh — unified section: paired + incoming + discovered */}
       {config.mesh?.enabled && (
         <div className="space-y-2.5">
-          {/* Incoming Pairing Requests — inside mesh section */}
-          {peers && peers.incoming_requests.length > 0 && (
-            <Group title="Incoming Requests">
-              <div className="rounded-lg border border-[var(--ct-accent)]/30 bg-[var(--ct-accent)]/5 divide-y divide-[var(--ct-border)]">
-                {peers.incoming_requests.map((req) => (
-                  <div key={req.request_id} className="p-3 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-[var(--ct-fg)]">
-                        {req.from_instance_name} wants to join
-                      </span>
-                      <span className="text-[10px] text-[var(--ct-muted)] font-mono">{req.from_address}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => handleApprove(req.request_id)}
-                        className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all">
-                        Approve
-                      </button>
-                      <button onClick={() => handleReject(req.request_id)}
-                        className="text-[10px] px-3 py-1 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors">
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Group>
-          )}
+          <div className="flex items-center justify-between mb-0.5">
+            <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)]">Devices in Mesh</h3>
+            <button onClick={handleRefresh} disabled={refreshing}
+              className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors disabled:opacity-50">
+              {refreshing ? "Scanning..." : "Refresh"}
+            </button>
+          </div>
 
-          {/* Mesh Members */}
-          {peers && peers.paired.length > 0 && (
-            <Group title={status?.crown_holder ? `Mesh \u00B7 ${peers.paired.find(p => p.instance_id === status.crown_holder)?.instance_name || "unknown"}'s mesh` : "Mesh"}>
-              <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 divide-y divide-[var(--ct-border)]">
-                {peers.paired.map((peer) => (
-                  <div key={peer.instance_id} className="p-3 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${peer.online ? "bg-[var(--ct-green)]" : "bg-[var(--ct-muted)]"}`} />
-                        <span className="text-xs font-medium text-[var(--ct-fg)]">{peer.instance_name}</span>
-                        {status?.crown_holder === peer.instance_id && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]">crown</span>
-                        )}
-                      </div>
-                      <span className="text-[10px] text-[var(--ct-muted)] font-mono">{peer.addresses[0]?.ip || ""}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-[var(--ct-muted)]">
-                        {peer.online ? "Online" : "Offline"} · Paired {formatTimeAgo(peer.paired_at)}
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        {status?.is_crown && (
-                          <select value={peer.trust_level || "untrusted"}
-                            onChange={(e) => invoke("mesh_set_trust", { instanceId: peer.instance_id, trustLevel: e.target.value }).catch(console.error)}
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none">
-                            <option value="untrusted">Untrusted</option>
-                            <option value="trusted">Trusted</option>
-                          </select>
-                        )}
-                        {!status?.is_crown && (
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
-                            peer.trust_level === "trusted" ? "bg-[var(--ct-green)]/20 text-[var(--ct-green)]" :
-                            "bg-[var(--ct-border)] text-[var(--ct-muted-fg)]"
-                          }`}>{peer.trust_level || "untrusted"}</span>
-                        )}
-                        {status?.is_crown && status?.crown_holder !== peer.instance_id && (
-                          <button onClick={() => handleTransferCrown(peer.instance_id)}
-                            className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-yellow)]/70 hover:text-[var(--ct-yellow)] hover:bg-[var(--ct-yellow)]/10 transition-colors">
-                            Transfer Crown
-                          </button>
-                        )}
-                        {canManage && (
-                          <button onClick={() => handleDisconnect(peer.instance_id)}
-                            className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors">
-                            Disconnect
-                          </button>
-                        )}
-                      </div>
-                    </div>
+          <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 divide-y divide-[var(--ct-border)]">
+            {/* Paired peers */}
+            {peers?.paired.map((peer) => (
+              <div key={peer.instance_id} className="p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${peer.online ? "bg-[var(--ct-green)]" : "bg-[var(--ct-muted)]"}`} />
+                    <span className="text-xs font-medium text-[var(--ct-fg)]">{peer.instance_name}</span>
+                    {status?.crown_holder === peer.instance_id && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]">crown</span>
+                    )}
+                    {peer.trust_level === "trusted" && status?.crown_holder !== peer.instance_id && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">trusted</span>
+                    )}
+                    {(!peer.trust_level || peer.trust_level === "untrusted") && status?.crown_holder !== peer.instance_id && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-border)] text-[var(--ct-muted-fg)]">untrusted</span>
+                    )}
                   </div>
-                ))}
+                  <span className="text-[10px] text-[var(--ct-muted)] font-mono">{peer.addresses[0]?.ip || ""}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-[var(--ct-muted)]">
+                    {peer.online ? "Online" : "Offline"} · Paired {formatTimeAgo(peer.paired_at)}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {isCrown && (
+                      <select value={peer.trust_level || "untrusted"}
+                        onChange={(e) => invoke("mesh_set_trust", { instanceId: peer.instance_id, trustLevel: e.target.value }).catch(console.error)}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none">
+                        <option value="untrusted">Untrusted</option>
+                        <option value="trusted">Trusted</option>
+                      </select>
+                    )}
+                    {isCrown && status?.crown_holder !== peer.instance_id && (
+                      <button onClick={() => handleTransferCrown(peer.instance_id)}
+                        className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-yellow)]/70 hover:text-[var(--ct-yellow)] hover:bg-[var(--ct-yellow)]/10 transition-colors">
+                        Transfer Crown
+                      </button>
+                    )}
+                    {canManage && status?.crown_holder !== peer.instance_id && (
+                      <button onClick={() => handleDisconnect(peer.instance_id)}
+                        className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors">
+                        Disconnect
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
-            </Group>
-          )}
+            ))}
 
-          {/* Discovered */}
-          <div>
-            <div className="flex items-center justify-between mb-2.5">
-              <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)]">Discovered</h3>
-              <button onClick={handleRefresh} disabled={refreshing}
-                className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors disabled:opacity-50">
-                {refreshing ? "Scanning..." : "Refresh"}
-              </button>
-            </div>
-            {peers && peers.discovered.length > 0 ? (() => {
-              // Group discovered peers by mesh_id
-              const meshGroups = new Map<string, typeof peers.discovered>();
-              const solos: typeof peers.discovered = [];
-              for (const peer of peers.discovered) {
-                if (peer.mesh_id) {
-                  const group = meshGroups.get(peer.mesh_id) || [];
-                  group.push(peer);
-                  meshGroups.set(peer.mesh_id, group);
-                } else {
-                  solos.push(peer);
-                }
-              }
+            {/* Incoming pairing requests */}
+            {peers?.incoming_requests.map((req) => (
+              <div key={req.request_id} className="p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-[var(--ct-accent)] animate-pulse" />
+                    <span className="text-xs font-medium text-[var(--ct-fg)]">{req.from_instance_name}</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)]">wants to join</span>
+                  </div>
+                  <span className="text-[10px] text-[var(--ct-muted)] font-mono">{req.from_address}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => handleApprove(req.request_id)}
+                    className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all">
+                    Approve
+                  </button>
+                  <button onClick={() => handleReject(req.request_id)}
+                    className="text-[10px] px-3 py-1 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors">
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {/* Discovered peers — "Add to Mesh" type */}
+            {peers?.discovered.map((peer) => {
+              const isPending = connecting === peer.instance_id;
+              const elapsed = pendingTimers[peer.instance_id] ?? 0;
               return (
-              <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 divide-y divide-[var(--ct-border)]">
-                {/* Mesh groups */}
-                {Array.from(meshGroups.entries()).map(([meshId, group]) => (
-                  <div key={meshId} className="p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-[var(--ct-fg)]">Mesh</span>
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)]">
-                          {group.length} peers
-                        </span>
-                      </div>
-                      <button onClick={() => handleConnect(group[0].instance_id)}
-                        disabled={connecting !== null}
-                        className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-[var(--ct-fg)] hover:brightness-110 transition-all disabled:opacity-50">
-                        {connecting ? "Joining..." : "Join Mesh"}
-                      </button>
-                    </div>
-                    <div className="space-y-1">
-                      {group.map((peer) => (
-                        <div key={peer.instance_id} className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)] pl-2">
-                          <div className="w-1.5 h-1.5 rounded-full border border-[var(--ct-muted)]" />
-                          <span>{peer.instance_name}</span>
-                          <span className="font-mono text-[var(--ct-muted)]">{peer.addresses[0]?.ip || ""}</span>
-                          {peer.dev && <span className="text-[var(--ct-yellow)]">dev</span>}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {/* Solo peers (no mesh_id) */}
-                {solos.map((peer) => (
-                  <div key={peer.instance_id} className="p-3 flex items-center justify-between">
+                <div key={peer.instance_id} className="p-3">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full border border-[var(--ct-muted)]" />
-                      <span className="text-xs text-[var(--ct-fg)]">{peer.instance_name}</span>
+                      <span className="text-xs text-[var(--ct-muted-fg)]">{peer.instance_name}</span>
                       <span className="text-[10px] text-[var(--ct-muted)] font-mono">{peer.addresses[0]?.ip || ""}</span>
                       {peer.dev && (
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]">dev</span>
                       )}
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-border)] text-[var(--ct-muted)]">discovered</span>
                     </div>
-                    <button onClick={() => handleConnect(peer.instance_id)}
-                      disabled={connecting !== null || (!canManage && peers.paired.length > 0)}
-                      className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-[var(--ct-fg)] hover:brightness-110 transition-all disabled:opacity-50">
-                      {connecting === peer.instance_id ? "Connecting..." : peers.paired.length > 0 ? "Add to Mesh" : "Connect"}
-                    </button>
+                    {isPending ? (
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 border-2 border-[var(--ct-accent)] border-t-transparent rounded-full animate-spin" />
+                        <span className="text-[10px] text-[var(--ct-muted-fg)]">Waiting... {formatSeconds(elapsed)}</span>
+                      </div>
+                    ) : (
+                      <button onClick={() => handleConnect(peer.instance_id)}
+                        disabled={connecting !== null || (!canManage && hasPeers)}
+                        className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] hover:bg-[var(--ct-accent)]/30 transition-all disabled:opacity-50">
+                        {hasPeers ? "Add to Mesh" : "Connect"}
+                      </button>
+                    )}
                   </div>
-                ))}
-              </div>
+                  {isPending && (
+                    <div className="mt-1.5 text-[10px] text-[var(--ct-muted)]">
+                      {hasPeers
+                        ? "Approve this join request from the crown holder's device"
+                        : `Accept the pairing request on ${peer.instance_name}`}
+                    </div>
+                  )}
+                </div>
               );
-            })() : (
-              <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 text-center text-xs text-[var(--ct-muted)]">
-                No peers discovered yet
+            })}
+
+            {/* Empty state */}
+            {(!peers || (peers.paired.length === 0 && peers.discovered.length === 0 && peers.incoming_requests.length === 0)) && (
+              <div className="p-4 text-center text-xs text-[var(--ct-muted)]">
+                No devices found. Enable auto-discover or add manually.
               </div>
             )}
           </div>
 
-          {/* Info + Manual add — bottom section */}
+          {/* Info + Manual add */}
           <div className="space-y-2">
             {status && (
               <div className="space-y-1">

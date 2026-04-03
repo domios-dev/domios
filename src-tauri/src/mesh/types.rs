@@ -238,6 +238,8 @@ pub struct MeshStatus {
     pub can_manage: bool,
     pub paired_count: usize,
     pub discovered_count: usize,
+    /// Our own trust level in the mesh: "trusted", "observer", "untrusted", or "crown"
+    pub trust_level: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
