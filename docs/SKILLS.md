@@ -47,30 +47,6 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 19. **Write config**: `codeterm config set integrations.telegram_enabled true` (JSON values)
 20. **Send to Telegram**: `codeterm bridge send --to USER_ID --service telegram "text"` (auto-edits within 60s, `--append` to concatenate)
 
-## Screenshots for Debugging
-
-The `codeterm screenshot` CLI command captures the CodeTerm window as a JPEG image, even when the window is behind other windows. This is useful for visual debugging and verifying UI state.
-
-```bash
-# Capture and print JSON (data URL + width/height/size_kb)
-codeterm screenshot
-
-# Save directly to file
-codeterm screenshot --output /tmp/screenshot.jpg
-```
-
-The REST API equivalent is `GET /api/screenshot` (returns JSON) or `GET /api/screenshot?format=jpeg` (raw JPEG bytes).
-
-**Recommended pattern:** save the screenshot to a file, then use a **subagent** to read and analyze the image. This avoids polluting your main context with large base64 data.
-
-```bash
-# Save screenshot
-codeterm screenshot --output /tmp/debug.jpg
-
-# Analyze in a subagent (keeps main context clean)
-# The subagent can use its Read tool to view /tmp/debug.jpg
-```
-
 ## CLI Flags
 
 All CLI commands support the `--json` flag for machine-readable output:

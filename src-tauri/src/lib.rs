@@ -12,7 +12,6 @@ mod notification;
 pub mod paths;
 pub mod prompts;
 pub mod pty;
-mod screenshot;
 pub mod service;
 pub mod shell;
 pub mod session;
@@ -31,7 +30,6 @@ use notification::NotifState;
 use notification::store::NotificationStore;
 use pty::manager::{OutputBuffer, PtyManager};
 use pty::screen_state::ScreenState;
-use screenshot::{ScreenshotChannel, ScreenshotState};
 use service::{ServiceContext, ServiceState};
 use session::SessionState;
 use session::store::SessionStore;
@@ -55,7 +53,6 @@ struct AppStates {
     session: SessionState,
     output_buffer: OutputBufferState,
     screen_state: ScreenStateHandle,
-    screenshot: ScreenshotState,
     agent_tracker: AgentTrackerState,
     report_store: ReportStoreState,
     event_broadcaster: api::events::EventBroadcasterState,
@@ -74,7 +71,6 @@ fn init_states() -> AppStates {
     let session_state: SessionState = Arc::new(Mutex::new(SessionStore::new()));
     let output_buffer: OutputBufferState = Arc::new(Mutex::new(OutputBuffer::new(65536)));
     let screen_state: ScreenStateHandle = Arc::new(Mutex::new(ScreenState::new()));
-    let screenshot_state: ScreenshotState = Arc::new(Mutex::new(ScreenshotChannel::new()));
     let agent_tracker: AgentTrackerState = Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
     let report_store: ReportStoreState = Arc::new(Mutex::new(agent::reports::ReportStore::new(200)));
     let event_broadcaster: api::events::EventBroadcasterState = Arc::new(api::events::EventBroadcaster::new());
@@ -144,7 +140,6 @@ fn init_states() -> AppStates {
         session: session_state,
         output_buffer,
         screen_state,
-        screenshot: screenshot_state,
         agent_tracker,
         report_store,
         event_broadcaster,
@@ -689,7 +684,6 @@ fn start_servers(
         if api_config.enabled {
             let api_state = api::routes::AppState {
                 svc: service_state.clone(),
-                screenshot: states.screenshot.clone(),
                 cron: cron_state.clone(),
                 cron_wake: cron_wake.clone(),
                 api_port: api_config.port,
@@ -935,7 +929,6 @@ pub fn run() {
         .manage(states.agent_tracker.clone())
         .manage(states.report_store.clone())
         .manage(states.event_broadcaster.clone())
-        .manage(states.screenshot.clone())
         .manage(states.update.clone())
         .manage(states.mesh.clone())
         // ServiceState is added in .setup() after AppHandle is available
@@ -1017,9 +1010,6 @@ pub fn run() {
             commands::check_claude_hooks,
             commands::install_claude_hooks,
             commands::uninstall_claude_hooks,
-            // Screenshot commands
-            screenshot::capture_screenshot,
-            screenshot::submit_screenshot,
             // Session commands
             session::save_session,
             session::save_session_named,
