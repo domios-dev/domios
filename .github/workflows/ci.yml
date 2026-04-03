@@ -16,24 +16,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: windows-latest
-            rust-target: ''
           - platform: macos-latest
             rust-target: 'aarch64-apple-darwin'
-          - platform: ubuntu-22.04
-            rust-target: ''
 
     runs-on: ${{ matrix.platform }}
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
-            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -65,8 +54,7 @@ jobs:
         run: |
           cargo build --manifest-path cli/Cargo.toml
           mkdir -p src-tauri/bundled-cli
-          cp cli/target/debug/codeterm${{ runner.os == 'Windows' && '.exe' || '' }} src-tauri/bundled-cli/
-        shell: bash
+          cp cli/target/debug/codeterm src-tauri/bundled-cli/
 
       - name: Rust check
         run: cargo check --manifest-path src-tauri/Cargo.toml
