@@ -7,31 +7,44 @@ description: Build, release, deploy, and CI/CD management for CodeTerm. Use when
 
 You manage builds, releases, CI/CD pipelines, and deployment for CodeTerm. You can and should:
 
-- **Write and modify CI/CD pipelines** (GitHub Actions workflows)
-- **Perform releases** end-to-end: bump versions, commit, tag, push, monitor CI
-- **Run local production builds** and verify they succeed
-- **Fix CI failures** by reading logs and patching workflows
-- **Create new workflows** (tests, linting, nightly builds, etc.)
-- **Manage GitHub releases** — create, edit, publish drafts
+- **Build locally** on MacBook (macOS) and BLACKSTAR (Windows) — no CI for builds
+- **Perform releases** end-to-end: bump versions, build, upload artifacts to GitHub Releases
+- **Manage GitHub releases** — create drafts, upload artifacts, publish
+- **Fix build issues** by reading errors and patching code/config
 - **Build the CLI tool** separately
+- **Coordinate multi-machine builds** via SSH
 
 ## Project Info
 
-- **Repo:** `rollacode/codeterm` (public, GitHub)
+- **Repo:** `rollacode/codeterm` (PRIVATE, GitHub)
 - **Stack:** Tauri v2 (Rust) + React 19 / TypeScript + xterm.js
-- **CI:** GitHub Actions (`.github/workflows/release.yml`)
-- **Platforms:** Windows (.exe/.msi), macOS ARM/Intel (.dmg), Linux (.AppImage/.deb)
-- **Package manager:** pnpm (version in `package.json` `packageManager` field)
 - **GitHub account:** `rollacode`
+- **Package manager:** pnpm (version in `package.json` `packageManager` field)
+
+## Machines
+
+| Machine | OS | Builds | SSH | Path |
+|---------|-----|--------|-----|------|
+| **MacBook Air** (this) | macOS arm64 | DMG aarch64, DMG x64, CLI macOS | local | `/Users/rollacode/Developer/codeterm` |
+| **BLACKSTAR** | Windows x64 (RTX 4090) | EXE/MSI x64, CLI Windows | `ssh User@blackstar` | `C:\Developer\codeterm` |
+
+## Build Secrets
+
+Each build machine has `.env` in project root (gitignored):
+```
+UPDATER_TOKEN=<fine-grained PAT, contents:read on rollacode/codeterm>
+```
+`build.sh` auto-loads `.env` before build. The token gets baked into the binary via `option_env!("UPDATER_TOKEN")` so the app can check/download updates from private GitHub releases.
+
+GitHub secret `UPDATER_TOKEN` also exists for CI (legacy, not used for local builds).
 
 ## How to Do a Release
 
-When the user says "release", "сделай релиз", or "bump version":
+When the user says "release", "сделай релиз", "релизни":
 
-### Step 1 — Bump version in 3 files (they must match)
+### Step 1 — Bump version in 3 files (must match)
 
 ```bash
-# Read current version
 grep '"version"' src-tauri/tauri.conf.json package.json
 grep '^version' src-tauri/Cargo.toml
 ```
@@ -41,162 +54,112 @@ Edit all three:
 - `src-tauri/Cargo.toml` → `version = "X.Y.Z"`
 - `package.json` → `"version": "X.Y.Z"`
 
-### Step 2 — Commit and push to develop
-
-```bash
-git checkout develop
-git add -A
-git commit -m "release: vX.Y.Z"
-git push origin develop
-```
-
-### Step 3 — Create PR develop → master, approve, merge
-
-```bash
-gh pr create --base master --head develop \
-  --title "release: vX.Y.Z" \
-  --body "Release vX.Y.Z — <summary of changes>"
-
-# Approve and merge immediately
-gh pr review --approve
-gh pr merge --merge
-```
-
-**IMPORTANT:** Always use `--merge` (not rebase/squash) to keep commit SHAs consistent between branches. Never rebase or cherry-pick between develop and master — it creates divergent history.
-
-### Step 4 — Tag on master and push
+### Step 2 — Commit version bump to master
 
 ```bash
 git checkout master
-git pull origin master
+git add -A
+git commit -m "release: vX.Y.Z"
+git push origin master
+```
+
+### Step 3 — Build locally on MacBook
+
+```bash
+./build.sh build    # builds DMG aarch64 + x64, CLI
+```
+
+Artifacts end up in `src-tauri/target/release/bundle/dmg/`.
+
+### Step 4 — Build on BLACKSTAR (Windows) if needed
+
+```bash
+ssh User@blackstar "cd C:\Developer\codeterm && git pull && build.sh build"
+```
+
+Or just skip Windows for now — users build from source on BLACKSTAR.
+
+### Step 5 — Create GitHub Release and upload
+
+```bash
+# Create draft release
+gh release create vX.Y.Z --draft --title "CodeTerm vX.Y.Z" --notes "..."
+
+# Upload macOS artifacts
+gh release upload vX.Y.Z src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+gh release upload vX.Y.Z src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+
+# Upload CLI binaries
+gh release upload vX.Y.Z codeterm-cli-macos-aarch64
+gh release upload vX.Y.Z codeterm-cli-macos-x86_64
+
+# Upload Windows artifacts (if built)
+# gh release upload vX.Y.Z CodeTerm_X.Y.Z_x64-setup.exe
+
+# Publish
+gh release edit vX.Y.Z --draft=false
+```
+
+### Step 6 — Update Homebrew tap
+
+After publish, update `rollacode/homebrew-codeterm` (private):
+```bash
+# Download DMGs and compute hashes
+sha256sum *.dmg
+
+# Clone tap, update Casks/codeterm.rb with new version + hashes, push
+```
+
+### Step 7 — Tag and sync
+
+```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
-```
 
-### Step 5 — Sync develop back
-
-```bash
+# Sync develop
 git checkout develop
-git pull origin master
+git merge master
 git push origin develop
-```
-
-### Step 3 — Monitor CI
-
-```bash
-gh run list --limit 3
-gh run watch <RUN_ID>        # live follow
-gh run view <RUN_ID> --log-failed  # if failed
-```
-
-4 parallel jobs build:
-- `windows-latest` → `.exe`, `.msi`
-- `macos-latest --target aarch64-apple-darwin` → `.dmg` (Apple Silicon)
-- `macos-latest --target x86_64-apple-darwin` → `.dmg` (Intel)
-- `ubuntu-22.04` → `.AppImage`, `.deb`
-
-### Step 4 — Publish
-
-Draft release appears at https://github.com/rollacode/codeterm/releases
-```bash
-gh release list --limit 3
-gh release edit vX.Y.Z --draft=false  # publish
 ```
 
 ## How to Do a Local Build
 
 ```bash
-# TypeScript check
-pnpm tsc --noEmit
-
-# Rust check
-cd src-tauri && cargo check
-
-# Full production build (creates installer for current platform)
-pnpm tauri build
-
-# CLI tool (separate binary)
-cd cli && cargo build --release
-# Output: cli/target/release/codeterm.exe
+./build.sh build     # full production build (auto-loads .env with UPDATER_TOKEN)
+./build.sh cli       # CLI only → ~/.codeterm/bin/
+./build.sh check     # cargo check (~2s)
+./build.sh test      # unit tests (~1s)
+./build.sh dev       # dev server (hot reload)
 ```
 
-## How to Fix CI
+## CI (GitHub Actions)
 
-```bash
-# Get failure details
-gh run view <RUN_ID> --log-failed 2>&1 | head -50
+CI runs only **macOS checks** on PRs to master (no builds, no Windows/Linux):
+- TypeScript check + Vite build
+- Build CLI (for bundled-cli resource)
+- Rust check + tests
+- CLI check
 
-# Common fixes:
-# 1. pnpm version conflict → remove `version:` from pnpm/action-setup
-# 2. Missing Linux deps → add to apt-get install in workflow
-# 3. Rust compile errors → fix code, push, re-tag
-```
-
-Re-trigger after fix:
-```bash
-git tag -d vX.Y.Z
-git push origin :refs/tags/vX.Y.Z
-# push fix commit
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
-
-## How to Write New Workflows
-
-When creating new GitHub Actions workflows, follow these patterns:
-
-### Tauri build job template
-```yaml
-- uses: actions/checkout@v4
-- uses: actions/setup-node@v4
-  with:
-    node-version: 22
-- uses: pnpm/action-setup@v4          # NO version — reads from packageManager
-- uses: dtolnay/rust-toolchain@stable
-- uses: swatinem/rust-cache@v2
-  with:
-    workspaces: src-tauri
-- run: pnpm install
-- uses: tauri-apps/tauri-action@v0
-```
-
-### Linux dependencies (must be before Rust/Node setup)
-```yaml
-- if: matrix.platform == 'ubuntu-22.04'
-  run: |
-    sudo apt-get update
-    sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
-      libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
-```
-
-## CI Gotchas
-
-- **pnpm version:** Do NOT set `version` in `pnpm/action-setup` — conflicts with `packageManager` in `package.json`
-- **Linux deps:** Must include `patchelf`
-- **macOS:** Builds `aarch64` and `x86_64` as separate jobs (no universal binary yet)
-- **tauri-action:** Use `@v0` for Tauri v2. Reads version from `tauri.conf.json`
-- **Draft mode:** Releases are drafts — must `gh release edit --draft=false` to publish
-- **Windows signing:** Not configured yet. Add when needed via `TAURI_SIGNING_PRIVATE_KEY` secret
+Release builds are done **locally**, not in CI.
 
 ## Package Manager Distribution
 
-Release CI automatically updates Homebrew tap and Scoop bucket after publish:
-- **Homebrew tap:** `rollacode/homebrew-codeterm` → `Casks/codeterm.rb`
-- **Scoop bucket:** `rollacode/scoop-codeterm` → `bucket/codeterm.json`
-- Jobs `update-homebrew` and `update-scoop` in `release.yml` download artifacts, compute sha256, push updated manifests
-- Uses `PACKAGE_REPOS_TOKEN` secret (fine-grained PAT with `contents:write` on both repos)
+- **Homebrew tap:** `rollacode/homebrew-codeterm` (PRIVATE) — `Casks/codeterm.rb`
+- **Scoop bucket:** `rollacode/scoop-codeterm` (PRIVATE) — disabled for now, Windows builds from source
+- Uses `PACKAGE_REPOS_TOKEN` secret for CI homebrew updates (legacy flow)
 
 ### Homebrew cask sed gotcha
-The `sed` patterns for sha256 must use `[0-9a-f]\{64\}` to match only hash lines, not the `arch arm:` line which also contains `intel: "x64"`.
+The `sed` patterns for sha256 must use `[0-9a-f]\{64\}` to match only hash lines.
 
-## Release Notes
+## Auto-Update Flow
 
-After tauri-action creates the draft release, update the description with `gh release edit`:
+Built binaries have `UPDATER_TOKEN` baked in. Users update via:
 ```bash
-gh release edit vX.Y.Z --repo rollacode/codeterm --notes "..."
+codeterm update check              # check for new version
+codeterm update install --auto     # download + install + restart
 ```
 
-Include sections: What's New (features, fixes), Download table with platform/filename mapping.
+This uses the Tauri built-in updater → downloads from private GitHub releases → verifies signature → installs → restarts app → CLI auto-updates from bundle on next startup.
 
 ## Version Strategy
 
@@ -209,29 +172,11 @@ Include sections: What's New (features, fixes), Download table with platform/fil
 
 Three tiers — only unit tests run in CI:
 
-| Tier | Tests | When | Command | Time |
-|------|-------|------|---------|------|
-| **Unit** | 170+ | CI on every push/PR | `./build.sh test` | ~1 sec |
-| **E2e** | 50+ | Locally before release | `./build.sh e2e` | ~75 sec |
-| **Stress** | 50x repeat | Manually after PTY/spawn changes | `pytest --count=50` | ~30 min |
-
-**E2e tests require a running dev GUI instance** — Tauri creates PTY through frontend, headless doesn't work. NOT in GitHub Actions.
-
-**Before every release:** run unit tests (CI does this) + run e2e locally and verify all 50 pass.
-
-**Dev mode for e2e:**
-```bash
-# Start dev without file watcher (watcher kills process on file changes from tests)
-pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json
-
-# In another terminal:
-CODETERM_API_URL=http://127.0.0.1:7686/api python3 -m pytest tests/e2e/ -v --tb=short
-
-# Stress test Claude spawn pipeline:
-CODETERM_API_URL=http://127.0.0.1:7686/api python3 -m pytest tests/e2e/test_claude_spawn.py --count=50 -v
-```
-
-**Dev/prod isolation:** Dev uses `com.codeterm.dev` identifier, port 7686, `~/.codeterm-dev/` data dir. Can run alongside prod.
+| Tier | Tests | When | Command |
+|------|-------|------|---------|
+| **Unit** | 307+ | CI + before release | `./build.sh test` |
+| **E2e** | 50+ | Locally before release | `./build.sh e2e` |
+| **Stress** | 50x repeat | After PTY/spawn changes | `pytest --count=50` |
 
 ## Auth
 
