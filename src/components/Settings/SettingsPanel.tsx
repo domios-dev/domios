@@ -711,27 +711,7 @@ function NetworkTab({
 
   return (
     <div className="space-y-6">
-      <Group title="REST API">
-        <Toggle
-          label="Enable API"
-          checked={apiEnabled}
-          onChange={(v) => onUpdate("api", { enabled: v })}
-        />
-        <div className="text-[10px] text-[var(--ct-muted)] -mt-1">
-          Requires restart to take effect.
-        </div>
-        <div className="space-y-1.5 mt-2">
-          <CopyRow label="Local" value={net?.api_url || "..."} />
-          {net?.tailscale_url && (
-            <CopyRow label="Tailscale" value={net.tailscale_url} />
-          )}
-        </div>
-      </Group>
-
-      {/* Mesh section — dimmed when API is off */}
-      <div className={!apiEnabled ? "opacity-40 pointer-events-none" : ""}>
-        <MeshSection config={cfg} onUpdate={onUpdate} apiEnabled={apiEnabled} />
-      </div>
+      <MeshSection config={cfg} onUpdate={onUpdate} apiEnabled={apiEnabled} />
 
       <Collapsible title="API Endpoints Reference">
         <div className="space-y-3">
