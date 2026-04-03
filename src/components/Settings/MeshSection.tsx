@@ -82,7 +82,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
   };
 
   return (
-    <div>
+    <div className="space-y-2.5">
       <div className="flex items-center gap-1.5 mb-2.5">
         <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)]">Mesh</h3>
         <button onClick={() => setShowHelp(!showHelp)}
