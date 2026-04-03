@@ -314,10 +314,18 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
             // Rebuild beacon each cycle to pick up mesh_id changes
             let mesh_id = {
                 let m = mesh_for_sender.lock();
-                m.crown_public.as_ref().and_then(|c| {
-                    crate::mesh::crown::verify_crown_jwt(&c.crown_jwt, &c.public_key)
-                        .ok().map(|cl| cl.mesh_id)
-                })
+                if m.paired_peers.is_empty() {
+                    None // Not in a mesh
+                } else {
+                    // Extract mesh_id from crown JWT, or use a hash of crown holder as fallback
+                    m.crown_public.as_ref().and_then(|c| {
+                        crate::mesh::crown::verify_crown_jwt(&c.crown_jwt, &c.public_key)
+                            .ok().map(|cl| cl.mesh_id)
+                    }).or_else(|| {
+                        // Fallback: use crown holder_id as mesh identifier
+                        m.crown_public.as_ref().map(|c| c.holder_id.clone())
+                    })
+                }
             };
             let beacon = Beacon {
                 id: instance_id.clone(),
