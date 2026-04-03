@@ -178,9 +178,17 @@ pub async fn mesh_unpair(
     let sender_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))?;
 
+    // Local user (own ID) or the peer disconnecting itself → always allowed.
+    // Another paired peer requesting removal → allowed (mesh-wide disconnect broadcast).
+    // Unknown sender → blocked by auth above.
     if sender_id != our_id && sender_id != instance_id {
-        return Err((StatusCode::FORBIDDEN,
-            format!("Can only disconnect yourself ({}), not {}", sender_id, instance_id)));
+        // Verify sender is at least a known paired peer
+        let is_paired = state.mesh.lock().paired_peers.contains_key(&sender_id);
+        if !is_paired {
+            return Err((StatusCode::FORBIDDEN,
+                format!("Unknown peer {} cannot remove {}", sender_id, instance_id)));
+        }
+        log::info!("[mesh] Peer {} requested removal of {} from our mesh", sender_id, instance_id);
     }
 
     let mut mesh = state.mesh.lock();
