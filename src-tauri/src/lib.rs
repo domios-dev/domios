@@ -898,7 +898,19 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build());
+        .plugin({
+            let mut updater = tauri_plugin_updater::Builder::new();
+            if let Some(token) = option_env!("UPDATER_TOKEN") {
+                if !token.is_empty() {
+                    updater = updater
+                        .header("Authorization", format!("token {}", token))
+                        .unwrap()
+                        .header("Accept", "application/octet-stream")
+                        .unwrap();
+                }
+            }
+            updater.build()
+        });
 
     // WebDriver plugin for E2E UI testing (cargo build --features webdriver)
     #[cfg(feature = "webdriver")]
