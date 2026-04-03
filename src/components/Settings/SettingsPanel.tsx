@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { AppConfig } from "../../lib/types";
 import { MeshSection } from "./MeshSection";
+import { CloseXIcon, CheckIcon, CopyIcon } from "../Icons";
+import { isMac } from "../../lib/keybindings";
 
 interface SettingsPanelProps {
   config: AppConfig;
@@ -93,9 +95,7 @@ export function SettingsPanel({
             onClick={onClose}
             className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-              <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
-            </svg>
+            <CloseXIcon />
           </button>
         </div>
 
@@ -523,9 +523,9 @@ export function CopyRow({ label, value }: { label: string; value: string }) {
           title="Copy"
         >
           {copied ? (
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+            <CheckIcon />
           ) : (
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>
+            <CopyIcon />
           )}
         </button>
       </div>
@@ -564,9 +564,8 @@ function AboutLink({ href, label, icon }: { href: string; label: string; icon: s
   );
 }
 
-const IS_MAC_SETTINGS = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
-const KEY_SYMBOLS: Record<string, string> = IS_MAC_SETTINGS ? {
+const KEY_SYMBOLS: Record<string, string> = isMac ? {
   ctrl: "⌃",
   shift: "⇧",
   alt: "⌥",
@@ -611,7 +610,7 @@ function renderKbd(binding: string) {
       {parts.map((part, i) => {
         const sym = KEY_SYMBOLS[part.toLowerCase()] || part.toUpperCase();
         // On mac, Ctrl in binding with letters = Mod = ⌘
-        const display = IS_MAC_SETTINGS && part.toLowerCase() === "ctrl" && parts.some(p => /^[a-zA-Z0-9]$/.test(p))
+        const display = isMac && part.toLowerCase() === "ctrl" && parts.some(p => /^[a-zA-Z0-9]$/.test(p))
           ? "⌘" : sym;
         return (
           <kbd

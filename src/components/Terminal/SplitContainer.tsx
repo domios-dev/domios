@@ -5,6 +5,7 @@ import FloatingInput from "../FloatingInput/FloatingInput";
 import { Divider } from "./Divider";
 import { getAgentProvider } from "../../lib/agentProviders";
 import type { SplitNode, Pane, Orientation, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+import { CloseXIcon } from "../Icons";
 
 interface SplitContainerProps {
   node: SplitNode;
@@ -59,7 +60,7 @@ export function SplitContainer({
     const agentProvider = getAgentProvider(pane.agent_type);
     const hasAgent = !!agentProvider;
 
-    const splitButtons = (
+    const splitButtons = pane.protected ? null : (
       <PaneToolbar
         hasAgent={hasAgent}
         onSplitH={() => onSplitPane(pane.id, "Horizontal")}
@@ -290,9 +291,7 @@ function PaneToolbar({
           className={`${btnBase} bg-[var(--ct-bg)]/90 backdrop-blur-sm border border-[var(--ct-border)]/60 text-[var(--ct-muted)] hover:bg-[var(--ct-red)]/80 hover:border-[var(--ct-red)] hover:text-white transition-all duration-150`}
           title={hasAgent ? "Close (agent running)" : "Close pane (Ctrl+Shift+Q)"}
         >
-          <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
-            <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
-          </svg>
+          <CloseXIcon size={8} />
         </button>
       </div>
       {confirmClose && (

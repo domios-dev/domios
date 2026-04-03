@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { X } from "lucide-react";
 
 interface Toast {
   id: string;
@@ -83,9 +84,7 @@ export function InternalToast({ pendingPrompt, paneId, agentType }: InternalToas
             onClick={() => dismiss(toast.id)}
             className="shrink-0 ml-1 text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
           >
-            <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-              <path d="M2 2l8 8M10 2l-8 8"/>
-            </svg>
+            <X size={8} strokeWidth={1.5} />
           </button>
         </div>
       ))}

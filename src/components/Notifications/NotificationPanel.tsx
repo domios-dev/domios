@@ -1,16 +1,7 @@
 import { useCallback } from "react";
 import type { Notification } from "../../lib/types";
-
-function timeAgo(ts: number): string {
-  const seconds = Math.floor((Date.now() - ts) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
+import { CloseXIcon } from "../Icons";
+import { timeAgo } from "../../lib/formatters";
 
 const LEVEL_COLORS: Record<Notification["level"], string> = {
   Info: "var(--ct-accent)",
@@ -72,9 +63,7 @@ export function NotificationPanel({
             className="flex items-center justify-center w-5 h-5 rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors ml-1"
             title="Close panel"
           >
-            <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
-              <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
-            </svg>
+            <CloseXIcon size={8} />
           </button>
         </div>
       </div>

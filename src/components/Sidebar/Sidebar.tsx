@@ -8,6 +8,9 @@ import { getAgentProvider } from "../../lib/agentProviders";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TitleLevel } from "../../lib/types";
 import type { Workspace, Tab, SplitNode, PaneStatus, Pane, AgentRole, CronJob, CronRunInfo } from "../../lib/types";
+import { X, Pencil, UserMinus, Ban, CircleCheck, TerminalSquare, Plus } from "lucide-react";
+import { TelegramIcon, TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ShieldCheckIcon } from "../Icons";
+import { timeAgo } from "../../lib/formatters";
 
 function collectPaneIds(node: SplitNode): string[] {
   if (node.type === "Leaf") return [node.pane_id];
@@ -99,7 +102,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   );
 
   // Auto-expand only the active workspace when it changes
-  useMemo(() => {
+  useEffect(() => {
     if (state.active_workspace_id) {
       setExpandedWorkspaces((prev) => {
         const next = new Set(prev);
@@ -243,10 +246,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
               className="flex items-center justify-center w-6 h-6 rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)] hover:border-[var(--ct-muted)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
               title="New workspace"
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                <path d="M1.5 3.5A1 1 0 012.5 2.5h3l1.5 2h6.5a1 1 0 011 1v7a1 1 0 01-1 1h-11a1 1 0 01-1-1v-9z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                <path d="M8 7v4M6 9h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-              </svg>
+              <FolderPlusIcon size={12} />
             </button>
           </div>
         </div>
@@ -268,13 +268,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                       }`}
                       title={ws.name}
                     >
-                      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className={isExpanded ? "opacity-70" : "opacity-40"}>
-                        {isExpanded ? (
-                          <path d="M.513 1.513A1.75 1.75 0 0 1 1.75 1h3.5c.55 0 1.07.26 1.4.7l.9 1.2a.25.25 0 0 0 .2.1h6.5A1.75 1.75 0 0 1 16 4.75v.462a.25.25 0 0 1-.03.118l-2.39 4.608a1.75 1.75 0 0 1-1.553.937H1.75A1.75 1.75 0 0 1 0 9.125V2.75c0-.464.184-.91.513-1.237Z" />
-                        ) : (
-                          <path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z" />
-                        )}
-                      </svg>
+                      <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
                     </button>
                     {isExpanded && ws.tabs.map((tab) => {
                       const tabPaneIds = collectPaneIds(tab.split_tree);
@@ -296,9 +290,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                             return tabProvider ? (
                               <span className="text-[10px]" style={{ color: tabProvider.iconColor }}>{tabProvider.icon}</span>
                             ) : (
-                              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-                                <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z" />
-                              </svg>
+                              <TerminalIcon size={11} />
                             );
                           })()}
                         </button>
@@ -357,7 +349,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                   }}
                 >
                   <div className="overflow-hidden">
-                {isExpanded || true ? (
+                {/* Content always rendered — CSS grid-template-rows handles show/hide with animation */}
                   <>
                     {(() => {
                       // Build pane→tab lookup and find which tabs are children
@@ -450,15 +442,12 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                       className="flex items-center gap-2 mx-2 mt-1 mb-0.5 px-5 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
                       title="New Claude session in this workspace"
                     >
-                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                        <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                      </svg>
+                      <Plus size={10} strokeWidth={1.5} />
                       <span className="text-[11px]">New session</span>
                     </button>
                     {/* Cron jobs section */}
                     <CronSection workspaceId={ws.id} />
                   </>
-                ) : null}
                   </div>
                 </div>
                 {!isExpanded && isActive && ws.active_tab_id ? (
@@ -506,9 +495,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
             className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] transition-colors`}
             title="Settings (Ctrl+,)"
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
-              <path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.3.071l1.102-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294a6.57 6.57 0 0 1 0 .772c-.01.147.04.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.103-.303c-.066-.019-.176-.011-.299.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.212.224l-.288 1.107c-.17.645-.716 1.195-1.459 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.065-1.289-.615-1.459-1.26l-.289-1.107c-.017-.066-.078-.158-.211-.224a5.909 5.909 0 0 1-.668-.386c-.123-.082-.233-.09-.3-.071l-1.102.303c-.644.176-1.392-.021-1.82-.63a8.012 8.012 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.049-.048.098-.147.088-.294a6.57 6.57 0 0 1 0-.772c.01-.147-.04-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.103.303c.066.019.176.011.299-.071.214-.143.437-.272.668-.386.133-.066.194-.158.212-.224L5.84 1.29c.17-.645.716-1.195 1.459-1.26A8.2 8.2 0 0 1 8 0ZM5.5 8a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0Z" />
-            </svg>
+            <GearIcon className="shrink-0" />
             {!isCompact && <span className="text-[11px]">Settings</span>}
           </button>
         </div>
@@ -647,8 +634,8 @@ export function HierarchyTree({
               </span>
               <StatusDot status={node.status} animate />
               {node.pane.connected_services?.includes("telegram") && (
-                <span className="text-[9px] text-[var(--ct-muted-fg)]/50" title="Telegram connected">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                <span className="text-[9px] text-[var(--ct-muted-fg)]/50">
+                  <TelegramIcon />
                 </span>
               )}
               {rc > 0 && (
@@ -757,7 +744,7 @@ function WorkspaceItem({
     const items: DropdownMenuItem[] = [
       {
         label: "New Terminal",
-        icon: <svg width="11" height="11" viewBox="0 0 16 16" fill="none"><path d="M2 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M8 13h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>,
+        icon: <TerminalSquare size={11} strokeWidth={1.5} />,
         onClick: onNewTerminal,
       },
       {
@@ -769,7 +756,7 @@ function WorkspaceItem({
     if (!workspace.protected) {
       items.push({
         label: "Delete Workspace",
-        icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+        icon: <X size={11} strokeWidth={2} />,
         onClick: onClose,
         danger: true,
       });
@@ -824,25 +811,10 @@ function WorkspaceItem({
         <div className="flex items-center gap-2 min-w-0" onClick={onClick}>
           {workspace.protected ? (
             <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="var(--ct-muted-fg)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                <path d="M8 1L2 4v4c0 3.3 2.6 6.4 6 7 3.4-.6 6-3.7 6-7V4L8 1z"/>
-                <path d="M5.5 8.5l2 2 3.5-4" />
-              </svg>
+              <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
             </span>
           ) : (
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 16 16"
-            fill="currentColor"
-            className="shrink-0"
-          >
-            {isExpanded ? (
-              <path d="M.513 1.513A1.75 1.75 0 0 1 1.75 1h3.5c.55 0 1.07.26 1.4.7l.9 1.2a.25.25 0 0 0 .2.1h6.5A1.75 1.75 0 0 1 16 4.75v.462a.25.25 0 0 1-.03.118l-2.39 4.608a1.75 1.75 0 0 1-1.553.937H1.75A1.75 1.75 0 0 1 0 9.125V2.75c0-.464.184-.91.513-1.237Z" />
-            ) : (
-              <path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z" />
-            )}
-          </svg>
+          <FolderIcon open={isExpanded} className="shrink-0" />
           )}
           {editing ? (
             <input
@@ -940,14 +912,14 @@ function TabItem({
     const items: DropdownMenuItem[] = [];
     items.push({
       label: "Rename",
-      icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>,
+      icon: <Pencil size={11} strokeWidth={2} />,
       onClick: () => { setEditName(tab.title); setEditing(true); },
     });
     // Role management — hide for Orchestrators (default role on all tabs)
     if (pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor") {
       items.push({
         label: "Remove Role",
-        icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="17" y1="11" x2="23" y2="11"/></svg>,
+        icon: <UserMinus size={11} strokeWidth={2} />,
         onClick: () => { if (pane) invoke("mux_clear_pane_role", { paneId: pane.id }); },
       });
     }
@@ -955,15 +927,15 @@ function TabItem({
       items.push({
         label: pane.can_spawn ? "Disallow Spawning" : "Allow Spawning",
         icon: pane.can_spawn
-          ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
-          : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>,
+          ? <Ban size={11} strokeWidth={2} />
+          : <CircleCheck size={11} strokeWidth={2} />,
         onClick: () => { if (pane) invoke("mux_set_can_spawn", { paneId: pane.id, canSpawn: !pane.can_spawn }); },
       });
     }
     if (canClose && !pane?.protected) {
       items.push({
         label: hasAgent ? "Close Session" : "Close Tab",
-        icon: <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+        icon: <X size={11} strokeWidth={2} />,
         onClick: onClose,
         danger: true,
       });
@@ -1023,9 +995,7 @@ function TabItem({
             title={status === "Working" ? `${agentProvider?.displayName || "Agent"} working...` : status === "Waiting" ? `${agentProvider?.displayName || "Agent"} — waiting for input` : agentProvider?.displayName || "Agent"}
           >{agentProvider?.icon || "\u2733"}</span>
         ) : (
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
-            <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z" />
-          </svg>
+          <TerminalIcon className="shrink-0" />
         )}
         {editing ? (
           <input
@@ -1058,8 +1028,8 @@ function TabItem({
         )}
         {/* Connected services */}
         {pane?.connected_services?.includes("telegram") && (
-          <span className="shrink-0 text-[var(--ct-muted-fg)]/50" title="Telegram connected">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+          <span className="shrink-0 text-[var(--ct-muted-fg)]/50">
+            <TelegramIcon />
           </span>
         )}
         {/* Prompt/status indicator dot */}
@@ -1110,13 +1080,6 @@ function TabItem({
 // Cron Jobs section (rendered per workspace, read-only — create via CLI/API)
 // ---------------------------------------------------------------------------
 
-function formatRelativeTime(ms: number): string {
-  const diff = Date.now() - ms;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
-}
 
 
 function CronSection({ workspaceId }: { workspaceId: string }) {
@@ -1276,7 +1239,7 @@ function CronItem({
                 {run.status === "Running" ? "\u25CF" : run.status === "Success" ? "\u2713" : "\u2717"}
               </span>
               <span className="text-[var(--ct-muted-fg)]">
-                {run.status === "Running" ? "running" : `run: ${formatRelativeTime(run.started_at)}`}
+                {run.status === "Running" ? "running" : `run: ${timeAgo(run.started_at)}`}
               </span>
             </div>
           ))}

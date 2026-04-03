@@ -8,6 +8,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMultiplexer } from "../../store/multiplexer";
+import { isMac } from "../../lib/keybindings";
 import { detectAgentFromTitle } from "../../lib/agentProviders";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
 import { CompletionPopup } from "./CompletionPopup";
@@ -231,27 +232,30 @@ export function TerminalPane({
   }, []);
 
   // Build context menu actions
+  const isProtected = state.panes[paneId]?.protected;
   const contextMenuActions: ContextMenuAction[] = [
     { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection },
     { label: "Paste", shortcut: "Ctrl+Shift+V", onClick: pasteFromClipboard },
     { label: "Clear", onClick: clearTerminal, separator: true },
-    {
-      label: "Split Right",
-      shortcut: "Ctrl+Shift+D",
-      onClick: () => splitPane(paneId, "Horizontal"),
-      separator: true,
-    },
-    {
-      label: "Split Down",
-      shortcut: "Ctrl+Shift+E",
-      onClick: () => splitPane(paneId, "Vertical"),
-    },
-    {
-      label: "Close Pane",
-      shortcut: "Ctrl+Shift+Q",
-      onClick: () => closePane(paneId),
-      separator: true,
-    },
+    ...(!isProtected ? [
+      {
+        label: "Split Right",
+        shortcut: "Ctrl+Shift+D",
+        onClick: () => splitPane(paneId, "Horizontal"),
+        separator: true,
+      },
+      {
+        label: "Split Down",
+        shortcut: "Ctrl+Shift+E",
+        onClick: () => splitPane(paneId, "Vertical"),
+      },
+      {
+        label: "Close Pane",
+        shortcut: "Ctrl+Shift+Q",
+        onClick: () => closePane(paneId),
+        separator: true,
+      },
+    ] as ContextMenuAction[] : []),
   ];
 
   // Listen for pane-specific status events
@@ -629,12 +633,14 @@ export function TerminalPane({
       // Track whether user has scrolled up (to preserve position during writes)
       const viewportEl = term.element?.querySelector('.xterm-viewport');
       if (viewportEl) {
-        viewportEl.addEventListener('scroll', () => {
+        const onScroll = () => {
           const buf = term.buffer.active;
           if (buf.type === 'normal') {
             userScrolledUp = buf.viewportY < buf.baseY;
           }
-        });
+        };
+        viewportEl.addEventListener('scroll', onScroll);
+        cleanupFns.push(() => viewportEl.removeEventListener('scroll', onScroll));
       }
 
       const flushToTerminal = () => {
@@ -719,7 +725,6 @@ export function TerminalPane({
       cleanupFns.push(() => { reading = false; });
 
       // Smart Ctrl+C / Cmd+C: copy if text selected, interrupt if not
-      const isMac = navigator.platform.toUpperCase().includes("MAC");
       term.attachCustomKeyEventHandler((e) => {
         if (e.type !== "keydown") return true;
         const mod = isMac ? e.metaKey : e.ctrlKey;

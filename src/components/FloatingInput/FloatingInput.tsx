@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { X, MessageSquare } from "lucide-react";
 
 interface FloatingInputProps {
   ptyId: string | null;
@@ -112,9 +113,7 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
             }}
             title="Close (Esc)"
           >
-            <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M2 2l8 8M10 2l-8 8"/>
-            </svg>
+            <X size={8} strokeWidth={2} />
           </button>
 
           <div
@@ -165,9 +164,7 @@ export default function FloatingInput({ ptyId, agentType, pendingPrompt }: Float
           }}
           title="Chat with agent"
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-60">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-          </svg>
+          <MessageSquare size={12} strokeWidth={2} className="shrink-0 opacity-60" />
           <span className="text-[11px] truncate opacity-40">
             {lastSent || "Message agent..."}
           </span>

@@ -193,7 +193,25 @@ pub fn start_general_agent(
             });
         match pane {
             Some(pid) => {
-                let sid = m.get_pane(&pid).and_then(|p| p.agent_session_id.clone());
+                let mut sid = m.get_pane(&pid).and_then(|p| p.agent_session_id.clone());
+                // If no session_id from snapshot, try detecting from filesystem
+                // (covers first launch, new machine, or wiped session store)
+                if sid.is_none() {
+                    let exclude: Vec<String> = m.other_session_ids(&pid);
+                    drop(m); // release lock before filesystem scan
+                    sid = crate::multiplexer::commands::detect_agent_session_id(
+                        &svc.agent_registry,
+                        provider_name,
+                        &general_cwd,
+                        Some(exclude),
+                        Some(86400 * 7), // 7 days max age
+                    ).ok().flatten();
+                    if let Some(ref detected) = sid {
+                        // Persist on pane so next restart uses snapshot
+                        svc.set_agent_session_id(&pid, Some(detected.clone()));
+                        log::info!("[general-agent] Detected session from filesystem: {}", detected);
+                    }
+                }
                 (pid, sid)
             }
             None => {
