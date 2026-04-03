@@ -610,7 +610,14 @@ pub async fn mesh_sync(
     headers: HeaderMap,
     Json(payload): Json<crate::mesh::types::MeshSyncPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    log::info!("[mesh/sync] Incoming sync: {} peers, crown={}, {} trust declarations",
+        payload.peers.len(),
+        payload.crown_public.as_ref().map(|c| c.holder_id.as_str()).unwrap_or("none"),
+        payload.trust_declarations.len());
+    check_auth(&state, &headers).map_err(|(s, e)| {
+        log::warn!("[mesh/sync] Auth FAILED: {}", e);
+        (s, e.to_string())
+    })?;
 
     let mut mesh = state.mesh.lock();
     let now = std::time::SystemTime::now()
