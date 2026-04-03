@@ -66,7 +66,8 @@ pub fn generate_instructions(provider_name: &str, instructions_filename: &str) {
         let end_marker = "<!-- CODETERM-AUTO-END -->";
         let start = existing.find(start_marker).unwrap();
         let end = existing.find(end_marker).unwrap() + end_marker.len();
-        format!("{}{}{}", &existing[..start], auto_section, &existing[end..])
+        let after = existing[end..].trim_start_matches('\n');
+        format!("{}{}\n\n{}", &existing[..start], auto_section.trim_end(), after)
     } else if existing.is_empty() {
         // Fresh file — add auto section + pointer to extra instructions
         format!("{}\n", auto_section)
