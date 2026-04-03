@@ -357,7 +357,37 @@ pub async fn mesh_disconnect(
             }
         }
     }
+    // Extract remaining peers + token BEFORE unpair (need lock only briefly)
+    let (remaining_peers, broadcast_token) = {
+        let m = mesh.lock();
+        let peers: Vec<_> = m.paired_peers.values()
+            .filter(|p| p.instance_id != instance_id)
+            .cloned().collect();
+        let token = m.sign_request().ok();
+        (peers, token)
+    };
+
     mesh.lock().unpair(&instance_id);
+
+    // Notify ALL remaining peers to also unpair the disconnected peer
+    if let Some(token) = broadcast_token {
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+        for peer in &remaining_peers {
+            if let Some(addr) = peer.addresses.first() {
+                let url = format!("http://{}:{}/api/mesh/peers/{}", addr.ip, peer.api_port, instance_id);
+                match http.delete(&url)
+                    .header("Authorization", format!("Bearer {}", token))
+                    .send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        log::info!("[mesh] Notified {} to remove {}", peer.instance_name, instance_id);
+                    }
+                    _ => log::debug!("[mesh] Failed to notify {} about mesh removal", peer.instance_name),
+                }
+            }
+        }
+    }
+
     let _ = svc.app_handle.emit("mesh-state-changed", ());
     Ok(())
 }
