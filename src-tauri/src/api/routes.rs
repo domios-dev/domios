@@ -115,11 +115,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/relay", post(super::mesh_routes::mesh_relay))
         .route("/api/mesh/peers/{id}", axum::routing::delete(super::mesh_routes::mesh_unpair));
 
-    // Debug endpoint — dev builds only, no auth, accessible from any machine
-    #[cfg(debug_assertions)]
-    let router = router
-        .route("/api/debug", get(super::mesh_routes::debug_endpoint))
-        .route("/api/debug/action", post(super::mesh_routes::debug_action));
 
     router
         .layer(CorsLayer::permissive())
