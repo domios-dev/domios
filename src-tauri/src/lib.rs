@@ -873,6 +873,7 @@ fn setup_logging() {
         .level_for("reqwest", log::LevelFilter::Warn)
         .level_for("tungstenite", log::LevelFilter::Warn)
         .level_for("tokio", log::LevelFilter::Warn)
+        .level_for("mdns_sd", log::LevelFilter::Warn)
         .chain(std::io::stderr())
         .chain(fern::log_file(&log_file).expect("Failed to open log file"))
         .apply()
