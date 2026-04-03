@@ -47,6 +47,12 @@ function makeTab(pane: Pane): Tab {
 }
 
 
+/** Compare two TitleLevel values and return the higher-priority one. */
+export function highestTitleLevel(a: TitleLevel, b: TitleLevel): TitleLevel {
+  const levels = [TitleLevel.Default, TitleLevel.Auto, TitleLevel.Agent, TitleLevel.User];
+  return levels.indexOf(a) >= levels.indexOf(b) ? a : b;
+}
+
 function collectPaneIds(node: SplitNode): string[] {
   if (node.type === "Leaf") return [node.pane_id];
   return node.children.flatMap(collectPaneIds);
@@ -212,11 +218,8 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
         // Keep highest title_level between backend and frontend
         const backendLevel = backendPane.title_level || TitleLevel.Default;
         const frontendLevel = existing?.title_level || TitleLevel.Default;
-        const levels = [TitleLevel.Default, TitleLevel.Auto, TitleLevel.User];
-        const highestLevel = levels.indexOf(backendLevel) >= levels.indexOf(frontendLevel) ? backendLevel : frontendLevel;
+        const highestLevel = highestTitleLevel(backendLevel, frontendLevel);
         const title = highestLevel === frontendLevel && existing ? existing.title : backendPane.title;
-        if (existing && existing.title !== title) {
-        }
         mergedPanes[id] = {
           ...backendPane,
           title_level: highestLevel as TitleLevel,
@@ -934,7 +937,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       setPendingCommand(tabInfo.pane_id, cmd);
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
-      console.log("[claude-spawn] refreshing frontend...");
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to spawn Claude tab:", e);
@@ -993,7 +995,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         console.error("Failed to split pane:", e);
       }
     },
-    [findContext],
+    [findContext, refreshFromBackend],
   );
 
   const closePane = useCallback(

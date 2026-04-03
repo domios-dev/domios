@@ -2,6 +2,8 @@ import { useState, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCrons } from "../../store/crons";
 import type { CronRunInfo } from "../../lib/types";
+import { ArrowLeftIcon, CloseIcon16 } from "../Icons";
+import { describeSchedule, formatTime } from "../../lib/formatters";
 
 // ── Schedule helpers ─────────────────────────────────────────────
 
@@ -14,29 +16,6 @@ const SCHEDULE_PRESETS = [
   { label: "Weekly Mon 9 AM", value: "0 9 * * 1" },
 ] as const;
 
-function describeSchedule(cron: string): string {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) return cron;
-  const [min, hour, dom, mon, dow] = parts;
-  if (min === "*" && hour === "*") return "Every minute";
-  if (hour === "*" && dom === "*" && mon === "*" && dow === "*") {
-    if (min === "0") return "Every hour";
-    if (min.startsWith("*/")) return `Every ${min.slice(2)} minutes`;
-  }
-  if (dom === "*" && mon === "*" && dow === "*") {
-    if (hour.startsWith("*/")) return `Every ${hour.slice(2)} hours at :${min.padStart(2, "0")}`;
-    return `Daily at ${hour}:${min.padStart(2, "0")}`;
-  }
-  if (dom === "*" && mon === "*" && dow !== "*") {
-    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    return `Every ${days[parseInt(dow)] || dow} at ${hour}:${min.padStart(2, "0")}`;
-  }
-  return cron;
-}
-
-function formatTime(ms: number): string {
-  return new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -62,9 +41,7 @@ export function CronPanel({ initialView, onClose }: CronPanelProps) {
                 className="text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors mr-1"
                 title="Back to all crons"
               >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M7.78 12.53a.75.75 0 0 1-1.06 0L2.47 8.28a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 1.06L4.81 7h7.44a.75.75 0 0 1 0 1.5H4.81l2.97 2.97a.75.75 0 0 1 0 1.06Z" />
-                </svg>
+                <ArrowLeftIcon />
               </button>
             )}
             <span className="text-[13px] font-medium text-[var(--ct-fg)]">
@@ -75,9 +52,7 @@ export function CronPanel({ initialView, onClose }: CronPanelProps) {
             onClick={onClose}
             className="text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
-            </svg>
+            <CloseIcon16 />
           </button>
         </div>
 

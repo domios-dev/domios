@@ -5,6 +5,8 @@ import { parseJsonlSession, parseTerminalOutput } from "./parser";
 import { getAgentProvider, isProviderNoise } from "../../lib/agentProviders";
 import { MessageBubble } from "./MessageBubble";
 import type { ChatMessage } from "./parser";
+import { AlertTriangle, File } from "lucide-react";
+import { SendIcon, ChevronUpIcon } from "../Icons";
 
 interface ChatViewProps {
   paneId: string;
@@ -647,9 +649,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
                   }}
                 >
                   <div className="flex items-center gap-2 mb-2">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ct-yellow)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                    </svg>
+                    <AlertTriangle size={14} strokeWidth={2} style={{ stroke: "var(--ct-yellow)" }} />
                     <span className="text-xs font-medium" style={{ color: "var(--ct-yellow)" }}>
                       {pendingPrompt.question}
                     </span>
@@ -712,9 +712,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
                     className="h-16 px-3 flex items-center gap-1.5 rounded-md border text-xs"
                     style={{ borderColor: "var(--ct-border, #30363d)", background: "var(--ct-bg, #0d1117)", color: "var(--ct-muted-fg, #8b949e)" }}
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>
-                    </svg>
+                    <File size={14} strokeWidth={2} />
                     {att.name.length > 20 ? att.name.slice(0, 17) + "..." : att.name}
                   </div>
                 )}
@@ -736,9 +734,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             className="w-full flex items-center justify-center gap-1 py-1 text-[10px] transition-colors hover:bg-[var(--ct-bg-hover)]"
             style={{ color: "var(--ct-muted, #8b949e)" }}
           >
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M3.22 9.78a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0l4.25 4.25a.75.75 0 01-1.06 1.06L8 6.06 4.28 9.78a.75.75 0 01-1.06 0z" />
-            </svg>
+            <ChevronUpIcon />
             Expand <span style={{ opacity: 0.5 }}>(⌘⇧E)</span>
           </button>
         )}
@@ -748,9 +744,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             className="w-full flex items-center justify-center gap-1 py-1 text-[10px] transition-colors hover:bg-[var(--ct-bg-hover)]"
             style={{ color: "var(--ct-muted, #8b949e)" }}
           >
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" style={{ transform: "rotate(180deg)" }}>
-              <path d="M3.22 9.78a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0l4.25 4.25a.75.75 0 01-1.06 1.06L8 6.06 4.28 9.78a.75.75 0 01-1.06 0z" />
-            </svg>
+            <ChevronUpIcon style={{ transform: "rotate(180deg)" }} />
             Collapse <span style={{ opacity: 0.5 }}>(⌘⇧E)</span>
           </button>
         )}
@@ -806,9 +800,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
             }}
             title="Send (Enter)"
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M.989 8 .064 2.68a1.342 1.342 0 011.85-1.462l13.402 5.744a1.13 1.13 0 010 2.076L1.913 14.782a1.343 1.343 0 01-1.85-1.463L.99 8Zm1.015.78l-.616 3.559a.14.14 0 00.193.153l10.24-4.387-9.817.674Zm-.616-5.119.616 3.559 9.817.674-10.24-4.387a.14.14 0 00-.193.154Z" />
-            </svg>
+            <SendIcon />
           </button>
         </div>
       </div>

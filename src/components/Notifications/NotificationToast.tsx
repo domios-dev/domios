@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Notification, NotificationAction } from "../../lib/types";
+import { InfoIcon, WarningIcon, ErrorIcon } from "../Icons";
 
 const LEVEL_STYLES: Record<Notification["level"], { border: string; icon: string }> = {
   Info: { border: "border-l-[var(--ct-accent)]", icon: "text-[var(--ct-accent)]" },
@@ -152,23 +153,8 @@ export function NotificationToastContainer({
 
 function LevelIcon({ level, className }: { level: Notification["level"]; className?: string }) {
   switch (level) {
-    case "Info":
-      return (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className={className}>
-          <path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" />
-        </svg>
-      );
-    case "Warning":
-      return (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className={className}>
-          <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575ZM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5Zm0 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" />
-        </svg>
-      );
-    case "Error":
-      return (
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className={className}>
-          <path d="M2.343 13.657A8 8 0 1 1 13.657 2.343 8 8 0 0 1 2.343 13.657ZM6.03 4.97a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042L6.94 8 4.97 9.97a.749.749 0 0 0 .326 1.275.749.749 0 0 0 .734-.217L8 9.06l1.97 1.97a.749.749 0 0 0 1.275-.326.749.749 0 0 0-.215-.734L9.06 8l1.97-1.97a.749.749 0 0 0-.326-1.275.749.749 0 0 0-.734.217L8 6.94Z" />
-        </svg>
-      );
+    case "Info": return <InfoIcon className={className} />;
+    case "Warning": return <WarningIcon className={className} />;
+    case "Error": return <ErrorIcon className={className} />;
   }
 }

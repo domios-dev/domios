@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { AppConfig, ThemeConfig } from "../../lib/types";
 
-const isMacPlatform = navigator.platform.toUpperCase().includes("MAC");
+import { isMac as isMacPlatform } from "../../lib/keybindings";
+import { adjustBrightness } from "../../lib/colors";
 
 interface OnboardingProps {
   config: AppConfig;
@@ -276,17 +277,6 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
 
 type C = { bg: string; fg: string; muted: string; dimmed: string; accent: string; green: string; surface: string; border: string; hover: string; glow: string };
 
-function adjustBrightness(hex: string, amount: number): string {
-  const clean = hex.replace("#", "");
-  const r = parseInt(clean.substring(0, 2), 16);
-  const g = parseInt(clean.substring(2, 4), 16);
-  const b = parseInt(clean.substring(4, 6), 16);
-  const dir = (r + g + b) / 3 > 128 ? -1 : 1;
-  const nr = Math.min(255, Math.max(0, r + amount * dir));
-  const ng = Math.min(255, Math.max(0, g + amount * dir));
-  const nb = Math.min(255, Math.max(0, b + amount * dir));
-  return `#${nr.toString(16).padStart(2, "0")}${ng.toString(16).padStart(2, "0")}${nb.toString(16).padStart(2, "0")}`;
-}
 
 // ── Step 1: Welcome ─────────────────────────────────────────────────
 

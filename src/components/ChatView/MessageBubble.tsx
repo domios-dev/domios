@@ -1,5 +1,6 @@
-import { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import type { ChatMessage, ImageAttachment } from "./parser";
+import { ChevronDown, File, Image, Download } from "lucide-react";
 
 const TOOL_ICONS: Record<string, string> = {
   Bash: "\u26A1",
@@ -213,25 +214,16 @@ function extractCommand(message: ChatMessage): string | null {
 /** Chevron icon for collapsible sections. */
 function ChevronIcon({ expanded, className = "" }: { expanded: boolean; className?: string }) {
   return (
-    <svg
+    <ChevronDown
       className={`w-3 h-3 flex-shrink-0 transition-transform duration-150 ${expanded ? "rotate-180" : ""} ${className}`}
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-    >
-      <path d="M3 4.5L6 7.5L9 4.5" />
-    </svg>
+      strokeWidth={1.5}
+    />
   );
 }
 
 /** File icon SVG for attachment badges. */
 function FileIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg className={className} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>
-    </svg>
-  );
+  return <File className={className} size={12} strokeWidth={2} />;
 }
 
 /** Extract filename from path. */
@@ -302,17 +294,13 @@ function ImageBadge() {
       className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs"
       style={{ background: "var(--ct-surface)", color: "var(--ct-muted-fg)" }}
     >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
-        <circle cx="9" cy="9" r="2"/>
-        <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
-      </svg>
+      <Image size={14} strokeWidth={2} />
       <span className="opacity-70">Image</span>
     </span>
   );
 }
 
-export function MessageBubble({ message }: { message: ChatMessage }) {
+export const MessageBubble = React.memo(function MessageBubble({ message }: { message: ChatMessage }) {
   const [expanded, setExpanded] = useState(false);
   const [codeExpanded, setCodeExpanded] = useState(false);
   const [viewingImage, setViewingImage] = useState<ImageAttachment | null>(null);
@@ -364,11 +352,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
                   }}
                   title={att.data ? "Click to preview" : "Image (not loaded)"}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
-                    <circle cx="9" cy="9" r="2"/>
-                    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
-                  </svg>
+                  <Image size={12} strokeWidth={2} />
                   {att.mimeType.replace("image/", "").toUpperCase()}
                 </button>
               ))}
@@ -389,9 +373,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
                   className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
                   style={{ color: "var(--ct-muted-fg)", background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
                 >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-                  </svg>
+                  <Download size={11} strokeWidth={2} />
                   Save
                 </a>
                 <button
@@ -596,4 +578,4 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
   }
 
   return null;
-}
+});
