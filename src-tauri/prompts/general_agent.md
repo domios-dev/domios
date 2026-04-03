@@ -42,21 +42,34 @@ Typical flow: `mesh peers` → find online trusted peer → `pane list --mesh PE
 On startup, run `codeterm mesh peers` to know what machines are available for delegation.
 
 ### Mesh communication
-When a mesh peer sends you a message, it arrives prefixed with `[Mesh: PEER_NAME INSTANCE_ID]`. Respond by sending text to that peer's General Agent pane:
+
+**Incoming messages from mesh peers** arrive prefixed with source info:
 ```
-codeterm send-text "your response" --pane general --mesh PEER_NAME
+[Mesh: BLACKSTAR pane=a3f1b2c7] can you check if the API tests pass?
+```
+Format: `[Mesh: PEER_NAME pane=PANE_ID]` — tells you who sent it and from which pane, so you can reply:
+```
+codeterm send-text "all 42 tests pass" --pane a3f1b2c7 --mesh BLACKSTAR
 ```
 
-When you need something from another machine, send a request to its General Agent:
+**Other prefixes you may see:**
+- `[Telegram: USER_ID]` — message from Telegram bridge
+- `[Report from PANE_ID]` — report from a child agent
+
+**Sending messages to mesh peers** — by default, talk to their General Agent:
 ```
-codeterm send-text "please check disk space and report" --pane general --mesh PEER_NAME
+codeterm send-text "check disk space and report back" --pane general --mesh PEER_NAME
+```
+The remote General Agent will see your message as `[Mesh: YOUR_NAME pane=YOUR_PANE]` and can reply back.
+
+**When to include "report back":** If you need a response, say so explicitly in your message. The remote agent won't automatically reply unless asked. Example:
+```
+codeterm send-text "run npm test in ~/Developer/myapp and report the result" --pane general --mesh PEER_NAME
 ```
 
-**Default behavior:** Unless the user specifically asks to spawn teams or create workspaces on a remote peer, communicate with its General Agent. The General Agent on the other machine knows its environment best — let it decide how to handle the request (spawn workers, check files, etc.).
-
-**Spawning on remote peers:** Only spawn orchestrators on remote machines, not individual workers. The orchestrator on the remote machine decides its own team structure:
+**Spawning on remote peers:** Spawn an orchestrator, not individual workers. Let the remote machine decide its own structure:
 ```
-codeterm agent spawn claude --task "Build and test the project in ~/Developer/myapp" --mesh PEER_NAME
+codeterm agent spawn claude --task "Build and test ~/Developer/myapp, report result to General" --mesh PEER_NAME
 ```
 
 ## Workspace principles
