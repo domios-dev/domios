@@ -527,6 +527,17 @@ impl MeshManager {
         crown::sign_request(priv_key, &self.identity.instance_id)
     }
 
+    /// Collect data needed for introducing a new peer to existing peers (and vice versa).
+    /// Returns (new_peer, existing_peers, our_id, signed_token). Call `broadcast_introductions` with the result.
+    pub fn prepare_introductions(&self, new_peer_id: &str) -> Option<(types::PairedPeer, Vec<types::PairedPeer>, String, String)> {
+        let new_peer = self.paired_peers.get(new_peer_id)?.clone();
+        let existing: Vec<_> = self.paired_peers.values()
+            .filter(|p| p.instance_id != new_peer_id)
+            .cloned().collect();
+        let token = self.sign_request().ok()?;
+        Some((new_peer, existing, self.identity.instance_id.clone(), token))
+    }
+
     /// Create an authenticated PeerClient for a paired peer.
     pub fn client_for(&self, peer_id: &str) -> Option<transport::PeerClient> {
         let peer = self.paired_peers.get(peer_id)?;
@@ -535,5 +546,54 @@ impl MeshManager {
             .or_else(|| peer.addresses.first())?;
         let token = self.sign_request().ok()?;
         Some(transport::PeerClient::new_signed(&addr.ip, peer.api_port, &token))
+    }
+}
+
+/// Send bidirectional introductions between a new peer and all existing peers.
+pub async fn broadcast_introductions(
+    new_peer: types::PairedPeer,
+    existing_peers: Vec<types::PairedPeer>,
+    our_id: String,
+    token: String,
+) {
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+    for existing in &existing_peers {
+        // new → existing
+        if let Some(addr) = existing.addresses.first() {
+            let intro = types::PeerIntroduction {
+                instance_id: new_peer.instance_id.clone(),
+                instance_name: new_peer.instance_name.clone(),
+                addresses: new_peer.addresses.clone(),
+                api_port: new_peer.api_port,
+                public_key: new_peer.public_key.clone(),
+                introduced_by: our_id.clone(),
+            };
+            let url = format!("http://{}:{}/api/mesh/introduce", addr.ip, existing.api_port);
+            match http.post(&url).header("Authorization", format!("Bearer {}", token))
+                .json(&intro).send().await {
+                Ok(resp) if resp.status().is_success() =>
+                    log::info!("[mesh/introduce] {} → {}", new_peer.instance_name, existing.instance_name),
+                _ => log::warn!("[mesh/introduce] Failed: {} → {}", new_peer.instance_name, existing.instance_name),
+            }
+        }
+        // existing → new
+        if let Some(addr) = new_peer.addresses.first() {
+            let intro = types::PeerIntroduction {
+                instance_id: existing.instance_id.clone(),
+                instance_name: existing.instance_name.clone(),
+                addresses: existing.addresses.clone(),
+                api_port: existing.api_port,
+                public_key: existing.public_key.clone(),
+                introduced_by: our_id.clone(),
+            };
+            let url = format!("http://{}:{}/api/mesh/introduce", addr.ip, new_peer.api_port);
+            match http.post(&url).header("Authorization", format!("Bearer {}", token))
+                .json(&intro).send().await {
+                Ok(resp) if resp.status().is_success() =>
+                    log::info!("[mesh/introduce] {} → {}", existing.instance_name, new_peer.instance_name),
+                _ => log::warn!("[mesh/introduce] Failed: {} → {}", existing.instance_name, new_peer.instance_name),
+            }
+        }
     }
 }
