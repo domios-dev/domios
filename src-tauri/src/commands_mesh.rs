@@ -321,13 +321,10 @@ pub async fn mesh_disconnect(
     svc: tauri::State<'_, crate::service::ServiceState>,
     instance_id: String,
 ) -> Result<(), String> {
-    // Block disconnecting the crown holder
     {
         let m = mesh.lock();
-        let is_crown = m.crown_public.as_ref()
-            .map(|c| c.holder_id == instance_id).unwrap_or(false);
-        if is_crown {
-            return Err("Cannot disconnect the crown holder. Transfer crown first.".to_string());
+        if m.crown_public.as_ref().map(|c| c.holder_id == instance_id).unwrap_or(false) {
+            return Err("Cannot disconnect crown holder — transfer crown first".to_string());
         }
     }
     // Notify the other side to disconnect too (use signed JWT auth)

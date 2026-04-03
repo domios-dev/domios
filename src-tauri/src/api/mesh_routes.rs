@@ -158,8 +158,34 @@ pub async fn mesh_pair_accept(
         let _ = mesh.save();
     }
 
-    log::info!("[mesh] Pairing complete (requester) with {} — pubkey exchanged", accept.from_instance_id);
+    log::info!("[mesh] Paired (requester) with {}", accept.from_instance_id);
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+
+    // Pre-sync: deliver crown + trust to new peer before their approve handler claims crown
+    let (sync_payload, peer_addr, peer_port, signed_token) = {
+        let m = state.mesh.lock();
+        let payload = m.build_sync_payload();
+        let peer = m.paired_peers.get(&accept.from_instance_id);
+        let addr = peer.and_then(|p| p.addresses.first().map(|a| a.ip.clone()));
+        let port = peer.map(|p| p.api_port).unwrap_or(7685);
+        let token = m.sign_request().ok();
+        (payload, addr, port, token)
+    };
+    if let (Some(addr), Some(token)) = (peer_addr, signed_token) {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+        let url = format!("http://{}:{}/api/mesh/sync", addr, peer_port);
+        match client.post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&sync_payload).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                log::info!("[mesh] Pre-sync to {} ok", accept.from_instance_id);
+            }
+            Ok(resp) => log::warn!("[mesh] Pre-sync to {} failed: {}", accept.from_instance_id, resp.status()),
+            Err(e) => log::warn!("[mesh] Pre-sync to {}: {}", accept.from_instance_id, e),
+        }
+    }
+
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -213,15 +239,10 @@ pub async fn mesh_unpair(
     let sender_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))?;
 
-    // Local user (own ID) or the peer disconnecting itself → always allowed.
-    // Another paired peer requesting removal → allowed (mesh-wide disconnect broadcast).
-    // Crown holder cannot be disconnected by anyone except themselves.
-    // Unknown sender → blocked by auth above.
-    log::info!("[mesh/unpair] sender={} wants to remove instance_id={} (our_id={})", sender_id, instance_id, our_id);
+    log::info!("[mesh/unpair] sender={} removing {}", sender_id, instance_id);
     if sender_id != our_id && sender_id != instance_id {
         let mesh_guard = state.mesh.lock();
         let is_paired = mesh_guard.paired_peers.contains_key(&sender_id);
-        // Block removal of crown holder by non-crown peers
         let target_is_crown = mesh_guard.crown_public.as_ref()
             .map(|c| c.holder_id == instance_id).unwrap_or(false);
         drop(mesh_guard);
@@ -236,7 +257,6 @@ pub async fn mesh_unpair(
         log::info!("[mesh] Peer {} requested removal of {} from our mesh", sender_id, instance_id);
     }
 
-    // Get the target peer info before removing (need address to notify them)
     let target_peer = state.mesh.lock().paired_peers.get(&instance_id).cloned();
     let signed_token = state.mesh.lock().sign_request().ok();
 
@@ -247,8 +267,7 @@ pub async fn mesh_unpair(
     let our_id = mesh.identity.instance_id.clone();
     drop(mesh);
 
-    // If this is a cascade removal (sender != target), notify the removed peer
-    // so they also remove us from their paired list
+    // Cascade: notify removed peer to also remove us
     if sender_id != instance_id {
         if let (Some(peer), Some(token)) = (target_peer, signed_token) {
             let addr = peer.addresses.iter()
@@ -573,11 +592,11 @@ pub async fn mesh_disconnect_peer(
         let is_crown = m.crown_public.as_ref()
             .map(|c| c.holder_id == instance_id).unwrap_or(false);
         if is_crown {
-            return Err((StatusCode::FORBIDDEN, "Cannot disconnect the crown holder. Transfer crown first.".to_string()));
+            return Err((StatusCode::FORBIDDEN, "Cannot disconnect crown holder — transfer crown first".to_string()));
         }
     }
 
-    // Notify the other side to disconnect too
+
     let (peer, signed_token, our_id) = {
         let m = state.mesh.lock();
         let peer = m.paired_peers.get(&instance_id).cloned();
@@ -608,7 +627,7 @@ pub async fn mesh_disconnect_peer(
         }
     }
 
-    // Notify remaining peers to also unpair the disconnected peer
+    // Cascade to remaining peers
     let (remaining_peers, broadcast_token) = {
         let m = state.mesh.lock();
         let peers: Vec<_> = m.paired_peers.values()
@@ -721,9 +740,7 @@ fn build_sync_payload(mesh: &crate::mesh::MeshManager) -> crate::mesh::types::Me
     }
 }
 
-/// Verify sender is a paired peer with valid signature, and check their trust level.
-/// Trusted and crown peers can relay commands. Untrusted peers are blocked.
-/// Trust is enforced on BOTH sides: sender CLI checks own trust, receiver verifies sender trust.
+/// Verify relay sender: must be paired + trusted (or crown). Untrusted blocked.
 pub fn check_mesh_relay_auth(state: &AppState, headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
     let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
@@ -741,18 +758,13 @@ pub fn check_mesh_relay_auth(state: &AppState, headers: &HeaderMap) -> Result<St
     let is_paired = mesh.paired_peers.contains_key(&peer_id);
     let is_crown = mesh.crown_public.as_ref().map(|c| c.holder_id == peer_id).unwrap_or(false);
     if !is_paired && !is_crown {
-        return Err((StatusCode::UNAUTHORIZED, format!("Peer {} is not paired", peer_id)));
+        return Err((StatusCode::UNAUTHORIZED, format!("Peer {} not paired", peer_id)));
     }
-
-    // Crown holder always allowed
     if is_crown { return Ok(peer_id); }
-
-    // Check sender's trust level — only Trusted can relay
     let trust = mesh.get_trust_level(&peer_id);
     match trust {
         crate::mesh::crown::TrustLevel::Trusted => Ok(peer_id),
-        _ => Err((StatusCode::FORBIDDEN,
-            format!("Peer {} is {:?} — untrusted peers cannot send commands", peer_id, trust))),
+        _ => Err((StatusCode::FORBIDDEN, format!("Peer {} is {:?}", peer_id, trust))),
     }
 }
 
