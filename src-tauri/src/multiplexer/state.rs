@@ -19,6 +19,9 @@ pub struct WorkspaceInfo {
     pub name: String,
     pub tab_count: usize,
     pub is_active: bool,
+    pub cwd: Option<String>,
+    pub protected: bool,
+    pub pane_ids: Vec<String>,
 }
 
 /// Central multiplexer state: workspaces, tabs, panes, and their relationships.
@@ -27,9 +30,26 @@ pub struct MultiplexerState {
     panes: HashMap<String, Pane>,
     active_workspace_id: Option<String>,
     focused_pane_id: Option<String>,
+    /// Reverse lookup: pty_id -> pane_id for O(1) resolution.
+    pty_to_pane: HashMap<String, String>,
+    /// Alias registry: human-readable name -> pane_id.
+    pane_aliases: HashMap<String, String>,
 }
 
 impl MultiplexerState {
+    /// Create an empty state with no workspaces.
+    /// Used when General Agent will create its own workspace.
+    pub fn empty() -> Self {
+        Self {
+            workspaces: vec![],
+            panes: HashMap::new(),
+            active_workspace_id: None,
+            focused_pane_id: None,
+            pty_to_pane: HashMap::new(),
+            pane_aliases: HashMap::new(),
+        }
+    }
+
     /// Create a new state with a default "Main" workspace, one tab, and one pane.
     /// Returns (state, initial_pane_id).
     pub fn new() -> (Self, String) {
@@ -45,13 +65,18 @@ impl MultiplexerState {
             cwd: None,
             url: None,
             agent_type: None,
-            claude_session_id: None,
+            agent_session_id: None,
             role: Some(AgentRole::Orchestrator),
             parent_pane_id: None,
             can_spawn: true,
             depth: 1,
             report_target_pane_id: None,
             title_level: TitleLevel::Default,
+            chat_view: false,
+            pending_prompt: None,
+            auto_approve: false,
+            protected: false,
+            connected_services: vec![],
         };
 
         let tab = Tab {
@@ -67,6 +92,8 @@ impl MultiplexerState {
             name: "Main".to_string(),
             tabs: vec![tab],
             active_tab_id: Some(tab_id),
+            cwd: None,
+            protected: false,
         };
 
         let mut panes = HashMap::new();
@@ -77,6 +104,8 @@ impl MultiplexerState {
             panes,
             active_workspace_id: Some(workspace_id),
             focused_pane_id: Some(pane_id.clone()),
+            pty_to_pane: HashMap::new(),
+            pane_aliases: HashMap::new(),
         };
 
         (state, pane_id)
@@ -84,7 +113,7 @@ impl MultiplexerState {
 
     // ── Workspace ops ────────────────────────────────────────────────
 
-    pub fn create_workspace(&mut self, name: String) -> WorkspaceInfo {
+    pub fn create_workspace(&mut self, name: String, cwd: Option<String>) -> WorkspaceInfo {
         let workspace_id = short_id();
 
         let workspace = Workspace {
@@ -92,15 +121,20 @@ impl MultiplexerState {
             name: name.clone(),
             tabs: vec![],
             active_tab_id: None,
+            cwd: cwd.clone(),
+            protected: false,
         };
 
         self.workspaces.push(workspace);
 
         WorkspaceInfo {
-            id: workspace_id,
+            id: workspace_id.clone(),
             name,
             tab_count: 1,
             is_active: false,
+            cwd,
+            protected: false,
+            pane_ids: vec![],
         }
     }
 
@@ -130,6 +164,10 @@ impl MultiplexerState {
             .position(|w| w.id == id)
             .ok_or_else(|| format!("Workspace not found: {}", id))?;
 
+        if self.workspaces[idx].protected {
+            return Err("Cannot close protected workspace".to_string());
+        }
+
         let workspace = self.workspaces.remove(idx);
 
         // Collect all pane IDs from all tabs
@@ -146,9 +184,13 @@ impl MultiplexerState {
             .filter_map(|pane| pane.pty_id.clone())
             .collect();
 
-        // Remove panes from the pane registry
+        // Remove panes from the pane registry and clean up reverse map
         for pid in &pane_ids {
-            self.panes.remove(pid);
+            if let Some(pane) = self.panes.remove(pid) {
+                if let Some(pty_id) = &pane.pty_id {
+                    self.pty_to_pane.remove(pty_id);
+                }
+            }
         }
 
         // If the closed workspace was active, switch to another
@@ -173,6 +215,21 @@ impl MultiplexerState {
             .ok_or_else(|| format!("Workspace not found: {}", id))?;
         ws.name = name.to_string();
         Ok(())
+    }
+
+    pub fn set_workspace_protected(&mut self, id: &str, protected: bool) {
+        if let Some(ws) = self.workspaces.iter_mut().find(|w| w.id == id) {
+            ws.protected = protected;
+        }
+    }
+
+    pub fn move_workspace_to_front(&mut self, id: &str) {
+        if let Some(idx) = self.workspaces.iter().position(|w| w.id == id) {
+            if idx > 0 {
+                let ws = self.workspaces.remove(idx);
+                self.workspaces.insert(0, ws);
+            }
+        }
     }
 
     /// Move a tab from one workspace to another. Returns error if not found.
@@ -219,11 +276,19 @@ impl MultiplexerState {
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
         self.workspaces
             .iter()
-            .map(|w| WorkspaceInfo {
-                id: w.id.clone(),
-                name: w.name.clone(),
-                tab_count: w.tabs.len(),
-                is_active: self.active_workspace_id.as_deref() == Some(&w.id),
+            .map(|w| {
+                let pane_ids: Vec<String> = w.tabs.iter()
+                    .flat_map(|t| t.split_tree.collect_pane_ids())
+                    .collect();
+                WorkspaceInfo {
+                    id: w.id.clone(),
+                    name: w.name.clone(),
+                    tab_count: w.tabs.len(),
+                    is_active: self.active_workspace_id.as_deref() == Some(&w.id),
+                    cwd: w.cwd.clone(),
+                    protected: w.protected,
+                    pane_ids,
+                }
             })
             .collect()
     }
@@ -295,9 +360,13 @@ impl MultiplexerState {
             .filter_map(|pane| pane.pty_id.clone())
             .collect();
 
-        // Remove panes
+        // Remove panes and clean up reverse map
         for pid in &pane_ids {
-            self.panes.remove(pid);
+            if let Some(pane) = self.panes.remove(pid) {
+                if let Some(pty_id) = &pane.pty_id {
+                    self.pty_to_pane.remove(pty_id);
+                }
+            }
         }
 
         // Update active tab
@@ -343,13 +412,18 @@ impl MultiplexerState {
             cwd: None,
             url: None,
             agent_type: None,
-            claude_session_id: None,
+            agent_session_id: None,
             role: None,
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
             report_target_pane_id: None,
             title_level: TitleLevel::Default,
+            chat_view: false,
+            pending_prompt: None,
+            auto_approve: false,
+            protected: false,
+            connected_services: vec![],
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -366,13 +440,18 @@ impl MultiplexerState {
             cwd: None,
             url,
             agent_type: None,
-            claude_session_id: None,
+            agent_session_id: None,
             role: None,
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
             report_target_pane_id: None,
             title_level: TitleLevel::Default,
+            chat_view: false,
+            pending_prompt: None,
+            auto_approve: false,
+            protected: false,
+            connected_services: vec![],
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -420,6 +499,14 @@ impl MultiplexerState {
 
     pub fn get_pane(&self, id: &str) -> Option<&Pane> {
         self.panes.get(id)
+    }
+
+    /// Collect agent_session_ids from all panes except the given one.
+    pub fn other_session_ids(&self, exclude_pane_id: &str) -> Vec<String> {
+        self.panes.values()
+            .filter(|p| p.id != exclude_pane_id)
+            .filter_map(|p| p.agent_session_id.clone())
+            .collect()
     }
 
     pub fn get_pane_mut(&mut self, id: &str) -> Option<&mut Pane> {
@@ -530,6 +617,12 @@ impl MultiplexerState {
     /// Close a pane: remove from split tree and pane registry.
     /// Cascade-closes all children. Returns all pty_ids that should be killed.
     pub fn close_pane(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
+        if let Some(pane) = self.panes.get(pane_id) {
+            if pane.protected {
+                return Err("Cannot close protected pane".to_string());
+            }
+        }
+
         let mut pty_ids = Vec::new();
 
         // Collect children to cascade-close BEFORE removing this pane
@@ -537,6 +630,7 @@ impl MultiplexerState {
 
         // Get the PTY ID before removing
         if let Some(pty_id) = self.panes.get(pane_id).and_then(|p| p.pty_id.clone()) {
+            self.pty_to_pane.remove(&pty_id);
             pty_ids.push(pty_id);
         }
 
@@ -585,11 +679,50 @@ impl MultiplexerState {
         Err(format!("Pane {} not found in any split tree", pane_id))
     }
 
+    /// Resolve a PTY ID to its pane ID (O(1) lookup).
+    pub fn pane_id_for_pty(&self, pty_id: &str) -> Option<String> {
+        self.pty_to_pane.get(pty_id).cloned()
+    }
+
     /// Link a pane to a PTY instance.
     pub fn link_pty(&mut self, pane_id: &str, pty_id: String) {
         if let Some(pane) = self.panes.get_mut(pane_id) {
-            pane.pty_id = Some(pty_id);
+            // Remove old mapping if pane already had a pty_id
+            if let Some(old_pty_id) = &pane.pty_id {
+                self.pty_to_pane.remove(old_pty_id);
+            }
+            pane.pty_id = Some(pty_id.clone());
+            self.pty_to_pane.insert(pty_id, pane_id.to_string());
         }
+    }
+
+    // ── Pane Alias Registry ──────────────────────────────────────────
+
+    /// Register a human-readable alias for a pane ID.
+    pub fn register_alias(&mut self, alias: &str, pane_id: &str) {
+        self.pane_aliases.insert(alias.to_string(), pane_id.to_string());
+    }
+
+    /// Remove a pane alias.
+    pub fn unregister_alias(&mut self, alias: &str) {
+        self.pane_aliases.remove(alias);
+    }
+
+    /// Resolve an ID-or-alias to a pane ID. Checks aliases first, then direct pane lookup.
+    /// Returns None if neither alias nor direct pane ID matches.
+    pub fn resolve_pane_id(&self, id_or_alias: &str) -> Option<String> {
+        // Check alias registry first
+        if let Some(pane_id) = self.pane_aliases.get(id_or_alias) {
+            // Verify the target pane still exists
+            if self.panes.contains_key(pane_id) {
+                return Some(pane_id.clone());
+            }
+        }
+        // Fall back to direct pane ID lookup
+        if self.panes.contains_key(id_or_alias) {
+            return Some(id_or_alias.to_string());
+        }
+        None
     }
 
     // ── Agent Hierarchy ──────────────────────────────────────────────
@@ -743,7 +876,7 @@ impl MultiplexerState {
                     let pane = panes.get(pane_id);
                     let cwd = pane.and_then(|p| p.cwd.clone());
                     let agent_type = pane.and_then(|p| p.agent_type.clone());
-                    let claude_session_id = pane.and_then(|p| p.claude_session_id.clone());
+                    let claude_session_id = pane.and_then(|p| p.agent_session_id.clone());
                     let role = pane.and_then(|p| p.role.map(|r| format!("{:?}", r)));
                     let parent_pane_id = pane.and_then(|p| p.parent_pane_id.clone());
                     let can_spawn = pane.map(|p| p.can_spawn).unwrap_or(false);
@@ -776,6 +909,8 @@ impl MultiplexerState {
                 id: ws.id.clone(),
                 name: ws.name.clone(),
                 active_tab_id: ws.active_tab_id.clone(),
+                cwd: ws.cwd.clone(),
+                protected: ws.protected,
                 tabs: ws.tabs.iter().map(|tab| {
                     TabSnapshot {
                         id: tab.id.clone(),
@@ -816,6 +951,7 @@ impl MultiplexerState {
                     let restored_title = title.as_deref().unwrap_or("Terminal").to_string();
                     let restored_level = match title_level.as_deref() {
                         Some("User") => TitleLevel::User,
+                        Some("Agent") => TitleLevel::Agent,
                         Some("Auto") => TitleLevel::Auto,
                         _ => if role.is_some() { TitleLevel::User } else { TitleLevel::Default },
                     };
@@ -826,14 +962,28 @@ impl MultiplexerState {
                         title: restored_title,
                         cwd: cwd.clone(),
                         url: None,
-                        agent_type: agent_type.clone(),
-                        claude_session_id: claude_session_id.clone(),
+                        // Don't restore agent_type — let backend detect from PTY output.
+                        // Restoring it causes false positives when Claude isn't running.
+                        agent_type: None,
+                        // Deduplicate: only assign session_id if no other pane already has it
+                        agent_session_id: claude_session_id.as_ref().and_then(|sid| {
+                            if panes.values().any(|p| p.agent_session_id.as_deref() == Some(sid.as_str())) {
+                                None // Already taken by another pane
+                            } else {
+                                Some(sid.clone())
+                            }
+                        }),
                         role: parsed_role,
                         parent_pane_id: parent_pane_id.clone(),
                         can_spawn: *can_spawn,
                         depth: *depth,
                         report_target_pane_id: None,
                         title_level: restored_level,
+                        chat_view: false,
+                        pending_prompt: None,
+                        auto_approve: false,
+                        protected: false,
+            connected_services: vec![],
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }
@@ -865,6 +1015,8 @@ impl MultiplexerState {
                         split_tree: snapshot_to_split(&tab.split_tree, &mut panes),
                     }
                 }).collect(),
+                cwd: ws.cwd.clone(),
+                protected: ws.protected,
             }
         }).collect();
 
@@ -873,6 +1025,8 @@ impl MultiplexerState {
             panes,
             active_workspace_id: snapshot.active_workspace_id.clone(),
             focused_pane_id: None,
+            pty_to_pane: HashMap::new(),
+            pane_aliases: HashMap::new(),
         }
     }
 }
@@ -920,7 +1074,7 @@ mod tests {
     #[test]
     fn test_create_workspace() {
         let (mut state, _) = MultiplexerState::new();
-        let info = state.create_workspace("Work".to_string());
+        let info = state.create_workspace("Work".to_string(), None);
         assert_eq!(info.name, "Work");
         assert_eq!(info.tab_count, 1);
         assert!(!info.is_active); // Not active yet
@@ -930,7 +1084,7 @@ mod tests {
     #[test]
     fn test_set_active_workspace() {
         let (mut state, _) = MultiplexerState::new();
-        let info = state.create_workspace("Work".to_string());
+        let info = state.create_workspace("Work".to_string(), None);
         assert!(state.set_active_workspace(&info.id).is_ok());
 
         let workspaces = state.list_workspaces();
@@ -1062,7 +1216,7 @@ mod tests {
     #[test]
     fn test_close_workspace_switches_active() {
         let (mut state, _) = MultiplexerState::new();
-        let ws2 = state.create_workspace("Second".to_string());
+        let ws2 = state.create_workspace("Second".to_string(), None);
         let ws1_id = state.list_workspaces()[0].id.clone();
 
         // Close the first workspace
@@ -1381,7 +1535,7 @@ mod tests {
     fn test_move_tab() {
         let (mut state, _) = MultiplexerState::new();
         let ws1_id = state.list_workspaces()[0].id.clone();
-        let ws2 = state.create_workspace("Second".to_string());
+        let ws2 = state.create_workspace("Second".to_string(), None);
 
         // Create a second tab in ws1
         let (tab2_id, _) = state.create_tab(&ws1_id).unwrap();
@@ -1399,7 +1553,7 @@ mod tests {
     fn test_move_last_tab_fails() {
         let (mut state, _) = MultiplexerState::new();
         let ws1_id = state.list_workspaces()[0].id.clone();
-        let ws2 = state.create_workspace("Second".to_string());
+        let ws2 = state.create_workspace("Second".to_string(), None);
         let tab_id = state.get_workspace(&ws1_id).unwrap().tabs[0].id.clone();
 
         let result = state.move_tab(&tab_id, &ws1_id, &ws2.id);
@@ -1419,7 +1573,7 @@ mod tests {
             .unwrap();
 
         // Create second workspace
-        let ws2 = state.create_workspace("Second".to_string());
+        let ws2 = state.create_workspace("Second".to_string(), None);
 
         // Snapshot
         let snap = state.to_session_snapshot();
@@ -1433,7 +1587,8 @@ mod tests {
         // Check pane state was preserved
         let pane = restored.get_pane(&pane_id).unwrap();
         assert_eq!(pane.cwd.as_deref(), Some("/test/path"));
-        assert_eq!(pane.agent_type.as_deref(), Some("claude"));
+        // agent_type is NOT restored (re-detected from PTY output to prevent false positives)
+        assert_eq!(pane.agent_type, None);
         assert_eq!(pane.role, Some(AgentRole::Orchestrator));
         assert_eq!(pane.depth, 1);
         assert!(pane.can_spawn);
@@ -1493,5 +1648,86 @@ mod tests {
         assert!(state.set_active_tab(&ws_id, "nonexistent").is_err());
         // Invalid workspace
         assert!(state.set_active_tab("nonexistent", &tab2_id).is_err());
+    }
+
+    // ── Protected Workspace/Pane Tests ───────────────────────────────
+
+    #[test]
+    fn test_protected_workspace_cannot_close() {
+        let (mut state, _) = MultiplexerState::new();
+        let ws_id = state.list_workspaces()[0].id.clone();
+        // Mark workspace as protected
+        let ws = state.workspaces.iter_mut().find(|w| w.id == ws_id).unwrap();
+        ws.protected = true;
+
+        let result = state.close_workspace(&ws_id);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Cannot close protected workspace");
+        // Workspace still exists
+        assert_eq!(state.list_workspaces().len(), 1);
+    }
+
+    #[test]
+    fn test_protected_pane_cannot_close() {
+        let (mut state, initial_pane_id) = MultiplexerState::new();
+        let new_pane_id = state.split_pane(&initial_pane_id, Orientation::Horizontal).unwrap();
+        // Mark the new pane as protected
+        state.get_pane_mut(&new_pane_id).unwrap().protected = true;
+
+        let result = state.close_pane(&new_pane_id);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Cannot close protected pane");
+        // Pane still exists
+        assert!(state.get_pane(&new_pane_id).is_some());
+    }
+
+    // ── Pane Alias Tests ─────────────────────────────────────────────
+
+    #[test]
+    fn test_alias_register_and_resolve() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        state.register_alias("main-terminal", &pane_id);
+
+        let resolved = state.resolve_pane_id("main-terminal");
+        assert_eq!(resolved, Some(pane_id.clone()));
+    }
+
+    #[test]
+    fn test_alias_not_found_falls_back_to_id() {
+        let (state, pane_id) = MultiplexerState::new();
+        // No alias registered — should resolve direct pane ID
+        let resolved = state.resolve_pane_id(&pane_id);
+        assert_eq!(resolved, Some(pane_id));
+    }
+
+    #[test]
+    fn test_resolve_nonexistent_returns_none() {
+        let (state, _) = MultiplexerState::new();
+        let resolved = state.resolve_pane_id("does-not-exist");
+        assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn test_alias_unregister() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        state.register_alias("my-pane", &pane_id);
+        assert!(state.resolve_pane_id("my-pane").is_some());
+
+        state.unregister_alias("my-pane");
+        // Alias no longer resolves
+        assert_eq!(state.resolve_pane_id("my-pane"), None);
+    }
+
+    #[test]
+    fn test_alias_to_deleted_pane_returns_none() {
+        let (mut state, initial_pane_id) = MultiplexerState::new();
+        let new_pane_id = state.split_pane(&initial_pane_id, Orientation::Horizontal).unwrap();
+        state.register_alias("ephemeral", &new_pane_id);
+
+        // Close the pane
+        state.close_pane(&new_pane_id).unwrap();
+
+        // Alias target is gone — resolve returns None
+        assert_eq!(state.resolve_pane_id("ephemeral"), None);
     }
 }

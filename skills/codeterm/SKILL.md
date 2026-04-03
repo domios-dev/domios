@@ -1,12 +1,18 @@
 ---
 name: codeterm
 description: Control CodeTerm terminal multiplexer — workspaces, panes, notifications, layouts, agent hierarchy, cron jobs. Use when user mentions splitting panes, creating workspaces, sending commands to other panes, visualizations, managing terminal sessions, spawning workers/agents, orchestrating parallel tasks, setting up multi-pane layouts, or scheduling recurring tasks. Also use when user says "in terminal", "split", "new pane", "run X there", "orchestrator", "conductor", "lead", "worker", "cron", "schedule", "every hour", "recurring", or wants to delegate tasks to sub-agents.
-version: 0.4.0
+version: 0.5.0
 ---
 
 # CodeTerm — AI Terminal Control
 
 You are running inside CodeTerm, an AI-first terminal multiplexer. CLI: `codeterm`
+
+**Your scope:** This skill is the "spinal cord" — it teaches you how to use CodeTerm tools. You are NOT the General Agent (the machine-level brain). You are a project agent working in a specific workspace. If you need machine-level context (what other projects exist, system state, who's online in mesh), ask the local General Agent:
+```bash
+codeterm send-text "what projects are open right now?" --pane general
+```
+The General Agent's response arrives in your terminal. Use this when you don't know something about the environment rather than guessing.
 
 **CRITICAL — Cron jobs / scheduled tasks / recurring tasks:**
 Do NOT use the built-in CronCreate/CronList tools. CodeTerm has its own cron system. Always use `codeterm cron` commands:
@@ -56,14 +62,14 @@ Commands default to the **current focused pane** when no ID is given.
 - `$CODETERM_SOCKET_PATH` — socket path for CLI communication
 - `$CODETERM` — always `1` when running inside CodeTerm
 
-**Important:** Always use `$CODETERM_PANE_ID` to reference your own pane — `pane current` returns the *focused* pane (which may be a different pane). When splitting, always pass `--id $CODETERM_PANE_ID` to split *your* pane. Use `pane current --last` to get the ID of the newly created pane after a split.
+**Important:** Always use `$CODETERM_PANE_ID` to reference your own pane — `pane current` returns the *focused* pane (which may be a different pane).
 
 ```
 codeterm pane list                              # List panes
 codeterm pane current                           # Get focused pane ID (may not be yours!)
 codeterm pane current --last                    # Get last created pane ID
-codeterm pane split --id $CODETERM_PANE_ID      # Split YOUR pane right
-codeterm pane split --id $CODETERM_PANE_ID --direction down  # Split YOUR pane down
+codeterm pane split --id $CODETERM_PANE_ID      # Split pane right (only when user asks)
+codeterm pane split --id $CODETERM_PANE_ID --direction down  # Split pane down
 codeterm pane rename "title"                    # Rename your tab
 codeterm pane rename "title" --pane PANE_ID     # Rename specific pane
 codeterm pane focus PANE_ID                     # Focus pane
@@ -109,30 +115,6 @@ codeterm notifications clear
 ```
 
 Levels: `info` (blue), `warning` (yellow), `error` (red)
-
-## Common Layouts
-
-### Side-by-side (split + run command)
-```bash
-codeterm pane split
-NEW_PANE=$(codeterm pane current --last)
-codeterm send-text "npm test" --pane $NEW_PANE
-```
-
-### Three-panel (editor left, two panes right)
-```bash
-# Split right → capture top-right pane
-codeterm pane split
-TOP_RIGHT=$(codeterm pane current --last)
-
-# Split that pane down → capture bottom-right pane
-codeterm pane split --id $TOP_RIGHT --direction down
-BOT_RIGHT=$(codeterm pane current --last)
-
-# Send commands to each pane
-codeterm send-text "npm test -- --watch" --pane $TOP_RIGHT
-codeterm send-text "tail -f /var/log/app.log" --pane $BOT_RIGHT
-```
 
 ## Agent Hierarchy
 
@@ -203,9 +185,32 @@ If `$CODETERM_ROLE` is empty (Orchestrator):
 - Spawn leads/workers with `codeterm agent spawn`
 - After spawning, stay operational — continue your work. Do NOT block with sleep or polling. Reports arrive automatically as `[Report from ...]` messages. React when you see them.
 
-**Report syntax:** `codeterm agent report "message"` — message is the FIRST positional argument. Do NOT use `--message`, `--to`, or `--from` flags.
+## Mesh Networking
 
-**Hierarchy:** Orchestrator (depth 1) → Lead (depth 2) → Worker (depth 3). Leads can spawn Workers. Workers cannot spawn. IDs are 8-char hex.
+CodeTerm instances form a mesh — discover, pair, and communicate across machines.
+
+**Any command works on a remote peer — add `--mesh TARGET` (name or ID):**
+```bash
+codeterm mesh status                           # Your identity, crown, peers
+codeterm mesh peers                            # Paired + discovered peers
+codeterm pane list --mesh PEER                 # Remote panes
+codeterm send-text "cmd" --pane ID --mesh PEER # Send to remote pane
+codeterm get-output --pane ID --mesh PEER      # Read remote output
+codeterm agent spawn claude --task "build" --mesh PEER  # Spawn remotely
+codeterm workspace create "CI" --mesh PEER     # Create workspace remotely
+```
+
+**Flow:** `mesh peers` → find trusted peer → `pane list --mesh PEER` → interact. Only `trusted` peers accept commands.
+
+**Mesh message prefixes:** Incoming messages from mesh peers arrive as:
+```
+[Mesh: BLACKSTAR pane=a3f1b2c7] can you run the tests?
+```
+Reply to the source pane on the source peer:
+```bash
+codeterm send-text "tests pass" --pane a3f1b2c7 --mesh BLACKSTAR
+```
+To message a peer's General Agent: `--pane general --mesh PEER`. Include "report back" if you need a response.
 
 ### Orchestrator pattern (batch API — REST and Tauri IPC)
 ```bash
@@ -226,22 +231,6 @@ curl -X POST http://localhost:7685/api/batch \
 
 Batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `can-spawn`, `report`.
 Use `$id` to reference results from earlier commands (resolves to pane_id).
-
-### Orchestrator pattern (manual -- split + link)
-```bash
-# 1. Mark self as orchestrator
-codeterm agent set-conductor --pane $CODETERM_PANE_ID
-
-# 2. Split and assign workers
-codeterm pane split
-WORKER=$(codeterm pane current --last)
-codeterm agent link --parent $CODETERM_PANE_ID --pane $WORKER
-
-# 3. Send work to worker pane
-codeterm send-text "npm test" --pane $WORKER
-
-# 4. Reports arrive automatically as [Report from ...] in your PTY -- no polling needed
-```
 
 ## Multi-agent Workflow
 ```bash
@@ -330,7 +319,15 @@ Cron runs spawn Claude agents on schedule. The spawned agent calls `cron complet
 
 Deleting a cron job cascades: kills all running panes/PTYs, closes their tabs, and removes the log directory (`~/.codeterm/crons/<job_id>/`).
 
+**IMPORTANT:** To modify a cron job, use `codeterm cron edit ID --name/--schedule/--task`. Do NOT delete and recreate — that loses run history and changes the ID. The `edit` command updates in-place.
+
+**Workspace:** `cron create` uses `$CODETERM_WORKSPACE_ID` by default (your current workspace). Override with `--workspace ID` if needed.
+
 Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
+
+## Command Palette
+
+`Cmd+K` (macOS) / `Ctrl+K` (Windows/Linux) opens the command palette for quick access to tabs, workspaces, splits, settings, and theme switching.
 
 ## System
 ```
@@ -347,9 +344,71 @@ When asked to test the CodeTerm orchestrator:
 4. Check hierarchy (`codeterm agent hierarchy`), reports, pane outputs
 5. If issues — read each pane's output, find errors, fix skill/code, repeat from step 1
 
+## Integrations
+
+### Telegram Bridge
+Connect a Telegram bot to the General Agent. CodeTerm handles inbound routing — the agent sends replies via CLI.
+
+**Setup:**
+1. Create a bot via @BotFather on Telegram, get the token
+2. Save token as PLAIN TEXT (just the token, nothing else) to `~/.codeterm/secrets/telegram.token`:
+   ```bash
+   mkdir -p ~/.codeterm/secrets
+   echo -n "YOUR_BOT_TOKEN_HERE" > ~/.codeterm/secrets/telegram.token
+   ```
+   IMPORTANT: The file must contain ONLY the token string — no markdown, no headers, no extra text.
+3. Enable: `codeterm config set integrations.telegram_enabled true`
+4. Optionally restrict users: `codeterm config set integrations.telegram_allowed_users '["186809246"]'`
+5. Restart CodeTerm (hot-reload not yet supported)
+
+**How it works:**
+- Inbound (Telegram → Agent): messages arrive as `[Telegram: user_id] text` in the PTY. Rapid messages within 300ms are debounced into one delivery. Typing indicator is sent automatically.
+- Outbound (Agent → Telegram): use `codeterm bridge send` CLI command. Supports HTML formatting (falls back to plain text). Works from **any pane**, not just the General Agent pane.
+- `bridge send` (without `--append`) always sends a **new** message — no auto-edit.
+- `--append` concatenates text to the previous message with an automatic `\n\n` paragraph break (agent does not need to add literal `\n\n`) and edits in-place within a 60-second window. After 60s, sends new.
+- UTF-8 safe: messages are chunked safely for Cyrillic, emoji, and other multi-byte characters.
+- Resilience: if Telegram polling dies, the bridge auto-restarts after 5 seconds.
+
+**Sending messages:**
+```bash
+# Send a NEW message (always new, no auto-edit)
+codeterm bridge send --to USER_ID --service telegram "Your reply here"
+
+# Append to previous message (auto-inserts paragraph break, edits in-place within 60s)
+codeterm bridge send --to USER_ID --service telegram --append "...more text"
+```
+
+**Sending media:**
+```bash
+# Photo with caption
+codeterm bridge send --to USER_ID --type photo --file /path/to/image.png --caption "Check this out"
+
+# Document with custom filename
+codeterm bridge send --to USER_ID --type document --file /path/to/report.pdf --filename "Q1-report.pdf"
+
+# Voice / Video / Animation (GIF) / Sticker
+codeterm bridge send --to USER_ID --type voice --file /path/to/audio.ogg
+codeterm bridge send --to USER_ID --type video --file /path/to/video.mp4
+codeterm bridge send --to USER_ID --type animation --file /path/to/anim.gif
+codeterm bridge send --to USER_ID --type sticker --file /path/to/sticker.webp
+```
+
+Supported `--type`: `text` (default), `photo`, `document`, `voice`, `animation`, `video`, `sticker`. Positional text is used as caption if `--caption` not set. Stickers have no caption.
+
+**Settings UI:** Settings → Integrations → Telegram (toggle + allowed users)
+
+### Config Management
+Read/write CodeTerm config from the CLI:
+```bash
+codeterm config get integrations.telegram_enabled    # read a value
+codeterm config set integrations.telegram_enabled true  # set a value
+codeterm config get general_agent                    # read a section
+```
+Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["array"]).
+
 ## Platform Notes
 
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 16 -->
+<!-- revision: 23 -->

@@ -1,33 +1,56 @@
-use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtyPair, PtySize, PtySystem};
+use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex as StdMutex};
+
+use super::write_queue::WriteQueue;
 
 /// A PTY session — stores the pair, reader, writer, child.
 pub struct PtySession {
     pub pair: StdMutex<PtyPair>,
     pub reader: StdMutex<Option<Box<dyn Read + Send>>>,
-    pub writer: StdMutex<Box<dyn Write + Send>>,
+    pub write_queue: WriteQueue,
     pub child: StdMutex<Box<dyn portable_pty::Child + Send + Sync>>,
 }
 
-/// Ring buffer storing last N bytes of PTY output per pane
+/// Ring buffer storing last N bytes of PTY output per pane.
+/// Also maintains a full history (capped at MAX_FULL_SIZE) for chat view parsing.
+///
+/// Screen parsing (VT100) lives in `ScreenState` behind a separate lock
+/// to avoid contention between output processing and chat view reads.
 pub struct OutputBuffer {
     buffers: HashMap<String, Vec<u8>>,
+    /// Full output history (capped at MAX_FULL_SIZE per PTY). Used by chat view parser.
+    full_buffers: HashMap<String, Vec<u8>>,
     max_size: usize,
 }
 
+/// Maximum size of full_buffers per PTY (2 MB).
+const MAX_FULL_SIZE: usize = 2 * 1024 * 1024;
+
 impl OutputBuffer {
     pub fn new(max_size: usize) -> Self {
-        Self { buffers: HashMap::new(), max_size }
+        Self {
+            buffers: HashMap::new(),
+            full_buffers: HashMap::new(),
+            max_size,
+        }
     }
 
     pub fn append(&mut self, pty_id: &str, data: &[u8]) {
+        // Ring buffer (truncated)
         let buf = self.buffers.entry(pty_id.to_string()).or_default();
         buf.extend_from_slice(data);
         if buf.len() > self.max_size {
             let drain = buf.len() - self.max_size;
             buf.drain(..drain);
+        }
+        // Full history (capped at MAX_FULL_SIZE)
+        let full = self.full_buffers.entry(pty_id.to_string()).or_default();
+        full.extend_from_slice(data);
+        if full.len() > MAX_FULL_SIZE {
+            let excess = full.len() - MAX_FULL_SIZE;
+            full.drain(..excess);
         }
     }
 
@@ -35,12 +58,23 @@ impl OutputBuffer {
         self.buffers.get(pty_id).map(|v| v.as_slice())
     }
 
+    /// Get full untruncated output history.
+    pub fn get_full(&self, pty_id: &str) -> Option<&[u8]> {
+        self.full_buffers.get(pty_id).map(|v| v.as_slice())
+    }
+
     pub fn get_text(&self, pty_id: &str) -> Option<String> {
         self.get(pty_id).map(|b| String::from_utf8_lossy(b).to_string())
     }
 
+    /// Get full untruncated output as text.
+    pub fn get_full_text(&self, pty_id: &str) -> Option<String> {
+        self.get_full(pty_id).map(|b| String::from_utf8_lossy(b).to_string())
+    }
+
     pub fn remove(&mut self, pty_id: &str) {
         self.buffers.remove(pty_id);
+        self.full_buffers.remove(pty_id);
     }
 }
 
@@ -138,10 +172,12 @@ impl PtyManager {
         let pty_id = custom_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         log::info!("Spawned PTY {} with shell '{}'", pty_id, shell);
 
+        let write_queue = WriteQueue::new(writer);
+
         let session = Arc::new(PtySession {
             pair: StdMutex::new(pair),
             reader: StdMutex::new(Some(reader)),
-            writer: StdMutex::new(writer),
+            write_queue,
             child: StdMutex::new(child),
         });
 
@@ -153,14 +189,11 @@ impl PtyManager {
         self.sessions.get(pty_id).cloned()
     }
 
-    /// Write to PTY (for sync callers like socket/API)
-    pub fn write(&mut self, pty_id: &str, data: &[u8]) -> Result<(), String> {
+    /// Write to PTY via the serialized write queue.
+    pub fn write(&self, pty_id: &str, data: &[u8]) -> Result<(), String> {
         let session = self.sessions.get(pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
-        let mut writer = session.writer.lock().map_err(|e| e.to_string())?;
-        writer.write_all(data).map_err(|e| format!("Write failed: {}", e))?;
-        writer.flush().map_err(|e| format!("Flush failed: {}", e))?;
-        Ok(())
+        session.write_queue.send(data.to_vec())
     }
 
     /// Resize PTY

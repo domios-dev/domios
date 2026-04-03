@@ -62,21 +62,131 @@ open_settings = "Ctrl+,"
 [agent]
 # Agent config controls AI agent integration (e.g. Claude Code).
 # poll_interval_ms: how often the agent polls for new commands.
-# idle_timeout_s: disconnect agent after this many seconds of inactivity.
+# idle_timeout_s: seconds of idle before treating agent as idle (used for output streaming).
 # resume_sessions: auto-resume Claude Code sessions on restart.
 # resume_skip_permissions: add --dangerously-skip-permissions to resumed sessions.
 poll_interval_ms = 500
-idle_timeout_s = 30
+idle_timeout_s = 2
 resume_sessions = true
-resume_skip_permissions = false
+resume_skip_permissions = true
 
 [api]
-enabled = false
+enabled = true
 host = "0.0.0.0"
 port = 7685
 # token = "your-secret-token"  # Uncomment to require auth
 cors = true
+
+[general_agent]
+enabled = true
+agent_provider = "claude"       # Agent command to use
+auto_restart = true             # Auto-restart on crash
+max_restart_attempts = 3
+restart_delay_s = 60
+
+[integrations]
+telegram_enabled = false
+telegram_allowed_users = []     # Telegram user IDs (strings), empty = allow all
+discord_enabled = false
+discord_allowed_users = []
+webhook_enabled = false
+webhook_port = 7687
 ```
+
+## Config API
+
+Read and write config values at runtime via REST or CLI.
+
+**REST:**
+```bash
+# Read full config
+curl http://host:7685/api/config
+
+# Read a specific key (dot-notation)
+curl "http://host:7685/api/config?key=integrations.telegram_enabled"
+
+# Set a value
+curl -X PATCH http://host:7685/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"key": "integrations.telegram_enabled", "value": true}'
+```
+
+**CLI:**
+```bash
+codeterm config get integrations.telegram_enabled
+codeterm config set integrations.telegram_enabled true
+codeterm config get general_agent              # read an entire section
+```
+
+Values are JSON-compatible: `true`, `false`, `42`, `"string"`, `["array"]`. Changes are saved to disk immediately and trigger a `config-changed` event.
+
+## General Agent
+
+The General Agent is an always-on Claude Code instance that lives in the "General" workspace. It handles Telegram messages, cron tasks, and acts as the default orchestrator.
+
+```toml
+[general_agent]
+enabled = true                  # Enable the General Agent
+agent_provider = "claude"       # Agent command (default: claude)
+auto_restart = true             # Auto-restart if agent crashes
+max_restart_attempts = 3        # Max restart attempts before giving up
+restart_delay_s = 60            # Seconds between restart attempts
+```
+
+When enabled, CodeTerm starts with a single "General" workspace instead of the default "Main" workspace. The General Agent pane is marked as protected (cannot be closed via UI).
+
+Settings UI: Settings > Agents > General Agent section (enable, auto-restart toggles).
+
+## Integrations
+
+External service integrations are configured under `[integrations]`.
+
+### Telegram Bridge
+
+Connect a Telegram bot to the General Agent. Messages are routed bidirectionally:
+- **Inbound** (Telegram to Agent): Messages arrive as `[Telegram: user_id] text` in the PTY. Rapid messages within 300ms are debounced into a single delivery. A typing indicator is sent on every inbound message.
+- **Outbound** (Agent to Telegram): The agent sends replies via CLI: `codeterm bridge send --to USER_ID --service telegram "text"`. Without `--append`, always sends a new message. Use `--append` to concatenate text to the previous message (auto-inserts `\n\n` paragraph break, edits in-place within 60s window). Works from any pane, not just the General Agent.
+
+```toml
+[integrations]
+telegram_enabled = false
+telegram_allowed_users = []     # Telegram user IDs as strings, empty = allow all
+```
+
+**Setup:**
+1. Create a bot via @BotFather on Telegram, get the token
+2. Save token to `~/.codeterm/secrets/telegram.token` (Windows: `%APPDATA%/codeterm/secrets/telegram.token`)
+3. Enable: `codeterm config set integrations.telegram_enabled true`
+4. Optionally restrict users: `codeterm config set integrations.telegram_allowed_users '["186809246"]'`
+5. Restart CodeTerm (hot-reload not yet supported)
+
+Connected services are shown as icons next to the pane title in the sidebar (`connected_services` field on the pane object).
+
+Settings UI: Settings > Integrations > Telegram (toggle + allowed users list).
+
+### Discord (coming soon)
+
+```toml
+discord_enabled = false
+discord_allowed_users = []
+```
+
+### Webhooks (integration bridge)
+
+```toml
+webhook_enabled = false
+webhook_port = 7687
+```
+
+## OS Autostart
+
+CodeTerm can launch at login, starting minimized to the system tray.
+
+- **Windows:** HKCU registry key (`Software\Microsoft\Windows\CurrentVersion\Run`)
+- **macOS:** LaunchAgent plist (`~/Library/LaunchAgents/com.codeterm.app.plist`)
+- **Linux:** `.desktop` file (`~/.config/autostart/codeterm.desktop`)
+
+Toggle via Settings UI (Agents tab) or Tauri IPC commands `get_autostart_enabled` / `set_autostart_enabled`. Also available in the Onboarding flow.
 
 ## Themes
 
@@ -129,4 +239,18 @@ Shell integration scripts are stored in the platform data directory:
 
 Scripts are created at startup by `pty::shell_integration::ensure_scripts()`. Users should not need to edit these files.
 
-<!-- revision: 6 -->
+## Dev/Prod Isolation
+
+Dev builds use separate paths and ports to avoid conflicts with production:
+
+| Setting | Dev | Prod |
+|---------|-----|------|
+| Identifier | `com.codeterm.dev` | `com.codeterm.app` |
+| API port | 7686 | 7685 |
+| Data dir | `~/.codeterm-dev/` | `~/.codeterm/` |
+| Socket prefix | `codeterm-dev` | `codeterm` |
+| Single-instance | Disabled | Enabled |
+
+Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
+
+<!-- revision: 10 -->

@@ -1,8 +1,9 @@
 import { useCallback, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ThemeConfig } from "../../lib/types";
+import { HamburgerIcon, CloseXIcon } from "../Icons";
 
-const isMac = navigator.platform.toUpperCase().includes("MAC");
+import { isMac } from "../../lib/keybindings";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -26,7 +27,8 @@ export function Titlebar({
 
   return (
     <div
-      className="flex items-center h-9 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] select-none shrink-0"
+      className="flex items-center h-9 bg-[var(--ct-titlebar-bg)] select-none shrink-0"
+      style={{ boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)" }}
       data-tauri-drag-region
     >
       {/* macOS: traffic lights on the left */}
@@ -45,9 +47,7 @@ export function Titlebar({
           className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
           title="Toggle sidebar"
         >
-          <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M1 2.75A.75.75 0 0 1 1.75 2h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 2.75Zm0 5A.75.75 0 0 1 1.75 7h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 7.75ZM1.75 12h12.5a.75.75 0 0 1 0 1.5H1.75a.75.75 0 0 1 0-1.5Z" />
-          </svg>
+          <HamburgerIcon size={15} />
         </button>
 
         {/* Breadcrumb */}
@@ -204,9 +204,7 @@ function WindowsControls({
         className="inline-flex items-center justify-center w-12 h-full hover:bg-[#e81123] text-[var(--ct-muted)] hover:text-white transition-colors"
         title="Close"
       >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-          <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
-        </svg>
+        <CloseXIcon />
       </button>
     </div>
   );

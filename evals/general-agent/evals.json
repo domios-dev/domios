@@ -1,0 +1,141 @@
+{
+  "skill_name": "general-agent-prompt",
+  "description": "Evaluates the CodeTerm General Agent system prompt for correct behavioral responses",
+  "evals": [
+    {
+      "id": 1,
+      "name": "implicit-request-ask-not-act",
+      "prompt": "[Telegram: 186809246] как там мой проект на BLACKSTAR, все ок?",
+      "expected_output": "Agent should ask BLACKSTAR's general agent via mesh, NOT create workspaces or spawn agents",
+      "expectations": [
+        "Uses send-text --pane general --mesh BLACKSTAR",
+        "Does NOT use workspace create",
+        "Does NOT use agent spawn",
+        "Includes 'report back' or similar in the message to BLACKSTAR"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "explicit-request-create-workspace",
+      "prompt": "[Telegram: 186809246] открой Example Project из ~/Developer/example-project и заспавнь агента чтоб разобрался",
+      "expected_output": "Agent creates workspace at project root and spawns an agent there",
+      "expectations": [
+        "Uses workspace create with project name",
+        "Uses agent spawn with --task and --workspace",
+        "Creates ONE workspace at ~/Developer/example-project root, not per sub-folder"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "mesh-spawn-orchestrator-not-worker",
+      "prompt": "[Telegram: 186809246] запусти билд и тесты на BLACKSTAR в ~/Developer/myapp",
+      "expected_output": "Agent spawns orchestrator on remote machine, not a worker or lead",
+      "expectations": [
+        "Uses agent spawn --mesh BLACKSTAR",
+        "Does NOT use --role Worker or --role Lead",
+        "Task description lets remote decide its own structure",
+        "Does NOT inject --parent with a local pane ID"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "recon-before-action",
+      "prompt": "[Telegram: 186809246] глянь что за проект ~/Developer/something-new, разберись что там",
+      "expected_output": "Agent opens a terminal or uses existing one to explore first, not immediately creating workspace + agent",
+      "expectations": [
+        "Explores the directory first (ls, tree, or similar) before creating workspace",
+        "Does NOT immediately create workspace without looking",
+        "May use pane exec or send-text to explore"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "telegram-photo-response",
+      "prompt": "[Telegram: 186809246] пришли скриншот что у тебя на экране",
+      "expected_output": "Agent takes screenshot and sends via bridge send --type photo",
+      "expectations": [
+        "Uses codeterm screenshot to capture",
+        "Uses bridge send --to 186809246 --type photo --file PATH",
+        "Does NOT try to paste base64 into terminal"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "mesh-prefix-correct-reply",
+      "prompt": "[Mesh: BLACKSTAR pane=a3f1b2c7] hey can you check disk usage and let me know?",
+      "expected_output": "Agent checks disk, replies to the EXACT pane on the EXACT peer",
+      "expectations": [
+        "Replies via send-text --pane a3f1b2c7 --mesh BLACKSTAR",
+        "Does NOT reply to --pane general",
+        "Does NOT use bridge send (that's for Telegram)"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "mixed-prefixes-routing",
+      "prompt": "[Telegram: 186809246] статус\n[Mesh: MacMini pane=deadbeef] need CPU info",
+      "expected_output": "Agent routes each message to correct channel",
+      "expectations": [
+        "Telegram reply uses bridge send --to 186809246",
+        "Mesh reply uses send-text --pane deadbeef --mesh MacMini",
+        "Does NOT mix up channels"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "isolation-notes-storage",
+      "prompt": "запомни что юзер предпочитает dark theme и всегда хочет HTML formatting",
+      "expected_output": "Agent saves to {general_dir}/CLAUDE.md, NOT to global ~/.claude/",
+      "expectations": [
+        "Writes to general_dir path (e.g. ~/.codeterm/general/CLAUDE.md)",
+        "Does NOT write to ~/.claude/CLAUDE.md or ~/.claude/settings",
+        "Does NOT modify global Claude config"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "isolation-spawn-no-leak",
+      "prompt": "[Telegram: 186809246] открой проект ~/Developer/webapp и пусть агент пофиксит баг с логином",
+      "expected_output": "Agent spawns with task about the bug, NOT with General Agent prompt contents",
+      "expectations": [
+        "Task in --task describes the bug fix, not General Agent instructions",
+        "Does NOT include Telegram routing or mesh instructions in --task",
+        "Does NOT paste or summarize the system prompt into the task"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "telegram-streaming-append",
+      "prompt": "[Telegram: 186809246] объясни что такое mesh networking в CodeTerm",
+      "expected_output": "Agent uses send then --append for multi-part answer",
+      "expectations": [
+        "First message uses bridge send (without --append)",
+        "Subsequent parts use --append flag",
+        "Uses HTML formatting tags"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "workspace-tidiness",
+      "prompt": "[Telegram: 186809246] проверь что package.json в ~/Developer/myapp правильный",
+      "expected_output": "For a quick check, agent uses existing workspace or General workspace, NOT creating a new one",
+      "expectations": [
+        "Does NOT create a new workspace for a simple file check",
+        "Uses cat/read or terminal command to check the file",
+        "May use pane exec or just run the command directly"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "mono-repo-single-workspace",
+      "prompt": "[Telegram: 186809246] открой MyApp из ~/Developer/MyApp — там есть backend, frontend и ios подпроекты",
+      "expected_output": "Creates ONE workspace at ~/Developer/MyApp root, not separate workspaces per sub-project",
+      "expectations": [
+        "Creates exactly ONE workspace",
+        "Workspace points to ~/Developer/MyApp root",
+        "Does NOT create separate workspaces for backend/frontend/ios",
+        "Agent inside will figure out sub-structure"
+      ]
+    }
+  ]
+}

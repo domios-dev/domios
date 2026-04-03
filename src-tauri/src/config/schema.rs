@@ -11,7 +11,12 @@ pub struct AppConfig {
     pub socket: SocketConfig,
     pub agent: AgentConfig,
     pub api: ApiConfig,
-    /// Whether onboarding wizard has been completed.
+    #[serde(default)]
+    pub general_agent: GeneralAgentConfig,
+    #[serde(default)]
+    pub integrations: IntegrationsConfig,
+    #[serde(default)]
+    pub mesh: MeshConfig,
     #[serde(default)]
     pub onboarding_completed: bool,
 }
@@ -27,6 +32,9 @@ impl Default for AppConfig {
             socket: SocketConfig::default(),
             agent: AgentConfig::default(),
             api: ApiConfig::default(),
+            general_agent: GeneralAgentConfig::default(),
+            integrations: IntegrationsConfig::default(),
+            mesh: MeshConfig::default(),
             onboarding_completed: false,
         }
     }
@@ -245,9 +253,81 @@ impl Default for AgentConfig {
     fn default() -> Self {
         Self {
             poll_interval_ms: 500,
-            idle_timeout_s: 30,
+            idle_timeout_s: 2,
             resume_sessions: true,
-            resume_skip_permissions: false,
+            resume_skip_permissions: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GeneralAgentConfig {
+    pub enabled: bool,
+    pub agent_provider: String,
+    pub auto_restart: bool,
+    pub max_restart_attempts: u32,
+    pub restart_delay_s: u32,
+}
+
+impl Default for GeneralAgentConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            agent_provider: "claude".to_string(),
+            auto_restart: true,
+            max_restart_attempts: 3,
+            restart_delay_s: 60,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IntegrationsConfig {
+    pub telegram_enabled: bool,
+    pub telegram_allowed_users: Vec<String>,
+    pub discord_enabled: bool,
+    pub discord_allowed_users: Vec<String>,
+    pub webhook_enabled: bool,
+    pub webhook_port: u16,
+}
+
+impl Default for IntegrationsConfig {
+    fn default() -> Self {
+        Self {
+            telegram_enabled: false,
+            telegram_allowed_users: Vec::new(),
+            discord_enabled: false,
+            discord_allowed_users: Vec::new(),
+            webhook_enabled: false,
+            webhook_port: 7687,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MeshConfig {
+    pub enabled: bool,
+    pub instance_name: String,
+    pub auto_discover: bool,
+    pub stealth: bool,
+}
+
+impl Default for MeshConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            instance_name: hostname::get()
+                .map(|h| {
+                    let name = h.to_string_lossy().to_string();
+                    // Strip .local suffix (macOS adds it)
+                    name.trim_end_matches(".local").to_string()
+                })
+                .unwrap_or_else(|_| "CodeTerm".to_string()),
+            auto_discover: true,
+            stealth: false,
         }
     }
 }

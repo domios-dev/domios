@@ -11,7 +11,7 @@ impl ShellSyntax {
 
     /// Statement to unset the CLAUDECODE env var.
     pub const UNSET_CLAUDECODE: &str = if Self::IS_WINDOWS {
-        "$env:CLAUDECODE=$null;"
+        "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue;"
     } else {
         "unset CLAUDECODE &&"
     };

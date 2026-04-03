@@ -39,33 +39,13 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 11. **Spawn agent**: `codeterm agent spawn claude --title "Worker" --role Worker --parent ID --task "do work"` (creates new tab, non-blocking, does NOT switch active tab, task uses `-p` flag for instant start)
 12. **Spawn with agent definition**: via REST API `POST /api/agents/spawn` with `agent_name` field (loads `.claude/agents/<name>.md`; not available in CLI)
 13. **Cross-workspace spawn**: `codeterm agent spawn claude --workspace WS_ID --title "Remote" --role Worker --parent ID --task "work"`
-14. **Create cron job**: `codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs"`
-15. **Complete cron run**: `codeterm cron complete --run-id UUID --summary "result"`
-16. **List cron jobs**: `codeterm cron list`, **trigger manually**: `codeterm cron trigger ID`
-
-## Screenshots for Debugging
-
-The `codeterm screenshot` CLI command captures the CodeTerm window as a JPEG image, even when the window is behind other windows. This is useful for visual debugging and verifying UI state.
-
-```bash
-# Capture and print JSON (data URL + width/height/size_kb)
-codeterm screenshot
-
-# Save directly to file
-codeterm screenshot --output /tmp/screenshot.jpg
-```
-
-The REST API equivalent is `GET /api/screenshot` (returns JSON) or `GET /api/screenshot?format=jpeg` (raw JPEG bytes).
-
-**Recommended pattern:** save the screenshot to a file, then use a **subagent** to read and analyze the image. This avoids polluting your main context with large base64 data.
-
-```bash
-# Save screenshot
-codeterm screenshot --output /tmp/debug.jpg
-
-# Analyze in a subagent (keeps main context clean)
-# The subagent can use its Read tool to view /tmp/debug.jpg
-```
+14. **Create cron job**: `codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs"` (uses `$CODETERM_WORKSPACE_ID` by default)
+15. **Edit cron job**: `codeterm cron edit ID --schedule "*/15 * * * *"` (prefer over delete+recreate to preserve history)
+16. **Complete cron run**: `codeterm cron complete --run-id UUID --summary "result"`
+17. **List cron jobs**: `codeterm cron list`, **trigger manually**: `codeterm cron trigger ID`
+18. **Read config**: `codeterm config get integrations.telegram_enabled` (dot-notation)
+19. **Write config**: `codeterm config set integrations.telegram_enabled true` (JSON values)
+20. **Send to Telegram**: `codeterm bridge send --to USER_ID --service telegram "text"` (auto-edits within 60s, `--append` to concatenate)
 
 ## CLI Flags
 
@@ -74,6 +54,46 @@ All CLI commands support the `--json` flag for machine-readable output:
 codeterm pane list --json
 codeterm workspace list --json
 ```
+
+## Integrations
+
+### Telegram Bridge
+CodeTerm routes messages between Telegram and the General Agent:
+- **Inbound:** Messages arrive as `[Telegram: user_id] text` in the agent's PTY. Rapid messages within 300ms are debounced. Typing indicator is sent automatically.
+- **Outbound:** Agent sends replies via CLI: `codeterm bridge send --to USER_ID --service telegram "text"`. Within 60s, messages auto-edit the previous one. Use `--append` to concatenate text.
+
+Setup via CLI:
+```bash
+# Save token to secrets dir
+mkdir -p ~/.codeterm/secrets
+echo -n "BOT_TOKEN" > ~/.codeterm/secrets/telegram.token
+
+# Enable
+codeterm config set integrations.telegram_enabled true
+codeterm config set integrations.telegram_allowed_users '["USER_ID"]'
+
+# Restart CodeTerm (hot-reload not yet supported)
+```
+
+Sending messages from the agent:
+```bash
+# Send a new message
+codeterm bridge send --to 186809246 --service telegram "Hello from CodeTerm"
+
+# Append to the previous message (edits in-place)
+codeterm bridge send --to 186809246 --service telegram --append "...continued"
+```
+
+Connected panes show service icons in the sidebar (`connected_services` field).
+
+### Config Management
+Read/write CodeTerm config at runtime:
+```bash
+codeterm config get integrations.telegram_enabled
+codeterm config set integrations.telegram_enabled true
+codeterm config get general_agent                    # read entire section
+```
+Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["array"]).
 
 ## Agent Integration
 
@@ -175,6 +195,10 @@ curl -X POST http://localhost:7685/api/batch \
 
 Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `can-spawn`, `report`. Use `$id` references to chain command results (e.g. `"parent_pane_id": "$boss"` resolves to the pane_id from the "boss" spawn).
 
+## Command Palette
+
+`Cmd+K` (macOS) / `Ctrl+K` (Windows/Linux) opens the command palette for quick access to tabs, workspaces, splits, settings, and theme switching.
+
 ## Session Persistence
 
 CodeTerm tracks and restores terminal state across sessions:
@@ -183,4 +207,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`, so context is preserved across restarts.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 12 -->
+<!-- revision: 16 -->

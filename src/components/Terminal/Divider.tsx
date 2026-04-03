@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Orientation } from "../../lib/types";
 
 interface DividerProps {
@@ -12,6 +12,8 @@ interface DividerProps {
 export function Divider({ orientation, onDrag, onDragStart, onDragEnd, onDoubleClick }: DividerProps) {
   const dragging = useRef(false);
   const lastPos = useRef(0);
+  const [isActive, setIsActive] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
   const isHorizontal = orientation === "Horizontal";
 
@@ -21,6 +23,7 @@ export function Divider({ orientation, onDrag, onDragStart, onDragEnd, onDoubleC
       e.stopPropagation();
       dragging.current = true;
       lastPos.current = isHorizontal ? e.clientX : e.clientY;
+      setIsActive(true);
       onDragStart?.();
 
       const handleMouseMove = (ev: MouseEvent) => {
@@ -35,6 +38,7 @@ export function Divider({ orientation, onDrag, onDragStart, onDragEnd, onDoubleC
 
       const handleMouseUp = () => {
         dragging.current = false;
+        setIsActive(false);
         document.removeEventListener("mousemove", handleMouseMove);
         document.removeEventListener("mouseup", handleMouseUp);
         document.body.style.cursor = "";
@@ -50,27 +54,75 @@ export function Divider({ orientation, onDrag, onDragStart, onDragEnd, onDoubleC
     [isHorizontal, onDrag, onDragStart, onDragEnd],
   );
 
-  // Thin visible line (1px) inside a wider hit target (6px)
+  const showHandle = isHovered || isActive;
+  const accentColor = "var(--ct-accent, #6366f1)";
+  const subtleColor = "var(--ct-border-subtle, rgba(255, 255, 255, 0.06))";
+  const mutedColor = "var(--ct-muted, #484f58)";
+
   return (
     <div
       onMouseDown={handleMouseDown}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       onDoubleClick={onDoubleClick}
-      className="group/divider relative shrink-0"
       style={{
-        width: isHorizontal ? "6px" : "100%",
-        height: isHorizontal ? "100%" : "6px",
+        position: "relative",
+        flexShrink: 0,
+        width: isHorizontal ? "1px" : "100%",
+        height: isHorizontal ? "100%" : "1px",
         cursor: isHorizontal ? "col-resize" : "row-resize",
         zIndex: 10,
       }}
     >
-      {/* Visible line */}
+      {/* Invisible 12px hit area for easy grabbing */}
       <div
-        className="absolute transition-colors duration-150 group-hover/divider:bg-[var(--ct-accent)]"
         style={{
-          backgroundColor: "var(--ct-border)",
+          position: "absolute",
           ...(isHorizontal
-            ? { left: "2px", top: 0, bottom: 0, width: "1px" }
-            : { top: "2px", left: 0, right: 0, height: "1px" }),
+            ? { left: "-6px", top: 0, bottom: 0, width: "12px" }
+            : { top: "-6px", left: 0, right: 0, height: "12px" }),
+          zIndex: 1,
+        }}
+      />
+
+      {/* Visible 1px line */}
+      <div
+        style={{
+          position: "absolute",
+          backgroundColor: isActive || isHovered ? accentColor : subtleColor,
+          transition: "background-color 120ms cubic-bezier(0.16, 1, 0.3, 1)",
+          ...(isHorizontal
+            ? { left: 0, top: 0, bottom: 0, width: "1px" }
+            : { top: 0, left: 0, right: 0, height: "1px" }),
+        }}
+      />
+
+      {/* Grab handle — centered pill shape, appears on hover/active */}
+      <div
+        style={{
+          position: "absolute",
+          borderRadius: "3px",
+          backgroundColor: isActive ? accentColor : mutedColor,
+          zIndex: 2,
+          opacity: showHandle ? 1 : 0,
+          transition: isHorizontal
+            ? "opacity 120ms cubic-bezier(0.16, 1, 0.3, 1), height 120ms cubic-bezier(0.16, 1, 0.3, 1), background-color 120ms cubic-bezier(0.16, 1, 0.3, 1)"
+            : "opacity 120ms cubic-bezier(0.16, 1, 0.3, 1), width 120ms cubic-bezier(0.16, 1, 0.3, 1), background-color 120ms cubic-bezier(0.16, 1, 0.3, 1)",
+          ...(isHorizontal
+            ? {
+                width: "3px",
+                height: isActive ? "64px" : "32px",
+                left: "-1px",
+                top: "50%",
+                transform: "translateY(-50%)",
+              }
+            : {
+                height: "3px",
+                width: isActive ? "64px" : "32px",
+                top: "-1px",
+                left: "50%",
+                transform: "translateX(-50%)",
+              }),
         }}
       />
     </div>

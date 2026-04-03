@@ -116,9 +116,18 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
 
     #[cfg(target_os = "windows")]
     {
-        // PowerShell integration is handled differently — we override the prompt
-        // function via PSModulePath or profile injection.
-        // For now, we set a marker env var; the frontend sends the prompt override.
-        let _ = (cmd, shell, dir); // suppress unused warnings
+        let shell_lower = shell.to_lowercase();
+        if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
+            // Define OSC 7 prompt function via -NoExit -Command at spawn time.
+            // This executes before the interactive session starts, invisible to terminal.
+            // No visible text is written to the PTY, so it won't leak into agent input.
+            cmd.arg("-NoExit");
+            cmd.arg("-Command");
+            cmd.arg(
+                "function prompt { $f = $pwd.Path.Replace('\\', '/'); \
+                 \"$([char]27)]7;file:///$f$([char]7)PS $pwd> \" }",
+            );
+        }
+        let _ = dir; // suppress unused warning
     }
 }

@@ -82,6 +82,27 @@ const DEFAULT_CONFIG: AppConfig = {
     token: null,
     cors: true,
   },
+  general_agent: {
+    enabled: true,
+    agent_provider: "claude",
+    auto_restart: true,
+    max_restart_attempts: 3,
+    restart_delay_s: 60,
+  },
+  integrations: {
+    telegram_enabled: false,
+    telegram_allowed_users: [],
+    discord_enabled: false,
+    discord_allowed_users: [],
+    webhook_enabled: false,
+    webhook_port: 9090,
+  },
+  mesh: {
+    enabled: false,
+    instance_name: "",
+    auto_discover: true,
+    stealth: false,
+  },
   onboarding_completed: false,
 };
 

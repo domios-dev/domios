@@ -71,8 +71,18 @@ impl JsonRpcResponse {
 /// `GenericNamespaced` on Unix prepends `/tmp/` automatically,
 /// so we only provide the bare name here.
 pub fn socket_path() -> String {
-    let pid = std::process::id();
-    format!("{}-{}.sock", crate::paths::SOCKET_PREFIX, pid)
+    // Dev builds use a stable socket name (no PID) so CLI tools in existing
+    // PTY sessions survive dev server restarts. Only one dev instance at a time.
+    // Prod builds include PID to allow multiple instances.
+    #[cfg(debug_assertions)]
+    {
+        format!("{}.sock", crate::paths::SOCKET_PREFIX)
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let pid = std::process::id();
+        format!("{}-{}.sock", crate::paths::SOCKET_PREFIX, pid)
+    }
 }
 
 /// Get the full display path (for env var / user display).
@@ -81,17 +91,19 @@ pub fn socket_path() -> String {
 /// so the display path is `/tmp/{prefix}-{pid}.sock`.
 /// On Windows, it's `\\.\pipe\{prefix}-{pid}`.
 pub fn socket_display_path() -> String {
-    let pid = std::process::id();
-    let prefix = crate::paths::SOCKET_PREFIX;
+    // Must match what socket_path() produces so CLI can connect.
+    let bare = socket_path(); // includes .sock suffix
 
     #[cfg(target_os = "windows")]
     {
-        format!("\\\\.\\pipe\\{}-{}", prefix, pid)
+        // GenericNamespaced on Windows creates: \\.\pipe\{bare_name}
+        format!("\\\\.\\pipe\\{}", bare)
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        format!("/tmp/{}-{}.sock", prefix, pid)
+        // GenericNamespaced on Unix creates: /tmp/{bare_name}
+        format!("/tmp/{}", bare)
     }
 }
 
@@ -145,6 +157,17 @@ impl SocketServer {
     ) -> Result<(), String> {
         // Clean up stale sockets from crashed processes
         Self::cleanup_stale_sockets();
+
+        // Dev builds use a fixed socket name — remove stale file before binding
+        #[cfg(all(debug_assertions, not(target_os = "windows")))]
+        {
+            let display = socket_display_path();
+            let path = std::path::Path::new(&display);
+            if path.exists() {
+                let _ = std::fs::remove_file(path);
+                log::info!("Removed stale dev socket: {}", display);
+            }
+        }
 
         let name = socket_path();
 
@@ -308,7 +331,10 @@ fn dispatch(
                     "cron.disable",
                     "cron.trigger",
                     "cron.history",
-                    "cron.complete"
+                    "cron.complete",
+                    "bridge.send",
+                    "bridge.react",
+                    "bridge.restart"
                 ]
             }))
         }
@@ -329,10 +355,15 @@ fn dispatch(
                 .and_then(|v| v.as_str())
                 .unwrap_or("New Workspace")
                 .to_string();
+            let cwd = params
+                .as_ref()
+                .and_then(|p| p.get("cwd"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
 
             let info = {
                 let mut mux = mux.lock();
-                mux.create_workspace(name)
+                mux.create_workspace(name, cwd)
             };
             { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
             serde_json::to_value(&info).map_err(|e| JsonRpcError {
@@ -458,26 +489,7 @@ fn dispatch(
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
 
-            // Find the PTY ID for this pane
-            let pty_id = {
-                let mux = mux.lock();
-                mux.get_pane(&id)
-                    .and_then(|p| p.pty_id.clone())
-                    .ok_or_else(|| JsonRpcError {
-                        code: -32602,
-                        message: format!("Pane {} has no PTY", id),
-                    })?
-            };
-
-            // Append \r (Enter) unless explicitly disabled or text already ends with \r
-            let data = if enter && !text.ends_with('\r') {
-                format!("{}\r", text)
-            } else {
-                text
-            };
-
-            let mut pty_mgr = _pty.lock();
-            pty_mgr.write(&pty_id, data.as_bytes()).map_err(|e| JsonRpcError {
+            svc.send_text(&id, &text, enter).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
             })?;
@@ -818,6 +830,115 @@ fn dispatch(
                 .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
             svc.cron_complete(&cron_state, &run_id, summary)
                 .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            Ok(serde_json::json!({"ok": true}))
+        }
+
+        "bridge.restart" => {
+            crate::start_telegram_bridge(svc);
+            Ok(serde_json::json!({"ok": true, "message": "Telegram bridge starting"}))
+        }
+
+        "bridge.send" => {
+            let chat_id = params.as_ref().and_then(|p| p.get("chat_id")).and_then(|v| v.as_i64());
+            let append = params.as_ref().and_then(|p| p.get("append")).and_then(|v| v.as_bool()).unwrap_or(false);
+            let content_type = params.as_ref()
+                .and_then(|p| p.get("type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("text")
+                .to_string();
+
+            let content = match content_type.as_str() {
+                "text" => {
+                    let text = get_string_param(&params, "text")?;
+                    crate::bridge::traits::OutboundContent::Text { text }
+                }
+                "photo" | "document" | "voice" | "animation" | "video" | "sticker" => {
+                    let file = get_string_param(&params, "file")?;
+                    // Validate file exists
+                    if !std::path::Path::new(&file).exists() {
+                        return Err(JsonRpcError { code: -32602, message: format!("File not found: {}", file) });
+                    }
+                    let caption = params.as_ref().and_then(|p| p.get("caption")).and_then(|v| v.as_str()).map(|s| s.to_string())
+                        .or_else(|| params.as_ref().and_then(|p| p.get("text")).and_then(|v| v.as_str()).map(|s| s.to_string()));
+                    let filename = params.as_ref().and_then(|p| p.get("filename")).and_then(|v| v.as_str()).map(|s| s.to_string());
+
+                    match content_type.as_str() {
+                        "photo" => crate::bridge::traits::OutboundContent::Photo { file, caption },
+                        "document" => crate::bridge::traits::OutboundContent::Document { file, caption, filename },
+                        "voice" => crate::bridge::traits::OutboundContent::Voice { file, caption },
+                        "animation" => crate::bridge::traits::OutboundContent::Animation { file, caption },
+                        "video" => crate::bridge::traits::OutboundContent::Video { file, caption },
+                        "sticker" => crate::bridge::traits::OutboundContent::Sticker { file },
+                        _ => unreachable!(),
+                    }
+                }
+                _ => {
+                    return Err(JsonRpcError { code: -32602, message: format!("Unknown content type: {}", content_type) });
+                }
+            };
+
+            // Parse inline keyboard buttons (JSON array of rows)
+            let buttons: Option<crate::bridge::traits::InlineKeyboard> = params.as_ref()
+                .and_then(|p| p.get("buttons"))
+                .and_then(|v| {
+                    match serde_json::from_value(v.clone()) {
+                        Ok(b) => Some(b),
+                        Err(e) => {
+                            log::warn!("[bridge.send] failed to parse buttons: {} — raw: {}", e, v);
+                            None
+                        }
+                    }
+                });
+
+            if let Some(tx) = svc.bridge_outbound.lock().as_ref() {
+                let msg = crate::bridge::manager::OutboundMessage {
+                    user_id: chat_id,
+                    content,
+                    append,
+                    buttons,
+                };
+                tx.send(msg).map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: format!("Bridge send failed: {}", e),
+                })?;
+                Ok(serde_json::json!({"ok": true}))
+            } else {
+                Err(JsonRpcError {
+                    code: -32603,
+                    message: "Bridge not active".to_string(),
+                })
+            }
+        }
+
+        "bridge.react" => {
+            let chat_id = params.as_ref().and_then(|p| p.get("chat_id")).and_then(|v| v.as_i64())
+                .ok_or(JsonRpcError { code: -32602, message: "chat_id required".into() })?;
+            let message_id = params.as_ref().and_then(|p| p.get("message_id")).and_then(|v| v.as_i64())
+                .ok_or(JsonRpcError { code: -32602, message: "message_id required".into() })?;
+            let emoji = get_string_param(&params, "emoji")?;
+
+            let token = crate::bridge::telegram::read_token().unwrap_or_default();
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let resp = client
+                    .post(format!("https://api.telegram.org/bot{}/setMessageReaction", token))
+                    .json(&serde_json::json!({
+                        "chat_id": chat_id,
+                        "message_id": message_id,
+                        "reaction": [{"type": "emoji", "emoji": emoji}],
+                    }))
+                    .timeout(std::time::Duration::from_secs(10))
+                    .send().await;
+                match resp {
+                    Ok(r) => {
+                        let body: serde_json::Value = r.json().await.unwrap_or_default();
+                        if body.get("ok").and_then(|v| v.as_bool()) != Some(true) {
+                            log::warn!("[bridge] react failed: {}", body.get("description").and_then(|v| v.as_str()).unwrap_or("unknown"));
+                        }
+                    }
+                    Err(e) => log::warn!("[bridge] react error: {}", e),
+                }
+            });
             Ok(serde_json::json!({"ok": true}))
         }
 

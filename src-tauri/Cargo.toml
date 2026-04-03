@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "0.6.4"
+version = "0.7.0"
 edition = "2021"
 
 [dependencies]
@@ -10,13 +10,14 @@ tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-webdriver = { version = "0.2", optional = true }
 portable-pty = { path = "pty-fork" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 log = "0.4"
-env_logger = "0.11"
+fern = "0.7"
 parking_lot = "0.12"
 base64 = "0.22"
 interprocess = "2"
@@ -26,7 +27,7 @@ dirs = "6"
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors"] }
 git2 = { version = "0.19", features = ["vendored-openssl"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream"] }
 async-stream = "0.3"
 futures-core = "0.3"
 png = "0.17"
@@ -35,6 +36,16 @@ cron = "0.13"
 chrono = "0.4"
 vt100 = "0.16"
 semver = "1"
+hostname = "0.4.2"
+mdns-sd = "0.11"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+aes-gcm = "0.10"
+rand = "0.8"
+
+[features]
+default = []
+webdriver = ["tauri-plugin-webdriver"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

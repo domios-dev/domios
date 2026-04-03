@@ -205,6 +205,34 @@ Include sections: What's New (features, fixes), Download table with platform/fil
 - Minor (0.2.0) for new features
 - Major (1.0.0) for stable public release
 
+## Testing Strategy
+
+Three tiers — only unit tests run in CI:
+
+| Tier | Tests | When | Command | Time |
+|------|-------|------|---------|------|
+| **Unit** | 170+ | CI on every push/PR | `./build.sh test` | ~1 sec |
+| **E2e** | 50+ | Locally before release | `./build.sh e2e` | ~75 sec |
+| **Stress** | 50x repeat | Manually after PTY/spawn changes | `pytest --count=50` | ~30 min |
+
+**E2e tests require a running dev GUI instance** — Tauri creates PTY through frontend, headless doesn't work. NOT in GitHub Actions.
+
+**Before every release:** run unit tests (CI does this) + run e2e locally and verify all 50 pass.
+
+**Dev mode for e2e:**
+```bash
+# Start dev without file watcher (watcher kills process on file changes from tests)
+pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json
+
+# In another terminal:
+CODETERM_API_URL=http://127.0.0.1:7686/api python3 -m pytest tests/e2e/ -v --tb=short
+
+# Stress test Claude spawn pipeline:
+CODETERM_API_URL=http://127.0.0.1:7686/api python3 -m pytest tests/e2e/test_claude_spawn.py --count=50 -v
+```
+
+**Dev/prod isolation:** Dev uses `com.codeterm.dev` identifier, port 7686, `~/.codeterm-dev/` data dir. Can run alongside prod.
+
 ## Auth
 
 ```bash

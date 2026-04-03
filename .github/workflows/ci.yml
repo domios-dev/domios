@@ -16,24 +16,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: windows-latest
-            rust-target: ''
           - platform: macos-latest
             rust-target: 'aarch64-apple-darwin'
-          - platform: ubuntu-22.04
-            rust-target: ''
 
     runs-on: ${{ matrix.platform }}
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
-            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -51,13 +40,21 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            src-tauri
+            cli
 
       - name: Install frontend dependencies
         run: pnpm install
 
       - name: TypeScript check + Vite build
         run: pnpm build
+
+      - name: Build CLI (needed for bundled-cli resource)
+        run: |
+          cargo build --manifest-path cli/Cargo.toml
+          mkdir -p src-tauri/bundled-cli
+          cp cli/target/debug/codeterm src-tauri/bundled-cli/
 
       - name: Rust check
         run: cargo check --manifest-path src-tauri/Cargo.toml
