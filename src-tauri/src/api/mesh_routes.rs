@@ -342,8 +342,14 @@ pub async fn mesh_introduce(
     let our_id = mesh.identity.instance_id.clone();
     drop(mesh);
 
-    let sender_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))?;
+    let sender_id = match crate::mesh::crown::verify_signed_request(token, &known_keys) {
+        Ok(id) => id,
+        Err(e) => {
+            log::warn!("[mesh/introduce] Auth failed for introduction of {}: {} (known_keys: {:?})",
+                intro.instance_name, e, known_keys.keys().collect::<Vec<_>>());
+            return Err((StatusCode::UNAUTHORIZED, format!("Unauthorized: {}", e)));
+        }
+    };
 
     if intro.instance_id == our_id {
         return Ok(Json(serde_json::json!({"ok": true, "skipped": "self"})));
