@@ -261,25 +261,39 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                 {refreshing ? "Scanning..." : "Refresh"}
               </button>
             </div>
-            {peers && peers.discovered.length > 0 ? (
+            {peers && peers.discovered.length > 0 ? (() => {
+              // Group discovered peers by mesh_id
+              const meshGroups = new Map<string, typeof peers.discovered>();
+              const solos: typeof peers.discovered = [];
+              for (const peer of peers.discovered) {
+                if (peer.mesh_id) {
+                  const group = meshGroups.get(peer.mesh_id) || [];
+                  group.push(peer);
+                  meshGroups.set(peer.mesh_id, group);
+                } else {
+                  solos.push(peer);
+                }
+              }
+              return (
               <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 divide-y divide-[var(--ct-border)]">
-                {peers.paired.length === 0 && peers.discovered.length > 1 && (
-                  <div className="p-3 space-y-2">
+                {/* Mesh groups */}
+                {Array.from(meshGroups.entries()).map(([meshId, group]) => (
+                  <div key={meshId} className="p-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-[var(--ct-fg)]">Mesh Network</span>
+                        <span className="text-xs font-medium text-[var(--ct-fg)]">Mesh</span>
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)]">
-                          {peers.discovered.length} peers
+                          {group.length} peers
                         </span>
                       </div>
-                      <button onClick={() => handleConnect(peers.discovered[0].instance_id)}
+                      <button onClick={() => handleConnect(group[0].instance_id)}
                         disabled={connecting !== null}
                         className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-[var(--ct-fg)] hover:brightness-110 transition-all disabled:opacity-50">
                         {connecting ? "Joining..." : "Join Mesh"}
                       </button>
                     </div>
                     <div className="space-y-1">
-                      {peers.discovered.map((peer) => (
+                      {group.map((peer) => (
                         <div key={peer.instance_id} className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)] pl-2">
                           <div className="w-1.5 h-1.5 rounded-full border border-[var(--ct-muted)]" />
                           <span>{peer.instance_name}</span>
@@ -289,8 +303,9 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                       ))}
                     </div>
                   </div>
-                )}
-                {(peers.paired.length > 0 || peers.discovered.length === 1) && peers.discovered.map((peer) => (
+                ))}
+                {/* Solo peers (no mesh_id) */}
+                {solos.map((peer) => (
                   <div key={peer.instance_id} className="p-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full border border-[var(--ct-muted)]" />
@@ -308,7 +323,8 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                   </div>
                 ))}
               </div>
-            ) : (
+              );
+            })() : (
               <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 text-center text-xs text-[var(--ct-muted)]">
                 No peers discovered yet
               </div>

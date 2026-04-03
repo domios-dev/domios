@@ -356,7 +356,7 @@ fn start_background_tasks(
                                                 api_port: p.api_port,
                                                 discovery_method: mesh::types::DiscoveryMethod::Udp,
                                                 last_seen: now,
-                                                dev: p.dev,
+                                                dev: p.dev, mesh_id: None,
                                             });
                                         }
                                         if let Some(crown) = their_payload.crown_public {

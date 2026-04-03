@@ -335,7 +335,7 @@ pub async fn mesh_sync(
             addresses: peer_info.addresses.clone(),
             api_port: peer_info.api_port,
             discovery_method: crate::mesh::types::DiscoveryMethod::Mdns,
-            last_seen: now, dev: peer_info.dev,
+            last_seen: now, dev: peer_info.dev, mesh_id: None,
         });
         log::info!("[mesh/gossip] Learned about peer {} ({})", peer_info.instance_name, peer_info.instance_id);
     }
