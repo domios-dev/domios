@@ -134,10 +134,7 @@ pub fn start_mdns(
                         let addresses: Vec<PeerAddress> = info
                             .get_addresses()
                             .iter()
-                            .map(|addr| PeerAddress {
-                                ip: addr.to_string(),
-                                is_tailscale: false,
-                            })
+                            .map(|addr| PeerAddress::from_ip(&addr.to_string()))
                             .collect();
 
                         if addresses.is_empty() {
@@ -386,10 +383,7 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
                     let peer = DiscoveredPeer {
                         instance_id: beacon.id.clone(),
                         instance_name: beacon.name,
-                        addresses: vec![PeerAddress {
-                            ip: src_addr.ip().to_string(),
-                            is_tailscale: false,
-                        }],
+                        addresses: vec![PeerAddress::from_ip(&src_addr.ip().to_string())],
                         api_port: beacon.port,
                         discovery_method: DiscoveryMethod::Udp,
                         last_seen: now,

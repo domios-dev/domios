@@ -132,10 +132,7 @@ pub async fn mesh_approve_pairing(
         let peer = crate::mesh::types::PairedPeer {
             instance_id: request.from_instance_id.clone(),
             instance_name: request.from_instance_name.clone(),
-            addresses: vec![crate::mesh::types::PeerAddress {
-                ip: request.from_address.clone(),
-                is_tailscale: false,
-            }],
+            addresses: vec![crate::mesh::types::PeerAddress::from_ip(&request.from_address)],
             api_port: request.from_port,
             public_key: request.public_key.clone(),
             paired_at: chrono::Utc::now().to_rfc3339(),
@@ -461,10 +458,7 @@ pub fn mesh_add_manual(
     let peer = crate::mesh::types::DiscoveredPeer {
         instance_id: format!("manual-{}", uuid::Uuid::new_v4()),
         instance_name: format!("{}:{}", address, port),
-        addresses: vec![crate::mesh::types::PeerAddress {
-            ip: address,
-            is_tailscale: false,
-        }],
+        addresses: vec![crate::mesh::types::PeerAddress::from_ip(&address)],
         api_port: port,
         discovery_method: crate::mesh::types::DiscoveryMethod::Manual,
         last_seen: now,
