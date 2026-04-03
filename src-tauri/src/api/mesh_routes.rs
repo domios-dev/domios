@@ -70,6 +70,27 @@ pub async fn mesh_ping() -> Json<serde_json::Value> {
     Json(serde_json::json!({"mesh": true}))
 }
 
+/// Dev-only action endpoint — disconnect/connect without auth.
+pub async fn debug_action(
+    AxumState(state): AxumState<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let action = body["action"].as_str().unwrap_or("");
+    let instance_id = body["instance_id"].as_str().unwrap_or("");
+    match action {
+        "disconnect" => {
+            state.mesh.lock().unpair(instance_id);
+            let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+            Ok(Json(serde_json::json!({"ok": true, "action": "disconnect", "instance_id": instance_id})))
+        }
+        "connect" => {
+            // Trigger connect via Tauri command proxy
+            Err((StatusCode::NOT_IMPLEMENTED, "Use UI for connect".to_string()))
+        }
+        _ => Err((StatusCode::BAD_REQUEST, format!("Unknown action: {}", action))),
+    }
+}
+
 pub async fn mesh_debug_sign(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

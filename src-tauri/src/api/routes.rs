@@ -117,7 +117,9 @@ pub fn create_router(state: AppState) -> Router {
 
     // Debug endpoint — dev builds only, no auth, accessible from any machine
     #[cfg(debug_assertions)]
-    let router = router.route("/api/debug", get(super::mesh_routes::debug_endpoint));
+    let router = router
+        .route("/api/debug", get(super::mesh_routes::debug_endpoint))
+        .route("/api/debug/action", post(super::mesh_routes::debug_action));
 
     router
         .layer(CorsLayer::permissive())
