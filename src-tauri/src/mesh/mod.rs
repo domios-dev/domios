@@ -367,6 +367,16 @@ impl MeshManager {
             return Err("Duplicate request ID".to_string());
         }
 
+        // Only one pending request per instance (prevent spam from double-click)
+        if self.pending_requests.values().any(|r| r.from_instance_id == request.from_instance_id && r.status == types::PairingStatus::Pending) {
+            return Err("Already have pending request from this instance".to_string());
+        }
+
+        // Already paired with this instance
+        if self.paired_peers.contains_key(&request.from_instance_id) {
+            return Err("Already paired".to_string());
+        }
+
         log::info!(
             "[mesh] Incoming pairing request from {} ({})",
             request.from_instance_name,

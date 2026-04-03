@@ -23,7 +23,6 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
     return () => { unlisten.then((f) => f()); };
   }, [fetchData]);
 
-  // Periodic refresh for online status
   useEffect(() => {
     if (!config.mesh?.enabled) return;
     const interval = setInterval(fetchData, 15000);
@@ -32,53 +31,31 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    try {
-      await invoke("mesh_refresh_discovery");
-      fetchData();
-    } catch {}
+    try { await invoke("mesh_refresh_discovery"); fetchData(); } catch {}
     setTimeout(() => setRefreshing(false), 1000);
   }, [fetchData]);
 
   const handleConnect = useCallback(async (instanceId: string) => {
+    if (connecting) return; // prevent double-click
     setConnecting(instanceId);
-    try {
-      await invoke("mesh_connect", { instanceId });
-    } catch (e) {
-      console.error("Mesh connect failed:", e);
-    }
+    try { await invoke("mesh_connect", { instanceId }); } catch (e) { console.error("Mesh connect failed:", e); }
     setConnecting(null);
-  }, []);
+  }, [connecting]);
 
   const handleApprove = useCallback(async (requestId: string) => {
-    try {
-      await invoke("mesh_approve_pairing", { requestId });
-    } catch (e) {
-      console.error("Mesh approve failed:", e);
-    }
+    try { await invoke("mesh_approve_pairing", { requestId }); } catch (e) { console.error("Mesh approve failed:", e); }
   }, []);
 
   const handleReject = useCallback(async (requestId: string) => {
-    try {
-      await invoke("mesh_reject_pairing", { requestId });
-    } catch (e) {
-      console.error("Mesh reject failed:", e);
-    }
+    try { await invoke("mesh_reject_pairing", { requestId }); } catch (e) { console.error("Mesh reject failed:", e); }
   }, []);
 
   const handleDisconnect = useCallback(async (instanceId: string) => {
-    try {
-      await invoke("mesh_disconnect", { instanceId });
-    } catch (e) {
-      console.error("Mesh disconnect failed:", e);
-    }
+    try { await invoke("mesh_disconnect", { instanceId }); } catch (e) { console.error("Mesh disconnect failed:", e); }
   }, []);
 
   const handleTransferCrown = useCallback(async (instanceId: string) => {
-    try {
-      await invoke("mesh_transfer_crown", { instanceId });
-    } catch (e) {
-      console.error("Mesh transfer crown failed:", e);
-    }
+    try { await invoke("mesh_transfer_crown", { instanceId }); } catch (e) { console.error("Mesh transfer crown failed:", e); }
   }, []);
 
   const handleAddManual = useCallback(async () => {
@@ -88,11 +65,8 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
     if (!address) return;
     try {
       await invoke("mesh_add_manual", { address, port });
-      setManualAddr("");
-      setShowManual(false);
-    } catch (e) {
-      console.error("Mesh manual add failed:", e);
-    }
+      setManualAddr(""); setShowManual(false);
+    } catch (e) { console.error("Mesh manual add failed:", e); }
   }, [manualAddr]);
 
   const formatTimeAgo = (iso: string | null) => {
@@ -106,21 +80,9 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
     return `${Math.floor(hrs / 24)}d ago`;
   };
 
-  const discoveryLabel = status
-    ? [
-        status.discovery_active ? "mDNS" : null,
-        status.tailscale_ip ? "Tailscale" : null,
-      ]
-        .filter(Boolean)
-        .join(" + ") || "inactive"
-    : "...";
-
   return (
     <Group title="Mesh">
       <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2.5">
-        {!apiEnabled && (
-          <div className="text-[10px] text-[var(--ct-yellow)] mb-1">Enable REST API above to use mesh networking.</div>
-        )}
         <div className="flex items-center justify-between text-xs">
           <span className="text-[var(--ct-muted)]">Name</span>
           <input
@@ -130,7 +92,6 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
             className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-0.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none w-48 text-right"
           />
         </div>
-        {status && <CopyRow label="Instance ID" value={status.instance_id} />}
         {status && (
           <div className="flex items-center justify-between text-xs">
             <span className="text-[var(--ct-muted)]">Role</span>
@@ -141,15 +102,14 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
             )}
           </div>
         )}
-        <InfoRow label="Discovery" value={discoveryLabel} />
         <Toggle
           label="Enable mesh networking"
           checked={config.mesh?.enabled ?? false}
           onChange={(v) => {
-            if (v && !apiEnabled) return;
             onUpdate("mesh", { enabled: v });
             if (v) {
-              // Start discovery dynamically without restart
+              // Auto-enable API if not already
+              if (!apiEnabled) { onUpdate("api" as any, { enabled: true }); }
               setTimeout(() => invoke("mesh_start_discovery").catch(console.error), 500);
             }
           }}
@@ -172,6 +132,34 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
 
       {config.mesh?.enabled && (
         <>
+          {/* Incoming Pairing Requests — inside mesh section */}
+          {peers && peers.incoming_requests.length > 0 && (
+            <Group title="Incoming Requests">
+              <div className="rounded-lg border border-[var(--ct-accent)]/30 bg-[var(--ct-accent)]/5 divide-y divide-[var(--ct-border)]">
+                {peers.incoming_requests.map((req) => (
+                  <div key={req.request_id} className="p-3 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-[var(--ct-fg)]">
+                        {req.from_instance_name} wants to join
+                      </span>
+                      <span className="text-[10px] text-[var(--ct-muted)] font-mono">{req.from_address}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => handleApprove(req.request_id)}
+                        className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all">
+                        Approve
+                      </button>
+                      <button onClick={() => handleReject(req.request_id)}
+                        className="text-[10px] px-3 py-1 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors">
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Group>
+          )}
+
           {/* Mesh Members */}
           {peers && peers.paired.length > 0 && (
             <Group title={status?.crown_holder ? `Mesh \u00B7 ${peers.paired.find(p => p.instance_id === status.crown_holder)?.instance_name || "unknown"}'s mesh` : "Mesh"}>
@@ -186,9 +174,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]">crown</span>
                         )}
                       </div>
-                      <span className="text-[10px] text-[var(--ct-muted)] font-mono">
-                        {peer.addresses[0]?.ip || ""}
-                      </span>
+                      <span className="text-[10px] text-[var(--ct-muted)] font-mono">{peer.addresses[0]?.ip || ""}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] text-[var(--ct-muted)]">
@@ -196,11 +182,9 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                       </span>
                       <div className="flex items-center gap-1.5">
                         {status?.is_crown && (
-                          <select
-                            value={peer.trust_level || "untrusted"}
+                          <select value={peer.trust_level || "untrusted"}
                             onChange={(e) => invoke("mesh_set_trust", { instanceId: peer.instance_id, trustLevel: e.target.value }).catch(console.error)}
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
-                          >
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none">
                             <option value="untrusted">Untrusted</option>
                             <option value="trusted">Trusted</option>
                           </select>
@@ -208,24 +192,17 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                         {!status?.is_crown && (
                           <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
                             peer.trust_level === "trusted" ? "bg-[var(--ct-green)]/20 text-[var(--ct-green)]" :
-                            peer.trust_level === "observer" ? "bg-[var(--ct-accent)]/20 text-[var(--ct-accent)]" :
                             "bg-[var(--ct-border)] text-[var(--ct-muted-fg)]"
-                          }`}>
-                            {peer.trust_level || "untrusted"}
-                          </span>
+                          }`}>{peer.trust_level || "untrusted"}</span>
                         )}
                         {status?.is_crown && status?.crown_holder !== peer.instance_id && (
-                          <button
-                            onClick={() => handleTransferCrown(peer.instance_id)}
-                            className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-yellow)]/70 hover:text-[var(--ct-yellow)] hover:bg-[var(--ct-yellow)]/10 transition-colors"
-                          >
+                          <button onClick={() => handleTransferCrown(peer.instance_id)}
+                            className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-yellow)]/70 hover:text-[var(--ct-yellow)] hover:bg-[var(--ct-yellow)]/10 transition-colors">
                             Transfer Crown
                           </button>
                         )}
-                        <button
-                          onClick={() => handleDisconnect(peer.instance_id)}
-                          className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors"
-                        >
+                        <button onClick={() => handleDisconnect(peer.instance_id)}
+                          className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors">
                           Disconnect
                         </button>
                       </div>
@@ -236,53 +213,17 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
             </Group>
           )}
 
-          {/* Incoming Pairing Requests */}
-          {peers && peers.incoming_requests.length > 0 && (
-            <Group title="Incoming Requests">
-              <div className="rounded-lg border border-[var(--ct-accent)]/30 bg-[var(--ct-accent)]/5 divide-y divide-[var(--ct-border)]">
-                {peers.incoming_requests.map((req) => (
-                  <div key={req.request_id} className="p-3 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-[var(--ct-fg)]">
-                        {req.from_instance_name} wants to pair
-                      </span>
-                      <span className="text-[10px] text-[var(--ct-muted)] font-mono">{req.from_address}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleApprove(req.request_id)}
-                        className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleReject(req.request_id)}
-                        className="text-[10px] px-3 py-1 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Group>
-          )}
-
-          {/* Discovered Instances */}
+          {/* Discovered */}
           <div>
             <div className="flex items-center justify-between mb-2.5">
               <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)]">Discovered</h3>
-              <button
-                onClick={handleRefresh}
-                disabled={refreshing}
-                className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors disabled:opacity-50"
-              >
+              <button onClick={handleRefresh} disabled={refreshing}
+                className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors disabled:opacity-50">
                 {refreshing ? "Scanning..." : "Refresh"}
               </button>
             </div>
             {peers && peers.discovered.length > 0 ? (
               <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 divide-y divide-[var(--ct-border)]">
-                {/* If multiple peers discovered and we're not in a mesh yet, show as mesh group */}
                 {peers.paired.length === 0 && peers.discovered.length > 1 && (
                   <div className="p-3 space-y-2">
                     <div className="flex items-center justify-between">
@@ -292,11 +233,9 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                           {peers.discovered.length} peers
                         </span>
                       </div>
-                      <button
-                        onClick={() => handleConnect(peers.discovered[0].instance_id)}
+                      <button onClick={() => handleConnect(peers.discovered[0].instance_id)}
                         disabled={connecting !== null}
-                        className="text-[10px] px-3 py-1 rounded bg-[var(--ct-green)] text-white hover:brightness-110 transition-all disabled:opacity-50"
-                      >
+                        className="text-[10px] px-3 py-1 rounded bg-[var(--ct-green)] text-white hover:brightness-110 transition-all disabled:opacity-50">
                         {connecting ? "Joining..." : "Join Mesh"}
                       </button>
                     </div>
@@ -312,27 +251,19 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                     </div>
                   </div>
                 )}
-                {/* Single peer or already in mesh — show individual connect */}
                 {(peers.paired.length > 0 || peers.discovered.length === 1) && peers.discovered.map((peer) => (
                   <div key={peer.instance_id} className="p-3 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full border border-[var(--ct-muted)]" />
                       <span className="text-xs text-[var(--ct-fg)]">{peer.instance_name}</span>
                       <span className="text-[10px] text-[var(--ct-muted)] font-mono">{peer.addresses[0]?.ip || ""}</span>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-border)] text-[var(--ct-muted-fg)]">
-                        {peer.discovery_method}
-                      </span>
                       {peer.dev && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]">
-                          dev
-                        </span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]">dev</span>
                       )}
                     </div>
-                    <button
-                      onClick={() => handleConnect(peer.instance_id)}
+                    <button onClick={() => handleConnect(peer.instance_id)}
                       disabled={connecting === peer.instance_id}
-                      className="text-[10px] px-3 py-1 rounded bg-[var(--ct-green)] text-white hover:brightness-110 transition-all disabled:opacity-50"
-                    >
+                      className="text-[10px] px-3 py-1 rounded bg-[var(--ct-green)] text-white hover:brightness-110 transition-all disabled:opacity-50">
                       {connecting === peer.instance_id ? "Connecting..." : "Connect"}
                     </button>
                   </div>
@@ -345,37 +276,31 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
             )}
           </div>
 
-          {/* Manual add */}
-          <div>
+          {/* Info + Manual add — bottom section */}
+          <div className="space-y-2">
+            {status && (
+              <div className="space-y-1">
+                <CopyRow label="Instance ID" value={status.instance_id} />
+                {status.local_ip && <InfoRow label="IP" value={status.local_ip} mono />}
+                {status.tailscale_ip && <InfoRow label="Tailscale" value={status.tailscale_ip} mono />}
+              </div>
+            )}
             {showManual ? (
               <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={manualAddr}
+                <input type="text" value={manualAddr}
                   onChange={(e) => setManualAddr(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleAddManual()}
                   placeholder="192.168.1.50:7685"
                   className="flex-1 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none font-mono"
-                  autoFocus
-                />
-                <button
-                  onClick={handleAddManual}
-                  className="text-[10px] px-3 py-1.5 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all"
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => { setShowManual(false); setManualAddr(""); }}
-                  className="text-[10px] px-2 py-1.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
-                >
-                  Cancel
-                </button>
+                  autoFocus />
+                <button onClick={handleAddManual}
+                  className="text-[10px] px-3 py-1.5 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all">Add</button>
+                <button onClick={() => { setShowManual(false); setManualAddr(""); }}
+                  className="text-[10px] px-2 py-1.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]">Cancel</button>
               </div>
             ) : (
-              <button
-                onClick={() => setShowManual(true)}
-                className="text-[10px] text-[var(--ct-accent)] hover:underline"
-              >
+              <button onClick={() => setShowManual(true)}
+                className="text-[10px] text-[var(--ct-accent)] hover:underline">
                 + Add peer manually...
               </button>
             )}
