@@ -55,6 +55,9 @@ pub async fn debug_endpoint(
     let crown_holder = mesh.crown_public.as_ref().map(|c| c.holder_id.clone());
     let our_id = mesh.identity.instance_id.clone();
     let our_name = mesh.instance_name.clone();
+    let pending: Vec<serde_json::Value> = mesh.pending_requests.values()
+        .map(|r| serde_json::json!({"request_id": r.request_id, "from": r.from_instance_name, "from_id": r.from_instance_id}))
+        .collect();
     drop(mesh);
 
     Json(serde_json::json!({
@@ -62,6 +65,7 @@ pub async fn debug_endpoint(
         "crown_holder": crown_holder,
         "paired": paired,
         "trust_declarations": declarations,
+        "pending_requests": pending,
         "logs": lines,
     }))
 }
@@ -116,6 +120,99 @@ pub async fn debug_action(
                 .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Network: {}", e)))?;
             log::info!("[mesh/debug] Connect request sent to {}", instance_id);
             Ok(Json(serde_json::json!({"ok": true, "action": "connect", "instance_id": instance_id})))
+        }
+        "approve" => {
+            let request_id = body["request_id"].as_str()
+                .or_else(|| {
+                    // Auto-find first pending request if no request_id given
+                    None
+                })
+                .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing request_id".to_string()))?;
+            // Get request + our identity
+            let (request, our_pubkey, our_id, our_name) = {
+                let m = state.mesh.lock();
+                let req = m.pending_requests.get(request_id).cloned()
+                    .ok_or_else(|| (StatusCode::NOT_FOUND, "Request not found".to_string()))?;
+                let pk = m.identity.public_key.clone().ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "No keypair".to_string()))?;
+                (req, pk, m.identity.instance_id.clone(), m.instance_name.clone())
+            };
+            // Send accept to requester
+            let accept = crate::mesh::types::PairingAccept {
+                request_id: request_id.to_string(),
+                from_instance_id: our_id.clone(),
+                from_instance_name: our_name,
+                public_key: our_pubkey,
+            };
+            let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+            let url = format!("http://{}:{}/api/mesh/pair/accept", request.from_address, request.from_port);
+            client.post(&url).json(&accept).send().await
+                .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Accept failed: {}", e)))?;
+            // Store as paired
+            {
+                let mut m = state.mesh.lock();
+                let peer = crate::mesh::types::PairedPeer {
+                    instance_id: request.from_instance_id.clone(),
+                    instance_name: request.from_instance_name.clone(),
+                    addresses: vec![crate::mesh::types::PeerAddress { ip: request.from_address.clone(), is_tailscale: false }],
+                    api_port: request.from_port,
+                    public_key: request.public_key.clone(),
+                    paired_at: chrono::Utc::now().to_rfc3339(),
+                    last_seen: Some(chrono::Utc::now().to_rfc3339()),
+                    online: true, is_primary: false,
+                    access_level: crate::mesh::types::AccessLevel::Full,
+                    trust_level: String::new(), version: None,
+                };
+                m.paired_peers.insert(request.from_instance_id.clone(), peer);
+                m.pending_requests.remove(request_id);
+                let _ = m.save();
+            }
+            let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+            // Introductions
+            let intro_data = state.mesh.lock().prepare_introductions(&request.from_instance_id);
+            if let Some((new_peer, existing, id, token)) = intro_data {
+                crate::mesh::broadcast_introductions(new_peer, existing, id, token).await;
+            }
+            // Gossip sync
+            let (payload, signed_token) = {
+                let m = state.mesh.lock();
+                (m.build_sync_payload(), m.sign_request().ok())
+            };
+            if let Some(token) = signed_token {
+                let all_peers: Vec<_> = state.mesh.lock().paired_peers.values().cloned().collect();
+                let fresh_payload = state.mesh.lock().build_sync_payload();
+                for peer in &all_peers {
+                    if let Some(addr) = peer.addresses.first() {
+                        let sync_url = format!("http://{}:{}/api/mesh/sync", addr.ip, peer.api_port);
+                        if let Ok(resp) = client.post(&sync_url)
+                            .header("Authorization", format!("Bearer {}", token))
+                            .json(&fresh_payload).send().await {
+                            if resp.status().is_success() {
+                                if let Ok(their) = resp.json::<crate::mesh::types::MeshSyncPayload>().await {
+                                    let mut m = state.mesh.lock();
+                                    if let Some(crown_info) = their.crown_public {
+                                        let _ = m.update_crown_public(crown_info);
+                                    }
+                                    if let Some(ref cpub) = m.crown_public {
+                                        let pk = cpub.public_key.clone();
+                                        for decl in &their.trust_declarations {
+                                            if crate::mesh::crown::verify_trust_declaration(decl, &pk).is_ok() {
+                                                let ev = m.trust_declarations.iter().filter(|d| d.peer_id == decl.peer_id).map(|d| d.version).max().unwrap_or(0);
+                                                if decl.version > ev {
+                                                    m.trust_declarations.retain(|d| d.peer_id != decl.peer_id);
+                                                    m.trust_declarations.push(decl.clone());
+                                                }
+                                            }
+                                        }
+                                        let _ = crate::mesh::crown::save_trust_declarations(&m.trust_declarations);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            state.mesh.lock().claim_crown_if_unclaimed();
+            Ok(Json(serde_json::json!({"ok": true, "action": "approve"})))
         }
         "discovered" => {
             let mesh = state.mesh.lock();
