@@ -336,6 +336,65 @@ impl MeshManager {
             .count()
     }
 
+    /// Build sync payload from current state.
+    pub fn build_sync_payload(&self) -> types::MeshSyncPayload {
+        types::MeshSyncPayload {
+            peers: self.paired_peers.values()
+                .map(|p| types::GossipPeerInfo {
+                    instance_id: p.instance_id.clone(),
+                    instance_name: p.instance_name.clone(),
+                    addresses: p.addresses.clone(),
+                    api_port: p.api_port,
+                    dev: false,
+                }).collect(),
+            crown_public: self.crown_public.clone(),
+            trust_declarations: self.trust_declarations.clone(),
+        }
+    }
+
+    /// Get all peer clients (signed) for broadcasting.
+    pub fn broadcast_clients(&self) -> Vec<transport::PeerClient> {
+        self.paired_peers.keys()
+            .filter_map(|pid| self.client_for(pid))
+            .collect()
+    }
+
+    /// Get all peer clients except one (for targeted broadcast).
+    pub fn broadcast_clients_except(&self, exclude_id: &str) -> Vec<transport::PeerClient> {
+        self.paired_peers.keys()
+            .filter(|pid| pid.as_str() != exclude_id)
+            .filter_map(|pid| self.client_for(pid))
+            .collect()
+    }
+
+    /// Whether this instance can perform mesh management (add/remove peers).
+    /// Only trusted peers and crown holder can manage.
+    pub fn can_manage_mesh(&self) -> bool {
+        if self.is_crown_holder() { return true; }
+        let our_trust = self.get_trust_level(&self.identity.instance_id);
+        our_trust == crown::TrustLevel::Trusted
+    }
+
+    /// Exit mesh — unpair from everyone, relinquish crown if holder.
+    pub fn exit_mesh(&mut self) -> Vec<(String, Vec<types::PeerAddress>, u16)> {
+        // Collect peer info before clearing
+        let peers: Vec<_> = self.paired_peers.values()
+            .map(|p| (p.instance_id.clone(), p.addresses.clone(), p.api_port))
+            .collect();
+        // Relinquish crown
+        if self.crown_keypair.is_some() {
+            crown::delete_crown_keypair();
+            self.crown_keypair = None;
+        }
+        self.crown_public = None;
+        self.paired_peers.clear();
+        self.trust_declarations.clear();
+        let _ = self.save();
+        let _ = crown::save_trust_declarations(&[]);
+        log::info!("[mesh] Exited mesh — removed {} peers", peers.len());
+        peers
+    }
+
     /// Validate and store an incoming pairing request.
     pub fn receive_pairing_request(&mut self, request: PairingRequest) -> Result<(), String> {
         // Ignore our own requests

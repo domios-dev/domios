@@ -1042,6 +1042,7 @@ pub fn run() {
             commands_mesh::mesh_approve_pairing,
             commands_mesh::mesh_reject_pairing,
             commands_mesh::mesh_disconnect,
+            commands_mesh::mesh_exit,
             commands_mesh::mesh_transfer_crown,
             commands_mesh::mesh_add_manual,
             commands_mesh::mesh_set_trust,

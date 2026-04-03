@@ -392,6 +392,44 @@ pub async fn mesh_disconnect(
     Ok(())
 }
 
+/// Exit the entire mesh — disconnect from all peers.
+#[tauri::command]
+pub async fn mesh_exit(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+) -> Result<(), String> {
+    // Get signed token + peer list before exiting
+    let (peers_info, token) = {
+        let m = mesh.lock();
+        let token = m.sign_request().ok();
+        let our_id = m.identity.instance_id.clone();
+        let peers: Vec<_> = m.paired_peers.values()
+            .map(|p| (p.addresses.first().map(|a| a.ip.clone()), p.api_port, our_id.clone()))
+            .collect();
+        (peers, token)
+    };
+
+    // Notify all peers we're leaving
+    if let Some(token) = &token {
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+        for (ip, port, our_id) in &peers_info {
+            if let Some(ip) = ip {
+                let url = format!("http://{}:{}/api/mesh/peers/{}", ip, port, our_id);
+                let _ = http.delete(&url)
+                    .header("Authorization", format!("Bearer {}", token))
+                    .send().await;
+            }
+        }
+    }
+
+    // Clear all local mesh state
+    mesh.lock().exit_mesh();
+    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    log::info!("[mesh] Exited mesh");
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn mesh_transfer_crown(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
