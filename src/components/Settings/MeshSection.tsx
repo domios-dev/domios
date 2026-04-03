@@ -271,16 +271,20 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                   </div>
                   <span className="text-[10px] text-[var(--ct-muted)] font-mono">{req.from_address}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => handleApprove(req.request_id)}
-                    className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all">
-                    Approve
-                  </button>
-                  <button onClick={() => handleReject(req.request_id)}
-                    className="text-[10px] px-3 py-1 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors">
-                    Reject
-                  </button>
-                </div>
+                {canManage ? (
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => handleApprove(req.request_id)}
+                      className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all">
+                      Approve
+                    </button>
+                    <button onClick={() => handleReject(req.request_id)}
+                      className="text-[10px] px-3 py-1 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors">
+                      Reject
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-[10px] text-[var(--ct-muted)]">Awaiting crown approval</span>
+                )}
               </div>
             ))}
 
@@ -337,8 +341,8 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
             {status && (
               <div className="space-y-1">
                 <CopyRow label="Instance ID" value={status.instance_id} />
-                {status.local_ip && <InfoRow label="IP" value={status.local_ip} mono />}
-                {status.tailscale_ip && <InfoRow label="Tailscale" value={status.tailscale_ip} mono />}
+                {status.local_ip && <CopyRow label="IP" value={`${status.local_ip}:${status.api_port}`} />}
+                {status.tailscale_ip && <CopyRow label="Tailscale" value={`${status.tailscale_ip}:${status.api_port}`} />}
               </div>
             )}
             {showManual ? (

@@ -93,7 +93,12 @@ pub async fn mesh_approve_pairing(
     svc: tauri::State<'_, crate::service::ServiceState>,
     request_id: String,
 ) -> Result<(), String> {
-    // Get the pending request and our identity
+    {
+        let m = mesh.lock();
+        if !m.can_manage_mesh() {
+            return Err("Only crown holder or trusted peers can approve pairing requests".to_string());
+        }
+    }
     let (request, our_pubkey, our_id, our_name) = {
         let m = mesh.lock();
         let req = m.pending_requests.get(&request_id).cloned()
