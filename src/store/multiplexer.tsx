@@ -47,6 +47,12 @@ function makeTab(pane: Pane): Tab {
 }
 
 
+/** Compare two TitleLevel values and return the higher-priority one. */
+export function highestTitleLevel(a: TitleLevel, b: TitleLevel): TitleLevel {
+  const levels = [TitleLevel.Default, TitleLevel.Auto, TitleLevel.Agent, TitleLevel.User];
+  return levels.indexOf(a) >= levels.indexOf(b) ? a : b;
+}
+
 function collectPaneIds(node: SplitNode): string[] {
   if (node.type === "Leaf") return [node.pane_id];
   return node.children.flatMap(collectPaneIds);
@@ -174,7 +180,7 @@ type Action =
   // Pane title — pinned=true from API/CLI rename (blocks OSC auto-rename)
   | { type: "SET_PANE_TITLE"; paneId: string; title: string; level?: TitleLevel }
   // Agent detection
-  | { type: "SET_AGENT_TYPE"; paneId: string; agentType: "claude" | null }
+  | { type: "SET_AGENT_TYPE"; paneId: string; agentType: string | null }
   // Pane status actions
   | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus };
 
@@ -212,11 +218,8 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
         // Keep highest title_level between backend and frontend
         const backendLevel = backendPane.title_level || TitleLevel.Default;
         const frontendLevel = existing?.title_level || TitleLevel.Default;
-        const levels = [TitleLevel.Default, TitleLevel.Auto, TitleLevel.User];
-        const highestLevel = levels.indexOf(backendLevel) >= levels.indexOf(frontendLevel) ? backendLevel : frontendLevel;
+        const highestLevel = highestTitleLevel(backendLevel, frontendLevel);
         const title = highestLevel === frontendLevel && existing ? existing.title : backendPane.title;
-        if (existing && existing.title !== title) {
-        }
         mergedPanes[id] = {
           ...backendPane,
           title_level: highestLevel as TitleLevel,
@@ -224,11 +227,37 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
           ...(agentType ? { agent_type: agentType } : {}),
         };
       }
+      // Detect new pending_prompts → push notification toasts with action buttons
+      const newToasts: Notification[] = [];
+      for (const [id, pane] of Object.entries(mergedPanes)) {
+        const oldPane = state.panes[id];
+        if (pane.pending_prompt && !oldPane?.pending_prompt) {
+          const prompt = pane.pending_prompt;
+          newToasts.push({
+            id: `prompt-${id}-${Date.now()}`,
+            pane_id: id,
+            workspace_id: null,
+            title: pane.title || "Agent",
+            body: prompt.question,
+            level: "Warning" as const,
+            read: false,
+            sticky: true,
+            timestamp: Date.now(),
+            actions: prompt.options.map((opt: { label: string; value: string }) => ({
+              label: opt.label,
+              type: "invoke" as const,
+              value: "mux_respond_prompt",
+              args: { paneId: id, value: opt.value },
+            })),
+          });
+        }
+      }
       return {
         ...state,
         ...action.state,
         workspaces: mergedWorkspaces,
         panes: mergedPanes,
+        toasts: [...state.toasts, ...newToasts],
       };
     }
 
@@ -555,7 +584,7 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
 
 interface MultiplexerContextType {
   state: ExtendedState;
-  createWorkspace: (name: string) => void;
+  createWorkspace: (name: string, cwd?: string) => void;
   setActiveWorkspace: (id: string) => void;
   closeWorkspace: (id: string) => void;
   renameWorkspace: (id: string, name: string) => void;
@@ -577,7 +606,7 @@ interface MultiplexerContextType {
   dismissToast: (id: string) => void;
   // Pane title (from terminal OSC sequences)
   setPaneTitle: (paneId: string, title: string, level?: TitleLevel) => void;
-  setAgentType: (paneId: string, agentType: "claude" | null) => void;
+  setAgentType: (paneId: string, agentType: string | null) => void;
   // Pane status
   updatePaneStatus: (paneId: string, status: PaneStatus) => void;
   // Spawn Claude in a new tab
@@ -812,9 +841,9 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     [state.workspaces],
   );
 
-  const createWorkspace = useCallback(async (name: string) => {
+  const createWorkspace = useCallback(async (name: string, cwd?: string) => {
     try {
-      await invoke("mux_create_workspace", { name });
+      await invoke("mux_create_workspace", { name, cwd: cwd ?? null });
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s && s.workspaces.length > 0) dispatch({ type: "SET_STATE", state: s });
     } catch (e) {
@@ -872,10 +901,12 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       // 2. Create tab + pane in backend (pane has no PTY — TerminalPane will spawn it)
       const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId });
-      // 3. Set cwd on pane — both pending map and backend
-      if (cwd) {
-        setPendingCwd(tabInfo.pane_id, cwd);
-        await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd });
+      // 3. Set cwd on pane — inherit workspace cwd if no explicit cwd given
+      const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
+      const effectiveCwd = cwd || ws?.cwd || undefined;
+      if (effectiveCwd) {
+        setPendingCwd(tabInfo.pane_id, effectiveCwd);
+        await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd: effectiveCwd });
       }
       // 4. Set active tab in backend
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
@@ -906,7 +937,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       setPendingCommand(tabInfo.pane_id, cmd);
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
-      console.log("[claude-spawn] refreshing frontend...");
       refreshFromBackend();
     } catch (e) {
       console.error("Failed to spawn Claude tab:", e);
@@ -965,7 +995,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         console.error("Failed to split pane:", e);
       }
     },
-    [findContext],
+    [findContext, refreshFromBackend],
   );
 
   const closePane = useCallback(
@@ -1102,7 +1132,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_PANE_TITLE", paneId, title, level });
   }, []);
 
-  const setAgentType = useCallback((paneId: string, agentType: "claude" | null) => {
+  const setAgentType = useCallback((paneId: string, agentType: string | null) => {
     dispatch({ type: "SET_AGENT_TYPE", paneId, agentType });
   }, []);
 

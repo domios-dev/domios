@@ -18,19 +18,23 @@ pub mod pty_io;
 mod hierarchy;
 mod orchestrator;
 mod notification;
+mod output;
 pub mod cron;
+pub mod pty_lifecycle;
+pub mod general_agent;
 #[cfg(test)]
 mod tests;
 
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::Emitter;
 
+use crate::agent::registry::AgentRegistry;
 use crate::api::events::EventBroadcaster;
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::AgentRole;
-use crate::{AgentTrackerState, NotifState, OutputBufferState, PtyState, ReportStoreState};
+use crate::{AgentTrackerState, NotifState, OutputBufferState, PromptDetectorState, PtyState, ReportStoreState, ScreenStateHandle};
 
 // Re-export public types used by callers.
 pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
@@ -43,11 +47,20 @@ pub struct ServiceContext {
     pub mux: MuxState,
     pub pty: PtyState,
     pub output_buf: OutputBufferState,
+    pub screen_state: ScreenStateHandle,
     pub notif: NotifState,
     pub events: Arc<EventBroadcaster>,
     pub app_handle: tauri::AppHandle,
     pub agent_tracker: AgentTrackerState,
     pub report_store: ReportStoreState,
+    pub agent_registry: Arc<AgentRegistry>,
+    pub prompt_detector: PromptDetectorState,
+    /// Channel for outbound Telegram messages (CLI bridge.send command).
+    pub bridge_outbound: crate::bridge::manager::OutboundSender,
+    /// Receiver half — taken when bridge starts. Replaced on restart with a new channel.
+    pub bridge_outbound_rx: Arc<parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<crate::bridge::manager::OutboundMessage>>>>,
+    /// Handle to the running bridge task — aborted on restart.
+    pub bridge_task: Arc<parking_lot::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;
@@ -75,6 +88,16 @@ impl ServiceContext {
         for id in pty_ids {
             let _ = manager.kill(id);
         }
+    }
+
+    /// Unified event dispatch — sends to Tauri frontend and external webhooks.
+    /// OS notifications are NOT sent here — use in-app toasts only.
+    pub fn notify_event(&self, event_type: &str, payload: serde_json::Value) {
+        // 1. Tauri event to frontend (in-app toasts)
+        let _ = self.app_handle.emit(event_type, &payload);
+
+        // 2. External webhooks + websockets (Telegram, Discord, etc.)
+        self.events.broadcast(event_type, payload);
     }
 
     pub(crate) fn parse_role(role_str: &str) -> Result<AgentRole, String> {

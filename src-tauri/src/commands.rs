@@ -1,14 +1,13 @@
 use std::collections::HashMap;
 use std::io::Read;
+use base64::Engine as _;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::UpdaterExt;
 
-use crate::agent::detector;
 use crate::agent::git_info::{self, GitInfo};
 use crate::multiplexer::commands::MuxState;
-use crate::notification::NotifState;
-use crate::api::events::EventBroadcasterState;
-use crate::{AgentTrackerState, OutputBufferState, PtyState, UpdateStateHandle};
+use crate::service::ServiceState;
+use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle, UpdateStateHandle};
 
 #[tauri::command]
 pub async fn check_for_update(
@@ -47,6 +46,31 @@ pub async fn install_app_update(app: AppHandle) -> Result<(), String> {
 /// Spawn a new PTY. Returns the PTY ID.
 /// NO background thread — frontend polls via read_pty command.
 #[tauri::command]
+pub fn get_windows_build_number() -> u32 {
+    #[cfg(target_os = "windows")]
+    {
+        // Parse build number from Windows registry or ver command
+        use std::process::Command;
+        if let Ok(output) = Command::new("cmd").args(["/c", "ver"]).output() {
+            let ver = String::from_utf8_lossy(&output.stdout);
+            // Format: "Microsoft Windows [Version 10.0.26200.5570]"
+            if let Some(start) = ver.rfind('.') {
+                // Get the part before last dot: "10.0.XXXXX"
+                let before_last = &ver[..start];
+                if let Some(build_start) = before_last.rfind('.') {
+                    if let Ok(n) = before_last[build_start + 1..].trim().parse::<u32>() {
+                        return n;
+                    }
+                }
+            }
+        }
+        19041 // fallback
+    }
+    #[cfg(not(target_os = "windows"))]
+    { 0 }
+}
+
+#[tauri::command]
 pub fn get_default_cwd() -> Result<String, String> {
     std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
@@ -57,6 +81,9 @@ pub fn get_default_cwd() -> Result<String, String> {
 pub async fn spawn_pty(
     state: tauri::State<'_, PtyState>,
     mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
+    screen_state: tauri::State<'_, ScreenStateHandle>,
+    config_state: tauri::State<'_, crate::config::ConfigState>,
+    svc: tauri::State<'_, ServiceState>,
     _app: AppHandle,
     command: Option<String>,
     cwd: Option<String>,
@@ -91,6 +118,58 @@ pub async fn spawn_pty(
     };
 
     log::info!("PTY {} spawned", pty_id);
+
+    // Auto-resume: if this pane has a saved session_id, resume it after shell is ready.
+    // This runs in backend so it works even for non-visible tabs.
+    if let Some(ref pid) = pane_id {
+        let session_id = mux_state.lock().get_pane(pid)
+            .and_then(|p| p.agent_session_id.clone());
+        if let Some(session_id) = session_id {
+            // Pane has a saved session → it was a Claude pane.
+            // Set agent_type now so ChatView knows it's an agent pane immediately.
+            svc.set_pane_agent_type(pid, Some("claude".to_string()));
+            svc.emit_state_changed();
+
+            // Backend reader is ONLY for General Agent pane (started in general_agent.rs).
+            // For regular panes, frontend TerminalPane handles reading.
+            // Starting backend reader here would steal bytes from frontend → broken UI.
+
+            let pty_clone = state.inner().clone();
+            let pty_id_for_poll = pty_id.clone();
+            let pty_id_for_write = pty_id.clone();
+            let screen_state_clone = screen_state.inner().clone();
+            // Extract config values before spawning (MutexGuard is not Send)
+            let (resume_enabled, skip_perms) = {
+                let cfg = config_state.lock();
+                (cfg.agent.resume_sessions, cfg.agent.resume_skip_permissions)
+            };
+            tokio::spawn(async move {
+                if !resume_enabled { return; }
+                let skip_flag = if skip_perms { " --dangerously-skip-permissions" } else { "" };
+
+                // Wait for shell to be ready
+                let ready = tokio::task::spawn_blocking(move || {
+                    crate::service::pty_io::poll_shell_prompt(
+                        &screen_state_clone, &pty_id_for_poll,
+                        std::time::Duration::from_secs(15),
+                    )
+                }).await.unwrap_or(false);
+
+                if !ready {
+                    log::warn!("[resume] shell not ready for session {}, skipping", session_id);
+                    return;
+                }
+
+                let unset = crate::shell::ShellSyntax::UNSET_CLAUDECODE;
+                let cmd = format!("{} claude --resume {}{}", unset, session_id, skip_flag);
+                log::info!("[resume] sending: {}", cmd);
+                // Use bracket paste to prevent shell from eating characters
+                let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
+                let _ = pty_clone.lock().write(&pty_id_for_write, paste.as_bytes());
+            });
+        }
+    }
+
     Ok(pty_id)
 }
 
@@ -100,9 +179,10 @@ pub async fn spawn_pty(
 pub async fn read_pty(
     state: tauri::State<'_, PtyState>,
     output_buf: tauri::State<'_, OutputBufferState>,
+    screen_state: tauri::State<'_, ScreenStateHandle>,
     mux: tauri::State<'_, MuxState>,
     tracker: tauri::State<'_, AgentTrackerState>,
-    events: tauri::State<'_, EventBroadcasterState>,
+    svc: tauri::State<'_, ServiceState>,
     app: AppHandle,
     pty_id: String,
 ) -> Result<Vec<u8>, String> {
@@ -113,6 +193,7 @@ pub async fn read_pty(
     };
 
     let ob = (*output_buf).clone();
+    let ss = (*screen_state).clone();
     let pid = pty_id.clone();
 
     // Take reader from session — only one readLoop can own it at a time.
@@ -138,6 +219,7 @@ pub async fn read_pty(
         }
         buf.truncate(n);
         ob.lock().append(&pid, &buf);
+        ss.lock().process(&pid, &buf);
 
         // Return reader so next call can reuse it
         Ok((buf, reader_to_use))
@@ -151,105 +233,18 @@ pub async fn read_pty(
             let mut reader_slot = session.reader.lock().unwrap();
             *reader_slot = Some(reader_back);
 
-            // Status tracking + agent event detection
-            {
-                let mut t = tracker.lock();
-                let prev = t.get_status(&pty_id);
-                t.update_output(&pty_id, &data);
+            // Status tracking + agent event detection (delegated to service layer)
+            let (prev, now) = svc.process_pty_output(&pty_id, &data);
 
-                // Detect Claude Code events from output text (strip ANSI first)
-                if let Ok(raw) = std::str::from_utf8(&data) {
-                    let text = crate::api::routes::strip_ansi_codes(raw);
-                    let agent_events = detector::detect_claude_events(&text);
-                    if !agent_events.is_empty() {
-                        log::debug!("[agent] Events detected: {:?} for pty {}", agent_events, &pty_id[..8]);
-                    }
-
-                    // Cooldown: skip if same event type fired within last 10s
-                    use std::sync::Mutex as StdMutex;
-                    use std::collections::HashMap;
-                    static LAST_NOTIF: std::sync::LazyLock<StdMutex<HashMap<(String, String), std::time::Instant>>> =
-                        std::sync::LazyLock::new(|| StdMutex::new(HashMap::new()));
-
-                    for event in &agent_events {
-                        let event_key = (pty_id.clone(), format!("{:?}", event));
-                        {
-                            let mut map = LAST_NOTIF.lock().unwrap();
-                            let now = std::time::Instant::now();
-                            if let Some(last) = map.get(&event_key) {
-                                if now.duration_since(*last).as_secs() < 10 {
-                                    continue;
-                                }
-                            }
-                            map.insert(event_key, now);
-                        }
-                        match event {
-                            detector::AgentEvent::PermissionRequest => {
-                                t.set_waiting(&pty_id);
-                                let info = mux.lock().snapshot().panes.iter()
-                                    .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
-                                    .map(|(id, p)| (id.clone(), p.title.clone()));
-                                if let Some((pid, title)) = info {
-                                    let notif_title = format!("{} needs approval", title);
-                                    use tauri::Emitter;
-                                    let _ = app.emit("notification-created", serde_json::json!({
-                                        "id": uuid::Uuid::new_v4().to_string(),
-                                        "title": &notif_title,
-                                        "body": "Agent is waiting for your permission",
-                                        "level": "Warning",
-                                        "pane_id": &pid,
-                                        "workspace_id": serde_json::Value::Null,
-                                    }));
-                                    crate::api::routes::send_os_notification_if_unfocused(
-                                        &app, &notif_title, Some("Agent is waiting for your permission"),
-                                    );
-                                    // Broadcast to webhooks + websockets
-                                    events.broadcast("agent.permission_request", serde_json::json!({
-                                        "pane_id": &pid, "title": &title,
-                                    }));
-                                }
-                            }
-                            detector::AgentEvent::TaskComplete => {
-                                if prev == crate::agent::status::PaneStatus::Working {
-                                    let info = mux.lock().snapshot().panes.iter()
-                                        .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
-                                        .map(|(id, p)| (id.clone(), p.title.clone()));
-                                    if let Some((pid, title)) = info {
-                                        let notif_title = format!("{} finished", title);
-                                        use tauri::Emitter;
-                                        let _ = app.emit("notification-created", serde_json::json!({
-                                            "id": uuid::Uuid::new_v4().to_string(),
-                                            "title": &notif_title,
-                                            "body": "Task complete",
-                                            "level": "Info",
-                                            "pane_id": &pid,
-                                            "workspace_id": serde_json::Value::Null,
-                                        }));
-                                        crate::api::routes::send_os_notification_if_unfocused(
-                                            &app, &notif_title, Some("Task complete"),
-                                        );
-                                        events.broadcast("agent.task_complete", serde_json::json!({
-                                            "pane_id": &pid, "title": &title,
-                                        }));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                let now = t.get_status(&pty_id);
-                if now != prev {
-                    let pane_id = mux.lock().snapshot().panes.iter()
-                        .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
-                        .map(|(id, _)| id.clone());
-                    if let Some(pid) = pane_id {
-                        use tauri::Emitter;
-                        let _ = app.emit("pane-status-changed", serde_json::json!({
-                            "pane_id": pid,
-                            "status": format!("{:?}", now),
-                        }));
-                    }
+            // Emit status change event to frontend
+            if now != prev {
+                let pane_id = mux.lock().pane_id_for_pty(&pty_id);
+                if let Some(ref pid) = pane_id {
+                    use tauri::Emitter;
+                    let _ = app.emit("pane-status-changed", serde_json::json!({
+                        "pane_id": pid,
+                        "status": format!("{:?}", now),
+                    }));
                 }
             }
 
@@ -258,13 +253,7 @@ pub async fn read_pty(
         Err(e) => {
             // PTY died
             tracker.lock().set_dead(&pty_id);
-            let pane_id = {
-                let m = mux.lock();
-                let snap = m.snapshot();
-                snap.panes.iter()
-                    .find(|(_, p)| p.pty_id.as_deref() == Some(&pty_id))
-                    .map(|(id, _)| id.clone())
-            };
+            let pane_id = mux.lock().pane_id_for_pty(&pty_id);
             if let Some(ref pid) = pane_id {
                 use tauri::Emitter;
                 let _ = app.emit("pane-status-changed", serde_json::json!({
@@ -309,11 +298,7 @@ pub async fn write_pty_string(
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
 
-    let mut writer = session.writer.lock().unwrap();
-    use std::io::Write;
-    writer.write_all(data.as_bytes()).map_err(|e| format!("Write failed: {}", e))?;
-    writer.flush().map_err(|e| format!("Flush failed: {}", e))?;
-    Ok(())
+    session.write_queue.send(data.into_bytes())
 }
 
 /// Write raw bytes to PTY.
@@ -328,12 +313,7 @@ pub async fn write_pty(
         manager.get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
-
-    let mut writer = session.writer.lock().unwrap();
-    use std::io::Write;
-    writer.write_all(&data).map_err(|e| format!("Write failed: {}", e))?;
-    writer.flush().map_err(|e| format!("Flush failed: {}", e))?;
-    Ok(())
+    session.write_queue.send(data)
 }
 
 /// Resize PTY.
@@ -368,7 +348,8 @@ pub async fn kill_pty(
     Ok(())
 }
 
-/// Get captured PTY output.
+/// Get captured PTY output — full untruncated history, ANSI stripped.
+/// Used by ChatView to parse Claude output.
 #[tauri::command]
 pub async fn get_pane_output(
     output_buf: tauri::State<'_, OutputBufferState>,
@@ -382,7 +363,151 @@ pub async fn get_pane_output(
             .ok_or_else(|| "Pane not found or has no PTY".to_string())?
     };
     let buf = output_buf.lock();
-    Ok(buf.get_text(&pty_id).unwrap_or_default())
+    let text = buf.get_full_text(&pty_id).unwrap_or_default();
+    Ok(crate::api::routes::clean_terminal_output(&text))
+}
+
+/// Get current screen state (what's visible on the terminal right now).
+/// Uses the VT100 screen parser — handles cursor positioning, overwrites, etc.
+/// Better than get_pane_output for restoring TUI apps after remount.
+#[tauri::command]
+pub async fn get_pane_screen(
+    screen_state: tauri::State<'_, ScreenStateHandle>,
+    mux: tauri::State<'_, MuxState>,
+    pane_id: String,
+) -> Result<String, String> {
+    let pty_id = {
+        let m = mux.lock();
+        m.get_pane(&pane_id)
+            .and_then(|p| p.pty_id.clone())
+            .ok_or_else(|| "Pane not found or has no PTY".to_string())?
+    };
+    let ss = screen_state.lock();
+    let text = ss.get_screen_text(&pty_id).unwrap_or_default();
+    // Screen parser returns \n between rows, but xterm.js needs \r\n
+    // to move cursor back to column 0 — otherwise each line starts
+    // where the previous one ended ("staircase" effect).
+    Ok(text.replace('\n', "\r\n"))
+}
+
+#[tauri::command]
+pub async fn wait_shell_ready(
+    screen_state: tauri::State<'_, ScreenStateHandle>,
+    mux: tauri::State<'_, MuxState>,
+    pane_id: String,
+    timeout_ms: Option<u64>,
+) -> Result<bool, String> {
+    let pty_id = {
+        let m = mux.lock();
+        m.get_pane(&pane_id)
+            .and_then(|p| p.pty_id.clone())
+            .ok_or_else(|| "Pane not found or has no PTY".to_string())?
+    };
+    let timeout = std::time::Duration::from_millis(timeout_ms.unwrap_or(10_000));
+    let ss = screen_state.inner().clone();
+    let result = tokio::task::spawn_blocking(move || {
+        crate::service::pty_io::poll_shell_prompt(&ss, &pty_id, timeout)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(result)
+}
+
+/// Read agent session file for a pane.
+/// Returns the raw JSONL text. The frontend parses it into chat messages.
+/// Supports incremental reads via `offset` — skips that many bytes and returns only new data.
+/// Uses AgentRegistry to resolve session file path for the agent type.
+#[tauri::command]
+pub fn read_session_jsonl(
+    mux: tauri::State<'_, MuxState>,
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+    offset: Option<u64>,
+    tail_bytes: Option<u64>,
+) -> Result<String, String> {
+    // 1. Get agent_session_id, agent_type, and cwd from pane
+    let (mut session_id, cwd, agent_type) = {
+        let m = mux.lock();
+        let pane = m.get_pane(&pane_id)
+            .ok_or_else(|| "Pane not found".to_string())?;
+        let sid = pane.agent_session_id.clone();
+        let cwd = pane.cwd.clone()
+            .ok_or_else(|| "Pane has no CWD".to_string())?;
+        let at = pane.agent_type.clone().unwrap_or_else(|| "claude".to_string());
+        (sid, cwd, at)
+    };
+
+    // Self-healing: only re-detect if session_id is missing or file doesn't exist.
+    // Don't aggressively switch to newest — that causes all panes with same CWD to share one session.
+    let needs_detect = if session_id.is_none() {
+        true
+    } else if let Some(ref sid) = session_id {
+        // Check if current session file still exists
+        svc.agent_registry.get(&agent_type)
+            .and_then(|p| p.session_file_path(&cwd, sid))
+            .map(|path| !path.exists())
+            .unwrap_or(true)
+    } else { false };
+
+    if needs_detect {
+        if let Some(provider) = svc.agent_registry.get(&agent_type) {
+            let exclude = mux.lock().other_session_ids(&pane_id);
+            let max_age = Some(std::time::Duration::from_secs(86400));
+            if let Some(detected) = provider.detect_session_id(&cwd, &exclude, max_age) {
+                log::info!("[read_session_jsonl] detected session {} for pane {}", detected, pane_id);
+                svc.set_agent_session_id(&pane_id, Some(detected.clone()));
+                svc.emit_state_changed();
+                session_id = Some(detected);
+            }
+        }
+    }
+
+    let session_id = session_id
+        .ok_or_else(|| "No agent session linked to this pane".to_string())?;
+
+    // 2. Build path using agent provider
+    let jsonl_path = svc.agent_registry.get(&agent_type)
+        .and_then(|p| p.session_file_path(&cwd, &session_id))
+        .ok_or_else(|| format!("No session file path for agent type: {}", agent_type))?;
+
+    if !jsonl_path.exists() {
+        return Err(format!("JSONL not found: {}", jsonl_path.display()));
+    }
+
+    // 3. Read from offset (incremental) or tail (initial fast load)
+    use std::io::{Read as IoRead, Seek, SeekFrom};
+    let mut file = std::fs::File::open(&jsonl_path).map_err(|e| e.to_string())?;
+    let file_len = file.metadata().map_err(|e| e.to_string())?.len();
+
+    let skip = offset.unwrap_or(0);
+    if skip > 0 {
+        if skip >= file_len {
+            return Ok(String::new());
+        }
+        file.seek(SeekFrom::Start(skip)).map_err(|e| e.to_string())?;
+        let mut buf = String::new();
+        file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
+        Ok(buf)
+    } else if let Some(tail) = tail_bytes {
+        // Read only the last N bytes for fast initial load
+        // Prepend file_len as first line so frontend knows the offset for subsequent reads
+        let start = if file_len > tail { file_len - tail } else { 0 };
+        file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+        let mut buf = String::new();
+        file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
+        // Skip first partial line (we likely landed mid-line)
+        if start > 0 {
+            if let Some(pos) = buf.find('\n') {
+                buf = buf[pos + 1..].to_string();
+            }
+        }
+        // Prepend offset marker so frontend can track position
+        Ok(format!("__offset:{}\n{}", file_len, buf))
+    } else {
+        let mut buf = String::new();
+        file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
+        Ok(buf)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -575,34 +700,7 @@ pub fn get_skills_prompt() -> Result<String, String> {
 }
 
 /// Embedded CodeTerm rule for Claude Code
-const CODETERM_RULE: &str = r#"## CodeTerm Terminal
-
-You are running inside CodeTerm — an AI-first terminal multiplexer. Use the `/codeterm` skill for all terminal operations.
-
-### When to use CodeTerm CLI
-
-- "in terminal" / "в терминале" / "в консоли" → CodeTerm workspace/pane, NOT filesystem
-- "create project X" → `codeterm workspace create "X"`
-- "split" / "сплитни" → `codeterm pane split`
-- "run tests there" → `codeterm send-text PANE_ID "command"`
-- Any visual content (diagrams, dashboards) → `codeterm browser open file:///path`
-- Notify on completion → `codeterm notify "Done" --level info`
-
-### On session start
-
-Immediately rename your tab to the task summary:
-```bash
-PANE_ID=$(C:/tools/codeterm.exe pane list --json | jq -r '.[0].id')
-C:/tools/codeterm.exe pane rename "$PANE_ID" "short task name"
-```
-
-### Do NOT
-
-- Do NOT use `start` or `open` for browser — use `codeterm browser open`
-- Do NOT create filesystem directories when user says "create project" — create a workspace
-
-<!-- revision: 3 -->
-"#;
+use crate::prompts::CODETERM_RULE;
 
 /// Install CodeTerm rule to ~/.claude/rules/codeterm.md
 #[tauri::command]
@@ -706,6 +804,16 @@ pub fn open_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn get_autostart_enabled() -> bool {
+    crate::autostart::is_enabled()
+}
+
+#[tauri::command]
+pub fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
+    if enabled { crate::autostart::enable() } else { crate::autostart::disable() }
+}
+
 // ---------------------------------------------------------------------------
 // Directory completion for cd
 // ---------------------------------------------------------------------------
@@ -784,13 +892,22 @@ const CODETERM_HOOK_MARKER: &str = "codeterm-hook";
 fn is_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
     hook_entry.get("hooks").and_then(|hs| hs.as_array())
         .map(|hs| hs.iter().any(|h| {
-            // Check _source marker
-            if h.get("_source").and_then(|s| s.as_str()) == Some(CODETERM_HOOK_MARKER) {
-                return true;
+            // Check _source marker (current or legacy)
+            if let Some(source) = h.get("_source").and_then(|s| s.as_str()) {
+                if source == CODETERM_HOOK_MARKER || source == "codeterm" {
+                    return true;
+                }
             }
             // Legacy detection: check if command posts to CodeTerm API
             h.get("command").and_then(|c| c.as_str())
-                .map(|cmd| cmd.contains("/api/notifications") && (cmd.contains("7685") || cmd.contains("7686")))
+                .map(|cmd| {
+                    let is_codeterm_url = cmd.contains("7685") || cmd.contains("7686");
+                    let is_codeterm_path = cmd.contains("/api/notifications")
+                        || cmd.contains("/api/panes/")
+                        || cmd.contains("/hook/permission")
+                        || cmd.contains("/hook/stop");
+                    is_codeterm_url && is_codeterm_path
+                })
                 .unwrap_or(false)
         }))
         .unwrap_or(false)
@@ -866,11 +983,13 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
     // Build hook commands — cross-platform null device and error handling.
     // Use single quotes around the JSON body (works in sh/bash/zsh/powershell).
     let null_dev = crate::shell::ShellSyntax::NULL_DEV;
+    // Use $CODETERM_API_PORT env var (set by PTY shell integration) with compiled-in fallback.
+    // This way hooks work regardless of which CodeTerm instance (prod/dev) spawned Claude.
     let notify_cmd = format!(
-        "curl -s -X POST http://localhost:{port}/api/notifications -H 'Content-Type: application/json' -d '{{\"title\":\"Claude Code\",\"body\":\"Needs permission\",\"level\":\"warning\"}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
     );
     let stop_cmd = format!(
-        "curl -s -X POST http://localhost:{port}/api/notifications -H 'Content-Type: application/json' -d '{{\"title\":\"Claude Code\",\"body\":\"Task complete\",\"level\":\"info\"}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
     );
 
     // Ensure hooks object exists
@@ -942,11 +1061,7 @@ pub fn uninstall_claude_hooks() -> Result<(), String> {
     if let Some(hooks) = json.get_mut("hooks").and_then(|v| v.as_object_mut()) {
         for key in &["Notification", "Stop"] {
             if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
-                arr.retain(|h| {
-                    !h.get("hooks").and_then(|hs| hs.as_array())
-                        .map(|hs| hs.iter().any(|h| h.get("_source").and_then(|s| s.as_str()) == Some(CODETERM_HOOK_MARKER)))
-                        .unwrap_or(false)
-                });
+                arr.retain(|h| !is_codeterm_hook(h));
             }
         }
     }
@@ -981,17 +1096,39 @@ pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String,
     Ok(path.to_string_lossy().to_string())
 }
 
-/// Copy image file to Windows clipboard as PNG so Claude Code can read it via Ctrl+V.
+/// Save base64 data to a temp file and return the path.
+/// Used by ChatView to send pasted images to Claude.
+#[tauri::command]
+pub fn save_temp_file(data: String, extension: String, name: Option<String>) -> Result<String, String> {
+    use std::io::Write;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&data)
+        .map_err(|e| format!("Base64 decode failed: {}", e))?;
+    // Use original filename if provided (with short UUID prefix for uniqueness)
+    let prefix = &uuid::Uuid::new_v4().to_string()[..8];
+    let filename = match name {
+        Some(n) if !n.is_empty() => format!("{}-{}", prefix, n),
+        _ => format!("codeterm-paste-{}.{}", prefix, extension),
+    };
+    let path = std::env::temp_dir().join(filename);
+    let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+    file.write_all(&bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Copy image file to system clipboard so Claude Code can read it via paste.
 #[tauri::command]
 pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        // Use PowerShell to copy image as both Image and PNG stream to clipboard
+        // PowerShell single-quoted strings are literal — only ' needs escaping
+        // (as ''), backslashes are NOT escape chars in PS single quotes.
+        let escaped_path = path.replace("'", "''");
         let ps_script = format!(
             r#"
             Add-Type -AssemblyName System.Windows.Forms
             Add-Type -AssemblyName System.Drawing
-            $img = [System.Drawing.Image]::FromFile('{}')
+            $img = [System.Drawing.Image]::FromFile('{escaped_path}')
             $data = New-Object System.Windows.Forms.DataObject
             $data.SetImage($img)
             $ms = New-Object System.IO.MemoryStream
@@ -1000,18 +1137,60 @@ pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
             $data.SetData('PNG', $false, $ms)
             [System.Windows.Forms.Clipboard]::SetDataObject($data, $true)
             $img.Dispose()
-            "#,
-            path.replace("'", "''").replace('\\', "\\\\")
+            "#
         );
+        log::debug!("[clipboard] copying image to clipboard: {}", path);
         let output = std::process::Command::new("powershell")
             .args(["-NoProfile", "-STA", "-Command", &ps_script])
             .output()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("PowerShell launch failed: {}", e))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            log::error!("[clipboard] PowerShell failed: {}", stderr);
             return Err(format!("Clipboard copy failed: {}", stderr));
         }
+        log::debug!("[clipboard] image copied to clipboard successfully");
     }
+
+    #[cfg(target_os = "macos")]
+    {
+        // Use osascript to copy image to clipboard
+        let script = format!(
+            "set the clipboard to (read (POSIX file \"{}\") as «class PNGf»)",
+            path.replace("\"", "\\\"")
+        );
+        let output = std::process::Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            // Try TIFF fallback
+            let script2 = format!(
+                "set the clipboard to (read (POSIX file \"{}\") as TIFF picture)",
+                path.replace("\"", "\\\"")
+            );
+            let output2 = std::process::Command::new("osascript")
+                .args(["-e", &script2])
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !output2.status.success() {
+                let stderr = String::from_utf8_lossy(&output2.stderr);
+                return Err(format!("Clipboard copy failed: {}", stderr));
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let output = std::process::Command::new("xclip")
+            .args(["-selection", "clipboard", "-target", "image/png", "-i", &path])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err("xclip failed".to_string());
+        }
+    }
+
     Ok(())
 }
 
@@ -1271,4 +1450,68 @@ mod tests {
         let result = uninstall_skill("nonexistent-skill-xyz-12345".to_string());
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_hook_commands_preserve_dollar_sign() {
+        // Verify that hook commands contain $CODETERM_PANE_ID (not \\$ escaped)
+        let null_dev = crate::shell::ShellSyntax::NULL_DEV;
+        let port = 7686u16;
+        let notify_cmd = format!(
+            "curl -s -X POST http://localhost:{port}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
+        );
+        // The command string itself must have literal $
+        assert!(notify_cmd.contains("$CODETERM_PANE_ID"), "Command must contain $CODETERM_PANE_ID");
+        assert!(!notify_cmd.contains("\\$"), "Command must NOT contain escaped \\$");
+
+        // Verify serde_json does NOT escape $ in strings
+        let json_val = serde_json::json!({"command": notify_cmd});
+        let serialized = serde_json::to_string_pretty(&json_val).unwrap();
+        assert!(serialized.contains("$CODETERM_PANE_ID"), "JSON serialization must preserve $");
+        assert!(!serialized.contains("\\\\$"), "JSON serialization must NOT double-escape $");
+        assert!(!serialized.contains("\\$"), "JSON serialization must NOT escape $");
+    }
+
+    #[test]
+    fn test_install_hooks_to_temp_file() {
+        // Test install_claude_hooks logic against a temporary settings file
+        let tmp = tempfile::tempdir().unwrap();
+        let settings_path = tmp.path().join("settings.json");
+
+        // Write empty settings
+        fs::write(&settings_path, "{}").unwrap();
+
+        // Build hook commands (same logic as install_claude_hooks)
+        let port = 7686u16;
+        let null_dev = crate::shell::ShellSyntax::NULL_DEV;
+        let notify_cmd = format!(
+            "curl -s -X POST http://localhost:{port}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
+        );
+
+        let mut json: serde_json::Value = serde_json::json!({});
+        json["hooks"] = serde_json::json!({});
+        json["hooks"]["Notification"] = serde_json::json!([{
+            "matcher": "permission_prompt",
+            "hooks": [{
+                "type": "command",
+                "command": notify_cmd,
+                "timeout": 5000,
+                "_source": CODETERM_HOOK_MARKER
+            }]
+        }]);
+
+        let pretty = serde_json::to_string_pretty(&json).unwrap();
+        fs::write(&settings_path, &pretty).unwrap();
+
+        // Read back and verify
+        let content = fs::read_to_string(&settings_path).unwrap();
+        assert!(content.contains("$CODETERM_PANE_ID"), "Written file must have $CODETERM_PANE_ID");
+        assert!(!content.contains("\\$"), "Written file must NOT have escaped \\$");
+
+        // Parse back and verify the command string
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let cmd = parsed["hooks"]["Notification"][0]["hooks"][0]["command"].as_str().unwrap();
+        assert!(cmd.contains("$CODETERM_PANE_ID"));
+    }
 }
+
+// Mesh commands moved to commands_mesh.rs

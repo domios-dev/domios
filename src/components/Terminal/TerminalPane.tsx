@@ -8,6 +8,8 @@ import { SearchAddon } from "@xterm/addon-search";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMultiplexer } from "../../store/multiplexer";
+import { isMac } from "../../lib/keybindings";
+import { detectAgentFromTitle } from "../../lib/agentProviders";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
@@ -23,6 +25,7 @@ interface TerminalPaneProps {
   paneId: string;
   ptyId?: string | null;
   isFocused?: boolean;
+  hasSplits?: boolean;
   onFocus?: (paneId: string) => void;
   onPtySpawned?: (paneId: string, ptyId: string) => void;
   theme?: ThemeConfig;
@@ -95,6 +98,7 @@ export function TerminalPane({
   paneId,
   ptyId,
   isFocused = false,
+  hasSplits = false,
   onFocus,
   onPtySpawned,
   theme,
@@ -116,6 +120,14 @@ export function TerminalPane({
   // Visual bell state
   const [bellFlash, setBellFlash] = useState(false);
 
+  // Windows ConPTY build number — fetched once, used for xterm windowsPty config
+  const [winBuildNumber, setWinBuildNumber] = useState<number>(19041);
+  useEffect(() => {
+    if (navigator.platform.startsWith("Win")) {
+      invoke<number>("get_windows_build_number").then(setWinBuildNumber).catch(() => {});
+    }
+  }, []);
+
   // Loading overlay — hide shell startup noise until first prompt
   const [shellReady, setShellReady] = useState(!!ptyId); // existing PTY = already ready
   const [overlayVisible, setOverlayVisible] = useState(!ptyId);
@@ -127,17 +139,39 @@ export function TerminalPane({
     }
   }, [shellReady, overlayVisible]);
 
-  // Execute pending command after shell is ready
+  // Execute pending command after shell is ready — with retry for robustness
   const pendingCommandFired = useRef(false);
   useEffect(() => {
-    if (!shellReady || pendingCommandFired.current) return;
-    const ptyIdNow = connectedPtyRef.current;
-    if (!ptyIdNow) return;
-    const cmd = consumePendingCommand(paneId);
-    if (cmd) {
+    if (pendingCommandFired.current) return;
+
+    // Check immediately and retry every 200ms until both shell ready + PTY connected
+    const tryFire = () => {
+      if (pendingCommandFired.current) return false;
+      if (!shellReady) return false;
+      const ptyIdNow = connectedPtyRef.current;
+      if (!ptyIdNow) return false;
+      const cmd = consumePendingCommand(paneId);
+      if (!cmd) return true; // no pending command, stop retrying
       pendingCommandFired.current = true;
+      console.log(`[spawn] Firing pending command in pane ${paneId}: ${cmd}`);
       invoke("write_pty_string", { ptyId: ptyIdNow, data: cmd + "\r" });
-    }
+      return true;
+    };
+
+    if (tryFire()) return;
+
+    // Retry until fired or 15s timeout
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      if (tryFire() || attempts > 75) { // 75 * 200ms = 15s
+        clearInterval(interval);
+        if (attempts > 75 && !pendingCommandFired.current) {
+          console.warn(`[spawn] Pending command timeout for pane ${paneId}`);
+        }
+      }
+    }, 200);
+    return () => clearInterval(interval);
   }, [shellReady, paneId]);
 
   // Completion state
@@ -198,27 +232,30 @@ export function TerminalPane({
   }, []);
 
   // Build context menu actions
+  const isProtected = state.panes[paneId]?.protected;
   const contextMenuActions: ContextMenuAction[] = [
     { label: "Copy", shortcut: "Ctrl+Shift+C", onClick: copySelection },
     { label: "Paste", shortcut: "Ctrl+Shift+V", onClick: pasteFromClipboard },
     { label: "Clear", onClick: clearTerminal, separator: true },
-    {
-      label: "Split Right",
-      shortcut: "Ctrl+Shift+D",
-      onClick: () => splitPane(paneId, "Horizontal"),
-      separator: true,
-    },
-    {
-      label: "Split Down",
-      shortcut: "Ctrl+Shift+E",
-      onClick: () => splitPane(paneId, "Vertical"),
-    },
-    {
-      label: "Close Pane",
-      shortcut: "Ctrl+Shift+Q",
-      onClick: () => closePane(paneId),
-      separator: true,
-    },
+    ...(!isProtected ? [
+      {
+        label: "Split Right",
+        shortcut: "Ctrl+Shift+D",
+        onClick: () => splitPane(paneId, "Horizontal"),
+        separator: true,
+      },
+      {
+        label: "Split Down",
+        shortcut: "Ctrl+Shift+E",
+        onClick: () => splitPane(paneId, "Vertical"),
+      },
+      {
+        label: "Close Pane",
+        shortcut: "Ctrl+Shift+Q",
+        onClick: () => closePane(paneId),
+        separator: true,
+      },
+    ] as ContextMenuAction[] : []),
   ];
 
   // Listen for pane-specific status events
@@ -285,10 +322,11 @@ export function TerminalPane({
       theme: buildXtermTheme(theme),
       overviewRuler: { width: 4 },
       allowProposedApi: true,
-      // Critical for ConPTY on Windows — enables proper raw mode + cursor key handling
+      // Critical for ConPTY on Windows — enables proper raw mode + cursor key handling.
+      // buildNumber must match actual OS to apply correct ConPTY workarounds.
       windowsPty: {
         backend: "conpty",
-        buildNumber: 19041,
+        buildNumber: winBuildNumber,
       },
     });
 
@@ -336,27 +374,56 @@ export function TerminalPane({
       if (title) {
         const curPane = stateRef.current.panes[paneId];
         if (curPane && curPane.title_level === TitleLevel.User) return;
-        setPaneTitle(paneId, title, TitleLevel.Auto);
-        // Detect Claude Code from OSC title
-        if (/claude/i.test(title)) {
-          setAgentType(paneId, "claude");
-          invoke("mux_set_pane_agent_type", { paneId, agentType: "claude" }).catch(() => {});
-          // Detect and save the Claude session ID for future resume
-          // Use stateRef for fresh state (this callback is in a stale closure)
-          const currentPanes = stateRef.current.panes;
-          const excludeIds = Object.values(currentPanes)
-            .map((p) => p.claude_session_id)
-            .filter((id): id is string => !!id);
-          const paneCwd = currentPanes[paneId]?.cwd;
-          if (paneCwd) {
+        // If an agent is running, OSC title is set by the agent (task summary) — use Agent level.
+        // Otherwise it's from the shell (e.g. CWD) — use Auto level.
+        const hasAgent = curPane?.agent_type != null;
+        setPaneTitle(paneId, title, hasAgent ? TitleLevel.Agent : TitleLevel.Auto);
+        // Detect agent from OSC title
+        const detectedAgent = detectAgentFromTitle(title);
+        const prevAgent = stateRef.current.panes[paneId]?.agent_type;
+        // Agent exited: title no longer matches agent pattern → clear agent state
+        if (!detectedAgent && prevAgent) {
+          setAgentType(paneId, null);
+          invoke("mux_set_pane_agent_type", { paneId, agentType: null }).catch(() => {});
+        }
+        if (detectedAgent) {
+          setAgentType(paneId, detectedAgent);
+          invoke("mux_set_pane_agent_type", { paneId, agentType: detectedAgent }).catch(() => {});
+          // Reset session ID when agent is first detected (prevAgent was null).
+          // This covers: fresh pane, or agent restarted after exit cleared prevAgent.
+          // Don't reset on title updates while same agent runs (frequent).
+          if (!prevAgent) {
+            invoke("mux_set_claude_session_id", { paneId, sessionId: null }).catch(() => {});
+          }
+          // Detect and save the agent session ID for future resume
+          // Keeps retrying because: CWD might not be set yet, JSONL might not exist yet
+          const tryDetectSession = () => {
+            const currentPanes = stateRef.current.panes;
+            const pane = currentPanes[paneId];
+            if (!pane) return; // pane gone — stop
+            if (pane.agent_session_id) return; // already found — stop
+
+            const excludeIds = Object.values(currentPanes)
+              .map((p) => p.agent_session_id)
+              .filter((id): id is string => !!id);
+            const paneCwd = pane.cwd;
+            if (!paneCwd) {
+              setTimeout(tryDetectSession, 2000);
+              return;
+            }
             invoke<string | null>("detect_claude_session_id", { cwd: paneCwd, exclude: excludeIds })
               .then((sessionId) => {
                 if (sessionId) {
                   invoke("mux_set_claude_session_id", { paneId, sessionId }).catch(() => {});
+                } else {
+                  setTimeout(tryDetectSession, 3000);
                 }
               })
-              .catch(() => {});
-          }
+              .catch(() => {
+                setTimeout(tryDetectSession, 3000);
+              });
+          };
+          tryDetectSession();
         }
       }
     });
@@ -399,21 +466,72 @@ export function TerminalPane({
     fitAddonRef.current = fitAddon;
 
     // Observe container resize to refit terminal
-    const resizeObserver = new ResizeObserver(() => {
+    const safefit = () => {
       requestAnimationFrame(() => {
         if (fitAddonRef.current) {
-          try {
-            fitAddonRef.current.fit();
-          } catch {
-            // ignore fit errors during teardown
-          }
+          try { fitAddonRef.current.fit(); } catch { /* teardown */ }
         }
       });
-    });
+    };
+
+    const resizeObserver = new ResizeObserver(safefit);
     resizeObserver.observe(termRef.current);
+
+    // Self-heal: refit on window focus and visibility change.
+    // Handles HMR reload, tab switch, minimize/restore, chat toggle.
+    const handleVisibility = () => { if (!document.hidden) safefit(); };
+    const handleFocus = () => safefit();
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleFocus);
+
+    // Periodic self-heal: if xterm dimensions drift (e.g. after HMR),
+    // detect mismatch and refit. Cheap check every 2s.
+    const healTimer = setInterval(() => {
+      const el = termRef.current;
+      if (!el || !fitAddonRef.current || !xtermRef.current) return;
+      const term = xtermRef.current;
+      const cellW = term.options.fontSize ?? 13;
+      const expectedCols = Math.floor(el.clientWidth / (cellW * 0.6));
+      if (expectedCols > 0 && Math.abs(term.cols - expectedCols) > 5) {
+        safefit();
+      }
+    }, 2000);
+
+    // HMR: force xterm to refit + repaint canvas after hot module replacement.
+    // Without this, xterm canvas goes stale after UI code changes.
+    let hmrCleanup: (() => void) | undefined;
+    if (import.meta.hot) {
+      const onHmr = () => {
+        requestAnimationFrame(() => {
+          if (!fitAddonRef.current || !xtermRef.current) return;
+          const t = xtermRef.current;
+          const ptyId = connectedPtyRef.current;
+          try {
+            fitAddonRef.current.fit();
+            t.refresh(0, t.rows - 1);
+            // Jiggle resize: ConPTY ignores same-size resize,
+            // so shrink by 1 col then restore to force SIGWINCH → TUI redraw
+            if (ptyId && t.cols > 1 && t.rows > 0) {
+              const cols = t.cols, rows = t.rows;
+              invoke("resize_pty", { ptyId, cols: cols - 1, rows }).then(() =>
+                new Promise(r => setTimeout(r, 100))
+              ).then(() => {
+                invoke("resize_pty", { ptyId, cols, rows });
+              });
+            }
+          } catch { /* ignore */ }
+        });
+      };
+      import.meta.hot.on("vite:afterUpdate", onHmr);
+      hmrCleanup = () => import.meta.hot?.off("vite:afterUpdate", onHmr);
+    }
 
     return () => {
       resizeObserver.disconnect();
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleFocus);
+      clearInterval(healTimer);
+      hmrCleanup?.();
       term.dispose();
       xtermRef.current = null;
       fitAddonRef.current = null;
@@ -433,6 +551,9 @@ export function TerminalPane({
     term.options.cursorBlink = terminalConfig?.cursor_blink ?? true;
     term.options.cursorStyle = mapCursorStyle(terminalConfig?.cursor_style);
     term.options.scrollback = terminalConfig?.scrollback ?? 10000;
+    if (navigator.platform.startsWith("Win")) {
+      term.options.windowsPty = { backend: "conpty", buildNumber: winBuildNumber };
+    }
 
     // Refit after font/theme changes
     requestAnimationFrame(() => {
@@ -442,7 +563,7 @@ export function TerminalPane({
         // ignore
       }
     });
-  }, [theme, fontConfig, terminalConfig]);
+  }, [theme, fontConfig, terminalConfig, winBuildNumber]);
 
   // Connect to PTY — spawn if needed, always set up listeners BEFORE spawning
   useEffect(() => {
@@ -466,16 +587,40 @@ export function TerminalPane({
       const predictedId = ptyId || crypto.randomUUID();
       connectedPtyRef.current = predictedId;
 
-      // Restore output buffer for existing PTY connections (e.g. after split remount)
+      // Restore screen state for existing PTY connections (e.g. after split remount, HMR)
+      // Uses screen parser (current visible state) instead of full output history —
+      // full output contains escape sequences for old terminal dimensions that cause garbled display.
       if (ptyId) {
         try {
-          const output = await invoke<string>("get_pane_output", { paneId });
-          if (output) {
-            term.write(output);
+          const screen = await invoke<string>("get_pane_screen", { paneId });
+          if (screen) {
+            term.write(screen);
           }
         } catch {
-          // ignore — pane might not have output yet
+          // Fallback to full output if screen not available
+          try {
+            const output = await invoke<string>("get_pane_output", { paneId });
+            if (output) {
+              term.write(output);
+            }
+          } catch { /* ignore */ }
         }
+        // Force TUI redraw: ConPTY ignores resize if size unchanged,
+        // so "jiggle" — shrink by 1 col then restore — to guarantee SIGWINCH.
+        requestAnimationFrame(() => {
+          try {
+            fitAddonRef.current?.fit();
+            const cols = term.cols;
+            const rows = term.rows;
+            if (cols > 1 && rows > 0) {
+              invoke("resize_pty", { ptyId, cols: cols - 1, rows }).then(() =>
+                new Promise(r => setTimeout(r, 100))
+              ).then(() => {
+                invoke("resize_pty", { ptyId, cols, rows });
+              });
+            }
+          } catch { /* ignore */ }
+        });
       }
 
       // Poll PTY output — batch writes into single animation frame for smooth scrolling
@@ -483,23 +628,50 @@ export function TerminalPane({
       let firstData = true;
       let pendingChunks: Uint8Array[] = [];
       let rafScheduled = false;
+      let userScrolledUp = false;
+
+      // Track whether user has scrolled up (to preserve position during writes)
+      const viewportEl = term.element?.querySelector('.xterm-viewport');
+      if (viewportEl) {
+        const onScroll = () => {
+          const buf = term.buffer.active;
+          if (buf.type === 'normal') {
+            userScrolledUp = buf.viewportY < buf.baseY;
+          }
+        };
+        viewportEl.addEventListener('scroll', onScroll);
+        cleanupFns.push(() => viewportEl.removeEventListener('scroll', onScroll));
+      }
 
       const flushToTerminal = () => {
         rafScheduled = false;
         if (pendingChunks.length === 0) return;
+
+        // Save scroll position if user scrolled up
+        const savedViewportY = userScrolledUp && term.buffer.active.type === 'normal'
+          ? term.buffer.active.viewportY
+          : null;
+
         // Merge all pending chunks into one write
-        if (pendingChunks.length === 1) {
-          term.write(pendingChunks[0]);
-        } else {
-          const total = pendingChunks.reduce((s, c) => s + c.length, 0);
-          const merged = new Uint8Array(total);
-          let offset = 0;
-          for (const chunk of pendingChunks) {
-            merged.set(chunk, offset);
-            offset += chunk.length;
+        const writeData = pendingChunks.length === 1
+          ? pendingChunks[0]
+          : (() => {
+              const total = pendingChunks.reduce((s, c) => s + c.length, 0);
+              const merged = new Uint8Array(total);
+              let offset = 0;
+              for (const chunk of pendingChunks) {
+                merged.set(chunk, offset);
+                offset += chunk.length;
+              }
+              return merged;
+            })();
+
+        term.write(writeData, () => {
+          // Restore scroll position after write completes
+          if (savedViewportY !== null && userScrolledUp) {
+            term.scrollToLine(savedViewportY);
           }
-          term.write(merged);
-        }
+        });
         pendingChunks = [];
       };
 
@@ -553,7 +725,6 @@ export function TerminalPane({
       cleanupFns.push(() => { reading = false; });
 
       // Smart Ctrl+C / Cmd+C: copy if text selected, interrupt if not
-      const isMac = navigator.platform.toUpperCase().includes("MAC");
       term.attachCustomKeyEventHandler((e) => {
         if (e.type !== "keydown") return true;
         const mod = isMac ? e.metaKey : e.ctrlKey;
@@ -571,45 +742,71 @@ export function TerminalPane({
           return true;
         }
 
+        // Cmd/Ctrl+V paste handling.
+        // macOS: Cmd+V triggers a native paste event that xterm.js handles via its
+        // internal textarea — text paste works automatically. We only intercept for
+        // image clipboard (write path to PTY). Return true to let xterm handle text.
+        // Windows: Ctrl+V does NOT trigger a native paste event, so we must handle
+        // both text and images manually via clipboard API.
+        if (e.code === "KeyV") {
+          if (isMac) {
+            // Only handle image paste — text is handled by xterm natively
+            const ptyTarget = predictedId;
+            navigator.clipboard.read().then(async (items) => {
+              for (const item of items) {
+                const imageType = item.types.find((t: string) => t.startsWith("image/"));
+                if (imageType) {
+                  const blob = await item.getType(imageType);
+                  const ext = imageType === "image/jpeg" ? "jpg" : "png";
+                  const arrayBuf = await blob.arrayBuffer();
+                  const bytes = Array.from(new Uint8Array(arrayBuf));
+                  const path = await invoke<string>("save_clipboard_image", { bytes, ext });
+                  if (path) invoke("write_pty_string", { ptyId: ptyTarget, data: path });
+                }
+              }
+            }).catch(() => {});
+            return true; // let xterm handle the native paste for text
+          } else {
+            // Windows/Linux: no native paste event — handle everything manually
+            const ptyTarget = predictedId;
+            navigator.clipboard.read().then(async (items) => {
+              const textItem = items.find((item) => item.types.includes("text/plain"));
+              if (textItem) {
+                const blob = await textItem.getType("text/plain");
+                const text = await blob.text();
+                if (text) {
+                  invoke("write_pty_string", { ptyId: ptyTarget, data: text });
+                  return;
+                }
+              }
+              for (const item of items) {
+                const imageType = item.types.find((t: string) => t.startsWith("image/"));
+                if (imageType) {
+                  const blob = await item.getType(imageType);
+                  const ext = imageType === "image/jpeg" ? "jpg" : "png";
+                  const arrayBuf = await blob.arrayBuffer();
+                  const bytes = Array.from(new Uint8Array(arrayBuf));
+                  const path = await invoke<string>("save_clipboard_image", { bytes, ext });
+                  if (path) invoke("write_pty_string", { ptyId: ptyTarget, data: path });
+                  return;
+                }
+              }
+            }).catch(() => {
+              navigator.clipboard.readText().then((text) => {
+                if (text) invoke("write_pty_string", { ptyId: ptyTarget, data: text });
+              }).catch(() => {});
+            });
+            return false; // prevent xterm from processing Ctrl+V
+          }
+        }
+
         return true;
       });
 
-      // Primary: xterm.js onData — with paste fix + Tab completion
+      // Primary: xterm.js onData — Tab completion + PTY write
       const onDataDisposable = term.onData((data) => {
-        // Ctrl+V: text → paste text, image → save temp file + paste path
-        if (data === "\x16") {
-          navigator.clipboard.read().then(async (items) => {
-            // Try text first
-            const textItem = items.find((item) => item.types.includes("text/plain"));
-            if (textItem) {
-              const blob = await textItem.getType("text/plain");
-              const text = await blob.text();
-              if (text) {
-                invoke("write_pty_string", { ptyId: predictedId, data: text });
-                return;
-              }
-            }
-            // No text — check for image
-            for (const item of items) {
-              const imageType = item.types.find((t) => t.startsWith("image/"));
-              if (imageType) {
-                const blob = await item.getType(imageType);
-                const ext = imageType === "image/jpeg" ? "jpg" : "png";
-                const arrayBuf = await blob.arrayBuffer();
-                const bytes = Array.from(new Uint8Array(arrayBuf));
-                const path = await invoke<string>("save_clipboard_image", { bytes, ext });
-                if (path) invoke("write_pty_string", { ptyId: predictedId, data: path });
-                return;
-              }
-            }
-          }).catch(() => {
-            // Fallback to readText
-            navigator.clipboard.readText().then((text) => {
-              if (text) invoke("write_pty_string", { ptyId: predictedId, data: text });
-            }).catch(() => {});
-          });
-          return;
-        }
+        // Ctrl+V is handled in attachCustomKeyEventHandler (user gesture context)
+        if (data === "\x16") return;
 
         const tracker = trackerRef.current;
         const engine = engineRef.current;
@@ -738,40 +935,14 @@ export function TerminalPane({
           }
         }
 
-        // OSC 7 CWD tracking is now handled invisibly via env vars at PTY spawn
-        // (shell_integration.rs sets ZDOTDIR for zsh, PROMPT_COMMAND for bash).
-        // Windows PowerShell still needs prompt injection after spawn.
-        if (navigator.platform.startsWith("Win")) {
-          setTimeout(() => {
-            invoke("write_pty_string", {
-              ptyId: spawnedId,
-              data: "$e=[char]27;$b=[char]7;function prompt{$f=$pwd.Path.Replace('\\','/');\"$e]7;file:///$f$b\"+\"PS $pwd> \"};cls\r",
-            }).then(() => {
-              setTimeout(() => setShellReady(true), 400);
-            }).catch(() => {
-              setShellReady(true);
-            });
-          }, 800);
-        } else {
-          // Unix: shell integration loaded via env vars — no visible commands needed
-          setShellReady(true);
-        }
+        // OSC 7 CWD tracking is handled invisibly at PTY spawn time
+        // (shell_integration.rs: ZDOTDIR for zsh, PROMPT_COMMAND for bash,
+        // -NoExit -Command for PowerShell on Windows). No visible injection needed.
+        setShellReady(true);
 
-        // If this pane had Claude Code running and we know the session ID, resume it
-        if (paneData?.agent_type === "claude" && paneData?.claude_session_id) {
-          invoke<{ agent: { resume_sessions: boolean; resume_skip_permissions: boolean } }>("get_config")
-            .then((cfg) => {
-              if (!cfg.agent.resume_sessions) return;
-              const skipFlag = cfg.agent.resume_skip_permissions ? " --dangerously-skip-permissions" : "";
-              setTimeout(() => {
-                invoke("write_pty_string", {
-                  ptyId: spawnedId,
-                  data: `claude --resume ${paneData.claude_session_id}${skipFlag}\r`,
-                }).catch(() => {});
-              }, 1500);
-            })
-            .catch(() => {});
-        }
+        // Session resume is handled by backend (spawn_pty checks agent_session_id
+        // and sends `claude --resume` after shell is ready). Works for all panes
+        // including non-visible tabs that don't have TerminalPane mounted.
 
         // Sync PTY size with actual xterm dimensions after connection
         requestAnimationFrame(() => {
@@ -858,7 +1029,7 @@ export function TerminalPane({
 
   const topAccent = bellFlash
     ? "var(--ct-yellow, #d29922)"
-    : isFocused
+    : hasSplits && isFocused
       ? "var(--ct-muted-fg, #8b949e)"
       : "transparent";
 
@@ -868,7 +1039,7 @@ export function TerminalPane({
       data-pane-id={paneId}
       style={{
         boxSizing: "border-box",
-        borderTop: `1px solid ${topAccent}`,
+        borderTop: hasSplits ? `1px solid ${topAccent}` : "none",
         transition: bellFlash ? "border-color 0.1s ease-in" : "border-color 0.15s ease-out",
       }}
       onMouseDown={handleClick}
@@ -901,13 +1072,16 @@ export function TerminalPane({
               const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
               const ext = name.split(".").pop() || "png";
               const path = await invoke<string>("save_clipboard_image", { bytes, ext });
-              invoke("write_pty_string", { ptyId, data: path });
+              await invoke("write_pty_string", { ptyId, data: path });
+              // Delay between files so Claude processes each one
+              if (files.length > 1) await new Promise(r => setTimeout(r, 300));
             } catch (err) {
               console.error("[drop] Image error:", err);
             }
           } else {
             // Text files: read content and paste via bracketed paste mode
             // Binary/large files: paste path
+            const filePath = (file as any).path || file.name;
             const isText = /\.(txt|md|ts|tsx|js|jsx|py|rs|go|java|c|cpp|h|hpp|json|toml|yaml|yml|html|css|scss|sh|bat|ps1|csv|xml|sql|log|env|conf|cfg|ini|rb|php|swift|kt|dart|lua|r|m|pl|ex|exs|hs|clj|scala)$/i.test(name);
             if (isText) {
               try {
@@ -915,21 +1089,18 @@ export function TerminalPane({
                 if (text.length < 100000) {
                   // Bracketed paste: \x1b[200~ ... \x1b[201~ — Claude Code shows as pasted block
                   const bracketedPaste = `\x1b[200~${text}\x1b[201~`;
-                  invoke("write_pty_string", { ptyId, data: bracketedPaste });
+                  await invoke("write_pty_string", { ptyId, data: bracketedPaste });
                 } else {
-                  // Too large — paste path with @ reference
-                  const path = (file as any).path || file.name;
-                  invoke("write_pty_string", { ptyId, data: `@${path}` });
+                  await invoke("write_pty_string", { ptyId, data: `@${filePath}` });
                 }
               } catch {
-                const path = (file as any).path || file.name;
-                invoke("write_pty_string", { ptyId, data: path });
+                await invoke("write_pty_string", { ptyId, data: filePath });
               }
             } else {
-              // Binary files: paste path
-              const path = (file as any).path || file.name;
-              invoke("write_pty_string", { ptyId, data: path });
+              // Binary/unknown files: paste path
+              await invoke("write_pty_string", { ptyId, data: filePath });
             }
+            if (files.length > 1) await new Promise(r => setTimeout(r, 200));
           }
         }
       }}
@@ -952,10 +1123,22 @@ export function TerminalPane({
         onClick={() => xtermRef.current?.focus()}
       />
 
-      {/* Loading overlay — hides shell startup noise */}
+      {/* Loading overlay — hides shell startup noise with premium breathing animation */}
       {overlayVisible && (
-        <div className="absolute inset-0" style={{ background: "var(--ct-bg, #0d1117)", opacity: shellReady ? 0 : 1, transition: "opacity 0.3s ease-out" }}>
-          <div style={{ color: "var(--ct-fg, #c9d1d9)", fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace", fontSize: fontConfig?.size ?? 14, padding: "4px 6px" }}>Starting...</div>
+        <div
+          className={`absolute inset-0 ${!shellReady ? "terminal-loading-overlay" : ""}`}
+          style={{
+            background: "var(--ct-bg, #0d1117)",
+            opacity: shellReady ? 0 : 1,
+            transition: "opacity 0.3s ease-out",
+          }}
+        >
+          {/* Breathing bar at bottom center */}
+          {!shellReady && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2">
+              <div className="terminal-breathing-bar" />
+            </div>
+          )}
         </div>
       )}
 

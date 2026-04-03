@@ -1,8 +1,11 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { TerminalPane } from "./TerminalPane";
 import { BrowserPane } from "../Browser/BrowserPane";
+import FloatingInput from "../FloatingInput/FloatingInput";
 import { Divider } from "./Divider";
+import { getAgentProvider } from "../../lib/agentProviders";
 import type { SplitNode, Pane, Orientation, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+import { CloseXIcon } from "../Icons";
 
 interface SplitContainerProps {
   node: SplitNode;
@@ -26,6 +29,12 @@ interface SplitContainerProps {
 
 const MIN_PANE_SIZE = 100; // px
 
+/** Count total leaf panes in a split tree */
+function countLeaves(node: SplitNode): number {
+  if (node.type === "Leaf") return 1;
+  return node.children.reduce((sum, child) => sum + countLeaves(child), 0);
+}
+
 export function SplitContainer({
   node,
   panes,
@@ -40,13 +49,20 @@ export function SplitContainer({
   fontConfig,
   terminalConfig,
 }: SplitContainerProps) {
+  // Determine if we are the root node (path is empty) and count panes
+  const isRoot = path.length === 0;
+  const hasSplits = isRoot ? countLeaves(node) > 1 : true;
+
   if (node.type === "Leaf") {
     const pane = panes[node.pane_id];
     if (!pane) return null;
 
-    const splitButtons = (
+    const agentProvider = getAgentProvider(pane.agent_type);
+    const hasAgent = !!agentProvider;
+
+    const splitButtons = pane.protected ? null : (
       <PaneToolbar
-        hasAgent={pane.agent_type === "claude"}
+        hasAgent={hasAgent}
         onSplitH={() => onSplitPane(pane.id, "Horizontal")}
         onSplitV={() => onSplitPane(pane.id, "Vertical")}
         onClose={() => onClosePane(pane.id)}
@@ -55,7 +71,7 @@ export function SplitContainer({
 
     if (pane.pane_type === "Browser") {
       return (
-        <div data-pane-id={pane.id} className="w-full h-full relative group/pane">
+        <PaneWrapper paneId={pane.id} isFocused={focusedPaneId === pane.id} hasSplits={hasSplits}>
           <BrowserPane
             key={pane.id}
             paneId={pane.id}
@@ -64,25 +80,36 @@ export function SplitContainer({
             onFocus={onFocusPane}
           />
           {splitButtons}
-        </div>
+        </PaneWrapper>
       );
     }
 
+    // Terminal always renders; ChatView is an overlay on top
     return (
-      <div data-pane-id={pane.id} className="w-full h-full relative group/pane">
-        <TerminalPane
+      <PaneWrapper paneId={pane.id} isFocused={focusedPaneId === pane.id} hasSplits={hasSplits}>
+        <div className="relative w-full h-full">
+          <TerminalPane
           key={pane.id}
           paneId={pane.id}
           ptyId={pane.pty_id}
           isFocused={focusedPaneId === pane.id}
+          hasSplits={hasSplits}
           onFocus={onFocusPane}
           onPtySpawned={onPtySpawned}
           theme={theme}
           fontConfig={fontConfig}
           terminalConfig={terminalConfig}
         />
+          {/* Floating input — centered chat bubble */}
+          <FloatingInput
+            paneId={pane.id}
+            ptyId={pane.pty_id ?? null}
+            agentType={pane.agent_type ?? null}
+            pendingPrompt={pane.pending_prompt ?? null}
+          />
+        </div>
         {splitButtons}
-      </div>
+      </PaneWrapper>
     );
   }
 
@@ -115,6 +142,58 @@ export function SplitContainer({
         />
       ))}
     </SplitView>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PaneWrapper -- handles materialize animation, focus indicator, close collapse
+// ---------------------------------------------------------------------------
+
+interface PaneWrapperProps {
+  paneId: string;
+  isFocused: boolean;
+  hasSplits: boolean;
+  children: React.ReactNode;
+}
+
+function PaneWrapper({ paneId, isFocused, hasSplits, children }: PaneWrapperProps) {
+  const [isMaterialized, setIsMaterialized] = useState(false);
+  const [focusPulse, setFocusPulse] = useState(false);
+  const prevFocused = useRef(isFocused);
+
+  // Materialize animation on mount
+  useEffect(() => {
+    // Only animate if there are splits (new pane appearing)
+    if (hasSplits) {
+      setIsMaterialized(true);
+    }
+  }, []);
+
+  // Focus pulse when focus switches to this pane
+  useEffect(() => {
+    if (isFocused && !prevFocused.current && hasSplits) {
+      setFocusPulse(true);
+      const t = setTimeout(() => setFocusPulse(false), 400);
+      return () => clearTimeout(t);
+    }
+    prevFocused.current = isFocused;
+  }, [isFocused, hasSplits]);
+
+  return (
+    <div
+      data-pane-id={paneId}
+      className={`w-full h-full relative group/pane ${isMaterialized ? "pane-materialize" : ""} ${focusPulse ? "pane-focus-pulse" : ""}`}
+      style={{
+        // Focused pane outline — only when splits exist
+        outline: hasSplits && isFocused ? "1.5px solid rgba(99, 102, 241, 0.5)" : "none",
+        outlineOffset: hasSplits && isFocused ? "-1.5px" : undefined,
+        // Unfocused dimming — only when splits exist
+        filter: hasSplits && !isFocused ? "brightness(0.92)" : "none",
+        transition: "filter 320ms cubic-bezier(0.16, 1, 0.3, 1), outline-color 320ms cubic-bezier(0.16, 1, 0.3, 1)",
+      }}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -176,6 +255,7 @@ function PaneToolbar({
   return (
     <>
       <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover/pane:opacity-100 transition-opacity duration-200 z-10">
+        {/* Split / close buttons */}
         {/* Split right */}
         <button
           onClick={(e) => { e.stopPropagation(); onSplitH(); }}
@@ -211,9 +291,7 @@ function PaneToolbar({
           className={`${btnBase} bg-[var(--ct-bg)]/90 backdrop-blur-sm border border-[var(--ct-border)]/60 text-[var(--ct-muted)] hover:bg-[var(--ct-red)]/80 hover:border-[var(--ct-red)] hover:text-white transition-all duration-150`}
           title={hasAgent ? "Close (agent running)" : "Close pane (Ctrl+Shift+Q)"}
         >
-          <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
-            <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
-          </svg>
+          <CloseXIcon size={8} />
         </button>
       </div>
       {confirmClose && (
@@ -287,6 +365,7 @@ function SplitView({
   const first = children[0];
   const second = children[1];
 
+  // Divider takes 1px now (was 6px with old hit area approach)
   const firstPercent = `${(activeRatio * 100).toFixed(4)}%`;
   const secondPercent = `${((1 - activeRatio) * 100).toFixed(4)}%`;
 
@@ -304,7 +383,7 @@ function SplitView({
     >
       <div
         style={{
-          [isHorizontal ? "width" : "height"]: `calc(${firstPercent} - 2px)`,
+          [isHorizontal ? "width" : "height"]: `calc(${firstPercent} - 1px)`,
           [isHorizontal ? "height" : "width"]: "100%",
           overflow: "hidden",
           minWidth: isHorizontal ? `${MIN_PANE_SIZE}px` : undefined,
@@ -322,7 +401,7 @@ function SplitView({
       />
       <div
         style={{
-          [isHorizontal ? "width" : "height"]: `calc(${secondPercent} - 2px)`,
+          [isHorizontal ? "width" : "height"]: `calc(${secondPercent} - 1px)`,
           [isHorizontal ? "height" : "width"]: "100%",
           overflow: "hidden",
           minWidth: isHorizontal ? `${MIN_PANE_SIZE}px` : undefined,

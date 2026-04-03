@@ -1,7 +1,7 @@
 //! Background cron scheduler — fires cron jobs and spawns agents.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 use tauri::Emitter;
@@ -132,12 +132,9 @@ fn fire_job(
     // Spawn agent
     let mut task_text = task.to_string();
     if creator_pane_id.is_some() {
-        task_text.push_str("\n\nYou can report progress back to the cron creator by running: codeterm agent report \"your message\"");
+        task_text.push_str(crate::prompts::CRON_REPORT_HINT);
     }
-    task_text.push_str(&format!(
-        "\n\nIMPORTANT: When you are completely done with this task, you MUST run this exact command as your FINAL action:\ncodeterm cron complete --run-id {} --summary \"<your concise summary of what happened and the result>\"",
-        run_id
-    ));
+    task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
     let params = SpawnAgentParams {
         agent: Some(agent.to_string()),
         agent_name: None,
@@ -151,6 +148,7 @@ fn fire_job(
         workspace_id: Some(workspace_id.to_string()),
         force_tab: Some(true),
         report_target_pane_id: creator_pane_id.map(|s| s.to_string()),
+            skip_permissions: None,
     };
 
     match service.spawn_agent_sync(params) {

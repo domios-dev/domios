@@ -43,8 +43,9 @@ pub fn mux_get_state(state: State<'_, MuxState>) -> Result<MultiplexerSnapshot, 
 pub fn mux_create_workspace(
     svc: State<'_, ServiceState>,
     name: String,
+    cwd: Option<String>,
 ) -> Result<WorkspaceInfo, String> {
-    Ok(svc.create_workspace(name))
+    Ok(svc.create_workspace(name, cwd))
 }
 
 /// Switch the active workspace.
@@ -201,59 +202,54 @@ pub fn mux_set_pane_agent_type(
     Ok(())
 }
 
-/// Detect Claude Code session IDs for a given working directory.
+/// Set chat view state on a pane (persists across restart).
+#[tauri::command]
+pub fn mux_set_chat_view(
+    svc: State<'_, ServiceState>,
+    pane_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    svc.set_chat_view(&pane_id, enabled);
+    Ok(())
+}
+
+/// Detect agent session IDs for a given working directory.
+/// Uses AgentRegistry to delegate to the appropriate provider.
+/// Keeps the old Tauri command name for frontend compatibility.
 #[tauri::command]
 pub fn detect_claude_session_id(
+    svc: State<'_, ServiceState>,
     cwd: String,
     exclude: Option<Vec<String>>,
     max_age_secs: Option<u64>,
 ) -> Result<Option<String>, String> {
-    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
-    let encoded: String = cwd.chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
-    let sessions_dir = home.join(".claude").join("projects").join(&encoded);
-
-    if !sessions_dir.exists() {
-        return Ok(None);
-    }
-
-    let excluded = exclude.unwrap_or_default();
-    let max_age = max_age_secs.map(|s| std::time::Duration::from_secs(s));
-    let now = std::time::SystemTime::now();
-    let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
-
-    if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.ends_with(".jsonl") {
-                let stem = name.trim_end_matches(".jsonl");
-                if stem.len() >= 32 && stem.contains('-') && !excluded.contains(&stem.to_string()) {
-                    if let Ok(meta) = entry.metadata() {
-                        if let Ok(modified) = meta.modified() {
-                            if let Some(max) = max_age {
-                                if let Ok(age) = now.duration_since(modified) {
-                                    if age > max { continue; }
-                                }
-                            }
-                            sessions.push((stem.to_string(), modified));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    sessions.sort_by(|a, b| b.1.cmp(&a.1));
-    Ok(sessions.first().map(|(id, _)| id.clone()))
+    detect_agent_session_id(&svc.agent_registry, "claude", &cwd, exclude, max_age_secs)
 }
 
-/// Store a detected Claude session ID on a pane.
+/// Generic agent session detection — delegates to provider from registry.
+pub fn detect_agent_session_id(
+    registry: &crate::agent::registry::AgentRegistry,
+    agent_type: &str,
+    cwd: &str,
+    exclude: Option<Vec<String>>,
+    max_age_secs: Option<u64>,
+) -> Result<Option<String>, String> {
+    let provider = registry.get(agent_type)
+        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
+    let excluded = exclude.unwrap_or_default();
+    let max_age = max_age_secs.map(std::time::Duration::from_secs);
+    Ok(provider.detect_session_id(cwd, &excluded, max_age))
+}
+
+/// Store a detected agent session ID on a pane.
+/// Keeps the old Tauri command name `mux_set_claude_session_id` for frontend compatibility.
 #[tauri::command]
 pub fn mux_set_claude_session_id(
     svc: State<'_, ServiceState>,
     pane_id: String,
     session_id: Option<String>,
 ) -> Result<(), String> {
-    svc.set_claude_session_id(&pane_id, session_id);
+    svc.set_agent_session_id(&pane_id, session_id);
     Ok(())
 }
 
@@ -287,6 +283,16 @@ pub fn mux_set_can_spawn(
     can_spawn: bool,
 ) -> Result<(), String> {
     svc.set_can_spawn(&pane_id, can_spawn)
+}
+
+/// Respond to a pending prompt — sends the value to PTY and clears the prompt.
+#[tauri::command]
+pub fn mux_respond_prompt(
+    svc: State<'_, ServiceState>,
+    pane_id: String,
+    value: String,
+) -> Result<(), String> {
+    svc.respond_prompt(&pane_id, &value)
 }
 
 // ── Batch (unified via service layer) ────────────────────────────────

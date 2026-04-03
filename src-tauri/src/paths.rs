@@ -8,10 +8,10 @@ use std::path::PathBuf;
 
 /// Directory name for CodeTerm data.
 #[cfg(debug_assertions)]
-const DIR_NAME: &str = ".codeterm-dev";
+pub const DIR_NAME: &str = ".codeterm-dev";
 
 #[cfg(not(debug_assertions))]
-const DIR_NAME: &str = ".codeterm";
+pub const DIR_NAME: &str = ".codeterm";
 
 /// Socket/pipe prefix for IPC.
 #[cfg(debug_assertions)]

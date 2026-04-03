@@ -27,8 +27,13 @@ pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateIn
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp: serde_json::Value = client
-        .get(GITHUB_API)
+    let mut req = client.get(GITHUB_API);
+    if let Some(token) = option_env!("UPDATER_TOKEN") {
+        if !token.is_empty() {
+            req = req.header("Authorization", format!("token {}", token));
+        }
+    }
+    let resp: serde_json::Value = req
         .send()
         .await
         .map_err(|e| format!("Failed to fetch release: {}", e))?

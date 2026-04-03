@@ -1,7 +1,39 @@
 mod client;
+mod mesh_cli;
 
 use clap::{Parser, Subcommand};
 use client::{discover_socket, SocketClient};
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // Skip ESC sequences: ESC [ ... final_byte
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&nc) = chars.peek() {
+                    chars.next();
+                    if nc.is_ascii_alphabetic() || nc == '~' || nc == 'h' || nc == 'l' { break; }
+                }
+            } else if chars.peek() == Some(&']') {
+                // OSC sequence: ESC ] ... BEL or ST
+                chars.next();
+                while let Some(&nc) = chars.peek() {
+                    chars.next();
+                    if nc == '\x07' { break; }
+                    if nc == '\x1b' { chars.next(); break; }
+                }
+            }
+        } else if c == '\r' {
+            // Skip carriage return
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+pub use mesh_cli::MeshAction;
 
 /// Determine the CodeTerm data directory.
 /// Dev instances use `~/.codeterm-dev/`, prod uses `~/.codeterm/`.
@@ -15,27 +47,55 @@ fn data_dir_name() -> &'static str {
     ".codeterm"
 }
 
-/// Read API config (host, port, token) from CodeTerm config.toml
-fn read_api_config() -> (String, Option<String>) {
+/// Read API config (host, port, token).
+/// Priority: $CODETERM_API_PORT env var (set by CodeTerm PTY) > config.toml.
+/// This ensures CLI works in both dev (7686) and prod (7685) when called from inside CodeTerm.
+pub fn read_api_config() -> (String, Option<String>) {
     let config_dir = dirs::home_dir().unwrap_or_default().join(data_dir_name());
     let config_path = config_dir.join("config.toml");
+
+    let (mut host, mut port) = ("127.0.0.1".to_string(), 7685i64);
+
     if let Ok(content) = std::fs::read_to_string(&config_path) {
         if let Ok(val) = content.parse::<toml::Table>() {
             if let Some(api) = val.get("api").and_then(|v| v.as_table()) {
                 let raw_host = api.get("host").and_then(|v| v.as_str()).unwrap_or("127.0.0.1");
-                // 0.0.0.0 means "listen on all interfaces" — for connecting, use localhost
-                let host = if raw_host == "0.0.0.0" { "127.0.0.1" } else { raw_host };
-                let port = api.get("port").and_then(|v| v.as_integer()).unwrap_or(7685);
-                let token = api.get("token").and_then(|v| v.as_str()).map(|s| s.to_string());
-                return (format!("http://{}:{}", host, port), token);
+                host = if raw_host == "0.0.0.0" { "127.0.0.1".to_string() } else { raw_host.to_string() };
+                port = api.get("port").and_then(|v| v.as_integer()).unwrap_or(7685);
             }
         }
     }
-    ("http://127.0.0.1:7685".to_string(), None)
+
+    // Override port from env — CodeTerm sets this in spawned PTYs
+    if let Ok(env_port) = std::env::var("CODETERM_API_PORT") {
+        if let Ok(p) = env_port.parse::<i64>() {
+            port = p;
+        }
+    }
+
+    // Try Ed25519 signed token first, fall back to simple API token from config
+    let identity_path = config_dir.join("mesh").join("identity.json");
+    let signed_token = std::fs::read_to_string(&identity_path).ok()
+        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+        .and_then(|id| {
+            let pk = id.get("private_key")?.as_str()?;
+            let iid = id.get("instance_id")?.as_str()?;
+            mesh_cli::sign_request(pk, iid).ok()
+        });
+
+    let token = signed_token.or_else(|| {
+        // Fall back to simple API token from config.toml
+        let config_path = config_dir.join("config.toml");
+        std::fs::read_to_string(&config_path).ok()
+            .and_then(|content| content.parse::<toml::Table>().ok())
+            .and_then(|val| val.get("api")?.as_table()?.get("token")?.as_str().map(String::from))
+    });
+
+    (format!("http://{}:{}", host, port), token)
 }
 
-/// Build HTTP client with optional auth header
-fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
+/// Build HTTP client with auth header
+pub fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
     let mut headers = reqwest::header::HeaderMap::new();
     if let Some(t) = token {
         if let Ok(val) = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", t)) {
@@ -50,17 +110,21 @@ fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
 
 #[derive(Parser)]
 #[command(name = "codeterm", version, about = "CodeTerm CLI — control your terminal multiplexer")]
-struct Cli {
+pub struct Cli {
     /// Output raw JSON instead of human-readable text
     #[arg(long, global = true)]
-    json: bool,
+    pub json: bool,
+
+    /// Execute command on a remote mesh peer instead of locally
+    #[arg(long, global = true)]
+    pub mesh: Option<String>,
 
     #[command(subcommand)]
-    command: Commands,
+    pub command: Commands,
 }
 
 #[derive(Subcommand)]
-enum Commands {
+pub enum Commands {
     /// Show CodeTerm version and system info
     Identify,
 
@@ -154,20 +218,28 @@ enum Commands {
         action: Option<UpdateAction>,
     },
 
-    /// Capture a screenshot of the CodeTerm window
-    Screenshot {
-        /// Save to file instead of printing base64 (e.g. screenshot.jpg)
-        #[arg(long)]
-        output: Option<String>,
-
-        /// Output format: json (default, data URL), file (save to --output)
-        #[arg(long, default_value = "json")]
-        format: String,
+    /// Read or write CodeTerm configuration
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
     },
+
+    /// Send a message to an external service (Telegram, etc.)
+    Bridge {
+        #[command(subcommand)]
+        action: BridgeAction,
+    },
+
+    /// Mesh networking — peer discovery, pairing, relay
+    Mesh {
+        #[command(subcommand)]
+        action: MeshAction,
+    },
+
 }
 
 #[derive(Subcommand)]
-enum WorkspaceAction {
+pub enum WorkspaceAction {
     /// List all workspaces
     List,
     /// Print the current (focused) workspace ID
@@ -206,7 +278,7 @@ enum WorkspaceAction {
 }
 
 #[derive(Subcommand)]
-enum PaneAction {
+pub enum PaneAction {
     /// List all panes
     List,
     /// Print the current (focused) pane ID — no JSON parsing needed
@@ -242,10 +314,33 @@ enum PaneAction {
         #[arg(long, alias = "id")]
         pane: Option<String>,
     },
+    /// Get visible screen content of a pane (what the user sees)
+    Screen {
+        /// Pane ID (default: current focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+    },
+    /// Execute a command in a pane and return output
+    Exec {
+        /// Command to execute
+        command: String,
+        /// Pane ID (default: current focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+        /// Timeout in milliseconds
+        #[arg(long, default_value = "10000")]
+        timeout: u64,
+    },
+    /// Show agent status for a pane (type, session, prompt)
+    Status {
+        /// Pane ID (default: current focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
-enum BrowserAction {
+pub enum BrowserAction {
     /// Open a URL in the canvas panel
     Open {
         /// URL to open
@@ -254,13 +349,13 @@ enum BrowserAction {
 }
 
 #[derive(Subcommand)]
-enum NotificationAction {
+pub enum NotificationAction {
     /// Clear all notifications
     Clear,
 }
 
 #[derive(Subcommand)]
-enum ThemeAction {
+pub enum ThemeAction {
     /// List available themes
     List,
     /// Apply a theme by name
@@ -288,7 +383,7 @@ enum ThemeAction {
 }
 
 #[derive(Subcommand)]
-enum AgentAction {
+pub enum AgentAction {
     /// List all agent panes (with roles)
     List,
     /// Show full hierarchy tree
@@ -386,19 +481,77 @@ enum AgentAction {
 }
 
 #[derive(Subcommand)]
-enum UpdateAction {
+pub enum UpdateAction {
     /// Check for available updates
     Check {
         /// Force re-check (ignore cache)
         #[arg(long)]
         force: bool,
     },
-    /// Show update command or open download page
-    Install,
+    /// Install update (--auto for automatic download + install + restart)
+    Install {
+        /// Use Tauri built-in updater: download, install, and restart automatically
+        #[arg(long)]
+        auto: bool,
+    },
 }
 
 #[derive(Subcommand)]
-enum CronAction {
+pub enum BridgeAction {
+    /// Start or restart messaging bridge (Telegram, etc.)
+    Restart,
+    /// Send a message to Telegram or other service
+    Send {
+        /// Message text (also used as caption for media types)
+        text: Option<String>,
+        /// Target service
+        #[arg(long, default_value = "telegram")]
+        service: String,
+        /// Recipient chat/user ID
+        #[arg(long)]
+        to: i64,
+        /// Append to previous message instead of replacing (edits existing message)
+        #[arg(long)]
+        append: bool,
+        /// Content type: text, photo, document, voice, animation, video, sticker
+        #[arg(long, default_value = "text", rename_all = "lowercase")]
+        r#type: String,
+        /// File path for media types
+        #[arg(long)]
+        file: Option<String>,
+        /// Caption for media (alternative to positional text)
+        #[arg(long)]
+        caption: Option<String>,
+        /// Override filename for document uploads
+        #[arg(long)]
+        filename: Option<String>,
+        /// Inline keyboard buttons as JSON: [[{"text":"Yes","data":"yes"},{"text":"No","data":"no"}]]
+        #[arg(long)]
+        buttons: Option<String>,
+    },
+    /// Set an emoji reaction on a message
+    React {
+        /// Recipient chat/user ID
+        #[arg(long)]
+        to: i64,
+        /// Message ID to react to
+        #[arg(long)]
+        message_id: i64,
+        /// Emoji to react with (e.g. "👍", "✅", "❤")
+        emoji: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ConfigAction {
+    /// Get a config value (dot-notation, e.g. "integrations.telegram_enabled")
+    Get { key: String },
+    /// Set a config value (JSON-compatible: true, false, 42, "string")
+    Set { key: String, value: String },
+}
+
+#[derive(Subcommand)]
+pub enum CronAction {
     /// List cron jobs
     List {
         /// Filter by workspace ID
@@ -522,6 +675,67 @@ fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
 fn main() {
     let cli = Cli::parse();
 
+    // --mesh TARGET: proxy entire command to a remote peer via relay
+    if let Some(ref mesh_target) = cli.mesh {
+        mesh_cli::run_via_mesh(&cli, mesh_target);
+        return;
+    }
+
+    // Config command uses HTTP API directly — no socket needed
+    let json_output = cli.json;
+    if let Commands::Config { ref action } = cli.command {
+        let (base_url, token) = read_api_config();
+        let http = build_http(&token);
+        let result = match action {
+            ConfigAction::Get { key } => {
+                let url = format!("{}/api/config?key={}", base_url, key);
+                match http.get(&url).send() {
+                    Ok(resp) if resp.status().is_success() => resp.json().map_err(|e| e.to_string()),
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let body = resp.text().unwrap_or_default();
+                        if status.as_u16() == 404 {
+                            Err(format!("Key not found: {}", key))
+                        } else {
+                            Err(format!("API error ({}): {}", status, body))
+                        }
+                    }
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+            ConfigAction::Set { key, value } => {
+                let json_value: serde_json::Value = serde_json::from_str(value)
+                    .unwrap_or_else(|_| serde_json::Value::String(value.clone()));
+                let body = serde_json::json!({ "key": key, "value": json_value });
+                match http.patch(&format!("{}/api/config", base_url)).json(&body).send() {
+                    Ok(resp) if resp.status().is_success() => {
+                        Ok(serde_json::json!({"ok": true, "key": key, "value": json_value}))
+                    }
+                    Ok(resp) => Err(format!("Failed: {}", resp.text().unwrap_or_default())),
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+        };
+        match result {
+            Ok(value) => {
+                if json_output {
+                    println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                } else if let Some(v) = value.get("value") {
+                    // For config get: print just the value
+                    match v {
+                        serde_json::Value::String(s) => println!("{}", s),
+                        serde_json::Value::Null => println!("null"),
+                        other => println!("{}", other),
+                    }
+                } else {
+                    print_human(&value);
+                }
+            }
+            Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+        }
+        return;
+    }
+
     let socket_path = match discover_socket() {
         Ok(p) => p,
         Err(e) => {
@@ -633,11 +847,83 @@ fn main() {
                     Some(serde_json::json!({ "pane_id": pane_id, "title": title })),
                 )
             }
+            PaneAction::Screen { pane } => {
+                let pane_id = resolve_pane(&mut client, pane);
+                let (api_url, api_token) = read_api_config();
+                let http = build_http(&api_token);
+                match http.get(format!("{}/api/panes/{}/screen", api_url, pane_id)).send() {
+                    Ok(resp) => {
+                        if let Ok(val) = resp.json::<serde_json::Value>() {
+                            if let Some(screen) = val.get("screen").and_then(|v| v.as_str()) {
+                                for line in screen.lines() {
+                                    if !line.trim().is_empty() {
+                                        println!("{}", line);
+                                    }
+                                }
+                                return;
+                            }
+                        }
+                        eprintln!("No screen data");
+                        std::process::exit(1);
+                    }
+                    Err(e) => { eprintln!("Screen request failed: {}", e); std::process::exit(1); }
+                }
+            }
+            PaneAction::Exec { pane, command, timeout } => {
+                let pane_id = resolve_pane(&mut client, pane);
+                let (api_url, api_token) = read_api_config();
+                let http = build_http(&api_token);
+                match http.post(format!("{}/api/panes/{}/exec", api_url, pane_id))
+                    .json(&serde_json::json!({
+                        "command": command,
+                        "timeout_ms": timeout,
+                        "strip_ansi": true,
+                    }))
+                    .send()
+                {
+                    Ok(resp) => {
+                        if let Ok(val) = resp.json::<serde_json::Value>() {
+                            if let Some(output) = val.get("output").and_then(|v| v.as_str()) {
+                                print!("{}", output);
+                                return;
+                            }
+                        }
+                        eprintln!("Exec failed");
+                        std::process::exit(1);
+                    }
+                    Err(e) => { eprintln!("Exec request failed: {}", e); std::process::exit(1); }
+                }
+            }
+            PaneAction::Status { pane } => {
+                let pane_id = resolve_pane(&mut client, pane);
+                let (api_url, api_token) = read_api_config();
+                let http = build_http(&api_token);
+                match http.get(format!("{}/api/panes", api_url)).send() {
+                    Ok(resp) => {
+                        if let Ok(panes) = resp.json::<Vec<serde_json::Value>>() {
+                            if let Some(p) = panes.iter().find(|p| p.get("id").and_then(|v| v.as_str()) == Some(&pane_id)) {
+                                let at = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
+                                let sid = p.get("agent_session_id").and_then(|v| v.as_str()).unwrap_or("-");
+                                let pp = if p.get("pending_prompt").is_some() { "yes" } else { "no" };
+                                let cv = p.get("chat_view").and_then(|v| v.as_bool()).unwrap_or(false);
+                                println!("pane:    {}", pane_id);
+                                println!("agent:   {}", at);
+                                println!("session: {}", sid);
+                                println!("prompt:  {}", pp);
+                                println!("chat:    {}", cv);
+                                return;
+                            }
+                        }
+                        eprintln!("Pane not found");
+                        std::process::exit(1);
+                    }
+                    Err(e) => { eprintln!("Status request failed: {}", e); std::process::exit(1); }
+                }
+            }
         },
 
         Commands::GetOutput { pane, lines } => {
             let pane_id = resolve_pane(&mut client, pane);
-            // Approximate: ~80 bytes per line
             let max_bytes = (lines as u64) * 80;
             let result = client.call(
                 "pane.get_output",
@@ -646,9 +932,11 @@ fn main() {
             match result {
                 Ok(value) => {
                     if let Some(output) = value.get("output").and_then(|v| v.as_str()) {
-                        print!("{}", output);
-                    } else if cli.json {
-                        println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                        if cli.json {
+                            println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                        } else {
+                            print!("{}", strip_ansi(output));
+                        }
                     }
                     return;
                 }
@@ -674,6 +962,50 @@ fn main() {
             }
             client.call("notification.create", Some(params))
         }
+
+        Commands::Bridge { action } => match action {
+            BridgeAction::Restart => {
+                client.call("bridge.restart", None)
+            }
+            BridgeAction::Send { text, service, to, append, r#type, file, caption, filename, buttons } => {
+                let mut params = serde_json::json!({
+                    "service": service,
+                    "chat_id": to,
+                    "type": r#type,
+                    "append": append,
+                });
+                if let Some(t) = text {
+                    params["text"] = serde_json::Value::String(t);
+                }
+                if let Some(f) = file {
+                    params["file"] = serde_json::Value::String(f);
+                }
+                if let Some(c) = caption {
+                    params["caption"] = serde_json::Value::String(c);
+                }
+                if let Some(n) = filename {
+                    params["filename"] = serde_json::Value::String(n);
+                }
+                if let Some(b) = buttons {
+                    // Parse buttons JSON
+                    match serde_json::from_str::<serde_json::Value>(&b) {
+                        Ok(v) => { params["buttons"] = v; }
+                        Err(e) => {
+                            eprintln!("Invalid buttons JSON: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                client.call("bridge.send", Some(params))
+            }
+            BridgeAction::React { to, message_id, emoji } => {
+                client.call("bridge.react", Some(serde_json::json!({
+                    "chat_id": to,
+                    "message_id": message_id,
+                    "emoji": emoji,
+                })))
+            }
+        },
 
         Commands::Notifications { action, unread } => match action {
             Some(NotificationAction::Clear) => client.call("notification.clear", None),
@@ -986,12 +1318,15 @@ fn main() {
                 }
                 CronAction::Create { name, schedule, task, workspace, agent, cwd, description, creator_pane } => {
                     let ws_id = workspace.unwrap_or_else(|| {
-                        // Get active workspace
-                        client.call("workspace.list", None)
-                            .ok()
-                            .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
-                            .and_then(|w| w.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
-                            .unwrap_or_default()
+                        // Prefer CODETERM_WORKSPACE_ID (agent's own workspace), fall back to first
+                        std::env::var("CODETERM_WORKSPACE_ID").ok()
+                            .unwrap_or_else(|| {
+                                client.call("workspace.list", None)
+                                    .ok()
+                                    .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
+                                    .and_then(|w| w.get("id").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                                    .unwrap_or_default()
+                            })
                     });
                     let mut params = serde_json::json!({
                         "name": name,
@@ -1147,8 +1482,13 @@ fn main() {
                     }
                     return;
                 }
-                UpdateAction::Install => {
-                    match http.post(format!("{}/api/update/install", base_url)).send() {
+                UpdateAction::Install { auto } => {
+                    let url = if auto {
+                        format!("{}/api/update/install?method=auto", base_url)
+                    } else {
+                        format!("{}/api/update/install", base_url)
+                    };
+                    match http.post(&url).send() {
                         Ok(resp) if resp.status().is_success() => {
                             let body: serde_json::Value = resp.json().unwrap_or_default();
                             if cli.json {
@@ -1164,6 +1504,11 @@ fn main() {
                                     }
                                     "browser_opened" => {
                                         println!("Opened download page in browser.");
+                                    }
+                                    "updating" => {
+                                        if let Some(msg) = body["message"].as_str() {
+                                            println!("{}", msg);
+                                        }
                                     }
                                     _ => println!("{}", body),
                                 }
@@ -1183,57 +1528,220 @@ fn main() {
             }
         }
 
-        Commands::Screenshot { output, format } => {
-            let base = "http://127.0.0.1:7685";
-            let http = reqwest::blocking::Client::new();
+        // Config is handled before socket connect (uses HTTP API)
+        Commands::Config { .. } => unreachable!(),
 
-            if format == "file" || output.is_some() {
-                // Save JPEG to file
-                let path = output.unwrap_or_else(|| "screenshot.jpg".to_string());
-                match http.get(format!("{}/api/screenshot?format=jpeg", base)).send() {
-                    Ok(resp) => {
-                        if resp.status().is_success() {
-                            let bytes = resp.bytes().unwrap_or_default();
-                            if let Err(e) = std::fs::write(&path, &bytes) {
-                                eprintln!("Error writing file: {}", e);
+
+        Commands::Mesh { action } => {
+            let (base, token) = read_api_config();
+            let http = build_http(&token);
+            match action {
+                MeshAction::Status => {
+                    match http.get(format!("{}/api/mesh/status", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                let name = val.get("instance_name").and_then(|v| v.as_str()).unwrap_or("?");
+                                let id = val.get("instance_id").and_then(|v| v.as_str()).unwrap_or("?");
+                                let crown = val.get("is_crown").and_then(|v| v.as_bool()).unwrap_or(false);
+                                let paired = val.get("paired_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                                let discovered = val.get("discovered_count").and_then(|v| v.as_u64()).unwrap_or(0);
+                                println!("{} ({})", name, &id[..id.len().min(8)]);
+                                println!("Crown: {}", if crown { "yes" } else { "no" });
+                                println!("Paired: {}, Discovered: {}", paired, discovered);
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Peers => {
+                    match http.get(format!("{}/api/mesh/peers", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                if let Some(paired) = val.get("paired").and_then(|v| v.as_array()) {
+                                    if !paired.is_empty() { println!("Paired:"); }
+                                    for p in paired {
+                                        let name = p.get("instance_name").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let online = p.get("online").and_then(|v| v.as_bool()).unwrap_or(false);
+                                        let trust = p.get("trust_level").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let ip = p.get("addresses").and_then(|v| v.as_array())
+                                            .and_then(|a| a.first())
+                                            .and_then(|a| a.get("ip")).and_then(|v| v.as_str()).unwrap_or("?");
+                                        let dot = if online { "●" } else { "○" };
+                                        println!("  {} {} ({}) [{}] {}", dot, name, ip, trust,
+                                            if p.get("is_primary").and_then(|v| v.as_bool()).unwrap_or(false) { "★" } else { "" });
+                                    }
+                                }
+                                if let Some(discovered) = val.get("discovered").and_then(|v| v.as_array()) {
+                                    if !discovered.is_empty() { println!("Discovered:"); }
+                                    for d in discovered {
+                                        let name = d.get("instance_name").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let method = d.get("discovery_method").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let ip = d.get("addresses").and_then(|v| v.as_array())
+                                            .and_then(|a| a.first())
+                                            .and_then(|a| a.get("ip")).and_then(|v| v.as_str()).unwrap_or("?");
+                                        let dev = d.get("dev").and_then(|v| v.as_bool()).unwrap_or(false);
+                                        println!("  ◇ {} ({}) [{}]{}", name, ip, method, if dev { " [dev]" } else { "" });
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Exec { target, command, pane } => {
+                    let (action, target, command, pane) = ("exec", target, command, pane);
+                    mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, action, &command, &pane, cli.json);
+                    return;
+                }
+                MeshAction::Send { target, text, pane } => {
+                    mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "send", &text, &pane, cli.json);
+                    return;
+                }
+                MeshAction::Output { target, pane } => {
+                    mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "output", "", &pane, cli.json);
+                    return;
+                }
+                MeshAction::Panes { target } => {
+                    mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "panes", "", "", cli.json);
+                    return;
+                }
+                MeshAction::Connect { instance_id } => {
+                    let body = serde_json::json!({"instance_id": instance_id});
+                    match http.post(format!("{}/api/mesh/connect", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .json(&body).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                                println!("Pairing request sent to {}", instance_id);
+                                if let Some(rid) = val.get("request_id").and_then(|v| v.as_str()) {
+                                    println!("Request ID: {}", rid);
+                                }
+                            } else {
+                                let err = val.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                                eprintln!("Error: {}", err);
                                 std::process::exit(1);
                             }
-                            println!("{} ({}KB)", path, bytes.len() / 1024);
-                        } else {
-                            eprintln!("Error: {}", resp.status());
-                            std::process::exit(1);
                         }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
-                    Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    return;
                 }
-            } else {
-                // JSON with data URL
-                match http.get(format!("{}/api/screenshot", base)).send() {
-                    Ok(resp) => {
-                        let val: serde_json::Value = resp.json().unwrap_or_default();
-                        if cli.json {
-                            println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                        } else {
-                            println!("{}x{} ({}KB)",
-                                val.get("width").and_then(|v| v.as_u64()).unwrap_or(0),
-                                val.get("height").and_then(|v| v.as_u64()).unwrap_or(0),
-                                val.get("size_kb").and_then(|v| v.as_u64()).unwrap_or(0),
-                            );
-                            if let Some(data) = val.get("screenshot").and_then(|v| v.as_str()) {
-                                println!("{}", data);
+                MeshAction::Approve { request_id } => {
+                    let body = serde_json::json!({"request_id": request_id});
+                    match http.post(format!("{}/api/mesh/approve", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .json(&body).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                                println!("Pairing request {} approved", request_id);
+                            } else {
+                                let err = val.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                                eprintln!("Error: {}", err);
+                                std::process::exit(1);
                             }
                         }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
-                    Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    return;
+                }
+                MeshAction::Reject { request_id } => {
+                    let body = serde_json::json!({"request_id": request_id});
+                    match http.post(format!("{}/api/mesh/reject", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .json(&body).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                                println!("Pairing request {} rejected and blocked", request_id);
+                            } else {
+                                let err = val.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                                eprintln!("Error: {}", err);
+                                std::process::exit(1);
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Disconnect { instance_id } => {
+                    let body = serde_json::json!({"instance_id": instance_id});
+                    match http.post(format!("{}/api/mesh/disconnect", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .json(&body).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                                println!("Disconnected from {}", instance_id);
+                            } else {
+                                let err = val.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                                eprintln!("Error: {}", err);
+                                std::process::exit(1);
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Discover => {
+                    match http.post(format!("{}/api/mesh/discover", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if let Some(arr) = val.as_array() {
+                                if arr.is_empty() {
+                                    println!("No discovered peers");
+                                } else {
+                                    for p in arr {
+                                        let name = p.get("instance_name").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let id = p.get("instance_id").and_then(|v| v.as_str()).unwrap_or("?");
+                                        let method = p.get("discovery_method").and_then(|v| v.as_str()).unwrap_or("?");
+                                        println!("  {} ({}) [{}]", name, id, method);
+                                    }
+                                }
+                            } else {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
                 }
             }
-            return;
         }
     };
 
+    handle_result(cli.json, result);
+}
+
+fn handle_result(json: bool, result: Result<serde_json::Value, String>) {
     match result {
         Ok(value) => {
-            if cli.json {
+            if json {
                 println!("{}", serde_json::to_string_pretty(&value).unwrap());
             } else {
                 print_human(&value);

@@ -1,35 +1,7 @@
 import { useState, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { CronJob } from "../../lib/types";
-
-const SCHEDULE_PRESETS = [
-  { label: "Every hour", value: "0 * * * *" },
-  { label: "Every 6h", value: "0 */6 * * *" },
-  { label: "Daily 9 AM", value: "0 9 * * *" },
-  { label: "Weekly Mon 9 AM", value: "0 9 * * 1" },
-] as const;
-
-function describeSchedule(cron: string): string {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) return cron;
-  const [min, hour, dom, mon, dow] = parts;
-
-  if (min === "*" && hour === "*") return "Every minute";
-  if (hour === "*" && dom === "*" && mon === "*" && dow === "*") {
-    if (min === "0") return "Every hour";
-    if (min.startsWith("*/")) return `Every ${min.slice(2)} minutes`;
-  }
-  if (dom === "*" && mon === "*" && dow === "*") {
-    if (hour.startsWith("*/")) return `Every ${hour.slice(2)} hours at :${min.padStart(2, "0")}`;
-    return `Daily at ${hour}:${min.padStart(2, "0")}`;
-  }
-  if (dom === "*" && mon === "*" && dow !== "*") {
-    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const day = days[parseInt(dow)] || dow;
-    return `Every ${day} at ${hour}:${min.padStart(2, "0")}`;
-  }
-  return cron;
-}
+import { describeSchedule, SCHEDULE_PRESETS } from "../../lib/formatters";
 
 interface CronEditorProps {
   workspaceId: string;
@@ -84,7 +56,7 @@ export function CronEditor({ workspaceId: _workspaceId, existing, onSave, onClos
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/40" onClick={onClose} />
-      <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-sidebar-bg)] border border-[var(--ct-border)] rounded-xl shadow-2xl w-[720px] h-[540px] flex flex-col overflow-hidden">
+      <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-sidebar-bg)] border border-[var(--ct-border)] rounded-xl shadow-2xl w-[860px] h-[640px] max-w-[90vw] max-h-[85vh] flex flex-col overflow-hidden ct-float">
         <div className="px-4 pt-4 pb-2 flex items-center justify-between">
           <div className="text-[13px] font-medium text-[var(--ct-fg)]">
             {existing ? "Edit Cron Job" : "Create Cron Job"}

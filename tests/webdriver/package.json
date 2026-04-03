@@ -1,0 +1,15 @@
+{
+  "name": "codeterm-webdriver-tests",
+  "type": "module",
+  "scripts": {
+    "test": "wdio run wdio.conf.js --spec specs/prompt-approval.js",
+    "test:core": "wdio run wdio.conf.js --spec specs/core-flow.js",
+    "test:all": "wdio run wdio.conf.js"
+  },
+  "devDependencies": {
+    "@wdio/cli": "^9.0.0",
+    "@wdio/local-runner": "^9.0.0",
+    "@wdio/mocha-framework": "^9.0.0",
+    "@wdio/spec-reporter": "^9.0.0"
+  }
+}

@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { AppConfig } from "../../lib/types";
+import { MeshSection } from "./MeshSection";
+import { CloseXIcon, CheckIcon, CopyIcon } from "../Icons";
+import { isMac } from "../../lib/keybindings";
 
 interface SettingsPanelProps {
   config: AppConfig;
@@ -9,32 +12,29 @@ interface SettingsPanelProps {
 }
 
 enum SettingsTab {
-  Appearance = "appearance",
-  Terminal = "terminal",
-  Keybindings = "keybindings",
+  General = "general",
+  Mesh = "mesh",
   Notifications = "notifications",
   Agents = "agents",
-  Network = "network",
+  Integrations = "integrations",
   About = "about",
 }
 
 const TAB_ICONS: Record<SettingsTab, string> = {
-  [SettingsTab.Appearance]: "M1 3.5A2.5 2.5 0 0 1 3.5 1h9A2.5 2.5 0 0 1 15 3.5v9a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 1 12.5Zm2.5-1a1 1 0 0 0-1 1v5.586l2.293-2.293a1 1 0 0 1 1.414 0L9 10.086l1.293-1.293a1 1 0 0 1 1.414 0L14 11.086V3.5a1 1 0 0 0-1-1Zm7 3.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z",
-  [SettingsTab.Terminal]: "M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z",
-  [SettingsTab.Keybindings]: "M6.5 1.75a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 .75.75v3a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1-.75-.75ZM8 8a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0v-5.5A.75.75 0 0 1 8 8Zm-3.5 1.5a.75.75 0 0 0-1.5 0v4.75a.75.75 0 0 0 1.5 0Zm-1.5-6a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5h-1.5A.75.75 0 0 1 3 3.5Zm9.5 6a.75.75 0 0 0-1.5 0v4.75a.75.75 0 0 0 1.5 0Z",
+  [SettingsTab.General]: "M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16ZM7 6.5C7 5.672 7.448 5 8 5s1 .672 1 1.5S8.552 8 8 8s-1-.672-1-1.5ZM4.255 9.515a.75.75 0 0 1 .98.058 3.997 3.997 0 0 0 5.53 0 .75.75 0 0 1 1.037 1.085 5.497 5.497 0 0 1-7.607 0 .75.75 0 0 1 .058-.98Z",
+  [SettingsTab.Mesh]: "M8 1a1 1 0 0 1 1 1v1.07A5.5 5.5 0 0 1 12.93 7H14a1 1 0 1 1 0 2h-1.07A5.5 5.5 0 0 1 9 12.93V14a1 1 0 1 1-2 0v-1.07A5.5 5.5 0 0 1 3.07 9H2a1 1 0 0 1 0-2h1.07A5.5 5.5 0 0 1 7 3.07V2a1 1 0 0 1 1-1Zm0 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
   [SettingsTab.Notifications]: "M8 16a2 2 0 0 0 1.985-1.75c.017-.137-.097-.25-.235-.25h-3.5c-.138 0-.252.113-.235.25A2 2 0 0 0 8 16ZM3 5a5 5 0 0 1 10 0c0 1.862.818 2.726 1.49 3.434.233.246.46.485.653.752.19.262.357.571.357.974 0 .593-.477 1.09-1.107 1.168C13.477 11.44 12.025 11.5 8 11.5c-4.025 0-5.477-.06-6.393-.172C.977 11.24.5 10.743.5 10.16c0-.403.167-.712.356-.974a6.96 6.96 0 0 0 .653-.752C2.182 7.726 3 6.862 3 5Z",
   [SettingsTab.Agents]: "M5.75 7.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75Zm5.25.75a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0ZM6 1h4a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V5a4 4 0 0 1 4-4Zm-.25 1.5A2.75 2.75 0 0 0 3 5.25v5.5A2.75 2.75 0 0 0 5.75 13.5h4.5a2.75 2.75 0 0 0 2.75-2.75v-5.5A2.75 2.75 0 0 0 10.25 2.5Z",
-  [SettingsTab.Network]: "M1.5 8a6.5 6.5 0 1 1 13 0 6.5 6.5 0 0 1-13 0ZM8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0ZM6.379 1.588C4.468 2.46 3 4.96 3 8c0 3.04 1.468 5.54 3.379 6.412A6.504 6.504 0 0 1 1.5 8c0-3.043 2.094-5.6 4.879-6.412ZM8 14.5c1.94 0 3.5-2.91 3.5-6.5S9.94 1.5 8 1.5 4.5 4.41 4.5 8s1.56 6.5 3.5 6.5Z",
+  [SettingsTab.Integrations]: "M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5ZM8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16Zm0-1.5a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z",
   [SettingsTab.About]: "M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z",
 };
 
 const TABS: { id: SettingsTab; label: string }[] = [
-  { id: SettingsTab.Appearance, label: "Appearance" },
-  { id: SettingsTab.Terminal, label: "Terminal" },
-  { id: SettingsTab.Keybindings, label: "Keybindings" },
+  { id: SettingsTab.General, label: "General" },
+  { id: SettingsTab.Mesh, label: "Mesh" },
   { id: SettingsTab.Notifications, label: "Notifications" },
   { id: SettingsTab.Agents, label: "Agents" },
-  { id: SettingsTab.Network, label: "Network & API" },
+  { id: SettingsTab.Integrations, label: "Integrations" },
   { id: SettingsTab.About, label: "About" },
 ];
 
@@ -43,7 +43,7 @@ export function SettingsPanel({
   onUpdateConfig,
   onClose,
 }: SettingsPanelProps) {
-  const [activeTab, setActiveTab] = useState(SettingsTab.Appearance);
+  const [activeTab, setActiveTab] = useState(SettingsTab.General);
   const [localConfig, setLocalConfig] = useState<AppConfig>(config);
   const [themes, setThemes] = useState<string[]>([]);
   const [configPath, setConfigPath] = useState<string>("");
@@ -77,8 +77,8 @@ export function SettingsPanel({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-[720px] h-[540px] bg-[var(--ct-sidebar-bg)] border border-[var(--ct-border)] rounded-xl shadow-2xl flex flex-col overflow-hidden relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px]">
+      <div className="w-[860px] h-[640px] max-w-[90vw] max-h-[85vh] bg-[var(--ct-sidebar-bg)] border border-[var(--ct-border)] rounded-xl shadow-2xl flex flex-col overflow-hidden relative ct-float">
         {/* Subtle dot grid background */}
         <div
           className="absolute inset-0 pointer-events-none"
@@ -95,9 +95,7 @@ export function SettingsPanel({
             onClick={onClose}
             className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-              <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
-            </svg>
+            <CloseXIcon />
           </button>
         </div>
 
@@ -125,7 +123,7 @@ export function SettingsPanel({
 
           {/* Content area */}
           <div className="flex-1 overflow-y-auto px-5 py-4">
-            {activeTab === SettingsTab.Appearance && (
+            {activeTab === SettingsTab.General && (
               <div className="space-y-6">
                 <Group title="Color Theme">
                   <Label text="Theme">
@@ -220,11 +218,7 @@ export function SettingsPanel({
                     onChange={(v) => update("font", { ligatures: v })}
                   />
                 </Group>
-              </div>
-            )}
 
-            {activeTab === SettingsTab.Terminal && (
-              <div className="space-y-6">
                 <Group title="Cursor">
                   <Label text="Style">
                     <select
@@ -265,11 +259,7 @@ export function SettingsPanel({
                     onChange={(v) => update("terminal", { copy_on_select: v })}
                   />
                 </Group>
-              </div>
-            )}
 
-            {activeTab === SettingsTab.Keybindings && (
-              <div className="space-y-4">
                 <KeybindGroup title="Tabs" bindings={[
                   ["new_tab", "New Tab"],
                   ["close_tab", "Close Tab"],
@@ -333,7 +323,11 @@ export function SettingsPanel({
               <AgentsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
             )}
 
-            {activeTab === SettingsTab.Network && (
+            {activeTab === SettingsTab.Integrations && (
+              <IntegrationsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
+            )}
+
+            {activeTab === SettingsTab.Mesh && (
               <NetworkTab
                 config={localConfig}
                 onUpdate={(section, patch) => update(section, patch)}
@@ -470,7 +464,7 @@ function CheckForUpdateButton() {
   );
 }
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
+export function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
       <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)] mb-2.5">{title}</h3>
@@ -488,7 +482,7 @@ function Label({ text, children }: { text: string; children: React.ReactNode }) 
   );
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+export function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center justify-between cursor-pointer">
       <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
@@ -498,7 +492,7 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-          checked ? "bg-[var(--ct-green)]" : "bg-[var(--ct-border)]"
+          checked ? "bg-[var(--ct-accent)]" : "bg-[var(--ct-border)]"
         }`}
       >
         <span
@@ -511,7 +505,7 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
   );
 }
 
-function CopyRow({ label, value }: { label: string; value: string }) {
+export function CopyRow({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex items-center justify-between text-xs gap-2">
@@ -529,9 +523,9 @@ function CopyRow({ label, value }: { label: string; value: string }) {
           title="Copy"
         >
           {copied ? (
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+            <CheckIcon />
           ) : (
-            <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25ZM5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>
+            <CopyIcon />
           )}
         </button>
       </div>
@@ -539,7 +533,7 @@ function CopyRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+export function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-center justify-between text-xs">
       <span className="text-[var(--ct-muted)]">{label}</span>
@@ -570,9 +564,8 @@ function AboutLink({ href, label, icon }: { href: string; label: string; icon: s
   );
 }
 
-const IS_MAC_SETTINGS = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 
-const KEY_SYMBOLS: Record<string, string> = IS_MAC_SETTINGS ? {
+const KEY_SYMBOLS: Record<string, string> = isMac ? {
   ctrl: "⌃",
   shift: "⇧",
   alt: "⌥",
@@ -617,7 +610,7 @@ function renderKbd(binding: string) {
       {parts.map((part, i) => {
         const sym = KEY_SYMBOLS[part.toLowerCase()] || part.toUpperCase();
         // On mac, Ctrl in binding with letters = Mod = ⌘
-        const display = IS_MAC_SETTINGS && part.toLowerCase() === "ctrl" && parts.some(p => /^[a-zA-Z0-9]$/.test(p))
+        const display = isMac && part.toLowerCase() === "ctrl" && parts.some(p => /^[a-zA-Z0-9]$/.test(p))
           ? "⌘" : sym;
         return (
           <kbd
@@ -695,114 +688,15 @@ function NetworkTab({
     local_ip: string; tailscale_ip: string | null;
     api_port: number; api_url: string; tailscale_url: string | null;
   } | null>(null);
-  const [copiedPrompt, setCopiedPrompt] = useState(false);
-  const [tokenRefreshing, setTokenRefreshing] = useState(false);
-
   useEffect(() => {
     invoke<typeof net>("get_network_info").then(setNet).catch(() => {});
   }, []);
 
-  const [gatewayPrompt, setgatewayPrompt] = useState("");
-
-  const buildPrompt = useCallback((netInfo: typeof net, token: string | null) => {
-    if (!netInfo) return;
-    invoke<string>("get_skills_prompt").then((base) => {
-      const url = netInfo.tailscale_url || netInfo.api_url;
-      const authLine = token ? `\nAuthorization: Bearer ${token}` : "";
-      setgatewayPrompt(`CodeTerm API: ${url}${authLine}\n\n${base}`);
-    }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    buildPrompt(net, cfg.api?.token ?? null);
-  }, [net, cfg.api?.token, buildPrompt]);
-
-  const refreshToken = useCallback(async () => {
-    setTokenRefreshing(true);
-    try {
-      const token = await invoke<string>("generate_api_token");
-      onUpdate("api", { token });
-      buildPrompt(net, token);
-    } catch {}
-    setTokenRefreshing(false);
-  }, [net, onUpdate, buildPrompt]);
+  const apiEnabled = cfg.api?.enabled ?? false;
 
   return (
     <div className="space-y-6">
-      <Group title="REST API">
-        <Toggle
-          label="Enable API"
-          checked={cfg.api?.enabled ?? false}
-          onChange={(v) => onUpdate("api", { enabled: v })}
-        />
-        <div className="text-[10px] text-[var(--ct-muted)] -mt-1">
-          Requires restart to take effect.
-        </div>
-        <div className="space-y-1.5 mt-2">
-          <CopyRow label="Local" value={net?.api_url || "..."} />
-          {net?.tailscale_url && (
-            <CopyRow label="Tailscale" value={net.tailscale_url} />
-          )}
-        </div>
-      </Group>
-
-      <Group title="API Token">
-        <div className="text-[10px] text-[var(--ct-muted)] mb-2">
-          Bearer token required for all API requests. Included in the orchestrator prompt automatically.
-        </div>
-        {cfg.api?.token ? (
-          <div className="flex items-center gap-2">
-            <CopyRow label="Token" value={cfg.api.token} />
-            <button
-              onClick={refreshToken}
-              disabled={tokenRefreshing}
-              className="shrink-0 px-2 py-1 text-[10px] rounded bg-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-muted)] transition-colors disabled:opacity-50"
-            >
-              {tokenRefreshing ? "..." : "Regenerate"}
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={refreshToken}
-            disabled={tokenRefreshing}
-            className="px-3 py-1.5 text-[11px] rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all disabled:opacity-50"
-          >
-            {tokenRefreshing ? "Generating..." : "Generate Token"}
-          </button>
-        )}
-      </Group>
-
-      <Group title="Webhooks">
-        <div className="text-xs text-[var(--ct-muted-fg)] space-y-1">
-          <p>Register webhooks to receive real-time agent events. External orchestrators get instant feedback when agents need attention.</p>
-          <CopyRow label="Endpoint" value="POST /api/webhooks" />
-          <div className="text-[10px] text-[var(--ct-muted)]">
-            Body: <code className="bg-[var(--ct-bg)] px-1 rounded">{"{ url, events? }"}</code>
-          </div>
-        </div>
-      </Group>
-
-      <Group title="a gateway / External Orchestrator">
-        <div className="text-xs text-[var(--ct-muted-fg)] mb-2">
-          Copy this prompt and give it to your external orchestrator (a gateway, etc.) so it knows how to control CodeTerm. {cfg.api?.token ? "Includes your API token." : "Generate a token above to include authentication."}
-        </div>
-        <div className="relative">
-          <pre className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded p-3 text-[10px] text-[var(--ct-muted-fg)] font-mono whitespace-pre-wrap max-h-[160px] overflow-y-auto leading-relaxed">
-            {gatewayPrompt || "Loading..."}
-          </pre>
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(gatewayPrompt).then(() => {
-                setCopiedPrompt(true);
-                setTimeout(() => setCopiedPrompt(false), 2000);
-              });
-            }}
-            className="absolute top-2 right-2 px-2 py-1 text-[10px] rounded bg-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-muted)] transition-colors"
-          >
-            {copiedPrompt ? "Copied!" : "Copy"}
-          </button>
-        </div>
-      </Group>
+      <MeshSection config={cfg} onUpdate={onUpdate} apiEnabled={apiEnabled} />
 
       <Collapsible title="API Endpoints Reference">
         <div className="space-y-3">
@@ -830,8 +724,6 @@ function NetworkTab({
           <EndpointGroup title="Integration" endpoints={[
             ["POST", "/api/browser/open", "Open URL {url}"],
             ["POST", "/api/notifications", "Create {title, body, level}"],
-            ["POST", "/api/webhooks", "Register webhook {url, events}"],
-            ["GET", "/api/webhooks", "List webhooks"],
             ["GET", "/api/network", "Connection info + IPs"],
             ["GET", "/api/screenshot", "Capture screenshot"],
             ["GET", "/api/serve-file", "Serve local file {?path=}"],
@@ -879,6 +771,29 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
 
   return (
     <div className="space-y-5">
+      {/* General Agent */}
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+        <div className="text-sm font-medium text-[var(--ct-fg)]">General Agent</div>
+        <div className="text-xs text-[var(--ct-muted-fg)]">
+          Always-on AI assistant in a protected workspace. Starts automatically with CodeTerm.
+        </div>
+        <Toggle
+          label="Enable General Agent"
+          checked={config.general_agent?.enabled ?? true}
+          onChange={(v) => onUpdate("general_agent", { enabled: v })}
+        />
+        {config.general_agent?.enabled && (
+          <Toggle
+            label="Auto-restart on crash"
+            checked={config.general_agent?.auto_restart ?? true}
+            onChange={(v) => onUpdate("general_agent", { auto_restart: v })}
+          />
+        )}
+        <div className="text-[10px] text-[var(--ct-muted)]">
+          Requires restart to take effect.
+        </div>
+      </div>
+
       {/* Session resume settings */}
       <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
         <div className="text-sm font-medium text-[var(--ct-fg)]">Session Resume</div>
@@ -989,6 +904,67 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
 
       <div className="text-[10px] text-[var(--ct-muted)] text-center">
         Restart Claude Code after installing.
+      </div>
+    </div>
+  );
+}
+
+function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
+  const [allowedUsersText, setAllowedUsersText] = useState(
+    (config.integrations?.telegram_allowed_users ?? []).join(", ")
+  );
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Telegram</div>
+          {config.integrations?.telegram_enabled && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">enabled</span>
+          )}
+        </div>
+        <div className="text-xs text-[var(--ct-muted-fg)]">
+          Send messages to your General Agent via Telegram bot. Responses are captured and sent back.
+        </div>
+        <Toggle
+          label="Enable Telegram bridge"
+          checked={config.integrations?.telegram_enabled ?? false}
+          onChange={(v) => onUpdate("integrations", { telegram_enabled: v })}
+        />
+        {config.integrations?.telegram_enabled && (
+          <>
+            <div className="text-xs text-[var(--ct-muted-fg)]">
+              Token: <span className="font-mono text-[var(--ct-fg)]">~/.codeterm/secrets/telegram.token</span>
+            </div>
+            <div className="space-y-1">
+              <div className="text-xs text-[var(--ct-muted-fg)]">Allowed user IDs (comma-separated, empty = all)</div>
+              <input
+                type="text"
+                value={allowedUsersText}
+                onChange={(e) => {
+                  setAllowedUsersText(e.target.value);
+                  const ids = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
+                  onUpdate("integrations", { telegram_allowed_users: ids });
+                }}
+                placeholder="e.g. 186809246, 123456789"
+                className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none font-mono"
+              />
+            </div>
+            <div className="text-[10px] text-[var(--ct-muted)]">
+              Requires restart. Create a bot via @BotFather and save the token.
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3 opacity-50">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Discord</div>
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-border)] text-[var(--ct-muted-fg)]">coming soon</span>
+        </div>
+        <div className="text-xs text-[var(--ct-muted-fg)]">
+          Connect a Discord bot to interact with your General Agent.
+        </div>
       </div>
     </div>
   );

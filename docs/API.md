@@ -31,7 +31,6 @@ Then: `Authorization: Bearer your-secret-token`
 | GET | `/api/health` | — | Health check |
 | GET | `/api/identify` | — | Version, platform, features |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
-| GET | `/api/screenshot` | `?format=json\|jpeg` | Capture window screenshot (see below) |
 
 
 #### Workspaces
@@ -59,6 +58,7 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/split` | `{direction: "right"\|"down"}` | Split pane |
 | POST | `/api/panes/{id}/rename` | `{title}` | Rename pane/tab (pinned) |
 | POST | `/api/panes/{id}/resize` | `{cols, rows}` | Resize terminal |
+| POST | `/api/panes/{id}/hook/permission` | `{question?, options?: [{label, value}]}` | Notify that agent is showing a permission prompt (see below) |
 
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
@@ -96,7 +96,39 @@ Fields returned by `GET /api/panes` for each pane:
 | `role` | `string?` | `"Orchestrator"`, `"Lead"`, `"Worker"`, or `null` |
 | `parent_pane_id` | `string?` | Parent pane ID in hierarchy, or `null` |
 | `can_spawn` | `bool` | Whether this pane can spawn children. Orchestrator: true (default). Lead: true (default). Worker: always false. |
+| `connected_services` | `string[]` | External services connected to this pane (e.g. `["telegram"]`). Shown as icons in sidebar. |
 | `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Orchestrator), 2 (Lead or Worker under Orchestrator), 3 (Worker under Lead) |
+
+#### Permission Hook (POST /api/panes/{id}/hook/permission)
+
+Called by Claude Code hooks (or any agent integration) to notify CodeTerm that the agent is showing a permission prompt. This is a faster path than PTY auto-detection and bypasses the cooldown period.
+
+**Two modes:**
+
+1. **Explicit prompt** -- provide `question` and `options` in the body. CodeTerm uses them directly.
+2. **Auto-parse** -- send an empty body `{}`. CodeTerm reads the terminal screen content and runs structural fingerprint detection to extract the prompt.
+
+```bash
+# Auto-parse (most common — Claude hooks just ping the endpoint)
+curl -X POST "http://host:7685/api/panes/$PANE/hook/permission" \
+  -H "Content-Type: application/json" -d '{}'
+
+# Explicit prompt
+curl -X POST "http://host:7685/api/panes/$PANE/hook/permission" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Allow file write?","options":[{"label":"Yes","value":"1"},{"label":"No","value":"3"}]}'
+```
+
+Response: `{"detected": true}` or `{"detected": false}`. Even when `detected: false`, the hook still fires a `agent.permission_request` webhook event (the hook firing itself signals the agent is waiting).
+
+#### Stop Hook (POST /api/panes/{id}/hook/stop)
+
+Called by Claude Code hooks (Stop matcher) to notify CodeTerm that the agent has completed its task. Triggers `agent.task_complete` webhook event and updates pane status. For protected panes (e.g. General Agent), the stop hook does NOT clear `agent_type` — the pane retains its agent identity.
+
+```bash
+curl -X POST "http://host:7685/api/panes/$PANE/hook/stop" \
+  -H "Content-Type: application/json" -d '{}'
+```
 
 #### Canvas (Visualizations)
 | Method | Path | Body | Description |
@@ -130,6 +162,53 @@ Webhook events: `agent.permission_request`, `agent.task_complete`, `agent.report
 
 Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/.codeterm/themes/` (macOS/Linux).
 
+#### Mesh Networking
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/mesh/status` | — | Mesh identity, crown, discovery status |
+| GET | `/api/mesh/peers` | — | List all peers (paired + discovered) |
+| POST | `/api/mesh/discover` | — | Trigger discovery, return discovered peers |
+| POST | `/api/mesh/connect` | `{instance_id}` | Initiate pairing with a discovered peer (crypto handled server-side) |
+| POST | `/api/mesh/approve` | `{request_id}` | Accept an incoming pairing request |
+| POST | `/api/mesh/reject` | `{request_id}` | Reject and block an incoming pairing request |
+| POST | `/api/mesh/disconnect` | `{instance_id}` | Unpair from a paired peer (notifies remote side) |
+| POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
+| DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (used internally by disconnect broadcast) |
+
+The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level — they handle crypto, key exchange, and peer notification automatically. These mirror the Tauri IPC commands used by the UI. Management commands are local-only and cannot be relayed via `--mesh`.
+
+#### Bridge (Telegram / External Services)
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/bridge/send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram) |
+
+**POST /api/bridge/send** — sends an outbound message or media through the bridge. Parameters:
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `text` | `string` | *(required for text)* | Message text (HTML parse mode). Required when `type` is `text` or omitted. Used as caption fallback for media types if `caption` is not set. |
+| `chat_id` | `number?` | last inbound | Telegram user/chat ID. Defaults to the last inbound sender. |
+| `service` | `string?` | `"telegram"` | Target service (currently only `telegram`) |
+| `append` | `bool` | `false` | Append text to previous message (edits via `editMessageText`) instead of sending new |
+| `type` | `string?` | `"text"` | Message type: `text`, `photo`, `document`, `voice`, `animation`, `video`, `sticker` |
+| `file` | `string?` | — | Absolute path to the file to send. Required for all media types. |
+| `caption` | `string?` | — | Caption for media messages. If not set, positional `text` is used as caption. Stickers do not support captions. |
+| `filename` | `string?` | — | Custom filename for `document` type (overrides the original filename). |
+
+**Behavior:** `bridge send` (without `--append`) always sends a **new** message — no auto-edit. With `--append`, text is concatenated to the previous message (with an automatic `\n\n` paragraph break) and edited in-place, provided the previous message was sent within the last 60 seconds. If the 60-second window has expired, `--append` sends a new message instead.
+
+**Typing indicator:** On every inbound Telegram message, CodeTerm sends a `sendChatAction("typing")` to show the typing bubble.
+
+**Inbound debounce:** Rapid-fire Telegram messages within a 300ms window are merged into a single delivery to the agent PTY.
+
+**UTF-8 safe chunking:** Messages exceeding Telegram's 4096-character limit are split into chunks. The chunker uses `floor_char_boundary()` to avoid slicing multi-byte UTF-8 characters (Cyrillic, emoji, CJK), preventing panics on non-ASCII text.
+
+**Any-pane sending:** `bridge send` works from any pane, not just the General Agent pane. The CLI routes through the socket API without pane restrictions.
+
+**Service resilience:** If the Telegram polling service dies (network error, API failure), the bridge manager automatically restarts it after a 5-second backoff. The manager never exits — it loops indefinitely, logging panics instead of dying silently.
+
+Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge is not active.
+
 #### Setup (Skills, Rules, Hooks)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -148,16 +227,40 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | GET | `/api/crons` | `?workspace_id=ID` | List all cron jobs (optionally filter by workspace) |
 | POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, cwd?, description?}` | Create cron job |
 | GET | `/api/crons/:id` | — | Get cron job by ID |
-| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?}` | Update cron job |
+| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?}` | Update cron job (prefer over delete+recreate) |
 | DELETE | `/api/crons/:id` | — | Delete cron job |
 | POST | `/api/crons/:id/enable` | — | Enable cron job |
 | POST | `/api/crons/:id/disable` | — | Disable cron job |
 | POST | `/api/crons/:id/trigger` | — | Manually trigger cron job |
 | GET | `/api/crons/:id/history` | — | Get run history for cron job |
 
+#### Configuration
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/config` | `?key=dot.path` | Get full config or a single key (dot-notation) |
+| PATCH | `/api/config` | `{key, value}` or partial merge | Set a config value by dot-notation key, or merge a partial config object |
+
+**GET /api/config** — without `key`, returns the full `AppConfig` as JSON. With `?key=integrations.telegram_enabled`, returns `{"key": "...", "value": ...}`.
+
+**PATCH /api/config** — two modes:
+1. **Dot-notation key+value:** `{"key": "integrations.telegram_enabled", "value": true}` — sets a single key.
+2. **Partial merge:** send top-level config sections as JSON — they are merged into the existing config.
+
+The config is saved to disk and a `config-changed` Tauri event is emitted.
+
+#### Updates
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/update/check` | `?force=true` | Check for available updates |
+| POST | `/api/update/install` | — | Download and install pending update |
+
 Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
 
 Cron runs spawn Claude agents on schedule. When done, the agent calls `codeterm cron complete --run-id UUID` (uses the `cron.complete` socket method), which automatically closes the run's tab/pane (ephemeral). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. The sidebar shows a cron tree with runs and next scheduled time. Click a finished run to open the log viewer. Successful spawns do not generate notifications — only errors do.
+
+**Workspace resolution:** The CLI `cron create` command uses `$CODETERM_WORKSPACE_ID` by default (the agent's own workspace), falling back to the first workspace if the env var is not set. Override with `--workspace ID`.
+
+**Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID.
 
 **Deleting a cron job** cascades: kills all running panes/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
 
@@ -274,41 +377,6 @@ curl -N "http://host:7685/api/panes/$PANE/output/stream"
 # data: {"output": "more text", "offset": 1300}
 ```
 
-### Screenshot (GET /api/screenshot)
-
-Captures the CodeTerm window as a JPEG image. Works even when the window is behind other windows.
-
-**Platform implementation:**
-- **Windows:** PrintWindow API (captures occluded windows)
-- **macOS:** `screencapture -l` (captures by window ID)
-- **Linux:** `xdotool` + `import` (X11 window capture)
-
-**Query parameters:**
-
-| Param | Values | Default | Description |
-|-------|--------|---------|-------------|
-| `format` | `json`, `jpeg` | `json` | Response format |
-
-**format=json** (default) — returns JSON with base64 data URL and metadata:
-```json
-{
-  "data_url": "data:image/jpeg;base64,/9j/4AAQ...",
-  "width": 1920,
-  "height": 1080,
-  "size_kb": 287
-}
-```
-
-**format=jpeg** — returns raw JPEG bytes with `Content-Type: image/jpeg`.
-
-```bash
-# Get screenshot as JSON (data URL + metadata)
-curl http://host:7685/api/screenshot
-
-# Save raw JPEG to file
-curl http://host:7685/api/screenshot?format=jpeg -o screenshot.jpg
-```
-
 ### Examples
 
 ```bash
@@ -402,6 +470,7 @@ Newline-delimited JSON:
 | `cron.trigger` | `{id}` | Manually trigger cron job |
 | `cron.history` | `{id}` | Get run history |
 | `cron.complete` | `{run_id, summary?}` | Mark a cron run as complete |
+| `bridge.send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram). `type`: `text`/`photo`/`document`/`voice`/`animation`/`video`/`sticker`. `file`: absolute path for media. `append`: concatenate to previous message. |
 
 ## CLI
 
@@ -483,9 +552,35 @@ codeterm cron history ID                       # Show run history
 codeterm cron complete --run-id UUID --summary "result"
                                                # Mark cron run as complete (called by spawned agent)
 
-# Screenshot
-codeterm screenshot                            # Capture window, print JSON (data URL + dimensions)
-codeterm screenshot --output screenshot.jpg    # Capture window, save to file
+# Configuration
+codeterm config get <key>                      # Get config value (dot-notation, e.g. "integrations.telegram_enabled")
+codeterm config set <key> <value>              # Set config value (JSON: true, false, 42, "string", ["array"])
+
+# Bridge (Telegram / External Services)
+codeterm bridge send --to CHAT_ID --service telegram "message text"
+                                               # Send message to Telegram user/chat
+codeterm bridge send --to CHAT_ID --service telegram --append "more text"
+                                               # Append to previous message (edits in-place)
+codeterm bridge send --to CHAT_ID --type photo --file /path/to/img.png --caption "Look"
+                                               # Send photo with caption
+codeterm bridge send --to CHAT_ID --type document --file /path/to/f.pdf --filename "report.pdf"
+                                               # Send document with custom filename
+codeterm bridge send --to CHAT_ID --type voice --file /path/to/audio.ogg
+                                               # Send voice/video/animation/sticker
+
+# Mesh Networking
+codeterm mesh status                           # Show mesh identity, crown, discovery
+codeterm mesh peers                            # List paired + discovered peers
+codeterm mesh discover                         # Trigger discovery scan, list discovered peers
+codeterm mesh connect INSTANCE_ID              # Initiate pairing with discovered peer
+codeterm mesh approve REQUEST_ID               # Accept incoming pairing request
+codeterm mesh reject REQUEST_ID                # Reject + block incoming pairing request
+codeterm mesh disconnect INSTANCE_ID           # Unpair from a paired peer
+codeterm mesh exec TARGET "command" [--pane ID]  # Execute command on remote peer
+codeterm mesh send TARGET "text" [--pane ID]   # Send text to remote peer
+codeterm mesh output TARGET [--pane ID]        # Get output from remote peer
+codeterm mesh panes TARGET                     # List panes on remote peer
+
 ```
 
 Add `--json` flag for machine-readable output.
@@ -502,6 +597,8 @@ These are Tauri IPC commands (invoked from frontend via `invoke()`), not REST en
 | `mux_set_claude_session_id` | `pane_id, session_id` | Links pane to a Claude Code session for `--resume` support |
 | `get_default_cwd` | — | Returns the application's current working directory |
 | `mux_batch` | `commands: [{method, params, id?}]` | Execute batch commands with $ref resolution (same semantics as POST /api/batch). Delegates to the unified ServiceContext. |
+| `get_autostart_enabled` | — | Returns whether OS autostart (launch at login) is enabled |
+| `set_autostart_enabled` | `enabled: bool` | Enable/disable OS autostart. Windows: HKCU registry. macOS: LaunchAgent plist. Linux: .desktop file. |
 
 ## Environment Variables
 
@@ -516,6 +613,7 @@ Set automatically in every PTY spawned by CodeTerm:
 | `CODETERM_WORKSPACE_ID` | `b4e2c8d1` | Current workspace ID (8-char hex) |
 | `CODETERM_ROLE` | `Orchestrator` | Agent role: `Orchestrator`, `Lead`, or `Worker` (empty if no role). Set at PTY spawn. |
 | `CODETERM_PARENT_PANE_ID` | `b4e2c8d1` | Parent pane ID in hierarchy (empty if Orchestrator or no role). Set at PTY spawn. |
+| `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by CodeTerm so CLI and hooks use the correct port (dev: 7686, prod: 7685). |
 | `TERM` | `xterm-256color` | Terminal type |
 | `COLORTERM` | `truecolor` | Color support |
 | `TERM_PROGRAM` | `CodeTerm` | Terminal name |
@@ -530,8 +628,34 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
+## Command Palette
+
+`Cmd+K` (macOS) / `Ctrl+K` (Windows/Linux) opens the command palette for quick access to tabs, workspaces, splits, settings, and theme switching.
+
 ## System Tray
 
 CodeTerm hides to the system tray on window close instead of quitting. To fully quit, use the tray menu. This ensures cron jobs and background agents continue running when the window is closed.
 
-<!-- revision: 15 -->
+**macOS:** The tray icon uses a template image (white on transparent) that auto-adapts to light and dark menu bar modes.
+
+## Dev/Prod Isolation
+
+Dev builds (`tauri.dev.conf.json`) use identifier `com.codeterm.dev` and are fully isolated from production:
+- **API port:** 7686 (prod: 7685)
+- **Data directory:** `~/.codeterm-dev/` (prod: `~/.codeterm/`)
+- **Socket prefix:** `codeterm-dev` (prod: `codeterm`)
+- **Single-instance:** Disabled in dev builds, so dev and prod can run side by side.
+
+## Agent Prompts
+
+Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and loaded at compile time via `include_str!()`. Role-specific suffixes are appended to tasks at spawn time:
+- **Worker** (`worker_suffix.md`): Instructions to report back via `codeterm agent report`.
+- **Lead** (`lead_suffix.md`): Spawn instructions + "Do NOT sleep or poll for reports" rule.
+- **Orchestrator** (`orchestrator_suffix.md`): "Do NOT sleep or poll for reports" rule.
+- **Cron tasks** (`cron_complete_suffix.md`): Completion instruction with `cron complete --run-id` command.
+- **General Agent** (`general_agent.md`): System prompt for the always-on General Agent.
+- **CodeTerm Rule** (`codeterm_rule.md`): Base rules injected into all agent prompts.
+- **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
+- **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
+
+<!-- revision: 22 -->

@@ -1,11 +1,16 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useMultiplexer } from "../../store/multiplexer";
 import { useCrons, CRON_SIDEBAR_RUNS_VISIBLE } from "../../store/crons";
 import { CronEditor } from "../CronEditor/CronEditor";
+import { getAgentProvider } from "../../lib/agentProviders";
+import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TitleLevel } from "../../lib/types";
 import type { Workspace, Tab, SplitNode, PaneStatus, Pane, AgentRole, CronJob, CronRunInfo } from "../../lib/types";
+import { X, Pencil, UserMinus, Ban, CircleCheck, TerminalSquare, Plus } from "lucide-react";
+import { TelegramIcon, TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ShieldCheckIcon } from "../Icons";
+import { timeAgo } from "../../lib/formatters";
 
 function collectPaneIds(node: SplitNode): string[] {
   if (node.type === "Leaf") return [node.pane_id];
@@ -97,7 +102,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   );
 
   // Auto-expand only the active workspace when it changes
-  useMemo(() => {
+  useEffect(() => {
     if (state.active_workspace_id) {
       setExpandedWorkspaces((prev) => {
         const next = new Set(prev);
@@ -107,10 +112,23 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     }
   }, [state.active_workspace_id]);
 
-  const handleNewWorkspace = useCallback(() => {
-    const n = state.workspaces.length + 1;
-    createWorkspace(`Workspace ${n}`);
-  }, [state.workspaces.length, createWorkspace]);
+  const handleNewWorkspace = useCallback(async () => {
+    let folder: string | null;
+    try {
+      folder = await open({ directory: true, multiple: false, title: "Choose workspace folder" });
+    } catch {
+      return;
+    }
+    if (!folder) return;
+    const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
+    await createWorkspace(basename, folder);
+    // useMemo auto-expands active workspace, but force expand all for immediate feedback
+    setExpandedWorkspaces(prev => {
+      const next = new Set(prev);
+      state.workspaces.forEach(ws => next.add(ws.id));
+      return next;
+    });
+  }, [createWorkspace, state.workspaces]);
 
   const toggleExpanded = useCallback((wsId: string) => {
     setExpandedWorkspaces((prev) => {
@@ -153,12 +171,66 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
   const sidebarRef = useRef<HTMLDivElement>(null);
   const isCompact = sidebarWidth < 100;
 
+  // Track tabs for appear/close animations
+  const prevTabIdsRef = useRef<Set<string>>(new Set());
+  const [appearingTabs, setAppearingTabs] = useState<Set<string>>(new Set());
+  const [closingTabs, setClosingTabs] = useState<Map<string, { wsId: string }>>(new Map());
+
+  // Detect new tabs appearing
+  const allTabIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const ws of state.workspaces) {
+      for (const tab of ws.tabs) ids.add(tab.id);
+    }
+    return ids;
+  }, [state.workspaces]);
+
+  useEffect(() => {
+    const prev = prevTabIdsRef.current;
+    // Skip on first render (initial tabs should not animate in)
+    if (prev.size > 0) {
+      const newIds = new Set<string>();
+      for (const id of allTabIds) {
+        if (!prev.has(id)) newIds.add(id);
+      }
+      if (newIds.size > 0) {
+        setAppearingTabs(newIds);
+      }
+    }
+    prevTabIdsRef.current = allTabIds;
+  }, [allTabIds]);
+
+  // Clear appearing animation after delay — separate effect to avoid cleanup cancellation
+  useEffect(() => {
+    if (appearingTabs.size === 0) return;
+    const timer = setTimeout(() => setAppearingTabs(new Set()), 250);
+    return () => clearTimeout(timer);
+  }, [appearingTabs]);
+
+  // Wrap closeTab to animate
+  const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
+    setClosingTabs((prev) => {
+      const next = new Map(prev);
+      next.set(tabId, { wsId });
+      return next;
+    });
+    // Phase 1: visual exit (150ms), then Phase 2: height collapse (200ms)
+    setTimeout(() => {
+      closeTab(wsId, tabId);
+      setClosingTabs((prev) => {
+        const next = new Map(prev);
+        next.delete(tabId);
+        return next;
+      });
+    }, 350);
+  }, [closeTab]);
+
   return (
     <>
       <aside
         ref={sidebarRef}
-        className="shrink-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-hidden relative"
-        style={{ width: sidebarWidth }}
+        className="shrink-0 bg-[var(--ct-sidebar-bg)] flex flex-col select-none overflow-hidden relative"
+        style={{ width: sidebarWidth, boxShadow: "inset -0.5px 0 0 var(--ct-border-subtle)" }}
       >
         {/* Panes header with action icons */}
         <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
@@ -168,38 +240,13 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
             </span>
           )}
           <div className="flex items-center gap-1">
-            {/* Spawn Claude */}
-            <button
-              onClick={handleClaudeSpawn}
-              className="flex items-center justify-center w-6 h-6 rounded border border-[#d4a574]/30 bg-[#d4a574]/5 hover:bg-[#d4a574]/15 hover:border-[#d4a574]/50 text-[#d4a574]/70 hover:text-[#d4a574] transition-colors"
-              title="Spawn Claude Code"
-            >
-              <span className="text-[15px] leading-none">✳</span>
-            </button>
-            {/* New terminal pane */}
-            <button
-              onClick={() => {
-                const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);
-                if (ws) createTab(ws.id);
-              }}
-              className="flex items-center justify-center w-6 h-6 rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)] hover:border-[var(--ct-muted)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
-              title="New terminal"
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                <path d="M2 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M8 13h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
-            {/* New workspace (group) */}
+            {/* New workspace */}
             <button
               onClick={handleNewWorkspace}
               className="flex items-center justify-center w-6 h-6 rounded border border-[var(--ct-border)] hover:bg-[var(--ct-hover)] hover:border-[var(--ct-muted)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
               title="New workspace"
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-                <path d="M1.5 3.5A1 1 0 012.5 2.5h3l1.5 2h6.5a1 1 0 011 1v7a1 1 0 01-1 1h-11a1 1 0 01-1-1v-9z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-                <path d="M8 7v4M6 9h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-              </svg>
+              <FolderPlusIcon size={12} />
             </button>
           </div>
         </div>
@@ -221,17 +268,10 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                       }`}
                       title={ws.name}
                     >
-                      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className={isExpanded ? "opacity-70" : "opacity-40"}>
-                        {isExpanded ? (
-                          <path d="M.513 1.513A1.75 1.75 0 0 1 1.75 1h3.5c.55 0 1.07.26 1.4.7l.9 1.2a.25.25 0 0 0 .2.1h6.5A1.75 1.75 0 0 1 16 4.75v.462a.25.25 0 0 1-.03.118l-2.39 4.608a1.75 1.75 0 0 1-1.553.937H1.75A1.75 1.75 0 0 1 0 9.125V2.75c0-.464.184-.91.513-1.237Z" />
-                        ) : (
-                          <path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z" />
-                        )}
-                      </svg>
+                      <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
                     </button>
                     {isExpanded && ws.tabs.map((tab) => {
                       const tabPaneIds = collectPaneIds(tab.split_tree);
-                      const tabHasAgent = tabPaneIds.some((pid) => state.panes[pid]?.agent_type === "claude");
                       const isTabActive = isActive && tab.id === ws.active_tab_id;
                       return (
                         <button
@@ -244,13 +284,15 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                           }`}
                           title={tab.title}
                         >
-                          {tabHasAgent ? (
-                            <span className="text-[10px] text-[#f0883e]">&#10035;</span>
-                          ) : (
-                            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-                              <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z" />
-                            </svg>
-                          )}
+                          {(() => {
+                            const agentPid = tabPaneIds.find((pid) => !!getAgentProvider(state.panes[pid]?.agent_type));
+                            const tabProvider = agentPid ? getAgentProvider(state.panes[agentPid]?.agent_type) : undefined;
+                            return tabProvider ? (
+                              <span className="text-[10px]" style={{ color: tabProvider.iconColor }}>{tabProvider.icon}</span>
+                            ) : (
+                              <TerminalIcon size={11} />
+                            );
+                          })()}
                         </button>
                       );
                     })}
@@ -282,6 +324,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                   onToggleExpand={() => toggleExpanded(ws.id)}
                   onClose={() => closeWorkspace(ws.id)}
                   onRename={(name) => renameWorkspace(ws.id, name)}
+                  onNewTerminal={() => createTab(ws.id)}
+                  onNewClaude={handleClaudeSpawn}
                   canClose={true}
                   status={wsStatus}
                   hasWaiting={hasWaiting}
@@ -296,7 +340,16 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                     } catch { /* ignore */ }
                   }}
                 />
-                {isExpanded ? (
+                {/* Animated expand/collapse using grid-template-rows */}
+                <div
+                  className="grid transition-[grid-template-rows] duration-[320ms]"
+                  style={{
+                    gridTemplateRows: isExpanded ? "1fr" : "0fr",
+                    transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+                  }}
+                >
+                  <div className="overflow-hidden">
+                {/* Content always rendered — CSS grid-template-rows handles show/hide with animation */}
                   <>
                     {(() => {
                       // Build pane→tab lookup and find which tabs are children
@@ -326,6 +379,9 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                             })
                           : [];
 
+                        const isClosing = closingTabs.has(tab.id);
+                        const isAppearing = appearingTabs.has(tab.id);
+
                         return (
                           <div key={tab.id} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
                             <TabItem
@@ -336,12 +392,12 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                                 setActiveWorkspace(ws.id);
                                 setActiveTab(ws.id, tab.id);
                               }}
-                              onClose={() => closeTab(ws.id, tab.id)}
+                              onClose={() => animatedCloseTab(ws.id, tab.id)}
                               canClose={true}
                               paneCount={tabPids.length}
                               workspaceId={ws.id}
                               hasAgent={tabPids.some(
-                                (pid) => state.panes[pid]?.agent_type === "claude"
+                                (pid) => !!getAgentProvider(state.panes[pid]?.agent_type)
                               )}
                               status={aggregateStatus(tabPids, state.paneStatuses)}
                               onRename={(title) => {
@@ -354,6 +410,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                               }}
                               pane={firstPane}
                               orchestrators={wsOrchestrators}
+                              isAppearing={isAppearing}
+                              isClosing={isClosing}
                             />
                             {childTabs.map((ct, ci) => renderTab(ct, ci, depth + 1))}
                           </div>
@@ -372,19 +430,27 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                     })()}
                     {/* Add tab button */}
                     <button
-                      onClick={() => createTab(ws.id)}
+                      onClick={async () => {
+                        try {
+                          const cfg = await invoke<{ agent: { resume_skip_permissions: boolean } }>("get_config");
+                          const skip = cfg.agent.resume_skip_permissions;
+                          spawnClaudeTab(ws.id, skip, ws.cwd ?? undefined);
+                        } catch {
+                          spawnClaudeTab(ws.id, false, ws.cwd ?? undefined);
+                        }
+                      }}
                       className="flex items-center gap-2 mx-2 mt-1 mb-0.5 px-5 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
-                      title="New tab in this workspace"
+                      title="New Claude session in this workspace"
                     >
-                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                        <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                      </svg>
-                      <span className="text-[11px]">New terminal tab</span>
+                      <Plus size={10} strokeWidth={1.5} />
+                      <span className="text-[11px]">New session</span>
                     </button>
                     {/* Cron jobs section */}
                     <CronSection workspaceId={ws.id} />
                   </>
-                ) : isActive && ws.active_tab_id ? (
+                  </div>
+                </div>
+                {!isExpanded && isActive && ws.active_tab_id ? (
                   /* Collapsed but active — show selected tab */
                   (() => {
                     const activeTab = ws.tabs.find((t) => t.id === ws.active_tab_id);
@@ -397,12 +463,12 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                         index={0}
                         isActive={true}
                         onClick={() => setActiveTab(ws.id, activeTab.id)}
-                        onClose={() => closeTab(ws.id, activeTab.id)}
+                        onClose={() => animatedCloseTab(ws.id, activeTab.id)}
                         canClose={true}
                         paneCount={atPids.length}
                         workspaceId={ws.id}
                         hasAgent={atPids.some(
-                          (pid) => state.panes[pid]?.agent_type === "claude"
+                          (pid) => !!getAgentProvider(state.panes[pid]?.agent_type)
                         )}
                         status={aggregateStatus(atPids, state.paneStatuses)}
                         onRename={(title) => {
@@ -422,16 +488,14 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
           })}
         </div>
 
-        {/* Settings button at bottom */}
+        {/* Settings button at bottom — hmr test */}
         <div className={`border-t border-[var(--ct-border)] ${isCompact ? "px-1 py-2.5 flex justify-center" : "px-3 py-2.5"}`}>
           <button
             onClick={onOpenSettings}
             className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] transition-colors`}
             title="Settings (Ctrl+,)"
           >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
-              <path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.3.071l1.102-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294a6.57 6.57 0 0 1 0 .772c-.01.147.04.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.103-.303c-.066-.019-.176-.011-.299.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.212.224l-.288 1.107c-.17.645-.716 1.195-1.459 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.065-1.289-.615-1.459-1.26l-.289-1.107c-.017-.066-.078-.158-.211-.224a5.909 5.909 0 0 1-.668-.386c-.123-.082-.233-.09-.3-.071l-1.102.303c-.644.176-1.392-.021-1.82-.63a8.012 8.012 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.049-.048.098-.147.088-.294a6.57 6.57 0 0 1 0-.772c.01-.147-.04-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.103.303c.066.019.176.011.299-.071.214-.143.437-.272.668-.386.133-.066.194-.158.212-.224L5.84 1.29c.17-.645.716-1.195 1.459-1.26A8.2 8.2 0 0 1 8 0ZM5.5 8a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0Z" />
-            </svg>
+            <GearIcon className="shrink-0" />
             {!isCompact && <span className="text-[11px]">Settings</span>}
           </button>
         </div>
@@ -569,6 +633,11 @@ export function HierarchyTree({
                 {node.pane.title}
               </span>
               <StatusDot status={node.status} animate />
+              {node.pane.connected_services?.includes("telegram") && (
+                <span className="text-[9px] text-[var(--ct-muted-fg)]/50">
+                  <TelegramIcon />
+                </span>
+              )}
               {rc > 0 && (
                 <span className="inline-flex items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] text-[9px] font-bold leading-none">
                   {rc}
@@ -623,6 +692,8 @@ interface WorkspaceItemProps {
   onToggleExpand: () => void;
   onClose: () => void;
   onRename: (name: string) => void;
+  onNewTerminal: () => void;
+  onNewClaude: () => void;
   canClose: boolean;
   status: PaneStatus | null;
   hasWaiting: boolean;
@@ -638,6 +709,8 @@ function WorkspaceItem({
   onToggleExpand,
   onClose,
   onRename,
+  onNewTerminal,
+  onNewClaude,
   canClose: _canClose,
   status: _status,
   hasWaiting,
@@ -647,15 +720,6 @@ function WorkspaceItem({
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(workspace.name);
   const [dragOver, setDragOver] = useState(false);
-
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [confirmClose, setConfirmClose] = useState(false);
-
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setCtxMenu({ x: e.clientX, y: e.clientY });
-  }, []);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -676,6 +740,30 @@ function WorkspaceItem({
     if (e.key === "Escape") { setEditing(false); }
   }, [commitRename]);
 
+  const menuItems: DropdownMenuItem[] = useMemo(() => {
+    const items: DropdownMenuItem[] = [
+      {
+        label: "New Terminal",
+        icon: <TerminalSquare size={11} strokeWidth={1.5} />,
+        onClick: onNewTerminal,
+      },
+      {
+        label: "New Claude Session",
+        icon: <span className="text-[11px] leading-none" style={{ color: "#d4a574" }}>{"\u2733"}</span>,
+        onClick: onNewClaude,
+      },
+    ];
+    if (!workspace.protected) {
+      items.push({
+        label: "Delete Workspace",
+        icon: <X size={11} strokeWidth={2} />,
+        onClick: onClose,
+        danger: true,
+      });
+    }
+    return items;
+  }, [onNewTerminal, onNewClaude, onClose, workspace.protected]);
+
   return (
     <div
       className={`
@@ -684,7 +772,6 @@ function WorkspaceItem({
         ${hasWaiting ? "bg-[var(--ct-yellow)]/10" : ""}
         ${dragOver ? "bg-[var(--ct-accent)]/20" : ""}
       `}
-      onContextMenu={handleContextMenu}
       onDragOver={(e) => {
         e.preventDefault();
         setDragOver(true);
@@ -697,7 +784,7 @@ function WorkspaceItem({
       }}
     >
       <div className="flex items-center gap-1 min-w-0">
-        {/* Chevron toggle */}
+        {/* Chevron toggle — rotates on expand/collapse */}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -706,23 +793,29 @@ function WorkspaceItem({
           className="flex items-center justify-center w-4 h-4 shrink-0 text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] transition-colors"
           title={isExpanded ? "Collapse" : "Expand"}
         >
-          <span className="text-[10px] leading-none">{isExpanded ? "\u25BE" : "\u25B8"}</span>
-        </button>
-        {/* Folder icon + name (click to activate, double-click to rename) */}
-        <div className="flex items-center gap-2 min-w-0" onClick={onClick}>
           <svg
-            width="14"
-            height="14"
-            viewBox="0 0 16 16"
+            width="8"
+            height="8"
+            viewBox="0 0 8 8"
             fill="currentColor"
-            className="shrink-0"
+            className="transition-transform duration-[320ms]"
+            style={{
+              transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
+              transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
           >
-            {isExpanded ? (
-              <path d="M.513 1.513A1.75 1.75 0 0 1 1.75 1h3.5c.55 0 1.07.26 1.4.7l.9 1.2a.25.25 0 0 0 .2.1h6.5A1.75 1.75 0 0 1 16 4.75v.462a.25.25 0 0 1-.03.118l-2.39 4.608a1.75 1.75 0 0 1-1.553.937H1.75A1.75 1.75 0 0 1 0 9.125V2.75c0-.464.184-.91.513-1.237Z" />
-            ) : (
-              <path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z" />
-            )}
+            <path d="M2 1l4 3-4 3V1z" />
           </svg>
+        </button>
+        {/* Icon + name (click to activate, double-click to rename) */}
+        <div className="flex items-center gap-2 min-w-0" onClick={onClick}>
+          {workspace.protected ? (
+            <span className="relative shrink-0 flex items-center justify-center w-[14px] h-[14px]">
+              <ShieldCheckIcon style={{ stroke: "var(--ct-muted-fg)" }} className="shrink-0" />
+            </span>
+          ) : (
+          <FolderIcon open={isExpanded} className="shrink-0" />
+          )}
           {editing ? (
             <input
               autoFocus
@@ -734,7 +827,7 @@ function WorkspaceItem({
               className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
             />
           ) : (
-            <span className="text-xs font-medium truncate" onDoubleClick={handleDoubleClick}>
+            <span className="text-xs font-medium truncate" onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
               {workspace.name}
             </span>
           )}
@@ -748,42 +841,19 @@ function WorkspaceItem({
           </span>
         )}
       </div>
-      {/* Close button — visible on hover, always confirms */}
-      <button
-        onClick={(e) => { e.stopPropagation(); setConfirmClose(true); }}
-        className="shrink-0 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-all"
-        title="Close workspace"
-      >
-        <svg width="7" height="7" viewBox="0 0 10 10" fill="currentColor">
-          <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
-        </svg>
-      </button>
-      {/* Context menu */}
-      {ctxMenu && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
-          <div
-            className="fixed z-50 w-36 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1"
-            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+      {/* 3-dot menu — visible on hover */}
+      <DropdownMenu
+        items={menuItems}
+        className="shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+        trigger={
+          <button
+            className="w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
+            title="Workspace actions"
           >
-            <button
-              onClick={() => { setCtxMenu(null); setEditName(workspace.name); setEditing(true); }}
-              className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
-            >Rename</button>
-            <button
-              onClick={() => { setCtxMenu(null); setConfirmClose(true); }}
-              className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)]"
-            >Close</button>
-          </div>
-        </>
-      )}
-      {confirmClose && (
-        <ConfirmStopDialog
-          message={`Close workspace "${workspace.name}"?`}
-          onConfirm={() => { onClose(); setConfirmClose(false); }}
-          onCancel={() => setConfirmClose(false)}
-        />
-      )}
+            <span className="text-[13px] leading-none font-bold">{"\u22EE"}</span>
+          </button>
+        }
+      />
     </div>
   );
 }
@@ -802,33 +872,8 @@ interface TabItemProps {
   onRename?: (title: string) => void;
   pane?: Pane | null;
   orchestrators?: Pane[];
-}
-
-function ConfirmStopDialog({ onConfirm, onCancel, message }: { onConfirm: () => void; onCancel: () => void; message?: string }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
-      <div
-        className="bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-xl px-6 py-5 max-w-sm text-center"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <p className="text-sm text-[var(--ct-fg)] mb-4">{message || "Are you sure you want to stop the process?"}</p>
-        <div className="flex items-center justify-center gap-3">
-          <button
-            onClick={onCancel}
-            className="px-4 py-1.5 text-xs rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-4 py-1.5 text-xs rounded bg-[var(--ct-red)] hover:opacity-80 text-white font-medium transition-colors"
-          >
-            Stop
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  isAppearing?: boolean;
+  isClosing?: boolean;
 }
 
 function TabItem({
@@ -844,165 +889,190 @@ function TabItem({
   onRename: _onRename,
   pane,
   orchestrators: _orchestrators,
+  isAppearing,
+  isClosing,
 }: TabItemProps) {
+  const agentProvider = getAgentProvider(pane?.agent_type);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [confirmClose, setConfirmClose] = useState(false);
+  const tabRef = useRef<HTMLDivElement>(null);
 
-  const handleClose = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (hasAgent) {
-      setConfirmClose(true);
-    } else {
-      onClose();
+  // Close animation phases
+  const [closePhase, setClosePhase] = useState<0 | 1 | 2>(0);
+  useEffect(() => {
+    if (isClosing && closePhase === 0) {
+      setClosePhase(1); // Phase 1: visual exit
+      const timer = setTimeout(() => setClosePhase(2), 150); // Phase 2: height collapse
+      return () => clearTimeout(timer);
     }
-  }, [hasAgent, onClose]);
+  }, [isClosing, closePhase]);
+
+  // Build menu items for the 3-dot dropdown
+  const menuItems: DropdownMenuItem[] = useMemo(() => {
+    const items: DropdownMenuItem[] = [];
+    items.push({
+      label: "Rename",
+      icon: <Pencil size={11} strokeWidth={2} />,
+      onClick: () => { setEditName(tab.title); setEditing(true); },
+    });
+    // Role management — hide for Orchestrators (default role on all tabs)
+    if (pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor") {
+      items.push({
+        label: "Remove Role",
+        icon: <UserMinus size={11} strokeWidth={2} />,
+        onClick: () => { if (pane) invoke("mux_clear_pane_role", { paneId: pane.id }); },
+      });
+    }
+    if (pane?.role && pane.role !== "Orchestrator" && (pane.role === "Conductor" || pane.role === "Lead")) {
+      items.push({
+        label: pane.can_spawn ? "Disallow Spawning" : "Allow Spawning",
+        icon: pane.can_spawn
+          ? <Ban size={11} strokeWidth={2} />
+          : <CircleCheck size={11} strokeWidth={2} />,
+        onClick: () => { if (pane) invoke("mux_set_can_spawn", { paneId: pane.id, canSpawn: !pane.can_spawn }); },
+      });
+    }
+    if (canClose && !pane?.protected) {
+      items.push({
+        label: hasAgent ? "Close Session" : "Close Tab",
+        icon: <X size={11} strokeWidth={2} />,
+        onClick: onClose,
+        danger: true,
+      });
+    }
+    return items;
+  }, [tab.title, pane, canClose, hasAgent, onClose]);
+
+  // Build animation CSS class
+  const animClass = isClosing
+    ? closePhase === 2
+      ? "sidebar-tab-closing-2"
+      : "sidebar-tab-closing-1"
+    : isAppearing
+      ? "sidebar-tab-appear"
+      : "";
 
   return (
-    <>
-      <div
-        onClick={onClick}
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.setData("text/plain", JSON.stringify({
-            tabId: tab.id,
-            fromWorkspaceId: workspaceId,
-          }));
-          e.dataTransfer.effectAllowed = "move";
-        }}
-        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-        className={`
-          group flex items-center justify-between pl-8 pr-2 py-1 cursor-pointer transition-colors
-          ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
-        `}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          {/* Icon — Lead/Worker role icon > orange sparkle for Claude Code (spins when working) > terminal icon */}
-          {/* Orchestrator uses standard icon (Claude sparkle or terminal) — it's just a user tab */}
-          {pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor" ? (
-            <span
-              className={`shrink-0 text-[11px] leading-none text-[var(--ct-muted-fg)] ${status === "Working" ? "animate-pulse" : ""}`}
-              title={`${pane.role}${status === "Working" ? " — working" : ""}`}
-            >{ROLE_ICONS[pane.role]}</span>
-          ) : hasAgent ? (
-            <span
-              className={`shrink-0 text-[11px] leading-none text-[#f0883e] ${status === "Working" ? "animate-spin" : ""}`}
-              style={status === "Working" ? { animationDuration: "1.5s" } : undefined}
-              title={status === "Working" ? "Claude Code working..." : status === "Waiting" ? "Claude Code — waiting for input" : "Claude Code"}
-            >&#10035;</span>
-          ) : (
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
-              <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM3.5 4.5l3 2.5-3 2.5V4.5ZM8.5 10h3v1.5h-3V10Z" />
-            </svg>
-          )}
-          {editing ? (
-            <input
-              autoFocus
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              onBlur={() => {
-                const trimmed = editName.trim();
-                setEditing(false);
-                if (trimmed && trimmed !== tab.title && _onRename) _onRename(trimmed);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  (e.target as HTMLInputElement).blur();
-                } else if (e.key === "Escape") {
-                  setEditName(tab.title);
-                  setEditing(false);
-                }
-              }}
-              className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
-            />
-          ) : (
-            <span
-              className={`text-xs truncate ${isActive ? "font-medium" : ""}`}
-              onDoubleClick={(e) => { e.stopPropagation(); setEditName(tab.title); setEditing(true); }}
-            >
-              {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
-            </span>
-          )}
-          {paneCount > 1 && (
-            <span className="flex items-center gap-0.5 text-[var(--ct-muted)]" title={`${paneCount} panes`}>
-              <svg width="12" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1">
-                {paneCount === 2 ? (
-                  /* Two panes side by side */
-                  <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /></>
-                ) : paneCount === 3 ? (
-                  /* Three panes: one left, two right stacked */
-                  <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="7" y1="5" x2="13.5" y2="5" /></>
-                ) : (
-                  /* Four+ panes: grid */
-                  <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="0.5" y1="5" x2="13.5" y2="5" /></>
-                )}
-              </svg>
-            </span>
-          )}
-        </div>
-        {/* Close button — visible on hover */}
-        {canClose && (
-          <button
-            onClick={handleClose}
-            className="shrink-0 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-all"
-            title="Close tab"
-          >
-            <svg width="7" height="7" viewBox="0 0 10 10" fill="currentColor">
-              <path d="M1.41 0L5 3.59 8.59 0 10 1.41 6.41 5 10 8.59 8.59 10 5 6.41 1.41 10 0 8.59 3.59 5 0 1.41Z" />
-            </svg>
-          </button>
-        )}
-        {/* Context menu */}
-        {ctxMenu && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
-            <div
-              className="fixed z-50 w-36 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-md shadow-lg py-1"
-              style={{ left: ctxMenu.x, top: ctxMenu.y }}
-            >
-              <button
-                onClick={() => { setCtxMenu(null); setEditName(tab.title); setEditing(true); }}
-                className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
-              >Rename</button>
-              {/* Hierarchy is managed via CLI — no manual role assignment in UI */}
-              {pane?.role && (
-                <button
-                  onClick={() => {
-                    setCtxMenu(null);
-                    if (pane) invoke("mux_clear_pane_role", { paneId: pane.id });
-                  }}
-                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-yellow)] hover:bg-[var(--ct-border)]"
-                >Remove Role</button>
-              )}
-              {pane?.role && (pane.role === "Orchestrator" || pane.role === "Conductor" || pane.role === "Lead") && (
-                <button
-                  onClick={() => {
-                    setCtxMenu(null);
-                    if (pane) invoke("mux_set_can_spawn", { paneId: pane.id, canSpawn: !pane.can_spawn });
-                  }}
-                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-fg)] hover:bg-[var(--ct-border)]"
-                >{pane.can_spawn ? "Disallow Spawning" : "Allow Spawning"}</button>
-              )}
-              <div className="h-px bg-[var(--ct-border)] my-0.5" />
-              {canClose && (
-                <button
-                  onClick={(e) => { setCtxMenu(null); handleClose(e); }}
-                  className="flex items-center gap-2 w-full px-3 py-1 text-xs text-[var(--ct-red)] hover:bg-[var(--ct-border)]"
-                >Close</button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-      {confirmClose && (
-        <ConfirmStopDialog
-          onConfirm={() => { onClose(); setConfirmClose(false); }}
-          onCancel={() => setConfirmClose(false)}
+    <div
+      ref={tabRef}
+      onClick={onClick}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", JSON.stringify({
+          tabId: tab.id,
+          fromWorkspaceId: workspaceId,
+        }));
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      className={`
+        sidebar-tab group flex items-center justify-between pl-8 pr-2 py-1 cursor-pointer transition-colors relative
+        ${animClass}
+        ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
+      `}
+    >
+      {/* Active tab sliding pill indicator */}
+      {isActive && (
+        <div
+          className="absolute inset-y-0 left-0 right-0 pointer-events-none"
+          style={{
+            background: "var(--ct-bg-selected, rgba(99, 102, 241, 0.12))",
+            transition: "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease",
+          }}
         />
       )}
-    </>
+      <div className="flex items-center gap-2 min-w-0 relative z-[1]">
+        {/* Icon — Lead/Worker role icon > orange sparkle for Claude Code (spins when working) > terminal icon */}
+        {/* Orchestrator uses standard icon (Claude sparkle or terminal) — it's just a user tab */}
+        {pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor" ? (
+          <span
+            className={`shrink-0 text-[11px] leading-none text-[var(--ct-muted-fg)] ${status === "Working" ? "animate-pulse" : ""}`}
+            title={`${pane.role}${status === "Working" ? " — working" : ""}`}
+          >{ROLE_ICONS[pane.role]}</span>
+        ) : hasAgent ? (
+          <span
+            className={`shrink-0 text-[11px] leading-none ${status === "Working" ? "animate-spin" : ""}`}
+            style={{ color: agentProvider?.iconColor || "#f0883e", ...(status === "Working" ? { animationDuration: "1.5s" } : {}) }}
+            title={status === "Working" ? `${agentProvider?.displayName || "Agent"} working...` : status === "Waiting" ? `${agentProvider?.displayName || "Agent"} — waiting for input` : agentProvider?.displayName || "Agent"}
+          >{agentProvider?.icon || "\u2733"}</span>
+        ) : (
+          <TerminalIcon className="shrink-0" />
+        )}
+        {editing ? (
+          <input
+            autoFocus
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={() => {
+              const trimmed = editName.trim();
+              setEditing(false);
+              if (trimmed && trimmed !== tab.title && _onRename) _onRename(trimmed);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                (e.target as HTMLInputElement).blur();
+              } else if (e.key === "Escape") {
+                setEditName(tab.title);
+                setEditing(false);
+              }
+            }}
+            className="text-xs bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 py-0 w-full outline-none"
+          />
+        ) : (
+          <span
+            className={`text-xs truncate ${isActive ? "font-medium" : ""}`}
+            onDoubleClick={(e) => { e.stopPropagation(); setEditName(tab.title); setEditing(true); }}
+          >
+            {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
+          </span>
+        )}
+        {/* Connected services */}
+        {pane?.connected_services?.includes("telegram") && (
+          <span className="shrink-0 text-[var(--ct-muted-fg)]/50">
+            <TelegramIcon />
+          </span>
+        )}
+        {/* Prompt/status indicator dot */}
+        {pane?.pending_prompt && (
+          <span
+            className="shrink-0 w-2 h-2 rounded-full animate-pulse"
+            style={{ background: "var(--ct-yellow)" }}
+            title={pane.pending_prompt.question}
+          />
+        )}
+        {paneCount > 1 && (
+          <span className="flex items-center gap-0.5 text-[var(--ct-muted)]" title={`${paneCount} panes`}>
+            <svg width="12" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1">
+              {paneCount === 2 ? (
+                /* Two panes side by side */
+                <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /></>
+              ) : paneCount === 3 ? (
+                /* Three panes: one left, two right stacked */
+                <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="7" y1="5" x2="13.5" y2="5" /></>
+              ) : (
+                /* Four+ panes: grid */
+                <><rect x="0.5" y="0.5" width="13" height="9" rx="1" /><line x1="7" y1="0.5" x2="7" y2="9.5" /><line x1="0.5" y1="5" x2="13.5" y2="5" /></>
+              )}
+            </svg>
+          </span>
+        )}
+      </div>
+      {/* 3-dot menu — visible on hover */}
+      {canClose && (
+        <DropdownMenu
+          items={menuItems}
+          className="sidebar-tab-close shrink-0 relative z-[1]"
+          trigger={
+            <button
+              className="w-5 h-5 flex items-center justify-center rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] transition-colors"
+              title="Tab actions"
+            >
+              <span className="text-[13px] leading-none font-bold">{"\u22EE"}</span>
+            </button>
+          }
+        />
+      )}
+    </div>
   );
 }
 
@@ -1010,13 +1080,6 @@ function TabItem({
 // Cron Jobs section (rendered per workspace, read-only — create via CLI/API)
 // ---------------------------------------------------------------------------
 
-function formatRelativeTime(ms: number): string {
-  const diff = Date.now() - ms;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
-}
 
 
 function CronSection({ workspaceId }: { workspaceId: string }) {
@@ -1176,7 +1239,7 @@ function CronItem({
                 {run.status === "Running" ? "\u25CF" : run.status === "Success" ? "\u2713" : "\u2717"}
               </span>
               <span className="text-[var(--ct-muted-fg)]">
-                {run.status === "Running" ? "running" : `run: ${formatRelativeTime(run.started_at)}`}
+                {run.status === "Running" ? "running" : `run: ${timeAgo(run.started_at)}`}
               </span>
             </div>
           ))}

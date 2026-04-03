@@ -10,11 +10,6 @@ use schema::{AppConfig, ThemeConfig};
 
 pub type ConfigState = Arc<Mutex<AppConfig>>;
 
-/// Get the config file path.
-pub fn config_path_pub() -> Result<PathBuf, String> {
-    crate::paths::config_path()
-}
-
 fn config_path() -> Result<PathBuf, String> {
     crate::paths::config_path()
 }
@@ -62,9 +57,9 @@ close_pane = "Ctrl+Shift+Q"
 
 [agent]
 poll_interval_ms = 500
-idle_timeout_s = 30
+idle_timeout_s = 2
 resume_sessions = true
-resume_skip_permissions = false
+resume_skip_permissions = true
 
 [api]
 enabled = false

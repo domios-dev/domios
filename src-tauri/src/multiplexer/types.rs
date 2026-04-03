@@ -7,6 +7,11 @@ pub struct Workspace {
     pub name: String,
     pub tabs: Vec<Tab>,
     pub active_tab_id: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    /// Protected workspaces cannot be closed via API or UI.
+    #[serde(default)]
+    pub protected: bool,
 }
 
 /// A tab holds a split tree of panes.
@@ -149,6 +154,22 @@ impl AgentRole {
     }
 }
 
+/// An interactive prompt detected in agent output (e.g. permission request).
+/// Provider-agnostic — any agent can have pending prompts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptOption {
+    pub label: String,
+    /// Value to send to PTY (e.g. "1", "y", "n")
+    pub value: String,
+}
+
+/// A pending interactive prompt from an agent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingPrompt {
+    pub question: String,
+    pub options: Vec<PromptOption>,
+}
+
 /// A pane represents a single terminal or browser panel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Pane {
@@ -164,9 +185,9 @@ pub struct Pane {
     /// Agent type (e.g. "claude") — set by frontend when detected.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_type: Option<String>,
-    /// Claude Code session ID for resume.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub claude_session_id: Option<String>,
+    /// Agent session ID for resume (e.g. Claude Code session).
+    #[serde(skip_serializing_if = "Option::is_none", default, alias = "claude_session_id")]
+    pub agent_session_id: Option<String>,
     /// Orchestration role (orchestrator / lead / worker).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,
@@ -185,6 +206,22 @@ pub struct Pane {
     /// Title naming priority level.
     #[serde(default)]
     pub title_level: TitleLevel,
+    /// Whether chat view overlay is active for this pane.
+    #[serde(default)]
+    pub chat_view: bool,
+    /// Pending interactive prompt (permission, confirmation, etc.)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pending_prompt: Option<PendingPrompt>,
+    /// Auto-approve prompts (set when spawned with skip_permissions).
+    /// When true, detected prompts are answered automatically instead of shown to user.
+    #[serde(default)]
+    pub auto_approve: bool,
+    /// Protected panes cannot be closed via API or UI.
+    #[serde(default)]
+    pub protected: bool,
+    /// Connected external services (e.g. ["telegram"]). Shown as icons next to pane title.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub connected_services: Vec<String>,
 }
 
 /// Title priority: higher levels cannot be overwritten by lower ones.
@@ -194,8 +231,10 @@ pub enum TitleLevel {
     Default = 0,
     /// Auto-set by CWD/directory change (OSC 7)
     Auto = 1,
-    /// Manually set by user or agent — highest priority
-    User = 2,
+    /// Set by agent via OSC title (e.g. Claude sets task summary)
+    Agent = 2,
+    /// Manually set by user — highest priority, never overwritten
+    User = 3,
 }
 
 impl Default for TitleLevel {

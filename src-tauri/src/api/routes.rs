@@ -5,38 +5,25 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use base64::Engine as _;
 use serde::Deserialize;
 use tauri::Emitter;
 use tower_http::cors::CorsLayer;
 
-use crate::api::events::{EventBroadcasterState, WebhookRegistration};
-use crate::multiplexer::commands::MuxState;
-use crate::notification::NotifState;
-use crate::screenshot::ScreenshotState;
-use crate::{AgentTrackerState, OutputBufferState, PtyState, ReportStoreState};
+use crate::api::events::WebhookRegistration;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub mux: MuxState,
-    pub pty: PtyState,
-    pub notif: NotifState,
-    pub output_buf: OutputBufferState,
-    pub screenshot: ScreenshotState,
-    pub events: EventBroadcasterState,
-    pub app_handle: tauri::AppHandle,
-    pub token: Option<String>,
-    pub agent_tracker: AgentTrackerState,
-    pub report_store: ReportStoreState,
     pub svc: crate::service::ServiceState,
     pub cron: crate::CronState,
     pub cron_wake: crate::CronWake,
     pub api_port: u16,
     pub update_state: crate::UpdateStateHandle,
+    pub config: crate::config::ConfigState,
+    pub mesh: crate::MeshStateHandle,
 }
 
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/api/health", get(health))
         .route("/api/identify", get(identify))
         .route("/api/workspaces", get(list_workspaces).post(create_workspace))
@@ -62,7 +49,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/notifications/clear", post(clear_notifications))
         .route("/api/webhooks", get(list_webhooks).post(register_webhook))
         .route("/api/webhooks/{id}", axum::routing::delete(unregister_webhook))
-        .route("/api/screenshot", get(take_screenshot))
         .route("/api/network", get(network_info))
         .route("/api/themes", get(list_themes_api).post(save_theme_api))
         .route("/api/themes/{id}", axum::routing::delete(delete_theme_api))
@@ -83,6 +69,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/report", post(submit_report))
         .route("/api/panes/{id}/reports", get(get_reports))
         .route("/api/panes/{id}/can-spawn", post(set_can_spawn))
+        .route("/api/panes/{id}/agent-type", post(set_agent_type))
+        .route("/api/panes/{id}/prompt/respond", post(respond_prompt))
+        .route("/api/panes/{id}/prompt/clear", post(clear_prompt))
+        .route("/api/panes/{id}/hook/permission", post(hook_permission))
+        .route("/api/panes/{id}/hook/stop", post(hook_stop))
         .route("/api/agents", get(list_agents))
         .route("/api/agents/hierarchy", get(get_hierarchy))
         .route("/api/agents/spawn", post(spawn_agent))
@@ -95,31 +86,84 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/crons/{id}/trigger", post(cron_trigger))
         .route("/api/crons/{id}/history", get(cron_history))
         // Update
+        .route("/api/config", get(get_config_api).patch(patch_config_api))
         .route("/api/update/check", get(check_update))
         .route("/api/update/install", post(install_update))
+        .route("/api/bridge/send", post(bridge_send_api))
+        // Mesh networking (handlers in mesh_routes.rs)
+        .route("/api/mesh/ping", get(super::mesh_routes::mesh_ping))
+        .route("/api/mesh/debug/sign", get(super::mesh_routes::mesh_debug_sign))
+        .route("/api/mesh/status", get(super::mesh_routes::mesh_status))
+        .route("/api/mesh/peers", get(super::mesh_routes::mesh_peers))
+        .route("/api/mesh/discover", post(super::mesh_routes::mesh_discover))
+        // High-level mesh management (CLI-friendly, crypto handled server-side)
+        .route("/api/mesh/connect", post(super::mesh_routes::mesh_connect_peer))
+        .route("/api/mesh/approve", post(super::mesh_routes::mesh_approve_peer))
+        .route("/api/mesh/reject", post(super::mesh_routes::mesh_reject_peer))
+        .route("/api/mesh/disconnect", post(super::mesh_routes::mesh_disconnect_peer))
+        .route("/api/mesh/pair/request", post(super::mesh_routes::mesh_pair_request))
+        .route("/api/mesh/pair/accept", post(super::mesh_routes::mesh_pair_accept))
+        .route("/api/mesh/pair/confirm", post(super::mesh_routes::mesh_pair_confirm))
+        .route("/api/mesh/pair/reject", post(super::mesh_routes::mesh_pair_reject))
+        .route("/api/mesh/crown", post(super::mesh_routes::mesh_receive_crown))
+        .route("/api/mesh/introduce", post(super::mesh_routes::mesh_introduce))
+        .route("/api/mesh/sync", post(super::mesh_routes::mesh_sync))
+        .route("/api/mesh/relay", post(super::mesh_routes::mesh_relay))
+        .route("/api/mesh/peers/{id}", axum::routing::delete(super::mesh_routes::mesh_unpair));
+
+
+    router
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
 
-// Auth check helper
-fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, &'static str)> {
-    if let Some(ref expected) = state.token {
-        let auth = headers
-            .get("authorization")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        let token = auth.strip_prefix("Bearer ").unwrap_or("");
-        if token != expected {
-            return Err((StatusCode::UNAUTHORIZED, "Invalid or missing token"));
+/// Resolve a pane ID path parameter: supports both direct IDs and aliases.
+fn resolve_pane(state: &AppState, raw_id: &str) -> Result<String, (StatusCode, &'static str)> {
+    let mux = state.svc.mux.lock();
+    mux.resolve_pane_id(raw_id)
+        .ok_or((StatusCode::NOT_FOUND, "Pane not found"))
+}
+
+/// Unified auth: Ed25519 signed JWT only.
+/// - Local instance's own signature → full access
+/// - Paired peer's signature → mesh access
+pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, &'static str)> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let token = auth.strip_prefix("Bearer ").unwrap_or("");
+    if token.is_empty() {
+        return Err((StatusCode::UNAUTHORIZED, "Missing authorization"));
+    }
+
+    // Check simple API token from config first
+    if let Some(ref api_token) = state.config.lock().api.token {
+        if !api_token.is_empty() && token == api_token {
+            return Ok(());
         }
     }
-    Ok(())
+
+    // Check mesh signed request
+    let mesh = state.mesh.lock();
+    let mut known_keys = mesh.known_public_keys();
+    if let Some(ref pk) = mesh.identity.public_key {
+        known_keys.insert(mesh.identity.instance_id.clone(), pk.clone());
+    }
+    drop(mesh);
+
+    if crate::mesh::crown::verify_signed_request(token, &known_keys).is_ok() {
+        return Ok(());
+    }
+
+    Err((StatusCode::UNAUTHORIZED, "Invalid or missing token"))
 }
 
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
+        "build": env!("BUILD_HASH"),
         "name": "CodeTerm"
     }))
 }
@@ -142,7 +186,7 @@ async fn list_workspaces(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let mux = state.mux.lock();
+    let mux = state.svc.mux.lock();
     let workspaces = mux.list_workspaces();
     Ok(Json(serde_json::to_value(workspaces).unwrap()))
 }
@@ -150,6 +194,8 @@ async fn list_workspaces(
 #[derive(Deserialize)]
 struct CreateWorkspaceBody {
     name: String,
+    #[serde(default)]
+    cwd: Option<String>,
 }
 
 async fn create_workspace(
@@ -158,7 +204,7 @@ async fn create_workspace(
     Json(body): Json<CreateWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let ws = state.svc.create_workspace(body.name);
+    let ws = state.svc.create_workspace(body.name, body.cwd);
     Ok(Json(serde_json::to_value(ws).unwrap()))
 }
 
@@ -226,6 +272,8 @@ async fn create_tab(
     check_auth(&state, &headers)?;
     let (tab_id, pane_id) = state.svc.create_tab_with_activate(&workspace_id, false)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
+    // API-created tabs are Orchestrators by default, same as Tauri command
+    let _ = state.svc.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
     Ok(Json(serde_json::json!({
         "tab_id": tab_id,
         "pane_id": pane_id
@@ -240,10 +288,11 @@ struct SplitPaneBody {
 async fn split_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     body: Option<Json<SplitPaneBody>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     let orientation = match body.as_ref().and_then(|b| b.direction.as_deref()) {
         Some("down" | "vertical") => crate::multiplexer::types::Orientation::Vertical,
         _ => crate::multiplexer::types::Orientation::Horizontal,
@@ -258,25 +307,31 @@ async fn list_panes(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let mux = state.mux.lock();
+    let mux = state.svc.mux.lock();
     let snapshot = mux.snapshot();
     let panes: Vec<_> = snapshot.panes.values().collect();
     Ok(Json(serde_json::to_value(panes).unwrap()))
 }
 
+fn default_true() -> bool { true }
+
 #[derive(Deserialize)]
 struct SendTextBody {
     text: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     enter: bool,
     /// Batch: send multiple commands sequentially with optional delays
     batch: Option<Vec<BatchCommand>>,
+    /// Raw mode: bypass bracket paste, send bytes directly to PTY.
+    /// Use for keystrokes that need to be interpreted by TUI (e.g. vim j/k navigation).
+    #[serde(default)]
+    raw: bool,
 }
 
 #[derive(Deserialize)]
 struct BatchCommand {
     text: String,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     enter: bool,
     delay_ms: Option<u64>,
 }
@@ -284,10 +339,11 @@ struct BatchCommand {
 async fn send_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     Json(body): Json<SendTextBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
     // Batch mode
     if let Some(batch) = body.batch {
@@ -301,17 +357,26 @@ async fn send_text(
 
     // Single send
     let text = body.text.unwrap_or_default();
-    state.svc.send_text(&pane_id, &text, body.enter)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    if body.raw {
+        // Raw mode: bypass bracket paste, send directly to PTY
+        let mut buf = text;
+        if body.enter && !buf.ends_with('\r') { buf.push('\r'); }
+        state.svc.write_raw(&pane_id, buf.as_bytes())
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    } else {
+        state.svc.send_text(&pane_id, &text, body.enter)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
 async fn focus_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     state.svc.focus_pane(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -322,20 +387,28 @@ struct OutputQuery {
     offset: Option<usize>,
     strip_ansi: Option<bool>,
     /// Include current screen text (alternate buffer) in response
+    #[allow(dead_code)]
     screen: Option<bool>,
+    /// Return full untruncated output history (not just ring buffer)
+    full: Option<bool>,
 }
 
 async fn get_pane_output(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     Query(query): Query<OutputQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     let pty_id = state.svc.resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-    let buf = state.output_buf.lock();
-    let text = buf.get_text(&pty_id).unwrap_or_default();
+    let buf = state.svc.output_buf.lock();
+    let text = if query.full.unwrap_or(false) {
+        buf.get_full_text(&pty_id).unwrap_or_default()
+    } else {
+        buf.get_text(&pty_id).unwrap_or_default()
+    };
     let offset = query.offset.unwrap_or(0);
     let raw = if offset < text.len() { &text[offset..] } else { "" };
     let output = if query.strip_ansi.unwrap_or(false) {
@@ -359,28 +432,22 @@ struct ExecBody {
 async fn exec_in_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     Json(body): Json<ExecBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     let pty_id = state.svc.resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
 
-    let start_offset = state.output_buf.lock()
+    let start_offset = state.svc.output_buf.lock()
         .get_text(&pty_id).map(|t| t.len()).unwrap_or(0);
 
-    let cmd = if body.command.ends_with('\r') || body.command.ends_with('\n') {
-        body.command.clone()
-    } else {
-        format!("{}\r", body.command)
-    };
-
-    state.pty.lock()
-        .write(&pty_id, cmd.as_bytes())
+    state.svc.send_text(&pane_id, &body.command, true)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
 
     let timeout_ms = body.timeout_ms.unwrap_or(10000);
-    let buf_clone = state.output_buf.clone();
+    let buf_clone = state.svc.output_buf.clone();
     let pty_clone = pty_id.clone();
 
     // Poll in a spawned task to avoid Send issues
@@ -437,9 +504,10 @@ async fn open_browser(
 async fn close_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     state.svc.close_pane(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -453,10 +521,11 @@ struct RenamePaneBody {
 async fn rename_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     Json(body): Json<RenamePaneBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     state.svc.rename_pane(&pane_id, &body.title)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -471,10 +540,11 @@ struct ResizePaneBody {
 async fn resize_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
     Json(body): Json<ResizePaneBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     state.svc.resize_pane(&pane_id, body.cols, body.rows)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to resize PTY"))?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -484,13 +554,14 @@ async fn resize_pane(
 async fn stream_pane_output(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
 ) -> Result<axum::response::Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     let pty_id = state.svc.resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
 
-    let buf = state.output_buf.clone();
+    let buf = state.svc.output_buf.clone();
     let pid = pty_id.clone();
     let mut offset = buf.lock().get_text(&pid).map(|t| t.len()).unwrap_or(0);
 
@@ -522,7 +593,7 @@ async fn list_notifications(
     Query(query): Query<ListNotifQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let store = state.notif.lock();
+    let store = state.svc.notif.lock();
     let notifs = store.list(query.unread.unwrap_or(false));
     Ok(Json(serde_json::to_value(notifs).unwrap()))
 }
@@ -556,63 +627,8 @@ async fn clear_notifications(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.notif.lock().clear(None);
+    state.svc.notif.lock().clear(None);
     Ok(Json(serde_json::json!({"ok": true})))
-}
-
-#[derive(Deserialize)]
-struct ScreenshotQuery {
-    format: Option<String>,
-}
-
-async fn take_screenshot(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Query(query): Query<ScreenshotQuery>,
-) -> Result<axum::response::Response, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-
-    let app = state.app_handle.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        crate::screenshot::capture_window(&app)
-    })
-    .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Screenshot task failed"))?
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Screenshot capture failed"))?;
-
-    let format = query.format.as_deref().unwrap_or("json");
-
-    match format {
-        "jpeg" | "jpg" => {
-            // Return raw JPEG bytes
-            let b64 = result.data_url
-                .strip_prefix("data:image/jpeg;base64,")
-                .unwrap_or(&result.data_url);
-            let bytes = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                b64,
-            )
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Invalid base64"))?;
-
-            Ok(axum::response::Response::builder()
-                .header("Content-Type", "image/jpeg")
-                .body(axum::body::Body::from(bytes))
-                .unwrap())
-        }
-        _ => {
-            // JSON with data URL + metadata
-            let json = serde_json::json!({
-                "screenshot": result.data_url,
-                "width": result.width,
-                "height": result.height,
-                "size_kb": result.size_bytes / 1024,
-            });
-            Ok(axum::response::Response::builder()
-                .header("Content-Type", "application/json")
-                .body(axum::body::Body::from(serde_json::to_string(&json).unwrap()))
-                .unwrap())
-        }
-    }
 }
 
 #[derive(Deserialize)]
@@ -659,9 +675,10 @@ async fn serve_file(
 async fn get_pane_screen(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Path(pane_id): Path<String>,
+    Path(raw_pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
     // Verify pane exists by trying to resolve pty (or at least check mux)
     {
         let mux = state.svc.mux.lock();
@@ -678,7 +695,7 @@ async fn get_pane_screen(
     let pid = pane_id.clone();
 
     // Listen for response from frontend
-    let app = state.app_handle.clone();
+    let app = state.svc.app_handle.clone();
     use tauri::Listener;
     let handler_id = app.listen(format!("screen-capture-response-{}", pid), move |event| {
         if let Some(tx) = tx_clone.lock().take() {
@@ -693,7 +710,7 @@ async fn get_pane_screen(
 
     // Request capture from frontend
     use tauri::Emitter;
-    let _ = state.app_handle.emit("screen-capture-request", serde_json::json!({
+    let _ = state.svc.app_handle.emit("screen-capture-request", serde_json::json!({
         "pane_id": pane_id,
     }));
 
@@ -723,7 +740,7 @@ async fn list_webhooks(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let hooks = state.events.list_webhooks();
+    let hooks = state.svc.events.list_webhooks();
     Ok(Json(serde_json::to_value(hooks).unwrap()))
 }
 
@@ -756,7 +773,7 @@ async fn register_webhook(
         once: body.once,
         payload_extra: body.payload_extra,
     };
-    state.events.register_webhook(reg);
+    state.svc.events.register_webhook(reg);
     Ok(Json(serde_json::json!({"id": id, "once": body.once})))
 }
 
@@ -766,7 +783,7 @@ async fn unregister_webhook(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.events.unregister_webhook(&id);
+    state.svc.events.unregister_webhook(&id);
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -838,6 +855,7 @@ struct SpawnAgentBody {
     force_tab: Option<bool>,
     /// Report target pane ID — for cron agents to report without joining hierarchy
     report_target_pane_id: Option<String>,
+    skip_permissions: Option<bool>,
 }
 
 async fn spawn_agent(
@@ -859,6 +877,7 @@ async fn spawn_agent(
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
         report_target_pane_id: body.report_target_pane_id,
+            skip_permissions: body.skip_permissions,
     };
     let result = state.svc.spawn_agent(params).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -949,7 +968,7 @@ async fn get_pane_children(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let mux = state.mux.lock();
+    let mux = state.svc.mux.lock();
     let child_ids = mux.get_children_ids(&id);
     let children: Vec<serde_json::Value> = child_ids.iter().filter_map(|cid| {
         let p = mux.get_pane(cid)?;
@@ -994,7 +1013,7 @@ async fn get_reports(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let clear = query.clear.unwrap_or(false);
-    let reports = state.report_store.lock().get(&id, clear);
+    let reports = state.svc.report_store.lock().get(&id, clear);
     Ok(Json(serde_json::to_value(&reports).unwrap_or_default()))
 }
 
@@ -1012,6 +1031,225 @@ async fn set_can_spawn(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     state.svc.set_can_spawn(&id, body.can_spawn)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn respond_prompt(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)
+        .map_err(|(s, m)| (s, m.to_string()))?;
+    let value = body.get("value")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing 'value' field".to_string()))?
+        .to_string();
+    state.svc.respond_prompt(&pane_id, &value)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Clear pending_prompt state without sending to PTY (safe for cleanup/reset).
+async fn clear_prompt(
+    AxumState(state): AxumState<AppState>,
+    Path(raw_pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let pane_id = resolve_pane(&state, &raw_pane_id)
+        .map_err(|(s, m)| (s, m.to_string()))?;
+    state.svc.clear_prompt(&pane_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Hook endpoint: agent reports it needs permission.
+/// Called by Claude Code hook (permission_prompt matcher).
+/// No auth required — hooks run in the PTY process context.
+/// Set agent type on a pane (enables chat view for that agent's provider).
+async fn set_agent_type(
+    AxumState(state): AxumState<AppState>,
+    Path(pane_id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let agent_type = body.get("agent_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+    state.svc.set_pane_agent_type(&pane_id, agent_type);
+    state.svc.emit_state_changed();
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Ensure agent state is set when a hook fires.
+/// Hooks are authoritative — if a hook calls us, an agent IS running.
+/// This fixes detection on restored panes, Windows (PowerShell doesn't reset title), etc.
+fn ensure_agent_state(state: &AppState, pane_id: &str) {
+    log::info!("[ensure_agent_state] called for pane {}", pane_id);
+    let (agent_type, session_id, cwd) = {
+        let mux = state.svc.mux.lock();
+        let pane = match mux.get_pane(pane_id) {
+            Some(p) => p,
+            None => return,
+        };
+        (pane.agent_type.clone(), pane.agent_session_id.clone(), pane.cwd.clone())
+    };
+
+    // Set agent_type if not already set
+    let agent_changed = agent_type.is_none();
+    if agent_changed {
+        // Hook comes from Claude Code hooks → agent is claude
+        state.svc.set_pane_agent_type(pane_id, Some("claude".to_string()));
+        log::info!("[hook] set agent_type=claude for pane {}", pane_id);
+    }
+
+    // Always re-check session — the newest JSONL may have changed since last detection.
+    // Hook proves agent is alive, so use a generous 1-hour recency window.
+    if let Some(ref cwd) = cwd {
+        let exclude = state.svc.mux.lock().other_session_ids(pane_id);
+        // Very generous window — hook proves agent is alive, JSONL may be hours old
+        // (idle session, long task, user away). 24 hours covers all realistic cases.
+        let hook_max_age = Some(std::time::Duration::from_secs(86400));
+        log::info!("[ensure_agent_state] detecting session cwd={} current={:?}", cwd, session_id);
+        if let Some(newest_id) = state.svc.agent_registry
+            .get("claude")
+            .and_then(|p| p.detect_session_id(cwd, &exclude, hook_max_age))
+        {
+            let changed = session_id.as_deref() != Some(newest_id.as_str());
+            log::info!("[ensure_agent_state] newest={} changed={}", newest_id, changed);
+            if changed {
+                state.svc.set_agent_session_id(pane_id, Some(newest_id.clone()));
+                log::info!("[hook] session updated: {} -> {} for pane {}",
+                    session_id.as_deref().unwrap_or("none"), newest_id, pane_id);
+                state.svc.emit_state_changed();
+            }
+        }
+    }
+
+    if agent_changed {
+        state.svc.emit_state_changed();
+    }
+}
+
+/// Accepts optional JSON body with explicit prompt data:
+///   { "question": "...", "options": [{"label": "Yes", "value": "1"}, ...] }
+/// When body is provided, bypasses ring buffer parsing (useful for testing/external integrations).
+async fn hook_permission(
+    AxumState(state): AxumState<AppState>,
+    Path(raw_pane_id): Path<String>,
+    body: Option<Json<serde_json::Value>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let pane_id = resolve_pane(&state, &raw_pane_id)
+        .map_err(|(s, m)| (s, m.to_string()))?;
+    // Hook firing = authoritative proof that an agent is running in this pane.
+    // Ensure agent_type is set even if OSC title detection missed it
+    // (happens on restored panes, Windows PowerShell not resetting title, etc.)
+    ensure_agent_state(&state, &pane_id);
+
+    // Check if explicit prompt data was provided in the request body
+    let explicit_prompt = body.and_then(|Json(b)| {
+        let question = b.get("question")?.as_str()?.to_string();
+        let options = b.get("options")?.as_array()?.iter().filter_map(|o| {
+            Some(crate::multiplexer::types::PromptOption {
+                label: o.get("label")?.as_str()?.to_string(),
+                value: o.get("value")?.as_str()?.to_string(),
+            })
+        }).collect::<Vec<_>>();
+        if options.is_empty() { return None; }
+        Some(crate::multiplexer::types::PendingPrompt { question, options })
+    });
+
+    let decision = if let Some(prompt) = explicit_prompt {
+        // Use explicitly provided prompt data — delegate to PromptDetector
+        state.svc.prompt_detector.lock().hook_detected_explicit(&pane_id, prompt)
+    } else {
+        // Parse prompt from ring buffer via PromptDetector
+        let pty_id = state.svc.mux.lock().get_pane(&pane_id)
+            .and_then(|p| p.pty_id.clone());
+        let agent_type = state.svc.mux.lock().get_pane(&pane_id)
+            .and_then(|p| p.agent_type.clone());
+
+        if let Some(pty_id) = pty_id {
+            let at = agent_type.unwrap_or_else(|| "claude".to_string());
+            let registry = &state.svc.agent_registry;
+
+            // Primary: VT100-parsed screen state (accurate screen content)
+            let clean = state.svc.screen_state.lock().get_screen_text(&pty_id).unwrap_or_default();
+            log::debug!("[hook_permission] screen_text len={}, agent_type={:?}", clean.len(), at);
+
+            let mut detector = state.svc.prompt_detector.lock();
+            let decision = detector.hook_detected_parse(&pane_id, &clean, |text| registry.parse_prompt(&at, text));
+
+            if !matches!(decision, crate::agent::prompt::PromptDecision::None) {
+                decision
+            } else {
+                // Fallback: raw output buffer (preserves UTF-8, contains ANSI).
+                // VT100 parser can garble multi-byte chars (C1 byte stripping),
+                // so we try the raw buffer with ANSI stripped as a second source.
+                let raw = state.svc.output_buf.lock().get_text(&pty_id).unwrap_or_default();
+                if raw.is_empty() {
+                    decision
+                } else {
+                    let stripped = strip_ansi(&raw);
+                    // Take last ~3000 chars to limit scan scope
+                    let tail = if stripped.len() > 3000 { &stripped[stripped.len() - 3000..] } else { &stripped };
+                    log::debug!("[hook_permission] fallback raw buffer len={}, tail_len={}", raw.len(), tail.len());
+                    detector.hook_detected_parse(&pane_id, tail, |text| registry.parse_prompt(&at, text))
+                }
+            }
+        } else {
+            crate::agent::prompt::PromptDecision::None
+        }
+    };
+
+    // Apply decision (sets prompt on pane, emits events, notifies)
+    state.svc.apply_prompt_decision(&decision);
+
+    // For hooks, always notify even if decision is None (hook firing means agent is waiting)
+    if matches!(decision, crate::agent::prompt::PromptDecision::None) {
+        let title = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.title.clone());
+        if let Some(title) = title {
+            state.svc.notify_event("agent.permission_request", serde_json::json!({
+                "pane_id": &pane_id,
+                "title": format!("{} needs approval", title),
+                "body": "Agent is waiting for your permission",
+            }));
+        }
+    }
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Hook endpoint: agent stopped (task complete).
+/// Called by Claude Code hook (Stop matcher).
+async fn hook_stop(
+    AxumState(state): AxumState<AppState>,
+    Path(raw_pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let pane_id = resolve_pane(&state, &raw_pane_id)
+        .map_err(|(s, m)| (s, m.to_string()))?;
+    let title = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.title.clone());
+    if let Some(title) = title {
+        state.svc.notify_event("agent.task_complete", serde_json::json!({
+            "pane_id": &pane_id,
+            "title": format!("{} finished", title),
+            "body": "Task complete",
+        }));
+    }
+
+    // Clear agent_type so next launch gets fresh session detection.
+    // BUT: skip for protected panes (General Agent) — agent_type is permanent there.
+    let is_protected = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.protected).unwrap_or(false);
+    if !is_protected {
+        state.svc.set_pane_agent_type(&pane_id, None);
+    }
+    // Clear any pending prompt left over
+    state.svc.prompt_detector.lock().clear(&pane_id);
+    {
+        let mut mux = state.svc.mux.lock();
+        if let Some(pane) = mux.get_pane_mut(&pane_id) {
+            pane.pending_prompt = None;
+        }
+    }
+    state.svc.emit_state_changed();
+
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -1080,6 +1318,150 @@ mod tests_strip_ansi {
     }
 }
 
+#[cfg(test)]
+mod tests_send_text_body {
+    use super::*;
+
+    // ── 2. REST API SendTextBody deserialization ──
+
+    #[test]
+    fn send_text_body_enter_defaults_true() {
+        let json = r#"{"text": "ls"}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.text, Some("ls".to_string()));
+        assert!(body.enter, "enter should default to true via default_true()");
+        assert!(body.batch.is_none());
+    }
+
+    #[test]
+    fn send_text_body_enter_explicit_false() {
+        let json = r#"{"text": "partial", "enter": false}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert!(!body.enter);
+    }
+
+    #[test]
+    fn send_text_body_enter_explicit_true() {
+        let json = r#"{"text": "cmd", "enter": true}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert!(body.enter);
+    }
+
+    #[test]
+    fn send_text_body_only_text() {
+        let json = r#"{"text": "hello"}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.text, Some("hello".to_string()));
+        assert!(body.enter, "enter defaults to true when omitted");
+    }
+
+    #[test]
+    fn send_text_body_empty_object() {
+        let json = r#"{}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.text, None, "text is None when omitted");
+        assert!(body.enter, "enter defaults to true even with empty body");
+    }
+
+    #[test]
+    fn send_text_body_text_null() {
+        let json = r#"{"text": null}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.text, None);
+        assert!(body.enter);
+    }
+
+    // ── Batch body tests ──
+
+    #[test]
+    fn send_text_body_with_batch() {
+        let json = r#"{
+            "batch": [
+                {"text": "cmd1"},
+                {"text": "cmd2", "enter": false},
+                {"text": "cmd3", "enter": true, "delay_ms": 500}
+            ]
+        }"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        let batch = body.batch.unwrap();
+        assert_eq!(batch.len(), 3);
+        // BatchCommand also uses default_true
+        assert!(batch[0].enter, "batch item enter defaults to true");
+        assert!(!batch[1].enter);
+        assert!(batch[2].enter);
+        assert_eq!(batch[2].delay_ms, Some(500));
+    }
+
+    #[test]
+    fn batch_command_enter_defaults_true() {
+        let json = r#"{"text": "echo hi"}"#;
+        let cmd: BatchCommand = serde_json::from_str(json).unwrap();
+        assert!(cmd.enter, "BatchCommand.enter defaults to true via default_true()");
+    }
+
+    // ── 3. ExecBody enter handling ──
+
+    #[test]
+    fn exec_body_deserialize() {
+        let json = r#"{"command": "ls -la"}"#;
+        let body: ExecBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.command, "ls -la");
+        assert!(body.timeout_ms.is_none());
+        assert!(body.strip_ansi.is_none());
+    }
+
+    #[test]
+    fn exec_body_with_options() {
+        let json = r#"{"command": "echo test", "timeout_ms": 5000, "strip_ansi": true}"#;
+        let body: ExecBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.timeout_ms, Some(5000));
+        assert_eq!(body.strip_ansi, Some(true));
+    }
+
+    // Test the exec enter logic (mirrors exec_in_pane lines 374-378)
+    fn apply_exec_enter(command: &str) -> String {
+        if command.ends_with('\r') || command.ends_with('\n') {
+            command.to_string()
+        } else {
+            format!("{}\r", command)
+        }
+    }
+
+    #[test]
+    fn exec_command_no_trailing_newline_appends_cr() {
+        assert_eq!(apply_exec_enter("ls -la"), "ls -la\r");
+    }
+
+    #[test]
+    fn exec_command_trailing_cr_no_append() {
+        assert_eq!(apply_exec_enter("ls\r"), "ls\r");
+    }
+
+    #[test]
+    fn exec_command_trailing_newline_no_append() {
+        // BASELINE: exec checks BOTH \r and \n — unlike send_text which only checks \r
+        assert_eq!(apply_exec_enter("ls\n"), "ls\n");
+    }
+
+    #[test]
+    fn exec_command_trailing_crlf_no_append() {
+        // ends_with('\n') catches this
+        assert_eq!(apply_exec_enter("ls\r\n"), "ls\r\n");
+    }
+
+    #[test]
+    fn exec_empty_command_appends_cr() {
+        assert_eq!(apply_exec_enter(""), "\r");
+    }
+
+    // ── default_true function ──
+
+    #[test]
+    fn default_true_returns_true() {
+        assert!(default_true());
+    }
+}
+
 pub fn strip_ansi_codes(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
@@ -1120,11 +1502,53 @@ pub fn strip_ansi_codes(s: &str) -> String {
 }
 
 /// Parse raw terminal output through a VT100 emulator to get clean screen text.
+/// Clean terminal output using VT100 virtual terminal.
 /// Properly handles cursor movements, overwrites (spinners), line wraps, etc.
 pub fn clean_terminal_output(raw: &str) -> String {
     let mut parser = vt100::Parser::new(500, 200, 10000);
     parser.process(raw.as_bytes());
     parser.screen().contents()
+}
+
+/// Light ANSI strip — removes escape sequences but preserves text layout.
+/// Faster than VT100 parser and doesn't reflow text to a different terminal size.
+/// Used for prompt detection where we need to find structural patterns
+/// in the raw stream regardless of terminal dimensions.
+pub fn strip_ansi(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            match chars.peek() {
+                Some('[') => {
+                    // CSI: skip until ASCII letter (0x40-0x7E)
+                    chars.next();
+                    while let Some(&nc) = chars.peek() {
+                        chars.next();
+                        if nc.is_ascii_alphabetic() || nc == '@' || nc == '~' { break; }
+                    }
+                }
+                Some(']') => {
+                    // OSC: skip until BEL or ST (ESC \)
+                    chars.next();
+                    while let Some(nc) = chars.next() {
+                        if nc == '\x07' { break; }
+                        if nc == '\x1b' {
+                            if chars.peek() == Some(&'\\') { chars.next(); }
+                            break;
+                        }
+                    }
+                }
+                Some('(' | ')') => { chars.next(); chars.next(); } // charset
+                _ => { chars.next(); } // other ESC
+            }
+        } else if c == '\r' {
+            // Skip CR, keep LF
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 // ── Theme API ──────────────────────────────────────────────────────────
@@ -1190,7 +1614,7 @@ async fn apply_theme_api(
     use tauri::{Emitter, Manager};
 
     // Get the managed ConfigState from the app handle
-    let config_state = state.app_handle.state::<crate::config::ConfigState>();
+    let config_state = state.svc.app_handle.state::<crate::config::ConfigState>();
     let mut config = config_state.lock().clone();
     config.theme.name = body.name.clone();
     if let Some(mut theme) = crate::config::schema::get_any_theme(&body.name) {
@@ -1200,7 +1624,7 @@ async fn apply_theme_api(
     crate::config::save_config_pub(&config)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to save config"))?;
     *config_state.lock() = config.clone();
-    let _ = state.app_handle.emit("config-changed", &config);
+    let _ = state.svc.app_handle.emit("config-changed", &config);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -1404,20 +1828,11 @@ pub fn send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, bo
     }
 }
 
-/// Single notification popup — reuses existing window, auto-closes after 4s.
+/// Single notification popup via system notification API.
+/// Uses tauri-plugin-notification on all platforms — clicking focuses the app.
 pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
-    // macOS: use osascript (works in dev and production)
-    #[cfg(target_os = "macos")]
-    {
-        let msg = body.unwrap_or("");
-        let _ = std::process::Command::new("osascript")
-            .args(["-e", &format!("display notification \"{}\" with title \"{}\"", msg, title)])
-            .spawn();
-        return;
-    }
-
-    // Windows/Linux: use tauri plugin
-    #[cfg(not(target_os = "macos"))]
+    // Use tauri plugin on all platforms — produces native notifications
+    // that focus the app window when clicked (unlike raw osascript).
     {
         use tauri_plugin_notification::NotificationExt;
         let mut notif = app.notification().builder().title(title);
@@ -1609,9 +2024,16 @@ async fn check_update(
     Ok(Json(serde_json::to_value(info).unwrap_or_default()))
 }
 
+#[derive(Deserialize)]
+struct InstallUpdateQuery {
+    /// "auto" = use Tauri built-in updater (download + install + restart)
+    method: Option<String>,
+}
+
 async fn install_update(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    Query(q): Query<InstallUpdateQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 
@@ -1627,23 +2049,173 @@ async fn install_update(
         return Ok(Json(serde_json::json!({"status": "up_to_date"})));
     }
 
-    match info.update_command {
-        Some(cmd) => Ok(Json(serde_json::json!({
-            "status": "command",
-            "command": cmd,
-            "message": format!("Run: {}", cmd)
-        }))),
-        None => {
-            let url = info
-                .download_url
-                .as_deref()
-                .unwrap_or(&info.release_url);
-            let _ = crate::commands::open_url(url.to_string());
-            Ok(Json(serde_json::json!({
-                "status": "browser_opened",
-                "url": url,
-                "message": "Opened download page in browser"
-            })))
+    // Auto mode: use Tauri built-in updater (download + install + restart)
+    if q.method.as_deref() == Some("auto") {
+        let app = state.svc.app_handle.clone();
+        let latest = info.latest_version.clone();
+        // Spawn the entire updater flow on a non-Send-constrained task
+        std::thread::spawn(move || {
+            use tauri_plugin_updater::UpdaterExt;
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("tokio runtime");
+            rt.block_on(async {
+                let updater = match app.updater() {
+                    Ok(u) => u,
+                    Err(e) => { log::error!("[updater] Init failed: {}", e); return; }
+                };
+                let update = match updater.check().await {
+                    Ok(Some(u)) => u,
+                    Ok(None) => { log::info!("[updater] No update found"); return; }
+                    Err(e) => { log::error!("[updater] Check failed: {}", e); return; }
+                };
+                log::info!("[updater] Downloading and installing v{}...", update.version);
+                match update.download_and_install(|_, _| {}, || {}).await {
+                    Ok(()) => {
+                        log::info!("[updater] Installed, restarting...");
+                        app.restart();
+                    }
+                    Err(e) => log::error!("[updater] Install failed: {}", e),
+                }
+            });
+        });
+        return Ok(Json(serde_json::json!({
+            "status": "updating",
+            "version": latest,
+            "message": format!("Downloading and installing v{}. App will restart.", latest)
+        })));
+    } else {
+        // Legacy mode: return command or open browser
+        match info.update_command {
+            Some(cmd) => Ok(Json(serde_json::json!({
+                "status": "command",
+                "command": cmd,
+                "message": format!("Run: {}", cmd)
+            }))),
+            None => {
+                let url = info
+                    .download_url
+                    .as_deref()
+                    .unwrap_or(&info.release_url);
+                let _ = crate::commands::open_url(url.to_string());
+                Ok(Json(serde_json::json!({
+                    "status": "browser_opened",
+                    "url": url,
+                    "message": "Opened download page in browser"
+                })))
+            }
         }
     }
+}
+
+// ── Config API ──────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct ConfigQuery {
+    key: Option<String>,
+}
+
+async fn get_config_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ConfigQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let cfg = state.config.lock().clone();
+    let full = serde_json::to_value(&cfg)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Config serialization failed"))?;
+    match q.key {
+        Some(key) => {
+            let val = dot_get(&full, &key)
+                .ok_or((StatusCode::NOT_FOUND, "Key not found"))?;
+            Ok(Json(serde_json::json!({ "key": key, "value": val })))
+        }
+        None => Ok(Json(full)),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct PatchConfigBody {
+    key: Option<String>,
+    value: Option<serde_json::Value>,
+    #[serde(flatten)]
+    partial: serde_json::Map<String, serde_json::Value>,
+}
+
+async fn patch_config_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PatchConfigBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let cfg = state.config.lock().clone();
+    let mut cfg_json = serde_json::to_value(&cfg)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Serialization failed"))?;
+
+    if let (Some(key), Some(value)) = (body.key.as_deref(), &body.value) {
+        dot_set(&mut cfg_json, key, value.clone())
+            .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid key path"))?;
+    } else if !body.partial.is_empty() {
+        if let serde_json::Value::Object(ref mut map) = cfg_json {
+            for (k, v) in &body.partial {
+                if k == "key" || k == "value" { continue; }
+                map.insert(k.clone(), v.clone());
+            }
+        }
+    } else {
+        return Err((StatusCode::BAD_REQUEST, "Provide key+value or partial config"));
+    }
+
+    let new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid config value"))?;
+    *state.config.lock() = new_cfg.clone();
+    if let Err(e) = crate::config::save_config_pub(&new_cfg) {
+        log::error!("Config save failed: {}", e);
+    }
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+fn dot_get(val: &serde_json::Value, path: &str) -> Option<serde_json::Value> {
+    let mut current = val;
+    for key in path.split('.') { current = current.get(key)?; }
+    Some(current.clone())
+}
+
+async fn bridge_send_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let text = body.get("text").and_then(|v| v.as_str())
+        .ok_or((StatusCode::BAD_REQUEST, "text required"))?;
+    let chat_id = body.get("chat_id").and_then(|v| v.as_i64());
+
+    let tx = state.svc.bridge_outbound.lock();
+    let tx = tx.as_ref().ok_or((StatusCode::SERVICE_UNAVAILABLE, "Bridge not active"))?;
+    let append = body.get("append").and_then(|v| v.as_bool()).unwrap_or(false);
+    let buttons: Option<crate::bridge::traits::InlineKeyboard> = body.get("buttons")
+        .and_then(|v| serde_json::from_value(v.clone()).ok());
+    tx.send(crate::bridge::manager::OutboundMessage {
+        user_id: chat_id,
+        content: crate::bridge::traits::OutboundContent::Text { text: text.to_string() },
+        append,
+        buttons,
+    }).map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Send failed"))?;
+
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+// Mesh networking routes moved to mesh_routes.rs
+
+fn dot_set(val: &mut serde_json::Value, path: &str, new_val: serde_json::Value) -> Result<(), ()> {
+    let parts: Vec<&str> = path.split('.').collect();
+    if parts.is_empty() { return Err(()); }
+    let mut current = val;
+    for &key in &parts[..parts.len() - 1] { current = current.get_mut(key).ok_or(())?; }
+    if let serde_json::Value::Object(ref mut map) = current {
+        map.insert(parts.last().unwrap().to_string(), new_val);
+        Ok(())
+    } else { Err(()) }
 }
