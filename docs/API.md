@@ -225,7 +225,7 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/crons` | `?workspace_id=ID` | List all cron jobs (optionally filter by workspace) |
-| POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, cwd?, description?}` | Create cron job |
+| POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, cwd?, description?, oneshot?}` | Create cron job |
 | GET | `/api/crons/:id` | — | Get cron job by ID |
 | PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?}` | Update cron job (prefer over delete+recreate) |
 | DELETE | `/api/crons/:id` | — | Delete cron job |
@@ -255,6 +255,8 @@ The config is saved to disk and a `config-changed` Tauri event is emitted.
 | POST | `/api/update/install` | — | Download and install pending update |
 
 Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
+
+**Oneshot jobs:** Set `oneshot: true` to create a one-time scheduled task. Oneshot jobs accept relative time (`"in 5m"`, `"in 1h30m"`, `"in 2d"`), ISO 8601 (`"2026-04-05T14:30:00Z"`), or unix milliseconds instead of cron expressions. After firing, oneshot jobs are disabled (`next_run=null`) and auto-deleted on completion. The `CronJob` object includes `oneshot: bool` (default `false`, omitted from JSON when `false`).
 
 Cron runs spawn Claude agents on schedule. When done, the agent calls `codeterm cron complete --run-id UUID` (uses the `cron.complete` socket method), which automatically closes the run's tab/pane (ephemeral). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. The sidebar shows a cron tree with runs and next scheduled time. Click a finished run to open the log viewer. Successful spawns do not generate notifications — only errors do.
 
@@ -462,7 +464,7 @@ Newline-delimited JSON:
 | `agent.reports` | `{pane_id, clear?}` | Read reports from children |
 | `cron.list` | `{workspace_id?}` | List cron jobs |
 | `cron.get` | `{id}` | Get cron job by ID |
-| `cron.create` | `{name, schedule, task, workspace_id, agent?, cwd?, description?}` | Create cron job |
+| `cron.create` | `{name, schedule, task, workspace_id, agent?, cwd?, description?, oneshot?}` | Create cron job |
 | `cron.update` | `{id, name?, schedule?, task?, cwd?, description?, enabled?}` | Update cron job |
 | `cron.delete` | `{id}` | Delete cron job |
 | `cron.enable` | `{id}` | Enable cron job |
@@ -540,8 +542,9 @@ codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [-
 
 # Cron Jobs
 codeterm cron list [--workspace ID]            # List all cron jobs
-codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs" [--cwd /path] [--description "desc"]
+codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs" [--cwd /path] [--description "desc"] [--once]
                                                # Create cron job (5-field cron: min hour dom mon dow)
+                                               # --once: oneshot job (schedule accepts "in 5m", "in 1h30m", ISO8601, unix ms)
 codeterm cron edit ID [--name "new name"] [--schedule "..."] [--task "..."]
                                                # Update cron job fields
 codeterm cron delete ID                        # Delete cron job
@@ -658,4 +661,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->

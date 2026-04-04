@@ -14,11 +14,17 @@ codeterm send-text "what projects are open right now?" --pane general
 ```
 The General Agent's response arrives in your terminal. Use this when you don't know something about the environment rather than guessing.
 
+**Language rule:** Agent-to-agent communication is always in English — regardless of the user's language. Task prompts, `--task` arguments, reports, cron tasks. Only reply to the user in their language.
+
 **CRITICAL — Cron jobs / scheduled tasks / recurring tasks:**
 Do NOT use the built-in CronCreate/CronList tools. CodeTerm has its own cron system. Always use `codeterm cron` commands:
 ```bash
 # Create a cron job (schedule = 5-field: min hour dom mon dow)
 codeterm cron create "Job Name" --schedule "0 * * * *" --task "what to do"
+
+# Create a oneshot job (fires once, then auto-deletes)
+codeterm cron create "Quick Backup" --schedule "in 30m" --task "run backup" --once
+codeterm cron create "Deploy Tonight" --schedule "2026-04-05T02:00:00Z" --task "deploy to prod" --once
 
 # Examples:
 codeterm cron create "Heartbeat" --schedule "0 * * * *" --task "Say hello to the user"
@@ -300,11 +306,12 @@ The UI colors (borders, sidebar, surfaces) are automatically derived from the ba
 
 ## Cron Jobs
 
-Schedule recurring tasks. Uses 5-field cron expressions (`min hour dom mon dow`).
+Schedule recurring or one-time tasks. Uses 5-field cron expressions (`min hour dom mon dow`) for recurring jobs, or relative/absolute time for oneshot jobs.
 
 ```bash
 codeterm cron list [--workspace ID]            # List all cron jobs
-codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs" [--cwd /path] [--description "desc"]
+codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs" [--cwd /path] [--description "desc"] [--once]
+                                               # --once: oneshot job (schedule accepts "in 5m", "in 1h30m", ISO8601, unix ms)
 codeterm cron edit ID [--name "new"] [--schedule "..."] [--task "..."]
 codeterm cron delete ID
 codeterm cron enable ID
@@ -324,6 +331,8 @@ Deleting a cron job cascades: kills all running panes/PTYs, closes their tabs, a
 **Workspace:** `cron create` uses `$CODETERM_WORKSPACE_ID` by default (your current workspace). Override with `--workspace ID` if needed.
 
 Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
+
+**Oneshot jobs:** Add `--once` to create a one-time task. The schedule accepts relative time (`"in 5m"`, `"in 1h30m"`, `"in 2d"`), ISO 8601 (`"2026-04-05T14:30:00Z"`), or unix milliseconds. Oneshot jobs fire once, then are disabled and auto-deleted on completion. `codeterm cron list` shows `[oneshot]` for these jobs.
 
 ## Command Palette
 
@@ -411,4 +420,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->

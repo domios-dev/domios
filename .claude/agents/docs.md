@@ -1,6 +1,6 @@
 ---
 name: docs
-description: Documentation maintainer for CodeTerm. Use when API, config, CLI, or skills change — keeps docs/API.md, docs/CONFIG.md, docs/SKILLS.md, docs/AGENT_PROMPT.md in sync with code. Also updates revision tags.
+description: Documentation maintainer for CodeTerm. Use when API, config, CLI, or skills change — keeps docs/API.md, docs/CONFIG.md, docs/SKILLS.md in sync with code. Also updates revision tags.
 ---
 
 # Documentation Agent — CodeTerm
@@ -17,8 +17,8 @@ You keep all documentation in sync with the codebase. When any of these change, 
 | Themes added/removed (`src-tauri/themes/`) | `docs/CONFIG.md` |
 | CLI commands (`cli/src/main.rs`) | `docs/API.md` (CLI section), `docs/SKILLS.md` |
 | Skills (`skills/codeterm/SKILL.md`) | `docs/SKILLS.md` |
+| Agent prompts (`src-tauri/prompts/*.md`) | `src-tauri/prompts/general_agent.md`, `skills/codeterm/SKILL.md` |
 | Keyboard shortcuts (in `src/App.tsx`) | `docs/CONFIG.md` |
-| Agent detection changes | `docs/AGENT_PROMPT.md` |
 | New features | `README.md` + translations |
 
 ## How to update docs
@@ -35,8 +35,6 @@ Every doc has `<!-- revision: N -->` at the bottom. This tells users when docs c
 - `docs/API.md` — REST endpoints, Socket API, CLI commands
 - `docs/CONFIG.md` — Config options, themes, keybindings
 - `docs/SKILLS.md` — Skill installation, usage examples
-- `docs/AGENT_PROMPT.md` — Agent integration prompt
-
 When you bump a revision, also update the skill's SKILL.md to reference the new revision so Claude Code instances know to re-read.
 
 ## Cross-platform accuracy
@@ -54,7 +52,6 @@ OSC 7 CWD tracking works natively on macOS/Linux shells but requires prompt inje
 docs/API.md          — REST API, Socket API (JSON-RPC), CLI reference
 docs/CONFIG.md       — config.toml options, themes, keybindings, session persistence
 docs/SKILLS.md       — Claude Code skill setup and usage
-docs/AGENT_PROMPT.md — System prompt for AI agent integration
 docs/BUILD.md        — Build instructions
 README.md            — Main readme (English)
 README.{lang}.md     — Translations (zh, ja, ko, es, de, fr, pt, ru)

@@ -562,7 +562,7 @@ pub enum CronAction {
     Create {
         /// Cron job name
         name: String,
-        /// Cron schedule (5-field: "*/30 * * * *")
+        /// Cron schedule (5-field: "*/30 * * * *") or oneshot time ("in 5m", ISO8601)
         #[arg(long)]
         schedule: String,
         /// Task prompt for the agent
@@ -583,6 +583,9 @@ pub enum CronAction {
         /// Pane ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
         #[arg(long, env = "CODETERM_PANE_ID")]
         creator_pane: Option<String>,
+        /// Oneshot: fire once at scheduled time, then auto-delete
+        #[arg(long)]
+        once: bool,
     },
     /// Edit a cron job
     Edit {
@@ -1301,7 +1304,12 @@ fn main() {
                                 if arr.is_empty() { println!("No cron jobs."); }
                                 for j in arr {
                                     let enabled = j.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                                    let status = if enabled { "enabled" } else { "disabled" };
+                                    let oneshot = j.get("oneshot").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    let status = match (enabled, oneshot) {
+                                        (_, true) => "oneshot",
+                                        (true, false) => "enabled",
+                                        (false, false) => "disabled",
+                                    };
                                     println!("{} {} [{}] schedule={} agent={}",
                                         j.get("id").and_then(|v| v.as_str()).unwrap_or("?"),
                                         j.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
@@ -1316,7 +1324,7 @@ fn main() {
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
                 }
-                CronAction::Create { name, schedule, task, workspace, agent, cwd, description, creator_pane } => {
+                CronAction::Create { name, schedule, task, workspace, agent, cwd, description, creator_pane, once } => {
                     let ws_id = workspace.unwrap_or_else(|| {
                         // Prefer CODETERM_WORKSPACE_ID (agent's own workspace), fall back to first
                         std::env::var("CODETERM_WORKSPACE_ID").ok()
@@ -1338,6 +1346,7 @@ fn main() {
                     if let Some(c) = cwd { params["cwd"] = serde_json::json!(c); }
                     if let Some(d) = description { params["description"] = serde_json::json!(d); }
                     if let Some(cp) = creator_pane { params["creator_pane_id"] = serde_json::json!(cp); }
+                    if once { params["oneshot"] = serde_json::json!(true); }
                     match client.call("cron.create", Some(params)) {
                         Ok(val) => {
                             if cli.json {

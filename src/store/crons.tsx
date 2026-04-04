@@ -123,6 +123,7 @@ export function CronProvider({ children }: { children: ReactNode }) {
       agent?: string;
       cwd?: string;
       description?: string;
+      oneshot?: boolean;
     }) => {
       const result = await invoke<CronJob>("cron_create", {
         name: params.name,
@@ -132,6 +133,7 @@ export function CronProvider({ children }: { children: ReactNode }) {
         agent: params.agent,
         cwd: params.cwd,
         description: params.description,
+        oneshot: params.oneshot,
       });
       reload();
       return result;

@@ -289,24 +289,14 @@ fn start_background_tasks(
                         mesh::discovery::cleanup_stale_peers(&mesh);
                         // Clean up expired pairing requests
                         mesh.lock().cleanup_expired_requests();
+                        // Trust TTL refresh
+                        mesh::refresh_trust(&mesh).await;
                         // Ping all paired peers
                         let (peers, sync_payload, signed_token) = {
                             let m = mesh.lock();
                             let peers: Vec<_> = m.paired_peers.values().cloned().collect();
                             let token = m.sign_request().ok();
-                            let payload = mesh::types::MeshSyncPayload {
-                                peers: m.paired_peers.values()
-                                    .map(|p| mesh::types::GossipPeerInfo {
-                                        instance_id: p.instance_id.clone(),
-                                        instance_name: p.instance_name.clone(),
-                                        addresses: p.addresses.clone(),
-                                        api_port: p.api_port,
-                                        dev: false,
-                                    })
-                                    .collect(),
-                                crown_public: m.crown_public.clone(),
-                                trust_declarations: m.trust_declarations.clone(),
-                            };
+                            let payload = m.build_sync_payload();
                             (peers, payload, token)
                         };
                         let mut changed = false;
@@ -342,7 +332,7 @@ fn start_background_tasks(
                                             .unwrap_or_default()
                                             .as_secs();
                                         for p in their_payload.peers {
-                                            if p.instance_id == m.identity.instance_id { continue; }
+                                            if p.instance_id == m.ident.identity.instance_id { continue; }
                                             if m.paired_peers.contains_key(&p.instance_id) { continue; }
                                             m.discovered_peers.insert(p.instance_id.clone(), mesh::types::DiscoveredPeer {
                                                 instance_id: p.instance_id,
@@ -356,6 +346,11 @@ fn start_background_tasks(
                                         }
                                         if let Some(crown) = their_payload.crown_public {
                                             let _ = m.update_crown_public(crown);
+                                        }
+                                        // Merge trust declarations from sync response
+                                        if let Some(ref cp) = m.crown.public_info {
+                                            let pk = cp.public_key.clone();
+                                            m.trust.merge_declarations(&their_payload.trust_declarations, &pk);
                                         }
                                         changed = true;
                                     }
@@ -962,7 +957,6 @@ pub fn run() {
             commands::list_skills,
             commands::install_skill,
             commands::uninstall_skill,
-            commands::get_skills_prompt,
             commands::get_network_info,
             commands::generate_api_token,
             commands::save_clipboard_image,
