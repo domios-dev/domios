@@ -34,6 +34,8 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 6. **Rename tab**: `codeterm pane rename "my task"` or `codeterm pane rename "my task" --pane ID`
 7. **Create theme**: `codeterm theme save my-theme /tmp/theme.toml --apply`
 8. **Agent hierarchy**: `codeterm agent set-conductor` (mark self as orchestrator; alias: `set-orchestrator`)
+21. **Compact context**: `codeterm agent compact [--pane ID]` (sends /compact to Claude)
+22. **Switch model**: `codeterm agent model <sonnet|haiku|opus> [--pane ID]` (switches Claude model)
 9. **Send report**: `codeterm agent report "task done"` (report to direct parent, auto-injected into parent's PTY)
 10. **List hierarchy**: `codeterm agent hierarchy` (show full agent tree)
 11. **Spawn agent**: `codeterm agent spawn claude --title "Worker" --role Worker --parent ID --task "do work"` (creates new tab, non-blocking, does NOT switch active tab, task uses `-p` flag for instant start)
@@ -207,4 +209,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`, so context is preserved across restarts.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

@@ -140,6 +140,8 @@ codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
 codeterm agent report "MESSAGE" [--pane ID]    # Report to parent (positional, NOT --message)
 codeterm agent reports [--pane ID]             # Read reports from children
 codeterm agent status [--pane ID]              # Detailed status + role
+codeterm agent compact [--pane ID]             # Send /compact to Claude (compacts context)
+codeterm agent model <sonnet|haiku|opus> [--pane ID]  # Switch Claude model (sends /model <name>)
 codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS_ID] [--args A1 A2]
                                                # One-call: create tab (no auto-switch), set role, launch agent, send task (non-blocking)
                                                # Role: Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
@@ -197,7 +199,7 @@ CodeTerm instances form a mesh — discover, pair, and communicate across machin
 
 **Any command works on a remote peer — add `--mesh TARGET` (name or ID):**
 ```bash
-codeterm mesh status                           # Your identity, crown, peers
+codeterm mesh status                           # Your identity, peers, access levels
 codeterm mesh peers                            # Paired + discovered peers
 codeterm pane list --mesh PEER                 # Remote panes
 codeterm send-text "cmd" --pane ID --mesh PEER # Send to remote pane
@@ -206,7 +208,7 @@ codeterm agent spawn claude --task "build" --mesh PEER  # Spawn remotely
 codeterm workspace create "CI" --mesh PEER     # Create workspace remotely
 ```
 
-**Flow:** `mesh peers` → find trusted peer → `pane list --mesh PEER` → interact. Only `trusted` peers accept commands.
+**Flow:** `mesh peers` → find paired peer → `pane list --mesh PEER` → interact. Only paired peers accept commands (flat trust model: paired = trusted). AccessLevel (Full/ReadOnly/AgentIsolated) is per-peer, per-machine.
 
 **Mesh message prefixes:** Incoming messages from mesh peers arrive as:
 ```
@@ -420,4 +422,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->

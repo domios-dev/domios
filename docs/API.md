@@ -28,7 +28,7 @@ Then: `Authorization: Bearer your-secret-token`
 #### System
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| GET | `/api/health` | — | Health check |
+| GET | `/api/health` | — | Health check. Returns `version`, `build` (git hash), `build_number` (incremented by `build.sh dev`), `name`. |
 | GET | `/api/identify` | — | Version, platform, features |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
 
@@ -165,7 +165,7 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 #### Mesh Networking
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/mesh/status` | — | Mesh identity, crown, discovery status |
+| GET | `/api/mesh/status` | — | Mesh identity, peers, discovery status |
 | GET | `/api/mesh/peers` | — | List all peers (paired + discovered) |
 | POST | `/api/mesh/discover` | — | Trigger discovery, return discovered peers |
 | POST | `/api/mesh/connect` | `{instance_id}` | Initiate pairing with a discovered peer (crypto handled server-side) |
@@ -175,7 +175,14 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
 | DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (used internally by disconnect broadcast) |
 
+**Tauri IPC (Mesh):**
+| Command | Params | Description |
+|---------|--------|-------------|
+| `mesh_set_access` | `instance_id, access_level` | Set access level for a paired peer. `access_level`: `full`, `read_only`, `agent_isolated`. |
+
 The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level — they handle crypto, key exchange, and peer notification automatically. These mirror the Tauri IPC commands used by the UI. Management commands are local-only and cannot be relayed via `--mesh`.
+
+**Flat peer model:** Paired = trusted. No crown, no king, no trust declarations. Each machine sets an **AccessLevel** (Full/ReadOnly/AgentIsolated) per peer locally via the `mesh_set_access` Tauri command. Default is Full. UDP discovery broadcasts every 30 seconds.
 
 #### Bridge (Telegram / External Services)
 | Method | Path | Body | Description |
@@ -530,6 +537,8 @@ codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
 codeterm agent report MESSAGE [--pane ID]      # Send report to direct parent (cascade, not to orchestrator). Auto-injected into parent's PTY.
 codeterm agent reports [--pane ID] [--clear]   # Read reports from children
 codeterm agent status [--pane ID]              # Get detailed status + role
+codeterm agent compact [--pane ID]             # Send /compact to Claude (compacts context)
+codeterm agent model <sonnet|haiku|opus> [--pane ID]  # Switch Claude model (sends /model <name>)
 codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS_ID] [--args A1 A2]
                                                # One-call agent spawn (default agent: claude)
                                                # Role: Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
@@ -572,7 +581,7 @@ codeterm bridge send --to CHAT_ID --type voice --file /path/to/audio.ogg
                                                # Send voice/video/animation/sticker
 
 # Mesh Networking
-codeterm mesh status                           # Show mesh identity, crown, discovery
+codeterm mesh status                           # Show mesh identity, peers, discovery
 codeterm mesh peers                            # List paired + discovered peers
 codeterm mesh discover                         # Trigger discovery scan, list discovered peers
 codeterm mesh connect INSTANCE_ID              # Initiate pairing with discovered peer
@@ -661,4 +670,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->

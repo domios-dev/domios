@@ -59,7 +59,7 @@ Every paired peer has an Ed25519 keypair. Requests between peers are signed with
 mesh/
   mod.rs            — MeshManager (facade) + broadcast_sync + introductions
   identity.rs       — signing, authentication
-  crown.rs          — Ed25519 crypto primitives (sign/verify requests, keypair generation)
+  crown.rs          — Ed25519 crypto primitives (sign/verify requests, keypair generation; legacy name, no crown concept)
   types.rs          — all types
   peers.rs          — disk storage
   discovery.rs      — mDNS + UDP + Tailscale

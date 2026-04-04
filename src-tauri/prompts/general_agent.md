@@ -54,9 +54,11 @@ theme.name                                  # active theme name
 
 ## Mesh networking
 
+Flat peer model: paired = trusted, no king/crown. AccessLevel (Full/ReadOnly/Isolated) per-peer.
+
 Any command works on a remote peer — add `--mesh TARGET` (instance name or ID):
 ```
-mesh status                                  # your identity, crown, peer counts
+mesh status                                  # your identity, peer counts
 mesh peers                                   # paired + discovered peers
 pane list --mesh PEER                        # remote panes
 send-text "cmd" --pane ID --mesh PEER        # send to remote pane
@@ -74,9 +76,16 @@ mesh connect INSTANCE_ID                         # initiate pairing with discove
 mesh approve REQUEST_ID                          # accept incoming pair request
 mesh reject REQUEST_ID                           # reject + block incoming request
 mesh disconnect INSTANCE_ID                      # unpair from a peer
+mesh set-access INSTANCE_ID full|read_only|agent_isolated  # set access level for peer
 ```
 
-**Flow:** `mesh peers` → find trusted peer → `pane list --mesh PEER` → interact. On startup, run `mesh peers` to know available machines.
+**Flow:** `mesh peers` → find paired peer → `pane list --mesh PEER` → interact. On startup, run `mesh peers` to know available machines.
+
+## Agent self-management
+```
+agent compact [--pane ID]                    # compact context (/compact)
+agent model sonnet|haiku|opus [--pane ID]    # switch model (/model)
+```
 
 **Incoming messages** arrive prefixed with source info:
 ```
