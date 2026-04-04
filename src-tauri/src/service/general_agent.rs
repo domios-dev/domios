@@ -182,6 +182,23 @@ pub fn start_general_agent(
 
     let general_cwd = general_dir().to_string_lossy().to_string();
 
+    // Check if agent is already running (e.g. after hot reload) — don't spawn a new PTY
+    {
+        let m = mux.lock();
+        if let Some(pid) = m.resolve_pane_id(GENERAL_ALIAS) {
+            if let Some(pane) = m.get_pane(&pid) {
+                if pane.agent_type.is_some() {
+                    if let Some(ref pty_id) = pane.pty_id {
+                        if pty.lock().get_session(pty_id).is_some() {
+                            log::info!("[general-agent] Already running (pane={}, pty={}) — skipping", pid, pty_id);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Find General pane (already created by ensure_general_workspace in init_states)
     let (pane_id, session_id) = {
         let m = mux.lock();
@@ -286,47 +303,110 @@ pub fn start_general_agent(
             .unwrap_or_else(|| "claude --dangerously-skip-permissions".to_string())
     };
 
-    // Retry loop: send command, check if agent started, retry if not.
-    // Claude sets an OSC title containing "claude" or a Braille spinner on startup.
-    let max_attempts = 5;
-    for attempt in 1..=max_attempts {
-        log::info!("[general-agent] Launch attempt {}/{}: {}", attempt, max_attempts, cmd);
+    // Send launch command via bracket paste (single attempt — watchdog handles retries)
+    log::info!("[general-agent] Launching: {}", cmd);
+    let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
+    if let Err(e) = pty.lock().write(&pty_id, paste.as_bytes()) {
+        log::error!("[general-agent] Failed to write launch command: {}", e);
+        return;
+    }
 
-        // Wait for shell prompt before (re-)sending (skip on first attempt — already polled above)
-        if attempt > 1 {
-            let ready = crate::service::pty_io::poll_shell_prompt(
-                screen_state, &pty_id, std::time::Duration::from_secs(10),
-            );
-            if !ready {
-                log::warn!("[general-agent] Attempt {}: shell prompt not detected, trying anyway", attempt);
-            }
-        }
-
-        // Send launch command via bracket paste
-        let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
-        if let Err(e) = pty.lock().write(&pty_id, paste.as_bytes()) {
-            log::error!("[general-agent] Failed to write launch command: {}", e);
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            continue;
-        }
-
-        // Poll screen for agent detection (up to 10s)
-        let launched = poll_agent_started(screen_state, &svc.agent_registry, &pty_id, std::time::Duration::from_secs(10));
-        if launched {
-            log::info!("[general-agent] Agent detected on attempt {}", attempt);
-            break;
-        }
-
-        if attempt == max_attempts {
-            log::error!("[general-agent] Agent not detected after {} attempts — giving up", max_attempts);
-        } else {
-            log::warn!("[general-agent] Attempt {}: agent not detected, will retry", attempt);
-        }
+    // Poll screen for agent detection (up to 15s — Claude can take a while)
+    let launched = poll_agent_started(screen_state, &svc.agent_registry, &pty_id, std::time::Duration::from_secs(15));
+    if !launched {
+        log::warn!("[general-agent] Agent not detected within 15s — watchdog will retry if needed");
     }
 
     // Emit state changed so frontend picks up the new workspace/pane
     svc.emit_state_changed();
     log::info!("[general-agent] Started successfully (pane={}, pty={})", pane_id, pty_id);
+}
+
+/// Watchdog: periodically checks if the General Agent is alive.
+/// If agent_type is None and shell prompt is visible, restarts the agent.
+/// Respects `auto_restart`, `max_restart_attempts`, and `restart_delay_s` from config.
+pub fn start_watchdog(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    config: &crate::config::ConfigState,
+    app: &tauri::AppHandle,
+) {
+    let svc = svc.clone();
+    let mux = mux.clone();
+    let pty = pty.clone();
+    let screen_state = screen_state.clone();
+    let config = config.clone();
+    let app = app.clone();
+
+    std::thread::spawn(move || {
+        // Wait for initial startup to complete
+        std::thread::sleep(std::time::Duration::from_secs(20));
+        let mut consecutive_restarts = 0u32;
+        let check_interval = std::time::Duration::from_secs(10);
+
+        loop {
+            std::thread::sleep(check_interval);
+
+            let general_config = config.lock().general_agent.clone();
+            if !general_config.enabled || !general_config.auto_restart {
+                continue;
+            }
+
+            // Find the General pane and check its state
+            let needs_restart = {
+                let m = mux.lock();
+                m.resolve_pane_id(GENERAL_ALIAS).and_then(|pid| {
+                    let pane = m.get_pane(&pid)?;
+                    // Agent running — nothing to do
+                    if pane.agent_type.is_some() { return Some(false); }
+                    // In grace period — still launching
+                    let in_grace = pane.agent_set_at
+                        .map(|t| t.elapsed().as_secs() < 30)
+                        .unwrap_or(false);
+                    if in_grace { return Some(false); }
+                    // Check for shell prompt (confirms PTY is ready, agent exited)
+                    let has_prompt = pane.pty_id.as_ref().and_then(|pty_id| {
+                        screen_state.try_lock().and_then(|ss| {
+                            ss.get_screen_text(pty_id).map(|screen| {
+                                screen.lines().rev()
+                                    .find(|l| !l.trim().is_empty())
+                                    .map(|l| {
+                                        let t = l.trim();
+                                        t.ends_with('>') || t.ends_with('$') || t.ends_with('%') || t.ends_with('#')
+                                    })
+                                    .unwrap_or(false)
+                            })
+                        })
+                    }).unwrap_or(false);
+                    Some(has_prompt)
+                })
+            };
+
+            match needs_restart {
+                Some(true) => {
+                    if consecutive_restarts >= general_config.max_restart_attempts {
+                        log::error!("[general-agent/watchdog] Max restarts ({}) reached — stopping",
+                            general_config.max_restart_attempts);
+                        break;
+                    }
+                    consecutive_restarts += 1;
+                    log::info!("[general-agent/watchdog] Agent not running — restarting ({}/{})",
+                        consecutive_restarts, general_config.max_restart_attempts);
+                    std::thread::sleep(std::time::Duration::from_secs(general_config.restart_delay_s as u64));
+                    start_general_agent(&svc, &mux, &pty, &screen_state, &config, &app);
+                }
+                Some(false) => {
+                    // Agent running or in grace period — reset counter
+                    consecutive_restarts = 0;
+                }
+                None => {
+                    // No General pane found — nothing to do
+                }
+            }
+        }
+    });
 }
 
 /// Poll screen_state for signs that the agent has started.

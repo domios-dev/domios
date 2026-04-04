@@ -276,8 +276,8 @@ impl Default for GeneralAgentConfig {
             enabled: true,
             agent_provider: "claude".to_string(),
             auto_restart: true,
-            max_restart_attempts: 3,
-            restart_delay_s: 60,
+            max_restart_attempts: 5,
+            restart_delay_s: 5,
         }
     }
 }

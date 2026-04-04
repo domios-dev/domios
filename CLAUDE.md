@@ -50,6 +50,19 @@ cd tests/webdriver && npm test
 - Windows: `%USERPROFILE%\.codeterm-dev\logs\codeterm.log`
 - Live view: `tail -f ~/.codeterm-dev/logs/codeterm.log`
 
+### Build verification — MANDATORY before debugging
+
+`build.sh dev` increments `BUILD_NUMBER` on each run. The running instance exposes it via health API.
+
+**Before debugging or testing any change, ALWAYS:**
+1. Check logs: `tail -30 ~/.codeterm-dev/logs/codeterm.log`
+2. Verify the running build matches your code:
+   ```bash
+   curl -s http://127.0.0.1:7686/api/health | jq '{build, build_number}'
+   ```
+   Compare `build` (git commit hash) and `build_number` with what you expect. If they don't match, the old build is still running — your changes aren't live yet.
+3. Only THEN start debugging. Don't waste time investigating behavior from a stale build.
+
 ## Agent roles
 
 - **devops** agent — builds, releases, CI/CD, version bumps, tagging, GitHub Actions, `build.sh` maintenance. Delegate all build/release/deploy tasks to it.

@@ -8,6 +8,7 @@ references/
 !src-tauri/.cargo/
 codeterm-workspace/
 tests/e2e/__pycache__/
+BUILD_NUMBER
 tests/e2e/testdata_*.json
 src-tauri/bundled-cli/
 *.local.sh
