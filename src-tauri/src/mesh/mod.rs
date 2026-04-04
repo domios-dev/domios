@@ -3,7 +3,7 @@
 //! Architecture (SOLID):
 //! - IdentityManager — signing, authentication, keypair operations
 //! - CrownManager — crown lifecycle (claiming, transferring, accepting)
-//! - TrustManager — TTL-based trust declarations with centralized King authority
+//! - TrustManager — inverted trust: default=Trusted, King only signs Untrusted declarations
 //! - MeshManager — thin facade composing the above + peer/discovery state
 
 pub mod types;
@@ -131,15 +131,6 @@ impl MeshManager {
 
     pub fn get_trust_level(&self, peer_id: &str) -> crown::TrustLevel {
         self.trust.get_trust_level(peer_id, self.crown.crown_holder_id().as_deref())
-    }
-
-    pub fn auto_trust_peer(&mut self, peer_id: &str) -> Option<crown::TrustDeclaration> {
-        self.trust.auto_trust_peer(
-            self.crown.keypair.as_ref(),
-            peer_id,
-            &self.ident.identity.instance_id,
-            self.crown.crown_holder_id().as_deref(),
-        )
     }
 
     pub fn trusted_peer_count(&self) -> usize {
@@ -411,15 +402,13 @@ pub async fn refresh_trust(mesh: &MeshState) {
     };
 
     if is_crown {
-        // Crown holder: re-sign expiring declarations with fresh TTL
+        // Crown holder: re-sign expiring Untrusted declarations with fresh TTL
         {
             let mut m = mesh.lock();
             for peer_id in &expiring {
-                let current_level = m.get_trust_level(peer_id);
-                if current_level != crown::TrustLevel::Untrusted {
-                    let _ = m.set_trust_level(peer_id, current_level);
-                    log::debug!("[mesh/trust-refresh] Re-signed declaration for {}", peer_id);
-                }
+                // Only Untrusted declarations exist — re-sign them
+                let _ = m.set_trust_level(peer_id, crown::TrustLevel::Untrusted);
+                log::debug!("[mesh/trust-refresh] Re-signed untrust for {}", peer_id);
             }
         }
         broadcast_sync(mesh).await;
@@ -437,7 +426,7 @@ pub async fn refresh_trust(mesh: &MeshState) {
                     }
                 }
                 Err(e) => {
-                    log::warn!("[mesh/trust-refresh] Crown offline — expired declarations will fall to Untrusted: {}", e);
+                    log::warn!("[mesh/trust-refresh] Crown offline — expired untrust declarations will revert to Trusted: {}", e);
                 }
             }
         }

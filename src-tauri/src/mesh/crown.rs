@@ -125,17 +125,17 @@ pub fn verify_crown_jwt(token: &str, public_key_b64: &str) -> Result<CrownClaims
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum TrustLevel {
-    /// Default for new peers. Can communicate but can't vote.
-    Untrusted,
-    /// Full mesh member. Can vote in emergency elections.
+    /// Default — all mesh peers are trusted unless King explicitly marks otherwise.
     Trusted,
+    /// King-declared ban. Cannot send commands to the network.
+    Untrusted,
     /// Can observe but not interact.
     Observer,
 }
 
 impl Default for TrustLevel {
     fn default() -> Self {
-        Self::Untrusted
+        Self::Trusted
     }
 }
 

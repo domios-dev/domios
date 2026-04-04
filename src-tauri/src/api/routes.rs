@@ -882,14 +882,18 @@ async fn spawn_agent(
     };
     let result = state.svc.spawn_agent(params).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({
+    let mut resp = serde_json::json!({
         "pane_id": result.pane_id,
         "tab_id": result.tab_id,
         "pty_id": result.pty_id,
         "agent": result.agent,
         "title": result.title,
         "role": result.role,
-    })))
+    });
+    if let Some(ref warning) = result.warning {
+        resp["warning"] = serde_json::json!(warning);
+    }
+    Ok(Json(resp))
 }
 
 // ── Batch Commands ──────────────────────────────────────────────────
@@ -1463,7 +1467,7 @@ mod tests_send_text_body {
     }
 }
 
-pub fn _strip_ansi_codes(s: &str) -> String {
+pub fn strip_ansi_codes(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
