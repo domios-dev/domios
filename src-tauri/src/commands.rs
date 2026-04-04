@@ -192,6 +192,29 @@ pub async fn read_pty(
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
 
+    // If a backend reader is active, it forwards output via channel to avoid competing reads.
+    // Read from channel instead of raw PTY. Processing (OutputBuffer, ScreenState, process_pty_output)
+    // is already done by the backend reader — don't duplicate it here.
+    {
+        let rx_opt = session.backend_reader_rx.lock().unwrap().take();
+        if let Some(mut rx) = rx_opt {
+            let result = rx.recv().await;
+            match result {
+                Some(data) => {
+                    *session.backend_reader_rx.lock().unwrap() = Some(rx);
+                    return Ok(data);
+                }
+                None => {
+                    // Channel closed — backend reader exited (PTY dead).
+                    // handle_pty_death was already called by backend reader.
+                    *session.backend_reader_rx.lock().unwrap() = None;
+                    return Err("PTY closed".to_string());
+                }
+            }
+        }
+        // rx was None — no backend reader active, fall through to raw PTY path
+    }
+
     let ob = (*output_buf).clone();
     let ss = (*screen_state).clone();
     let pid = pty_id.clone();
