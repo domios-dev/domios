@@ -263,7 +263,7 @@ pub fn cleanup_stale_peers(mesh: &Arc<Mutex<MeshManager>>) {
 // ── UDP Broadcast fallback ──────────────────────────────────────────
 
 // No separate broadcast port — we use the API port (TCP/UDP don't conflict)
-const BROADCAST_INTERVAL_SECS: u64 = 10;
+const BROADCAST_INTERVAL_SECS: u64 = 30;
 const BROADCAST_MAGIC: &[u8] = b"CODETERM1";
 
 /// Beacon payload: magic + JSON.
