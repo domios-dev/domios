@@ -176,9 +176,11 @@ impl ServiceContext {
     }
 
     /// Called by the agent when cron task is complete. Saves summary as log and updates status.
+    /// Oneshot jobs are automatically deleted after completion.
     pub fn cron_complete(
         &self,
         cron: &CronState,
+        wake: &CronWake,
         run_id: &str,
         summary: Option<&str>,
     ) -> Result<(), String> {
@@ -209,12 +211,21 @@ impl ServiceContext {
             }
 
             let _ = store.update_run_status(&job_id, run_id, CronRunStatus::Success);
+            let is_oneshot = store.get(&job_id).map(|j| j.oneshot).unwrap_or(false);
             store.unregister_pane(&pane_id);
-            log::info!("Cron run completed: job={}, run={}, summary_len={}", job_id, run_id, log_text.len());
+            log::info!("Cron run completed: job={}, run={}, oneshot={}, summary_len={}", job_id, run_id, is_oneshot, log_text.len());
             drop(store);
 
             // Close the pane — it's now a log entry, not a live terminal
             let _ = self.close_pane(&pane_id);
+
+            // Oneshot: auto-delete the job after completion
+            if is_oneshot {
+                log::info!("Oneshot cron auto-deleting: job={}", job_id);
+                if let Err(e) = self.cron_delete(cron, wake, &job_id) {
+                    log::error!("Failed to auto-delete oneshot cron: {}", e);
+                }
+            }
 
             self.emit_cron_changed();
             Ok(())

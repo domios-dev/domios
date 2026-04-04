@@ -767,7 +767,11 @@ export function TerminalPane({
             }).catch(() => {});
             return true; // let xterm handle the native paste for text
           } else {
-            // Windows/Linux: no native paste event — handle everything manually
+            // Windows/Linux: handle everything manually.
+            // preventDefault to block any native paste event that Tauri webview
+            // might generate — without this, xterm's textarea receives a separate
+            // 'paste' event causing double insertion.
+            e.preventDefault();
             const ptyTarget = predictedId;
             navigator.clipboard.read().then(async (items) => {
               const textItem = items.find((item) => item.types.includes("text/plain"));
@@ -850,13 +854,17 @@ export function TerminalPane({
       });
       cleanupFns.push(() => onDataDisposable.dispose());
 
-      // Fallback: capture keyboard at container level for when xterm textarea loses focus
+      // Fallback: capture keyboard at container level for when xterm textarea loses focus.
+      // Check both className and tagName to reliably detect xterm's internal textarea.
       const containerEl = termRef.current;
       if (containerEl) {
         const handleKeyDown = (e: KeyboardEvent) => {
           // Don't handle if xterm textarea is focused (onData handles it)
           const active = document.activeElement;
-          if (active?.classList.contains("xterm-helper-textarea")) return;
+          if (
+            active instanceof HTMLTextAreaElement &&
+            active.closest(".xterm")
+          ) return;
 
           // Don't capture modifier-only keys or shortcuts
           if (e.ctrlKey && e.shiftKey) return;

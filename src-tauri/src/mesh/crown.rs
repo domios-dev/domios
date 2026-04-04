@@ -148,6 +148,10 @@ pub struct TrustDeclaration {
     pub version: u64,
     /// The signed JWT containing these claims.
     pub signed_jwt: String,
+    /// Expiry timestamp (Unix seconds). Declarations past this are invalid.
+    /// Legacy declarations (None) are treated as expired and must be refreshed.
+    #[serde(default)]
+    pub expires_at: Option<u64>,
 }
 
 /// Claims inside a trust declaration JWT.
@@ -158,9 +162,15 @@ pub struct TrustClaims {
     pub declared_by: String,
     pub version: u64,
     pub iat: u64,
+    /// Expiry timestamp (Unix seconds).
+    #[serde(default)]
+    pub expires_at: Option<u64>,
 }
 
-/// Create a signed trust declaration.
+/// Default TTL for trust declarations: 5 minutes.
+pub const TRUST_TTL_SECS: u64 = 300;
+
+/// Create a signed trust declaration with TTL.
 pub fn create_trust_declaration(
     keypair: &CrownKeyPair,
     peer_id: &str,
@@ -172,6 +182,7 @@ pub fn create_trust_declaration(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
+    let expires_at = now + TRUST_TTL_SECS;
 
     let claims = TrustClaims {
         peer_id: peer_id.to_string(),
@@ -179,6 +190,7 @@ pub fn create_trust_declaration(
         declared_by: holder_id.to_string(),
         version,
         iat: now,
+        expires_at: Some(expires_at),
     };
 
     let signing_key = keypair.signing_key()?;
@@ -194,11 +206,48 @@ pub fn create_trust_declaration(
         declared_by: holder_id.to_string(),
         version,
         signed_jwt: signed_token,
+        expires_at: Some(expires_at),
     })
 }
 
-/// Verify a trust declaration signature.
+/// Verify a trust declaration signature and TTL.
+/// Returns claims if signature valid AND not expired.
 pub fn verify_trust_declaration(
+    declaration: &TrustDeclaration,
+    public_key_b64: &str,
+) -> Result<TrustClaims, String> {
+    let parts: Vec<&str> = declaration.signed_jwt.splitn(2, '.').collect();
+    if parts.len() != 2 {
+        return Err("Invalid token format".to_string());
+    }
+    let vk = verifying_key_from_b64(public_key_b64)?;
+    let sig_bytes = B64.decode(parts[1]).map_err(|e| format!("Bad signature: {}", e))?;
+    if sig_bytes.len() != 64 {
+        return Err("Invalid signature length".to_string());
+    }
+    let mut sig_arr = [0u8; 64];
+    sig_arr.copy_from_slice(&sig_bytes);
+    let signature = ed25519_dalek::Signature::from_bytes(&sig_arr);
+    vk.verify(parts[0].as_bytes(), &signature)
+        .map_err(|_| "Invalid signature".to_string())?;
+    let payload = B64.decode(parts[0]).map_err(|e| format!("Bad payload: {}", e))?;
+    let claims: TrustClaims = serde_json::from_slice(&payload).map_err(|e| format!("Bad claims: {}", e))?;
+
+    // Check TTL — legacy declarations (no expires_at) are treated as expired
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    match claims.expires_at {
+        Some(exp) if now > exp => Err(format!("Declaration expired (expired {}s ago)", now - exp)),
+        None => Err("Declaration has no expiry (legacy)".to_string()),
+        _ => Ok(claims),
+    }
+}
+
+/// Verify trust declaration signature only (no TTL check).
+/// Used internally for re-signing expired declarations.
+pub fn verify_trust_signature(
     declaration: &TrustDeclaration,
     public_key_b64: &str,
 ) -> Result<TrustClaims, String> {

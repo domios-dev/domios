@@ -14,6 +14,8 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
   const [showManual, setShowManual] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [exiting, setExiting] = useState(false);
+  const [approving, setApproving] = useState<string | null>(null);
+  const [approveError, setApproveError] = useState<string | null>(null);
   const pendingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchData = useCallback(() => {
@@ -64,7 +66,17 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
   }, [connecting]);
 
   const handleApprove = useCallback(async (requestId: string) => {
-    try { await invoke("mesh_approve_pairing", { requestId }); } catch (e) { console.error("Mesh approve failed:", e); }
+    setApproving(requestId);
+    setApproveError(null);
+    try {
+      await invoke("mesh_approve_pairing", { requestId });
+    } catch (e: any) {
+      const msg = typeof e === "string" ? e : e?.message || "Failed";
+      setApproveError(msg);
+      console.error("Mesh approve failed:", e);
+    } finally {
+      setApproving(null);
+    }
   }, []);
 
   const handleReject = useCallback(async (requestId: string) => {
@@ -274,13 +286,18 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                 {(canManage || !hasPeers) ? (
                   <div className="flex items-center gap-2">
                     <button onClick={() => handleApprove(req.request_id)}
-                      className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all">
-                      Approve
+                      disabled={approving === req.request_id}
+                      className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all disabled:opacity-50">
+                      {approving === req.request_id ? "Approving..." : "Approve"}
                     </button>
                     <button onClick={() => handleReject(req.request_id)}
-                      className="text-[10px] px-3 py-1 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors">
+                      disabled={approving === req.request_id}
+                      className="text-[10px] px-3 py-1 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors disabled:opacity-50">
                       Reject
                     </button>
+                    {approveError && approving === null && (
+                      <span className="text-[10px] text-[var(--ct-red)]">{approveError}</span>
+                    )}
                   </div>
                 ) : (
                   <span className="text-[10px] text-[var(--ct-muted)]">Awaiting crown approval</span>

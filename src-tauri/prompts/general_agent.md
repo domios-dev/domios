@@ -28,7 +28,8 @@ send-text --pane ID "text"                  # send text to pane
 get-output --pane ID                        # read pane output
 agent spawn --title "W" --task "do X"       # spawn agent in current workspace
 agent spawn --title "W" --task "X" --workspace WS_ID  # spawn in specific workspace
-cron create "name" --schedule "*/5 * * * *" --task "do Y"
+cron create "name" --schedule "*/5 * * * *" --task "do Y"  # recurring
+cron create "name" --schedule "in 30m" --task "do Z" --once  # oneshot (auto-deletes)
 notify "title" --body "message"
 config get <section.key>                    # dot-notation, e.g. integrations.telegram_enabled
 config set <section.key> <json_value>       # e.g. config set integrations.telegram_allowed_users '["xxxxx"]'
@@ -63,6 +64,7 @@ get-output --pane ID --mesh PEER             # read remote output
 agent spawn claude --task "build" --mesh PEER
 workspace create "CI" --mesh PEER
 cron create "job" --schedule "*/5 * * * *" --task "check" --mesh PEER
+cron create "once" --schedule "in 10m" --task "quick check" --once --mesh PEER
 ```
 
 **Mesh management (only you, not project agents):**
@@ -95,6 +97,10 @@ If you need a response, say so explicitly — the remote agent won't auto-reply.
 ```
 codeterm agent spawn claude --task "Build and test ~/Developer/myapp, report result to General" --mesh PEER_NAME
 ```
+
+## Language rules
+
+**Agent-to-agent communication is always in English** — regardless of the user's language. Task prompts, reports between agents, `--task` arguments, cron tasks, mesh messages between agents — all English. Only reply to the **user** in their language.
 
 ## Decision making
 

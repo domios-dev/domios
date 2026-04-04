@@ -252,6 +252,7 @@ mod tests {
             creator_pane_id: None,
             enabled: Some(true),
             max_history: None,
+            oneshot: None,
         }).unwrap();
 
         store.create(CronCreateParams {
@@ -266,6 +267,7 @@ mod tests {
             creator_pane_id: None,
             enabled: Some(false),
             max_history: None,
+            oneshot: None,
         }).unwrap();
 
         let enabled = store.list_enabled();

@@ -45,8 +45,8 @@ pub fn start_mdns(
         let (instance_id, instance_name, api_port) = {
             let m = mesh.lock();
             (
-                m.identity.instance_id.clone(),
-                m.instance_name.clone(),
+                m.ident.identity.instance_id.clone(),
+                m.ident.instance_name.clone(),
                 m.api_port,
             )
         };
@@ -108,7 +108,7 @@ pub fn start_mdns(
     let mesh_clone = mesh.clone();
     let daemon_clone = daemon.clone();
     let browse_thread = std::thread::spawn(move || {
-        let own_id = mesh_clone.lock().identity.instance_id.clone();
+        let own_id = mesh_clone.lock().ident.identity.instance_id.clone();
 
         loop {
             match receiver.recv() {
@@ -284,8 +284,8 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
     let (instance_id, instance_name, api_port) = {
         let m = mesh.lock();
         (
-            m.identity.instance_id.clone(),
-            m.instance_name.clone(),
+            m.ident.identity.instance_id.clone(),
+            m.ident.instance_name.clone(),
             m.api_port,
         )
     };
@@ -314,12 +314,12 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
                     None // Not in a mesh
                 } else {
                     // Extract mesh_id from crown JWT, or use a hash of crown holder as fallback
-                    m.crown_public.as_ref().and_then(|c| {
+                    m.crown.public_info.as_ref().and_then(|c| {
                         crate::mesh::crown::verify_crown_jwt(&c.crown_jwt, &c.public_key)
                             .ok().map(|cl| cl.mesh_id)
                     }).or_else(|| {
                         // Fallback: use crown holder_id as mesh identifier
-                        m.crown_public.as_ref().map(|c| c.holder_id.clone())
+                        m.crown.public_info.as_ref().map(|c| c.holder_id.clone())
                     })
                 }
             };

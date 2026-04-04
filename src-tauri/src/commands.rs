@@ -682,23 +682,6 @@ pub fn uninstall_skill(skill_id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Agent prompt template — embedded at compile time from docs/AGENT_PROMPT.md
-const AGENT_PROMPT: &str = include_str!("../../docs/AGENT_PROMPT.md");
-
-/// Generate setup prompt — embedded template + dynamic skills list.
-#[tauri::command]
-pub fn get_skills_prompt() -> Result<String, String> {
-    let skills = scan_skills();
-    let mut prompt = AGENT_PROMPT.to_string();
-    if !skills.is_empty() {
-        prompt.push_str("\n\nAvailable skills (install to ~/.claude/skills/):\n");
-        for s in &skills {
-            prompt.push_str(&format!("  - {} — {}\n", s.name, s.description));
-        }
-    }
-    Ok(prompt)
-}
-
 /// Embedded CodeTerm rule for Claude Code
 use crate::prompts::CODETERM_RULE;
 
@@ -1274,6 +1257,7 @@ pub fn cron_create(
     agent: Option<String>,
     cwd: Option<String>,
     description: Option<String>,
+    oneshot: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let params = crate::cron::store::CronCreateParams {
         name,
@@ -1287,6 +1271,7 @@ pub fn cron_create(
         creator_pane_id: None,
         enabled: Some(true),
         max_history: None,
+        oneshot,
     };
     let job = svc.cron_create(&cron, &wake, params)?;
     serde_json::to_value(job).map_err(|e| e.to_string())

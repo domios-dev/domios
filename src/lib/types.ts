@@ -142,6 +142,7 @@ export interface CronJob {
   task: string;
   cwd: string | null;
   role: string | null;
+  oneshot: boolean;
   max_history: number;
   created_at: number;
   last_run: CronRunInfo | null;

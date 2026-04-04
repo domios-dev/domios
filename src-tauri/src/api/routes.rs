@@ -108,6 +108,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/crown", post(super::mesh_routes::mesh_receive_crown))
         .route("/api/mesh/introduce", post(super::mesh_routes::mesh_introduce))
         .route("/api/mesh/sync", post(super::mesh_routes::mesh_sync))
+        .route("/api/mesh/trust/refresh", post(super::mesh_routes::mesh_trust_refresh))
         .route("/api/mesh/relay", post(super::mesh_routes::mesh_relay))
         .route("/api/mesh/peers/{id}", axum::routing::delete(super::mesh_routes::mesh_unpair));
 
@@ -147,8 +148,8 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (S
     // Check mesh signed request
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
-    if let Some(ref pk) = mesh.identity.public_key {
-        known_keys.insert(mesh.identity.instance_id.clone(), pk.clone());
+    if let Some(ref pk) = mesh.ident.identity.public_key {
+        known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
     }
     drop(mesh);
 

@@ -828,7 +828,9 @@ fn dispatch(
             let summary = params.as_ref().and_then(|p| p.get("summary")).and_then(|v| v.as_str());
             let cron_state = app.try_state::<crate::CronState>()
                 .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
-            svc.cron_complete(&cron_state, &run_id, summary)
+            let cron_wake = app.try_state::<crate::CronWake>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            svc.cron_complete(&cron_state, &cron_wake, &run_id, summary)
                 .map_err(|e| JsonRpcError { code: -32603, message: e })?;
             Ok(serde_json::json!({"ok": true}))
         }

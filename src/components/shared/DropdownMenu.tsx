@@ -91,8 +91,8 @@ export function DropdownMenu({ items, trigger, className }: DropdownMenuProps) {
               Closing is handled by the mousedown document listener above. */}
           <div
             ref={menuRef}
-            className="fixed z-50 w-max min-w-[140px] bg-[var(--ct-surface)] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 ct-float"
-            style={{ top: pos.top, left: pos.left }}
+            className="fixed z-50 w-max min-w-[140px] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 ct-float backdrop-blur-xl"
+            style={{ top: pos.top, left: pos.left, background: "var(--ct-surface, #1e1e2e)" }}
           >
             {items.map((item, i) => (
               <button
