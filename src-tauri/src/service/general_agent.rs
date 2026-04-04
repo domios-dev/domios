@@ -36,11 +36,10 @@ pub fn ensure_directories() {
     }
 }
 
-/// Generate or update the provider instructions file (e.g., CLAUDE.md).
-/// Uses marker-based sections — auto-generated content between markers is replaced,
-/// user content outside markers is preserved.
-pub fn generate_instructions(provider_name: &str, instructions_filename: &str) {
-    let path = general_dir().join(instructions_filename);
+/// Generate agent instructions.
+/// - AGENT.md: system prompt, overwritten on every start (CodeTerm manages)
+/// - CLAUDE.md: user's memory/notes, created once with @./AGENT.md import, never touched again
+pub fn generate_instructions(provider_name: &str, _instructions_filename: &str) {
     let version = env!("CARGO_PKG_VERSION");
     let platform = if cfg!(target_os = "windows") { "Windows" }
         else if cfg!(target_os = "macos") { "macOS" }
@@ -49,7 +48,8 @@ pub fn generate_instructions(provider_name: &str, instructions_filename: &str) {
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
 
-    let auto_section = crate::prompts::GENERAL_AGENT_TEMPLATE
+    // AGENT.md — system instructions, overwritten every start
+    let agent_content = crate::prompts::GENERAL_AGENT_TEMPLATE
         .replace("{version}", version)
         .replace("{platform}", platform)
         .replace("{hostname}", &hostname)
@@ -57,29 +57,32 @@ pub fn generate_instructions(provider_name: &str, instructions_filename: &str) {
         .replace("{general_dir}", &general_dir().to_string_lossy())
         .replace("{secrets_dir}", &secrets_dir().to_string_lossy());
 
-    // Read existing file to preserve user content outside markers
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-
-    let new_content = if existing.contains("<!-- CODETERM-AUTO-START") && existing.contains("<!-- CODETERM-AUTO-END -->") {
-        // Replace content between markers
-        let start_marker = "<!-- CODETERM-AUTO-START";
-        let end_marker = "<!-- CODETERM-AUTO-END -->";
-        let start = existing.find(start_marker).unwrap();
-        let end = existing.find(end_marker).unwrap() + end_marker.len();
-        let after = existing[end..].trim_start_matches('\n');
-        format!("{}{}\n\n{}", &existing[..start], auto_section.trim_end(), after)
-    } else if existing.is_empty() {
-        // Fresh file — add auto section + pointer to extra instructions
-        format!("{}\n", auto_section)
+    let agent_path = general_dir().join("AGENT.md");
+    if let Err(e) = std::fs::write(&agent_path, &agent_content) {
+        log::error!("[general-agent] Failed to write AGENT.md: {}", e);
     } else {
-        // File exists but no markers — prepend auto section, keep everything
-        format!("{}\n\n{}", auto_section, existing)
-    };
+        log::info!("[general-agent] AGENT.md updated");
+    }
 
-    if let Err(e) = std::fs::write(&path, new_content) {
-        log::error!("[general-agent] Failed to write instructions file {:?}: {}", path, e);
+    // CLAUDE.md — user file, create once with import, never overwrite
+    let claude_path = general_dir().join("CLAUDE.md");
+    if !claude_path.exists() {
+        let claude_content = "@./AGENT.md\n\n# Notes\n\nYour personal notes and memory go here.\n";
+        if let Err(e) = std::fs::write(&claude_path, claude_content) {
+            log::error!("[general-agent] Failed to create CLAUDE.md: {}", e);
+        } else {
+            log::info!("[general-agent] CLAUDE.md created (first run)");
+        }
     } else {
-        log::info!("[general-agent] Instructions file updated: {:?}", path);
+        // Ensure existing CLAUDE.md has the @./AGENT.md import
+        if let Ok(existing) = std::fs::read_to_string(&claude_path) {
+            if !existing.contains("@./AGENT.md") {
+                // Prepend import to existing file
+                let updated = format!("@./AGENT.md\n\n{}", existing);
+                let _ = std::fs::write(&claude_path, updated);
+                log::info!("[general-agent] Added @./AGENT.md import to existing CLAUDE.md");
+            }
+        }
     }
 
     // Write bootstrap.md on first run — agent reads it, completes onboarding, then deletes it
@@ -173,7 +176,7 @@ pub fn start_general_agent(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    app: &tauri::AppHandle,
+    _app: &tauri::AppHandle,
 ) {
     let general_config = config.lock().general_agent.clone();
     let provider_name = &general_config.agent_provider;
@@ -181,6 +184,23 @@ pub fn start_general_agent(
     log::info!("[general-agent] Starting (provider={})", provider_name);
 
     let general_cwd = general_dir().to_string_lossy().to_string();
+
+    // Check if agent is already running (e.g. after hot reload) — don't spawn a new PTY
+    {
+        let m = mux.lock();
+        if let Some(pid) = m.resolve_pane_id(GENERAL_ALIAS) {
+            if let Some(pane) = m.get_pane(&pid) {
+                if pane.agent_type.is_some() {
+                    if let Some(ref pty_id) = pane.pty_id {
+                        if pty.lock().get_session(pty_id).is_some() {
+                            log::info!("[general-agent] Already running (pane={}, pty={}) — skipping", pid, pty_id);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Find General pane (already created by ensure_general_workspace in init_states)
     let (pane_id, session_id) = {
@@ -247,23 +267,51 @@ pub fn start_general_agent(
     };
 
     // Link PTY to pane
-    mux.lock().link_pty(&pane_id, pty_id.clone());
+    {
+        let mut m = mux.lock();
+        m.link_pty(&pane_id, pty_id.clone());
+        if let Some(pane) = m.get_pane_mut(&pane_id) {
+            pane.auto_approve = true;
+        }
+    }
     // Set agent type immediately
     svc.set_pane_agent_type(&pane_id, Some(provider_name.to_string()));
     log::info!("[general-agent] PTY {} linked to pane {}", pty_id, pane_id);
 
-    // Start backend reader so screen_state gets populated (needed for prompt detection)
-    if let Err(e) = crate::service::pty_lifecycle::start_backend_reader(svc, &pty_id) {
-        log::error!("[general-agent] Failed to start backend reader: {}", e);
+    // Start backend reader on a tokio runtime (start_backend_reader uses tokio::spawn,
+    // but we're on a plain std::thread — no tokio runtime here)
+    log::info!("[general-agent] Starting backend reader for PTY {}", pty_id);
+    {
+        let svc_clone = svc.clone();
+        let pty_id_clone = pty_id.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create backend reader runtime");
+            rt.block_on(async {
+                match crate::service::pty_lifecycle::start_backend_reader(&svc_clone, &pty_id_clone) {
+                    Ok(handle) => { let _ = handle.await; }
+                    Err(e) => log::error!("[general-agent] Failed to start backend reader: {}", e),
+                }
+            });
+        });
     }
+    log::info!("[general-agent] Backend reader started, waiting for shell prompt on PTY {}...", pty_id);
 
-    // Wait for shell prompt (PowerShell on Windows can take several seconds)
+    // Wait for shell to be ready — same mechanism as regular pane resume in commands.rs.
+    // poll_shell_prompt polls screen_state (fed by the backend reader we just started)
+    // every 300ms, returns true when a shell prompt appears on the last non-empty line.
     let ready = crate::service::pty_io::poll_shell_prompt(
-        screen_state, &pty_id, std::time::Duration::from_secs(15),
+        screen_state,
+        &pty_id,
+        std::time::Duration::from_secs(15),
     );
     if !ready {
-        log::warn!("[general-agent] Shell prompt not detected within 15s, sending command anyway");
+        log::warn!("[general-agent] Shell not ready within 15s for PTY {} — watchdog will retry", pty_id);
+        return;
     }
+    log::info!("[general-agent] Shell ready, building launch command...");
 
     // Build launch command
     let cmd = if let Some(ref sid) = session_id {
@@ -286,47 +334,120 @@ pub fn start_general_agent(
             .unwrap_or_else(|| "claude --dangerously-skip-permissions".to_string())
     };
 
-    // Retry loop: send command, check if agent started, retry if not.
-    // Claude sets an OSC title containing "claude" or a Braille spinner on startup.
-    let max_attempts = 5;
-    for attempt in 1..=max_attempts {
-        log::info!("[general-agent] Launch attempt {}/{}: {}", attempt, max_attempts, cmd);
+    // Send launch command via bracket paste (single attempt — watchdog handles retries)
+    log::info!("[general-agent] Launching on PTY {}: {}", pty_id, cmd);
+    let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
+    if let Err(e) = pty.lock().write(&pty_id, paste.as_bytes()) {
+        log::error!("[general-agent] Failed to write launch command: {}", e);
+        return;
+    }
 
-        // Wait for shell prompt before (re-)sending (skip on first attempt — already polled above)
-        if attempt > 1 {
-            let ready = crate::service::pty_io::poll_shell_prompt(
-                screen_state, &pty_id, std::time::Duration::from_secs(10),
-            );
-            if !ready {
-                log::warn!("[general-agent] Attempt {}: shell prompt not detected, trying anyway", attempt);
-            }
-        }
-
-        // Send launch command via bracket paste
-        let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
-        if let Err(e) = pty.lock().write(&pty_id, paste.as_bytes()) {
-            log::error!("[general-agent] Failed to write launch command: {}", e);
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            continue;
-        }
-
-        // Poll screen for agent detection (up to 10s)
-        let launched = poll_agent_started(screen_state, &svc.agent_registry, &pty_id, std::time::Duration::from_secs(10));
-        if launched {
-            log::info!("[general-agent] Agent detected on attempt {}", attempt);
-            break;
-        }
-
-        if attempt == max_attempts {
-            log::error!("[general-agent] Agent not detected after {} attempts — giving up", max_attempts);
-        } else {
-            log::warn!("[general-agent] Attempt {}: agent not detected, will retry", attempt);
-        }
+    // Poll screen for agent detection (up to 15s — Claude can take a while)
+    let launched = poll_agent_started(screen_state, &svc.agent_registry, &pty_id, std::time::Duration::from_secs(15));
+    if !launched {
+        log::warn!("[general-agent] Agent not detected within 15s — watchdog will retry if needed");
     }
 
     // Emit state changed so frontend picks up the new workspace/pane
     svc.emit_state_changed();
     log::info!("[general-agent] Started successfully (pane={}, pty={})", pane_id, pty_id);
+}
+
+/// Watchdog: periodically checks if the General Agent is alive.
+/// If agent_type is None and shell prompt is visible, restarts the agent.
+/// Respects `auto_restart`, `max_restart_attempts`, and `restart_delay_s` from config.
+pub fn start_watchdog(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    config: &crate::config::ConfigState,
+    app: &tauri::AppHandle,
+) {
+    let svc = svc.clone();
+    let mux = mux.clone();
+    let pty = pty.clone();
+    let screen_state = screen_state.clone();
+    let config = config.clone();
+    let app = app.clone();
+
+    std::thread::spawn(move || {
+        // Wait for initial startup to complete
+        std::thread::sleep(std::time::Duration::from_secs(20));
+        let mut consecutive_restarts = 0u32;
+        let check_interval = std::time::Duration::from_secs(10);
+
+        loop {
+            std::thread::sleep(check_interval);
+
+            let general_config = config.lock().general_agent.clone();
+            if !general_config.enabled || !general_config.auto_restart {
+                continue;
+            }
+
+            // Find the General pane and check its state
+            let needs_restart = {
+                let m = mux.lock();
+                m.resolve_pane_id(GENERAL_ALIAS).and_then(|pid| {
+                    let pane = m.get_pane(&pid)?;
+                    // In grace period — still launching, don't touch
+                    let in_grace = pane.agent_set_at
+                        .map(|t| t.elapsed().as_secs() < 30)
+                        .unwrap_or(false);
+                    if in_grace { return Some(false); }
+                    // Check screen: shell prompt visible + no agent markers = needs restart
+                    let (has_prompt, has_agent) = pane.pty_id.as_ref().and_then(|pty_id| {
+                        screen_state.try_lock().and_then(|ss| {
+                            ss.get_screen_text(pty_id).map(|screen| {
+                                let prompt = screen.lines().rev()
+                                    .find(|l| !l.trim().is_empty())
+                                    .map(|l| {
+                                        let t = l.trim();
+                                        t.ends_with('>') || t.ends_with('$') || t.ends_with('%') || t.ends_with('#')
+                                    })
+                                    .unwrap_or(false);
+                                let agent = screen.contains("Claude Code")
+                                    || screen.contains("? for shortcuts")
+                                    || screen.contains("Cogitated for")
+                                    || screen.contains("Brewed for");
+                                (prompt, agent)
+                            })
+                        })
+                    }).unwrap_or((false, false));
+                    // Agent markers on screen = alive, regardless of agent_type
+                    if has_agent { return Some(false); }
+                    // Shell prompt visible, no agent = needs restart
+                    Some(has_prompt)
+                })
+            };
+
+            match needs_restart {
+                Some(true) => {
+                    if consecutive_restarts >= general_config.max_restart_attempts {
+                        log::error!("[general-agent/watchdog] Max restarts ({}) reached — stopping",
+                            general_config.max_restart_attempts);
+                        break;
+                    }
+                    consecutive_restarts += 1;
+                    log::info!("[general-agent/watchdog] Agent not running — restarting ({}/{})",
+                        consecutive_restarts, general_config.max_restart_attempts);
+                    // Clear stale agent_type so start_general_agent doesn't skip with "Already running"
+                    if let Some(pid) = mux.lock().resolve_pane_id(GENERAL_ALIAS) {
+                        svc.set_pane_agent_type(&pid, None);
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(general_config.restart_delay_s as u64));
+                    start_general_agent(&svc, &mux, &pty, &screen_state, &config, &app);
+                }
+                Some(false) => {
+                    // Agent running or in grace period — reset counter
+                    consecutive_restarts = 0;
+                }
+                None => {
+                    // No General pane found — nothing to do
+                }
+            }
+        }
+    });
 }
 
 /// Poll screen_state for signs that the agent has started.
@@ -372,29 +493,29 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_instructions_fresh() {
-        let tmp = std::env::temp_dir().join("codeterm-test-general");
-        let _ = std::fs::create_dir_all(&tmp);
-        let path = tmp.join("CLAUDE.md");
-        let _ = std::fs::remove_file(&path);
+    fn test_agent_md_import_in_claude_md() {
+        // CLAUDE.md should import AGENT.md via @./AGENT.md syntax
+        // When CLAUDE.md doesn't exist — creates with import
+        let claude_content = "@./AGENT.md\n\n# Notes\n\nYour personal notes and memory go here.\n";
+        assert!(claude_content.contains("@./AGENT.md"));
+        assert!(claude_content.contains("Notes"));
+    }
 
-        // Can't easily test generate_instructions directly (uses general_dir()),
-        // but we can test the marker logic
-        let auto_start = "<!-- CODETERM-AUTO-START v0.1.0 -->\nAuto content\n<!-- CODETERM-AUTO-END -->";
-        let full = format!("{}\n\nUser content here", auto_start);
+    #[test]
+    fn test_existing_claude_md_gets_import() {
+        // If CLAUDE.md exists without import — prepend it
+        let existing = "# My notes\nSome user content\n";
+        assert!(!existing.contains("@./AGENT.md"));
+        let updated = format!("@./AGENT.md\n\n{}", existing);
+        assert!(updated.contains("@./AGENT.md"));
+        assert!(updated.contains("Some user content"));
+    }
 
-        // Simulate update: replace auto section
-        let new_auto = "<!-- CODETERM-AUTO-START v0.2.0 -->\nNew auto content\n<!-- CODETERM-AUTO-END -->";
-        let start_marker = "<!-- CODETERM-AUTO-START";
-        let end_marker = "<!-- CODETERM-AUTO-END -->";
-        let start = full.find(start_marker).unwrap();
-        let end = full.find(end_marker).unwrap() + end_marker.len();
-        let result = format!("{}{}{}", &full[..start], new_auto, &full[end..]);
-
-        assert!(result.contains("v0.2.0"));
-        assert!(result.contains("User content here"));
-        assert!(!result.contains("v0.1.0"));
-
-        let _ = std::fs::remove_dir_all(&tmp);
+    #[test]
+    fn test_agent_template_no_markers() {
+        // AGENT.md template should not contain auto markers (overwritten entirely)
+        let template = crate::prompts::GENERAL_AGENT_TEMPLATE;
+        assert!(!template.contains("CODETERM-AUTO-START"));
+        assert!(!template.contains("CODETERM-AUTO-END"));
     }
 }

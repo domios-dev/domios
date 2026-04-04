@@ -26,12 +26,11 @@ fn user_allowed(allowed: &[String], user_id: i64) -> bool {
 
 pub struct TelegramService {
     token: String,
-    allowed_users: Vec<String>,
     client: reqwest::Client,
 }
 
 impl TelegramService {
-    pub fn new(token: String, allowed_users: Vec<String>) -> Self {
+    pub fn new(token: String, _allowed_users: Vec<String>) -> Self {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(40)) // > Telegram's 30s long poll
@@ -39,7 +38,7 @@ impl TelegramService {
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        Self { token, allowed_users, client }
+        Self { token, client }
     }
 
     fn api_url(&self, method: &str) -> String {

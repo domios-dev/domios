@@ -28,7 +28,7 @@ Then: `Authorization: Bearer your-secret-token`
 #### System
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| GET | `/api/health` | — | Health check |
+| GET | `/api/health` | — | Health check. Returns `version`, `build` (git hash), `build_number` (incremented by `build.sh dev`), `name`. |
 | GET | `/api/identify` | — | Version, platform, features |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
 
@@ -165,7 +165,7 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 #### Mesh Networking
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/mesh/status` | — | Mesh identity, crown, discovery status |
+| GET | `/api/mesh/status` | — | Mesh identity, peers, discovery status |
 | GET | `/api/mesh/peers` | — | List all peers (paired + discovered) |
 | POST | `/api/mesh/discover` | — | Trigger discovery, return discovered peers |
 | POST | `/api/mesh/connect` | `{instance_id}` | Initiate pairing with a discovered peer (crypto handled server-side) |
@@ -175,7 +175,14 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
 | DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (used internally by disconnect broadcast) |
 
+**Tauri IPC (Mesh):**
+| Command | Params | Description |
+|---------|--------|-------------|
+| `mesh_set_access` | `instance_id, access_level` | Set access level for a paired peer. `access_level`: `full`, `read_only`, `agent_isolated`. |
+
 The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level — they handle crypto, key exchange, and peer notification automatically. These mirror the Tauri IPC commands used by the UI. Management commands are local-only and cannot be relayed via `--mesh`.
+
+**Flat peer model:** Paired = trusted. No crown, no king, no trust declarations. Each machine sets an **AccessLevel** (Full/ReadOnly/AgentIsolated) per peer locally via the `mesh_set_access` Tauri command. Default is Full. UDP discovery broadcasts every 30 seconds.
 
 #### Bridge (Telegram / External Services)
 | Method | Path | Body | Description |
@@ -225,7 +232,7 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/crons` | `?workspace_id=ID` | List all cron jobs (optionally filter by workspace) |
-| POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, cwd?, description?}` | Create cron job |
+| POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, cwd?, description?, oneshot?}` | Create cron job |
 | GET | `/api/crons/:id` | — | Get cron job by ID |
 | PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?}` | Update cron job (prefer over delete+recreate) |
 | DELETE | `/api/crons/:id` | — | Delete cron job |
@@ -255,6 +262,8 @@ The config is saved to disk and a `config-changed` Tauri event is emitted.
 | POST | `/api/update/install` | — | Download and install pending update |
 
 Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
+
+**Oneshot jobs:** Set `oneshot: true` to create a one-time scheduled task. Oneshot jobs accept relative time (`"in 5m"`, `"in 1h30m"`, `"in 2d"`), ISO 8601 (`"2026-04-05T14:30:00Z"`), or unix milliseconds instead of cron expressions. After firing, oneshot jobs are disabled (`next_run=null`) and auto-deleted on completion. The `CronJob` object includes `oneshot: bool` (default `false`, omitted from JSON when `false`).
 
 Cron runs spawn Claude agents on schedule. When done, the agent calls `codeterm cron complete --run-id UUID` (uses the `cron.complete` socket method), which automatically closes the run's tab/pane (ephemeral). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. The sidebar shows a cron tree with runs and next scheduled time. Click a finished run to open the log viewer. Successful spawns do not generate notifications — only errors do.
 
@@ -462,7 +471,7 @@ Newline-delimited JSON:
 | `agent.reports` | `{pane_id, clear?}` | Read reports from children |
 | `cron.list` | `{workspace_id?}` | List cron jobs |
 | `cron.get` | `{id}` | Get cron job by ID |
-| `cron.create` | `{name, schedule, task, workspace_id, agent?, cwd?, description?}` | Create cron job |
+| `cron.create` | `{name, schedule, task, workspace_id, agent?, cwd?, description?, oneshot?}` | Create cron job |
 | `cron.update` | `{id, name?, schedule?, task?, cwd?, description?, enabled?}` | Update cron job |
 | `cron.delete` | `{id}` | Delete cron job |
 | `cron.enable` | `{id}` | Enable cron job |
@@ -528,6 +537,8 @@ codeterm agent allow-spawn [--pane ID]         # Toggle can_spawn
 codeterm agent report MESSAGE [--pane ID]      # Send report to direct parent (cascade, not to orchestrator). Auto-injected into parent's PTY.
 codeterm agent reports [--pane ID] [--clear]   # Read reports from children
 codeterm agent status [--pane ID]              # Get detailed status + role
+codeterm agent compact [--pane ID]             # Send /compact to Claude (compacts context)
+codeterm agent model <sonnet|haiku|opus> [--pane ID]  # Switch Claude model (sends /model <name>)
 codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS_ID] [--args A1 A2]
                                                # One-call agent spawn (default agent: claude)
                                                # Role: Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
@@ -540,8 +551,9 @@ codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [-
 
 # Cron Jobs
 codeterm cron list [--workspace ID]            # List all cron jobs
-codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs" [--cwd /path] [--description "desc"]
+codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs" [--cwd /path] [--description "desc"] [--once]
                                                # Create cron job (5-field cron: min hour dom mon dow)
+                                               # --once: oneshot job (schedule accepts "in 5m", "in 1h30m", ISO8601, unix ms)
 codeterm cron edit ID [--name "new name"] [--schedule "..."] [--task "..."]
                                                # Update cron job fields
 codeterm cron delete ID                        # Delete cron job
@@ -569,7 +581,7 @@ codeterm bridge send --to CHAT_ID --type voice --file /path/to/audio.ogg
                                                # Send voice/video/animation/sticker
 
 # Mesh Networking
-codeterm mesh status                           # Show mesh identity, crown, discovery
+codeterm mesh status                           # Show mesh identity, peers, discovery
 codeterm mesh peers                            # List paired + discovered peers
 codeterm mesh discover                         # Trigger discovery scan, list discovered peers
 codeterm mesh connect INSTANCE_ID              # Initiate pairing with discovered peer
@@ -658,4 +670,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 22 -->
+<!-- revision: 24 -->

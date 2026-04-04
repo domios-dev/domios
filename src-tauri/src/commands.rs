@@ -192,6 +192,29 @@ pub async fn read_pty(
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
 
+    // If a backend reader is active, it forwards output via channel to avoid competing reads.
+    // Read from channel instead of raw PTY. Processing (OutputBuffer, ScreenState, process_pty_output)
+    // is already done by the backend reader — don't duplicate it here.
+    {
+        let rx_opt = session.backend_reader_rx.lock().unwrap().take();
+        if let Some(mut rx) = rx_opt {
+            let result = rx.recv().await;
+            match result {
+                Some(data) => {
+                    *session.backend_reader_rx.lock().unwrap() = Some(rx);
+                    return Ok(data);
+                }
+                None => {
+                    // Channel closed — backend reader exited (PTY dead).
+                    // handle_pty_death was already called by backend reader.
+                    *session.backend_reader_rx.lock().unwrap() = None;
+                    return Err("PTY closed".to_string());
+                }
+            }
+        }
+        // rx was None — no backend reader active, fall through to raw PTY path
+    }
+
     let ob = (*output_buf).clone();
     let ss = (*screen_state).clone();
     let pid = pty_id.clone();
@@ -680,23 +703,6 @@ pub fn uninstall_skill(skill_id: String) -> Result<(), String> {
         std::fs::remove_dir_all(&dest).map_err(|e| e.to_string())?;
     }
     Ok(())
-}
-
-/// Agent prompt template — embedded at compile time from docs/AGENT_PROMPT.md
-const AGENT_PROMPT: &str = include_str!("../../docs/AGENT_PROMPT.md");
-
-/// Generate setup prompt — embedded template + dynamic skills list.
-#[tauri::command]
-pub fn get_skills_prompt() -> Result<String, String> {
-    let skills = scan_skills();
-    let mut prompt = AGENT_PROMPT.to_string();
-    if !skills.is_empty() {
-        prompt.push_str("\n\nAvailable skills (install to ~/.claude/skills/):\n");
-        for s in &skills {
-            prompt.push_str(&format!("  - {} — {}\n", s.name, s.description));
-        }
-    }
-    Ok(prompt)
 }
 
 /// Embedded CodeTerm rule for Claude Code
@@ -1274,6 +1280,7 @@ pub fn cron_create(
     agent: Option<String>,
     cwd: Option<String>,
     description: Option<String>,
+    oneshot: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let params = crate::cron::store::CronCreateParams {
         name,
@@ -1287,6 +1294,7 @@ pub fn cron_create(
         creator_pane_id: None,
         enabled: Some(true),
         max_history: None,
+        oneshot,
     };
     let job = svc.cron_create(&cron, &wake, params)?;
     serde_json::to_value(job).map_err(|e| e.to_string())

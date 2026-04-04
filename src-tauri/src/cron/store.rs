@@ -42,6 +42,9 @@ pub struct CronJob {
     /// Pane ID of whoever created this cron — spawned agents report back here.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub creator_pane_id: Option<String>,
+    /// If true, the job fires once at `next_run` and is auto-deleted on completion.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub oneshot: bool,
     #[serde(default = "default_max_history")]
     pub max_history: usize,
     pub created_at: u64,
@@ -53,6 +56,10 @@ pub struct CronJob {
 
 fn default_max_history() -> usize {
     100
+}
+
+fn is_false(v: &bool) -> bool {
+    !v
 }
 
 // ── Persistence envelope ───────────────────────────────────────────
@@ -101,6 +108,94 @@ pub fn validate_schedule(schedule: &str) -> Result<(), String> {
     let expr = to_6field(schedule);
     cron::Schedule::from_str(&expr).map_err(|e| format!("Invalid cron: {}", e))?;
     Ok(())
+}
+
+/// Parse a oneshot schedule string into an absolute Unix timestamp (ms).
+///
+/// Accepts:
+/// - Relative: "in 5m", "in 1h30m", "in 2h", "in 90s", "in 1d"
+/// - ISO 8601: "2025-04-05T14:30:00Z", "2025-04-05T14:30:00+03:00"
+/// - Unix ms: "1712345678000" (13+ digits)
+pub fn parse_oneshot_schedule(schedule: &str) -> Result<u64, String> {
+    let s = schedule.trim();
+
+    // Relative: "in 5m", "in 1h30m", "in 2d12h"
+    if let Some(rest) = s.strip_prefix("in ") {
+        let duration_ms = parse_relative_duration(rest.trim())?;
+        if duration_ms == 0 {
+            return Err("Duration must be > 0".into());
+        }
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        return Ok(now + duration_ms);
+    }
+
+    // Unix timestamp (13+ digit number = ms)
+    if s.len() >= 13 && s.chars().all(|c| c.is_ascii_digit()) {
+        let ts: u64 = s.parse().map_err(|_| "Invalid timestamp".to_string())?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        if ts <= now {
+            return Err("Oneshot time must be in the future".into());
+        }
+        return Ok(ts);
+    }
+
+    // ISO 8601
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        let ts = dt.timestamp_millis() as u64;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        if ts <= now {
+            return Err("Oneshot time must be in the future".into());
+        }
+        return Ok(ts);
+    }
+
+    Err(format!(
+        "Invalid oneshot schedule '{}'. Use: 'in 5m', 'in 1h30m', ISO8601, or unix ms",
+        s
+    ))
+}
+
+/// Parse a relative duration string like "5m", "1h30m", "2d", "90s" into milliseconds.
+fn parse_relative_duration(s: &str) -> Result<u64, String> {
+    let mut total_ms: u64 = 0;
+    let mut num_buf = String::new();
+
+    for c in s.chars() {
+        if c.is_ascii_digit() {
+            num_buf.push(c);
+        } else {
+            let n: u64 = num_buf.parse().map_err(|_| format!("Invalid number in duration: '{}'", s))?;
+            num_buf.clear();
+            match c {
+                's' => total_ms += n * 1_000,
+                'm' => total_ms += n * 60_000,
+                'h' => total_ms += n * 3_600_000,
+                'd' => total_ms += n * 86_400_000,
+                _ => return Err(format!("Unknown duration unit '{}' in '{}'", c, s)),
+            }
+        }
+    }
+
+    if !num_buf.is_empty() {
+        // Bare number without unit — treat as minutes (most intuitive default)
+        let n: u64 = num_buf.parse().map_err(|_| format!("Invalid number in duration: '{}'", s))?;
+        total_ms += n * 60_000;
+    }
+
+    if total_ms == 0 {
+        return Err(format!("Could not parse duration from '{}'", s));
+    }
+
+    Ok(total_ms)
 }
 
 // ── Store ──────────────────────────────────────────────────────────
@@ -212,12 +307,21 @@ impl CronStore {
     // ── CRUD ────────────────────────────────────────────────────
 
     pub fn create(&mut self, params: CronCreateParams) -> Result<CronJob, String> {
-        validate_schedule(&params.schedule)?;
+        let oneshot = params.oneshot.unwrap_or(false);
 
-        let next_run = if params.enabled.unwrap_or(true) {
-            compute_next_run(&params.schedule)?
-        } else {
+        let next_run = if !params.enabled.unwrap_or(true) {
+            if oneshot {
+                // Validate oneshot schedule even when disabled
+                parse_oneshot_schedule(&params.schedule)?;
+            } else {
+                validate_schedule(&params.schedule)?;
+            }
             None
+        } else if oneshot {
+            Some(parse_oneshot_schedule(&params.schedule)?)
+        } else {
+            validate_schedule(&params.schedule)?;
+            compute_next_run(&params.schedule)?
         };
 
         let job = CronJob {
@@ -232,6 +336,7 @@ impl CronStore {
             cwd: params.cwd,
             role: params.role,
             creator_pane_id: params.creator_pane_id,
+            oneshot,
             max_history: params.max_history.unwrap_or(default_max_history()),
             created_at: Self::now_ms(),
             last_run: None,
@@ -286,7 +391,11 @@ impl CronStore {
             job.description = Some(desc);
         }
         if let Some(schedule) = patch.schedule {
-            validate_schedule(&schedule)?;
+            if job.oneshot {
+                parse_oneshot_schedule(&schedule)?;
+            } else {
+                validate_schedule(&schedule)?;
+            }
             job.schedule = schedule;
         }
         if let Some(task) = patch.task {
@@ -306,10 +415,12 @@ impl CronStore {
         }
 
         // Recompute next_run
-        job.next_run = if job.enabled {
-            compute_next_run(&job.schedule)?
-        } else {
+        job.next_run = if !job.enabled {
             None
+        } else if job.oneshot {
+            Some(parse_oneshot_schedule(&job.schedule)?)
+        } else {
+            compute_next_run(&job.schedule)?
         };
 
         let updated = job.clone();
@@ -336,10 +447,12 @@ impl CronStore {
             .ok_or_else(|| format!("Cron job not found: {}", id))?;
 
         job.enabled = enabled;
-        job.next_run = if enabled {
-            compute_next_run(&job.schedule)?
-        } else {
+        job.next_run = if !enabled {
             None
+        } else if job.oneshot {
+            Some(parse_oneshot_schedule(&job.schedule)?)
+        } else {
+            compute_next_run(&job.schedule)?
         };
 
         let updated = job.clone();
@@ -353,8 +466,11 @@ impl CronStore {
         // Update last_run on job
         if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == job_id) {
             job.last_run = Some(run.clone());
-            // Recompute next_run
-            if job.enabled {
+            // Recompute next_run (oneshot: no next run after firing)
+            if job.oneshot {
+                job.next_run = None;
+                job.enabled = false;
+            } else if job.enabled {
                 job.next_run = compute_next_run(&job.schedule)?;
             }
 
@@ -425,6 +541,9 @@ pub struct CronCreateParams {
     pub enabled: Option<bool>,
     #[serde(default)]
     pub max_history: Option<usize>,
+    /// If true, fires once at the scheduled time and auto-deletes on completion.
+    #[serde(default)]
+    pub oneshot: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -475,6 +594,7 @@ mod tests {
             creator_pane_id: None,
             enabled: None,
             max_history: None,
+            oneshot: None,
         }
     }
 
@@ -609,5 +729,72 @@ mod tests {
         assert!(validate_schedule("not a cron").is_err());
         assert!(validate_schedule("* * *").is_err());
         assert!(validate_schedule("0 9 * * *").is_ok());
+    }
+
+    #[test]
+    fn test_parse_oneshot_relative() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        let ts = parse_oneshot_schedule("in 5m").unwrap();
+        assert!(ts > now);
+        assert!(ts - now >= 4 * 60_000); // at least 4 min
+        assert!(ts - now <= 6 * 60_000); // at most 6 min
+
+        let ts2 = parse_oneshot_schedule("in 1h30m").unwrap();
+        assert!(ts2 - now >= 89 * 60_000);
+        assert!(ts2 - now <= 91 * 60_000);
+
+        let ts3 = parse_oneshot_schedule("in 2d").unwrap();
+        assert!(ts3 - now >= 47 * 3_600_000);
+    }
+
+    #[test]
+    fn test_parse_oneshot_iso8601() {
+        // Future date
+        let future = chrono::Utc::now() + chrono::Duration::hours(2);
+        let iso = future.to_rfc3339();
+        let ts = parse_oneshot_schedule(&iso).unwrap();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        assert!(ts > now);
+    }
+
+    #[test]
+    fn test_parse_oneshot_invalid() {
+        assert!(parse_oneshot_schedule("not a time").is_err());
+        assert!(parse_oneshot_schedule("in 0m").is_err());
+    }
+
+    #[test]
+    fn test_oneshot_create_and_record_run() {
+        let mut store = temp_store();
+
+        let job = store.create(CronCreateParams {
+            oneshot: Some(true),
+            ..make_params("Once", "ws-1", "in 10m")
+        }).unwrap();
+
+        assert!(job.oneshot);
+        assert!(job.enabled);
+        assert!(job.next_run.is_some());
+
+        // After recording run, oneshot should disable and clear next_run
+        store.record_run(&job.id, CronRunInfo {
+            run_id: "run-1".into(),
+            started_at: 1000,
+            finished_at: Some(2000),
+            status: CronRunStatus::Success,
+            pane_id: None,
+            tab_id: None,
+        }).unwrap();
+
+        let j = store.get(&job.id).unwrap();
+        assert!(!j.enabled);
+        assert!(j.next_run.is_none());
     }
 }

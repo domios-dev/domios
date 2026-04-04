@@ -28,15 +28,21 @@ pub fn start_backend_reader(
     pty_id: &str,
 ) -> Result<JoinHandle<()>, String> {
     // Clone a reader from the PTY master — independent from the primary reader.
-    let reader = {
+    // Also set up the frontend channel so read_pty can receive forwarded bytes.
+    let (reader, frontend_tx) = {
         let manager = svc.pty.lock();
         let session = manager
             .get_session(pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
         let pair = session.pair.lock().unwrap();
-        pair.master
+        let r = pair.master
             .try_clone_reader()
-            .map_err(|e| format!("Failed to clone PTY reader: {}", e))?
+            .map_err(|e| format!("Failed to clone PTY reader: {}", e))?;
+        drop(pair);
+        let tx = manager
+            .setup_backend_channel(pty_id)
+            .ok_or_else(|| format!("Failed to set up backend channel for PTY: {}", pty_id))?;
+        (r, tx)
     };
 
     let svc = svc.clone();
@@ -44,7 +50,7 @@ pub fn start_backend_reader(
 
     let handle = tokio::spawn(async move {
         log::info!("[backend-reader] started for pty {}", &pty_id[..pty_id.len().min(8)]);
-        backend_read_loop(reader, svc, pty_id).await;
+        backend_read_loop(reader, svc, pty_id, frontend_tx).await;
     });
 
     Ok(handle)
@@ -55,6 +61,7 @@ async fn backend_read_loop(
     mut reader: Box<dyn Read + Send>,
     svc: ServiceState,
     pty_id: String,
+    frontend_tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
 ) {
     loop {
         let ob = svc.output_buf.clone();
@@ -84,6 +91,9 @@ async fn backend_read_loop(
 
                 // Status tracking + agent detection (same as read_pty).
                 let (prev, now) = svc.process_pty_output(&pty_id, &data);
+
+                // Forward raw bytes to frontend read_pty channel (ignore send errors — frontend may not be connected).
+                let _ = frontend_tx.send(data.clone());
 
                 if now != prev {
                     let pane_id = svc.mux.lock().pane_id_for_pty(&pty_id);

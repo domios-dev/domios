@@ -21,18 +21,10 @@
 ## Quick Start
 
 ```bash
-# Clone
-git clone <repo-url> codeterm
-cd codeterm
-
-# Install frontend dependencies
+git clone <repo-url> codeterm && cd codeterm
 pnpm install
-
-# Development mode (hot-reload)
-npx tauri dev
-
-# Production build
-npx tauri build
+./build.sh dev     # development (hot-reload)
+./build.sh build   # production build
 ```
 
 ## Dev/Prod Isolation
@@ -72,37 +64,73 @@ APPLE_TEAM_ID=JMMWQ9LWF7
 
 ## Build Output
 
-After `npx tauri build`:
+After `./build.sh build`:
 
 | File | Location |
 |------|----------|
+| **NSIS installer** | `src-tauri/target/release/bundle/nsis/CodeTerm_X.Y.Z_x64-setup.exe` |
+| **MSI installer** | `src-tauri/target/release/bundle/msi/CodeTerm_X.Y.Z_x64_en-US.msi` |
 | **Portable exe** | `src-tauri/target/release/codeterm.exe` |
-| **NSIS installer** | `src-tauri/target/release/bundle/nsis/CodeTerm_0.1.0_x64-setup.exe` |
-| **MSI installer** | `src-tauri/target/release/bundle/msi/CodeTerm_0.1.0_x64_en-US.msi` |
-| **CLI binary** | `cli/target/release/codeterm.exe` (build separately) |
-
-## Building CLI separately
-
-```bash
-cargo build --release --manifest-path cli/Cargo.toml
-```
-
-CLI binary: `cli/target/release/codeterm.exe`
+| **CLI binary** | bundled automatically by `build.sh` into `~/.codeterm/bin/` |
 
 ## Running Tests
 
 ```bash
-# Rust unit + integration tests (46 tests)
-cargo test --manifest-path src-tauri/Cargo.toml
-
-# Frontend type check
-npx tsc --noEmit
-
-# E2E tests (requires running app)
-npx tauri dev &
-sleep 90
-bash tests/final_e2e.sh
+./build.sh test                                            # Rust unit tests (~307)
+npx tsx src/components/ChatView/parser.test.ts             # TS parser tests
+./build.sh e2e                                             # E2E (needs running dev instance)
 ```
+
+## Release Process
+
+No CI — all builds are local, coordinated via CodeTerm mesh between two machines.
+
+### Workflow
+
+The release is driven by one machine (lead), the other builds in parallel (support). Both machines are connected via CodeTerm mesh. The lead handles version bump, tagging, draft creation, and publish. The support machine pulls, builds, and uploads its platform installer.
+
+Typical setup: **MacBook Air** (lead, macOS ARM) + **BLACKSTAR** (support, Windows x64). Either machine can lead — just coordinate via mesh `send-text`.
+
+### Steps
+
+1. **Lead: bump version** in 3 files: `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`
+2. **Lead: commit + push + tag:**
+   ```bash
+   git add -A && git commit -m "release: vX.Y.Z — summary"
+   git tag vX.Y.Z && git push origin master --tags
+   ```
+3. **Lead: create draft release** (before building — so both machines can upload in parallel):
+   ```bash
+   gh release create vX.Y.Z --draft --title "vX.Y.Z" --notes "changelog here"
+   ```
+4. **Lead: tell support to build** (via mesh):
+   ```bash
+   codeterm send-text "git pull && ./build.sh build && gh release upload vX.Y.Z <installer-path> --clobber" --pane general --mesh BLACKSTAR
+   ```
+5. **Both machines build in parallel:**
+   - **Lead** runs `./build.sh build` locally → uploads its installer
+   - **Support** pulls, builds, uploads its installer
+   ```bash
+   gh release upload vX.Y.Z path/to/installer --clobber
+   ```
+6. **Lead: publish** when all machines have uploaded their artifacts:
+   ```bash
+   gh release edit vX.Y.Z --draft=false
+   ```
+
+### Build artifacts
+
+| Platform | Installer | Path |
+|----------|-----------|------|
+| Windows x64 | NSIS `.exe` | `src-tauri/target/release/bundle/nsis/CodeTerm_X.Y.Z_x64-setup.exe` |
+| macOS ARM | `.dmg` | `src-tauri/target/release/bundle/dmg/CodeTerm_X.Y.Z_aarch64.dmg` |
+| macOS Intel | `.dmg` | `src-tauri/target/release/bundle/dmg/CodeTerm_X.Y.Z_x64.dmg` |
+
+### Machines
+
+- **BLACKSTAR** — Windows builds (RTX 4090, fast compile)
+- **MacBook Air** — macOS ARM builds (personal, `rollacode`)
+- **MacBook Pro** — macOS Intel/ARM builds if needed (`ainyiva`)
 
 ## Icons
 

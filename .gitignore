@@ -12,3 +12,4 @@ tests/e2e/testdata_*.json
 src-tauri/bundled-cli/
 *.local.sh
 .env
+NUL

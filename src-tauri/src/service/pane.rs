@@ -49,6 +49,9 @@ impl ServiceContext {
 
     pub fn set_pane_agent_type(&self, pane_id: &str, agent_type: Option<String>) {
         if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
+            if agent_type.is_some() {
+                pane.agent_set_at = Some(std::time::Instant::now());
+            }
             pane.agent_type = agent_type;
         }
     }

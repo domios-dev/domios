@@ -185,6 +185,9 @@ pub struct Pane {
     /// Agent type (e.g. "claude") — set by frontend when detected.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_type: Option<String>,
+    /// Timestamp when agent_type was set — grace period for idle-poll exit detection.
+    #[serde(skip, default)]
+    pub agent_set_at: Option<std::time::Instant>,
     /// Agent session ID for resume (e.g. Claude Code session).
     #[serde(skip_serializing_if = "Option::is_none", default, alias = "claude_session_id")]
     pub agent_session_id: Option<String>,

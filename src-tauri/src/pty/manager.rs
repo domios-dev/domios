@@ -1,6 +1,6 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use super::write_queue::WriteQueue;
@@ -11,6 +11,10 @@ pub struct PtySession {
     pub reader: StdMutex<Option<Box<dyn Read + Send>>>,
     pub write_queue: WriteQueue,
     pub child: StdMutex<Box<dyn portable_pty::Child + Send + Sync>>,
+    /// Backend reader channel. When Some, a backend reader is active and sending bytes here.
+    /// read_pty reads from this instead of the raw PTY reader to avoid competing reads.
+    pub backend_reader_tx: StdMutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
+    pub backend_reader_rx: StdMutex<Option<tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>>>,
 }
 
 /// Ring buffer storing last N bytes of PTY output per pane.
@@ -179,6 +183,8 @@ impl PtyManager {
             reader: StdMutex::new(Some(reader)),
             write_queue,
             child: StdMutex::new(child),
+            backend_reader_tx: StdMutex::new(None),
+            backend_reader_rx: StdMutex::new(None),
         });
 
         self.sessions.insert(pty_id.clone(), session.clone());
@@ -220,6 +226,17 @@ impl PtyManager {
     pub fn remove(&mut self, pty_id: &str) {
         self.sessions.remove(pty_id);
         log::info!("Removed PTY {}", pty_id);
+    }
+
+    /// Set up the backend reader channel for a PTY.
+    /// Returns the sender for the backend reader to use.
+    /// After this call, read_pty will read from the channel instead of the raw PTY.
+    pub fn setup_backend_channel(&self, pty_id: &str) -> Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>> {
+        let session = self.sessions.get(pty_id)?;
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        *session.backend_reader_tx.lock().unwrap() = Some(tx.clone());
+        *session.backend_reader_rx.lock().unwrap() = Some(rx);
+        Some(tx)
     }
 }
 

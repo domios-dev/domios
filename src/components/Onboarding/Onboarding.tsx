@@ -27,7 +27,6 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
   const [gaAutostart, setGaAutostart] = useState(false);
   const [apiToken, setApiToken] = useState<string | null>(config.api?.token ?? null);
   const [networkInfo, setNetworkInfo] = useState<{ api_url: string; tailscale_url: string | null } | null>(null);
-  const [orchestratorPrompt, setOrchestratorPrompt] = useState("");
 
   useEffect(() => {
     requestAnimationFrame(() => requestAnimationFrame(() => setEntered(true)));
@@ -94,10 +93,6 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
         // Fetch network info
         const net = await invoke<{ api_url: string; tailscale_url: string | null }>("get_network_info");
         setNetworkInfo(net);
-        // Build orchestrator prompt
-        const base = await invoke<string>("get_skills_prompt");
-        const url = net.tailscale_url || net.api_url;
-        setOrchestratorPrompt(`CodeTerm API: ${url}\nAuthorization: Bearer ${token}\n\n${base}`);
       } catch {}
     })();
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -109,7 +104,6 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
       });
       setApiToken(null);
       setNetworkInfo(null);
-      setOrchestratorPrompt("");
     } catch {}
   }, [config]);
 
@@ -218,7 +212,6 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
             {step === 4 && (
               <StepNetwork c={c}
                 token={apiToken} networkInfo={networkInfo}
-                orchestratorPrompt={orchestratorPrompt}
                 onDisable={disableNetwork}
               />
             )}
@@ -580,15 +573,13 @@ function StepAgents({ c, gaEnabled, onGaEnabled, autostart, onAutostart }: {
 // ── Step 4: Network & Orchestrator ───────────────────────────────────
 
 function StepNetwork({
-  c, token, networkInfo, orchestratorPrompt, onDisable,
+  c, token, networkInfo, onDisable,
 }: {
   c: C;
   token: string | null;
   networkInfo: { api_url: string; tailscale_url: string | null } | null;
-  orchestratorPrompt: string;
   onDisable: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
 
   return (
@@ -672,41 +663,8 @@ function StepNetwork({
           </div>
         )}
 
-        {/* Orchestrator prompt */}
-        <div
-          className="px-4 py-3 rounded-lg border"
-          style={{ borderColor: c.border, backgroundColor: c.surface + "60" }}
-        >
-          <div className="text-[11px] font-medium mb-1" style={{ color: c.fg }}>External Orchestrator Prompt</div>
-          <div className="text-[10px] mb-2" style={{ color: c.muted }}>
-            Give this to OpenClaw or any AI orchestrator — it includes the API URL, auth token, and all available commands so it can control CodeTerm.
-          </div>
-          <div className="relative">
-            <pre
-              className="rounded p-2 text-[9px] font-mono whitespace-pre-wrap max-h-[100px] overflow-y-auto leading-relaxed"
-              style={{ backgroundColor: c.bg, color: c.muted }}
-            >
-              {orchestratorPrompt || "Loading..."}
-            </pre>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(orchestratorPrompt).then(() => {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
-                });
-              }}
-              className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[9px] rounded transition-colors"
-              style={{ backgroundColor: c.border, color: c.fg }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = c.hover)}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = c.border)}
-            >
-              {copied ? "Copied!" : "Copy"}
-            </button>
-          </div>
-        </div>
-
         <div className="text-[10px] text-center" style={{ color: c.dimmed }}>
-          You can regenerate the token anytime in Settings &rarr; Network & API.
+          You can regenerate the token anytime in Settings &rarr; Network &amp; API.
         </div>
       </div>
     </div>

@@ -67,14 +67,6 @@ impl PeerClient {
         req.json(body).send().await.map_err(|e| format!("Network error: {}", e))
     }
 
-    /// Send crown public info update.
-    pub async fn send_crown_update(&self, public_info_json: &str) -> Result<(), String> {
-        let body: serde_json::Value = serde_json::from_str(public_info_json)
-            .map_err(|e| format!("Bad JSON: {}", e))?;
-        let resp = self.auth_post("/api/mesh/crown", &body).await?;
-        if resp.status().is_success() { Ok(()) } else { Err("Crown update failed".to_string()) }
-    }
-
     /// Send mesh sync payload and receive theirs.
     pub async fn send_sync(
         &self,

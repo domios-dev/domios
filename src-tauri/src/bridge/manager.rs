@@ -135,10 +135,9 @@ impl BridgeManager {
                         first.user_name, first.service, messages.len(), merged_attachments.len(),
                         &merged_text.chars().take(100).collect::<String>());
 
-                    if let ReplyContext::Telegram { chat_id } = &first.reply_ctx {
-                        *fallback_clone.lock() = Some(*chat_id);
-                        send_typing(&client, &token, *chat_id).await;
-                    }
+                    let ReplyContext::Telegram { chat_id } = &first.reply_ctx;
+                    *fallback_clone.lock() = Some(*chat_id);
+                    send_typing(&client, &token, *chat_id).await;
 
                     let merged_msg = InboundMessage {
                         service: first.service.clone(),

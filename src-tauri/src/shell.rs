@@ -23,10 +23,15 @@ impl ShellSyntax {
     pub fn task_file_expr(task: &str) -> String {
         let short_id = &uuid::Uuid::new_v4().to_string()[..8];
         let path = Self::temp_path(&format!(".ct-task-{}", short_id));
-        let _ = std::fs::write(&path, task);
         if Self::IS_WINDOWS {
-            format!("(Get-Content '{}' -Raw)", path)
+            // Write UTF-8 BOM + content so PowerShell reads it as UTF-8
+            let mut content = Vec::with_capacity(3 + task.len());
+            content.extend_from_slice(&[0xEF, 0xBB, 0xBF]); // UTF-8 BOM
+            content.extend_from_slice(task.as_bytes());
+            let _ = std::fs::write(&path, content);
+            format!("(Get-Content '{}' -Raw -Encoding UTF8)", path)
         } else {
+            let _ = std::fs::write(&path, task);
             format!("\"$(cat {})\"", path)
         }
     }

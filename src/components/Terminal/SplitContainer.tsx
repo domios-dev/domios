@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TerminalPane } from "./TerminalPane";
 import { BrowserPane } from "../Browser/BrowserPane";
-import FloatingInput from "../FloatingInput/FloatingInput";
+
 import { Divider } from "./Divider";
 import { getAgentProvider } from "../../lib/agentProviders";
 import type { SplitNode, Pane, Orientation, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
@@ -100,13 +100,6 @@ export function SplitContainer({
           fontConfig={fontConfig}
           terminalConfig={terminalConfig}
         />
-          {/* Floating input — centered chat bubble */}
-          <FloatingInput
-            paneId={pane.id}
-            ptyId={pane.pty_id ?? null}
-            agentType={pane.agent_type ?? null}
-            pendingPrompt={pane.pending_prompt ?? null}
-          />
         </div>
         {splitButtons}
       </PaneWrapper>
