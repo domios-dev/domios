@@ -103,7 +103,11 @@ case "$CMD" in
   dev)
     kill_dev
     ensure_deps
-    echo "Starting dev..."
+    # Increment build number
+    BUILD_NUM=$(cat BUILD_NUMBER 2>/dev/null || echo 0)
+    BUILD_NUM=$((BUILD_NUM + 1))
+    echo "$BUILD_NUM" > BUILD_NUMBER
+    echo "Build #$BUILD_NUM starting..."
     pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json
     ;;
   webdriver)
