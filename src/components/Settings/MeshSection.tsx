@@ -98,6 +98,10 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
     } catch (e) { console.error("Mesh manual add failed:", e); }
   }, [manualAddr]);
 
+  const handleSetAccess = useCallback(async (instanceId: string, level: string) => {
+    try { await invoke("mesh_set_access", { instanceId, accessLevel: level }); } catch (e) { console.error("Set access failed:", e); }
+  }, []);
+
   const handleExit = useCallback(async () => {
     setExiting(true);
     try { await invoke("mesh_exit"); } catch (e) { console.error("Exit mesh failed:", e); }
@@ -215,9 +219,20 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                   <span className="text-[10px] text-[var(--ct-muted)] font-mono">{peer.addresses[0]?.ip || ""}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-[var(--ct-muted)]">
-                    {peer.online ? "Online" : "Offline"} · Paired {formatTimeAgo(peer.paired_at)}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-[var(--ct-muted)]">
+                      {peer.online ? "Online" : "Offline"} · Paired {formatTimeAgo(peer.paired_at)}
+                    </span>
+                    <select
+                      value={peer.access_level}
+                      onChange={(e) => handleSetAccess(peer.instance_id, e.target.value)}
+                      className="text-[10px] bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-1.5 py-0.5 text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                    >
+                      <option value="full">Full Access</option>
+                      <option value="read_only">Read Only</option>
+                      <option value="agent_isolated">Isolated</option>
+                    </select>
+                  </div>
                   <button onClick={() => handleDisconnect(peer.instance_id)}
                     className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors">
                     Disconnect

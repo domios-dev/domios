@@ -364,3 +364,29 @@ pub fn mesh_start_discovery(
 
     Ok(())
 }
+
+/// Set access level for a paired peer.
+#[tauri::command]
+pub fn mesh_set_access(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    instance_id: String,
+    access_level: String,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    let level = match access_level.as_str() {
+        "full" => crate::mesh::types::AccessLevel::Full,
+        "read_only" => crate::mesh::types::AccessLevel::ReadOnly,
+        "agent_isolated" => crate::mesh::types::AccessLevel::AgentIsolated,
+        _ => return Err(format!("Invalid access level: {}", access_level)),
+    };
+    let mut m = mesh.lock();
+    let peer = m.paired_peers.get_mut(&instance_id)
+        .ok_or_else(|| "Peer not found".to_string())?;
+    peer.access_level = level;
+    let _ = m.save();
+    drop(m);
+    let _ = svc.app_handle.emit("mesh-state-changed", ());
+    log::info!("[mesh] Set access level for {} to {}", instance_id, access_level);
+    Ok(())
+}
