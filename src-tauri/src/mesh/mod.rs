@@ -56,7 +56,13 @@ impl MeshManager {
         let paired_peers = peers::load_peers();
         let revocation_list = peers::load_revocation_list();
 
-        let crown_mgr = crown_manager::CrownManager::new();
+        let mut crown_mgr = crown_manager::CrownManager::new();
+
+        // No peers = no mesh = crown is stale (leftover from previous mesh). Clean it.
+        if paired_peers.is_empty() && crown_mgr.is_crown_holder() {
+            log::info!("[mesh] No peers but crown exists — clearing stale crown");
+            crown_mgr.relinquish();
+        }
 
         log::info!(
             "[mesh] Initialized: id={}, name={}, {} paired peers, crown={}",
