@@ -297,11 +297,21 @@ pub fn start_general_agent(
             });
         });
     }
-    log::info!("[general-agent] Backend reader started, waiting 3s for shell...");
+    log::info!("[general-agent] Backend reader started, waiting for shell prompt on PTY {}...", pty_id);
 
-    // Brief wait for shell to initialize
-    std::thread::sleep(std::time::Duration::from_secs(3));
-    log::info!("[general-agent] Shell wait done, building launch command...");
+    // Wait for shell to be ready — same mechanism as regular pane resume in commands.rs.
+    // poll_shell_prompt polls screen_state (fed by the backend reader we just started)
+    // every 300ms, returns true when a shell prompt appears on the last non-empty line.
+    let ready = crate::service::pty_io::poll_shell_prompt(
+        screen_state,
+        &pty_id,
+        std::time::Duration::from_secs(15),
+    );
+    if !ready {
+        log::warn!("[general-agent] Shell not ready within 15s for PTY {} — watchdog will retry", pty_id);
+        return;
+    }
+    log::info!("[general-agent] Shell ready, building launch command...");
 
     // Build launch command
     let cmd = if let Some(ref sid) = session_id {
