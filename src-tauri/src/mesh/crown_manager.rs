@@ -126,7 +126,7 @@ impl CrownManager {
         Ok(public_info)
     }
 
-    /// Update crown public info (called on all peers when crown transfers).
+    /// Update crown public info (called on all peers when crown transfers or during sync).
     pub fn update_public(&mut self, public_info: CrownPublicInfo, our_id: &str) -> Result<(), String> {
         let verified_claims = crown::verify_crown_jwt(&public_info.crown_jwt, &public_info.public_key)
             .map_err(|e| format!("Crown JWT invalid: {}", e))?;
@@ -135,21 +135,28 @@ impl CrownManager {
         log::info!("[mesh/crown] Crown info: holder={}, v{}", verified_holder, public_info.version);
 
         if let Some(ref existing) = self.public_info {
-            if existing.holder_id == *verified_holder {
+            let existing_mesh_id = self.mesh_id();
+            let incoming_mesh_id = Some(verified_claims.mesh_id.clone());
+
+            if existing_mesh_id != incoming_mesh_id {
+                // Different mesh — accept unconditionally (joining new mesh)
+                log::info!("[mesh/crown] Different mesh — accepting new crown (old={:?}, new={:?})",
+                    existing_mesh_id, incoming_mesh_id);
+            } else if existing.holder_id == *verified_holder {
+                // Same holder, same mesh — version must increase
                 if public_info.version <= existing.version {
                     return Err(format!("Stale crown: have v{}, got v{}", existing.version, public_info.version));
                 }
             } else {
+                // Different holder, same mesh — transfer, version must increase
                 if public_info.version <= existing.version {
                     return Err(format!("Stale crown: have v{} from {}, got v{} from {}",
                         existing.version, existing.holder_id, public_info.version, verified_holder));
                 }
-                if public_info.version != existing.version + 1 {
-                    return Err(format!("Non-sequential crown: have v{}, got v{}", existing.version, public_info.version));
-                }
             }
         }
 
+        // Relinquish our own crown if someone else is now King
         if *verified_holder != our_id && self.keypair.is_some() {
             log::info!("[mesh/crown] Relinquishing crown to {} v{}", verified_holder, public_info.version);
             crown::delete_crown_keypair();

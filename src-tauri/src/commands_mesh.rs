@@ -433,8 +433,8 @@ pub fn mesh_start_discovery(
         return Err("Mesh is not enabled".to_string());
     }
 
-    // Claim crown if first instance
-    mesh.lock().claim_crown_if_unclaimed();
+    // Don't claim crown here — crown is only created during pairing (acceptor claims).
+    // Standalone machines must not have a crown.
 
     // Detect network addresses
     crate::mesh::discovery::detect_tailscale(&mesh);
