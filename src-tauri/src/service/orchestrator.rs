@@ -137,6 +137,9 @@ pub struct SpawnResult {
     pub agent: String,
     pub title: String,
     pub role: Option<String>,
+    /// Warning when agent cwd differs from workspace cwd
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -189,6 +192,48 @@ impl SpawnAgentParams {
 }
 
 impl ServiceContext {
+    /// Resolve agent cwd against workspace cwd:
+    /// - If no cwd specified → inherit from workspace
+    /// - If cwd differs from workspace → return warning
+    fn resolve_agent_cwd(
+        agent_cwd: &Option<String>,
+        workspace_cwd: &Option<String>,
+    ) -> (Option<String>, Option<String>) {
+        match (agent_cwd, workspace_cwd) {
+            // No cwd specified — inherit from workspace
+            (None, Some(ws_cwd)) => {
+                log::info!("[spawn] agent cwd inherited from workspace: {}", ws_cwd);
+                (Some(ws_cwd.clone()), None)
+            }
+            // Both specified and different — warn
+            (Some(agent_dir), Some(ws_dir)) if !Self::paths_equal(agent_dir, ws_dir) => {
+                let warning = format!(
+                    "Agent cwd '{}' differs from workspace cwd '{}'. \
+                     The agent will run in '{}', but the workspace is at '{}'.",
+                    agent_dir, ws_dir, agent_dir, ws_dir
+                );
+                log::warn!("[spawn] {}", warning);
+                (Some(agent_dir.clone()), Some(warning))
+            }
+            // cwd specified, matches workspace or no workspace cwd — use as-is
+            (Some(dir), _) => (Some(dir.clone()), None),
+            // No cwd, no workspace cwd — leave empty
+            (None, None) => (None, None),
+        }
+    }
+
+    /// Compare paths ignoring trailing slashes and case on Windows
+    fn paths_equal(a: &str, b: &str) -> bool {
+        let norm = |s: &str| {
+            let s = s.replace('\\', "/");
+            s.trim_end_matches('/').to_string()
+        };
+        #[cfg(target_os = "windows")]
+        { norm(a).eq_ignore_ascii_case(&norm(b)) }
+        #[cfg(not(target_os = "windows"))]
+        { norm(a) == norm(b) }
+    }
+
     /// One-call agent spawn: create tab → wait PTY → set role → launch agent.
     ///
     /// Two modes:
@@ -197,23 +242,29 @@ impl ServiceContext {
     /// - **One-shot** (`oneshot: true`): uses `-p` flag to pass task inline.
     ///   Agent exits after responding.
     /// Synchronous spawn — for socket API. No tokio runtime needed.
-    pub fn spawn_agent_sync(&self, params: SpawnAgentParams) -> Result<SpawnResult, String> {
+    pub fn spawn_agent_sync(&self, mut params: SpawnAgentParams) -> Result<SpawnResult, String> {
         let agent_cmd = params.agent.as_deref().unwrap_or("claude").to_string();
         let title = params.title.as_deref()
             .or(params.agent_name.as_deref())
             .unwrap_or(&agent_cmd).to_string();
 
         // 1. Find workspace — lock once, resolve everything
-        let ws_id = {
+        let (ws_id, ws_cwd) = {
             let mux = self.mux.lock();
             let from_parent = params.parent_pane_id.as_ref()
                 .and_then(|pid| mux.find_workspace_for_pane(pid));
-            from_parent
+            let id = from_parent
                 .or_else(|| params.workspace_id.clone())
                 .or_else(|| mux.snapshot().active_workspace_id.clone())
                 .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                .ok_or("No workspace found")?
+                .ok_or("No workspace found")?;
+            let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
+            (id, cwd)
         };
+
+        // Resolve cwd: inherit from workspace if not specified, warn if different
+        let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
+        params.cwd = resolved_cwd;
 
         // 2. Create tab + set role + rename — all before emitting state change
         //    so frontend sees role/parent when spawning PTY (env vars)
@@ -268,10 +319,10 @@ impl ServiceContext {
         let launch_cmd = build_agent_command(&agent_cmd, &params, bg_task.as_deref(), &self.agent_registry);
         launch_agent_in_background(self.clone(), pane_id.clone(), launch_cmd, agent_cmd.clone(), bg_task);
 
-        Ok(SpawnResult { pane_id, tab_id, pty_id: String::new(), agent: agent_cmd, title, role: params.role })
+        Ok(SpawnResult { pane_id, tab_id, pty_id: String::new(), agent: agent_cmd, title, role: params.role, warning })
     }
 
-    pub async fn spawn_agent(&self, params: SpawnAgentParams) -> Result<SpawnResult, String> {
+    pub async fn spawn_agent(&self, mut params: SpawnAgentParams) -> Result<SpawnResult, String> {
         let agent_cmd = params.agent.as_deref().unwrap_or("claude");
         let title = params
             .title
@@ -280,16 +331,22 @@ impl ServiceContext {
             .unwrap_or(agent_cmd);
 
         // 1. Find workspace — lock once, resolve everything
-        let ws_id = {
+        let (ws_id, ws_cwd) = {
             let mux = self.mux.lock();
             let from_parent = params.parent_pane_id.as_ref()
                 .and_then(|pid| mux.find_workspace_for_pane(pid));
-            from_parent
+            let id = from_parent
                 .or_else(|| params.workspace_id.clone())
                 .or_else(|| mux.snapshot().active_workspace_id.clone())
                 .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                .ok_or("No workspace found")?
+                .ok_or("No workspace found")?;
+            let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
+            (id, cwd)
         };
+
+        // Resolve cwd: inherit from workspace if not specified, warn if different
+        let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
+        params.cwd = resolved_cwd;
 
         // 2. Create new tab in the workspace (each agent gets its own tab)
         let (tab_id, pane_id) = {
@@ -354,6 +411,7 @@ impl ServiceContext {
             agent: agent_cmd.to_string(),
             title: title.to_string(),
             role: params.role,
+            warning,
         })
     }
 }

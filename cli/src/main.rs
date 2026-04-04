@@ -448,6 +448,20 @@ pub enum AgentAction {
         #[arg(long)]
         pane: Option<String>,
     },
+    /// Compact agent context (sends /compact to Claude)
+    Compact {
+        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+    },
+    /// Switch agent model (sends /model to Claude)
+    Model {
+        /// Model name: sonnet, haiku, opus
+        name: String,
+        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+    },
     /// Spawn a new agent (creates tab in workspace, linked in hierarchy)
     Spawn {
         /// Agent to run: claude, aider, goose, or any command
@@ -562,7 +576,7 @@ pub enum CronAction {
     Create {
         /// Cron job name
         name: String,
-        /// Cron schedule (5-field: "*/30 * * * *")
+        /// Cron schedule (5-field: "*/30 * * * *") or oneshot time ("in 5m", ISO8601)
         #[arg(long)]
         schedule: String,
         /// Task prompt for the agent
@@ -583,6 +597,9 @@ pub enum CronAction {
         /// Pane ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
         #[arg(long, env = "CODETERM_PANE_ID")]
         creator_pane: Option<String>,
+        /// Oneshot: fire once at scheduled time, then auto-delete
+        #[arg(long)]
+        once: bool,
     },
     /// Edit a cron job
     Edit {
@@ -1204,9 +1221,39 @@ fn main() {
                                 } else {
                                     print_object(&val);
                                 }
+                                if let Some(warning) = val.get("warning").and_then(|v| v.as_str()) {
+                                    eprintln!("Warning: {}", warning);
+                                }
                             }
                             return;
                         }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Compact { pane } => {
+                    let pane_id = resolve_pane(&mut client, pane);
+                    let cmd = "/compact\n";
+                    match http.post(format!("{}/api/panes/{}/send", base, pane_id))
+                        .json(&serde_json::json!({"text": cmd}))
+                        .send()
+                    {
+                        Ok(_) => { println!("Sent /compact to {}", pane_id); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Model { name, pane } => {
+                    let valid = ["sonnet", "haiku", "opus"];
+                    if !valid.contains(&name.as_str()) {
+                        eprintln!("Invalid model: {}. Use: sonnet, haiku, opus", name);
+                        std::process::exit(1);
+                    }
+                    let pane_id = resolve_pane(&mut client, pane);
+                    let cmd = format!("/model {}\n", name);
+                    match http.post(format!("{}/api/panes/{}/send", base, pane_id))
+                        .json(&serde_json::json!({"text": cmd}))
+                        .send()
+                    {
+                        Ok(_) => { println!("Sent /model {} to {}", name, pane_id); return; }
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
                 }
@@ -1301,7 +1348,12 @@ fn main() {
                                 if arr.is_empty() { println!("No cron jobs."); }
                                 for j in arr {
                                     let enabled = j.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                                    let status = if enabled { "enabled" } else { "disabled" };
+                                    let oneshot = j.get("oneshot").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    let status = match (enabled, oneshot) {
+                                        (_, true) => "oneshot",
+                                        (true, false) => "enabled",
+                                        (false, false) => "disabled",
+                                    };
                                     println!("{} {} [{}] schedule={} agent={}",
                                         j.get("id").and_then(|v| v.as_str()).unwrap_or("?"),
                                         j.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
@@ -1316,7 +1368,7 @@ fn main() {
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
                 }
-                CronAction::Create { name, schedule, task, workspace, agent, cwd, description, creator_pane } => {
+                CronAction::Create { name, schedule, task, workspace, agent, cwd, description, creator_pane, once } => {
                     let ws_id = workspace.unwrap_or_else(|| {
                         // Prefer CODETERM_WORKSPACE_ID (agent's own workspace), fall back to first
                         std::env::var("CODETERM_WORKSPACE_ID").ok()
@@ -1338,6 +1390,7 @@ fn main() {
                     if let Some(c) = cwd { params["cwd"] = serde_json::json!(c); }
                     if let Some(d) = description { params["description"] = serde_json::json!(d); }
                     if let Some(cp) = creator_pane { params["creator_pane_id"] = serde_json::json!(cp); }
+                    if once { params["oneshot"] = serde_json::json!(true); }
                     match client.call("cron.create", Some(params)) {
                         Ok(val) => {
                             if cli.json {
@@ -1547,11 +1600,9 @@ fn main() {
                             } else {
                                 let name = val.get("instance_name").and_then(|v| v.as_str()).unwrap_or("?");
                                 let id = val.get("instance_id").and_then(|v| v.as_str()).unwrap_or("?");
-                                let crown = val.get("is_crown").and_then(|v| v.as_bool()).unwrap_or(false);
                                 let paired = val.get("paired_count").and_then(|v| v.as_u64()).unwrap_or(0);
                                 let discovered = val.get("discovered_count").and_then(|v| v.as_u64()).unwrap_or(0);
                                 println!("{} ({})", name, &id[..id.len().min(8)]);
-                                println!("Crown: {}", if crown { "yes" } else { "no" });
                                 println!("Paired: {}, Discovered: {}", paired, discovered);
                             }
                         }
@@ -1573,12 +1624,11 @@ fn main() {
                                     for p in paired {
                                         let name = p.get("instance_name").and_then(|v| v.as_str()).unwrap_or("?");
                                         let online = p.get("online").and_then(|v| v.as_bool()).unwrap_or(false);
-                                        let trust = p.get("trust_level").and_then(|v| v.as_str()).unwrap_or("?");
                                         let ip = p.get("addresses").and_then(|v| v.as_array())
                                             .and_then(|a| a.first())
                                             .and_then(|a| a.get("ip")).and_then(|v| v.as_str()).unwrap_or("?");
                                         let dot = if online { "●" } else { "○" };
-                                        println!("  {} {} ({}) [{}] {}", dot, name, ip, trust,
+                                        println!("  {} {} ({}) {}", dot, name, ip,
                                             if p.get("is_primary").and_then(|v| v.as_bool()).unwrap_or(false) { "★" } else { "" });
                                     }
                                 }

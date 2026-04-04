@@ -28,7 +28,7 @@ All commands go through `build.sh` — one script for all platforms. Safe on Win
 source build.sh env         # load MSVC env into shell (Windows, for manual cargo commands)
 ```
 
-**CLI note:** `./build.sh dev` auto-builds CLI on first start. Rust hot reload does NOT rebuild CLI — use `./build.sh cli` separately if CLI code changed (cli/ crate). No dev restart needed, just rebuild CLI.
+**CLI note:** `./build.sh dev` auto-builds CLI on every start. If you change CLI code (cli/ crate) mid-session, use `./build.sh cli` separately — no dev restart needed.
 
 ### Tests (3 layers)
 
@@ -50,20 +50,46 @@ cd tests/webdriver && npm test
 - Windows: `%USERPROFILE%\.codeterm-dev\logs\codeterm.log`
 - Live view: `tail -f ~/.codeterm-dev/logs/codeterm.log`
 
+### Build verification — MANDATORY before debugging
+
+`build.sh dev` increments `BUILD_NUMBER` on each run. The running instance exposes it via health API.
+
+**Before debugging or testing any change, ALWAYS:**
+1. Check logs: `tail -30 ~/.codeterm-dev/logs/codeterm.log`
+2. Verify the running build matches your code:
+   ```bash
+   curl -s http://127.0.0.1:7686/api/health | jq '{build, build_number}'
+   ```
+   Compare `build` (git commit hash) and `build_number` with what you expect. If they don't match, the old build is still running — your changes aren't live yet.
+3. Only THEN start debugging. Don't waste time investigating behavior from a stale build.
+
 ## Agent roles
 
 - **devops** agent — builds, releases, CI/CD, version bumps, tagging, GitHub Actions, `build.sh` maintenance. Delegate all build/release/deploy tasks to it.
-- **docs** agent — keeps `docs/API.md`, `docs/CONFIG.md`, `docs/SKILLS.md`, `docs/AGENT_PROMPT.md`, `skills/codeterm/SKILL.md` in sync with code. Delegate doc updates to it after feature changes.
+- **docs** agent — keeps `docs/API.md`, `docs/CONFIG.md`, `docs/SKILLS.md`, `skills/codeterm/SKILL.md` in sync with code. Delegate doc updates to it after feature changes.
 
 ## Documentation
 
 - `docs/API.md` — REST API, Socket API, CLI reference
 - `docs/CONFIG.md` — Configuration options, themes, keybindings
 - `docs/SKILLS.md` — Claude Code skill for CodeTerm control
-- `docs/AGENT_PROMPT.md` — Agent integration prompt
 - `docs/BUILD.md` — Build instructions
+- `docs/MESH.md` — Mesh networking spec (flat peer model, no crown)
 
 Each doc has a `<!-- revision: N -->` tag at the bottom. When you change API endpoints, config options, CLI commands, or skills — bump the revision in affected docs. This lets users detect when to update their local skill/config copies.
+
+## Agent prompts
+
+Prompt templates compiled into the binary via `include_str!()`. Edit `.md` files, recompile to apply.
+
+- `src-tauri/prompts/general_agent.md` — General Agent system prompt (CLAUDE.md template)
+- `src-tauri/prompts/bootstrap_instructions.md` — First-run onboarding instructions
+- `src-tauri/prompts/worker_suffix.md` — Appended to Worker tasks (report instructions)
+- `src-tauri/prompts/lead_suffix.md` — Appended to Lead tasks (spawn + no-sleep)
+- `src-tauri/prompts/orchestrator_suffix.md` — Appended to Orchestrator tasks
+- `src-tauri/prompts/codeterm_rule.md` — Installed to `~/.claude/rules/codeterm.md`
+- `src-tauri/prompts/cron_complete_suffix.md` — Appended to cron tasks (completion instruction)
+- `src-tauri/src/prompts.rs` — Rust module that loads all templates
 
 ## Architecture: Agent Providers
 

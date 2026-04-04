@@ -689,13 +689,17 @@ fn dispatch(
             let result = svc_ref.spawn_agent_sync(spawn_params)
                 .map_err(|e| JsonRpcError { code: -32603, message: e })?;
             { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
-            Ok(serde_json::json!({
+            let mut resp = serde_json::json!({
                 "pane_id": result.pane_id,
                 "tab_id": result.tab_id,
                 "agent": result.agent,
                 "title": result.title,
                 "role": result.role,
-            }))
+            });
+            if let Some(ref warning) = result.warning {
+                resp["warning"] = serde_json::json!(warning);
+            }
+            Ok(resp)
         }
 
         "agent.report" => {
@@ -828,7 +832,9 @@ fn dispatch(
             let summary = params.as_ref().and_then(|p| p.get("summary")).and_then(|v| v.as_str());
             let cron_state = app.try_state::<crate::CronState>()
                 .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
-            svc.cron_complete(&cron_state, &run_id, summary)
+            let cron_wake = app.try_state::<crate::CronWake>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            svc.cron_complete(&cron_state, &cron_wake, &run_id, summary)
                 .map_err(|e| JsonRpcError { code: -32603, message: e })?;
             Ok(serde_json::json!({"ok": true}))
         }

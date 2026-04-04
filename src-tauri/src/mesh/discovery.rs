@@ -45,8 +45,8 @@ pub fn start_mdns(
         let (instance_id, instance_name, api_port) = {
             let m = mesh.lock();
             (
-                m.identity.instance_id.clone(),
-                m.instance_name.clone(),
+                m.ident.identity.instance_id.clone(),
+                m.ident.instance_name.clone(),
                 m.api_port,
             )
         };
@@ -108,7 +108,7 @@ pub fn start_mdns(
     let mesh_clone = mesh.clone();
     let daemon_clone = daemon.clone();
     let browse_thread = std::thread::spawn(move || {
-        let own_id = mesh_clone.lock().identity.instance_id.clone();
+        let own_id = mesh_clone.lock().ident.identity.instance_id.clone();
 
         loop {
             match receiver.recv() {
@@ -263,7 +263,7 @@ pub fn cleanup_stale_peers(mesh: &Arc<Mutex<MeshManager>>) {
 // ── UDP Broadcast fallback ──────────────────────────────────────────
 
 // No separate broadcast port — we use the API port (TCP/UDP don't conflict)
-const BROADCAST_INTERVAL_SECS: u64 = 10;
+const BROADCAST_INTERVAL_SECS: u64 = 30;
 const BROADCAST_MAGIC: &[u8] = b"CODETERM1";
 
 /// Beacon payload: magic + JSON.
@@ -284,8 +284,8 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
     let (instance_id, instance_name, api_port) = {
         let m = mesh.lock();
         (
-            m.identity.instance_id.clone(),
-            m.instance_name.clone(),
+            m.ident.identity.instance_id.clone(),
+            m.ident.instance_name.clone(),
             m.api_port,
         )
     };
@@ -311,16 +311,10 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
             let mesh_id = {
                 let m = mesh_for_sender.lock();
                 if m.paired_peers.is_empty() {
-                    None // Not in a mesh
+                    None
                 } else {
-                    // Extract mesh_id from crown JWT, or use a hash of crown holder as fallback
-                    m.crown_public.as_ref().and_then(|c| {
-                        crate::mesh::crown::verify_crown_jwt(&c.crown_jwt, &c.public_key)
-                            .ok().map(|cl| cl.mesh_id)
-                    }).or_else(|| {
-                        // Fallback: use crown holder_id as mesh identifier
-                        m.crown_public.as_ref().map(|c| c.holder_id.clone())
-                    })
+                    // Use our instance_id as mesh identifier when paired
+                    Some(m.ident.identity.instance_id.clone())
                 }
             };
             let beacon = Beacon {

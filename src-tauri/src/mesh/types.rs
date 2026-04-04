@@ -66,7 +66,7 @@ pub struct DiscoveredPeer {
     pub mesh_id: Option<String>,
 }
 
-// ── Paired peers ──────────────────────────────────────���─────────────
+// ── Paired peers ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PairedPeer {
@@ -85,13 +85,10 @@ pub struct PairedPeer {
     pub is_primary: bool,
     #[serde(default)]
     pub access_level: AccessLevel,
-    /// Trust level from crown's signed declarations.
-    #[serde(default, skip_deserializing)]
-    pub trust_level: String,
     pub version: Option<String>,
 }
 
-// ── Access levels (future-proof) ────────────────────────────────────
+// ── Access levels ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -174,15 +171,11 @@ pub struct GossipPeerInfo {
     pub dev: bool,
 }
 
-/// Mesh sync payload — exchanged after pairing.
+/// Mesh sync payload — exchanged between paired peers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshSyncPayload {
     /// Known peers in the mesh (addresses only, no tokens).
     pub peers: Vec<GossipPeerInfo>,
-    /// Crown public info (so new peer knows who's crowned).
-    pub crown_public: Option<super::crown::CrownPublicInfo>,
-    /// Trust declarations (signed by crown, verifiable).
-    pub trust_declarations: Vec<super::crown::TrustDeclaration>,
 }
 
 // ── Relay ───────────────────────────────────────────────────────────
@@ -213,7 +206,7 @@ pub struct RelayResponse {
 
 // ── Introduction (auto-pair via mediator) ───────────────────────────
 
-/// Peer introduction — sent by a trusted mediator to auto-pair two peers.
+/// Peer introduction — sent by a paired mediator to auto-pair two peers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeerIntroduction {
     /// The peer being introduced.
@@ -245,17 +238,12 @@ pub struct MeshStatus {
     pub instance_id: String,
     pub instance_name: String,
     pub build: String,
-    pub is_crown: bool,
-    pub crown_holder: Option<String>,
     pub discovery_active: bool,
     pub tailscale_ip: Option<String>,
     pub local_ip: Option<String>,
     pub api_port: u16,
-    pub can_manage: bool,
     pub paired_count: usize,
     pub discovered_count: usize,
-    /// Our own trust level in the mesh: "trusted", "observer", "untrusted", or "crown"
-    pub trust_level: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

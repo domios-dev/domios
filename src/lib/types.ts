@@ -142,6 +142,7 @@ export interface CronJob {
   task: string;
   cwd: string | null;
   role: string | null;
+  oneshot: boolean;
   max_history: number;
   created_at: number;
   last_run: CronRunInfo | null;
@@ -269,9 +270,6 @@ export interface MeshStatus {
   enabled: boolean;
   instance_id: string;
   instance_name: string;
-  is_crown: boolean;
-  crown_holder: string | null;
-  can_manage: boolean;
   discovery_active: boolean;
   tailscale_ip: string | null;
   local_ip: string | null;
@@ -296,7 +294,6 @@ export interface PairedPeer {
   online: boolean;
   is_primary: boolean;
   access_level: string;
-  trust_level: string;
   version: string | null;
 }
 

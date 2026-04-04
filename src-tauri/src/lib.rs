@@ -294,19 +294,7 @@ fn start_background_tasks(
                             let m = mesh.lock();
                             let peers: Vec<_> = m.paired_peers.values().cloned().collect();
                             let token = m.sign_request().ok();
-                            let payload = mesh::types::MeshSyncPayload {
-                                peers: m.paired_peers.values()
-                                    .map(|p| mesh::types::GossipPeerInfo {
-                                        instance_id: p.instance_id.clone(),
-                                        instance_name: p.instance_name.clone(),
-                                        addresses: p.addresses.clone(),
-                                        api_port: p.api_port,
-                                        dev: false,
-                                    })
-                                    .collect(),
-                                crown_public: m.crown_public.clone(),
-                                trust_declarations: m.trust_declarations.clone(),
-                            };
+                            let payload = m.build_sync_payload();
                             (peers, payload, token)
                         };
                         let mut changed = false;
@@ -342,7 +330,7 @@ fn start_background_tasks(
                                             .unwrap_or_default()
                                             .as_secs();
                                         for p in their_payload.peers {
-                                            if p.instance_id == m.identity.instance_id { continue; }
+                                            if p.instance_id == m.ident.identity.instance_id { continue; }
                                             if m.paired_peers.contains_key(&p.instance_id) { continue; }
                                             m.discovered_peers.insert(p.instance_id.clone(), mesh::types::DiscoveredPeer {
                                                 instance_id: p.instance_id,
@@ -353,9 +341,6 @@ fn start_background_tasks(
                                                 last_seen: now,
                                                 dev: p.dev, mesh_id: None,
                                             });
-                                        }
-                                        if let Some(crown) = their_payload.crown_public {
-                                            let _ = m.update_crown_public(crown);
                                         }
                                         changed = true;
                                     }
@@ -419,8 +404,6 @@ fn start_background_tasks(
             std::time::Duration::from_millis(cfg.agent.poll_interval_ms as u64)
         };
         let app_handle = app_handle.clone();
-        let screen_state = states.screen_state.clone();
-        let output_buf = states.output_buffer.clone();
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(poll_interval);
@@ -451,102 +434,12 @@ fn start_background_tasks(
                             "status": format!("{:?}", status),
                         }));
 
-                        // When pane goes Idle and has agent_type set, check if agent is still running.
-                        // If screen shows a shell prompt → agent exited → clear agent_type.
-                        if matches!(status, crate::agent::status::PaneStatus::Idle) {
-                            let has_agent = mux.lock().get_pane(&pid)
-                                .map(|p| p.agent_type.is_some()).unwrap_or(false);
-                            if has_agent {
-                                // Check if agent is still running by looking at screen content.
-                                // If screen shows a shell prompt with no agent markers → agent exited.
-                                let screen = screen_state.lock().get_screen_text(&pty_id).unwrap_or_default();
-                                let check_text = if screen.is_empty() {
-                                    // Fallback to raw output buffer (alternate screen apps)
-                                    output_buf.lock().get_text(&pty_id).map(|r| crate::api::routes::strip_ansi(&r)).unwrap_or_default()
-                                } else { screen };
-                                if !check_text.is_empty() {
-                                    // Check for shell prompt pattern at end of screen
-                                    let has_shell_prompt = check_text.lines().rev()
-                                        .find(|l| !l.trim().is_empty())
-                                        .map(|l| {
-                                            let t = l.trim();
-                                            t.ends_with('>') || t.ends_with('$') || t.ends_with('%') || t.ends_with('#')
-                                        }).unwrap_or(false);
-                                    // Check no agent markers present
-                                    let has_agent_markers = check_text.contains("Claude Code")
-                                        || check_text.contains("Do you want to proceed")
-                                        || check_text.contains("Cogitated for")
-                                        || check_text.contains("Brewed for")
-                                        || check_text.contains("Reasoned for")
-                                        || check_text.contains("? for shortcuts");
-                                    if has_shell_prompt && !has_agent_markers {
-                                        log::info!("[idle-poll] agent exited in pane {} (shell prompt, no agent markers)", pid);
-                                        if let Some(pane) = mux.lock().get_pane_mut(&pid) {
-                                            pane.agent_type = None;
-                                            pane.pending_prompt = None;
-                                        }
-                                        use tauri::Emitter;
-                                        let _ = app_handle.emit("mux-state-changed", ());
-                                    }
-                                }
-                            }
-                        }
+                        // Agent exit detection is handled solely in output.rs (on PTY output).
+                        // Removed from idle-poll to avoid race conditions during agent startup.
                     }
                 }
 
-                // Periodic agent exit check — for ALL panes with agent_type set.
-                // Runs every poll cycle (not just on status change) to catch agents
-                // that exited without triggering a status transition.
-                {
-                    let t = tracker.lock();
-                    let m = mux.lock();
-                    // Collect (pty_id, pane_id) pairs that need checking
-                    let mut to_check: Vec<(String, String)> = Vec::new();
-                    for pty_id in t.all_ids() {
-                        if matches!(t.get_status(&pty_id), crate::agent::status::PaneStatus::Idle) {
-                            if let Some(pid) = m.pane_id_for_pty(&pty_id) {
-                                if let Some(pane) = m.get_pane(&pid) {
-                                    if pane.agent_type.is_some() {
-                                        to_check.push((pty_id, pid));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    drop(m);
-                    drop(t);
-
-                    for (pty_id, pid) in to_check {
-                        let screen = screen_state.lock().get_screen_text(&pty_id).unwrap_or_default();
-                        let check_text = if screen.is_empty() {
-                            output_buf.lock().get_text(&pty_id).map(|r| crate::api::routes::strip_ansi(&r)).unwrap_or_default()
-                        } else { screen };
-                        if check_text.is_empty() { continue; }
-
-                        let has_shell_prompt = check_text.lines().rev()
-                            .find(|l| !l.trim().is_empty())
-                            .map(|l| {
-                                let t = l.trim();
-                                t.ends_with('>') || t.ends_with('$') || t.ends_with('%') || t.ends_with('#')
-                            }).unwrap_or(false);
-                        let has_agent_markers = check_text.contains("Claude Code")
-                            || check_text.contains("Do you want to proceed")
-                            || check_text.contains("Cogitated for")
-                            || check_text.contains("Brewed for")
-                            || check_text.contains("Reasoned for")
-                            || check_text.contains("? for shortcuts");
-
-                        if has_shell_prompt && !has_agent_markers {
-                            log::info!("[idle-poll] agent exited in pane {} (shell prompt, no agent markers)", pid);
-                            if let Some(pane) = mux.lock().get_pane_mut(&pid) {
-                                pane.agent_type = None;
-                                pane.pending_prompt = None;
-                            }
-                            use tauri::Emitter;
-                            let _ = app_handle.emit("mux-state-changed", ());
-                        }
-                    }
-                }
+                // Agent exit detection removed from idle-poll — handled in output.rs only.
             }
         });
     }
@@ -730,6 +623,14 @@ fn start_servers(
             let screen_state = states.screen_state.clone();
             let config_state = states.config.clone();
             let app_h = app_handle.clone();
+            // Watchdog: monitors General Agent, restarts if it exits
+            let w_svc = svc.clone();
+            let w_mux = mux.clone();
+            let w_pty = pty.clone();
+            let w_screen = screen_state.clone();
+            let w_config = config_state.clone();
+            let w_app = app_h.clone();
+
             std::thread::spawn(move || {
                 // Wait for frontend to initialize (workspace already created pre-lock in init_states)
                 std::thread::sleep(std::time::Duration::from_secs(2));
@@ -738,6 +639,11 @@ fn start_servers(
                     &svc, &mux, &pty, &screen_state, &config_state, &app_h,
                 );
             });
+
+            // Start watchdog on separate thread (waits 30s before first check)
+            service::general_agent::start_watchdog(
+                &w_svc, &w_mux, &w_pty, &w_screen, &w_config, &w_app,
+            );
         }
     }
 
@@ -962,7 +868,6 @@ pub fn run() {
             commands::list_skills,
             commands::install_skill,
             commands::uninstall_skill,
-            commands::get_skills_prompt,
             commands::get_network_info,
             commands::generate_api_token,
             commands::save_clipboard_image,
@@ -1046,10 +951,9 @@ pub fn run() {
             commands_mesh::mesh_reject_pairing,
             commands_mesh::mesh_disconnect,
             commands_mesh::mesh_exit,
-            commands_mesh::mesh_transfer_crown,
             commands_mesh::mesh_add_manual,
-            commands_mesh::mesh_set_trust,
             commands_mesh::mesh_start_discovery,
+            commands_mesh::mesh_set_access,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
@@ -1115,11 +1019,11 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
+        .run(|_app, _event| {
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
+            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = _event {
                 if !has_visible_windows {
-                    if let Some(w) = app.get_webview_window("main") {
+                    if let Some(w) = _app.get_webview_window("main") {
                         let _ = w.show();
                         let _ = w.set_focus();
                     }
