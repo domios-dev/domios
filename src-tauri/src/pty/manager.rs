@@ -1,6 +1,6 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use super::write_queue::WriteQueue;

@@ -941,7 +941,7 @@ impl MultiplexerState {
 
         fn snapshot_to_split(node: &SplitNodeSnapshot, panes: &mut HashMap<String, Pane>) -> SplitNode {
             match node {
-                SplitNodeSnapshot::Leaf { pane_id, cwd, title, title_level, agent_type, claude_session_id, role, parent_pane_id, can_spawn, depth } => {
+                SplitNodeSnapshot::Leaf { pane_id, cwd, title, title_level, agent_type: _agent_type, claude_session_id, role, parent_pane_id, can_spawn, depth } => {
                     let parsed_role = role.as_deref().and_then(|r| match r {
                         "Orchestrator" | "Conductor" => Some(crate::multiplexer::types::AgentRole::Orchestrator),
                         "Lead" => Some(crate::multiplexer::types::AgentRole::Lead),

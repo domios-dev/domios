@@ -6,7 +6,6 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
-use tauri::Emitter;
 use tower_http::cors::CorsLayer;
 
 use crate::api::events::WebhookRegistration;
@@ -1463,7 +1462,7 @@ mod tests_send_text_body {
     }
 }
 
-pub fn strip_ansi_codes(s: &str) -> String {
+pub fn _strip_ansi_codes(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
@@ -1817,7 +1816,7 @@ async fn cron_history(
 }
 
 /// Send an OS-level toast notification if the CodeTerm window is not focused.
-pub fn send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
+pub fn _send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
     use tauri::Manager;
     let is_focused = app
         .get_webview_window("main")
@@ -1825,13 +1824,13 @@ pub fn send_os_notification_if_unfocused(app: &tauri::AppHandle, title: &str, bo
         .unwrap_or(true);
 
     if !is_focused {
-        send_os_notification(app, title, body);
+        _send_os_notification(app, title, body);
     }
 }
 
 /// Single notification popup via system notification API.
 /// Uses tauri-plugin-notification on all platforms — clicking focuses the app.
-pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
+pub fn _send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&str>) {
     // Use tauri plugin on all platforms — produces native notifications
     // that focus the app window when clicked (unlike raw osascript).
     {
@@ -1869,7 +1868,7 @@ pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&s
     // If notification already showing, update its content
     if NOTIF_ACTIVE.load(Ordering::Relaxed) {
         if let Some(win) = app.get_webview_window("codeterm-notif") {
-            let html = build_notif_html(&title, &body);
+            let html = _build_notif_html(&title, &body);
             let _ = win.eval(&format!(
                 "document.open();document.write({});document.close();",
                 serde_json::to_string(&html).unwrap_or_default()
@@ -1881,12 +1880,12 @@ pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&s
     NOTIF_ACTIVE.store(true, Ordering::Relaxed);
 
     std::thread::spawn(move || {
-        let (wa_x, wa_y, wa_w, wa_h) = get_workarea();
+        let (wa_x, wa_y, wa_w, wa_h) = _get_workarea();
         let win_w = 320.0;
-        let win_h = calc_notif_height(&body, win_w);
+        let win_h = _calc_notif_height(&body, win_w);
         let margin = 16.0;
 
-        let html = build_notif_html(&title, &body);
+        let html = _build_notif_html(&title, &body);
 
         if let Ok(win) = tauri::WebviewWindowBuilder::new(
             &app,
@@ -1923,7 +1922,7 @@ pub fn send_os_notification(app: &tauri::AppHandle, title: &str, body: Option<&s
     } // end unreachable_code block
 }
 
-fn build_notif_html(title: &str, body: &str) -> String {
+fn _build_notif_html(title: &str, body: &str) -> String {
     format!(
         r#"<!DOCTYPE html><html><head><style>
         *{{margin:0;padding:0;box-sizing:border-box}}
@@ -1945,7 +1944,7 @@ fn build_notif_html(title: &str, body: &str) -> String {
 }
 
 /// Estimate notification popup height based on body text length.
-fn calc_notif_height(body: &str, win_w: f64) -> f64 {
+fn _calc_notif_height(body: &str, win_w: f64) -> f64 {
     let chars_per_line = ((win_w - 60.0) / 7.0).max(1.0) as usize; // ~7px per char at 12px
     let lines = if body.is_empty() { 0 } else { (body.len() / chars_per_line).max(1) };
     let base = 50.0; // title + padding
@@ -1954,7 +1953,8 @@ fn calc_notif_height(body: &str, win_w: f64) -> f64 {
 }
 
 /// Returns workarea (x, y, width, height) — desktop minus taskbar.
-fn get_workarea() -> (f64, f64, f64, f64) {
+#[allow(dead_code)]
+fn _get_workarea() -> (f64, f64, f64, f64) {
     #[cfg(target_os = "windows")]
     {
         #[repr(C)]
@@ -1970,7 +1970,7 @@ fn get_workarea() -> (f64, f64, f64, f64) {
             let dpi = {
                 #[link(name = "user32")]
                 extern "system" { fn GetDpiForSystem() -> u32; }
-                unsafe { GetDpiForSystem() }
+                GetDpiForSystem()
             };
             let scale = dpi as f64 / 96.0;
             let x = rect.left as f64 / scale;
