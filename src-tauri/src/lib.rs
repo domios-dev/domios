@@ -289,8 +289,6 @@ fn start_background_tasks(
                         mesh::discovery::cleanup_stale_peers(&mesh);
                         // Clean up expired pairing requests
                         mesh.lock().cleanup_expired_requests();
-                        // Trust TTL refresh
-                        mesh::refresh_trust(&mesh).await;
                         // Ping all paired peers
                         let (peers, sync_payload, signed_token) = {
                             let m = mesh.lock();
@@ -343,14 +341,6 @@ fn start_background_tasks(
                                                 last_seen: now,
                                                 dev: p.dev, mesh_id: None,
                                             });
-                                        }
-                                        if let Some(crown) = their_payload.crown_public {
-                                            let _ = m.update_crown_public(crown);
-                                        }
-                                        // Merge trust declarations from sync response
-                                        if let Some(ref cp) = m.crown.public_info {
-                                            let pk = cp.public_key.clone();
-                                            m.trust.merge_declarations(&their_payload.trust_declarations, &pk);
                                         }
                                         changed = true;
                                     }
@@ -961,9 +951,7 @@ pub fn run() {
             commands_mesh::mesh_reject_pairing,
             commands_mesh::mesh_disconnect,
             commands_mesh::mesh_exit,
-            commands_mesh::mesh_transfer_crown,
             commands_mesh::mesh_add_manual,
-            commands_mesh::mesh_set_trust,
             commands_mesh::mesh_start_discovery,
         ])
         .setup(move |app| {

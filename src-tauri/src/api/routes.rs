@@ -104,10 +104,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/pair/accept", post(super::mesh_routes::mesh_pair_accept))
         .route("/api/mesh/pair/confirm", post(super::mesh_routes::mesh_pair_confirm))
         .route("/api/mesh/pair/reject", post(super::mesh_routes::mesh_pair_reject))
-        .route("/api/mesh/crown", post(super::mesh_routes::mesh_receive_crown))
         .route("/api/mesh/introduce", post(super::mesh_routes::mesh_introduce))
         .route("/api/mesh/sync", post(super::mesh_routes::mesh_sync))
-        .route("/api/mesh/trust/refresh", post(super::mesh_routes::mesh_trust_refresh))
         .route("/api/mesh/relay", post(super::mesh_routes::mesh_relay))
         .route("/api/mesh/peers/{id}", axum::routing::delete(super::mesh_routes::mesh_unpair));
 

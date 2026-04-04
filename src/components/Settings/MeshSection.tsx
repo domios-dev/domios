@@ -87,10 +87,6 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
     try { await invoke("mesh_disconnect", { instanceId }); } catch (e) { console.error("Mesh disconnect failed:", e); }
   }, []);
 
-  const handleTransferCrown = useCallback(async (instanceId: string) => {
-    try { await invoke("mesh_transfer_crown", { instanceId }); } catch (e) { console.error("Mesh transfer crown failed:", e); }
-  }, []);
-
   const handleAddManual = useCallback(async () => {
     const parts = manualAddr.split(":");
     const address = parts[0];
@@ -108,12 +104,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
     setExiting(false);
   }, []);
 
-  const canManage = status?.can_manage ?? true;
-  const isCrown = status?.is_crown ?? false;
   const hasPeers = (peers?.paired.length ?? 0) > 0;
-  const meshName = hasPeers && status?.crown_holder
-    ? `${peers?.paired.find(p => p.instance_id === status.crown_holder)?.instance_name || "Unknown"}'s Mesh`
-    : null;
 
   const formatTimeAgo = (iso: string | null) => {
     if (!iso) return "";
@@ -145,26 +136,15 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
       {showHelp && (
         <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/80 p-3 mb-2.5 text-[10px] text-[var(--ct-muted-fg)] space-y-1.5">
           <p><strong className="text-[var(--ct-fg)]">Mesh Networking</strong> connects CodeTerm instances across machines. Agents discover peers, delegate tasks, and run commands remotely.</p>
-          <p><strong className="text-[var(--ct-fg)]">Security:</strong> Ed25519 signed requests. Manual approval for pairing. Crown holder assigns trust: <em>trusted</em> peers can send commands, <em>untrusted</em> can only receive.</p>
+          <p><strong className="text-[var(--ct-fg)]">Security:</strong> Ed25519 signed requests. Manual approval for pairing. Paired peers are trusted. Unpair to revoke access.</p>
         </div>
       )}
 
-      {/* Identity block: Mesh Name, Role + PC Name, toggles */}
+      {/* Identity block: PC Name, toggles */}
       <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2.5">
-        {/* Mesh Name — top, immutable for members */}
-        {hasPeers && meshName && (
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-[var(--ct-accent)]">Mesh</span>
-            <span className="text-[var(--ct-fg)] font-medium">{meshName}</span>
-          </div>
-        )}
-        {/* Role + PC Name in one row */}
+        {/* Device Name */}
         <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-[var(--ct-accent)]">
-              {isCrown ? "Crown" : hasPeers ? "Member" : "Role"}
-            </span>
-          </div>
+          <span className="text-[var(--ct-accent)]">Device</span>
           <input
             type="text"
             value={config.mesh?.instance_name ?? ""}
@@ -203,8 +183,8 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
       {/* Exit Mesh button */}
       {config.mesh?.enabled && hasPeers && (
         <div className="flex justify-end">
-          <button onClick={handleExit} disabled={exiting || isCrown}
-            title={isCrown ? "Transfer crown before exiting" : "Leave the mesh"}
+          <button onClick={handleExit} disabled={exiting}
+            title="Leave the mesh"
             className="text-[10px] px-3 py-1 rounded border border-[var(--ct-red)]/30 text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:border-[var(--ct-red)] transition-colors disabled:opacity-30">
             {exiting ? "Exiting..." : "Exit Mesh"}
           </button>
@@ -230,15 +210,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                   <div className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${peer.online ? "bg-[var(--ct-green)]" : "bg-[var(--ct-muted)]"}`} />
                     <span className="text-xs font-medium text-[var(--ct-fg)]">{peer.instance_name}</span>
-                    {status?.crown_holder === peer.instance_id && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]">crown</span>
-                    )}
-                    {peer.trust_level === "trusted" && status?.crown_holder !== peer.instance_id && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">trusted</span>
-                    )}
-                    {(!peer.trust_level || peer.trust_level === "untrusted") && status?.crown_holder !== peer.instance_id && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-border)] text-[var(--ct-muted-fg)]">untrusted</span>
-                    )}
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">paired</span>
                   </div>
                   <span className="text-[10px] text-[var(--ct-muted)] font-mono">{peer.addresses[0]?.ip || ""}</span>
                 </div>
@@ -246,28 +218,10 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                   <span className="text-[10px] text-[var(--ct-muted)]">
                     {peer.online ? "Online" : "Offline"} · Paired {formatTimeAgo(peer.paired_at)}
                   </span>
-                  <div className="flex items-center gap-1.5">
-                    {isCrown && (
-                      <select value={peer.trust_level || "untrusted"}
-                        onChange={(e) => invoke("mesh_set_trust", { instanceId: peer.instance_id, trustLevel: e.target.value }).catch(console.error)}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none">
-                        <option value="untrusted">Untrusted</option>
-                        <option value="trusted">Trusted</option>
-                      </select>
-                    )}
-                    {isCrown && status?.crown_holder !== peer.instance_id && (
-                      <button onClick={() => handleTransferCrown(peer.instance_id)}
-                        className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-yellow)]/70 hover:text-[var(--ct-yellow)] hover:bg-[var(--ct-yellow)]/10 transition-colors">
-                        Transfer Crown
-                      </button>
-                    )}
-                    {canManage && status?.crown_holder !== peer.instance_id && (
-                      <button onClick={() => handleDisconnect(peer.instance_id)}
-                        className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors">
-                        Disconnect
-                      </button>
-                    )}
-                  </div>
+                  <button onClick={() => handleDisconnect(peer.instance_id)}
+                    className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors">
+                    Disconnect
+                  </button>
                 </div>
               </div>
             ))}
@@ -283,25 +237,21 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                   </div>
                   <span className="text-[10px] text-[var(--ct-muted)] font-mono">{req.from_address}</span>
                 </div>
-                {(canManage || !hasPeers) ? (
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => handleApprove(req.request_id)}
-                      disabled={approving === req.request_id}
-                      className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all disabled:opacity-50">
-                      {approving === req.request_id ? "Approving..." : "Approve"}
-                    </button>
-                    <button onClick={() => handleReject(req.request_id)}
-                      disabled={approving === req.request_id}
-                      className="text-[10px] px-3 py-1 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors disabled:opacity-50">
-                      Reject
-                    </button>
-                    {approveError && approving === null && (
-                      <span className="text-[10px] text-[var(--ct-red)]">{approveError}</span>
-                    )}
-                  </div>
-                ) : (
-                  <span className="text-[10px] text-[var(--ct-muted)]">Awaiting crown approval</span>
-                )}
+                <div className="flex items-center gap-2">
+                  <button onClick={() => handleApprove(req.request_id)}
+                    disabled={approving === req.request_id}
+                    className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all disabled:opacity-50">
+                    {approving === req.request_id ? "Approving..." : "Approve"}
+                  </button>
+                  <button onClick={() => handleReject(req.request_id)}
+                    disabled={approving === req.request_id}
+                    className="text-[10px] px-3 py-1 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors disabled:opacity-50">
+                    Reject
+                  </button>
+                  {approveError && approving === null && (
+                    <span className="text-[10px] text-[var(--ct-red)]">{approveError}</span>
+                  )}
+                </div>
               </div>
             ))}
 
@@ -328,7 +278,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                       </div>
                     ) : (
                       <button onClick={() => handleConnect(peer.instance_id)}
-                        disabled={connecting !== null || (!canManage && hasPeers)}
+                        disabled={connecting !== null}
                         className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] hover:bg-[var(--ct-accent)]/30 transition-all disabled:opacity-50">
                         {hasPeers ? "Add to Mesh" : "Connect"}
                       </button>
@@ -336,9 +286,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                   </div>
                   {isPending && (
                     <div className="mt-1.5 text-[10px] text-[var(--ct-muted)]">
-                      {hasPeers
-                        ? "Approve this join request from the crown holder's device"
-                        : `Accept the pairing request on ${peer.instance_name}`}
+                      Accept the pairing request on {peer.instance_name}
                     </div>
                   )}
                 </div>

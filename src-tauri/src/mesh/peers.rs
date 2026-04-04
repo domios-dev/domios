@@ -123,7 +123,6 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
             online: false,
             is_primary: d.is_primary,
             access_level: d.access_level,
-            trust_level: String::new(),
             version: d.version,
         })
     }).collect()
