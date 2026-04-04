@@ -106,14 +106,6 @@ pub async fn mesh_pair_accept(
         let _ = mesh.save();
     }
 
-    // Auto-trust the new peer if we're crown
-    {
-        let mut m = state.mesh.lock();
-        m.claim_crown_if_unclaimed();
-        m.auto_trust_peer(&accept.from_instance_id);
-        let _ = m.save();
-    }
-
     log::info!("[mesh] Paired (requester) with {}", accept.from_instance_id);
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
 
@@ -359,8 +351,6 @@ pub async fn mesh_introduce(
     };
     mesh.paired_peers.insert(intro.instance_id.clone(), peer);
     mesh.discovered_peers.remove(&intro.instance_id);
-    // Auto-trust introduced peer if we're crown
-    mesh.auto_trust_peer(&intro.instance_id.clone());
     let _ = mesh.save();
     drop(mesh);
 
@@ -514,8 +504,6 @@ pub async fn mesh_approve_peer(
         m.paired_peers.insert(request.from_instance_id.clone(), peer);
         m.pending_requests.remove(&request_id);
         m.claim_crown_if_unclaimed();
-        // Auto-trust the new peer if we're crown
-        m.auto_trust_peer(&request.from_instance_id.clone());
         let _ = m.save();
     }
 
@@ -762,13 +750,16 @@ pub async fn mesh_trust_refresh(
         })));
     }
 
-    // Re-sign (or create) fresh declarations for requested peers
+    // Re-sign fresh Untrusted declarations for requested peers
+    // Only Untrusted declarations exist — Trusted peers have no declaration
     let mut declarations = Vec::new();
     for peer_id in &peer_ids {
         let current_level = mesh.get_trust_level(peer_id);
-        match mesh.set_trust_level(peer_id, current_level) {
-            Ok(decl) => declarations.push(decl),
-            Err(e) => log::warn!("[mesh/trust-refresh] Failed to refresh for {}: {}", peer_id, e),
+        if current_level == crate::mesh::crown::TrustLevel::Untrusted {
+            match mesh.set_trust_level(peer_id, current_level) {
+                Ok(decl) => declarations.push(decl),
+                Err(e) => log::warn!("[mesh/trust-refresh] Failed to refresh for {}: {}", peer_id, e),
+            }
         }
     }
 

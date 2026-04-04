@@ -1207,6 +1207,9 @@ fn main() {
                                 } else {
                                     print_object(&val);
                                 }
+                                if let Some(warning) = val.get("warning").and_then(|v| v.as_str()) {
+                                    eprintln!("Warning: {}", warning);
+                                }
                             }
                             return;
                         }

@@ -33,7 +33,8 @@ impl CrownManager {
         self.public_info.as_ref().map(|c| c.holder_id.clone())
     }
 
-    /// Claim crown if nobody has it yet. Skips if crown_public already received via sync.
+    /// Claim crown if nobody has it yet.
+    /// Skips if we already have a crown (ours or received from another mesh).
     pub fn claim_if_unclaimed(&mut self, our_id: &str) {
         if self.keypair.is_some() || self.public_info.is_some() {
             return;
@@ -158,6 +159,39 @@ impl CrownManager {
         let _ = crown::save_crown_public_info(&public_info);
         self.public_info = Some(public_info);
         Ok(())
+    }
+
+    /// Get the mesh_id from the current crown (if any).
+    pub fn mesh_id(&self) -> Option<String> {
+        self.public_info.as_ref().and_then(|c| {
+            crown::verify_crown_jwt(&c.crown_jwt, &c.public_key)
+                .ok()
+                .map(|claims| claims.mesh_id)
+        })
+    }
+
+    /// Strip our own crown when joining a foreign mesh.
+    /// Called when we receive a crown_public with a different mesh_id.
+    pub fn strip_foreign_crown(&mut self, incoming: &CrownPublicInfo) {
+        let incoming_mesh_id = crown::verify_crown_jwt(&incoming.crown_jwt, &incoming.public_key)
+            .ok()
+            .map(|c| c.mesh_id);
+
+        let our_mesh_id = self.mesh_id();
+
+        if our_mesh_id.is_some() && our_mesh_id != incoming_mesh_id {
+            log::info!(
+                "[mesh/crown] Stripping own crown (mesh={:?}) — joining foreign mesh (mesh={:?})",
+                our_mesh_id, incoming_mesh_id
+            );
+            if self.keypair.is_some() {
+                crown::delete_crown_keypair();
+                self.keypair = None;
+            }
+            // Accept the foreign crown
+            let _ = crown::save_crown_public_info(incoming);
+            self.public_info = Some(incoming.clone());
+        }
     }
 
     /// Relinquish crown and clear state.

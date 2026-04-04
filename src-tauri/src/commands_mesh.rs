@@ -159,11 +159,10 @@ pub async fn mesh_approve_pairing(
         crate::mesh::broadcast_introductions(new_peer, existing, our_id, token).await;
     }
 
-    // Claim crown + auto-trust + save
+    // Claim crown (acceptor claims) + save
     {
         let mut m = mesh.lock();
         m.claim_crown_if_unclaimed();
-        m.auto_trust_peer(&request.from_instance_id);
         let _ = m.save();
     }
 

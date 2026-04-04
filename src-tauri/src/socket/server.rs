@@ -689,13 +689,17 @@ fn dispatch(
             let result = svc_ref.spawn_agent_sync(spawn_params)
                 .map_err(|e| JsonRpcError { code: -32603, message: e })?;
             { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
-            Ok(serde_json::json!({
+            let mut resp = serde_json::json!({
                 "pane_id": result.pane_id,
                 "tab_id": result.tab_id,
                 "agent": result.agent,
                 "title": result.title,
                 "role": result.role,
-            }))
+            });
+            if let Some(ref warning) = result.warning {
+                resp["warning"] = serde_json::json!(warning);
+            }
+            Ok(resp)
         }
 
         "agent.report" => {
