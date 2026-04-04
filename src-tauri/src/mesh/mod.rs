@@ -1,10 +1,8 @@
 //! CodeTerm Mesh — peer-to-peer networking between CodeTerm instances.
 //!
-//! Architecture (SOLID):
+//! Architecture:
 //! - IdentityManager — signing, authentication, keypair operations
-//! - CrownManager — crown lifecycle (claiming, transferring, accepting)
-//! - TrustManager — inverted trust: default=Trusted, King only signs Untrusted declarations
-//! - MeshManager — thin facade composing the above + peer/discovery state
+//! - MeshManager — thin facade composing identity + peer/discovery state
 
 pub mod types;
 pub mod peers;
@@ -13,8 +11,6 @@ pub mod pairing;
 pub mod transport;
 pub mod crown;
 pub mod identity;
-pub mod crown_manager;
-pub mod trust;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -25,15 +21,11 @@ use types::{DiscoveredPeer, MeshPeersResponse, MeshStatus, PairedPeer, PairingRe
 
 pub type MeshState = Arc<Mutex<MeshManager>>;
 
-/// Central mesh state — composes identity, crown, and trust sub-managers
-/// with peer/discovery state. Single Mutex — no lock ordering concerns.
+/// Central mesh state — composes identity with peer/discovery state.
+/// Single Mutex — no lock ordering concerns.
 pub struct MeshManager {
     /// Identity and request signing.
     pub ident: identity::IdentityManager,
-    /// Crown (leadership) lifecycle.
-    pub crown: crown_manager::CrownManager,
-    /// TTL-based trust declarations.
-    pub trust: trust::TrustManager,
     /// Paired peers (keyed by instance_id).
     pub paired_peers: HashMap<String, PairedPeer>,
     /// Discovered (unpaired) peers.
@@ -56,31 +48,15 @@ impl MeshManager {
         let paired_peers = peers::load_peers();
         let revocation_list = peers::load_revocation_list();
 
-        let mut crown_mgr = crown_manager::CrownManager::new();
-
-        // No peers = no mesh = crown is stale (leftover from previous mesh). Clean it.
-        if paired_peers.is_empty() && crown_mgr.is_crown_holder() {
-            log::info!("[mesh] No peers but crown exists — clearing stale crown");
-            crown_mgr.relinquish();
-        }
-
         log::info!(
-            "[mesh] Initialized: id={}, name={}, {} paired peers, crown={}",
-            identity.instance_id, instance_name, paired_peers.len(), crown_mgr.is_crown_holder()
-        );
-
-        let trust_mgr = trust::TrustManager::load_and_validate(
-            crown_mgr.keypair.as_ref(),
-            crown_mgr.public_info.as_ref().map(|c| c.public_key.as_str()),
-            &identity.instance_id,
+            "[mesh] Initialized: id={}, name={}, {} paired peers",
+            identity.instance_id, instance_name, paired_peers.len()
         );
 
         let ident = identity::IdentityManager::new(identity, instance_name);
 
         Self {
             ident,
-            crown: crown_mgr,
-            trust: trust_mgr,
             discovered_peers: HashMap::new(),
             paired_peers,
             pending_requests: HashMap::new(),
@@ -102,9 +78,6 @@ impl MeshManager {
         Ok(())
     }
 
-    pub fn is_crown_holder(&self) -> bool { self.crown.is_crown_holder() }
-    pub fn crown_holder_id(&self) -> Option<String> { self.crown.crown_holder_id() }
-
     pub fn sign_request(&self) -> Result<String, String> { self.ident.sign_request() }
     pub fn known_public_keys(&self) -> HashMap<String, String> {
         self.ident.known_public_keys(&self.paired_peers)
@@ -113,82 +86,25 @@ impl MeshManager {
         self.ident.authenticate_request(signed_token, &self.paired_peers)
     }
 
-    pub fn claim_crown_if_unclaimed(&mut self) {
-        self.crown.claim_if_unclaimed(&self.ident.identity.instance_id);
-    }
-
-    pub fn transfer_crown(&mut self, target_id: &str) -> Result<u64, String> {
-        self.crown.transfer(target_id, &self.paired_peers)
-    }
-
-    pub fn accept_crown(&mut self, version: u64, from_id: &str) -> Result<crown::CrownPublicInfo, String> {
-        self.crown.accept(version, from_id, &self.ident.identity.instance_id, &self.paired_peers)
-    }
-
-    pub fn update_crown_public(&mut self, public_info: crown::CrownPublicInfo) -> Result<(), String> {
-        self.crown.update_public(public_info, &self.ident.identity.instance_id)
-    }
-
-    pub fn set_trust_level(&mut self, peer_id: &str, level: crown::TrustLevel) -> Result<crown::TrustDeclaration, String> {
-        let keypair = self.crown.keypair.as_ref()
-            .ok_or("Only the crown holder can set trust levels")?;
-        self.trust.set_trust_level(keypair, peer_id, level, &self.ident.identity.instance_id)
-    }
-
-    pub fn get_trust_level(&self, peer_id: &str) -> crown::TrustLevel {
-        self.trust.get_trust_level(peer_id, self.crown.crown_holder_id().as_deref())
-    }
-
-    pub fn trusted_peer_count(&self) -> usize {
-        self.trust.trusted_peer_count(
-            self.paired_peers.keys(),
-            self.crown.crown_holder_id().as_deref(),
-        )
-    }
-
     // ── Status & peers ──────────────────────────────────────────────
 
     pub fn status(&self) -> MeshStatus {
-        let trust = if self.is_crown_holder() {
-            "crown".to_string()
-        } else {
-            match self.get_trust_level(&self.ident.identity.instance_id) {
-                crown::TrustLevel::Trusted => "trusted".to_string(),
-                crown::TrustLevel::Observer => "observer".to_string(),
-                crown::TrustLevel::Untrusted => "untrusted".to_string(),
-            }
-        };
         MeshStatus {
             enabled: true,
             instance_id: self.ident.identity.instance_id.clone(),
             instance_name: self.ident.instance_name.clone(),
             build: env!("BUILD_HASH").to_string(),
-            is_crown: self.is_crown_holder(),
-            crown_holder: self.crown_holder_id(),
             discovery_active: self.discovery_active,
             tailscale_ip: self.tailscale_ip.clone(),
             local_ip: self.local_ip.clone(),
             api_port: self.api_port,
-            can_manage: self.can_manage_mesh(),
             paired_count: self.paired_peers.len(),
             discovered_count: self.discovered_peers.len(),
-            trust_level: trust,
         }
     }
 
     pub fn peers_response(&self) -> MeshPeersResponse {
-        let paired: Vec<PairedPeer> = self.paired_peers.values()
-            .map(|p| {
-                let trust = self.get_trust_level(&p.instance_id);
-                let mut peer = p.clone();
-                peer.trust_level = match trust {
-                    crown::TrustLevel::Trusted => "trusted".to_string(),
-                    crown::TrustLevel::Observer => "observer".to_string(),
-                    crown::TrustLevel::Untrusted => "untrusted".to_string(),
-                };
-                peer
-            })
-            .collect();
+        let paired: Vec<PairedPeer> = self.paired_peers.values().cloned().collect();
         MeshPeersResponse {
             paired,
             discovered: self.discovered_peers.values()
@@ -223,35 +139,18 @@ impl MeshManager {
         let removed = self.paired_peers.remove(instance_id);
         if removed.is_some() {
             self.revocation_list.revoked.retain(|id| id != instance_id);
-            self.trust.remove_peer(instance_id);
-            log::info!("[mesh] Unpaired {} — trust revoked", instance_id);
-            if self.paired_peers.is_empty() {
-                log::info!("[mesh] Last peer removed — clearing mesh state");
-                self.crown.relinquish();
-                self.trust.clear();
-                let path = peers::mesh_dir().join("crown_public.json");
-                let _ = std::fs::remove_file(&path);
-            }
+            log::info!("[mesh] Unpaired {}", instance_id);
             let _ = self.save();
         }
         removed
-    }
-
-    pub fn can_manage_mesh(&self) -> bool {
-        if self.is_crown_holder() { return true; }
-        self.get_trust_level(&self.ident.identity.instance_id) == crown::TrustLevel::Trusted
     }
 
     pub fn exit_mesh(&mut self) -> Vec<(String, Vec<types::PeerAddress>, u16)> {
         let peers: Vec<_> = self.paired_peers.values()
             .map(|p| (p.instance_id.clone(), p.addresses.clone(), p.api_port))
             .collect();
-        self.crown.relinquish();
         self.paired_peers.clear();
-        self.trust.clear();
         let _ = self.save();
-        let path = peers::mesh_dir().join("crown_public.json");
-        let _ = std::fs::remove_file(&path);
         log::info!("[mesh] Exited mesh — removed {} peers", peers.len());
         peers
     }
@@ -302,11 +201,6 @@ impl MeshManager {
     // ── Sync & transport ────────────────────────────────────────────
 
     pub fn build_sync_payload(&self) -> types::MeshSyncPayload {
-        let valid_decls = if let Some(ref cp) = self.crown.public_info {
-            self.trust.valid_declarations(&cp.public_key)
-        } else {
-            vec![]
-        };
         types::MeshSyncPayload {
             peers: self.paired_peers.values()
                 .map(|p| types::GossipPeerInfo {
@@ -316,8 +210,6 @@ impl MeshManager {
                     api_port: p.api_port,
                     dev: false,
                 }).collect(),
-            crown_public: self.crown.public_info.clone(),
-            trust_declarations: valid_decls,
         }
     }
 
@@ -351,17 +243,11 @@ impl MeshManager {
         let token = self.sign_request().ok()?;
         Some(transport::PeerClient::new_signed(&addr.ip, peer.api_port, &token))
     }
-
-    /// Get the crown holder's PeerClient for trust refresh requests.
-    pub fn crown_client(&self) -> Option<transport::PeerClient> {
-        let holder_id = self.crown.crown_holder_id()?;
-        self.client_for(&holder_id)
-    }
 }
 
 // ── Free functions (async, need mesh Arc) ───────────────────────────
 
-/// Broadcast sync payload (crown info + trust declarations) to all paired peers.
+/// Broadcast sync payload to all paired peers.
 pub async fn broadcast_sync(mesh: &MeshState) {
     let (payload, clients) = {
         let m = mesh.lock();
@@ -386,55 +272,12 @@ pub async fn broadcast_sync(mesh: &MeshState) {
             .send().await
         {
             Ok(resp) if resp.status().is_success() =>
-                log::info!("[mesh/broadcast] Synced trust to {}", peer_id),
+                log::info!("[mesh/broadcast] Synced to {}", peer_id),
             Ok(resp) => {
                 let body = resp.text().await.unwrap_or_default();
                 log::warn!("[mesh/broadcast] Sync rejected by {}: {}", peer_id, body);
             }
             Err(e) => log::warn!("[mesh/broadcast] Sync failed for {}: {}", peer_id, e),
-        }
-    }
-}
-
-/// Refresh trust declarations from the King.
-/// Crown holder: re-signs expiring declarations locally and broadcasts.
-/// Non-crown: requests fresh declarations from crown holder.
-pub async fn refresh_trust(mesh: &MeshState) {
-    let (is_crown, expiring, crown_holder_id) = {
-        let m = mesh.lock();
-        let expiring = m.trust.declarations_needing_refresh();
-        if expiring.is_empty() { return; }
-        (m.is_crown_holder(), expiring, m.crown_holder_id())
-    };
-
-    if is_crown {
-        // Crown holder: re-sign expiring Untrusted declarations with fresh TTL
-        {
-            let mut m = mesh.lock();
-            for peer_id in &expiring {
-                // Only Untrusted declarations exist — re-sign them
-                let _ = m.set_trust_level(peer_id, crown::TrustLevel::Untrusted);
-                log::debug!("[mesh/trust-refresh] Re-signed untrust for {}", peer_id);
-            }
-        }
-        broadcast_sync(mesh).await;
-    } else if let Some(_crown_id) = crown_holder_id {
-        // Non-crown: request fresh declarations from crown
-        let client = mesh.lock().crown_client();
-        if let Some(client) = client {
-            match client.request_trust_refresh(&expiring).await {
-                Ok(fresh_decls) => {
-                    let mut m = mesh.lock();
-                    if let Some(ref cp) = m.crown.public_info {
-                        let pk = cp.public_key.clone();
-                        m.trust.merge_declarations(&fresh_decls, &pk);
-                        log::info!("[mesh/trust-refresh] Refreshed {} declarations from crown", fresh_decls.len());
-                    }
-                }
-                Err(e) => {
-                    log::warn!("[mesh/trust-refresh] Crown offline — expired untrust declarations will revert to Trusted: {}", e);
-                }
-            }
         }
     }
 }

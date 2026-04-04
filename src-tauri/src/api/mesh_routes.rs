@@ -1,5 +1,4 @@
-//! Mesh networking API routes — discovery, pairing, crown, relay, sync.
-//! Split from routes.rs for maintainability.
+//! Mesh networking API routes — discovery, pairing, relay, sync.
 
 use axum::{
     extract::{Path, State as AxumState},
@@ -58,7 +57,7 @@ pub async fn mesh_discover(
     Ok(Json(serde_json::to_value(discovered).unwrap()))
 }
 
-// ── Pairing ─────────────────────────────────────────────────────────
+// ── Pairing ────��────��───────────────────────────────────────────────
 
 pub async fn mesh_pair_request(
     AxumState(state): AxumState<AppState>,
@@ -98,7 +97,7 @@ pub async fn mesh_pair_accept(
             last_seen: Some(chrono::Utc::now().to_rfc3339()),
             online: true, is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
-            trust_level: String::new(), version: None,
+            version: None,
         };
         mesh.paired_peers.insert(accept.from_instance_id.clone(), peer);
         mesh.pending_requests.remove(&accept.request_id);
@@ -109,7 +108,7 @@ pub async fn mesh_pair_accept(
     log::info!("[mesh] Paired (requester) with {}", accept.from_instance_id);
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
 
-    // Broadcast sync (crown info + trust) to all peers
+    // Broadcast sync to all peers
     {
         let mesh_state = state.mesh.clone();
         tokio::spawn(async move {
@@ -184,16 +183,10 @@ pub async fn mesh_unpair(
     if sender_id != our_id && sender_id != instance_id {
         let mesh_guard = state.mesh.lock();
         let is_paired = mesh_guard.paired_peers.contains_key(&sender_id);
-        let target_is_crown = mesh_guard.crown.public_info.as_ref()
-            .map(|c| c.holder_id == instance_id).unwrap_or(false);
         drop(mesh_guard);
         if !is_paired {
             return Err((StatusCode::FORBIDDEN,
                 format!("Unknown peer {} cannot remove {}", sender_id, instance_id)));
-        }
-        if target_is_crown {
-            return Err((StatusCode::FORBIDDEN,
-                "Cannot disconnect the crown holder".to_string()));
         }
         log::info!("[mesh] Peer {} requested removal of {} from our mesh", sender_id, instance_id);
     }
@@ -235,55 +228,6 @@ pub async fn mesh_unpair(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-// ── Crown ───────────────────────────────────────────────────────────
-
-pub async fn mesh_receive_crown(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-
-    if let (Some(version), Some(from_id)) = (
-        body.get("version").and_then(|v| v.as_u64()),
-        body.get("from_instance_id").and_then(|v| v.as_str()),
-    ) {
-        let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
-        let token = auth.strip_prefix("Bearer ").unwrap_or("");
-        let mesh = state.mesh.lock();
-        let mut kk = mesh.known_public_keys();
-        if let Some(ref pk) = mesh.ident.identity.public_key {
-            kk.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
-        }
-        let actual_sender = crate::mesh::crown::verify_signed_request(token, &kk)
-            .map_err(|_| (StatusCode::UNAUTHORIZED, "Bad signature".to_string()))?;
-        if actual_sender != from_id {
-            return Err((StatusCode::FORBIDDEN, "Sender doesn't match from_instance_id".to_string()));
-        }
-        if let Some(ref cp) = mesh.crown.public_info {
-            if cp.holder_id != from_id {
-                return Err((StatusCode::FORBIDDEN,
-                    format!("Only crown holder can transfer. Current: {}, sender: {}", cp.holder_id, from_id)));
-            }
-        }
-        drop(mesh);
-
-        let public_info = state.mesh.lock().accept_crown(version, from_id)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        let _ = state.svc.app_handle.emit("mesh-state-changed", ());
-        return Ok(Json(serde_json::json!({"ok": true, "crown_public": public_info})));
-    }
-
-    if let Ok(public_info) = serde_json::from_value::<crate::mesh::crown::CrownPublicInfo>(body) {
-        state.mesh.lock().update_crown_public(public_info)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        let _ = state.svc.app_handle.emit("mesh-state-changed", ());
-        return Ok(Json(serde_json::json!({"ok": true})));
-    }
-
-    Err((StatusCode::BAD_REQUEST, "Invalid crown payload".to_string()))
-}
-
 // ── Introduction ────────────────────────────────────────────────────
 
 pub async fn mesh_introduce(
@@ -323,14 +267,12 @@ pub async fn mesh_introduce(
         }
     }
 
-    // Only trusted peers or crown can introduce
+    // Only paired peers can introduce (sender must be paired with us)
     {
         let mesh = state.mesh.lock();
-        let sender_trust = mesh.get_trust_level(&sender_id);
-        let is_crown = mesh.crown.public_info.as_ref().map(|c| c.holder_id == sender_id).unwrap_or(false);
-        if !is_crown && sender_trust != crate::mesh::crown::TrustLevel::Trusted {
+        if !mesh.paired_peers.contains_key(&sender_id) {
             return Err((StatusCode::FORBIDDEN,
-                format!("Only trusted peers can introduce. {} is {:?}", sender_id, sender_trust)));
+                format!("Only paired peers can introduce. {} is not paired", sender_id)));
         }
     }
 
@@ -347,7 +289,7 @@ pub async fn mesh_introduce(
         last_seen: Some(chrono::Utc::now().to_rfc3339()),
         online: true, is_primary: false,
         access_level: crate::mesh::types::AccessLevel::Full,
-        trust_level: String::new(), version: None,
+        version: None,
     };
     mesh.paired_peers.insert(intro.instance_id.clone(), peer);
     mesh.discovered_peers.remove(&intro.instance_id);
@@ -356,7 +298,7 @@ pub async fn mesh_introduce(
 
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
 
-    // Broadcast sync so introduced peer gets trust declarations
+    // Broadcast sync so introduced peer gets peer list
     {
         let mesh_state = state.mesh.clone();
         tokio::spawn(async move {
@@ -376,7 +318,7 @@ pub async fn mesh_introduce(
     })))
 }
 
-// ── High-level management (CLI-friendly) ───────────────────────────
+// ─�� High-level management (CLI-friendly) ───────────────────────────
 
 /// Initiate pairing with a discovered peer (same logic as Tauri mesh_connect).
 pub async fn mesh_connect_peer(
@@ -498,22 +440,19 @@ pub async fn mesh_approve_peer(
             online: true,
             is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
-            trust_level: String::new(),
             version: None,
         };
         m.paired_peers.insert(request.from_instance_id.clone(), peer);
         m.pending_requests.remove(&request_id);
-        m.claim_crown_if_unclaimed();
         let _ = m.save();
     }
 
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
     log::info!("[mesh/api] Pairing approved for request {}", request_id);
 
-    // Broadcast sync (crown info + trust) to all peers
+    // Broadcast sync to all peers
     let mesh_state = state.mesh.clone();
     tokio::spawn(async move {
-        // Small delay to let the requester finish storing us
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         crate::mesh::broadcast_sync(&mesh_state).await;
     });
@@ -559,17 +498,6 @@ pub async fn mesh_disconnect_peer(
     let instance_id = body["instance_id"].as_str()
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing instance_id".to_string()))?
         .to_string();
-
-    // Block disconnecting the crown holder
-    {
-        let m = state.mesh.lock();
-        let is_crown = m.crown.public_info.as_ref()
-            .map(|c| c.holder_id == instance_id).unwrap_or(false);
-        if is_crown {
-            return Err((StatusCode::FORBIDDEN, "Cannot disconnect crown holder — transfer crown first".to_string()));
-        }
-    }
-
 
     let (peer, signed_token, our_id) = {
         let m = state.mesh.lock();
@@ -631,17 +559,14 @@ pub async fn mesh_disconnect_peer(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-// ── Sync & Relay ────────────────────────────────────────────────────
+// ── Sync & Relay ─────────���──────────────────────────────────────────
 
 pub async fn mesh_sync(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(payload): Json<crate::mesh::types::MeshSyncPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    log::info!("[mesh/sync] Incoming sync: {} peers, crown={}, {} trust declarations",
-        payload.peers.len(),
-        payload.crown_public.as_ref().map(|c| c.holder_id.as_str()).unwrap_or("none"),
-        payload.trust_declarations.len());
+    log::info!("[mesh/sync] Incoming sync: {} peers", payload.peers.len());
     check_auth(&state, &headers).map_err(|(s, e)| {
         log::warn!("[mesh/sync] Auth FAILED: {}", e);
         (s, e.to_string())
@@ -663,23 +588,6 @@ pub async fn mesh_sync(
         });
         log::info!("[mesh/gossip] Learned about peer {} ({})", peer_info.instance_name, peer_info.instance_id);
     }
-
-    if let Some(crown_info) = payload.crown_public {
-        log::info!("[mesh/sync] Received crown info: holder={}, v{}", crown_info.holder_id, crown_info.version);
-        match mesh.update_crown_public(crown_info) {
-            Ok(()) => log::info!("[mesh/sync] Crown updated successfully"),
-            Err(e) => log::warn!("[mesh/sync] Crown update rejected: {}", e),
-        }
-    }
-
-    log::info!("[mesh/sync] Received {} trust declarations", payload.trust_declarations.len());
-    if let Some(ref cp) = mesh.crown.public_info {
-        let pk = cp.public_key.clone();
-        mesh.trust.merge_declarations(&payload.trust_declarations, &pk);
-        log::info!("[mesh/sync] Total trust declarations after sync: {}", mesh.trust.declarations.len());
-    } else {
-        log::warn!("[mesh/sync] No crown_public — cannot verify {} trust declarations, skipping", payload.trust_declarations.len());
-    }
     drop(mesh);
 
     let mesh = state.mesh.lock();
@@ -688,7 +596,7 @@ pub async fn mesh_sync(
     Ok(Json(serde_json::to_value(our_payload).unwrap()))
 }
 
-/// Verify relay sender: must be paired + trusted (or crown). Untrusted blocked.
+/// Verify relay sender: must be paired. Paired = trusted.
 pub fn check_mesh_relay_auth(state: &AppState, headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
     let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
@@ -702,68 +610,11 @@ pub fn check_mesh_relay_auth(state: &AppState, headers: &HeaderMap) -> Result<St
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid or unknown signature".to_string()))?;
     if peer_id == our_id { return Ok("local".to_string()); }
 
-    // Must be paired
-    let is_paired = mesh.paired_peers.contains_key(&peer_id);
-    let is_crown = mesh.crown.public_info.as_ref().map(|c| c.holder_id == peer_id).unwrap_or(false);
-    if !is_paired && !is_crown {
+    // Must be paired — paired = trusted
+    if !mesh.paired_peers.contains_key(&peer_id) {
         return Err((StatusCode::UNAUTHORIZED, format!("Peer {} not paired", peer_id)));
     }
-    if is_crown { return Ok(peer_id); }
-    let trust = mesh.get_trust_level(&peer_id);
-    match trust {
-        crate::mesh::crown::TrustLevel::Trusted => Ok(peer_id),
-        _ => Err((StatusCode::FORBIDDEN, format!("Peer {} is {:?}", peer_id, trust))),
-    }
-}
-
-/// Trust refresh endpoint — non-crown peers request fresh declarations from the King.
-pub async fn mesh_trust_refresh(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
-    let token = auth.strip_prefix("Bearer ").unwrap_or("");
-    let mesh = state.mesh.lock();
-    let mut known_keys = mesh.known_public_keys();
-    if let Some(ref pk) = mesh.ident.identity.public_key {
-        known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
-    }
-    drop(mesh);
-
-    let _sender_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid signature".to_string()))?;
-
-    let peer_ids: Vec<String> = body.get("peer_ids")
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default();
-    if peer_ids.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "Missing peer_ids".to_string()));
-    }
-
-    let mut mesh = state.mesh.lock();
-    if !mesh.is_crown_holder() {
-        let crown_id = mesh.crown_holder_id();
-        return Ok(Json(serde_json::json!({
-            "error": "not_crown_holder",
-            "crown_holder_id": crown_id,
-        })));
-    }
-
-    // Re-sign fresh Untrusted declarations for requested peers
-    // Only Untrusted declarations exist — Trusted peers have no declaration
-    let mut declarations = Vec::new();
-    for peer_id in &peer_ids {
-        let current_level = mesh.get_trust_level(peer_id);
-        if current_level == crate::mesh::crown::TrustLevel::Untrusted {
-            match mesh.set_trust_level(peer_id, current_level) {
-                Ok(decl) => declarations.push(decl),
-                Err(e) => log::warn!("[mesh/trust-refresh] Failed to refresh for {}: {}", peer_id, e),
-            }
-        }
-    }
-
-    Ok(Json(serde_json::json!({ "declarations": declarations })))
+    Ok(peer_id)
 }
 
 pub async fn mesh_relay(

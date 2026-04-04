@@ -4,7 +4,7 @@ use super::Commands;
 
 #[derive(Subcommand)]
 pub enum MeshAction {
-    /// Show mesh status (identity, crown, discovery)
+    /// Show mesh status (identity, discovery, peers)
     Status,
     /// List all peers (paired + discovered)
     Peers,
@@ -65,7 +65,7 @@ pub enum MeshAction {
     Discover,
 }
 
-/// Sign a mesh request with Ed25519 (same as server-side crown::sign_request).
+/// Sign a mesh request with Ed25519 (same as server-side peer auth).
 pub fn sign_request(private_key_b64: &str, instance_id: &str) -> Result<String, String> {
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD;
@@ -110,18 +110,6 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
 
     let (base, token) = super::read_api_config();
     let http = super::build_http(&token);
-
-    // Check own trust level — untrusted peers cannot send relay commands
-    if let Ok(resp) = http.get(format!("{}/api/mesh/status", base)).send() {
-        if let Ok(status) = resp.json::<serde_json::Value>() {
-            let our_trust = status.get("trust_level").and_then(|v| v.as_str()).unwrap_or("unknown");
-            if our_trust == "untrusted" {
-                eprintln!("Error: this device is untrusted in the mesh — you cannot send commands to other peers.");
-                eprintln!("Only the crown holder can grant trust. Ask the mesh admin to trust this device.");
-                std::process::exit(1);
-            }
-        }
-    }
 
     // Map CLI command to API path + method + body
     let (method, path, body) = cli_command_to_api(&cli.command);

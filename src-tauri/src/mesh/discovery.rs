@@ -311,16 +311,10 @@ pub fn start_udp_broadcast(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> 
             let mesh_id = {
                 let m = mesh_for_sender.lock();
                 if m.paired_peers.is_empty() {
-                    None // Not in a mesh
+                    None
                 } else {
-                    // Extract mesh_id from crown JWT, or use a hash of crown holder as fallback
-                    m.crown.public_info.as_ref().and_then(|c| {
-                        crate::mesh::crown::verify_crown_jwt(&c.crown_jwt, &c.public_key)
-                            .ok().map(|cl| cl.mesh_id)
-                    }).or_else(|| {
-                        // Fallback: use crown holder_id as mesh identifier
-                        m.crown.public_info.as_ref().map(|c| c.holder_id.clone())
-                    })
+                    // Use our instance_id as mesh identifier when paired
+                    Some(m.ident.identity.instance_id.clone())
                 }
             };
             let beacon = Beacon {

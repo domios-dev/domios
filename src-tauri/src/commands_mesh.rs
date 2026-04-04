@@ -94,13 +94,6 @@ pub async fn mesh_approve_pairing(
     svc: tauri::State<'_, crate::service::ServiceState>,
     request_id: String,
 ) -> Result<(), String> {
-    {
-        let m = mesh.lock();
-        let has_crown = m.crown.public_info.is_some();
-        if has_crown && !m.can_manage_mesh() {
-            return Err("Only crown holder or trusted peers can approve pairing requests".to_string());
-        }
-    }
     let (request, our_pubkey, our_id, our_name) = {
         let m = mesh.lock();
         let req = m.pending_requests.get(&request_id).cloned()
@@ -142,7 +135,6 @@ pub async fn mesh_approve_pairing(
             online: true,
             is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
-            trust_level: String::new(),
             version: None,
         };
         m.paired_peers.insert(request.from_instance_id.clone(), peer);
@@ -159,14 +151,7 @@ pub async fn mesh_approve_pairing(
         crate::mesh::broadcast_introductions(new_peer, existing, our_id, token).await;
     }
 
-    // Claim crown (acceptor claims) + save
-    {
-        let mut m = mesh.lock();
-        m.claim_crown_if_unclaimed();
-        let _ = m.save();
-    }
-
-    // Broadcast full sync (crown + trust + peers) to all
+    // Broadcast sync (peers) to all
     let mesh_arc = mesh.inner().clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -206,12 +191,6 @@ pub async fn mesh_disconnect(
     svc: tauri::State<'_, crate::service::ServiceState>,
     instance_id: String,
 ) -> Result<(), String> {
-    {
-        let m = mesh.lock();
-        if m.crown.public_info.as_ref().map(|c| c.holder_id == instance_id).unwrap_or(false) {
-            return Err("Cannot disconnect crown holder — transfer crown first".to_string());
-        }
-    }
     // Notify the other side to disconnect too (use signed JWT auth)
     let (peer, signed_token, our_id) = {
         let m = mesh.lock();
@@ -322,51 +301,6 @@ pub async fn mesh_exit(
 }
 
 #[tauri::command]
-pub async fn mesh_transfer_crown(
-    mesh: tauri::State<'_, crate::MeshStateHandle>,
-    svc: tauri::State<'_, crate::service::ServiceState>,
-    instance_id: String,
-) -> Result<(), String> {
-    // Relinquish crown — get next version number
-    let (next_version, our_id, target_client) = {
-        let mut m = mesh.lock();
-        let v = m.transfer_crown(&instance_id)?;
-        let id = m.ident.identity.instance_id.clone();
-        let client = m.client_for(&instance_id);
-        (v, id, client)
-    };
-
-    // Tell target to accept crown — they generate keypair locally
-    if let Some(client) = target_client {
-        let body = serde_json::json!({"version": next_version, "from_instance_id": our_id});
-        let resp = client.auth_post_json("/api/mesh/crown", &body).await
-            .map_err(|e| format!("Crown transfer failed: {}", e))?;
-        // Response contains new CrownPublicInfo — broadcast to all peers
-        if let Some(public_info_json) = resp.get("crown_public") {
-            let info_str = serde_json::to_string(public_info_json).unwrap_or_default();
-            // Update our own crown_public
-            if let Ok(info) = serde_json::from_str::<crate::mesh::crown::CrownPublicInfo>(&info_str) {
-                let _ = mesh.lock().update_crown_public(info);
-            }
-            // Broadcast to other peers
-            let other_clients: Vec<_> = {
-                let m = mesh.lock();
-                m.paired_peers.keys()
-                    .filter(|pid| pid.as_str() != instance_id)
-                    .filter_map(|pid| m.client_for(pid))
-                    .collect()
-            };
-            for c in other_clients {
-                let _ = c.send_crown_update(&info_str).await;
-            }
-        }
-    }
-
-    let _ = svc.app_handle.emit("mesh-state-changed", ());
-    Ok(())
-}
-
-#[tauri::command]
 pub fn mesh_add_manual(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
     svc: tauri::State<'_, crate::service::ServiceState>,
@@ -394,34 +328,6 @@ pub fn mesh_add_manual(
     Ok(())
 }
 
-/// Set trust level for a peer (only crown holder can do this).
-#[tauri::command]
-pub async fn mesh_set_trust(
-    mesh: tauri::State<'_, crate::MeshStateHandle>,
-    svc: tauri::State<'_, crate::service::ServiceState>,
-    instance_id: String,
-    trust_level: String,
-) -> Result<(), String> {
-    let level = match trust_level.as_str() {
-        "trusted" => crate::mesh::crown::TrustLevel::Trusted,
-        "untrusted" => crate::mesh::crown::TrustLevel::Untrusted,
-        "observer" => crate::mesh::crown::TrustLevel::Observer,
-        _ => return Err(format!("Invalid trust level: {}", trust_level)),
-    };
-
-    mesh.lock().set_trust_level(&instance_id, level)?;
-
-    // Broadcast full sync payload (crown_public + all trust declarations) to all peers
-    let mesh_arc = mesh.inner().clone();
-    tokio::spawn(async move {
-        crate::mesh::broadcast_sync(&mesh_arc).await;
-    });
-
-    let _ = svc.app_handle.emit("mesh-state-changed", ());
-    log::info!("[mesh] Set trust for {} to {}", instance_id, trust_level);
-    Ok(())
-}
-
 /// Start mesh discovery dynamically (called when user enables mesh in settings).
 #[tauri::command]
 pub fn mesh_start_discovery(
@@ -432,9 +338,6 @@ pub fn mesh_start_discovery(
     if !mesh_config.enabled {
         return Err("Mesh is not enabled".to_string());
     }
-
-    // Don't claim crown here — crown is only created during pairing (acceptor claims).
-    // Standalone machines must not have a crown.
 
     // Detect network addresses
     crate::mesh::discovery::detect_tailscale(&mesh);
