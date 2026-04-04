@@ -83,5 +83,6 @@ pub fn detect_install_method() -> InstallMethod {
         }
     }
 
+    #[allow(unreachable_code)]
     InstallMethod::Unknown
 }

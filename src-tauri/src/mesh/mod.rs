@@ -56,7 +56,7 @@ impl MeshManager {
         let paired_peers = peers::load_peers();
         let revocation_list = peers::load_revocation_list();
 
-        let mut crown_mgr = crown_manager::CrownManager::new();
+        let crown_mgr = crown_manager::CrownManager::new();
 
         log::info!(
             "[mesh] Initialized: id={}, name={}, {} paired peers, crown={}",

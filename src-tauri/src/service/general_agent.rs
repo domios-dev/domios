@@ -173,7 +173,7 @@ pub fn start_general_agent(
     pty: &crate::PtyState,
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
-    app: &tauri::AppHandle,
+    _app: &tauri::AppHandle,
 ) {
     let general_config = config.lock().general_agent.clone();
     let provider_name = &general_config.agent_provider;
