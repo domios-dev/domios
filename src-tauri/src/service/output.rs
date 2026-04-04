@@ -201,18 +201,27 @@ impl ServiceContext {
                     .unwrap_or(false);
 
                 if auto_approve {
-                    log::info!("[auto-approve] Auto-approving prompt for pane {}", pane_id);
-                    let pty_id = self.mux.lock()
-                        .get_pane(pane_id)
-                        .and_then(|p| p.pty_id.clone());
-                    if let Some(pty_id) = pty_id {
-                        let pty = self.pty.clone();
-                        std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(500));
-                            let _ = pty.lock().write(&pty_id, b"\r");
-                        });
+                    // Only auto-approve yes/no prompts (permission checks).
+                    // Skip numbered option prompts (1/2/3) — those need user decision.
+                    let is_yes_no = prompt.options.iter().any(|o| {
+                        let v = o.value.to_lowercase();
+                        v == "y" || v == "yes"
+                    });
+                    if is_yes_no {
+                        log::info!("[auto-approve] Auto-approving yes/no prompt for pane {}", pane_id);
+                        let pty_id = self.mux.lock()
+                            .get_pane(pane_id)
+                            .and_then(|p| p.pty_id.clone());
+                        if let Some(pty_id) = pty_id {
+                            let pty = self.pty.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_millis(500));
+                                let _ = pty.lock().write(&pty_id, b"y\r");
+                            });
+                        }
+                        return;
                     }
-                    return;
+                    log::debug!("[auto-approve] Skipping non-yes/no prompt for pane {}", pane_id);
                 }
                 {
                     let mut mux = self.mux.lock();

@@ -74,8 +74,22 @@ cd tests/webdriver && npm test
 - `docs/CONFIG.md` — Configuration options, themes, keybindings
 - `docs/SKILLS.md` — Claude Code skill for CodeTerm control
 - `docs/BUILD.md` — Build instructions
+- `docs/MESH.md` — Mesh networking spec (flat peer model, no crown)
 
 Each doc has a `<!-- revision: N -->` tag at the bottom. When you change API endpoints, config options, CLI commands, or skills — bump the revision in affected docs. This lets users detect when to update their local skill/config copies.
+
+## Agent prompts
+
+Prompt templates compiled into the binary via `include_str!()`. Edit `.md` files, recompile to apply.
+
+- `src-tauri/prompts/general_agent.md` — General Agent system prompt (CLAUDE.md template)
+- `src-tauri/prompts/bootstrap_instructions.md` — First-run onboarding instructions
+- `src-tauri/prompts/worker_suffix.md` — Appended to Worker tasks (report instructions)
+- `src-tauri/prompts/lead_suffix.md` — Appended to Lead tasks (spawn + no-sleep)
+- `src-tauri/prompts/orchestrator_suffix.md` — Appended to Orchestrator tasks
+- `src-tauri/prompts/codeterm_rule.md` — Installed to `~/.claude/rules/codeterm.md`
+- `src-tauri/prompts/cron_complete_suffix.md` — Appended to cron tasks (completion instruction)
+- `src-tauri/src/prompts.rs` — Rust module that loads all templates
 
 ## Architecture: Agent Providers
 

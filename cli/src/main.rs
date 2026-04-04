@@ -448,6 +448,20 @@ pub enum AgentAction {
         #[arg(long)]
         pane: Option<String>,
     },
+    /// Compact agent context (sends /compact to Claude)
+    Compact {
+        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+    },
+    /// Switch agent model (sends /model to Claude)
+    Model {
+        /// Model name: sonnet, haiku, opus
+        name: String,
+        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+    },
     /// Spawn a new agent (creates tab in workspace, linked in hierarchy)
     Spawn {
         /// Agent to run: claude, aider, goose, or any command
@@ -1213,6 +1227,33 @@ fn main() {
                             }
                             return;
                         }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Compact { pane } => {
+                    let pane_id = resolve_pane(&mut client, pane);
+                    let cmd = "/compact\n";
+                    match http.post(format!("{}/api/panes/{}/send", base, pane_id))
+                        .json(&serde_json::json!({"text": cmd}))
+                        .send()
+                    {
+                        Ok(_) => { println!("Sent /compact to {}", pane_id); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Model { name, pane } => {
+                    let valid = ["sonnet", "haiku", "opus"];
+                    if !valid.contains(&name.as_str()) {
+                        eprintln!("Invalid model: {}. Use: sonnet, haiku, opus", name);
+                        std::process::exit(1);
+                    }
+                    let pane_id = resolve_pane(&mut client, pane);
+                    let cmd = format!("/model {}\n", name);
+                    match http.post(format!("{}/api/panes/{}/send", base, pane_id))
+                        .json(&serde_json::json!({"text": cmd}))
+                        .send()
+                    {
+                        Ok(_) => { println!("Sent /model {} to {}", name, pane_id); return; }
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
                 }
