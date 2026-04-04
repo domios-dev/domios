@@ -107,7 +107,17 @@ case "$CMD" in
     BUILD_NUM=$(cat BUILD_NUMBER 2>/dev/null || echo 0)
     BUILD_NUM=$((BUILD_NUM + 1))
     echo "$BUILD_NUM" > BUILD_NUMBER
-    echo "Build #$BUILD_NUM starting..."
+    # Build CLI first (so it's ready when app starts)
+    echo "Building CLI..."
+    cargo build --release --manifest-path cli/Cargo.toml
+    BIN_DIR="$HOME/.codeterm/bin"
+    mkdir -p "$BIN_DIR"
+    if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+      cp cli/target/release/codeterm "$BIN_DIR/codeterm"
+    else
+      cp cli/target/release/codeterm.exe "$BIN_DIR/codeterm.exe"
+    fi
+    echo "CLI installed. Build #$BUILD_NUM starting..."
     pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json
     ;;
   webdriver)

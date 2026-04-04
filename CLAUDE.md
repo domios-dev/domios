@@ -28,7 +28,7 @@ All commands go through `build.sh` — one script for all platforms. Safe on Win
 source build.sh env         # load MSVC env into shell (Windows, for manual cargo commands)
 ```
 
-**CLI note:** `./build.sh dev` auto-builds CLI on first start. Rust hot reload does NOT rebuild CLI — use `./build.sh cli` separately if CLI code changed (cli/ crate). No dev restart needed, just rebuild CLI.
+**CLI note:** `./build.sh dev` auto-builds CLI on every start. If you change CLI code (cli/ crate) mid-session, use `./build.sh cli` separately — no dev restart needed.
 
 ### Tests (3 layers)
 
