@@ -74,8 +74,6 @@ Commands default to the **current focused pane** when no ID is given.
 codeterm pane list                              # List panes
 codeterm pane current                           # Get focused pane ID (may not be yours!)
 codeterm pane current --last                    # Get last created pane ID
-codeterm pane split --id $CODETERM_PANE_ID      # Split pane right (only when user asks)
-codeterm pane split --id $CODETERM_PANE_ID --direction down  # Split pane down
 codeterm pane rename "title"                    # Rename your tab
 codeterm pane rename "title" --pane PANE_ID     # Rename specific pane
 codeterm pane focus PANE_ID                     # Focus pane

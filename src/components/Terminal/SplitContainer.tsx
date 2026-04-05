@@ -63,8 +63,6 @@ export function SplitContainer({
     const splitButtons = pane.protected ? null : (
       <PaneToolbar
         hasAgent={hasAgent}
-        onSplitH={() => onSplitPane(pane.id, "Horizontal")}
-        onSplitV={() => onSplitPane(pane.id, "Vertical")}
         onClose={() => onClosePane(pane.id)}
       />
     );
@@ -231,49 +229,18 @@ function ConfirmStopDialog({ message, confirmLabel, onConfirm, onCancel }: { mes
 
 function PaneToolbar({
   hasAgent,
-  onSplitH,
-  onSplitV,
   onClose,
 }: {
   hasAgent: boolean;
-  onSplitH: () => void;
-  onSplitV: () => void;
   onClose: () => void;
 }) {
   const [confirmClose, setConfirmClose] = useState(false);
 
   const btnBase = "w-6 h-6 flex items-center justify-center rounded-md transition-all duration-150";
-  const btnNormal = `${btnBase} bg-[var(--ct-bg)]/90 backdrop-blur-sm border border-[var(--ct-border)]/60 text-[var(--ct-muted)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-muted)] hover:bg-[var(--ct-surface)]`;
 
   return (
     <>
       <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover/pane:opacity-100 transition-opacity duration-200 z-10">
-        {/* Split / close buttons */}
-        {/* Split right */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onSplitH(); }}
-          className={btnNormal}
-          title="Split right (Ctrl+Shift+D)"
-        >
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-            <rect x="1" y="1" width="10" height="10" rx="1.5" />
-            <line x1="6" y1="1.5" x2="6" y2="10.5" />
-          </svg>
-        </button>
-        {/* Split down */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onSplitV(); }}
-          className={btnNormal}
-          title="Split down (Ctrl+Shift+E)"
-        >
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
-            <rect x="1" y="1" width="10" height="10" rx="1.5" />
-            <line x1="1.5" y1="6" x2="10.5" y2="6" />
-          </svg>
-        </button>
-        {/* Separator */}
-        <div className="w-px h-3 bg-[var(--ct-border)]/50 mx-0.5" />
-
         {/* Close */}
         <button
           onClick={(e) => {

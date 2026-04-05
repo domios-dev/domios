@@ -462,8 +462,6 @@ export function CommandPalette({ commands }: CommandPaletteProps) {
 interface CommandActions {
   newTab: () => void;
   closeTab: () => void;
-  splitRight: () => void;
-  splitDown: () => void;
   newWorkspace: () => void;
   openSettings: () => void;
   toggleSidebar: () => void;
@@ -490,22 +488,6 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
       shortcut: "Ctrl+W",
       section: "Tabs",
       action: actions.closeTab,
-    },
-    {
-      id: "split-right",
-      label: "Split Right",
-      icon: ICONS.splitRight,
-      shortcut: "Ctrl+Shift+\u2192",
-      section: "Panes",
-      action: actions.splitRight,
-    },
-    {
-      id: "split-down",
-      label: "Split Down",
-      icon: ICONS.splitDown,
-      shortcut: "Ctrl+Shift+\u2193",
-      section: "Panes",
-      action: actions.splitDown,
     },
     {
       id: "new-workspace",

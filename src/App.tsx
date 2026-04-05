@@ -133,18 +133,6 @@ function AppInner() {
     }
   }, [activeWs, activeTab, closeTab]);
 
-  const handleSplitRight = useCallback(() => {
-    if (state.focused_pane_id) {
-      splitPane(state.focused_pane_id, "Horizontal");
-    }
-  }, [state.focused_pane_id, splitPane]);
-
-  const handleSplitDown = useCallback(() => {
-    if (state.focused_pane_id) {
-      splitPane(state.focused_pane_id, "Vertical");
-    }
-  }, [state.focused_pane_id, splitPane]);
-
   const handleCloseFocusedPane = useCallback(() => {
     if (state.focused_pane_id) {
       closePane(state.focused_pane_id);
@@ -175,8 +163,6 @@ function AppInner() {
       buildDefaultCommands({
         newTab: handleNewTab,
         closeTab: handleCloseCurrentTab,
-        splitRight: handleSplitRight,
-        splitDown: handleSplitDown,
         newWorkspace: () => {
           openDialog({ directory: true, multiple: false, title: "Choose workspace folder" })
             .then((folder) => {
@@ -213,8 +199,6 @@ function AppInner() {
     [
       handleNewTab,
       handleCloseCurrentTab,
-      handleSplitRight,
-      handleSplitDown,
       createWorkspace,
       spawnClaudeTab,
     ],
@@ -227,8 +211,6 @@ function AppInner() {
       // Config-driven bindings (language-independent via e.code)
       if (matchesBinding(e, kb.new_tab)) { e.preventDefault(); handleNewTab(); return; }
       if (matchesBinding(e, kb.close_tab)) { e.preventDefault(); handleCloseCurrentTab(); return; }
-      if (matchesBinding(e, kb.split_right)) { e.preventDefault(); handleSplitRight(); return; }
-      if (matchesBinding(e, kb.split_down)) { e.preventDefault(); handleSplitDown(); return; }
       if (matchesBinding(e, kb.close_pane)) { e.preventDefault(); handleCloseFocusedPane(); return; }
       if (matchesBinding(e, kb.new_workspace)) {
         e.preventDefault();
@@ -406,8 +388,6 @@ function AppInner() {
     kb,
     handleNewTab,
     handleCloseCurrentTab,
-    handleSplitRight,
-    handleSplitDown,
     handleCloseFocusedPane,
     openBrowser,
     createWorkspace,

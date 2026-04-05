@@ -860,6 +860,7 @@ pub fn run() {
             commands::write_pty_string,
             commands::get_pane_output,
             commands::get_pane_screen,
+            commands::get_pane_screen_formatted,
             commands::wait_shell_ready,
             commands::read_session_jsonl,
             commands::resize_pty,
