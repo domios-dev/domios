@@ -3,6 +3,7 @@ mod api;
 mod autostart;
 pub mod bridge;
 mod commands;
+pub mod dispatch;
 mod commands_mesh;
 mod config;
 pub mod cron;
