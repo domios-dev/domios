@@ -5,6 +5,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -111,6 +112,21 @@ export function TerminalPane({
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const connectedPtyRef = useRef<string | null>(null);
 
+  // ConPTY resize jiggle: shrink by 1 col then restore to force SIGWINCH → TUI redraw.
+  // ConPTY ignores same-size resize, so this is needed after screen restore and HMR.
+  const jigglePendingRef = useRef(false);
+  const jiggleResize = useCallback((ptyId: string) => {
+    const term = xtermRef.current;
+    if (!term || jigglePendingRef.current) return;
+    const cols = term.cols, rows = term.rows;
+    if (cols <= 1 || rows <= 0) return;
+    jigglePendingRef.current = true;
+    invoke("resize_pty", { ptyId, cols: cols - 1, rows })
+      .then(() => new Promise<void>(r => setTimeout(r, 100)))
+      .then(() => invoke("resize_pty", { ptyId, cols, rows }))
+      .finally(() => { jigglePendingRef.current = false; });
+  }, []);
+
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -195,10 +211,7 @@ export function TerminalPane({
   stateRef.current = state;
   const handleClick = useCallback(() => {
     onFocus?.(paneId);
-    // Focus xterm textarea, then fallback to container
     xtermRef.current?.focus();
-    // Also focus the container div as fallback for keyboard capture
-    termRef.current?.focus();
   }, [onFocus, paneId]);
 
   // --- Copy helper ---
@@ -308,9 +321,14 @@ export function TerminalPane({
     return () => { unlisten?.(); };
   }, [paneId]);
 
+  // Guard against React StrictMode double-mount creating two Terminal instances (xterm.js #4228)
+  const xtermInitialized = useRef(false);
+
   // Initialize xterm
   useEffect(() => {
     if (!termRef.current) return;
+    if (xtermInitialized.current) return;
+    xtermInitialized.current = true;
 
     const term = new Terminal({
       cursorBlink: terminalConfig?.cursor_blink ?? true,
@@ -343,6 +361,11 @@ export function TerminalPane({
     const searchAddon = new SearchAddon();
     term.loadAddon(searchAddon);
     searchAddonRef.current = searchAddon;
+
+    // Unicode11 — proper double-width CJK character handling, prevents cursor misalignment
+    const unicode11 = new Unicode11Addon();
+    term.loadAddon(unicode11);
+    term.unicode.activeVersion = "11";
 
     term.open(termRef.current);
 
@@ -465,13 +488,16 @@ export function TerminalPane({
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Observe container resize to refit terminal
+    // Observe container resize to refit terminal (debounced to avoid thrashing during split drag)
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const safefit = () => {
-      requestAnimationFrame(() => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null;
         if (fitAddonRef.current) {
           try { fitAddonRef.current.fit(); } catch { /* teardown */ }
         }
-      });
+      }, 150);
     };
 
     const resizeObserver = new ResizeObserver(safefit);
@@ -509,16 +535,7 @@ export function TerminalPane({
           try {
             fitAddonRef.current.fit();
             t.refresh(0, t.rows - 1);
-            // Jiggle resize: ConPTY ignores same-size resize,
-            // so shrink by 1 col then restore to force SIGWINCH → TUI redraw
-            if (ptyId && t.cols > 1 && t.rows > 0) {
-              const cols = t.cols, rows = t.rows;
-              invoke("resize_pty", { ptyId, cols: cols - 1, rows }).then(() =>
-                new Promise(r => setTimeout(r, 100))
-              ).then(() => {
-                invoke("resize_pty", { ptyId, cols, rows });
-              });
-            }
+            if (ptyId) jiggleResize(ptyId);
           } catch { /* ignore */ }
         });
       };
@@ -528,6 +545,7 @@ export function TerminalPane({
 
     return () => {
       resizeObserver.disconnect();
+      if (resizeTimer) clearTimeout(resizeTimer);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("focus", handleFocus);
       clearInterval(healTimer);
@@ -536,6 +554,7 @@ export function TerminalPane({
       xtermRef.current = null;
       fitAddonRef.current = null;
       searchAddonRef.current = null;
+      xtermInitialized.current = false;
     };
   }, []);
 
@@ -605,90 +624,53 @@ export function TerminalPane({
             }
           } catch { /* ignore */ }
         }
-        // Force TUI redraw: ConPTY ignores resize if size unchanged,
-        // so "jiggle" — shrink by 1 col then restore — to guarantee SIGWINCH.
+        // Force TUI redraw after screen restore
         requestAnimationFrame(() => {
           try {
             fitAddonRef.current?.fit();
-            const cols = term.cols;
-            const rows = term.rows;
-            if (cols > 1 && rows > 0) {
-              invoke("resize_pty", { ptyId, cols: cols - 1, rows }).then(() =>
-                new Promise(r => setTimeout(r, 100))
-              ).then(() => {
-                invoke("resize_pty", { ptyId, cols, rows });
-              });
-            }
+            if (ptyId) jiggleResize(ptyId);
           } catch { /* ignore */ }
         });
       }
 
-      // Poll PTY output — batch writes into single animation frame for smooth scrolling
+      // Poll PTY output — write directly to xterm (xterm.js handles internal batching per 16ms frame)
       let reading = true;
       let firstData = true;
-      let pendingChunks: Uint8Array[] = [];
-      let rafScheduled = false;
-      let userScrolledUp = false;
 
-      // Track whether user has scrolled up (to preserve position during writes)
-      const viewportEl = term.element?.querySelector('.xterm-viewport');
-      if (viewportEl) {
-        const onScroll = () => {
-          const buf = term.buffer.active;
-          if (buf.type === 'normal') {
-            userScrolledUp = buf.viewportY < buf.baseY;
-          }
-        };
-        viewportEl.addEventListener('scroll', onScroll);
-        cleanupFns.push(() => viewportEl.removeEventListener('scroll', onScroll));
-      }
+      // Flow control: pause reading when xterm write buffer is backed up
+      const WRITE_HIGH_WATERMARK = 128 * 1024; // 128KB — pause reading
+      let pendingBytes = 0;
+      let readPaused = false;
+      let resumeResolve: (() => void) | null = null;
 
-      const flushToTerminal = () => {
-        rafScheduled = false;
-        if (pendingChunks.length === 0) return;
-
-        // Save scroll position if user scrolled up
-        const savedViewportY = userScrolledUp && term.buffer.active.type === 'normal'
-          ? term.buffer.active.viewportY
-          : null;
-
-        // Merge all pending chunks into one write
-        const writeData = pendingChunks.length === 1
-          ? pendingChunks[0]
-          : (() => {
-              const total = pendingChunks.reduce((s, c) => s + c.length, 0);
-              const merged = new Uint8Array(total);
-              let offset = 0;
-              for (const chunk of pendingChunks) {
-                merged.set(chunk, offset);
-                offset += chunk.length;
-              }
-              return merged;
-            })();
-
-        term.write(writeData, () => {
-          // Restore scroll position after write completes
-          if (savedViewportY !== null && userScrolledUp) {
-            term.scrollToLine(savedViewportY);
-          }
-        });
-        pendingChunks = [];
-      };
-
-      const scheduleFlush = () => {
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(flushToTerminal);
-        }
+      const waitForDrain = (): Promise<void> => {
+        if (!readPaused) return Promise.resolve();
+        return new Promise((resolve) => { resumeResolve = resolve; });
       };
 
       const readLoop = async () => {
         while (reading) {
           try {
+            // Flow control: wait if xterm write buffer is backed up
+            if (readPaused) await waitForDrain();
+
             const data = await invoke<number[]>("read_pty", { ptyId: predictedId });
             if (data && data.length > 0) {
-              pendingChunks.push(new Uint8Array(data));
-              scheduleFlush();
+              const chunk = new Uint8Array(data);
+
+              // Write directly — xterm.js internally batches writes per animation frame
+              pendingBytes += chunk.length;
+              if (pendingBytes >= WRITE_HIGH_WATERMARK) readPaused = true;
+
+              term.write(chunk, () => {
+                pendingBytes -= chunk.length;
+                if (readPaused && pendingBytes < WRITE_HIGH_WATERMARK / 2) {
+                  readPaused = false;
+                  resumeResolve?.();
+                  resumeResolve = null;
+                }
+              });
+
               // Feed last ~200 bytes to input tracker for prompt detection
               const tail = data.length > 200 ? data.slice(-200) : data;
               try {
@@ -854,60 +836,14 @@ export function TerminalPane({
       });
       cleanupFns.push(() => onDataDisposable.dispose());
 
-      // Fallback: capture keyboard at container level for when xterm textarea loses focus.
-      // Check both className and tagName to reliably detect xterm's internal textarea.
+      // Focus xterm on any click in the container — no fallback keydown handler needed.
+      // All mature xterm.js integrations (VS Code, Wave, Tabby) rely solely on
+      // term.onData() + term.focus(), never a container-level keyboard capture.
       const containerEl = termRef.current;
       if (containerEl) {
-        const handleKeyDown = (e: KeyboardEvent) => {
-          // Don't handle if xterm textarea is focused (onData handles it)
-          const active = document.activeElement;
-          if (
-            active instanceof HTMLTextAreaElement &&
-            active.closest(".xterm")
-          ) return;
-
-          // Don't capture modifier-only keys or shortcuts
-          if (e.ctrlKey && e.shiftKey) return;
-          if (e.altKey) return;
-          if (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta") return;
-
-          e.preventDefault();
-          e.stopPropagation();
-
-          let data = "";
-          if (e.ctrlKey) {
-            // Ctrl+letter = control code
-            const code = e.key.toUpperCase().charCodeAt(0) - 64;
-            if (code > 0 && code < 32) data = String.fromCharCode(code);
-          } else if (e.key === "Enter") {
-            data = "\r";
-          } else if (e.key === "Backspace") {
-            data = "\x7f";
-          } else if (e.key === "Tab") {
-            data = "\t";
-          } else if (e.key === "Escape") {
-            data = "\x1b";
-          } else if (e.key === "ArrowUp") {
-            data = "\x1b[A";
-          } else if (e.key === "ArrowDown") {
-            data = "\x1b[B";
-          } else if (e.key === "ArrowRight") {
-            data = "\x1b[C";
-          } else if (e.key === "ArrowLeft") {
-            data = "\x1b[D";
-          } else if (e.key.length === 1) {
-            data = e.key;
-          }
-
-          if (data) {
-            invoke("write_pty_string", { ptyId: predictedId, data });
-          }
-        };
-        containerEl.addEventListener("keydown", handleKeyDown, true);
-        cleanupFns.push(() => containerEl.removeEventListener("keydown", handleKeyDown, true));
-
-        // Make container focusable
-        containerEl.tabIndex = 0;
+        const focusXterm = () => term.focus();
+        containerEl.addEventListener("mousedown", focusXterm);
+        cleanupFns.push(() => containerEl.removeEventListener("mousedown", focusXterm));
       }
 
       const onResizeDisposable = term.onResize(({ cols, rows }) => {
