@@ -195,11 +195,7 @@ pub async fn read_pty(
     // If a backend reader is active, it forwards output via channel to avoid competing reads.
     // Read from channel instead of raw PTY. Processing (OutputBuffer, ScreenState, process_pty_output)
     // is already done by the backend reader — don't duplicate it here.
-    //
-    // Check both rx (channel ready) and tx (backend starting up but channel not consumed yet).
-    // This prevents a race where frontend clones a raw reader while backend reader is starting.
     {
-        let has_backend_tx = session.backend_reader_tx.lock().unwrap().is_some();
         let rx_opt = session.backend_reader_rx.lock().unwrap().take();
         if let Some(mut rx) = rx_opt {
             let result = rx.recv().await;
@@ -215,26 +211,8 @@ pub async fn read_pty(
                     return Err("PTY closed".to_string());
                 }
             }
-        } else if has_backend_tx {
-            // Backend reader is starting but hasn't sent data yet — wait for channel.
-            // Yield briefly and retry to avoid falling through to raw PTY read.
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            let rx_opt = session.backend_reader_rx.lock().unwrap().take();
-            if let Some(mut rx) = rx_opt {
-                let result = rx.recv().await;
-                match result {
-                    Some(data) => {
-                        *session.backend_reader_rx.lock().unwrap() = Some(rx);
-                        return Ok(data);
-                    }
-                    None => {
-                        *session.backend_reader_rx.lock().unwrap() = None;
-                        return Err("PTY closed".to_string());
-                    }
-                }
-            }
         }
-        // No backend reader at all — fall through to raw PTY path
+        // rx was None — no backend reader active, fall through to raw PTY path
     }
 
     let ob = (*output_buf).clone();
