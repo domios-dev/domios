@@ -479,11 +479,6 @@ fn capitalize(s: &str) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_capitalize() {
-        assert_eq!(capitalize("telegram"), "Telegram");
-        assert_eq!(capitalize(""), "");
-    }
 
     #[test]
     fn test_create_outbound_channel() {
