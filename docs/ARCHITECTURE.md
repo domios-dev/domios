@@ -146,6 +146,9 @@ src-tauri/prompts/          — AGENT PROMPT TEMPLATES (compiled into binary)
 7. **Frontend state sync** — React has local copy of mux state, syncs via events. Could use optimistic updates or WebSocket push.
 8. **Mesh persistence** — JSON files with no atomic writes. Should use write-tmp-then-rename.
 
+### Known: ConPTY double cursor on Windows
+ConPTY historically strips/modifies DECTCEM escape sequences (`\x1b[?25l` / `\x1b[?25h`). TUI apps like Claude Code hide xterm's cursor via DECTCEM and draw their own — if ConPTY swallows the hide, both cursors are visible. Fixed in Windows Terminal v1.0+ (PR #4902), but older Windows 10 builds may still exhibit this. Screen restore now uses `contents_formatted()` + `cursor_state_formatted()` which preserves cursor visibility state. If the issue returns during live sessions (not restore), the fix is: detect alternate screen enter (`\x1b[?1049h`) → force `\x1b[?25l` client-side; detect exit (`\x1b[?1049l`) → force `\x1b[?25h`. References: [xterm.js #4228](https://github.com/xtermjs/xterm.js/issues/4228), [Windows Terminal #3093](https://github.com/microsoft/terminal/issues/3093), [xterm.js #3513](https://github.com/xtermjs/xterm.js/issues/3513).
+
 ## Communication Patterns
 
 All three entry points delegate to ServiceContext:
