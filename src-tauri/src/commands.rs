@@ -413,6 +413,26 @@ pub async fn get_pane_screen(
     Ok(text.replace('\n', "\r\n"))
 }
 
+/// Get screen state as escape-coded bytes — preserves colors, cursor position, cursor visibility.
+/// Fixes double-cursor bug: TUI apps like Claude hide xterm cursor via DECTCEM,
+/// but `get_pane_screen` (text-only) loses that state on remount.
+#[tauri::command]
+pub async fn get_pane_screen_formatted(
+    screen_state: tauri::State<'_, ScreenStateHandle>,
+    mux: tauri::State<'_, MuxState>,
+    pane_id: String,
+) -> Result<Vec<u8>, String> {
+    let pty_id = {
+        let m = mux.lock();
+        m.get_pane(&pane_id)
+            .and_then(|p| p.pty_id.clone())
+            .ok_or_else(|| "Pane not found or has no PTY".to_string())?
+    };
+    let ss = screen_state.lock();
+    ss.get_screen_formatted(&pty_id)
+        .ok_or_else(|| "No screen state".to_string())
+}
+
 #[tauri::command]
 pub async fn wait_shell_ready(
     screen_state: tauri::State<'_, ScreenStateHandle>,

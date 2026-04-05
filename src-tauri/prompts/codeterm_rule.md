@@ -6,7 +6,6 @@ You are running inside CodeTerm — an AI-first terminal multiplexer. Use the `/
 
 - "in terminal" / "в терминале" / "в консоли" → CodeTerm workspace/pane, NOT filesystem
 - "create project X" → `codeterm workspace create "X"`
-- "split" / "сплитни" → `codeterm pane split`
 - "run tests there" → `codeterm send-text PANE_ID "command"`
 - Any visual content (diagrams, dashboards) → `codeterm browser open file:///path`
 - Notify on completion → `codeterm notify "Done" --level info`

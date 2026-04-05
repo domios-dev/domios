@@ -25,6 +25,19 @@ impl ScreenState {
         self.parsers.get(pty_id).map(|p| p.screen().contents())
     }
 
+    /// Get screen as escape-coded bytes — preserves colors, cursor position, cursor visibility.
+    /// Used for screen restore on pane remount (HMR, tab switch).
+    /// Get screen as escape-coded bytes — preserves colors, cursor position, cursor visibility.
+    /// Used for screen restore on pane remount (HMR, tab switch).
+    pub fn get_screen_formatted(&self, pty_id: &str) -> Option<Vec<u8>> {
+        self.parsers.get(pty_id).map(|p| {
+            let screen = p.screen();
+            let mut buf = screen.contents_formatted();
+            buf.extend_from_slice(&screen.cursor_state_formatted());
+            buf
+        })
+    }
+
     pub fn get_content_hash(&self, pty_id: &str, exclude_bottom_rows: u16) -> Option<[u8; 32]> {
         use sha2::{Digest, Sha256};
         self.parsers.get(pty_id).map(|p| {
