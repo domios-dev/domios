@@ -1,6 +1,6 @@
 ---
 name: codeterm
-description: Control CodeTerm terminal multiplexer — workspaces, panes, notifications, layouts, agent hierarchy, cron jobs. Use when user mentions splitting panes, creating workspaces, sending commands to other panes, visualizations, managing terminal sessions, spawning workers/agents, orchestrating parallel tasks, setting up multi-pane layouts, or scheduling recurring tasks. Also use when user says "in terminal", "split", "new pane", "run X there", "orchestrator", "conductor", "lead", "worker", "cron", "schedule", "every hour", "recurring", or wants to delegate tasks to sub-agents.
+description: Control CodeTerm terminal multiplexer — workspaces, panes, notifications, layouts, agent hierarchy, periodic tasks (cron). Use when user mentions splitting panes, creating workspaces, sending commands to other panes, visualizations, managing terminal sessions, spawning workers/agents, orchestrating parallel tasks, setting up multi-pane layouts, or scheduling recurring tasks. Also use when user says "in terminal", "split", "new pane", "run X there", "orchestrator", "conductor", "lead", "worker", "cron", "periodic task", "schedule", "every hour", "recurring", or wants to delegate tasks to sub-agents.
 version: 0.5.0
 ---
 
@@ -16,7 +16,7 @@ The General Agent's response arrives in your terminal. Use this when you don't k
 
 **Language rule:** Agent-to-agent communication is always in English — regardless of the user's language. Task prompts, `--task` arguments, reports, cron tasks. Only reply to the user in their language.
 
-**CRITICAL — Cron jobs / scheduled tasks / recurring tasks:**
+**CRITICAL — Periodic tasks (cron) / scheduled tasks / recurring tasks:**
 Do NOT use the built-in CronCreate/CronList tools. CodeTerm has its own cron system. Always use `codeterm cron` commands:
 ```bash
 # Create a cron job (schedule = 5-field: min hour dom mon dow)
@@ -306,7 +306,7 @@ codeterm theme save my-theme /tmp/my-theme.toml --apply
 
 The UI colors (borders, sidebar, surfaces) are automatically derived from the background color. Light themes (bright background) get darkened borders; dark themes get lightened ones.
 
-## Cron Jobs
+## Periodic Tasks (Cron)
 
 Schedule recurring or one-time tasks. Uses 5-field cron expressions (`min hour dom mon dow`) for recurring jobs, or relative/absolute time for oneshot jobs.
 

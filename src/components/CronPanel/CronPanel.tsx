@@ -28,13 +28,13 @@ export function CronPanel({ initialView, onClose }: CronPanelProps) {
               <button
                 onClick={() => setView({ type: "dashboard" })}
                 className="text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors mr-1"
-                title="Back to all crons"
+                title="Back to all tasks"
               >
                 <ArrowLeftIcon />
               </button>
             )}
             <span className="text-[13px] font-medium text-[var(--ct-fg)]">
-              {view.type === "dashboard" ? "Cron Jobs" : "Cron Settings"}
+              {view.type === "dashboard" ? "Periodic Tasks" : "Task Settings"}
             </span>
           </div>
           <button
@@ -67,7 +67,7 @@ function CronDashboard({ onSelectCron }: { onSelectCron: (id: string) => void })
     return (
       <div className="flex flex-col items-center justify-center py-16 text-[var(--ct-muted)]">
         <span className="text-3xl mb-3">{"\u23F1"}</span>
-        <span className="text-[13px]">No cron jobs yet</span>
+        <span className="text-[13px]">No periodic tasks yet</span>
         <span className="text-[11px] mt-1">Create one via CLI: <code className="text-[var(--ct-accent)]">codeterm cron create</code></span>
       </div>
     );
@@ -181,7 +181,7 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
 
   if (!job) {
     return (
-      <div className="p-8 text-center text-[var(--ct-muted)]">Cron job not found</div>
+      <div className="p-8 text-center text-[var(--ct-muted)]">Task not found</div>
     );
   }
 
@@ -277,7 +277,7 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
           onClick={handleDelete}
           className="px-3 py-1.5 text-[11px] text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 rounded-md transition-colors"
         >
-          Delete cron
+          Delete task
         </button>
         <button
           onClick={handleSave}

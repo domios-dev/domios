@@ -298,7 +298,7 @@ function StepWelcome({ c }: { c: C }) {
       <div className="grid grid-cols-2 gap-3 text-left max-w-md mx-auto">
         <FeatureCard c={c} icon={"\u2726"} title="General Agent" desc="Always-on AI assistant — starts with CodeTerm, ready for anything" />
         <FeatureCard c={c} icon="+" title="Agent orchestration" desc="Spawn teams of AI agents that work in parallel and report back" />
-        <FeatureCard c={c} icon="@" title="Cron jobs" desc="Schedule recurring AI tasks — agents run on a cron and report results" />
+        <FeatureCard c={c} icon="@" title="Periodic tasks" desc="Schedule recurring AI tasks — agents run on schedule and report results" />
         <FeatureCard c={c} icon=">" title="Canvas panels" desc="Visualizations and localhost apps inline with terminals" />
         <FeatureCard c={c} icon="!" title="Messaging" desc="Telegram, Discord — talk to your agent from your phone" />
         <FeatureCard c={c} icon="*" title="Model-agnostic" desc="Claude, Codex, Gemini, local models — any agent that runs in a terminal" />

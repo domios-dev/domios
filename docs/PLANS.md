@@ -1,5 +1,13 @@
 # CodeTerm — Future Plans
 
+## Index
+
+- [Plugin Architecture](plans/plugin-architecture.md) — core + plugins, MCP agent interface, unified dispatch, 6-phase roadmap
+- [Browser Improvements](plans/browser_improvements.md) — WebView2/WKWebView, CDP control, agent screenshots
+- [Whiteboard Plugin](plans/whiteboard-plugin.md) — tldraw canvas, agents draw/read diagrams, MCP tools
+
+---
+
 ## Claude Code Channels Integration (waiting for stable release)
 
 **Status:** On hold — Channels API is research preview (`--dangerously-load-development-channels`, claude.ai auth only). Will implement when stable.

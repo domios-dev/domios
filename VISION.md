@@ -35,57 +35,76 @@ Tomorrow: mesh becomes a **unified fabric**. All CodeTerm instances across all m
 
 ## Plugin system
 
-CodeTerm is extensible through plugins. Two tiers:
+CodeTerm is extensible through plugins. Core stays small (PTY, multiplexer, mesh transport, plugin manager). Everything else — including agent detection, messaging bridges, and memory — is a plugin.
 
-### Process plugins (Tier B) — for serious capabilities
-Long-running processes that communicate via JSON-RPC over stdin/stdout. CodeTerm manages their lifecycle.
+### Three tiers
+
+**Tier A — WASM plugins (sandboxed third-party)**
+Compiled to WebAssembly, run in wasmtime. Restricted filesystem, no network unless granted. Safe for community distribution. Initially via Extism, later full WIT component model.
+
+**Tier B — Process plugins (serious capabilities)**
+Long-running processes, JSON-RPC over stdio. Same protocol as MCP servers — agents call them directly without CLI overhead. Any language.
 
 ```toml
 # ~/.codeterm/plugins/memory/plugin.toml
+[plugin]
 name = "memory"
 version = "0.1.0"
+tier = "process"
 entrypoint = "python3 main.py"
-provides = ["memory.save", "memory.search", "memory.recall"]
-settings = [
-  { key = "embedding_model", type = "string", default = "nomic-embed-text" },
-  { key = "auto_compact_save", type = "bool", default = true },
-]
-mesh_sync = true  # participates in mesh sync cycle
+
+[capabilities]
+tools = ["memory.save", "memory.search", "memory.recall"]
+commands = ["memory"]
+settings = true
+hooks = ["on_agent_compact", "on_session_start"]
+
+[mesh]
+replicate_state = true
 ```
 
-Plugin capabilities:
-- **CLI exposure** — methods auto-register as `codeterm memory search "query"`, available to all agents
-- **Settings UI** — `settings` array renders in Settings panel, editable by user and agents via `config get/set`
-- **Mesh sync hook** — plugins with `mesh_sync = true` are asked "what do you want to sync?" during periodic mesh sync. They provide data, CodeTerm handles transport.
-- **Agent access** — agents use plugin methods through CLI, same as any other codeterm command
+**Tier C — Native plugins (core extensions)**
+Rust crates compiled into the binary. Full access to ServiceContext. Used for agent providers, mesh extensions. Ship with CodeTerm.
 
-### Script plugins (Tier C) — for simple tasks
-Single-file scripts invoked on demand. No lifecycle, no state.
+### MCP as the universal agent interface
 
-```toml
-# ~/.codeterm/plugins/format-json/plugin.toml
-name = "format-json"
-entrypoint = "python3 format.py"
-provides = ["format.json"]
+Agents don't call CLI commands. They call MCP tools directly:
+
 ```
+Current:  Agent → shell → CLI binary → HTTP → ServiceContext
+Future:   Agent → MCP tool_call → Plugin Host → ServiceContext
+```
+
+The `/codeterm` skill becomes an MCP server descriptor. Plugins expose tools via MCP automatically. Any agent (Claude, Codex, Goose) discovers and calls them. CLI stays for humans and scripting.
+
+### Plugin capabilities
+
+Plugins can contribute: **tools** (agent-callable), **commands** (CLI), **settings** (UI panel), **hooks** (react to events), **UI panels**, **agent providers**, **bridge services**, **themes**, **mesh extensions**.
+
+### General Agent prompt composition
+
+Each active plugin contributes a section to the GA prompt via `on_prompt_build` hook. Core prompt stays small and stable. Adding/removing a plugin automatically updates what the GA knows about.
 
 ### Memory plugin (first default plugin)
 
-The memory plugin is built-in and uses:
+Process plugin (Python). Uses:
 - **SQLite + sqlite-vss** for vector storage (zero external deps)
-- **Embedded model** (ONNX runtime, ~100MB) for embeddings — no ollama/lmstudio needed
-- **Auto-save before compact** — when agent approaches context limit, saves important context to memory
-- **Semantic recall** — `codeterm memory recall "mesh networking"` returns relevant memories ranked by similarity
-- **Mesh replication** — memories sync across mesh peers during sync cycle. Crown holds authoritative index.
+- **Embedded model** (ONNX runtime, ~100MB) for embeddings
+- **Auto-save before compact** — hooks into `on_agent_compact`
+- **Semantic recall** — `memory.recall` MCP tool returns relevant memories
+- **Mesh replication** — memories sync across mesh peers
 
-Agent flow:
-```
-agent working... context filling up...
-→ codeterm memory save "what I learned" --tags "project,auth"
-→ /compact (or auto-compact)
-→ new context starts
-→ codeterm memory recall "auth system" → gets relevant memories back
-```
+### What becomes a plugin
+
+| Current monolith | Plugin | Tier |
+|-----------------|--------|------|
+| Claude agent detection | `agent-claude` | Native |
+| Telegram bridge | `bridge-telegram` | Process |
+| Memory (new) | `memory` | Process |
+| Browser (new) | `browser` | Native |
+| Code indexing (new) | `code-index` | Process |
+
+Full plan: `docs/plans/plugin-architecture.md`
 
 ## Future capabilities
 

@@ -1100,7 +1100,7 @@ function CronSection({ workspaceId }: { workspaceId: string }) {
           className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)]"
         >
           <span className="text-[9px]">{expanded ? "\u25BC" : "\u25B6"}</span>
-          Cron Jobs ({wsCrons.length})
+          Periodic Tasks ({wsCrons.length})
         </button>
       </div>
 

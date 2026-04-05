@@ -854,18 +854,60 @@ export function TerminalPane({
       });
       cleanupFns.push(() => onDataDisposable.dispose());
 
-      // Re-focus xterm textarea when clicking anywhere in the terminal container.
-      // This replaces the old container keydown handler which caused double input.
+      // Fallback: capture keyboard at container level for when xterm textarea loses focus.
+      // Check both className and tagName to reliably detect xterm's internal textarea.
       const containerEl = termRef.current;
       if (containerEl) {
-        const handleClick = () => {
-          const textarea = containerEl.querySelector(".xterm textarea, .xterm-helper-textarea") as HTMLTextAreaElement | null;
-          if (textarea && document.activeElement !== textarea) {
-            textarea.focus();
+        const handleKeyDown = (e: KeyboardEvent) => {
+          // Don't handle if xterm textarea is focused (onData handles it)
+          const active = document.activeElement;
+          if (
+            active instanceof HTMLTextAreaElement &&
+            active.closest(".xterm")
+          ) return;
+
+          // Don't capture modifier-only keys or shortcuts
+          if (e.ctrlKey && e.shiftKey) return;
+          if (e.altKey) return;
+          if (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta") return;
+
+          e.preventDefault();
+          e.stopPropagation();
+
+          let data = "";
+          if (e.ctrlKey) {
+            // Ctrl+letter = control code
+            const code = e.key.toUpperCase().charCodeAt(0) - 64;
+            if (code > 0 && code < 32) data = String.fromCharCode(code);
+          } else if (e.key === "Enter") {
+            data = "\r";
+          } else if (e.key === "Backspace") {
+            data = "\x7f";
+          } else if (e.key === "Tab") {
+            data = "\t";
+          } else if (e.key === "Escape") {
+            data = "\x1b";
+          } else if (e.key === "ArrowUp") {
+            data = "\x1b[A";
+          } else if (e.key === "ArrowDown") {
+            data = "\x1b[B";
+          } else if (e.key === "ArrowRight") {
+            data = "\x1b[C";
+          } else if (e.key === "ArrowLeft") {
+            data = "\x1b[D";
+          } else if (e.key.length === 1) {
+            data = e.key;
+          }
+
+          if (data) {
+            invoke("write_pty_string", { ptyId: predictedId, data });
           }
         };
-        containerEl.addEventListener("mousedown", handleClick);
-        cleanupFns.push(() => containerEl.removeEventListener("mousedown", handleClick));
+        containerEl.addEventListener("keydown", handleKeyDown, true);
+        cleanupFns.push(() => containerEl.removeEventListener("keydown", handleKeyDown, true));
+
+        // Make container focusable
+        containerEl.tabIndex = 0;
       }
 
       const onResizeDisposable = term.onResize(({ cols, rows }) => {

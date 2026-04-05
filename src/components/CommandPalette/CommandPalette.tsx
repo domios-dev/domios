@@ -546,7 +546,7 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
     },
     {
       id: "cron-jobs",
-      label: "Cron Jobs",
+      label: "Periodic Tasks",
       icon: ICONS.cron,
       section: "Tools",
       action: actions.openCronPanel || (() => {}),
