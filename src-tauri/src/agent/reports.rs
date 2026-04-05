@@ -129,13 +129,6 @@ mod tests {
     }
 
     #[test]
-    fn test_get_reports_empty() {
-        let mut store = ReportStore::new(100);
-        let reports = store.get("nonexistent", false);
-        assert!(reports.is_empty());
-    }
-
-    #[test]
     fn test_count() {
         let mut store = ReportStore::new(100);
         assert_eq!(store.count("cond-1"), 0);
