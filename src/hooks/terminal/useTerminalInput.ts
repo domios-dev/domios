@@ -74,18 +74,10 @@ export function useTerminalInput({
       }
 
       if (e.code === "KeyV") {
-        // macOS: Cmd+V triggers xterm's native paste for text. We still handle
-        // non-text items (images/files) ourselves, and let xterm handle text.
-        // Windows/Linux: Ctrl+V has no native paste event — we handle everything.
-        if (isMac) {
-          // Handle non-text items here; let xterm handle text natively via Cmd+V
-          pasteClipboardToPty(ptyId, { skipText: true }).catch(() => {});
-          return true;
-        } else {
-          e.preventDefault();
-          pasteClipboardToPty(ptyId).catch(() => {});
-          return false;
-        }
+        // xterm handles text natively with bracketed paste. We only inject
+        // non-text items (images, files, native file refs) alongside.
+        pasteClipboardToPty(ptyId, { skipText: true }).catch(() => {});
+        return true;
       }
 
       return true;
@@ -105,7 +97,6 @@ export function useTerminalInput({
       invoke("write_pty_string", { ptyId, data });
     });
 
-    // Focus xterm on any click in the container
     const el = containerRef.current;
     const focusXterm = () => term.focus();
     el?.addEventListener("mousedown", focusXterm);

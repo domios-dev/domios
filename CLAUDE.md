@@ -147,7 +147,7 @@ TASK: ...
 - **Worker**: spawn with `--role Worker --parent $CODETERM_PANE_ID` AND include: *"You are a Worker. Read `.claude/agents/<type>.md`. Do NOT spawn other agents. Finish your task, run `codeterm agent report '...'`, exit."* Use for leaf tasks that don't need decomposition.
 - **Default preference**: spawn as Worker. Only promote to Lead when you genuinely need a sub-orchestrator (e.g. "refactor the whole frontend state layer" → frontend-dev as Lead spawning 4 Worker sub-tasks).
 
-**Rule of thumb:** if the task is >15 min of real work, spawn via `codeterm agent spawn` so the user can observe. If it's quick research/edit, use the built-in tool.
+**Rule of thumb:** spawn via `codeterm agent spawn` when the task touches >3 files, needs its own filesystem/PTY context, or the user benefits from watching it run. Otherwise use the built-in Agent tool.
 
 ### Reporting back
 
@@ -255,15 +255,15 @@ Provider code lives in:
 
 When adding agent-related features, ask: "How would this work with Codex? With Aider? With a local model?" If the answer requires Claude-specific code, put it in the provider.
 
-## No hardcode — always patterns
+## Detection: structural patterns, not literal strings
 
-**Never hardcode specific strings for detection.** Always use structural patterns/fingerprints. If Claude changes wording from "Do you want to proceed?" to "Do you want to create?", detection must still work. Same for any agent — detect by structure (numbered options + footer), not by specific text. This applies everywhere: prompt detection, task completion, agent identification, output parsing. Generalize, don't enumerate.
+Detection code (prompts, task completion, agent identification, output parsing) must use structural fingerprints, not literal text. If Claude renames "Do you want to proceed?" to "Do you want to create?", detection should still work — match the structure (numbered options + footer), not the wording. Vendors change copy without warning; structure is stable. Generalize, don't enumerate.
 
-## Code style: SOLID, DRY, no long comments
+## Code style: SOLID, DRY
 
 **SOLID + DRY are non-negotiable.** Single responsibility per module, dependencies flow through explicit interfaces, no repeated logic. Duplicated 20-line blocks across three files is a refactor signal, not a copy-paste signal.
 
-**FORBIDDEN: comments longer than 1 line.** Hard limit: 1 line per comment, no exceptions for "context" or "explanation". If code needs more — refactor, rename, or split into functions. The ONLY allowed multi-line case is a literal external reference (issue/spec URL + one-line why). Paragraph comments, "Step 1/Step 2" breakdowns, and PR-description-style explanations inside functions are BANNED. When you feel the urge to write a long comment, that urge IS the bug — fix the code instead.
+**Code is prose — good code reads itself, no comments needed.** Names, types, and structure carry the meaning. Documentation lives in `docs/`, not inline. Write a comment only when there's a real reason the code can't speak for itself: a workaround for a known quirk, a `TODO: rewrite — currently ugly because X`, an external reference (spec/issue URL). Never document *what* the code does — if you feel that urge, the code is unclear; rename or extract instead. This project is mostly written by Claude; future-Claude (and the human) should be able to open any file and understand it without a tour guide.
 
 ### Rust specifics
 
@@ -295,7 +295,7 @@ When adding agent-related features, ask: "How would this work with Codex? With A
 
 ## Lock ordering (deadlock prevention)
 
-All parking_lot Mutexes must be acquired in this order. Never hold a higher-numbered lock while acquiring a lower-numbered one.
+Lock acquisition order (lowest → highest). Holding a higher-numbered lock while acquiring a lower-numbered one risks deadlock.
 
 1. `mux` (MultiplexerState)
 2. `output_buf` (OutputBuffer)
@@ -304,7 +304,7 @@ All parking_lot Mutexes must be acquired in this order. Never hold a higher-numb
 5. `pty` (PtyManager)
 
 **Rules:**
-- Never hold two locks simultaneously if possible — lock, read/write, drop, then lock the next.
+- Avoid holding two locks at once when possible — lock, read/write, drop, then lock the next.
 - parking_lot Mutex is NOT reentrant — `mux.lock()` inside `mux.lock()` = instant deadlock.
 - After parallel Rust refactors, grep for nested `.lock()` calls to verify ordering.
 
