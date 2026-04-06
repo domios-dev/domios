@@ -76,9 +76,10 @@ Orchestrator (top, no parent)
 **1. Delegate a fresh task to its own workspace (most common):**
 ```bash
 WS=$(codeterm workspace create "Task Name" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
-codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn \
+codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --cwd /absolute/path/to/project --can-spawn \
   --task "You are the orchestrator. [full user request]. Spawn leads/workers as needed. Notify when done."
 ```
+Always pass `--cwd` with an absolute project path so the orchestrator lands where it needs to work.
 
 **2. Quick one-off worker under yourself** (no decomposition needed):
 ```bash

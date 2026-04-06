@@ -69,6 +69,7 @@ impl ServiceContext {
     // ── Event helpers (used by all sub-modules) ─────────────────────
 
     pub(crate) fn emit_state_changed(&self) {
+        self.events.publish(crate::api::events::SystemEvent::MuxStateChanged);
         let handle = self.app_handle.clone();
         std::thread::spawn(move || {
             let _ = handle.emit("mux-state-changed", ());
@@ -76,6 +77,10 @@ impl ServiceContext {
     }
 
     pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {
+        self.events.publish(crate::api::events::SystemEvent::PaneTitlePinned {
+            pane_id: pane_id.to_string(),
+            title: title.to_string(),
+        });
         let handle = self.app_handle.clone();
         let payload = serde_json::json!({"pane_id": pane_id, "title": title});
         std::thread::spawn(move || {

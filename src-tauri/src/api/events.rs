@@ -1,9 +1,47 @@
-/// Event broadcasting — Webhooks for external agent integration.
+/// Event broadcasting — Webhooks for external agent integration,
+/// plus an in-process typed broadcast bus used by plugins and by the
+/// Tauri-emit bridge that keeps the frontend in sync.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
+
+/// Typed system events published on the in-process bus.
+/// Plugins subscribe to this enum; the webhook broadcaster still fires
+/// per-event-type HTTP POSTs for external integrations.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum SystemEvent {
+    MuxStateChanged,
+    PaneTitlePinned { pane_id: String, title: String },
+    PaneFocused { pane_id: String },
+    PaneClosed { pane_id: String },
+    PaneSplit { parent_pane_id: String, new_pane_id: String },
+    AgentStarted { pane_id: String, provider: String },
+    AgentIdle { pane_id: String, duration_secs: u64 },
+    ConfigChanged { section: String, key: String },
+    /// Escape hatch for events that don't have a typed variant yet.
+    Generic { event_type: String, data: serde_json::Value },
+}
+
+impl SystemEvent {
+    /// Short-form event type string for webhook filtering and logging.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::MuxStateChanged => "mux-state-changed",
+            Self::PaneTitlePinned { .. } => "pane-title-pinned",
+            Self::PaneFocused { .. } => "pane-focused",
+            Self::PaneClosed { .. } => "pane-closed",
+            Self::PaneSplit { .. } => "pane-split",
+            Self::AgentStarted { .. } => "agent-started",
+            Self::AgentIdle { .. } => "agent-idle",
+            Self::ConfigChanged { .. } => "config-changed",
+            Self::Generic { .. } => "generic",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CodeTermEvent {
@@ -29,13 +67,31 @@ pub struct WebhookRegistration {
 
 pub struct EventBroadcaster {
     webhooks: Arc<Mutex<HashMap<String, WebhookRegistration>>>,
+    system_bus: broadcast::Sender<SystemEvent>,
 }
 
 impl EventBroadcaster {
     pub fn new() -> Self {
+        let (system_bus, _) = broadcast::channel::<SystemEvent>(256);
         Self {
             webhooks: Arc::new(Mutex::new(HashMap::new())),
+            system_bus,
         }
+    }
+
+    /// Publish a typed system event. Fans out to in-process subscribers
+    /// (plugins, Tauri bridge) AND to matching webhooks via the JSON path.
+    pub fn publish(&self, event: SystemEvent) {
+        let event_type = event.type_name();
+        let data = serde_json::to_value(&event).unwrap_or(serde_json::Value::Null);
+        let _ = self.system_bus.send(event);
+        self.broadcast(event_type, data);
+    }
+
+    /// Subscribe to the typed in-process event bus. Each subscriber gets
+    /// its own receiver; slow subscribers lag and must handle `Lagged`.
+    pub fn subscribe(&self) -> broadcast::Receiver<SystemEvent> {
+        self.system_bus.subscribe()
     }
 
     pub fn broadcast(&self, event_type: &str, data: serde_json::Value) {
@@ -125,3 +181,66 @@ impl EventBroadcaster {
 }
 
 pub type EventBroadcasterState = Arc<EventBroadcaster>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn publish_reaches_subscriber() {
+        let bc = EventBroadcaster::new();
+        let mut rx = bc.subscribe();
+        bc.publish(SystemEvent::MuxStateChanged);
+        let ev = rx.recv().await.unwrap();
+        assert!(matches!(ev, SystemEvent::MuxStateChanged));
+    }
+
+    #[tokio::test]
+    async fn publish_carries_payload() {
+        let bc = EventBroadcaster::new();
+        let mut rx = bc.subscribe();
+        bc.publish(SystemEvent::PaneTitlePinned {
+            pane_id: "p1".into(),
+            title: "hello".into(),
+        });
+        match rx.recv().await.unwrap() {
+            SystemEvent::PaneTitlePinned { pane_id, title } => {
+                assert_eq!(pane_id, "p1");
+                assert_eq!(title, "hello");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[tokio::test]
+    async fn multiple_subscribers_each_receive() {
+        let bc = EventBroadcaster::new();
+        let mut rx1 = bc.subscribe();
+        let mut rx2 = bc.subscribe();
+        bc.publish(SystemEvent::PaneFocused { pane_id: "p".into() });
+        assert!(matches!(rx1.recv().await.unwrap(), SystemEvent::PaneFocused { .. }));
+        assert!(matches!(rx2.recv().await.unwrap(), SystemEvent::PaneFocused { .. }));
+    }
+
+    #[tokio::test]
+    async fn slow_subscriber_lags_without_blocking_publisher() {
+        let bc = EventBroadcaster::new();
+        let mut rx = bc.subscribe();
+        for i in 0..300u64 {
+            bc.publish(SystemEvent::AgentIdle { pane_id: "p".into(), duration_secs: i });
+        }
+        // Channel capacity is 256; oldest entries are dropped. First recv
+        // should signal Lagged, then continue yielding the remaining tail.
+        let first = rx.recv().await;
+        assert!(matches!(first, Err(broadcast::error::RecvError::Lagged(_))));
+    }
+
+    #[test]
+    fn type_name_covers_all_variants() {
+        assert_eq!(SystemEvent::MuxStateChanged.type_name(), "mux-state-changed");
+        assert_eq!(
+            SystemEvent::PaneTitlePinned { pane_id: "a".into(), title: "b".into() }.type_name(),
+            "pane-title-pinned",
+        );
+    }
+}
