@@ -482,22 +482,23 @@ pub fn read_session_jsonl(
         true
     } else if let Some(ref sid) = session_id {
         // Check if current session file still exists
-        svc.agent_registry.get(&agent_type)
-            .and_then(|p| p.session_file_path(&cwd, sid))
+        svc.agent_registry.with_provider(&agent_type, |p| p.session_file_path(&cwd, sid))
+            .flatten()
             .map(|path| !path.exists())
             .unwrap_or(true)
     } else { false };
 
     if needs_detect {
-        if let Some(provider) = svc.agent_registry.get(&agent_type) {
-            let exclude = mux.lock().other_session_ids(&pane_id);
-            let max_age = Some(std::time::Duration::from_secs(86400));
-            if let Some(detected) = provider.detect_session_id(&cwd, &exclude, max_age) {
-                log::info!("[read_session_jsonl] detected session {} for pane {}", detected, pane_id);
-                svc.set_agent_session_id(&pane_id, Some(detected.clone()));
-                svc.emit_state_changed();
-                session_id = Some(detected);
-            }
+        let exclude = mux.lock().other_session_ids(&pane_id);
+        let max_age = Some(std::time::Duration::from_secs(86400));
+        let detected = svc.agent_registry.with_provider(&agent_type, |p| {
+            p.detect_session_id(&cwd, &exclude, max_age)
+        }).flatten();
+        if let Some(detected) = detected {
+            log::info!("[read_session_jsonl] detected session {} for pane {}", detected, pane_id);
+            svc.set_agent_session_id(&pane_id, Some(detected.clone()));
+            svc.emit_state_changed();
+            session_id = Some(detected);
         }
     }
 
@@ -505,8 +506,8 @@ pub fn read_session_jsonl(
         .ok_or_else(|| "No agent session linked to this pane".to_string())?;
 
     // 2. Build path using agent provider
-    let jsonl_path = svc.agent_registry.get(&agent_type)
-        .and_then(|p| p.session_file_path(&cwd, &session_id))
+    let jsonl_path = svc.agent_registry.with_provider(&agent_type, |p| p.session_file_path(&cwd, &session_id))
+        .flatten()
         .ok_or_else(|| format!("No session file path for agent type: {}", agent_type))?;
 
     if !jsonl_path.exists() {

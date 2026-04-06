@@ -1074,8 +1074,8 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
         let hook_max_age = Some(std::time::Duration::from_secs(86400));
         log::info!("[ensure_agent_state] detecting session cwd={} current={:?}", cwd, session_id);
         if let Some(newest_id) = state.svc.agent_registry
-            .get("claude")
-            .and_then(|p| p.detect_session_id(cwd, &exclude, hook_max_age))
+            .with_provider("claude", |p| p.detect_session_id(cwd, &exclude, hook_max_age))
+            .flatten()
         {
             let changed = session_id.as_deref() != Some(newest_id.as_str());
             log::info!("[ensure_agent_state] newest={} changed={}", newest_id, changed);

@@ -9,6 +9,8 @@
 //!
 //! See `docs/plans/plugin-architecture.md` for the full design.
 
+pub mod agent_claude;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -182,6 +184,13 @@ pub trait Plugin: Send + Sync {
     /// Called for every SystemEvent the plugin is subscribed to.
     /// Default implementation does nothing.
     fn on_event(&mut self, _event: &SystemEvent) {}
+
+    /// Return agent providers contributed by this plugin.
+    /// Called once during activation — providers are registered into AgentRegistry.
+    /// Default: no providers.
+    fn agent_providers(&self) -> Vec<Box<dyn crate::agent::provider::AgentProvider>> {
+        Vec::new()
+    }
 }
 
 /// Plugin registry and lifecycle manager. Holds the set of known
@@ -189,13 +198,20 @@ pub trait Plugin: Send + Sync {
 /// for dispatching events to active plugins.
 pub struct PluginManager {
     entries: RwLock<HashMap<String, PluginEntry>>,
+    agent_registry: Option<Arc<crate::agent::registry::AgentRegistry>>,
 }
 
 impl PluginManager {
     pub fn new() -> Self {
         Self {
             entries: RwLock::new(HashMap::new()),
+            agent_registry: None,
         }
+    }
+
+    /// Set the agent registry for provider registration during plugin activation.
+    pub fn set_agent_registry(&mut self, registry: Arc<crate::agent::registry::AgentRegistry>) {
+        self.agent_registry = Some(registry);
     }
 
     /// Scan a directory for `<dir>/*/plugin.toml` manifests and register
@@ -264,8 +280,9 @@ impl PluginManager {
         Ok(())
     }
 
-    /// Activate a plugin by id. Calls `Plugin::activate` and transitions
-    /// the entry to `Active` on success or `Failed` on error.
+    /// Activate a plugin by id. Calls `Plugin::activate`, registers any
+    /// contributed agent providers, and transitions to `Active` on success
+    /// or `Failed` on error.
     pub fn activate(&self, id: &str) -> Result<(), String> {
         let mut guard = self.entries.write();
         let entry = guard
@@ -274,6 +291,12 @@ impl PluginManager {
         if let Some(plugin) = entry.plugin.as_mut() {
             match plugin.activate() {
                 Ok(()) => {
+                    // Register agent providers contributed by this plugin
+                    if let Some(ref registry) = self.agent_registry {
+                        for provider in plugin.agent_providers() {
+                            registry.register_provider(provider);
+                        }
+                    }
                     entry.state = PluginState::Active;
                     entry.error = None;
                     Ok(())
@@ -298,6 +321,12 @@ impl PluginManager {
         let Some(entry) = guard.get_mut(id) else {
             return Ok(());
         };
+        // Unregister agent providers contributed by this plugin
+        if let Some(ref registry) = self.agent_registry {
+            for provider_id in &entry.manifest.capabilities.agent_providers {
+                registry.unregister_provider(provider_id);
+            }
+        }
         if let Some(plugin) = entry.plugin.as_mut() {
             plugin.deactivate()?;
         }
@@ -352,6 +381,7 @@ impl Default for PluginManager {
         Self::new()
     }
 }
+
 
 pub type PluginManagerState = Arc<PluginManager>;
 

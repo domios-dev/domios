@@ -316,21 +316,18 @@ pub fn start_general_agent(
     // Build launch command
     let cmd = if let Some(ref sid) = session_id {
         // Resume
-        svc.agent_registry.get(provider_name)
-            .and_then(|p| p.build_resume_command(sid, true))
+        svc.agent_registry.with_provider(provider_name, |p| p.build_resume_command(sid, true))
+            .flatten()
             .unwrap_or_else(|| format!("claude --resume {} --dangerously-skip-permissions", sid))
     } else {
         // Fresh start
-        svc.agent_registry.get(provider_name)
-            .map(|p| {
-                let params = crate::agent::provider::AgentLaunchParams {
-                    agent_name: None,
-                    task: None,
-                    args: None,
-                    skip_permissions: true,
-                };
-                p.build_launch_command(&params)
-            })
+        let params = crate::agent::provider::AgentLaunchParams {
+            agent_name: None,
+            task: None,
+            args: None,
+            skip_permissions: true,
+        };
+        svc.agent_registry.with_provider(provider_name, |p| p.build_launch_command(&params))
             .unwrap_or_else(|| "claude --dangerously-skip-permissions".to_string())
     };
 

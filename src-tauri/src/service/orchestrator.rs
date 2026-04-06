@@ -445,21 +445,23 @@ fn launch_agent_in_background(
         };
 
         // 2. Wait for readiness using provider strategy
-        let provider = registry.get(&agent_cmd);
-        match provider.map(|p| p.readiness_strategy()) {
-            Some(ReadinessStrategy::PollShellPrompt { timeout }) => {
+        let (readiness, delivery) = registry.with_provider(&agent_cmd, |p| {
+            (p.readiness_strategy(), p.task_delivery())
+        }).unwrap_or((
+            ReadinessStrategy::FixedDelay { duration: std::time::Duration::from_secs(2) },
+            TaskDelivery::PtyInput,
+        ));
+
+        match readiness {
+            ReadinessStrategy::PollShellPrompt { timeout } => {
                 crate::service::pty_io::poll_shell_prompt(
                     &svc.screen_state,
                     &pty_id,
                     timeout,
                 );
             }
-            Some(ReadinessStrategy::FixedDelay { duration }) => {
+            ReadinessStrategy::FixedDelay { duration } => {
                 std::thread::sleep(duration);
-            }
-            None => {
-                // Unknown agent — use fixed delay as fallback
-                std::thread::sleep(std::time::Duration::from_secs(2));
             }
         }
 
@@ -470,8 +472,7 @@ fn launch_agent_in_background(
         }
 
         // 4. For PtyInput delivery, send task after short delay
-        let delivery = provider.map(|p| p.task_delivery());
-        let is_pty_input = matches!(delivery, Some(TaskDelivery::PtyInput)) || delivery.is_none();
+        let is_pty_input = matches!(delivery, TaskDelivery::PtyInput);
         if is_pty_input {
             if let Some(ref task_text) = task {
                 std::thread::sleep(std::time::Duration::from_millis(500));
@@ -487,22 +488,21 @@ fn launch_agent_in_background(
 /// Build a single shell command that launches the agent.
 /// Uses the AgentRegistry for known providers; falls back to simple command for unknown agents.
 fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<&str>, registry: &AgentRegistry) -> String {
-    if let Some(provider) = registry.get(agent_cmd) {
-        let launch_params = AgentLaunchParams {
-            agent_name: params.agent_name.clone(),
-            task: task.map(|t| t.to_string()),
-            args: params.args.clone(),
-            skip_permissions: params.skip_permissions.unwrap_or(true),
-        };
-        provider.build_launch_command(&launch_params)
-    } else {
-        // Generic agent: just command + args
-        let mut parts: Vec<String> = vec![agent_cmd.to_string()];
-        if let Some(ref extra) = params.args {
-            parts.extend(extra.iter().cloned());
-        }
-        parts.join(" ")
-    }
+    let launch_params = AgentLaunchParams {
+        agent_name: params.agent_name.clone(),
+        task: task.map(|t| t.to_string()),
+        args: params.args.clone(),
+        skip_permissions: params.skip_permissions.unwrap_or(true),
+    };
+    registry.with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
+        .unwrap_or_else(|| {
+            // Generic agent: just command + args
+            let mut parts: Vec<String> = vec![agent_cmd.to_string()];
+            if let Some(ref extra) = params.args {
+                parts.extend(extra.iter().cloned());
+            }
+            parts.join(" ")
+        })
 }
 
 #[cfg(test)]
@@ -529,7 +529,9 @@ mod tests {
     }
 
     fn test_registry() -> AgentRegistry {
-        AgentRegistry::new()
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(crate::agent::claude::ClaudeProvider::new()));
+        reg
     }
 
     #[test]

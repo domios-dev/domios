@@ -234,11 +234,11 @@ pub fn detect_agent_session_id(
     exclude: Option<Vec<String>>,
     max_age_secs: Option<u64>,
 ) -> Result<Option<String>, String> {
-    let provider = registry.get(agent_type)
-        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))?;
     let excluded = exclude.unwrap_or_default();
     let max_age = max_age_secs.map(std::time::Duration::from_secs);
-    Ok(provider.detect_session_id(cwd, &excluded, max_age))
+    registry.with_provider(agent_type, |p| p.detect_session_id(cwd, &excluded, max_age))
+        .ok_or_else(|| format!("Unknown agent type: {}", agent_type))
+        .map(|opt| opt)
 }
 
 /// Store a detected agent session ID on a pane.
