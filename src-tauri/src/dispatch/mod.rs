@@ -1,9 +1,6 @@
-//! Unified Command Dispatch — Phase B foundation.
-//!
-//! Target: each operation defined once as a Command variant; REST, Socket, Tauri
-//! adapters deserialize → dispatch() → serialize. Status: infrastructure exists
-//! with the first 5 commands; adapters still duplicate these implementations
-//! until migration lands (docs/plans/architecture-evolution.md, Phase B2).
+//! Unified command dispatch: one `Command` variant per operation, one `dispatch()`
+//! entry point. REST, Socket, Tauri IPC, and CLI adapters deserialize into Command
+//! and call dispatch — no duplicated glue per transport.
 
 use serde::{Deserialize, Serialize};
 use crate::service::ServiceContext;
