@@ -2,6 +2,7 @@ import { useEffect, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { invoke } from "@tauri-apps/api/core";
 import { isMac } from "../../lib/keybindings";
+import { pasteClipboardToPty } from "../../lib/clipboardPaste";
 
 export interface UseTerminalInputOptions {
   termRef: React.MutableRefObject<Terminal | null>;
@@ -73,50 +74,16 @@ export function useTerminalInput({
       }
 
       if (e.code === "KeyV") {
+        // macOS: Cmd+V triggers xterm's native paste for text. We still handle
+        // non-text items (images/files) ourselves, and let xterm handle text.
+        // Windows/Linux: Ctrl+V has no native paste event — we handle everything.
         if (isMac) {
-          navigator.clipboard.read().then(async (items) => {
-            for (const item of items) {
-              const imageType = item.types.find((t: string) => t.startsWith("image/"));
-              if (imageType) {
-                const blob = await item.getType(imageType);
-                const ext = imageType === "image/jpeg" ? "jpg" : "png";
-                const arrayBuf = await blob.arrayBuffer();
-                const bytes = Array.from(new Uint8Array(arrayBuf));
-                const path = await invoke<string>("save_clipboard_image", { bytes, ext });
-                if (path) invoke("write_pty_string", { ptyId, data: path });
-              }
-            }
-          }).catch(() => {});
+          // Handle non-text items here; let xterm handle text natively via Cmd+V
+          pasteClipboardToPty(ptyId, { skipText: true }).catch(() => {});
           return true;
         } else {
           e.preventDefault();
-          navigator.clipboard.read().then(async (items) => {
-            const textItem = items.find((item) => item.types.includes("text/plain"));
-            if (textItem) {
-              const blob = await textItem.getType("text/plain");
-              const text = await blob.text();
-              if (text) {
-                invoke("write_pty_string", { ptyId, data: text });
-                return;
-              }
-            }
-            for (const item of items) {
-              const imageType = item.types.find((t: string) => t.startsWith("image/"));
-              if (imageType) {
-                const blob = await item.getType(imageType);
-                const ext = imageType === "image/jpeg" ? "jpg" : "png";
-                const arrayBuf = await blob.arrayBuffer();
-                const bytes = Array.from(new Uint8Array(arrayBuf));
-                const path = await invoke<string>("save_clipboard_image", { bytes, ext });
-                if (path) invoke("write_pty_string", { ptyId, data: path });
-                return;
-              }
-            }
-          }).catch(() => {
-            navigator.clipboard.readText().then((text) => {
-              if (text) invoke("write_pty_string", { ptyId, data: text });
-            }).catch(() => {});
-          });
+          pasteClipboardToPty(ptyId).catch(() => {});
           return false;
         }
       }
