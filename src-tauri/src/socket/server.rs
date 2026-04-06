@@ -11,7 +11,6 @@ use interprocess::local_socket::{
 };
 
 use crate::multiplexer::commands::MuxState;
-use crate::multiplexer::types::Orientation;
 use crate::notification::NotifState;
 use crate::notification::store::NotificationLevel;
 use crate::service::ServiceState;
@@ -437,33 +436,23 @@ fn dispatch(
         }
 
         "pane.focus" => {
-            let id = get_string_param(&params, "pane_id")?;
-            {
-                let mut mux = mux.lock();
-                mux.set_focused_pane(&id).map_err(|e| JsonRpcError {
-                    code: -32602,
-                    message: e,
-                })?;
-            }
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
-            Ok(serde_json::json!({"ok": true}))
+            let pane_id = get_string_param(&params, "pane_id")?;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::PaneFocus { pane_id },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError { code: -32602, message: e })
         }
 
         "pane.close" => {
-            let id = get_string_param(&params, "pane_id")?;
-            let pty_ids = {
-                let mut mux = mux.lock();
-                mux.close_pane(&id).map_err(|e| JsonRpcError {
-                    code: -32602,
-                    message: e,
-                })?
-            };
-            {
-                let mut pty_mgr = _pty.lock();
-                for pid in &pty_ids { let _ = pty_mgr.kill(pid); }
-            }
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
-            Ok(serde_json::json!({"ok": true}))
+            let pane_id = get_string_param(&params, "pane_id")?;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::PaneClose { pane_id },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError { code: -32602, message: e })
         }
 
         "pane.send_text" => {
@@ -509,45 +498,30 @@ fn dispatch(
         }
 
         "pane.split" => {
-            let id = get_string_param(&params, "pane_id")?;
+            let pane_id = get_string_param(&params, "pane_id")?;
             let direction = params
                 .as_ref()
                 .and_then(|p| p.get("direction"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("right");
-
-            let orientation = match direction {
-                "down" | "vertical" => Orientation::Vertical,
-                _ => Orientation::Horizontal,
-            };
-
-            let new_pane_id = {
-                let mut mux = mux.lock();
-                mux.split_pane(&id, orientation).map_err(|e| JsonRpcError {
-                    code: -32602,
-                    message: e,
-                })?
-            };
-
-            // Emit event so frontend spawns PTY for the new pane
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
-
-            Ok(serde_json::json!({"new_pane_id": new_pane_id}))
+                .unwrap_or("right")
+                .to_string();
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::PaneSplit { pane_id, direction },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError { code: -32602, message: e })
         }
 
         "pane.rename" => {
-            let id = get_string_param(&params, "pane_id")?;
+            let pane_id = get_string_param(&params, "pane_id")?;
             let title = get_string_param(&params, "title")?;
-            {
-                let mut mux = mux.lock();
-                mux.rename_pane(&id, &title).map_err(|e| JsonRpcError {
-                    code: -32602,
-                    message: e,
-                })?;
-            }
-            { let h = app.clone(); let p = serde_json::json!({"pane_id": id, "title": title}); std::thread::spawn(move || { let _ = h.emit("pane-title-pinned", p); }); }
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
-            Ok(serde_json::json!({"ok": true}))
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::PaneRename { pane_id, title },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError { code: -32602, message: e })
         }
 
         "browser.open" => {
