@@ -219,6 +219,26 @@ impl AgentProvider for ClaudeProvider {
         noise.iter().any(|n| t.contains(n))
             || t.chars().all(|c| c == '─' || c == '━' || c == '═' || c.is_whitespace())
     }
+
+    fn auto_approve_flags(&self) -> Vec<String> {
+        vec!["--dangerously-skip-permissions".to_string()]
+    }
+
+    fn compact_command(&self) -> Option<&str> {
+        Some("/compact")
+    }
+
+    fn model_switch_command(&self, model: &str) -> Option<String> {
+        Some(format!("/model {}", model))
+    }
+
+    fn exit_command(&self) -> Option<&str> {
+        Some("/exit")
+    }
+
+    fn supports_lazy_skills(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]

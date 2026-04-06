@@ -101,4 +101,50 @@ pub trait AgentProvider: Send + Sync {
     fn parse_prompt(&self, text: &str) -> Option<(String, Vec<(String, String)>)> {
         crate::agent::detector::parse_permission_prompt(text)
     }
+
+    // ── Agent-specific CLI commands ──────────────────────────────────
+    //
+    // These carry per-provider knowledge of in-agent control commands.
+    // Default implementations return None / empty so a minimal provider
+    // still compiles; real providers override the ones that apply.
+
+    /// Flags to pass to the CLI so the agent auto-approves tool calls.
+    fn auto_approve_flags(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// In-agent command that triggers context compaction, if supported.
+    fn compact_command(&self) -> Option<&str> {
+        None
+    }
+
+    /// In-agent command that switches the underlying model, if supported.
+    fn model_switch_command(&self, _model: &str) -> Option<String> {
+        None
+    }
+
+    /// In-agent command that exits the REPL cleanly, if supported.
+    fn exit_command(&self) -> Option<&str> {
+        None
+    }
+
+    // ── Plugin skill delivery ────────────────────────────────────────
+
+    /// Install a plugin-contributed skill file for this agent. Providers
+    /// that can't carry skills (system-prompt-only agents) ignore this.
+    fn install_skills(&self, _skills: &[crate::plugin::SkillFile]) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Remove previously installed skills owned by the given plugin ids.
+    fn uninstall_skills(&self, _plugin_ids: &[&str]) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Whether this provider can lazy-load skills via trigger words
+    /// (Claude Skill tool). Agents without lazy loading fall back to
+    /// merging skills into the system prompt up-front.
+    fn supports_lazy_skills(&self) -> bool {
+        false
+    }
 }

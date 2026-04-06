@@ -13,6 +13,7 @@ pub mod mesh;
 pub mod multiplexer;
 mod notification;
 pub mod paths;
+pub mod plugin;
 pub mod prompts;
 pub mod pty;
 pub mod service;
