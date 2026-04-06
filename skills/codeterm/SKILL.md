@@ -209,4 +209,4 @@ Dot-notation for nested keys. Values are JSON (`true`, `false`, `42`, `"string"`
 
 `Cmd+K` / `Ctrl+K` opens the palette for quick tab/workspace/theme access.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->
