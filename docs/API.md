@@ -611,6 +611,9 @@ These are Tauri IPC commands (invoked from frontend via `invoke()`), not REST en
 | `mux_batch` | `commands: [{method, params, id?}]` | Execute batch commands with $ref resolution (same semantics as POST /api/batch). Delegates to the unified ServiceContext. |
 | `get_autostart_enabled` | — | Returns whether OS autostart (launch at login) is enabled |
 | `set_autostart_enabled` | `enabled: bool` | Enable/disable OS autostart. Windows: HKCU registry. macOS: LaunchAgent plist. Linux: .desktop file. |
+| `save_clipboard_file` | `bytes: Vec<u8>, filename: String` | Saves arbitrary clipboard file bytes to a managed temp bucket (`files`) under the OS temp dir and returns the absolute path. Used by clipboard paste / drag-drop to materialize attachments before sending to an agent. Eviction is handled by the shared `attachments` module. |
+| `read_clipboard_files` | — | Reads native OS clipboard file references and returns absolute paths. **Windows:** `CF_HDROP` via `clipboard-win`. **macOS:** `NSPasteboardTypeFileURL`. **Linux:** stub (returns empty). |
+| `get_pane_screen_formatted` | `pane_id: String` | Returns the pane's screen state as escape-coded bytes preserving colors, cursor position, and cursor visibility (uses `contents_formatted()` + `cursor_state_formatted()`). Used on pane restore to avoid the ConPTY double-cursor issue. |
 
 ## Environment Variables
 
@@ -670,4 +673,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->

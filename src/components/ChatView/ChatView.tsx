@@ -19,6 +19,34 @@ interface ChatViewProps {
 
 type ParseMode = "jsonl" | "terminal" | "detecting";
 
+interface Attachment {
+  id: string;
+  name: string;
+  path?: string;         // file system path for sending to PTY
+  preview?: string;      // base64 data URL for image preview
+  type: string;          // mime type
+  _base64?: string;      // raw base64 for non-image files (pasted, no path)
+}
+
+interface PromptPayload {
+  question: string;
+  options: { label: string; value: string }[];
+}
+
+interface PaneSnapshot {
+  id: string;
+  pty_id?: string | null;
+  cwd?: string | null;
+  title?: string;
+  agent_type?: string | null;
+  agent_session_id?: string | null;
+  pending_prompt?: PromptPayload | null;
+}
+
+interface MuxSnapshot {
+  panes?: Record<string, PaneSnapshot>;
+}
+
 function basename(p: string): string {
   const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
   return i >= 0 ? p.slice(i + 1) : p;
@@ -58,19 +86,9 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const [inputExpanded, setInputExpanded] = useState(false);
   const [inputAtMax, setInputAtMax] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [pendingPrompt, setPendingPrompt] = useState<{
-    question: string;
-    options: { label: string; value: string }[];
-  } | null>(null);
+  const [pendingPrompt, setPendingPrompt] = useState<PromptPayload | null>(null);
   const pendingPromptRef = useRef(pendingPrompt);
-  const [attachments, setAttachments] = useState<Array<{
-    id: string;
-    name: string;
-    path?: string;        // file system path for sending to PTY
-    preview?: string;     // base64 data URL for image preview
-    type: string;         // mime type
-    _base64?: string;     // raw base64 for non-image files (pasted, no path)
-  }>>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -210,7 +228,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     // Read pending prompt from backend state (provider-agnostic)
     async function checkForPrompt() {
       try {
-        const state = await invoke<any>("mux_get_state");
+        const state = await invoke<MuxSnapshot>("mux_get_state");
         if (!active) return;
         const pane = state?.panes?.[paneId];
         const prompt = pane?.pending_prompt ?? null;
@@ -316,7 +334,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     });
 
     // Listen for prompt state changes — direct event, no polling needed
-    const unlistenPrompt = listen<{ pane_id: string; prompt: any }>("prompt-state-changed", ({ payload }) => {
+    const unlistenPrompt = listen<{ pane_id: string; prompt: PromptPayload | null }>("prompt-state-changed", ({ payload }) => {
       if (payload.pane_id === paneId) {
         const prompt = payload.prompt ?? null;
         const hadPrompt = pendingPromptRef.current != null;
@@ -469,14 +487,15 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
 
         const reader = new FileReader();
         reader.onload = () => {
-          setAttachments(prev => [...prev, {
+          const result = reader.result as string;
+          const entry: Attachment = {
             id: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
             name,
-            preview: isImage ? (reader.result as string) : undefined,
             type: item.type,
-            // Store base64 for non-image files too (for save_temp_file)
-            ...(isImage ? {} : { _base64: (reader.result as string).split(",")[1] }),
-          } as any]);
+            preview: isImage ? result : undefined,
+            _base64: isImage ? undefined : result.split(",")[1],
+          };
+          setAttachments(prev => [...prev, entry]);
         };
         reader.readAsDataURL(blob);
       }
@@ -496,12 +515,13 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     if (looksLikeFile) {
       const ext = trimmed.split(".").pop()?.toLowerCase() || "";
       const isImage = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext);
-      setAttachments(prev => [...prev, {
+      const entry: Attachment = {
         id: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
         name: trimmed.split(/[\\/]/).pop() || trimmed,
         path: trimmed,
         type: isImage ? `image/${ext === "jpg" ? "jpeg" : ext}` : "application/octet-stream",
-      } as any]);
+      };
+      setAttachments(prev => [...prev, entry]);
       return;
     }
 

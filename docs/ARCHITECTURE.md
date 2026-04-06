@@ -30,6 +30,11 @@ src-tauri/src/
 ├── commands_mesh.rs        — Mesh-specific Tauri commands
 ├── shell.rs                — Platform shell syntax helpers
 ├── prompts.rs              — Compiled prompt templates loader
+├── attachments.rs          — Shared temp-file storage (clipboard/drops/bridge), bucket dirs under %TEMP%/codeterm-<bucket>/, MaxBytes/MaxCount eviction
+├── clipboard_files.rs      — Native OS clipboard file-reference reader (Win CF_HDROP, macOS NSPasteboardTypeFileURL, Linux stub)
+│
+├── dispatch/               — UNIFIED COMMAND DISPATCH (Phase B foundation, not yet wired to adapters)
+│   └── mod.rs              — Command enum: Health, PaneList, SendText, GetOutput, GetScreen
 │
 ├── service/                — UNIFIED BUSINESS LOGIC (all ops go through here)
 │   ├── mod.rs              — ServiceContext (god object, needs facade split)
