@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
@@ -678,55 +677,16 @@ async fn get_pane_screen(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    // Verify pane exists by trying to resolve pty (or at least check mux)
-    {
-        let mux = state.svc.mux.lock();
-        mux.get_pane(&pane_id)
-            .ok_or((StatusCode::NOT_FOUND, "Pane not found"))?;
-    }
-
-    // Ask frontend to capture screen content via Tauri event
-    use tokio::sync::oneshot;
-    let (tx, rx) = oneshot::channel::<String>();
-    let tx = Arc::new(parking_lot::Mutex::new(Some(tx)));
-
-    let tx_clone = tx.clone();
-    let pid = pane_id.clone();
-
-    // Listen for response from frontend
-    let app = state.svc.app_handle.clone();
-    use tauri::Listener;
-    let handler_id = app.listen(format!("screen-capture-response-{}", pid), move |event| {
-        if let Some(tx) = tx_clone.lock().take() {
-            let payload = event.payload().to_string();
-            // Parse the JSON string payload
-            let text = serde_json::from_str::<serde_json::Value>(&payload)
-                .and_then(|v| Ok(v.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string()))
-                .unwrap_or_default();
-            let _ = tx.send(text);
+    let cmd = crate::dispatch::Command::GetScreen { pane_id: pane_id.clone(), formatted: false };
+    match crate::dispatch::dispatch(&cmd, &state.svc) {
+        Ok(r) => {
+            let mut v = r.into_json();
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert("pane_id".to_string(), serde_json::json!(pane_id));
+            }
+            Ok(Json(v))
         }
-    });
-
-    // Request capture from frontend
-    use tauri::Emitter;
-    let _ = state.svc.app_handle.emit("screen-capture-request", serde_json::json!({
-        "pane_id": pane_id,
-    }));
-
-    // Wait for response with timeout
-    let result = tokio::time::timeout(
-        tokio::time::Duration::from_secs(3),
-        rx,
-    ).await;
-
-    app.unlisten(handler_id);
-
-    match result {
-        Ok(Ok(text)) => Ok(Json(serde_json::json!({
-            "screen": text,
-            "pane_id": pane_id,
-        }))),
-        _ => Err((StatusCode::REQUEST_TIMEOUT, "Screen capture timed out")),
+        Err(_) => Err((StatusCode::NOT_FOUND, "Pane not found or has no PTY")),
     }
 }
 
