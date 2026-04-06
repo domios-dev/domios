@@ -375,19 +375,23 @@ pub async fn kill_pty(
 /// Used by ChatView to parse Claude output.
 #[tauri::command]
 pub async fn get_pane_output(
-    output_buf: tauri::State<'_, OutputBufferState>,
-    mux: tauri::State<'_, MuxState>,
+    svc: tauri::State<'_, ServiceState>,
     pane_id: String,
 ) -> Result<String, String> {
-    let pty_id = {
-        let m = mux.lock();
-        m.get_pane(&pane_id)
-            .and_then(|p| p.pty_id.clone())
-            .ok_or_else(|| "Pane not found or has no PTY".to_string())?
+    let cmd = crate::dispatch::Command::GetOutput {
+        pane_id,
+        offset: None,
+        max_bytes: None,
+        strip_ansi: true,
+        full: true,
     };
-    let buf = output_buf.lock();
-    let text = buf.get_full_text(&pty_id).unwrap_or_default();
-    Ok(crate::pty::ansi::clean_terminal_output(&text))
+    let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
+    Ok(result
+        .into_json()
+        .get("output")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string())
 }
 
 /// Get current screen state (what's visible on the terminal right now).
@@ -395,22 +399,17 @@ pub async fn get_pane_output(
 /// Better than get_pane_output for restoring TUI apps after remount.
 #[tauri::command]
 pub async fn get_pane_screen(
-    screen_state: tauri::State<'_, ScreenStateHandle>,
-    mux: tauri::State<'_, MuxState>,
+    svc: tauri::State<'_, ServiceState>,
     pane_id: String,
 ) -> Result<String, String> {
-    let pty_id = {
-        let m = mux.lock();
-        m.get_pane(&pane_id)
-            .and_then(|p| p.pty_id.clone())
-            .ok_or_else(|| "Pane not found or has no PTY".to_string())?
-    };
-    let ss = screen_state.lock();
-    let text = ss.get_screen_text(&pty_id).unwrap_or_default();
-    // Screen parser returns \n between rows, but xterm.js needs \r\n
-    // to move cursor back to column 0 — otherwise each line starts
-    // where the previous one ended ("staircase" effect).
-    Ok(text.replace('\n', "\r\n"))
+    let cmd = crate::dispatch::Command::GetScreen { pane_id, formatted: false };
+    let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
+    Ok(result
+        .into_json()
+        .get("screen")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string())
 }
 
 /// Get screen state as escape-coded bytes — preserves colors, cursor position, cursor visibility.
@@ -418,18 +417,15 @@ pub async fn get_pane_screen(
 /// but `get_pane_screen` (text-only) loses that state on remount.
 #[tauri::command]
 pub async fn get_pane_screen_formatted(
-    screen_state: tauri::State<'_, ScreenStateHandle>,
-    mux: tauri::State<'_, MuxState>,
+    svc: tauri::State<'_, ServiceState>,
     pane_id: String,
 ) -> Result<Vec<u8>, String> {
-    let pty_id = {
-        let m = mux.lock();
-        m.get_pane(&pane_id)
-            .and_then(|p| p.pty_id.clone())
-            .ok_or_else(|| "Pane not found or has no PTY".to_string())?
-    };
-    let ss = screen_state.lock();
-    ss.get_screen_formatted(&pty_id)
+    let cmd = crate::dispatch::Command::GetScreen { pane_id, formatted: true };
+    let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
+    let json = result.into_json();
+    json.get("screen")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|n| n.as_u64().map(|x| x as u8)).collect())
         .ok_or_else(|| "No screen state".to_string())
 }
 
