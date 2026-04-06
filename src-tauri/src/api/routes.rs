@@ -288,13 +288,16 @@ async fn split_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let orientation = match body.as_ref().and_then(|b| b.direction.as_deref()) {
-        Some("down" | "vertical") => crate::multiplexer::types::Orientation::Vertical,
-        _ => crate::multiplexer::types::Orientation::Horizontal,
-    };
-    let new_pane_id = state.svc.split_pane(&pane_id, orientation)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
-    Ok(Json(serde_json::json!({"new_pane_id": new_pane_id})))
+    let direction = body
+        .as_ref()
+        .and_then(|b| b.direction.clone())
+        .unwrap_or_else(|| "right".to_string());
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneSplit { pane_id, direction },
+        &state.svc,
+    )
+    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    Ok(Json(result.into_json()))
 }
 
 async fn list_panes(
@@ -373,9 +376,12 @@ async fn focus_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    state.svc.focus_pane(&pane_id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneFocus { pane_id },
+        &state.svc,
+    )
+    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    Ok(Json(result.into_json()))
 }
 
 #[derive(Deserialize)]
@@ -495,9 +501,12 @@ async fn close_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    state.svc.close_pane(&pane_id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneClose { pane_id },
+        &state.svc,
+    )
+    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    Ok(Json(result.into_json()))
 }
 
 #[derive(Deserialize)]
@@ -513,9 +522,12 @@ async fn rename_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    state.svc.rename_pane(&pane_id, &body.title)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneRename { pane_id, title: body.title },
+        &state.svc,
+    )
+    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+    Ok(Json(result.into_json()))
 }
 
 #[derive(Deserialize)]

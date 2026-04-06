@@ -44,9 +44,33 @@ pub enum Command {
         #[serde(default)]
         formatted: bool,
     },
+
+    /// Split a pane into two. Direction: "right"/"horizontal" or "down"/"vertical".
+    PaneSplit {
+        pane_id: String,
+        #[serde(default = "default_direction")]
+        direction: String,
+    },
+
+    /// Close a pane and kill its PTY.
+    PaneClose {
+        pane_id: String,
+    },
+
+    /// Focus a pane (move keyboard focus).
+    PaneFocus {
+        pane_id: String,
+    },
+
+    /// Rename a pane's title (pinned until the user clears it).
+    PaneRename {
+        pane_id: String,
+        title: String,
+    },
 }
 
 fn default_true() -> bool { true }
+fn default_direction() -> String { "right".to_string() }
 
 /// Unified result type for all commands.
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +101,10 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
         Command::GetScreen { pane_id, formatted } => {
             cmd_get_screen(ctx, pane_id, *formatted)
         }
+        Command::PaneSplit { pane_id, direction } => cmd_pane_split(ctx, pane_id, direction),
+        Command::PaneClose { pane_id } => cmd_pane_close(ctx, pane_id),
+        Command::PaneFocus { pane_id } => cmd_pane_focus(ctx, pane_id),
+        Command::PaneRename { pane_id, title } => cmd_pane_rename(ctx, pane_id, title),
     }
 }
 
@@ -171,6 +199,42 @@ fn cmd_get_screen(
             "screen": text.replace('\n', "\r\n"),
         })))
     }
+}
+
+fn cmd_pane_split(
+    ctx: &ServiceContext,
+    pane_id: &str,
+    direction: &str,
+) -> Result<CommandResult, String> {
+    use crate::multiplexer::types::Orientation;
+    let orientation = match direction {
+        "down" | "vertical" => Orientation::Vertical,
+        _ => Orientation::Horizontal,
+    };
+    let new_pane_id = ctx.split_pane(pane_id, orientation)?;
+    Ok(CommandResult::Json(serde_json::json!({
+        "ok": true,
+        "new_pane_id": new_pane_id,
+    })))
+}
+
+fn cmd_pane_close(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, String> {
+    ctx.close_pane(pane_id)?;
+    Ok(CommandResult::Json(serde_json::json!({"ok": true})))
+}
+
+fn cmd_pane_focus(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, String> {
+    ctx.focus_pane(pane_id)?;
+    Ok(CommandResult::Json(serde_json::json!({"ok": true})))
+}
+
+fn cmd_pane_rename(
+    ctx: &ServiceContext,
+    pane_id: &str,
+    title: &str,
+) -> Result<CommandResult, String> {
+    ctx.rename_pane(pane_id, title)?;
+    Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
