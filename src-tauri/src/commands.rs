@@ -1112,44 +1112,31 @@ pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String,
 }
 
 /// Save an arbitrary clipboard/paste file (non-image) to temp, return the path.
-/// Use for any file type pasted or dropped into a terminal: documents, archives, etc.
-/// Eviction: total bucket size capped at DEFAULT_MAX_BYTES (100 MB).
 #[tauri::command]
 pub async fn save_clipboard_file(
     bytes: Vec<u8>,
     filename: String,
 ) -> Result<String, String> {
-    // Prefix with short UUID to avoid collisions while preserving original name
-    let prefix = &uuid::Uuid::new_v4().to_string()[..8];
-    let safe_name = if filename.is_empty() {
-        format!("paste-{}", prefix)
-    } else {
-        format!("{}-{}", prefix, filename)
-    };
-    let path = crate::attachments::save(
+    let path = crate::attachments::save_with_prefixed_name(
         "files",
-        &safe_name,
+        &filename,
         &bytes,
         crate::attachments::EvictionPolicy::MaxBytes(crate::attachments::DEFAULT_MAX_BYTES),
     )?;
     Ok(path.to_string_lossy().to_string())
 }
 
-/// Save base64 data to a temp file and return the path.
-/// Used by ChatView to send pasted images to Claude.
+/// Save base64 data to a temp file. Used by ChatView to stage pasted images.
 #[tauri::command]
 pub fn save_temp_file(data: String, extension: String, name: Option<String>) -> Result<String, String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&data)
         .map_err(|e| format!("Base64 decode failed: {}", e))?;
-    let prefix = &uuid::Uuid::new_v4().to_string()[..8];
-    let filename = match name {
-        Some(n) if !n.is_empty() => format!("{}-{}", prefix, n),
-        _ => format!("codeterm-paste-{}.{}", prefix, extension),
-    };
-    let path = crate::attachments::save(
+    let fallback = format!("codeterm-paste.{}", extension);
+    let name = name.filter(|s| !s.is_empty()).unwrap_or(fallback);
+    let path = crate::attachments::save_with_prefixed_name(
         "chat",
-        &filename,
+        &name,
         &bytes,
         crate::attachments::EvictionPolicy::MaxBytes(crate::attachments::DEFAULT_MAX_BYTES),
     )?;

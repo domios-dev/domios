@@ -1,8 +1,9 @@
-//! Unified Command Dispatch — single implementation for all API surfaces.
+//! Unified Command Dispatch — Phase B foundation.
 //!
-//! Each operation is defined once as a Command variant. REST, Socket, and Tauri
-//! adapters deserialize into Command, call dispatch(), and serialize the result.
-//! This eliminates ~2700 LOC of duplicated glue code across three API surfaces.
+//! Target: each operation defined once as a Command variant; REST, Socket, Tauri
+//! adapters deserialize → dispatch() → serialize. Status: infrastructure exists
+//! with the first 5 commands; adapters still duplicate these implementations
+//! until migration lands (docs/plans/architecture-evolution.md, Phase B2).
 
 use serde::{Deserialize, Serialize};
 use crate::service::ServiceContext;
@@ -131,7 +132,7 @@ fn cmd_get_output(
     };
 
     let start = offset.unwrap_or(0);
-    let raw = if start < text.len() { &text[start..] } else { "" };
+    let raw = text.get(start..).unwrap_or("");
 
     // Apply max_bytes truncation (take last N bytes)
     let truncated = if let Some(max) = max_bytes {
@@ -157,24 +158,17 @@ fn cmd_get_screen(
     pane_id: &str,
     formatted: bool,
 ) -> Result<CommandResult, String> {
-    let pty_id = {
-        let mux = ctx.mux.lock();
-        mux.get_pane(pane_id)
-            .and_then(|p| p.pty_id.clone())
-            .ok_or_else(|| format!("Pane {} not found or has no PTY", pane_id))?
-    };
+    let pty_id = ctx.resolve_pty_id(pane_id)?;
+    let ss = ctx.screen_state.lock();
 
     if formatted {
-        let ss = ctx.screen_state.lock();
         let bytes = ss.get_screen_formatted(&pty_id)
             .ok_or_else(|| "No screen state".to_string())?;
-        // Return as array of bytes (JSON-serializable)
         Ok(CommandResult::Json(serde_json::json!({
             "screen": bytes,
             "formatted": true,
         })))
     } else {
-        let ss = ctx.screen_state.lock();
         let text = ss.get_screen_text(&pty_id).unwrap_or_default();
         Ok(CommandResult::Json(serde_json::json!({
             "screen": text.replace('\n', "\r\n"),

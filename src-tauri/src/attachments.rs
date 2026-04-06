@@ -61,6 +61,23 @@ pub fn save_with_uuid(
     save(bucket, &filename, bytes, policy)
 }
 
+/// Save bytes preserving a user-provided filename, prefixed with a short UUID for uniqueness.
+/// Falls back to `paste-<uuid>` when `name` is empty.
+pub fn save_with_prefixed_name(
+    bucket: &str,
+    name: &str,
+    bytes: &[u8],
+    policy: EvictionPolicy,
+) -> Result<PathBuf, String> {
+    let prefix = &uuid::Uuid::new_v4().to_string()[..8];
+    let filename = if name.is_empty() {
+        format!("paste-{}", prefix)
+    } else {
+        format!("{}-{}", prefix, name)
+    };
+    save(bucket, &filename, bytes, policy)
+}
+
 /// Apply eviction policy to a directory.
 pub fn evict(dir: &Path, policy: EvictionPolicy) {
     let entries: Vec<_> = match std::fs::read_dir(dir) {
