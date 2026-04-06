@@ -293,7 +293,7 @@ pub async fn read_pty(
                         // Only save if no log exists yet (don't overwrite clean summary)
                         if store.read_log(&job_id, &run_id).is_none() {
                             let text = output_buf.lock().get_text(&pty_id).unwrap_or_default();
-                            let clean = crate::api::routes::clean_terminal_output(&text);
+                            let clean = crate::pty::ansi::clean_terminal_output(&text);
                             let _ = store.save_log(&job_id, &run_id, &clean);
                             let _ = store.update_run_status(&job_id, &run_id, crate::cron::store::CronRunStatus::Failed);
                         }
@@ -387,7 +387,7 @@ pub async fn get_pane_output(
     };
     let buf = output_buf.lock();
     let text = buf.get_full_text(&pty_id).unwrap_or_default();
-    Ok(crate::api::routes::clean_terminal_output(&text))
+    Ok(crate::pty::ansi::clean_terminal_output(&text))
 }
 
 /// Get current screen state (what's visible on the terminal right now).

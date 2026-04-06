@@ -411,7 +411,7 @@ async fn get_pane_output(
     let offset = query.offset.unwrap_or(0);
     let raw = if offset < text.len() { &text[offset..] } else { "" };
     let output = if query.strip_ansi.unwrap_or(false) {
-        clean_terminal_output(raw)
+        crate::pty::ansi::clean_terminal_output(raw)
     } else {
         raw.to_string()
     };
@@ -475,7 +475,7 @@ async fn exec_in_pane(
 
     let (raw_output, offset, timed_out) = result;
     let output = if body.strip_ansi.unwrap_or(false) {
-        clean_terminal_output(&raw_output)
+        crate::pty::ansi::clean_terminal_output(&raw_output)
     } else {
         raw_output
     };
@@ -1191,7 +1191,7 @@ async fn hook_permission(
                 if raw.is_empty() {
                     decision
                 } else {
-                    let stripped = strip_ansi(&raw);
+                    let stripped = crate::pty::ansi::strip_ansi(&raw);
                     // Take last ~3000 chars to limit scan scope
                     let tail = if stripped.len() > 3000 { &stripped[stripped.len() - 3000..] } else { &stripped };
                     log::debug!("[hook_permission] fallback raw buffer len={}, tail_len={}", raw.len(), tail.len());
@@ -1270,55 +1270,6 @@ async fn get_hierarchy(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     Ok(Json(serde_json::json!(state.svc.get_hierarchy())))
-}
-
-/// Strip ANSI escape codes from terminal output.
-#[cfg(test)]
-mod tests_strip_ansi {
-    use super::*;
-
-    #[test]
-    fn test_no_ansi() {
-        assert_eq!(strip_ansi_codes("hello world"), "hello world");
-    }
-
-    #[test]
-    fn test_csi_color() {
-        assert_eq!(strip_ansi_codes("\x1b[32mgreen\x1b[0m"), "green");
-    }
-
-    #[test]
-    fn test_osc_title() {
-        assert_eq!(strip_ansi_codes("\x1b]0;title\x07text"), "text");
-    }
-
-    #[test]
-    fn test_osc_st_terminator() {
-        assert_eq!(strip_ansi_codes("\x1b]0;title\x1b\\text"), "text");
-    }
-
-    #[test]
-    fn test_carriage_return_stripped() {
-        assert_eq!(strip_ansi_codes("line1\r\nline2"), "line1\nline2");
-    }
-
-    #[test]
-    fn test_mixed() {
-        assert_eq!(
-            strip_ansi_codes("\x1b[1;34mBold Blue\x1b[0m and \x1b[31mRed\x1b[0m"),
-            "Bold Blue and Red"
-        );
-    }
-
-    #[test]
-    fn test_empty() {
-        assert_eq!(strip_ansi_codes(""), "");
-    }
-
-    #[test]
-    fn test_csi_cursor_move() {
-        assert_eq!(strip_ansi_codes("\x1b[2Aup\x1b[3Bdown"), "updown");
-    }
 }
 
 #[cfg(test)]
@@ -1463,95 +1414,6 @@ mod tests_send_text_body {
     fn default_true_returns_true() {
         assert!(default_true());
     }
-}
-
-pub fn strip_ansi_codes(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // ESC sequence — skip until terminator
-            if let Some(&next) = chars.peek() {
-                if next == '[' {
-                    // CSI sequence: ESC [ ... (letter)
-                    chars.next();
-                    while let Some(&ch) = chars.peek() {
-                        chars.next();
-                        if ch.is_ascii_alphabetic() || ch == '~' { break; }
-                    }
-                } else if next == ']' {
-                    // OSC sequence: ESC ] ... (BEL or ESC \)
-                    chars.next();
-                    while let Some(&ch) = chars.peek() {
-                        chars.next();
-                        if ch == '\x07' { break; }
-                        if ch == '\x1b' {
-                            if chars.peek() == Some(&'\\') { chars.next(); }
-                            break;
-                        }
-                    }
-                } else {
-                    chars.next(); // skip one char after ESC
-                }
-            }
-        } else if c == '\r' {
-            // Skip \r (carriage return) — keep \n only
-            continue;
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
-/// Parse raw terminal output through a VT100 emulator to get clean screen text.
-/// Clean terminal output using VT100 virtual terminal.
-/// Properly handles cursor movements, overwrites (spinners), line wraps, etc.
-pub fn clean_terminal_output(raw: &str) -> String {
-    let mut parser = vt100::Parser::new(500, 200, 10000);
-    parser.process(raw.as_bytes());
-    parser.screen().contents()
-}
-
-/// Light ANSI strip — removes escape sequences but preserves text layout.
-/// Faster than VT100 parser and doesn't reflow text to a different terminal size.
-/// Used for prompt detection where we need to find structural patterns
-/// in the raw stream regardless of terminal dimensions.
-pub fn strip_ansi(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    let mut chars = raw.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            match chars.peek() {
-                Some('[') => {
-                    // CSI: skip until ASCII letter (0x40-0x7E)
-                    chars.next();
-                    while let Some(&nc) = chars.peek() {
-                        chars.next();
-                        if nc.is_ascii_alphabetic() || nc == '@' || nc == '~' { break; }
-                    }
-                }
-                Some(']') => {
-                    // OSC: skip until BEL or ST (ESC \)
-                    chars.next();
-                    while let Some(nc) = chars.next() {
-                        if nc == '\x07' { break; }
-                        if nc == '\x1b' {
-                            if chars.peek() == Some(&'\\') { chars.next(); }
-                            break;
-                        }
-                    }
-                }
-                Some('(' | ')') => { chars.next(); chars.next(); } // charset
-                _ => { chars.next(); } // other ESC
-            }
-        } else if c == '\r' {
-            // Skip CR, keep LF
-        } else {
-            out.push(c);
-        }
-    }
-    out
 }
 
 // ── Theme API ──────────────────────────────────────────────────────────

@@ -197,7 +197,7 @@ impl ServiceContext {
             } else {
                 String::new()
             };
-            let raw_clean = crate::api::routes::clean_terminal_output(&raw);
+            let raw_clean = crate::pty::ansi::clean_terminal_output(&raw);
 
             // Build log: summary section + raw section separated by marker
             let summary_text = summary.unwrap_or("(no summary provided)");
