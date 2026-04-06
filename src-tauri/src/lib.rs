@@ -1,5 +1,6 @@
 mod agent;
 mod api;
+pub mod attachments;
 mod autostart;
 pub mod bridge;
 mod commands;
@@ -873,6 +874,7 @@ pub fn run() {
             commands::get_network_info,
             commands::generate_api_token,
             commands::save_clipboard_image,
+            commands::save_clipboard_file,
             commands::save_temp_file,
             commands::copy_image_to_clipboard,
             commands::install_project_rules,
