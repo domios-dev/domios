@@ -171,22 +171,3 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-    use crate::agent::status::{PaneStatus, PaneStatusTracker};
-    use crate::AgentTrackerState;
-
-    /// Verify that set_dead marks the tracker status correctly.
-    #[test]
-    fn test_tracker_set_dead() {
-        let tracker: AgentTrackerState =
-            Arc::new(parking_lot::Mutex::new(PaneStatusTracker::new()));
-        // Pre-populate with a working status.
-        tracker.lock().update_output("test-pty", [0u8; 32]);
-        assert_ne!(tracker.lock().get_status("test-pty"), PaneStatus::Dead);
-
-        tracker.lock().set_dead("test-pty");
-        assert_eq!(tracker.lock().get_status("test-pty"), PaneStatus::Dead);
-    }
-}

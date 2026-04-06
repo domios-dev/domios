@@ -1099,46 +1099,47 @@ pub fn uninstall_claude_hooks() -> Result<(), String> {
 }
 
 /// Save clipboard image bytes to a temp file, return the path.
-/// Old images are cleaned up (keep last 20).
+/// Shared attachments module handles eviction (keep last 20 images).
 #[tauri::command]
 pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String, String> {
-    let temp_dir = std::env::temp_dir().join("codeterm-images");
-    std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
-    // Cleanup old files (keep last 20)
-    if let Ok(entries) = std::fs::read_dir(&temp_dir) {
-        let mut files: Vec<_> = entries.flatten()
-            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-            .collect();
-        if files.len() > 20 {
-            files.sort_by_key(|e| e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH));
-            for old in &files[..files.len() - 20] {
-                let _ = std::fs::remove_file(old.path());
-            }
-        }
-    }
-    let filename = format!("clipboard-{}.{}", uuid::Uuid::new_v4(), ext);
-    let path = temp_dir.join(&filename);
-    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    let path = crate::attachments::save_with_uuid(
+        "images",
+        &ext,
+        &bytes,
+        crate::attachments::EvictionPolicy::MaxCount(20),
+    )?;
     Ok(path.to_string_lossy().to_string())
 }
 
-/// Save base64 data to a temp file and return the path.
-/// Used by ChatView to send pasted images to Claude.
+/// Save an arbitrary clipboard/paste file (non-image) to temp, return the path.
+#[tauri::command]
+pub async fn save_clipboard_file(
+    bytes: Vec<u8>,
+    filename: String,
+) -> Result<String, String> {
+    let path = crate::attachments::save_with_prefixed_name(
+        "files",
+        &filename,
+        &bytes,
+        crate::attachments::EvictionPolicy::MaxBytes(crate::attachments::DEFAULT_MAX_BYTES),
+    )?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Save base64 data to a temp file. Used by ChatView to stage pasted images.
 #[tauri::command]
 pub fn save_temp_file(data: String, extension: String, name: Option<String>) -> Result<String, String> {
-    use std::io::Write;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&data)
         .map_err(|e| format!("Base64 decode failed: {}", e))?;
-    // Use original filename if provided (with short UUID prefix for uniqueness)
-    let prefix = &uuid::Uuid::new_v4().to_string()[..8];
-    let filename = match name {
-        Some(n) if !n.is_empty() => format!("{}-{}", prefix, n),
-        _ => format!("codeterm-paste-{}.{}", prefix, extension),
-    };
-    let path = std::env::temp_dir().join(filename);
-    let mut file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
-    file.write_all(&bytes).map_err(|e| e.to_string())?;
+    let fallback = format!("codeterm-paste.{}", extension);
+    let name = name.filter(|s| !s.is_empty()).unwrap_or(fallback);
+    let path = crate::attachments::save_with_prefixed_name(
+        "chat",
+        &name,
+        &bytes,
+        crate::attachments::EvictionPolicy::MaxBytes(crate::attachments::DEFAULT_MAX_BYTES),
+    )?;
     Ok(path.to_string_lossy().to_string())
 }
 

@@ -287,36 +287,12 @@ impl TelegramService {
     }
 }
 
-/// Evict oldest files from downloads dir when total size exceeds DOWNLOADS_MAX_BYTES.
+/// Evict oldest files from downloads dir — delegates to shared attachments module.
 fn evict_downloads(dir: &std::path::Path) {
-    let entries: Vec<_> = match std::fs::read_dir(dir) {
-        Ok(rd) => rd.filter_map(|e| e.ok()).collect(),
-        Err(_) => return,
-    };
-
-    let mut files: Vec<(std::path::PathBuf, u64, std::time::SystemTime)> = entries.iter()
-        .filter_map(|e| {
-            let meta = e.metadata().ok()?;
-            if !meta.is_file() { return None; }
-            let modified = meta.modified().ok()?;
-            Some((e.path(), meta.len(), modified))
-        })
-        .collect();
-
-    let total: u64 = files.iter().map(|(_, sz, _)| sz).sum();
-    if total <= DOWNLOADS_MAX_BYTES { return; }
-
-    // Sort oldest first
-    files.sort_by_key(|(_, _, t)| *t);
-
-    let mut remaining = total;
-    for (path, sz, _) in &files {
-        if remaining <= DOWNLOADS_MAX_BYTES { break; }
-        if std::fs::remove_file(path).is_ok() {
-            log::info!("[telegram] evicted {} ({} bytes)", path.display(), sz);
-            remaining -= sz;
-        }
-    }
+    crate::attachments::evict(
+        dir,
+        crate::attachments::EvictionPolicy::MaxBytes(DOWNLOADS_MAX_BYTES),
+    );
 }
 
 impl MessagingService for TelegramService {
