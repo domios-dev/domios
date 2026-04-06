@@ -90,3 +90,17 @@ registerAgentProvider({
   icon: "\u2733",  // ✳
   iconColor: "#f0883e",
 });
+
+// Register Codex provider
+registerAgentProvider({
+  id: "codex",
+  displayName: "Codex",
+  titlePattern: /codex/i,
+  supportsChatView: false,
+  supportsResume: true,
+  noisePatterns: [
+    /^[\s─━═]+$/,
+  ],
+  icon: "\u25C6",  // ◆
+  iconColor: "#10a37f",
+});

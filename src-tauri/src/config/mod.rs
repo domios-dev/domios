@@ -47,8 +47,6 @@ toast_duration = 5  # seconds
 [keybindings]
 new_tab = "Ctrl+Shift+T"
 close_tab = "Ctrl+Shift+W"
-split_right = "Ctrl+Shift+D"
-split_down = "Ctrl+Shift+E"
 close_pane = "Ctrl+Shift+Q"
 
 [socket]

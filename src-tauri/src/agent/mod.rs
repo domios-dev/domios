@@ -1,4 +1,5 @@
 pub mod claude;
+pub mod codex;
 pub mod detector;
 pub mod git_info;
 pub mod prompt;

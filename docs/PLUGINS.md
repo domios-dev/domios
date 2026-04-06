@@ -188,7 +188,7 @@ in `src-tauri/src/service/mod.rs`, which publish the following two variants:
 | `mux-state-changed`        | `SystemEvent::MuxStateChanged`   | — (fires on any workspace / pane / tab state change) |
 | `pane-title-pinned`        | `SystemEvent::PaneTitlePinned`   | `pane_id: String`, `title: String` |
 
-Other `SystemEvent` variants (`PaneFocused`, `PaneClosed`, `PaneSplit`,
+Other `SystemEvent` variants (`PaneFocused`, `PaneClosed`,
 `AgentStarted`, `AgentIdle`, `ConfigChanged`, `Generic`) are **defined but not
 yet emitted** anywhere in core. Subscribing to them today is valid but you will
 receive nothing. They will be filled in as Phase C progresses — see

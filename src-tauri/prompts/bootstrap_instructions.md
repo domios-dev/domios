@@ -29,7 +29,7 @@ Wait for their response.
 
 ### Step 5: Save and finish
 Only AFTER you've talked through steps 1-4 with actual user responses:
-1. Add what you learned to your CLAUDE.md — outside the `<!-- CODETERM-AUTO-START -->` / `<!-- CODETERM-AUTO-END -->` markers. Include identity, user info, communication style, integrations.
+1. Add what you learned to your `MEMORY.md`. Include identity, user info, communication style, integrations. This file is shared between all agent providers (Claude, Codex, etc.).
 2. Delete this `bootstrap.md` file (you won't need it again).
 3. Confirm to the user that you're set up and ready.
 

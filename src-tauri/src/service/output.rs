@@ -144,12 +144,19 @@ impl ServiceContext {
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
 
                 // Read screen text if markers found OR if there's an active prompt
-                // (need screen text to detect when user answers prompt in terminal)
-                let has_active_prompt = {
+                // (need screen text to detect when user answers prompt in terminal).
+                // For auto_approve panes (GA), always read screen — chunk fragmentation
+                // can split markers across reads, so we check full screen every time.
+                let (has_active_prompt, is_auto_approve) = {
                     let mux = self.mux.lock();
-                    mux.get_pane(pid).and_then(|p| p.pending_prompt.as_ref()).is_some()
+                    let pane = mux.get_pane(pid);
+                    (
+                        pane.and_then(|p| p.pending_prompt.as_ref()).is_some(),
+                        pane.map(|p| p.auto_approve).unwrap_or(false),
+                    )
                 };
-                let clean_text = if has_markers || has_active_prompt {
+                let check_screen = has_markers || has_active_prompt || is_auto_approve;
+                let clean_text = if check_screen {
                     self.screen_state.lock().get_screen_text(pty_id)
                 } else {
                     None
@@ -161,7 +168,7 @@ impl ServiceContext {
                     let registry = &self.agent_registry;
                     detector.evaluate_pty_output(
                         pid,
-                        has_markers,
+                        check_screen,
                         clean_text.as_deref(),
                         |text| registry.parse_prompt(&agent_type_clone, text),
                     )
@@ -203,27 +210,39 @@ impl ServiceContext {
                     .unwrap_or(false);
 
                 if auto_approve {
-                    // Only auto-approve yes/no prompts (permission checks).
-                    // Skip numbered option prompts (1/2/3) — those need user decision.
+                    // Check for yes/no prompts (value is "y" or "yes")
                     let is_yes_no = prompt.options.iter().any(|o| {
                         let v = o.value.to_lowercase();
                         v == "y" || v == "yes"
                     });
-                    if is_yes_no {
-                        log::info!("[auto-approve] Auto-approving yes/no prompt for pane {}", pane_id);
+
+                    // Check for numbered prompts where first option is affirmative
+                    // (e.g. "1. Yes, continue" — trust directory prompts)
+                    let is_numbered_yes = !is_yes_no
+                        && !prompt.options.is_empty()
+                        && prompt.options[0].label.to_lowercase().starts_with("yes");
+
+                    if is_yes_no || is_numbered_yes {
+                        let response: &[u8] = if is_yes_no { b"y\r" } else { b"\r" };
+                        log::info!(
+                            "[auto-approve] Auto-approving {} prompt for pane {}",
+                            if is_yes_no { "yes/no" } else { "numbered-yes" },
+                            pane_id
+                        );
                         let pty_id = self.mux.lock()
                             .get_pane(pane_id)
                             .and_then(|p| p.pty_id.clone());
                         if let Some(pty_id) = pty_id {
                             let pty = self.pty.clone();
+                            let response = response.to_vec();
                             std::thread::spawn(move || {
                                 std::thread::sleep(std::time::Duration::from_millis(500));
-                                let _ = pty.lock().write(&pty_id, b"y\r");
+                                let _ = pty.lock().write(&pty_id, &response);
                             });
                         }
                         return;
                     }
-                    log::debug!("[auto-approve] Skipping non-yes/no prompt for pane {}", pane_id);
+                    log::debug!("[auto-approve] Skipping non-approvable prompt for pane {}", pane_id);
                 }
                 {
                     let mut mux = self.mux.lock();

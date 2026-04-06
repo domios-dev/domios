@@ -36,10 +36,15 @@ pub fn ensure_directories() {
     }
 }
 
-/// Generate agent instructions.
-/// - AGENT.md: system prompt, overwritten on every start (CodeTerm manages)
-/// - CLAUDE.md: user's memory/notes, created once with @./AGENT.md import, never touched again
-pub fn generate_instructions(provider_name: &str, _instructions_filename: &str) {
+/// Generate agent instructions for the General Agent.
+///
+/// File layout:
+/// - `AGENT.md` — system prompt (regenerated every start)
+/// - `MEMORY.md` — shared memory (created once, agent-editable, persistent)
+/// - `CLAUDE.md` — thin import wrapper for Claude (`@./AGENT.md\n@./MEMORY.md`)
+/// - `AGENTS.md` — full inline for Codex (AGENT.md + MEMORY.md + codeterm rule)
+/// - `bootstrap.md` — first-run onboarding (deleted by agent after completion)
+pub fn generate_instructions(provider_name: &str) {
     let version = env!("CARGO_PKG_VERSION");
     let platform = if cfg!(target_os = "windows") { "Windows" }
         else if cfg!(target_os = "macos") { "macOS" }
@@ -48,47 +53,88 @@ pub fn generate_instructions(provider_name: &str, _instructions_filename: &str) 
         .map(|h| h.to_string_lossy().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
 
-    // AGENT.md — system instructions, overwritten every start
+    let dir = general_dir();
+
+    // 1. AGENT.md — system prompt, regenerated every start
     let agent_content = crate::prompts::GENERAL_AGENT_TEMPLATE
         .replace("{version}", version)
         .replace("{platform}", platform)
         .replace("{hostname}", &hostname)
         .replace("{provider_name}", provider_name)
-        .replace("{general_dir}", &general_dir().to_string_lossy())
-        .replace("{secrets_dir}", &secrets_dir().to_string_lossy());
+        .replace("{general_dir}", &dir.to_string_lossy())
+        .replace("{secrets_dir}", &secrets_dir().to_string_lossy())
+        .replace("{skills_dir}", &crate::service::sync_watcher::canonical_skills_dir().to_string_lossy());
 
-    let agent_path = general_dir().join("AGENT.md");
-    if let Err(e) = std::fs::write(&agent_path, &agent_content) {
+    if let Err(e) = std::fs::write(dir.join("AGENT.md"), &agent_content) {
         log::error!("[general-agent] Failed to write AGENT.md: {}", e);
     } else {
         log::info!("[general-agent] AGENT.md updated");
     }
 
-    // CLAUDE.md — user file, create once with import, never overwrite
-    let claude_path = general_dir().join("CLAUDE.md");
-    if !claude_path.exists() {
-        let claude_content = "@./AGENT.md\n\n# Notes\n\nYour personal notes and memory go here.\n";
-        if let Err(e) = std::fs::write(&claude_path, claude_content) {
-            log::error!("[general-agent] Failed to create CLAUDE.md: {}", e);
-        } else {
-            log::info!("[general-agent] CLAUDE.md created (first run)");
-        }
-    } else {
-        // Ensure existing CLAUDE.md has the @./AGENT.md import
-        if let Ok(existing) = std::fs::read_to_string(&claude_path) {
-            if !existing.contains("@./AGENT.md") {
-                // Prepend import to existing file
-                let updated = format!("@./AGENT.md\n\n{}", existing);
-                let _ = std::fs::write(&claude_path, updated);
-                log::info!("[general-agent] Added @./AGENT.md import to existing CLAUDE.md");
+    // 2. MEMORY.md — shared memory, created once.
+    //    Migration: if CLAUDE.md has user content beyond the template, seed MEMORY.md with it.
+    let memory_path = dir.join("MEMORY.md");
+    if !memory_path.exists() {
+        let mut migrated = false;
+        let claude_path = dir.join("CLAUDE.md");
+        if claude_path.exists() {
+            if let Ok(existing) = std::fs::read_to_string(&claude_path) {
+                let user_content = extract_user_content(&existing);
+                if !user_content.is_empty() {
+                    if let Err(e) = std::fs::write(&memory_path, &user_content) {
+                        log::error!("[general-agent] Failed to migrate to MEMORY.md: {}", e);
+                    } else {
+                        log::info!("[general-agent] Migrated user notes from CLAUDE.md to MEMORY.md");
+                        migrated = true;
+                    }
+                }
             }
+        }
+        if !migrated {
+            let default = "# Memory\n\nShared memory for the General Agent.\nBoth Claude and Codex read and write this file — it persists across provider switches.\n";
+            let _ = std::fs::write(&memory_path, default);
+            log::info!("[general-agent] MEMORY.md created");
         }
     }
 
-    // Write bootstrap.md on first run — agent reads it, completes onboarding, then deletes it
-    let bootstrap = general_dir().join("bootstrap.md");
+    // 3. CLAUDE.md — thin import wrapper (regenerated every start)
+    let claude_content = "@./AGENT.md\n@./MEMORY.md\n";
+    if let Err(e) = std::fs::write(dir.join("CLAUDE.md"), claude_content) {
+        log::error!("[general-agent] Failed to write CLAUDE.md: {}", e);
+    }
+
+    // 4. AGENTS.md — full inline for Codex (regenerated every start)
+    let memory_content = std::fs::read_to_string(&memory_path).unwrap_or_default();
+    let agents_content = format!(
+        "{}\n\n---\n\n{}\n\n---\n\n{}",
+        agent_content,
+        memory_content,
+        crate::prompts::CODETERM_RULE,
+    );
+    if let Err(e) = std::fs::write(dir.join("AGENTS.md"), agents_content) {
+        log::error!("[general-agent] Failed to write AGENTS.md: {}", e);
+    }
+
+    // 5. bootstrap.md — first-run onboarding
+    let bootstrap = dir.join("bootstrap.md");
     if !bootstrap.exists() {
         let _ = std::fs::write(&bootstrap, crate::prompts::BOOTSTRAP_INSTRUCTIONS_TEMPLATE);
+    }
+}
+
+/// Extract user-written content from an existing CLAUDE.md, stripping template boilerplate.
+fn extract_user_content(content: &str) -> String {
+    let stripped: String = content
+        .lines()
+        .filter(|l| !l.starts_with("@./"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let trimmed = stripped.trim();
+    let default_notes = "# Notes\n\nYour personal notes and memory go here.";
+    if trimmed.is_empty() || trimmed == default_notes {
+        String::new()
+    } else {
+        trimmed.to_string()
     }
 }
 
@@ -185,17 +231,32 @@ pub fn start_general_agent(
 
     let general_cwd = general_dir().to_string_lossy().to_string();
 
-    // Check if agent is already running (e.g. after hot reload) — don't spawn a new PTY
+    // Check if agent is already running with the CORRECT provider — don't spawn a new PTY
     {
         let m = mux.lock();
         if let Some(pid) = m.resolve_pane_id(GENERAL_ALIAS) {
             if let Some(pane) = m.get_pane(&pid) {
-                if pane.agent_type.is_some() {
-                    if let Some(ref pty_id) = pane.pty_id {
-                        if pty.lock().get_session(pty_id).is_some() {
-                            log::info!("[general-agent] Already running (pane={}, pty={}) — skipping", pid, pty_id);
-                            return;
+                if let Some(ref current_agent) = pane.agent_type {
+                    if current_agent == provider_name {
+                        if let Some(ref pty_id) = pane.pty_id {
+                            if pty.lock().get_session(pty_id).is_some() {
+                                log::info!("[general-agent] Already running (pane={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
+                                return;
+                            }
                         }
+                    } else {
+                        // Wrong provider running — kill it so we can start the right one
+                        log::info!("[general-agent] Provider mismatch: running={}, wanted={} — restarting", current_agent, provider_name);
+                        if let Some(ref pty_id) = pane.pty_id {
+                            let _ = pty.lock().kill(pty_id);
+                        }
+                        drop(m);
+                        svc.set_pane_agent_type(&pid, None);
+                        svc.set_agent_session_id(&pid, None);
+                        if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+                            pane.pty_id = None;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(300));
                     }
                 }
             }
@@ -241,6 +302,32 @@ pub fn start_general_agent(
         }
     };
 
+    // Validate session_id: if provider can't resolve it to a file, it's stale/wrong-provider
+    let session_id = if let Some(ref id) = session_id {
+        let found = svc.agent_registry.with_provider(provider_name, |p| {
+            p.session_file_path(&general_cwd, id).filter(|f| f.exists())
+        }).flatten();
+        if found.is_none() {
+            log::info!("[general-agent] Session '{}' not valid for provider '{}' — clearing, will detect fresh", id, provider_name);
+            svc.set_agent_session_id(&pane_id, None);
+            // Try detecting a valid session for this provider
+            let exclude = mux.lock().other_session_ids(&pane_id);
+            let fresh = crate::multiplexer::commands::detect_agent_session_id(
+                &svc.agent_registry, provider_name, &general_cwd,
+                Some(exclude), Some(86400 * 7),
+            ).ok().flatten();
+            if let Some(ref sid) = fresh {
+                svc.set_agent_session_id(&pane_id, Some(sid.clone()));
+                log::info!("[general-agent] Detected fresh session: {}", sid);
+            }
+            fresh
+        } else {
+            session_id
+        }
+    } else {
+        session_id
+    };
+
     // 5. Spawn PTY
     let cols = 120u16;
     let rows = 40u16;
@@ -276,6 +363,9 @@ pub fn start_general_agent(
     }
     // Set agent type immediately
     svc.set_pane_agent_type(&pane_id, Some(provider_name.to_string()));
+    // Emit state NOW so frontend picks up pty_id immediately — don't wait for agent detection.
+    // Without this, frontend auto-spawns its own PTY and writes go to the wrong one.
+    svc.emit_state_changed();
     log::info!("[general-agent] PTY {} linked to pane {}", pty_id, pane_id);
 
     // Start backend reader on a tokio runtime (start_backend_reader uses tokio::spawn,
@@ -313,12 +403,20 @@ pub fn start_general_agent(
     }
     log::info!("[general-agent] Shell ready, building launch command...");
 
-    // Build launch command
-    let cmd = if let Some(ref sid) = session_id {
-        // Resume
-        svc.agent_registry.with_provider(provider_name, |p| p.build_resume_command(sid, true))
-            .flatten()
-            .unwrap_or_else(|| format!("claude --resume {} --dangerously-skip-permissions", sid))
+    // Build launch command.
+    // Claude: resume previous session if available (context carries over).
+    // Other providers (Codex etc): always fresh start — their sessions are CWD-bound
+    // and resuming from a different project triggers interactive directory prompts.
+    let use_resume = session_id.is_some() && provider_name == "claude";
+    let cmd = if use_resume {
+        let sid = session_id.as_ref().unwrap();
+        match svc.agent_registry.with_provider(provider_name, |p| p.build_resume_command(sid, true)).flatten() {
+            Some(cmd) => cmd,
+            None => {
+                log::error!("[general-agent] Provider '{}' not registered or resume unsupported", provider_name);
+                return;
+            }
+        }
     } else {
         // Fresh start
         let params = crate::agent::provider::AgentLaunchParams {
@@ -327,8 +425,13 @@ pub fn start_general_agent(
             args: None,
             skip_permissions: true,
         };
-        svc.agent_registry.with_provider(provider_name, |p| p.build_launch_command(&params))
-            .unwrap_or_else(|| "claude --dangerously-skip-permissions".to_string())
+        match svc.agent_registry.with_provider(provider_name, |p| p.build_launch_command(&params)) {
+            Some(cmd) => cmd,
+            None => {
+                log::error!("[general-agent] Provider '{}' not registered", provider_name);
+                return;
+            }
+        }
     };
 
     // Send launch command via bracket paste (single attempt — watchdog handles retries)
@@ -445,6 +548,51 @@ pub fn start_watchdog(
             }
         }
     });
+}
+
+/// Restart the General Agent — kill current PTY and relaunch with current config.
+/// Called from Tauri command when user changes provider or manually triggers restart.
+pub fn restart_general_agent(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    config: &crate::config::ConfigState,
+    app: &tauri::AppHandle,
+) {
+    log::info!("[general-agent] Manual restart requested");
+
+    // Find general pane and kill its PTY
+    {
+        let m = mux.lock();
+        if let Some(pid) = m.resolve_pane_id(GENERAL_ALIAS) {
+            if let Some(pane) = m.get_pane(&pid) {
+                if let Some(ref pty_id) = pane.pty_id {
+                    let _ = pty.lock().kill(pty_id);
+                    log::info!("[general-agent] Killed PTY {} for restart", pty_id);
+                }
+            }
+            // Clear agent state so start_general_agent doesn't skip
+            drop(m);
+            svc.set_pane_agent_type(&pid, None);
+            svc.set_agent_session_id(&pid, None);
+            // Unlink old PTY from pane
+            if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+                pane.pty_id = None;
+            }
+        }
+    }
+
+    // Small delay for PTY cleanup
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // Re-generate instructions for potentially new provider
+    // Clone to avoid holding the config lock (deadlock with start_general_agent)
+    let provider_name = config.lock().general_agent.agent_provider.clone();
+    generate_instructions(&provider_name);
+
+    // Relaunch
+    start_general_agent(svc, mux, pty, screen_state, config, app);
 }
 
 /// Poll screen_state for signs that the agent has started.

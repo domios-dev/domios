@@ -22,6 +22,7 @@ mod output;
 pub mod cron;
 pub mod pty_lifecycle;
 pub mod general_agent;
+pub mod sync_watcher;
 #[cfg(test)]
 mod tests;
 

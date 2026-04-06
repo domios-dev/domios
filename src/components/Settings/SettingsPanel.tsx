@@ -4,6 +4,7 @@ import type { AppConfig } from "../../lib/types";
 import { MeshSection } from "./MeshSection";
 import { CloseXIcon, CheckIcon, CopyIcon } from "../Icons";
 import { isMac } from "../../lib/keybindings";
+import { getAllProviders } from "../../lib/agentProviders";
 
 interface SettingsPanelProps {
   config: AppConfig;
@@ -266,8 +267,6 @@ export function SettingsPanel({
                 ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
 
                 <KeybindGroup title="Panes" bindings={[
-                  ["split_right", "Split Right"],
-                  ["split_down", "Split Down"],
                   ["close_pane", "Close Pane"],
                   ["focus_pane_left", "Focus Left"],
                   ["focus_pane_right", "Focus Right"],
@@ -713,7 +712,6 @@ function NetworkTab({
             ["GET", "/api/panes", "List all"],
             ["POST", "/api/panes/:id/focus", "Focus"],
             ["POST", "/api/panes/:id/close", "Close"],
-            ["POST", "/api/panes/:id/split", "Split {direction}"],
             ["POST", "/api/panes/:id/send", "Send text (fire & forget)"],
             ["POST", "/api/panes/:id/exec", "Send + wait {command, timeout_ms}"],
             ["POST", "/api/panes/:id/rename", "Rename {title}"],
@@ -735,18 +733,94 @@ function NetworkTab({
 }
 
 function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
-  const [skillInstalled, setSkillInstalled] = useState(false);
-  const [skillUpdate, setSkillUpdate] = useState(false);
+  const providers = getAllProviders();
+  const [activeProvider, setActiveProvider] = useState(providers[0]?.id ?? "");
+
+  return (
+    <div className="space-y-0">
+      {/* General Agent — shared across all providers */}
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3 mb-5">
+        <div className="text-sm font-medium text-[var(--ct-fg)]">General Agent</div>
+        <div className="text-xs text-[var(--ct-muted-fg)]">
+          Always-on AI assistant in a protected workspace. Starts automatically with CodeTerm.
+        </div>
+        <Toggle
+          label="Enable General Agent"
+          checked={config.general_agent?.enabled ?? true}
+          onChange={(v) => onUpdate("general_agent", { enabled: v })}
+        />
+        {config.general_agent?.enabled && (
+          <>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-[var(--ct-fg)]">Provider</span>
+              <div className="flex items-center gap-2">
+                <select
+                  value={config.general_agent?.agent_provider ?? "claude"}
+                  onChange={(e) => onUpdate("general_agent", { agent_provider: e.target.value })}
+                  className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                >
+                  {providers.map((p) => (
+                    <option key={p.id} value={p.id}>{p.displayName}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => {
+                    invoke("restart_general_agent").catch((e) => console.error("GA restart failed:", e));
+                  }}
+                  className="px-2.5 py-1 text-[10px] font-medium rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+                >
+                  Restart
+                </button>
+              </div>
+            </div>
+            <Toggle
+              label="Auto-restart on crash"
+              checked={config.general_agent?.auto_restart ?? true}
+              onChange={(v) => onUpdate("general_agent", { auto_restart: v })}
+            />
+          </>
+        )}
+        <div className="text-[10px] text-[var(--ct-muted)]">
+          Changes provider on next restart, or click Restart now.
+        </div>
+      </div>
+
+      {/* Provider sub-tabs */}
+      <div className="flex gap-[2px] -mx-5 px-2 pt-2 pb-0 border-b border-[var(--ct-border)] bg-[var(--ct-sidebar-bg)]">
+        {providers.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setActiveProvider(p.id)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium rounded-t-lg border border-transparent border-b-0 relative transition-colors select-none ${
+              activeProvider === p.id
+                ? "text-[var(--ct-fg)] bg-[var(--ct-sidebar-bg)] border-[var(--ct-border)] -mb-px z-[1]"
+                : "text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg)]/50"
+            }`}
+          >
+            <span className="text-sm leading-none" style={activeProvider === p.id ? { color: p.iconColor } : undefined}>
+              {p.icon}
+            </span>
+            {p.displayName}
+            <span className={`w-1.5 h-1.5 rounded-full bg-[var(--ct-green)] transition-opacity ${
+              activeProvider === p.id ? "opacity-100" : "opacity-0"
+            }`} />
+          </button>
+        ))}
+      </div>
+
+      {/* Provider content */}
+      <div className="pt-5">
+        {activeProvider === "claude" && <ClaudeAgentSettings config={config} onUpdate={onUpdate} />}
+        {activeProvider === "codex" && <CodexAgentSettings config={config} onUpdate={onUpdate} />}
+      </div>
+    </div>
+  );
+}
+
+function ClaudeAgentSettings({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
   const [ruleInstalled, setRuleInstalled] = useState(false);
   const [ruleUpdate, setRuleUpdate] = useState(false);
-  const [skillJustDone, setSkillJustDone] = useState(false);
   const [ruleJustDone, setRuleJustDone] = useState(false);
-
-  useEffect(() => {
-    if (!skillJustDone) return;
-    const t = setTimeout(() => setSkillJustDone(false), 2000);
-    return () => clearTimeout(t);
-  }, [skillJustDone]);
 
   useEffect(() => {
     if (!ruleJustDone) return;
@@ -755,10 +829,6 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
   }, [ruleJustDone]);
 
   useEffect(() => {
-    invoke<{ id: string; installed: boolean; update_available: boolean }[]>("list_skills").then((s) => {
-      setSkillInstalled(s.some((x) => x.installed));
-      setSkillUpdate(s.some((x) => x.update_available));
-    }).catch(() => {});
     invoke<{ installed: boolean; update_available: boolean }>("check_rule_installed").then((r) => {
       setRuleInstalled(r.installed);
       setRuleUpdate(r.update_available);
@@ -771,29 +841,6 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
 
   return (
     <div className="space-y-5">
-      {/* General Agent */}
-      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
-        <div className="text-sm font-medium text-[var(--ct-fg)]">General Agent</div>
-        <div className="text-xs text-[var(--ct-muted-fg)]">
-          Always-on AI assistant in a protected workspace. Starts automatically with CodeTerm.
-        </div>
-        <Toggle
-          label="Enable General Agent"
-          checked={config.general_agent?.enabled ?? true}
-          onChange={(v) => onUpdate("general_agent", { enabled: v })}
-        />
-        {config.general_agent?.enabled && (
-          <Toggle
-            label="Auto-restart on crash"
-            checked={config.general_agent?.auto_restart ?? true}
-            onChange={(v) => onUpdate("general_agent", { auto_restart: v })}
-          />
-        )}
-        <div className="text-[10px] text-[var(--ct-muted)]">
-          Requires restart to take effect.
-        </div>
-      </div>
-
       {/* Session resume settings */}
       <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
         <div className="text-sm font-medium text-[var(--ct-fg)]">Session Resume</div>
@@ -821,45 +868,19 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
       {/* Skill card */}
       <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-[var(--ct-fg)]">Skill</div>
-          {skillInstalled && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">installed</span>
-          )}
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Skills</div>
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">auto-synced</span>
         </div>
         <div className="text-xs text-[var(--ct-muted-fg)]">
-          Gives Claude Code CLI commands to control CodeTerm — create workspaces, split panes, open browser panels, send notifications, rename tabs.
+          Skills are automatically synced from <code className="text-[10px]">~/.codeterm/skills/</code> to all agent providers. Drop files there to add skills.
         </div>
         <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]">
-          <span>~/.claude/skills/codeterm/</span>
+          <span>~/.codeterm/skills/</span>
           <button
-            onClick={() => openFolder("~/.claude/skills")}
+            onClick={() => openFolder("~/.codeterm/skills")}
             className="text-[var(--ct-accent)] hover:underline"
           >Open folder</button>
         </div>
-        <button
-          onClick={async () => {
-            try {
-              await invoke("install_skill", { skillId: "codeterm" });
-              setSkillInstalled(true);
-              setSkillUpdate(false);
-              setSkillJustDone(true);
-            } catch (e) {
-              console.error("Skill install failed:", e);
-            }
-          }}
-          disabled={skillJustDone}
-          className={`w-full py-1.5 text-xs rounded font-medium transition-all duration-300 ${
-            skillJustDone
-              ? "bg-[var(--ct-green)] text-white"
-              : skillUpdate
-                ? "bg-[var(--ct-accent)] text-white hover:brightness-110"
-                : skillInstalled
-                  ? "border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
-                  : "bg-[var(--ct-green)] text-white hover:brightness-110"
-          }`}
-        >
-          {skillJustDone ? "\u2713 Installed" : skillUpdate ? "Update Available" : skillInstalled ? "Reinstall" : "Install"}
-        </button>
       </div>
 
       {/* Rule card */}
@@ -904,6 +925,55 @@ function AgentsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
 
       <div className="text-[10px] text-[var(--ct-muted)] text-center">
         Restart Claude Code after installing.
+      </div>
+    </div>
+  );
+}
+
+function CodexAgentSettings({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
+  return (
+    <div className="space-y-5">
+      {/* Session resume settings */}
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+        <div className="text-sm font-medium text-[var(--ct-fg)]">Session Resume</div>
+        <div className="text-xs text-[var(--ct-muted-fg)]">
+          Automatically resume Codex sessions when CodeTerm restarts.
+        </div>
+        <Toggle
+          label="Resume previous sessions"
+          checked={config.agent.resume_sessions}
+          onChange={(v) => onUpdate("agent", { resume_sessions: v })}
+        />
+        <Toggle
+          label="Resume with --dangerously-bypass-approvals-and-sandbox"
+          checked={config.agent.resume_skip_permissions}
+          onChange={(v) => onUpdate("agent", { resume_skip_permissions: v })}
+        />
+        {config.agent.resume_skip_permissions && (
+          <div className="text-[10px] text-[var(--ct-yellow)] flex items-center gap-1.5">
+            <span>⚠</span>
+            <span>Codex will run without asking for tool approvals. Use with caution.</span>
+          </div>
+        )}
+      </div>
+
+      {/* Requirements */}
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+        <div className="text-sm font-medium text-[var(--ct-fg)]">Requirements</div>
+        <div className="text-xs text-[var(--ct-muted-fg)] space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[var(--ct-muted)]">CLI</span>
+            <code className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)] font-mono">codex</code>
+            <span className="text-[var(--ct-muted)]">—</span>
+            <span>npm i -g @openai/codex</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[var(--ct-muted)]">Auth</span>
+            <code className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)] font-mono">OPENAI_API_KEY</code>
+            <span className="text-[var(--ct-muted)]">or</span>
+            <code className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)] font-mono">codex login</code>
+          </div>
+        </div>
       </div>
     </div>
   );

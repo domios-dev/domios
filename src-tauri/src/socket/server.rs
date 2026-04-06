@@ -305,7 +305,6 @@ fn dispatch(
                     "pane.close",
                     "pane.send_text",
                     "pane.get_output",
-                    "pane.split",
                     "pane.rename",
                     "browser.open",
                     "notification.create",
@@ -491,22 +490,6 @@ fn dispatch(
                     strip_ansi,
                     full: false,
                 },
-                svc.as_ref(),
-            )
-            .map(|r| r.into_json())
-            .map_err(|e| JsonRpcError { code: -32602, message: e })
-        }
-
-        "pane.split" => {
-            let pane_id = get_string_param(&params, "pane_id")?;
-            let direction = params
-                .as_ref()
-                .and_then(|p| p.get("direction"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("right")
-                .to_string();
-            crate::dispatch::dispatch(
-                &crate::dispatch::Command::PaneSplit { pane_id, direction },
                 svc.as_ref(),
             )
             .map(|r| r.into_json())

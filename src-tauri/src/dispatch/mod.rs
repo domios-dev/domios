@@ -45,13 +45,6 @@ pub enum Command {
         formatted: bool,
     },
 
-    /// Split a pane into two. Direction: "right"/"horizontal" or "down"/"vertical".
-    PaneSplit {
-        pane_id: String,
-        #[serde(default = "default_direction")]
-        direction: String,
-    },
-
     /// Close a pane and kill its PTY.
     PaneClose {
         pane_id: String,
@@ -70,7 +63,6 @@ pub enum Command {
 }
 
 fn default_true() -> bool { true }
-fn default_direction() -> String { "right".to_string() }
 
 /// Unified result type for all commands.
 #[derive(Debug, Clone, Serialize)]
@@ -101,7 +93,6 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
         Command::GetScreen { pane_id, formatted } => {
             cmd_get_screen(ctx, pane_id, *formatted)
         }
-        Command::PaneSplit { pane_id, direction } => cmd_pane_split(ctx, pane_id, direction),
         Command::PaneClose { pane_id } => cmd_pane_close(ctx, pane_id),
         Command::PaneFocus { pane_id } => cmd_pane_focus(ctx, pane_id),
         Command::PaneRename { pane_id, title } => cmd_pane_rename(ctx, pane_id, title),
@@ -199,23 +190,6 @@ fn cmd_get_screen(
             "screen": text.replace('\n', "\r\n"),
         })))
     }
-}
-
-fn cmd_pane_split(
-    ctx: &ServiceContext,
-    pane_id: &str,
-    direction: &str,
-) -> Result<CommandResult, String> {
-    use crate::multiplexer::types::Orientation;
-    let orientation = match direction {
-        "down" | "vertical" => Orientation::Vertical,
-        _ => Orientation::Horizontal,
-    };
-    let new_pane_id = ctx.split_pane(pane_id, orientation)?;
-    Ok(CommandResult::Json(serde_json::json!({
-        "ok": true,
-        "new_pane_id": new_pane_id,
-    })))
 }
 
 fn cmd_pane_close(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, String> {
@@ -330,29 +304,6 @@ mod tests {
     // ── Command enum round-trip tests ───────────────────────────────
 
     #[test]
-    fn pane_split_deserialize_with_default_direction() {
-        let json = r#"{"cmd": "pane_split", "pane_id": "p1"}"#;
-        let cmd: Command = serde_json::from_str(json).unwrap();
-        match cmd {
-            Command::PaneSplit { pane_id, direction } => {
-                assert_eq!(pane_id, "p1");
-                assert_eq!(direction, "right");
-            }
-            _ => panic!("wrong variant"),
-        }
-    }
-
-    #[test]
-    fn pane_split_deserialize_explicit_direction() {
-        let json = r#"{"cmd": "pane_split", "pane_id": "p1", "direction": "down"}"#;
-        let cmd: Command = serde_json::from_str(json).unwrap();
-        match cmd {
-            Command::PaneSplit { direction, .. } => assert_eq!(direction, "down"),
-            _ => panic!("wrong variant"),
-        }
-    }
-
-    #[test]
     fn pane_close_deserialize() {
         let cmd: Command = serde_json::from_str(r#"{"cmd": "pane_close", "pane_id": "abc"}"#).unwrap();
         assert!(matches!(cmd, Command::PaneClose { .. }));
@@ -394,11 +345,6 @@ mod tests {
     }
 
     #[test]
-    fn default_direction_helper() {
-        assert_eq!(default_direction(), "right");
-    }
-
-    #[test]
     fn command_round_trips_through_json() {
         // Validates that every variant we migrated survives a JSON
         // round trip with tag-based dispatch.
@@ -414,7 +360,6 @@ mod tests {
                 full: false,
             },
             Command::GetScreen { pane_id: "p".into(), formatted: false },
-            Command::PaneSplit { pane_id: "p".into(), direction: "right".into() },
             Command::PaneClose { pane_id: "p".into() },
             Command::PaneFocus { pane_id: "p".into() },
             Command::PaneRename { pane_id: "p".into(), title: "t".into() },

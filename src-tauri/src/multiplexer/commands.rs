@@ -5,19 +5,12 @@ use serde::Serialize;
 use tauri::State;
 
 use super::state::{MultiplexerSnapshot, MultiplexerState, WorkspaceInfo};
-use super::types::Orientation;
 use crate::service::{BatchOp, ServiceState};
 
 /// Shared multiplexer state, thread-safe.
 pub type MuxState = Arc<Mutex<MultiplexerState>>;
 
 // ── Response types ───────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SplitResult {
-    pub new_pane_id: String,
-    pub new_pty_id: String,
-}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TabInfo {
@@ -123,22 +116,6 @@ pub fn mux_set_active_tab(
     tab_id: String,
 ) -> Result<(), String> {
     svc.set_active_tab(&workspace_id, &tab_id)
-}
-
-/// Split a pane: creates a new pane (frontend will spawn PTY).
-#[tauri::command]
-pub fn mux_split_pane(
-    svc: State<'_, ServiceState>,
-    pane_id: String,
-    orientation: Orientation,
-    _cols: u16,
-    _rows: u16,
-) -> Result<SplitResult, String> {
-    let new_pane_id = svc.split_pane(&pane_id, orientation)?;
-    Ok(SplitResult {
-        new_pane_id,
-        new_pty_id: String::new(), // Frontend will fill this
-    })
 }
 
 /// Close a pane and kill its PTY (cascade-closes children).
@@ -251,6 +228,25 @@ pub fn mux_set_claude_session_id(
 ) -> Result<(), String> {
     svc.set_agent_session_id(&pane_id, session_id);
     Ok(())
+}
+
+/// Build the shell launch command for a given agent provider.
+/// Used by frontend to spawn agent tabs without hardcoding CLI names.
+#[tauri::command]
+pub fn build_agent_launch_command(
+    svc: State<'_, ServiceState>,
+    agent_id: String,
+    skip_permissions: bool,
+) -> Result<String, String> {
+    let params = crate::agent::provider::AgentLaunchParams {
+        agent_name: None,
+        task: None,
+        args: None,
+        skip_permissions,
+    };
+    svc.agent_registry
+        .with_provider(&agent_id, |p| p.build_launch_command(&params))
+        .ok_or_else(|| format!("Unknown agent provider: {}", agent_id))
 }
 
 // ── Agent Hierarchy Commands ─────────────────────────────────────────

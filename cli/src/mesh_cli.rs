@@ -148,11 +148,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         },
         Commands::Pane { action } => match action {
             super::PaneAction::List => ("GET".into(), "/api/panes".into(), None),
-            super::PaneAction::Split { id, direction } => {
-                let pane = id.as_deref().unwrap_or("general");
-                ("POST".into(), format!("/api/panes/{}/split", pane),
-                    Some(serde_json::json!({"direction": direction}).to_string()))
-            }
             super::PaneAction::Focus { id } => ("POST".into(), format!("/api/panes/{}/focus", id), None),
             super::PaneAction::Close { id } => ("POST".into(), format!("/api/panes/{}/close", id), None),
             super::PaneAction::Rename { title, pane } => {
