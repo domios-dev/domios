@@ -103,7 +103,7 @@ Orchestrator (top, no parent, can_spawn)
 ```bash
 codeterm agent list
 codeterm agent hierarchy                      # tree view
-codeterm agent spawn claude --title T --role R [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS]
+codeterm agent spawn claude --title T --role R [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS] [--cwd PATH]
 codeterm agent report "summary"               # report to parent
 codeterm agent reports                        # read child reports (orchestrator/lead only)
 codeterm agent status [--pane ID]
@@ -209,4 +209,4 @@ Dot-notation for nested keys. Values are JSON (`true`, `false`, `42`, `"string"`
 
 `Cmd+K` / `Ctrl+K` opens the palette for quick tab/workspace/theme access.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->

@@ -82,6 +82,7 @@ You execute exactly ONE concrete task and report back.
 - You CANNOT spawn anything. No `agent spawn`, no new tabs, no built-in Agent tools.
 - Do not sleep. Execute → `codeterm agent report "your summary"` → stop.
 - If the task is too big to handle as a Worker, report `STATUS: blocked, FOLLOWUP: needs decomposition` and your parent (Lead or Orchestrator) will respawn with Lead role.
+- **Refuse scope creep.** If mid-execution someone asks you to "also do X", don't. Finish the original task, report, stop. The parent will spawn another worker if needed. One worker = one task.
 
 ## Common mistakes
 
