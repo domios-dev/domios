@@ -474,17 +474,17 @@ Plugins subscribe via manifest (`hooks` field). Core emits. No polling.
 | Claude agent | `agent-claude` | Native | All | P1 |
 | Telegram bridge | `bridge-telegram` | Process | All | P2 |
 | Browser pane | `browser` | Native | All | P2 |
-| Memory (new) | `memory` | Process | All | P1 |
 | Code indexing (new) | `code-index` | Process | All | P2 |
 | Codex agent (new) | `agent-codex` | Native | All | P3 |
 | Slack bridge (new) | `bridge-slack` | Process | All | P3 |
-| Knowledge graph (new) | `knowledge` | WASM | All | P4 |
 
 **Stays in core (never a plugin):**
 - Terminal (xterm.js renderer + PTY I/O — too tightly coupled to extract)
 - Multiplexer (workspaces, tabs, panes, splits)
 - PTY Manager (spawn, read, write, resize)
 - Mesh Transport (discovery, pairing, relay)
+- Memory Store + Knowledge Graph (too fundamental, plugins depend on them)
+- Skill Broker (agents can't function without it)
 - Plugin Manager
 - Event Bus
 - Config System
@@ -639,12 +639,18 @@ MCP stays as a thin optional layer for external tool discoverability:
 - [ ] Skill auto-generation from plugin manifest (CLI commands, examples)
 - [ ] Plugin prompt contribution (`on_prompt_build` hook for GA prompt)
 
-### Phase 3: Memory Plugin (2-3 weeks)
-- [ ] Process plugin: Python, SQLite + sqlite-vss
-- [ ] MCP tools: `memory.save`, `memory.search`, `memory.recall`
-- [ ] Hook: `on_agent_compact` for auto-save
-- [ ] Mesh replication of memory state
-- [ ] Settings UI panel via manifest
+### Phase 3: Memory & Knowledge System (4-5 weeks)
+
+**Detailed plan:** `docs/plans/memory-architecture.md`
+
+Core modules (graph engine, memory store, skill broker, learnings) live in `src-tauri/src/memory/`.
+Graph and memory are CORE, not plugins — too fundamental. Embeddings and dreaming are opt-in.
+
+- [ ] Phase 3.1: Memory store + Graph engine (Rust port of ontology)
+- [ ] Phase 3.2: Skill broker (single source of truth, CLI-based delivery)
+- [ ] Phase 3.3: Learnings capture + compaction detection
+- [ ] Phase 3.4: Dreaming (cron-based consolidation, graph-aware)
+- [ ] Phase 3.5: Embeddings / vector search (optional, sqlite-vec)
 
 ### Phase 4: WASM Plugin Support (2-3 weeks)
 - [ ] Integrate Extism or wasmtime
