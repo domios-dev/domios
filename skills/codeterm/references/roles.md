@@ -34,7 +34,7 @@ Answer these in order. The first "yes" picks the role.
 → Spawn as **Orchestrator** with `--workspace $WS`. Delegate the whole request to it.
 
 ```bash
-WS=$(codeterm workspace create "Task Name" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+WS=$(codeterm workspace create "Task Name" --cwd /absolute/project/path --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
 codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspace $WS --can-spawn \
   --task "You are the orchestrator. [full user request]. Spawn leads/workers as needed, collect reports, notify when done."
 ```
