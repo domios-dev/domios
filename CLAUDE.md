@@ -63,10 +63,87 @@ cd tests/webdriver && npm test
    Compare `build` (git commit hash) and `build_number` with what you expect. If they don't match, the old build is still running — your changes aren't live yet.
 3. Only THEN start debugging. Don't waste time investigating behavior from a stale build.
 
-## Agent roles
+## Agent roles & orchestration
 
-- **devops** agent — builds, releases, CI/CD, version bumps, tagging, GitHub Actions, `build.sh` maintenance. Delegate all build/release/deploy tasks to it.
-- **docs** agent — keeps `docs/API.md`, `docs/CONFIG.md`, `docs/SKILLS.md`, `skills/codeterm/SKILL.md` in sync with code. Delegate doc updates to it after feature changes.
+You are the **Lead** inside this project. You orchestrate specialized workers. The hierarchy is:
+
+```
+Lead (you, running in a CodeTerm pane)
+├── backend-dev   — Rust code in src-tauri/
+├── frontend-dev  — React/TS code in src/
+├── docs          — all *.md docs, skills, READMEs
+├── code-reviewer — read-only review of diffs/files
+└── devops        — builds, releases, CI/CD
+```
+
+Agent definitions live in `.claude/agents/*.md` (standard Claude Code format + they double as prompts when spawning via `codeterm agent spawn`).
+
+### When to delegate vs do-it-yourself
+
+**Delegate** when the task is scoped, parallelizable, or outside your current context:
+- "Add these 15 tests to service/pane.rs" → backend-dev
+- "Extract this hook from the component" → frontend-dev
+- "Review the last 3 commits for issues" → code-reviewer
+- "Update docs after these changes" → docs
+- "Bump version and release" → devops
+
+**Do-it-yourself** when the task is small, architectural, or cross-cutting:
+- Single-file edit under ~50 lines
+- Architecture decisions (splitting modules, choosing patterns)
+- Multi-module refactors spanning 5+ files across both frontend and backend
+- Tasks that require holding the full project context
+
+### How to spawn workers
+
+Two mechanisms:
+
+**1. Built-in Agent tool** (in-process, cheap, fast):
+```
+Agent(subagent_type="backend-dev", prompt="...")
+```
+Use for: quick research, small isolated tasks, one-off subtasks. The agent runs in your context and returns a message. No pane is created.
+
+**2. `codeterm agent spawn claude`** (heavyweight, visible, dogfooded):
+```bash
+codeterm agent spawn claude \
+  --role Worker --parent $CODETERM_PANE_ID \
+  --title "backend-dev: add pane tests" \
+  --task "$(cat .claude/agents/backend-dev.md)
+
+TASK: ..."
+```
+Use for: bigger parallelizable tasks, when the user should watch work happen, when the worker needs its own PTY and real filesystem access. Reports auto-inject into your pane as `[Report from ...]`.
+
+**Rule of thumb:** if the task is >15 min of real work, spawn via `codeterm agent spawn` so the user can observe. If it's quick research/edit, use the built-in tool.
+
+### Reporting back
+
+Workers report via `codeterm agent report "..."`. Reports auto-inject into your terminal. Do NOT poll or sleep — just continue working. When a report arrives, act on it.
+
+Worker report template (enforced via `worker_suffix.md`):
+```
+STATUS: done | blocked | partial
+CHANGES: files touched
+BUILD/TYPECHECK/TESTS: result
+FOLLOWUP: anything Lead should know
+```
+
+### Recursion limits
+
+- Workers (backend-dev, frontend-dev, code-reviewer, docs) MUST NOT spawn other workers. If they need decomposition, they report back and you spawn siblings.
+- devops is special — it coordinates multi-machine builds and may spawn helpers. Still ultimately reports to you.
+
+### Proactive delegation rules
+
+**After significant changes, auto-invoke `docs`.** Significant = new Tauri command, new CLI subcommand, new config option, new feature, API breaking change, README-visible behavior change. Don't ask — just do `Agent(subagent_type="docs", prompt="sync docs with HEAD~N")`.
+
+**Before merging feat branch to develop, auto-invoke `code-reviewer`** on the full branch diff. Act on Critical + High findings before merge.
+
+**Agent selection is by artifact, not by task verb.** Rust work → backend-dev. React/TS → frontend-dev. Docs → docs. Reviews → code-reviewer. Builds → devops.
+
+### Dogfooding
+
+This project IS CodeTerm. You're running inside CodeTerm. Every spawn via `codeterm agent spawn` is both productive work AND a test of the system. If something feels clunky — the codeterm CLI, the mesh, the reports, the panes — note it and tell the user. We improve CodeTerm by using it.
 
 ## Documentation
 
@@ -129,7 +206,35 @@ When adding agent-related features, ask: "How would this work with Codex? With A
 
 **SOLID + DRY are non-negotiable.** Single responsibility per module, dependencies flow through explicit interfaces, no repeated logic. Duplicated 20-line blocks across three files is a refactor signal, not a copy-paste signal.
 
-**No long comments inside code.** If a block needs more than a one-liner to explain what it does, the code itself is unclear — refactor instead of documenting. Good code reads like prose: function names describe intent, types describe shape, short comments only point at *why* when it's non-obvious (a workaround, a quirk, a spec reference). Never write a paragraph inside a function to explain its body. If you catch yourself writing `// Step 1: ... Step 2: ... Step 3: ...`, those steps should be separate functions.
+**FORBIDDEN: comments longer than 1 line.** Hard limit: 1 line per comment, no exceptions for "context" or "explanation". If code needs more — refactor, rename, or split into functions. The ONLY allowed multi-line case is a literal external reference (issue/spec URL + one-line why). Paragraph comments, "Step 1/Step 2" breakdowns, and PR-description-style explanations inside functions are BANNED. When you feel the urge to write a long comment, that urge IS the bug — fix the code instead.
+
+### Rust specifics
+
+- `parking_lot::Mutex` for shared state. No `tokio::sync::Mutex` unless holding across `.await`. Follow lock order below.
+- `Result<T, String>` for Tauri command errors. Custom error enums only when callers branch on variant.
+- Modules have single responsibility. `mod.rs` >500 lines = split.
+- Tests inline in `#[cfg(test)] mod tests` at bottom of the source file.
+- `#[tauri::command]` and REST/Socket handlers stay thin — delegate to `ServiceContext` or `dispatch::dispatch`.
+- No `unwrap()`/`expect()` in library code unless a documented invariant.
+- Structural patterns over hardcoded strings for detection.
+
+### TypeScript + React specifics
+
+- Custom hook for any logic that touches refs, effects, or subscriptions. Components are mostly JSX + handlers.
+- `useRef` for values that don't trigger re-render. Prefer refs over state for imperative APIs (xterm, mutex-like state).
+- `useCallback`/`useMemo` only when there's a measurable perf problem.
+- Effect dependencies: complete, no `eslint-disable`. If exhaustive-deps complains, the effect is buggy.
+- StrictMode-safe: guard side-effectful `useEffect([])` with `useRef<boolean>` if you can't make it idempotent.
+- No `any`. Use `unknown` + narrowing or a typed cast.
+- Components >400 lines = extract hooks. Hooks >200 lines = extract pure functions to `lib/`.
+
+### Architecture guardrails
+
+- Adapters (REST, Socket, Tauri IPC, CLI) never contain business logic. They deserialize → dispatch → serialize.
+- Business logic lives in `service/` or the target `dispatch::Command` layer.
+- Core (`multiplexer`, `pty`, `mesh`, `config`) has no outward dependencies.
+- Every operation reachable from 3 transports (REST + Socket + Tauri) should live in `dispatch::Command` — not duplicated 3 times.
+- Plugin-ready = isolated module with explicit interface. See `docs/plans/plugin-architecture.md`.
 
 ## Lock ordering (deadlock prevention)
 

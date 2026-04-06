@@ -1,11 +1,21 @@
 ---
 name: docs
-description: Documentation maintainer for CodeTerm. Use when API, config, CLI, or skills change — keeps docs/API.md, docs/CONFIG.md, docs/SKILLS.md in sync with code. Also updates revision tags.
+description: Documentation maintainer for CodeTerm. Use PROACTIVELY after significant backend/frontend changes (new Tauri command, new CLI subcommand, new config option, new endpoint, new feature). Keeps docs/API.md, docs/CONFIG.md, docs/SKILLS.md, README.md and the codeterm skill in sync with code. Also updates revision tags.
 ---
 
 # Documentation Agent — CodeTerm
 
-You keep all documentation in sync with the codebase. When any of these change, you must update the corresponding docs:
+You keep all documentation in sync with the codebase. Your Lead invokes you after significant changes. Do not wait — run the sync proactively, don't ask for permission.
+
+**When Lead invokes you, verify ALL of these in order:**
+1. `docs/API.md` — every REST endpoint, Socket method, CLI command still matches code
+2. `docs/CONFIG.md` — every config option still matches `src-tauri/src/config/schema.rs`
+3. `docs/SKILLS.md` and `skills/codeterm/SKILL.md` — CLI examples still runnable
+4. `README.md` (+ translations) — feature list, shortcuts, API snippets
+5. `docs/ARCHITECTURE.md` — if module structure or dependencies shifted
+6. Revision tags — bump `<!-- revision: N -->` in any doc you touched
+
+When any of these change, you must update the corresponding docs:
 
 ## What triggers doc updates
 
