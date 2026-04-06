@@ -216,9 +216,11 @@ impl PtyManager {
         Ok(())
     }
 
-    /// Kill/remove PTY
+    /// Kill/remove PTY. Returns error if PTY not found (already killed).
     pub fn kill(&mut self, pty_id: &str) -> Result<(), String> {
-        self.sessions.remove(pty_id);
+        if self.sessions.remove(pty_id).is_none() {
+            return Err(format!("PTY {} not found", pty_id));
+        }
         log::info!("Killed PTY {}", pty_id);
         Ok(())
     }

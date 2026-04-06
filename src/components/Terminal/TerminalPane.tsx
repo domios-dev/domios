@@ -10,7 +10,9 @@ import {
   usePtyConnection,
   useTerminalInput,
   useAgentDetection,
+  useTauriFileDrop,
 } from "../../hooks/terminal";
+import { sendFilePathsToPty } from "../../lib/clipboardPaste";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
@@ -78,6 +80,16 @@ export function TerminalPane({
 
   // --- Agent detection ---
   useAgentDetection({ termRef, paneId, termReady });
+
+  // --- Tauri native drag-drop (provides real file paths, no byte copy) ---
+  useTauriFileDrop({
+    containerRef,
+    enabled: termReady,
+    onPaths: (paths) => {
+      const id = connectedPtyRef.current;
+      if (id) sendFilePathsToPty(id, paths);
+    },
+  });
 
   // --- Input handling ---
   const { copySelection, pasteFromClipboard, clearTerminal } = useTerminalInput({
@@ -180,56 +192,18 @@ export function TerminalPane({
       onMouseDown={handleClick}
       onContextMenu={handleContextMenu}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-      onDrop={async (e) => {
+      onDrop={(e) => {
+        // File drops are handled by Tauri's native drag-drop event (useTauriFileDrop).
+        // This handler only covers plain-text drops (e.g. drag a selection from another
+        // app and drop it into the terminal).
         e.preventDefault();
         e.stopPropagation();
         const currentPtyId = connectedPtyRef.current;
         if (!currentPtyId) return;
-
-        const files = Array.from(e.dataTransfer.files || []);
-        if (files.length === 0) {
-          const text = e.dataTransfer.getData("text/plain");
-          if (text) {
-            await navigator.clipboard.writeText(text);
-            invoke("write_pty_string", { ptyId: currentPtyId, data: "\x16" });
-          }
-          return;
-        }
-
-        for (const file of files) {
-          const name = file.name.toLowerCase();
-          const isImage = /\.(png|jpg|jpeg|gif|webp|bmp|svg)$/.test(name);
-
-          if (isImage) {
-            try {
-              const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
-              const ext = name.split(".").pop() || "png";
-              const path = await invoke<string>("save_clipboard_image", { bytes, ext });
-              await invoke("write_pty_string", { ptyId: currentPtyId, data: path });
-              if (files.length > 1) await new Promise(r => setTimeout(r, 300));
-            } catch (err) {
-              console.error("[drop] Image error:", err);
-            }
-          } else {
-            const filePath = (file as any).path || file.name;
-            const isText = /\.(txt|md|ts|tsx|js|jsx|py|rs|go|java|c|cpp|h|hpp|json|toml|yaml|yml|html|css|scss|sh|bat|ps1|csv|xml|sql|log|env|conf|cfg|ini|rb|php|swift|kt|dart|lua|r|m|pl|ex|exs|hs|clj|scala)$/i.test(name);
-            if (isText) {
-              try {
-                const text = await file.text();
-                if (text.length < 100000) {
-                  const bracketedPaste = `\x1b[200~${text}\x1b[201~`;
-                  await invoke("write_pty_string", { ptyId: currentPtyId, data: bracketedPaste });
-                } else {
-                  await invoke("write_pty_string", { ptyId: currentPtyId, data: `@${filePath}` });
-                }
-              } catch {
-                await invoke("write_pty_string", { ptyId: currentPtyId, data: filePath });
-              }
-            } else {
-              await invoke("write_pty_string", { ptyId: currentPtyId, data: filePath });
-            }
-            if (files.length > 1) await new Promise(r => setTimeout(r, 200));
-          }
+        const text = e.dataTransfer.getData("text/plain");
+        if (text) {
+          const bracketedPaste = `\x1b[200~${text}\x1b[201~`;
+          invoke("write_pty_string", { ptyId: currentPtyId, data: bracketedPaste });
         }
       }}
     >

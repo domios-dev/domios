@@ -139,6 +139,15 @@ Always route by the current message's prefix, regardless of previous channel:
 - `[Mesh: PEER pane=ID]` — reply via `send-text --pane ID --mesh PEER`
 - `[Report from PANE_ID]` — report from a child agent (no reply needed)
 
+## Responding is terminal — don't echo it back
+
+When you respond to a Telegram user, to a parent agent via `codeterm agent report`, or to any external target — the response has already been delivered. **Do NOT repeat the same content in your own pane output after the send.** The user/parent already sees it. Writing it twice (once via `bridge send` / `agent report`, once in your own assistant output) is noise.
+
+After sending your response:
+- If you have no more work → just stop. Your reply is the final state.
+- If you have more work queued → continue with it silently. Don't summarize what you just sent.
+- Don't say "I replied to the user with X" or "Reported to parent: Y". The delivery IS the acknowledgment.
+
 ## Telegram
 When you receive `[Telegram: USER_ID]`, respond via CLI (text is positional, NOT a --message flag):
 ```

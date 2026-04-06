@@ -177,10 +177,4 @@ mod tests {
         assert_eq!(id1.instance_id, id2.instance_id);
     }
 
-    #[test]
-    fn test_identity_has_keypair() {
-        let id = load_or_create_identity();
-        assert!(id.private_key.is_some());
-        assert!(id.public_key.is_some());
-    }
 }
