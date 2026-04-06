@@ -305,10 +305,9 @@ async fn list_panes(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let mux = state.svc.mux.lock();
-    let snapshot = mux.snapshot();
-    let panes: Vec<_> = snapshot.panes.values().collect();
-    Ok(Json(serde_json::to_value(panes).unwrap()))
+    let result = crate::dispatch::dispatch(&crate::dispatch::Command::PaneList, &state.svc)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list panes"))?;
+    Ok(Json(result.into_json()))
 }
 
 fn default_true() -> bool { true }
@@ -361,11 +360,13 @@ async fn send_text(
         if body.enter && !buf.ends_with('\r') { buf.push('\r'); }
         state.svc.write_raw(&pane_id, buf.as_bytes())
             .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-    } else {
-        state.svc.send_text(&pane_id, &text, body.enter)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        return Ok(Json(serde_json::json!({"ok": true})));
     }
-    Ok(Json(serde_json::json!({"ok": true})))
+
+    let cmd = crate::dispatch::Command::SendText { pane_id, text, enter: body.enter };
+    let result = crate::dispatch::dispatch(&cmd, &state.svc)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    Ok(Json(result.into_json()))
 }
 
 async fn focus_pane(
@@ -399,25 +400,16 @@ async fn get_pane_output(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let pty_id = state.svc.resolve_pty_id(&pane_id)
+    let cmd = crate::dispatch::Command::GetOutput {
+        pane_id,
+        offset: query.offset,
+        max_bytes: None,
+        strip_ansi: query.strip_ansi.unwrap_or(false),
+        full: query.full.unwrap_or(false),
+    };
+    let result = crate::dispatch::dispatch(&cmd, &state.svc)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-    let buf = state.svc.output_buf.lock();
-    let text = if query.full.unwrap_or(false) {
-        buf.get_full_text(&pty_id).unwrap_or_default()
-    } else {
-        buf.get_text(&pty_id).unwrap_or_default()
-    };
-    let offset = query.offset.unwrap_or(0);
-    let raw = if offset < text.len() { &text[offset..] } else { "" };
-    let output = if query.strip_ansi.unwrap_or(false) {
-        crate::pty::ansi::clean_terminal_output(raw)
-    } else {
-        raw.to_string()
-    };
-    Ok(Json(serde_json::json!({
-        "output": output,
-        "offset": text.len(),
-    })))
+    Ok(Json(result.into_json()))
 }
 
 #[derive(Deserialize)]
