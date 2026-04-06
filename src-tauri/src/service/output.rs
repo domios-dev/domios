@@ -64,17 +64,16 @@ impl ServiceContext {
                 } else { String::new() };
                 let check_text = if !screen.is_empty() { &screen } else { &raw_text };
                 if !check_text.is_empty() {
-                    let detected = self.agent_registry.detect_from_output(check_text);
+                    let detected_id = self.agent_registry.detect_from_output(check_text);
                     // Log periodically to aid debugging
                     static DETECT_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
                     let dc = DETECT_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     if dc < 5 || dc % 100 == 0 {
                         log::debug!("[agent-detect] pane={} screen_len={} raw_len={} detected={} text_sample={:?}",
-                            pid, screen.len(), raw_text.len(), detected.is_some(),
+                            pid, screen.len(), raw_text.len(), detected_id.is_some(),
                             &check_text.chars().take(100).collect::<String>());
                     }
-                    if let Some(provider) = detected {
-                        let agent_id = provider.id().to_string();
+                    if let Some(agent_id) = detected_id {
                         log::info!("[output] auto-detected agent '{}' in pane {} from screen content", agent_id, pid);
                         self.set_pane_agent_type(pid, Some(agent_id.clone()));
                         // Also detect session immediately
@@ -84,7 +83,10 @@ impl ServiceContext {
                         };
                         if let Some(cwd) = cwd {
                             let max_age = Some(std::time::Duration::from_secs(86400));
-                            if let Some(sid) = provider.detect_session_id(&cwd, &exclude, max_age) {
+                            let sid = self.agent_registry.with_provider(&agent_id, |p| {
+                                p.detect_session_id(&cwd, &exclude, max_age)
+                            }).flatten();
+                            if let Some(sid) = sid {
                                 log::info!("[output] auto-detected session {} for pane {}", sid, pid);
                                 self.set_agent_session_id(pid, Some(sid));
                             }

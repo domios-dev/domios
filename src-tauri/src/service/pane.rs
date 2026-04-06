@@ -131,8 +131,7 @@ impl ServiceContext {
                 let agent_type = self.mux.lock().get_pane(pane_id)
                     .and_then(|p| p.agent_type.clone());
                 let steps = if let Some(ref at) = agent_type {
-                    self.agent_registry.get(at)
-                        .map(|p| p.build_prompt_response(option_index))
+                    self.agent_registry.build_prompt_response(at, option_index)
                         .unwrap_or_else(|| self.default_prompt_response(option_index))
                 } else {
                     self.default_prompt_response(option_index)

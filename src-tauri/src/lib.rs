@@ -969,7 +969,24 @@ pub fn run() {
 
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
+
+            // Bootstrap plugin system — agent-claude is a bundled native plugin
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
+            let mut plugin_manager = plugin::PluginManager::new();
+            plugin_manager.set_agent_registry(agent_registry.clone());
+
+            // Register and activate bundled plugins
+            {
+                use plugin::agent_claude::AgentClaudePlugin;
+                let manifest = AgentClaudePlugin::manifest();
+                plugin_manager.register(manifest);
+                plugin_manager.attach_native(Box::new(AgentClaudePlugin::new()))
+                    .expect("agent-claude plugin attach failed");
+                plugin_manager.activate(plugin::agent_claude::PLUGIN_ID)
+                    .expect("agent-claude plugin activation failed");
+            }
+            log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
+
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
             let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
             let svc_ctx = ServiceContext {

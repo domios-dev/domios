@@ -66,6 +66,8 @@ pub enum SplitNodeSnapshot {
     },
 }
 
+const MAX_BACKUPS: usize = 200;
+
 pub struct SessionStore {
     session_dir: PathBuf,
 }
@@ -79,8 +81,51 @@ impl SessionStore {
 
     pub fn save(&self, snapshot: &SessionSnapshot) -> Result<(), String> {
         let path = self.session_dir.join("last.json");
+        // Rotate: backup current last.json before overwriting
+        if path.exists() {
+            let _ = self.rotate_backup(&path);
+        }
         let json = serde_json::to_string_pretty(snapshot).map_err(|e| e.to_string())?;
         fs::write(path, json).map_err(|e| e.to_string())
+    }
+
+    fn rotate_backup(&self, last_json: &std::path::Path) -> Result<(), String> {
+        let backup_dir = self.session_dir.join("backups");
+        let _ = fs::create_dir_all(&backup_dir);
+
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let backup_path = backup_dir.join(format!("{}.json", ts));
+        fs::copy(last_json, &backup_path).map_err(|e| e.to_string())?;
+
+        self.evict_old_backups(&backup_dir);
+        Ok(())
+    }
+
+    fn evict_old_backups(&self, backup_dir: &std::path::Path) {
+        let mut entries: Vec<_> = fs::read_dir(backup_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .ends_with(".json")
+            })
+            .collect();
+
+        if entries.len() <= MAX_BACKUPS {
+            return;
+        }
+
+        // Sort by name (timestamp) ascending — oldest first
+        entries.sort_by_key(|e| e.file_name());
+        let to_remove = entries.len() - MAX_BACKUPS;
+        for entry in entries.into_iter().take(to_remove) {
+            let _ = fs::remove_file(entry.path());
+        }
     }
 
     pub fn load_last(&self) -> Result<Option<SessionSnapshot>, String> {
@@ -115,6 +160,9 @@ impl SessionStore {
         Ok(entries
             .filter_map(|e| {
                 let e = e.ok()?;
+                if e.file_type().ok()?.is_dir() {
+                    return None; // skip backups/ and other dirs
+                }
                 let name = e.file_name().to_string_lossy().to_string();
                 if name.ends_with(".json") && name != "last.json" {
                     Some(name.trim_end_matches(".json").to_string())
