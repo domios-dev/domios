@@ -248,6 +248,9 @@ pub enum WorkspaceAction {
     Create {
         /// Workspace name
         name: String,
+        /// Working directory — agents spawned with --workspace inherit this as their CWD
+        #[arg(long)]
+        cwd: Option<String>,
     },
     /// Focus a workspace by ID
     Focus {
@@ -794,8 +797,12 @@ fn main() {
                     Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                 }
             }
-            WorkspaceAction::Create { name } => {
-                client.call("workspace.create", Some(serde_json::json!({ "name": name })))
+            WorkspaceAction::Create { name, cwd } => {
+                let mut params = serde_json::json!({ "name": name });
+                if let Some(cwd) = cwd {
+                    params["cwd"] = serde_json::json!(cwd);
+                }
+                client.call("workspace.create", Some(params))
             }
             WorkspaceAction::Focus { id } => {
                 client.call("workspace.focus", Some(serde_json::json!({ "workspace_id": id })))

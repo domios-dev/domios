@@ -46,7 +46,7 @@ codeterm send-text "command" --pane PANE_ID   # --id alias works
 codeterm get-output --pane PANE_ID
 
 codeterm workspace list
-codeterm workspace create "Name"              # empty, no auto-tab
+codeterm workspace create "Name" [--cwd PATH] # empty, no auto-tab. --cwd becomes the default for agents spawned with --workspace.
 codeterm workspace focus ID
 codeterm workspace rename ID "New Name"
 codeterm workspace close ID
@@ -209,4 +209,4 @@ Dot-notation for nested keys. Values are JSON (`true`, `false`, `42`, `"string"`
 
 `Cmd+K` / `Ctrl+K` opens the palette for quick tab/workspace/theme access.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->
