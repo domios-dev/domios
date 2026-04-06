@@ -119,28 +119,6 @@ export function TerminalPane({
     return () => { cancelled = true; unlisten?.(); };
   }, [paneId, updatePaneStatus]);
 
-  // --- Screen capture ---
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    listen<{ pane_id: string }>("screen-capture-request", (event) => {
-      if (event.payload.pane_id !== paneId) return;
-      const term = termRef.current;
-      if (!term) return;
-      const lines: string[] = [];
-      const buf = term.buffer.active;
-      for (let i = 0; i < buf.length; i++) {
-        const line = buf.getLine(i);
-        if (line) lines.push(line.translateToString(true));
-      }
-      while (lines.length > 0 && lines[lines.length - 1].trim() === "") lines.pop();
-      const text = lines.join("\n");
-      import("@tauri-apps/api/event").then(({ emit }) => {
-        emit(`screen-capture-response-${paneId}`, { text });
-      });
-    }).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
-  }, [paneId, termRef]);
-
   // --- Search toggle ---
   useEffect(() => {
     const handler = (e: Event) => {
