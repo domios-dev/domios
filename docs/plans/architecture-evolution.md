@@ -1,8 +1,19 @@
 # Architecture Evolution Plan
 
-**Status:** Planning  
-**Branch:** `feat/architecture_evo`  
+**Status:** In progress (Phase B/C/D partially landed)
+**Branch:** `feat/plugin-prep`
 **Goal:** Evolve codebase toward Hexagonal + Command Bus architecture, covered by tests, ready for plugin system.
+
+## Status as of 2026-04-06
+
+- Phase A: not tracked here; see test coverage reports.
+- Phase B1 — unified dispatch infrastructure: **DONE** (commit `2a5ef09`). `src-tauri/src/dispatch/mod.rs` exists with `Command` enum and `dispatch()`.
+- Phase B2 — migrate first 5 ops across REST/Socket/Tauri: **DONE** for `health`, `pane.list`, `send_text`, `get_output`, and the Tauri `get_pane_output` / `get_pane_screen` / `get_pane_screen_formatted` commands (`cac958e` series: `cac954`, `65ce514`, `a8a7f4e`).
+- Phase B3 — remaining operations: **IN PROGRESS**. Batch 1 pane ops (`PaneSplit`/`PaneClose`/`PaneFocus`/`PaneRename`) wired through REST and Socket (`36b5065`). Remaining: workspace, pty, agent, mesh operations.
+- Phase C — EventBus: **DONE** structurally (`88c7afe`). Typed `SystemEvent` bus lives in `src-tauri/src/api/events.rs`; `ServiceContext` publishes `MuxStateChanged` and `PaneTitlePinned` via `emit_state_changed` / `emit_pane_title_pinned`. Migration of output-pipeline notifications and agent status events to typed variants is still outstanding.
+- Phase D — Plugin trait + first plugin: **SKELETON DONE** (`f371699`). `Plugin` trait, `PluginManager`, and manifest parser live in `src-tauri/src/plugin/mod.rs`. `AgentProvider` trait has been expanded with `auto_approve_flags`, `compact_command`, `model_switch_command`, `exit_command`, `install_skills`, `uninstall_skills`, `supports_lazy_skills`. **Not yet:** `agent-claude` has not been extracted — it still lives in `src-tauri/src/agent/claude.rs`. No process host, no WASM host.
+- Supporting refactor: ANSI helpers extracted to `pty::ansi` (`4cbfd77`); `get_pane_screen` unified through the backend VT100 path (`a7c2a5a`).
+
 
 ## Current State → Target
 
@@ -72,39 +83,44 @@ Cover critical untested code BEFORE restructuring. Tests are the safety net.
 Extract command logic into unified dispatch. One operation at a time.
 
 **B1. Define Command infrastructure**
-- [ ] Create `src-tauri/src/dispatch/mod.rs`
-- [ ] Define `Command` enum with first 5 operations (health, pane_list, pane_split, send_text, get_output)
-- [ ] Implement `dispatch(cmd: Command, ctx: &ServiceContext) -> Result<Value>`
-- [ ] Tests for each command in isolation
+- [x] Create `src-tauri/src/dispatch/mod.rs`
+- [x] Define `Command` enum with first 5 operations (health, pane_list, pane_split, send_text, get_output)
+- [x] Implement `dispatch(cmd: Command, ctx: &ServiceContext) -> Result<Value>`
+- [x] Tests for each command in isolation
 
 **B2. Migrate adapters incrementally**
-- [ ] REST: replace 5 route handlers with `dispatch()` calls
-- [ ] Socket: replace 5 method handlers with `dispatch()` calls  
-- [ ] Tauri: replace 5 commands with `dispatch()` calls
-- [ ] Verify: all 3 adapters produce identical results for same input
+- [x] REST: replace 5 route handlers with `dispatch()` calls
+- [x] Socket: replace 5 method handlers with `dispatch()` calls
+- [x] Tauri: replace 5 commands with `dispatch()` calls (`get_pane_output`, `get_pane_screen`, `get_pane_screen_formatted`)
+- [x] Verify: all 3 adapters produce identical results for same input
 
 **B3. Continue migration (remaining ~35 operations)**
-- [ ] Batch migrate by domain: pane ops → workspace ops → pty ops → agent ops → mesh ops
-- [ ] Each batch: define commands → migrate adapters → test → commit
+- [x] Pane ops batch 1: `PaneSplit`, `PaneClose`, `PaneFocus`, `PaneRename` wired through REST + Socket (`36b5065`)
+- [ ] Workspace ops
+- [ ] PTY ops (resize, kill, exec)
+- [ ] Agent ops
+- [ ] Mesh ops
 
 **Target:** ~4700 LOC → ~2000 LOC. One Command impl per operation.
 
 ### Phase C: Event Bus
 Inter-module communication without direct coupling.
 
-- [ ] Add `EventBus` to ServiceContext (tokio broadcast channel)
-- [ ] Define `SystemEvent` enum (PaneCreated, AgentStarted, etc.)
-- [ ] Migrate output.rs notifications → EventBus publish
-- [ ] Migrate agent detection status updates → EventBus
-- [ ] Frontend: EventBus → Tauri events (bridge)
+- [x] Add `EventBus` to ServiceContext (tokio broadcast channel — `EventBroadcaster::system_bus` in `src-tauri/src/api/events.rs`)
+- [x] Define `SystemEvent` enum (`MuxStateChanged`, `PaneTitlePinned`, `PaneFocused`, `PaneClosed`, `PaneSplit`, `AgentStarted`, `AgentIdle`, `ConfigChanged`, `Generic`)
+- [ ] Migrate `output.rs` notifications → EventBus publish (still call `emit_state_changed` only)
+- [ ] Migrate agent detection status updates → typed `AgentStarted` / `AgentIdle` publishes (currently only defined, not emitted)
+- [x] Frontend: EventBus → Tauri events (bridge via `app_handle.emit` in `emit_state_changed` / `emit_pane_title_pinned`)
 
 ### Phase D: Plugin Trait + First Plugin
 From plugin-architecture.md Phase 1-2.
 
-- [ ] Define `Plugin` trait (commands, on_event, activate, deactivate)
-- [ ] `PluginManager` — discover, load, lifecycle
-- [ ] Extract agent-claude into first native plugin
+- [x] Define `Plugin` trait (`id`, `activate`, `deactivate`, `on_event`) in `src-tauri/src/plugin/mod.rs`
+- [x] `PluginManager` — discover (`<dir>/*/plugin.toml`), register, `attach_native`, activate/deactivate, dispatch events filtered by `capabilities.hooks`
+- [x] Expand `AgentProvider` trait with plugin-facing hooks (`install_skills`, `uninstall_skills`, `supports_lazy_skills`, `auto_approve_flags`, `compact_command`, `model_switch_command`, `exit_command`)
+- [ ] Extract `agent-claude` into first native plugin (still in `src-tauri/src/agent/claude.rs`)
 - [ ] Process plugin host (JSON-RPC stdio)
+- [ ] WASM plugin host
 
 ## Test Strategy
 

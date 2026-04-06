@@ -1,7 +1,22 @@
 # Plugin Architecture Plan
 
-**Status:** Research complete, planning phase  
-**Date:** 2026-04-05
+**Status:** Phase 1 structurally done, Phase 2 not started
+**Date:** 2026-04-05 (last status update: 2026-04-06)
+
+## Status (2026-04-06)
+
+Code pointers for what actually exists today — match doc examples against these files, not against the aspirational Rust in later sections.
+
+- **Unified dispatch:** `src-tauri/src/dispatch/mod.rs` — `Command` enum + `dispatch()`. REST/Socket/Tauri adapters call into it for `health`, `pane.list`, `send_text`, `get_output`, `get_pane_screen(_formatted)`, and the pane ops batch (`split`, `close`, `focus`, `rename`).
+- **Plugin skeleton:** `src-tauri/src/plugin/mod.rs` — `PluginManifest`, `PluginMeta`, `PluginCapabilities`, `PluginPermissions`, `PluginActivation`, `PluginPrompt`, `Plugin` trait, `PluginManager`, `PluginState`, `SkillFile`. Manifest parser, directory discovery, and native plugin attach/activate/deactivate all work and are covered by unit tests.
+- **Typed event bus:** `src-tauri/src/api/events.rs` — `SystemEvent` enum (see "Currently-published events" in `docs/PLUGINS.md`), in-process `tokio::broadcast` channel in `EventBroadcaster`. `ServiceContext::emit_state_changed` / `emit_pane_title_pinned` in `src-tauri/src/service/mod.rs` are the only publish sites today.
+- **Agent provider trait:** `src-tauri/src/agent/provider.rs` — `AgentProvider` has been expanded with the plugin-facing surface (`install_skills`, `uninstall_skills`, `supports_lazy_skills`, `auto_approve_flags`, `compact_command`, `model_switch_command`, `exit_command`). Nothing has been moved out of `src-tauri/src/agent/claude.rs` yet; the trait shape in this document (later sections) is aspirational and in places richer than what is implemented.
+
+**Phase 1 — Unified Dispatch + Plugin Manager skeleton:** DONE structurally, modulo extraction of the first plugin.
+**Phase 2 — Agent Provider extraction + Skill system:** NOT STARTED. Trait surface expanded only.
+**Phase 3+ (memory, WASM, bridges):** not started.
+
+A developer-facing plugin authoring guide matching what exists *today* lives at `docs/PLUGINS.md`. The rest of this document describes the full target design and should be read as forward-looking.
 
 ## Core Architecture
 
