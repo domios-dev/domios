@@ -78,30 +78,48 @@ Levels: `info` (blue), `warning` (yellow), `error` (red).
 
 ## Agent hierarchy & roles
 
-CodeTerm has a 3-level hierarchy: **Orchestrator → Lead → Worker**. Orchestrators can spawn Leads and Workers; Leads can spawn Workers; Workers cannot spawn anything.
+CodeTerm has exactly 3 roles enforced by the backend:
 
+```
+Orchestrator (top, no parent, can_spawn)
+  ├── Lead       (parent MUST be Orchestrator, can spawn Workers)
+  │    └── Worker (leaf, CANNOT spawn anything)
+  └── Worker     (leaf, CANNOT spawn anything)
+```
+
+**Choose by this rule:**
+
+| Situation | Spawn as | Parent |
+|-----------|----------|--------|
+| Fresh independent task in its own workspace | `Orchestrator` | none (`--workspace $WS`) |
+| Sub-coordinator that will itself spawn 2+ workers | `Lead` | Orchestrator only |
+| Single concrete leaf task | `Worker` | Orchestrator or Lead |
+
+**Backend WILL reject:** Lead under Lead, Worker under Worker, Orchestrator with `--parent`, calling `set-conductor` as Lead/Worker. Don't try.
+
+**Your own role is in `$CODETERM_ROLE` (empty = Orchestrator).** Read `references/roles.md` for full rules, decision tree, common mistakes, and task templates — especially before your first spawn.
+
+**CLI:**
 ```bash
 codeterm agent list
 codeterm agent hierarchy                      # tree view
-codeterm agent spawn claude --title T [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS] [--cwd DIR]
-codeterm agent report "summary"               # report to parent (positional)
-codeterm agent reports                        # read child reports (for orchestrators)
+codeterm agent spawn claude --title T --role R [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS]
+codeterm agent report "summary"               # report to parent
+codeterm agent reports                        # read child reports (orchestrator/lead only)
 codeterm agent status [--pane ID]
 codeterm agent compact [--pane ID]            # /compact
 codeterm agent model sonnet|haiku|opus [--pane ID]
 ```
 
-**Role-specific rules differ** — read `references/roles.md` on startup to learn what you're allowed to do based on `$CODETERM_ROLE`.
+**Reports are auto-injected** into your terminal as `[Report from PANE_ID]` lines. Never sleep or poll — continue working and react when reports arrive.
 
-**Reports are auto-injected.** When a child agent runs `codeterm agent report`, the text appears in your terminal as `[Report from PANE_ID]`. Never sleep or poll — continue working and react when you see a report.
-
-**Typical spawn:**
+**Worker task template — always include the report command:**
 ```bash
 codeterm agent spawn claude --title "Scout" --role Worker --parent $CODETERM_PANE_ID \
-  --task "list files in ./src and run: codeterm agent report 'found N files'"
+  --task "Read .claude/agents/backend-dev.md. TASK: list files in ./src. When done, run: codeterm agent report 'found N files: ...'"
 ```
 
-Always include `codeterm agent report '...'` in the worker's `--task` — the agent needs to know how to report back.
+Without `codeterm agent report` in the task, the worker finishes silently and you never hear back.
 
 ## After sending: don't echo
 
