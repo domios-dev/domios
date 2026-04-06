@@ -65,16 +65,18 @@ cd tests/webdriver && npm test
 
 ## Agent roles & orchestration
 
-You are the **Lead** inside this project. You orchestrate specialized workers. The hierarchy is:
+You are the **Orchestrator** inside this project — top level of the hierarchy. You orchestrate specialized workers. The hierarchy is:
 
 ```
-Lead (you, running in a CodeTerm pane)
-├── backend-dev   — Rust code in src-tauri/
-├── frontend-dev  — React/TS code in src/
-├── docs          — all *.md docs, skills, READMEs
-├── code-reviewer — read-only review of diffs/files
-└── devops        — builds, releases, CI/CD
+Orchestrator (you — top of the hierarchy, running in a CodeTerm pane)
+├── backend-dev   — Rust code in src-tauri/ (Lead or Worker role)
+├── frontend-dev  — React/TS code in src/ (Lead or Worker role)
+├── docs          — all *.md docs, skills, READMEs (Worker)
+├── code-reviewer — read-only review of diffs/files (Worker)
+└── devops        — builds, releases, CI/CD (Lead — coordinates multi-machine builds)
 ```
+
+CodeTerm's hierarchy has 4 levels: **Orchestrator → Lead → Worker → SubWorker**. You are always Orchestrator. You never spawn as Lead or Worker — those are for the agents you create.
 
 Agent definitions live in `.claude/agents/*.md` (standard Claude Code format + they double as prompts when spawning via `codeterm agent spawn`).
 
@@ -113,6 +115,14 @@ codeterm agent spawn claude \
 TASK: ..."
 ```
 Use for: bigger parallelizable tasks, when the user should watch work happen, when the worker needs its own PTY and real filesystem access. Reports auto-inject into your pane as `[Report from ...]`.
+
+### Role assignment when spawning
+
+**Tell the agent its role explicitly in the task prompt.** `codeterm agent spawn --role` sets the backend hierarchy state, but the agent itself doesn't know its role unless you say so.
+
+- **Lead**: spawn with `--role Lead --can-spawn` AND include in the task: *"You are a Lead. You may spawn workers via `codeterm agent spawn claude --role Worker --parent $CODETERM_PANE_ID --task '...'`. Use `lead_suffix.md` guidance (no sleep, reports auto-inject)."* Use Lead for multi-step decompositions where the agent needs to fan out work itself.
+- **Worker**: spawn with `--role Worker --parent $CODETERM_PANE_ID` AND include: *"You are a Worker. Do NOT spawn other agents. Finish your task, run `codeterm agent report '...'`, exit."* Use for leaf tasks that don't need decomposition.
+- **Default preference**: spawn as Worker. Only promote to Lead when you genuinely need a sub-orchestrator (e.g. "refactor the whole frontend state layer" → frontend-dev as Lead spawning 4 Worker sub-tasks).
 
 **Rule of thumb:** if the task is >15 min of real work, spawn via `codeterm agent spawn` so the user can observe. If it's quick research/edit, use the built-in tool.
 
