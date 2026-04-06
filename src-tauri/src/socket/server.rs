@@ -277,7 +277,7 @@ fn dispatch(
     _pty: &PtyState,
     notif: &NotifState,
     app: &AppHandle,
-    output_buf: &OutputBufferState,
+    _output_buf: &OutputBufferState,
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
     match method {
@@ -431,23 +431,9 @@ fn dispatch(
         }
 
         "pane.list" => {
-            let mux = mux.lock();
-            let snapshot = mux.snapshot();
-            // Collect panes with their status
-            let panes: Vec<serde_json::Value> = snapshot
-                .panes
-                .values()
-                .map(|p| {
-                    serde_json::json!({
-                        "id": p.id,
-                        "pty_id": p.pty_id,
-                        "pane_type": p.pane_type,
-                        "title": p.title,
-                        "cwd": p.cwd,
-                    })
-                })
-                .collect();
-            Ok(serde_json::json!(panes))
+            crate::dispatch::dispatch(&crate::dispatch::Command::PaneList, svc.as_ref())
+                .map(|r| r.into_json())
+                .map_err(|e| JsonRpcError { code: -32603, message: e })
         }
 
         "pane.focus" => {
@@ -481,58 +467,45 @@ fn dispatch(
         }
 
         "pane.send_text" => {
-            let id = get_string_param(&params, "pane_id")?;
+            let pane_id = get_string_param(&params, "pane_id")?;
             let text = get_string_param(&params, "text")?;
             let enter = params
                 .as_ref()
                 .and_then(|p| p.get("enter"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
-
-            svc.send_text(&id, &text, enter).map_err(|e| JsonRpcError {
-                code: -32603,
-                message: e,
-            })?;
-
-            Ok(serde_json::json!({"ok": true}))
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::SendText { pane_id, text, enter },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError { code: -32603, message: e })
         }
 
         "pane.get_output" => {
-            let id = get_string_param(&params, "pane_id")?;
+            let pane_id = get_string_param(&params, "pane_id")?;
             let max_bytes = params
                 .as_ref()
                 .and_then(|p| p.get("max_bytes"))
                 .and_then(|v| v.as_u64())
-                .unwrap_or(65536) as usize;
-
-            let pty_id = {
-                let mux = mux.lock();
-                mux.get_pane(&id)
-                    .and_then(|p| p.pty_id.clone())
-                    .ok_or_else(|| JsonRpcError {
-                        code: -32602,
-                        message: format!("Pane {} not found or has no PTY", id),
-                    })?
-            };
-
-            let strip = params.as_ref()
+                .map(|n| n as usize)
+                .or(Some(65536));
+            let strip_ansi = params.as_ref()
                 .and_then(|p| p.get("strip_ansi"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-
-            let buf = output_buf.lock();
-            let text = buf.get_text(&pty_id).unwrap_or_default();
-            let trimmed = if text.len() > max_bytes {
-                text[text.len() - max_bytes..].to_string()
-            } else {
-                text
-            };
-            let output = if strip {
-                crate::pty::ansi::clean_terminal_output(&trimmed)
-            } else {
-                trimmed
-            };
-            Ok(serde_json::json!({"output": output}))
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::GetOutput {
+                    pane_id,
+                    offset: None,
+                    max_bytes,
+                    strip_ansi,
+                    full: false,
+                },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError { code: -32602, message: e })
         }
 
         "pane.split" => {
