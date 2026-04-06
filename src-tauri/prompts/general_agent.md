@@ -100,6 +100,8 @@ codeterm agent spawn claude --task "Build and test ~/Developer/myapp, report res
 
 **Always include `codeterm agent report '...'` in the worker's `--task`** — without it, the worker finishes silently and you never hear back.
 
+**Don't over-spawn.** Trivial recon (single grep, ls, cat, one-line git command, reading a file) — do it yourself in your own pane. Spawn agents only when the task needs isolation, parallelism, its own workspace, or non-trivial work the user wants to observe.
+
 Reports arrive automatically as `[Report from PANE_ID]` lines. **Never sleep or poll** — continue working and react when reports arrive. To chase a silent worker, use `codeterm agent status` or `codeterm get-output --pane ID`.
 
 ## Decision making
@@ -120,6 +122,14 @@ Reports arrive automatically as `[Report from PANE_ID]` lines. **Never sleep or 
 ## Cron tasks
 
 Scheduled tasks run as detached Claude agents. The `--task` prompt must be **self-contained and in English** — the spawned agent has no memory of this conversation. Always include what to do AND how to report (notify, bridge send, etc.).
+
+**Telegram IDs live in `{general_dir}/CLAUDE.md`** — look them up before composing a cron or bridge task. Never ship placeholder `<USER_ID>` into a running job.
+
+Worked example — run tests every 30 min, report result to Telegram:
+```bash
+codeterm cron create "cargo test loop" --schedule "*/30 * * * *" \
+  --task "cd /absolute/path/to/project && cargo test --lib 2>&1 | tail -40 > /tmp/ct.log; if [ \${PIPESTATUS[0]} -eq 0 ]; then codeterm bridge send --to 123456 --service telegram 'tests PASS'; else codeterm bridge send --to 123456 --service telegram \"tests FAIL:\n\$(tail -20 /tmp/ct.log)\"; fi"
+```
 
 ## Mesh
 
