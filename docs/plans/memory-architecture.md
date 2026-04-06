@@ -349,33 +349,49 @@ Dreaming uses the graph for smarter promotion:
   → MEMORY.md entry includes context: "API timeout (affects linear integration, assigned to Tima)"
 ```
 
-## Compaction Detection
+## Compaction & Context Preservation
 
-### Claude Code
+The critical insight from OpenClaw: flush must happen BEFORE compaction destroys context, not after.
 
-1. **Hook-based** (preferred): `PostCompact` hook in `~/.claude/settings.json`
+### General Agent (we control the process)
+
+GA runs inside CodeTerm — we own the context lifecycle:
+1. **Token threshold** — we track approximate context size. At 70% capacity, inject a silent "save what matters" turn before continuing. No external hooks needed.
+2. **Proactive periodic save** — GA saves to daily notes every N turns (configurable), not just at compaction.
+3. **Session end** — always flush on GA shutdown/restart.
+
+This is the simplest case: we are the orchestrator, we decide when to flush.
+
+### Regular tabs (Claude Code)
+
+Agent runs in a PTY, we observe but don't control:
+1. **PreCompact hook** (preferred): fires BEFORE context is summarized
    ```json
-   {"hooks": {"PostCompact": [{"type": "command", "command": "codeterm memory flush --pane $CODETERM_PANE_ID"}]}}
+   {"hooks": {"PreCompact": [{"type": "command", "command": "codeterm memory flush --pane $CODETERM_PANE_ID"}]}}
    ```
-2. **PTY detection** (fallback): detect "conversation compressed" pattern in terminal output
-3. **Token heuristic**: estimate context usage, trigger pre-flush at threshold
+2. **PTY detection** (fallback): detect "conversation compressed" / compaction markers in terminal output — at this point context is already lost, but we can still save the raw PTY buffer
+3. **Bridge rule teaches proactive saves** — agent periodically calls `codeterm memory save "..."` itself, not waiting for compaction
 
 ### Codex / Other agents
 
 1. **PTY detection**: agent-specific compaction markers
-2. **Proactive flush**: inject `codeterm memory flush` reminder in long-running tasks
-3. **Session end**: always flush on agent exit (detect via pane lifecycle)
+2. **Bridge rule**: inject `codeterm memory save` pattern into agent instructions
+3. **Session end**: always flush on pane exit (pane lifecycle hook, already exists)
 
-### Pre-flush behavior
+### Flush: two-stage approach
 
+**Stage 1 — Agent-side (proactive, before compaction):**
+The agent itself decides what's important and calls `codeterm memory save "decided to use X because Y"`. Bridge rule teaches this. High quality, low noise.
+
+**Stage 2 — System-side (safety net, on pane exit or compaction):**
 ```bash
 codeterm memory flush --pane PANE_ID
-# 1. Read current pane output (last N lines)
-# 2. Extract key facts, decisions, learnings
-# 3. Append to today's daily note
-# 4. Update graph if entities referenced
-# 5. Record recall signals for dreaming
+# 1. Grab raw PTY buffer (full scrollback)
+# 2. Store as-is in daily/YYYY-MM-DD-pane-{id}.raw (not in daily notes)
+# 3. Dreaming phase later extracts value from raw dumps
+# 4. Record recall signals for dreaming
 ```
+Raw output is NOT promoted to daily notes directly — it's noisy. Dreaming does the curation.
 
 ## Provider Sync
 
@@ -546,13 +562,181 @@ codeterm plugin install ha-bridge
 codeterm skill uninstall home-assistant
 ```
 
+## Hardening (from architecture review)
+
+### Concurrency: all writes through MemoryManager
+
+Multiple tabs call `codeterm memory graph create` simultaneously. JSONL file corruption if written directly.
+
+**Solution:** CLI commands hit REST/Socket API → MemoryManager (holds `parking_lot::Mutex`) → single writer to JSONL. CLI never writes files directly. Same pattern as multiplexer state.
+
+### Crash recovery: incomplete JSONL lines
+
+Power loss mid-write → partial trailing line → load fails.
+
+**Solution:** On load, detect and truncate incomplete trailing line (no valid JSON = incomplete, log warning). Write path: append to `.tmp`, fsync, rename. Periodic graph compaction: materialize live state into fresh JSONL (one create per entity + live relations), replace old file. Keeps replay fast and file clean.
+
+### Graph compaction (not dreaming — file maintenance)
+
+At 100K+ ops, JSONL replay is slow. Separate from dreaming consolidation.
+
+```bash
+codeterm memory graph compact    # materialize current state, replace JSONL
+```
+
+Auto-compact when file exceeds `memory.graph.compact_threshold_mb` (default 10MB). Runs on startup if threshold exceeded.
+
+### Disk quotas
+
+```toml
+[memory.limits]
+graph_max_mb = 100                # reject writes when exceeded
+daily_max_files = 365             # auto-cleanup oldest beyond this
+learnings_max_entries = 1000      # auto-archive oldest
+embeddings_max_mb = 500           # sqlite-vec DB size cap
+```
+
+Warning at 80% threshold. Hard reject at 100% with clear error message.
+
+### Schema validation on every write
+
+Schema validation is NOT optional — runs on every `create` and `update`. The `validate` command is for bulk-checking existing data after schema changes.
+
+New required fields added to schema get defaults for existing entities. `schema_version` field tracks schema evolution.
+
+### Security
+
+- `~/.codeterm/memory/` created with `0700` permissions (Unix)
+- Windows: NTFS ACL for current user only
+- `memory.sensitive_filter` option: regex patterns to redact before persisting (API keys, tokens)
+- Memory is LOCAL ONLY by default. Mesh sync requires explicit `memory.mesh_sync.enabled = true` with per-category controls (sync skills yes, sync graph no, sync daily no)
+- Dreaming agent runs with reduced CLI access (read-only graph except promote ops)
+
+### Skill discovery: compact index in bridge rule
+
+Without ambient skill awareness, agents forget skills exist. Regression from Claude Code's native skill descriptions.
+
+**Solution:** Bridge rule includes compact skill index:
+```markdown
+## Available Skills
+home-assistant — Control HA entities, automations, scenes
+telegram — Read/send Telegram messages, manage channels
+linear — Manage Linear issues, projects, cycles
+...
+Use `codeterm skill get <name>` for full instructions.
+```
+
+~660 tokens for 44 skills. Regenerated on skill install/uninstall. Agents see what's available without running `skill list`.
+
+### Search quality without embeddings
+
+Keyword grep is useless for semantic recall. Default search must be BM25 minimum.
+
+**Solution:** Built-in BM25 index over tokenized markdown (pure Rust, no deps). Tags on save:
+```bash
+codeterm memory save --tags "api,timeout,fix" "increased deadline to 30s"
+```
+Tags give keyword search a fighting chance. Embeddings enhance but aren't required.
+
+### Cross-tab awareness
+
+Tab B doesn't know Tab A saved something.
+
+**Solution:** Memory write events broadcast via existing socket event bus:
+```rust
+SystemEvent::MemoryChanged { category: "daily", key: "2026-04-06", pane_id: "..." }
+```
+Agents in same workspace can subscribe. CLI:
+```bash
+codeterm memory diff --since "10m ago"    # what changed recently
+```
+
+### Graph query ergonomics
+
+JSON-in-shell-quotes is error-prone.
+
+**Solution:** Key-value sugar for common queries:
+```bash
+codeterm memory graph list --type Task --status open     # sugar
+codeterm memory graph query --type Task --where '{"status":"open"}'  # full power
+codeterm memory graph stats                               # entity counts by type
+```
+
+### Cold start
+
+First time, everything empty. Agent tries commands, gets nothing, stops trying.
+
+**Solution:**
+- `codeterm memory init` — creates dirs, seeds with bootstrap entities (user, machine)
+- Empty `skill list` prints: "No skills installed. Import: `codeterm skill install <path>`"
+- Empty `memory search` prints: "No memories yet. Save with: `codeterm memory save \"...\"`"
+- First CodeTerm start auto-runs `memory init`
+
+### Error messages: actionable, not cryptic
+
+All memory/graph CLI commands return structured errors:
+```
+Error: Schema validation failed for type "Task"
+  Missing required field: "status"
+  Valid values: open, in_progress, blocked, done, cancelled
+  Fix: add --props '{"title":"...","status":"open"}'
+```
+
+Empty search results include suggestions, not silence.
+
+## Cron Hardening for Agent Tasks
+
+Periodic agent invocations need resilience and organic patterns.
+
+### Jitter
+
+```toml
+# Per cron job:
+jitter_max_ms = 900000    # ±15 minutes (default for agent-spawning crons)
+```
+
+Applied in `compute_next_run`: `next_run += random(0..jitter_max_ms)`. Default = 10% of interval, min 1 minute, max 30 minutes.
+
+### Prompt uniqueness
+
+Each cron run prepends dynamic context:
+```
+Run context: job={job_id} | run={run_id} | time={utc_now}
+Recent: {last_git_commit_summary} | {system_load_summary}
+```
+Combined with existing `CRON_COMPLETE_SUFFIX` (unique run_id), every prompt is unique.
+
+### Failure tracking and backoff
+
+```rust
+pub struct CronJob {
+    // ... existing fields ...
+    pub consecutive_failures: u32,
+    pub jitter_max_ms: Option<u64>,
+}
+```
+
+On failure: increment `consecutive_failures`, push `next_run` by exponential backoff (`base_ms * 2^failures`, capped at 1 hour, with 25% jitter). After 5 consecutive failures: auto-disable, notify user. On success: reset counter.
+
+### Token budget for dreaming
+
+Dreaming cron job has a configurable token cap. If the agent exceeds it, `codeterm cron complete` is forced. Prevents runaway consolidation costs.
+
+```toml
+[memory.dreaming]
+max_tokens_per_run = 50000    # approximate budget
+```
+
 ## Key Decisions
 
 1. **Graph + Memory Store = CORE**, not plugin. Too fundamental. Plugins depend on them.
 2. **Skills accessed via CLI**, not file duplication. One source, any agent.
-3. **Bridge rule** is the only per-provider file. Small (~50 lines), managed by CodeTerm.
+3. **Bridge rule with compact skill index** — agents see what's available (~660 tokens). Full content on-demand via `skill get`.
 4. **Dreaming disabled by default.** Opt-in via config. Uses existing cron system.
-5. **Embeddings optional.** Graph + keyword search works without them. Vector search is enhancement.
+5. **BM25 search built-in** (pure Rust). Embeddings optional enhancement.
 6. **JSONL format preserved.** Compatible with existing ontology.py. Rust port reads same files.
-7. **Learnings are CLI-first.** No mandatory hooks. `codeterm memory learn` from any tab.
-8. **General Agent gets everything at start.** Regular tabs discover on-demand via CLI.
+7. **All writes through MemoryManager** (API-mediated). CLI never writes files directly.
+8. **Pre-compaction flush for GA** (we control context). PreCompact hook for Claude tabs. Agent-side proactive saves via bridge rule.
+9. **Memory is local-only.** Mesh sync requires explicit opt-in per category.
+10. **Schema validation on every write.** Not optional, not just a check command.
+11. **Cron jitter + prompt uniqueness + backoff** for resilient periodic tasks.
