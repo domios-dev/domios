@@ -188,7 +188,7 @@ pub trait AgentProvider: Send + Sync {
     fn exit_command(&self) -> Option<&str>;          // Claude: "/exit", Codex: TBD
 
     // ── Skill/prompt delivery ──
-    fn install_plugin_skill(&self, plugin: &PluginManifest) -> Result<()>;  // Claude: ~/.claude/skills/
+    fn install_plugin_skill(&self, plugin: &PluginManifest) -> Result<()>;  // install/update broker-visible capability
     fn uninstall_plugin_skill(&self, plugin_id: &str) -> Result<()>;
     fn deliver_prompt(&self, role: AgentRole, prompt: &str) -> Result<()>;  // Claude: CLAUDE.md, Codex: --system-prompt
     fn supports_lazy_skills(&self) -> bool;          // Claude: yes (Skill tool), others: maybe not
@@ -216,7 +216,7 @@ pub trait AgentProvider: Send + Sync {
 | **Noise filter** | "bypass permissions on", "shift+tab" | Different TUI chrome |
 | **Status bar** | 3 rows | Different layout |
 | **Session files** | `~/.claude/projects/{cwd}/` JSONL | Different path/format |
-| **Skill delivery** | Files in `~/.claude/skills/` | System prompt or MCP |
+| **Skill delivery** | Global bridge + broker CLI | Prompt bridge + broker CLI |
 | **Lazy skills** | Yes (Skill tool + triggers) | Maybe not |
 | **Chat parser** | JSONL → messages/tool_calls/thinking | Different format |
 
@@ -247,17 +247,15 @@ Plugin "memory" registers:
                     ↓ PluginManager passes to each active AgentProvider ↓
 
 AgentProvider "claude":
-  → Installs skill_section as ~/.claude/skills/codeterm-memory/SKILL.md
-  → Triggers matched via Claude's Skill tool (lazy-load)
+  → Updates global bridge/rule with compact skill index + broker instructions
   → Agent calls: Bash → codeterm memory search "query"
 
 AgentProvider "codex":
-  → Generates tool definitions from CLI --help output
-  → Or: wraps as MCP server (thin adapter)
+  → Updates Codex bridge/prompt with compact skill index + broker instructions
   → Agent calls: shell tool → codeterm memory search "query"
 
 AgentProvider "generic" (local LLMs, unknown agents):
-  → Injects skill_section into system prompt directly
+  → Injects broker instructions or small skill section into system prompt directly
   → Agent calls: raw shell → codeterm memory search "query"
 ```
 
@@ -282,8 +280,8 @@ pub trait AgentProvider {
 
 | Provider | Skill delivery | Lazy loading | Agent calls plugin via |
 |----------|---------------|--------------|----------------------|
-| Claude Code | `~/.claude/skills/` file | Yes (Skill tool + triggers) | Bash → `codeterm` CLI |
-| Codex CLI | MCP thin wrapper or system prompt | Partial (`--tools` flag) | shell → `codeterm` CLI |
+| Claude Code | Global bridge/rule + broker CLI | Brokered (`skill list/preview/get`) | Bash → `codeterm` CLI |
+| Codex CLI | Prompt bridge + broker CLI | Brokered (`skill list/preview/get`) | shell → `codeterm` CLI |
 | Gemini | System prompt injection | No | shell → `codeterm` CLI |
 | Local LLM | System prompt injection | No | shell → `codeterm` CLI |
 
@@ -298,7 +296,7 @@ Three dimensions determine what prompt an agent gets:
 | Role | Gets | Knows about |
 |------|------|-------------|
 | **General Agent** | Full core prompt + ALL active plugin sections + `/codeterm` skill inlined | Everything: mesh, bridges, plugins, delegation, secrets |
-| **Project Agent** | `/codeterm` skill (as file) + plugin skills lazy-loaded by triggers | Workspace tools, can spawn workers. No GA identity/routing. |
+| **Project Agent** | Global bridge + brokered plugin skills on demand | Workspace tools, can spawn workers. No GA identity/routing. |
 | **Worker** | `worker_suffix` only + plugin skills by triggers | Minimal. Task-scoped. Report and die. |
 
 ### Provider (how prompt is delivered)
@@ -307,8 +305,8 @@ Skills are a **universal format** — one markdown file, same content for every 
 
 | Provider | Delivery | Notes |
 |----------|----------|-------|
-| Claude Code | File in `~/.claude/skills/` | Native skill system, lazy-loaded by triggers |
-| Codex CLI | Parsed and passed via `--system-prompt` or tools flag | Provider adapter converts |
+| Claude Code | Small global bridge/rule + broker CLI | No skill mirroring; provider sees compact index and fetches on demand |
+| Codex CLI | Prompt bridge + broker CLI | Provider adapter injects compact index and broker instructions |
 | Gemini | Injected into system prompt | Provider reads skill file, prepends to conversation |
 | Local LLM | Injected into system prompt | Same as Gemini |
 
@@ -335,9 +333,9 @@ role = GeneralAgent:
   → Provider.deliver_prompt(GeneralAgent, assembled_prompt)
 
 role = ProjectAgent:
-  1. /codeterm skill as standalone file
-  2. Each active plugin's skill as standalone file
-  → Provider.install_skills(skill_files)
+  1. Global bridge + compact skill index
+  2. Active plugin skills fetched on demand via broker
+  → Provider.deliver_prompt(ProjectAgent, bridge_prompt)
   → Lazy-loaded by trigger words (if provider supports it)
 
 role = Worker:
@@ -367,9 +365,9 @@ pub trait AgentProvider {
 
 | Provider | `deliver_prompt` | `install_skills` | Lazy |
 |----------|-----------------|-----------------|------|
-| Claude | Write to GA's `CLAUDE.md` | Files in `~/.claude/skills/` | Yes |
-| Codex | Pass `--system-prompt` | Merge into system prompt | No |
-| Generic | Prepend to first message | Merge into system prompt | No |
+| Claude | Write to GA's `CLAUDE.md` / bridge rule | Update compact broker index | Brokered |
+| Codex | Pass `--system-prompt` / bridge prompt | Update compact broker index | Brokered |
+| Generic | Prepend to first message | Merge compact broker instructions | No |
 
 ## Unified Dispatch (kill the duplication)
 
@@ -634,8 +632,10 @@ MCP stays as a thin optional layer for external tool discoverability:
 ### Phase 2: Agent Provider extraction + Skill system (2 weeks)
 - [ ] Move Claude detection into `agent-claude` native plugin
 - [ ] Define stable `AgentProvider` plugin interface
+- [ ] Provider registry exposed to spawn UI, cron, and future custom providers
 - [ ] Move hard-coded patterns from `detector.rs` to provider
 - [ ] Plugin skill contribution: each plugin provides skill section + trigger words
+- [ ] Skill broker delivery: compact index + on-demand fetch, no provider mirroring
 - [ ] Skill auto-generation from plugin manifest (CLI commands, examples)
 - [ ] Plugin prompt contribution (`on_prompt_build` hook for GA prompt)
 
@@ -646,7 +646,7 @@ MCP stays as a thin optional layer for external tool discoverability:
 Core modules (graph engine, memory store, skill broker, learnings) live in `src-tauri/src/memory/`.
 Graph and memory are CORE, not plugins — too fundamental. Embeddings and dreaming are opt-in.
 
-- [ ] Phase 3.1: Memory store + Graph engine (Rust port of ontology)
+- [ ] Phase 3.1: Memory store + Graph engine (Rust-native, SQLite-backed ontology)
 - [ ] Phase 3.2: Skill broker (single source of truth, CLI-based delivery)
 - [ ] Phase 3.3: Learnings capture + compaction detection
 - [ ] Phase 3.4: Dreaming (cron-based consolidation, graph-aware)
@@ -678,7 +678,7 @@ Graph and memory are CORE, not plugins — too fundamental. Embeddings and dream
 
 ## Key Decisions
 
-1. **CLI + Skills is the agent interface.** Not MCP. Stateless, reliable, already exists. Skills lazy-load by trigger words — zero idle token cost. MCP optional for ecosystem discoverability.
+1. **CLI + Skills is the agent interface.** Not MCP. Stateless, reliable, already exists. Skills are brokered from one canonical directory rather than mirrored into every provider.
 2. **Process plugins first.** JSON-RPC stdio is battle-tested (MCP/LSP/DAP). WASM later for sandboxing.
 3. **Terminal stays in core.** PTY + xterm.js too tightly coupled to extract as plugin.
 4. **Manifest-driven.** `plugin.toml` declares everything including platform support and trigger words.

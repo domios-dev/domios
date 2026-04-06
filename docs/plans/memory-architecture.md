@@ -23,9 +23,10 @@ Key questions this plan answers:
 | OpenClaw `memory-core/` | SQLite + sqlite-vec for hybrid search (vector + BM25 + MMR + temporal decay) |
 | OpenClaw dreaming phases | Light/Deep/REM consolidation on cron schedule, modeled after sleep |
 | Claude Code internals | Skills: descriptions at start (~450 tokens), full content on-demand. Rules: `~/.claude/rules/*.md`. Memory: first 200 lines of MEMORY.md |
-| User's `ontology` skill | Typed append-only JSONL graph, 30+ entity types, schema validation, relation traversal |
+| User's `ontology` skill | Typed graph model, 30+ entity types, schema validation, relation traversal |
 | User's `self-improving-agent` | Capture pipeline: activator hook → error-detector → .learnings/ → promote to MEMORY.md/SOUL.md |
 | CodeTerm cron system | Already supports agent spawn + completion tracking + log archival |
+| SQLite docs (`JSON1` / `JSONB`, `FTS5`) | One local DB file can hold structured entities, relations, full-text search, and optional opaque JSON payloads |
 
 ## Architecture Overview
 
@@ -35,9 +36,9 @@ Key questions this plan answers:
 │                                                               │
 │  src-tauri/src/memory/                                        │
 │  ├── mod.rs          MemoryManager facade                     │
-│  ├── store.rs        Markdown file R/W, daily notes           │
-│  ├── graph.rs        Knowledge graph engine (Rust)            │
-│  ├── search.rs       Hybrid search (opt-in, needs sqlite-vec) │
+│  ├── store.rs        SQLite storage + markdown fact files     │
+│  ├── graph.rs        Rust graph/query layer over SQLite       │
+│  ├── search.rs       FTS5 + optional sqlite-vec               │
 │  └── learnings.rs    Capture + promote pipeline               │
 │                                                               │
 │  CLI commands:                                                │
@@ -72,8 +73,8 @@ Key questions this plan answers:
 
 | Module | Why core |
 |--------|---------|
-| **Memory store** (markdown R/W, daily notes) | Every agent needs persistence. Lightweight, no deps. |
-| **Knowledge graph** (Rust port of ontology.py) | Infrastructure for skills, plugins, agents, dreaming. Not optional. |
+| **Memory store** (SQLite + markdown fact files + daily notes) | Every agent needs persistence. One local file is easier to query, back up, and evolve. |
+| **Knowledge graph** (Rust query layer over SQLite relations) | Infrastructure for skills, plugins, agents, dreaming. Not optional. |
 | **Skill broker** (list/get/search/install) | Agents can't use skills without it. CLI is the universal interface. |
 | **Learnings capture** (`memory learn`) | Quick capture from any tab. No heavy deps. |
 
@@ -83,7 +84,7 @@ Key questions this plan answers:
 |--------|-----------|--------|
 | **Embeddings / vector search** | Requires sqlite-vec. Heavy for simple use. | `config set memory.embeddings.enabled true` |
 | **Dreaming / consolidation** | Creates cron jobs, costs tokens. Not everyone wants it. | `config set memory.dreaming.enabled true` |
-| **Provider auto-sync** | Writes to `~/.claude/` etc. Some users manage manually. | `config set memory.provider_sync.enabled true` (on by default) |
+| **Provider bridge install** | Installs tiny provider bridge/rule files. Some users may want manual control. | `config set memory.provider_bridge.enabled true` (on by default) |
 
 ### NOT A PLUGIN — stays in core binary
 
@@ -98,14 +99,19 @@ The graph and memory store are too fundamental to be plugins:
 ~/.codeterm/
   memory/
     global/
-      MEMORY.md                      # long-term index (loaded at GA start)
-      graph.jsonl                    # knowledge graph (append-only)
+      MEMORY.md                      # curated human-readable index, not source of truth
+      knowledge.db                   # SQLite source of truth: facts, entities, relations, recall, FTS
       graph-schema.yaml              # type constraints + relations
+      facts/
+        fact_api_timeout.md          # large promoted facts / narratives / playbooks
       daily/
         2026-04-06.md                # today's notes
         2026-04-05.md                # yesterday's notes
     workspace/{workspace-id}/
-      MEMORY.md                      # per-workspace memory
+      MEMORY.md                      # per-workspace summary/index
+      knowledge.db                   # workspace-scoped entities, facts, recall
+      facts/
+        feature_rollout.md
       daily/
         2026-04-06.md
     .learnings/
@@ -116,10 +122,9 @@ The graph and memory store are too fundamental to be plugins:
       short-term-recall.json         # recall frequency tracking
       phase-signals.json             # dreaming phase signals
       consolidation.lock             # prevent concurrent dreaming
-    embeddings.db                    # SQLite + sqlite-vec (opt-in)
   skills/                            # SINGLE SOURCE OF TRUTH
     {skill-name}/
-      SKILL.md                       # universal format, all providers
+      SKILL.md                       # universal format + metadata header
       scripts/                       # optional helpers
       references/                    # optional deep docs
   plugins/
@@ -128,21 +133,22 @@ The graph and memory store are too fundamental to be plugins:
       skills/                        # plugin-contributed skills
 ```
 
-## Knowledge Graph — Rust Port
+## Knowledge Graph — Rust Native, SQLite-Backed
 
-Port of user's `ontology.py` to Rust. Same JSONL format, same schema, same CLI interface.
+The ontology moves into Rust, but not as a JSONL append log. Source of truth is SQLite.
+Rust owns validation, traversal, and query ergonomics. Migration/import from the old `ontology.py`
+JSONL format stays supported, but JSONL is not the primary store.
 
 ### Data Model
 
 ```rust
-// src-tauri/src/memory/graph.rs
-
 pub struct Entity {
     pub id: String,              // "{type_prefix}_{uuid_suffix}"
     pub entity_type: String,     // "Task", "Person", "Project", ...
     pub properties: Value,       // serde_json::Value
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
+    pub scope: GraphScope,       // global | workspace
 }
 
 pub struct Relation {
@@ -152,21 +158,69 @@ pub struct Relation {
     pub properties: Value,       // optional relation properties
 }
 
-pub enum GraphOp {
-    Create { entity: Entity },
-    Update { id: String, properties: Value },
-    Delete { id: String },
-    Relate { from: String, rel: String, to: String, properties: Value },
-    Unrelate { from: String, rel: String, to: String, reason: Option<String> },
-}
 ```
 
-### JSONL Format (compatible with existing ontology.py)
+### Physical Storage
 
-```jsonl
-{"op":"create","entity":{"id":"task_abc123","type":"Task","properties":{"title":"Port graph","status":"open"},"created":"2026-04-06T12:00:00Z","updated":"2026-04-06T12:00:00Z"},"timestamp":"2026-04-06T12:00:00Z"}
-{"op":"relate","from":"proj_001","rel":"has_task","to":"task_abc123","properties":{},"timestamp":"2026-04-06T12:00:00Z"}
+```sql
+-- knowledge.db
+CREATE TABLE entities (
+  id TEXT PRIMARY KEY,
+  entity_type TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  properties_json BLOB NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE relations (
+  id INTEGER PRIMARY KEY,
+  from_id TEXT NOT NULL,
+  relation_type TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  properties_json BLOB NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE memory_items (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,             -- note | learning | fact | rule | summary
+  scope TEXT NOT NULL,
+  title TEXT,
+  body_md_path TEXT,              -- nullable: large facts live as markdown files
+  body_inline TEXT,               -- short facts can live inline
+  source TEXT,
+  created_at TEXT NOT NULL,
+  promoted_at TEXT
+);
+
+CREATE VIRTUAL TABLE memory_fts USING fts5(
+  memory_id UNINDEXED,
+  title,
+  body,
+  tags,
+  tokenize = 'unicode61'
+);
 ```
+
+No separate graph database in v1. We keep one local SQLite file and implement graph traversal in
+Rust. If traversal becomes hot later, we can add an in-memory adjacency cache without changing the
+on-disk format.
+
+### Why SQLite First
+
+- One file for entities, relations, facts, recall signals, and FTS
+- Transactions/WAL solve the multi-tab write problem better than ad hoc file locking
+- JSON properties stay flexible through `JSON1` / `JSONB`
+- `FTS5` gives default BM25 search with no separate search service
+- `sqlite-vec` can layer on later without redesigning storage
+
+### Migration
+
+`codeterm memory import-ontology --from graph.jsonl` migrates old append-only ontology data into
+`knowledge.db`. Optional export back to JSONL is supported for inspection/debugging, but not used
+as the live write path.
 
 ### Schema (YAML, same format as existing)
 
@@ -225,22 +279,63 @@ codeterm memory graph schema-append --data '{"types":{"NewType":{"required":["na
 
 Skills live in `~/.codeterm/skills/`. No duplication to agent-specific directories.
 
+Each skill is a folder. `SKILL.md` is the canonical file and also carries the skill metadata in its
+header. No extra `skill.json` or manifest is required for v1.
+
+Example:
+
+```markdown
+---
+name: home-assistant
+description: Control HA entities, scenes, and automations
+tags: [home, automation, zigbee]
+requires:
+  secrets: [homeassistant.env]
+  scripts: [scripts/ha_api.py]
+---
+
+# Home Assistant
+```
+
+If a legacy skill has no YAML frontmatter yet, broker indexing falls back to:
+- folder name as `name`
+- first `# Heading` as title
+- first paragraph as description
+
+This keeps migration cheap for a 50-200 skill library without inventing another metadata layer.
+
 ### How agents access skills
 
 ```
 Agent (any tab, any provider)
   │
-  ├─ codeterm skill list              → name + description (lightweight)
+  ├─ codeterm skill list              → compact index (name + description + tags)
   │    Output: "home-assistant — Control HA entities, automations..."
   │            "telegram — Read/send Telegram messages..."
   │            "linear — Manage Linear issues and projects..."
   │
+  ├─ codeterm skill preview telegram  → header + key sections + sidecars
+  │
   ├─ codeterm skill get telegram      → full SKILL.md content on stdout
   │    Agent reads it, uses it for current task
   │
-  └─ codeterm skill search "calendar" → hybrid search by description + content
+  └─ codeterm skill search "calendar" → FTS search by description + content
        Returns ranked list of matching skills
 ```
+
+### Skill Folder Convention
+
+Keep skill-local assets inside the skill folder, not in one giant global `scripts/` directory:
+
+```text
+skills/
+  home-assistant/
+    SKILL.md
+    scripts/
+    references/
+```
+
+This keeps the broker, installer, evaluator, and future plugin migration simple.
 
 ### Bridge rule (installed per provider)
 
@@ -250,13 +345,16 @@ The `codeterm.md` bridge rule tells agents about skill access:
 # ~/.claude/rules/codeterm.md (already exists, extended)
 
 ## Skills
-You have access to skills via `codeterm skill list` and `codeterm skill get <name>`.
+You have access to skills via `codeterm skill list`, `codeterm skill preview <name>`, and `codeterm skill get <name>`.
 When you need an integration (home automation, APIs, services), check available skills first.
 Skills are loaded on-demand — don't load skills you don't need.
 ```
 
 For Codex: equivalent bridge in Codex's config format.
 For generic agents: injected into system prompt at spawn.
+
+The bridge only tells agents how to use the broker. It does not mirror every skill into provider
+directories. Small bridge file: yes. Skill duplication: no.
 
 ### Skill registry in graph
 
@@ -317,9 +415,10 @@ codeterm config set memory.dreaming.enabled true
 **Light phase** (fast, cheap):
 1. Read today's and yesterday's daily notes
 2. Read .learnings/ for new entries
-3. Dedup by similarity (semantic if embeddings enabled, keyword otherwise)
-4. Stage candidates in `.dreaming/short-term-recall.json`
-5. Never writes to MEMORY.md
+3. Extract candidate entities, relations, facts, and reusable rules
+4. Dedup by similarity (semantic if embeddings enabled, keyword otherwise)
+5. Stage candidates in SQLite tables / `.dreaming/short-term-recall.json`
+6. Never writes directly to `MEMORY.md`
 
 **Deep phase** (balanced):
 1. Rank candidates by signals:
@@ -330,13 +429,26 @@ codeterm config set memory.dreaming.enabled true
    - Consolidation (0.10) — multi-day recurrence
    - Graph connectivity (0.06) — connected to many entities
 2. Must pass gates: minScore 0.8, minRecallCount 3, minUniqueQueries 3
-3. Promote winners to global MEMORY.md
-4. Create/update graph entities for promoted memories
+3. Write structured winners to ontology tables (`entities`, `relations`, `memory_items`)
+4. Write vector embeddings for eligible chunks if enabled
+5. For large facts/playbooks: create markdown file in `memory/*/facts/`
+6. Promote only concise summaries/rules to `MEMORY.md`
 
 **REM phase** (optional, expensive):
 1. Pattern extraction across all memories
 2. Identify clusters and themes
 3. Generate narrative summary (→ optional DREAMS.md)
+
+### Destination Policy
+
+Dreaming should not treat `MEMORY.md` as the main database.
+
+| Output | Goes to | Why |
+|--------|---------|-----|
+| Entity / relation | SQLite ontology tables | Structured, queryable, dedupable |
+| Searchable fact chunk | FTS row + optional vector row | Retrieval path |
+| Large narrative / long procedure | `facts/<id>.md` + `memory_items.body_md_path` | Better than bloating the DB or prompt |
+| Short durable rule / summary | `MEMORY.md` | Human-readable top layer for GA and fast recall |
 
 ### Graph-aware consolidation
 
@@ -346,7 +458,7 @@ Dreaming uses the graph for smarter promotion:
 "memory about API timeout" 
   → graph: relates to skill_linear, task_api_refactor, person_tima
   → promote as group, not isolated fact
-  → MEMORY.md entry includes context: "API timeout (affects linear integration, assigned to Tima)"
+  → `MEMORY.md` entry includes context: "API timeout (affects linear integration, assigned to Tima)"
 ```
 
 ## Compaction & Context Preservation
@@ -402,25 +514,26 @@ How memories and skills reach each agent type.
 ```
 Bridge: ~/.claude/rules/codeterm.md (already managed by CodeTerm)
   - Updated on: CodeTerm start, config change, plugin install/uninstall
-  - Contains: CLI reference, skill access instructions, memory commands
+  - Contains: compact skill index, broker usage, memory commands
 
-Skills: NOT duplicated to ~/.claude/skills/
-  - Agent uses `codeterm skill get X` via Bash tool
-  - Bridge rule teaches this pattern
+Skills:
+  - NOT duplicated to ~/.claude/skills/
+  - Agent uses `codeterm skill list/preview/get/search`
+  - Optional explicit export shortcut can exist later, but not as canonical delivery
 
-Memory: NOT duplicated to ~/.claude/projects/*/memory/
-  - Agent uses `codeterm memory search "query"` via Bash tool
-  - Daily notes accessible via `codeterm memory daily read`
+Memory:
+  - NOT duplicated to provider directories
+  - Agent uses `codeterm memory search`, `codeterm memory fact read`, `codeterm memory graph ...`
 ```
 
 ### Codex
 
 ```
-Bridge: installed via Codex's config mechanism (TBD, needs research)
-  - Same content as Claude bridge, different delivery
+Bridge: installed via Codex config / prompt bridge
+  - Same logical content as Claude bridge, different delivery
 
-Skills: same CLI pattern — codeterm skill get X
-Memory: same CLI pattern — codeterm memory search "query"
+Skills: same broker pattern — `codeterm skill list/preview/get`
+Memory: same broker pattern — `codeterm memory search/query/fact read`
 ```
 
 ### General Agent (special)
@@ -428,9 +541,12 @@ Memory: same CLI pattern — codeterm memory search "query"
 ```
 Gets everything at spawn time:
   - Full skill index (descriptions) in system prompt
-  - Memory MEMORY.md summary in system prompt
+  - Memory `MEMORY.md` summary in system prompt
   - Graph entities relevant to current workspace
   - All CLI commands available
+
+General Agent is the exception: it is not told to mirror skills or to behave like a consumer of a
+provider-native skill folder. It already owns the canonical source of truth.
 ```
 
 ## Tab Awareness
@@ -469,6 +585,11 @@ daily_retention_days = 90                    # auto-cleanup old daily notes
 enabled = true                               # graph engine (lightweight, always on)
 schema_path = "~/.codeterm/memory/global/graph-schema.yaml"
 
+[memory.skill_broker]
+enabled = true
+compact_index_limit = 200                    # no need to overcomplicate for a 50-200 skill library
+fallback_parse_legacy_headers = true         # old SKILL.md files without frontmatter still work
+
 [memory.embeddings]
 enabled = false                              # opt-in: requires sqlite-vec
 provider = "local"                           # "local" (sqlite-vec) | "openai" | "voyage"
@@ -485,9 +606,16 @@ phases = ["light", "deep"]                   # which phases to run (REM optional
 auto_capture = false                         # hook-based error detection
 promote_threshold = 3                        # recurrence count before auto-promote
 
-[memory.provider_sync]
-enabled = true                               # sync bridge rules to providers
-providers = ["claude"]                       # which providers to sync
+[memory.provider_bridge]
+enabled = true                               # install/update bridge rules to providers
+providers = ["claude", "codex"]             # which providers to sync
+
+[memory.mesh_sync]
+enabled = false                              # opt-in replication across trusted mesh peers
+mode = "manual"                              # "manual" | "scheduled" | "eventual"
+replicate = ["skills", "schema", "curated_memory"]
+max_graph_nodes = 10000
+max_vector_docs = 15000
 ```
 
 ## Implementation Phases
@@ -495,28 +623,31 @@ providers = ["claude"]                       # which providers to sync
 ### Phase 3.1: Memory Store + Graph Engine (1 week)
 
 - [ ] `src-tauri/src/memory/mod.rs` — MemoryManager facade
-- [ ] `src-tauri/src/memory/store.rs` — markdown R/W, daily notes, MEMORY.md
-- [ ] `src-tauri/src/memory/graph.rs` — Rust port of ontology.py (JSONL, schema, validation)
+- [ ] `src-tauri/src/memory/store.rs` — SQLite + fact markdown files + daily notes
+- [ ] `src-tauri/src/memory/graph.rs` — Rust-native ontology over SQLite (schema, validation)
 - [ ] CLI: `codeterm memory save`, `codeterm memory daily`, `codeterm memory graph *`
 - [ ] API: REST + Socket + dispatch integration
 - [ ] Config: `[memory]` and `[memory.graph]` sections
-- [ ] Tests: unit tests for graph operations, JSONL parsing, schema validation
+- [ ] Legacy importer: JSONL ontology → SQLite
+- [ ] Tests: unit tests for graph operations, SQLite round-trips, schema validation
 
 ### Phase 3.2: Skill Broker (1 week)
 
 - [ ] `src-tauri/src/memory/skills.rs` — skill discovery, indexing, search
-- [ ] CLI: `codeterm skill list`, `codeterm skill get`, `codeterm skill search`
+- [ ] CLI: `codeterm skill list`, `codeterm skill preview`, `codeterm skill get`, `codeterm skill search`
 - [ ] CLI: `codeterm skill install <path>`, `codeterm skill uninstall <name>`
+- [ ] Parse skill metadata from `SKILL.md` header, no extra manifest
 - [ ] Skill registry in graph (Skill entities + relations)
-- [ ] Bridge rule generation for Claude (extend existing codeterm.md)
+- [ ] Bridge rule generation for Claude/Codex without skill mirroring
 - [ ] Plugin skill contribution: plugins declare skills in manifest, auto-registered
+- [ ] Bundle starter skills: `codeterm`, `ontology`, `skill-creator`, `skill-evaluator`, `self-improving-agent`
 
 ### Phase 3.3: Learnings + Compaction (1 week)
 
 - [ ] `src-tauri/src/memory/learnings.rs` — capture, categorize, promote
 - [ ] CLI: `codeterm memory learn`, `codeterm memory learn list/promote`
 - [ ] `codeterm memory flush --pane ID` — pre-compaction save
-- [ ] Claude hook: PostCompact → `codeterm memory flush`
+- [ ] Claude hook: PreCompact → `codeterm memory flush`
 - [ ] PTY detection: compaction markers for Claude/Codex
 - [ ] Pane lifecycle: auto-flush on agent exit
 
@@ -526,7 +657,9 @@ providers = ["claude"]                       # which providers to sync
 - [ ] Dreaming agent task prompt (light + deep phases)
 - [ ] Graph-aware consolidation (group related memories)
 - [ ] Short-term recall tracking (`.dreaming/short-term-recall.json`)
-- [ ] MEMORY.md promotion with graph context
+- [ ] Structured writes first: ontology rows + fact files + optional vectors
+- [ ] `MEMORY.md` promotion only for concise summaries/rules
+- [ ] Mesh-aware replication policy for curated outputs
 
 ### Phase 3.5: Embeddings / Vector Search (optional, 1 week)
 
@@ -551,7 +684,8 @@ for dir in ~/Desktop/clawd-skills-scripts/skills/*/; do
 done
 ```
 
-This copies SKILL.md + scripts/ + references/ to `~/.codeterm/skills/{name}/` and registers in graph.
+This copies the whole skill folder to `~/.codeterm/skills/{name}/`, preserving local `scripts/`
+and `references/`, then registers it in the broker/graph.
 
 Skills that become plugins (home-assistant, telegram, etc.) will later be migrated:
 ```bash
@@ -566,25 +700,30 @@ codeterm skill uninstall home-assistant
 
 ### Concurrency: all writes through MemoryManager
 
-Multiple tabs call `codeterm memory graph create` simultaneously. JSONL file corruption if written directly.
+Multiple tabs call `codeterm memory graph create` simultaneously. Direct file writes or ad hoc
+per-command SQLite access will race.
 
-**Solution:** CLI commands hit REST/Socket API → MemoryManager (holds `parking_lot::Mutex`) → single writer to JSONL. CLI never writes files directly. Same pattern as multiplexer state.
+**Solution:** CLI commands hit REST/Socket API → MemoryManager → transaction queue. Same pattern as
+multiplexer state. SQLite runs in WAL mode; writes use short explicit transactions.
 
-### Crash recovery: incomplete JSONL lines
+### Crash recovery: SQLite + atomic markdown writes
 
-Power loss mid-write → partial trailing line → load fails.
+Power loss during a write should not corrupt the ontology or fact files.
 
-**Solution:** On load, detect and truncate incomplete trailing line (no valid JSON = incomplete, log warning). Write path: append to `.tmp`, fsync, rename. Periodic graph compaction: materialize live state into fresh JSONL (one create per entity + live relations), replace old file. Keeps replay fast and file clean.
+**Solution:**
+- SQLite source of truth uses WAL mode + transactional writes
+- Large fact markdown files write to `*.tmp` and rename atomically
+- Periodic `VACUUM` / `ANALYZE` maintenance replaces JSONL compaction as the file-health task
 
-### Graph compaction (not dreaming — file maintenance)
+### Graph maintenance
 
-At 100K+ ops, JSONL replay is slow. Separate from dreaming consolidation.
+At scale, maintenance is DB-oriented, not append-log-oriented.
 
 ```bash
-codeterm memory graph compact    # materialize current state, replace JSONL
+codeterm memory graph maintain   # ANALYZE/VACUUM/rebuild derived indexes
 ```
 
-Auto-compact when file exceeds `memory.graph.compact_threshold_mb` (default 10MB). Runs on startup if threshold exceeded.
+Automatic maintenance can trigger on startup or when DB/FTS growth crosses thresholds.
 
 ### Disk quotas
 
@@ -612,6 +751,25 @@ New required fields added to schema get defaults for existing entities. `schema_
 - Memory is LOCAL ONLY by default. Mesh sync requires explicit `memory.mesh_sync.enabled = true` with per-category controls (sync skills yes, sync graph no, sync daily no)
 - Dreaming agent runs with reduced CLI access (read-only graph except promote ops)
 
+### Mesh replication policy
+
+Mesh is useful here, but replication must be selective and bounded.
+
+Default:
+- Replicate: skills, graph schema, curated memory summaries
+- Optional: graph/entity deltas, vector chunks, dreaming signals
+- Never replicate: secrets, raw PTY dumps, provider auth state, local `.learnings/` noise unless explicitly exported
+
+Policy knobs:
+- `mode = manual` for small/home setups
+- `mode = scheduled` for nightly or low-churn replication
+- `mode = eventual` only for low-latency trusted peers and bounded datasets
+
+Capacity assumptions for now:
+- Graph target budget: up to ~10k nodes is comfortable on-device
+- Vector budget: up to ~15k documents/chunks is acceptable as a high-end ceiling
+- If datasets grow beyond that, replication should switch to summaries/deltas, not full eager copies
+
 ### Skill discovery: compact index in bridge rule
 
 Without ambient skill awareness, agents forget skills exist. Regression from Claude Code's native skill descriptions.
@@ -632,11 +790,11 @@ Use `codeterm skill get <name>` for full instructions.
 
 Keyword grep is useless for semantic recall. Default search must be BM25 minimum.
 
-**Solution:** Built-in BM25 index over tokenized markdown (pure Rust, no deps). Tags on save:
+**Solution:** SQLite `FTS5` is the default search layer. Tags on save:
 ```bash
 codeterm memory save --tags "api,timeout,fix" "increased deadline to 30s"
 ```
-Tags give keyword search a fighting chance. Embeddings enhance but aren't required.
+Tags give keyword search a fighting chance. Embeddings via `sqlite-vec` enhance but aren't required.
 
 ### Cross-tab awareness
 
@@ -730,13 +888,16 @@ max_tokens_per_run = 50000    # approximate budget
 ## Key Decisions
 
 1. **Graph + Memory Store = CORE**, not plugin. Too fundamental. Plugins depend on them.
-2. **Skills accessed via CLI**, not file duplication. One source, any agent.
-3. **Bridge rule with compact skill index** — agents see what's available (~660 tokens). Full content on-demand via `skill get`.
-4. **Dreaming disabled by default.** Opt-in via config. Uses existing cron system.
-5. **BM25 search built-in** (pure Rust). Embeddings optional enhancement.
-6. **JSONL format preserved.** Compatible with existing ontology.py. Rust port reads same files.
-7. **All writes through MemoryManager** (API-mediated). CLI never writes files directly.
-8. **Pre-compaction flush for GA** (we control context). PreCompact hook for Claude tabs. Agent-side proactive saves via bridge rule.
-9. **Memory is local-only.** Mesh sync requires explicit opt-in per category.
-10. **Schema validation on every write.** Not optional, not just a check command.
-11. **Cron jitter + prompt uniqueness + backoff** for resilient periodic tasks.
+2. **SQLite is the source of truth.** `MEMORY.md` is a curated human-readable index, not the main database.
+3. **Skills accessed via CLI**, not file duplication. One source, any agent.
+4. **Skill metadata lives in `SKILL.md` header.** No extra skill manifest for a 50-200 skill library.
+5. **Skills are folders with local scripts/references.** Avoid one giant global scripts directory.
+6. **Bridge rule with compact skill index** — agents see what's available. Full content on-demand via broker.
+7. **Dreaming writes structured data first** (SQLite ontology / FTS / vectors / fact files), then promotes concise summaries to `MEMORY.md`.
+8. **All writes through MemoryManager** (API-mediated). CLI never writes files directly.
+9. **Pre-compaction flush for GA** (we control context). PreCompact hook for Claude tabs. Agent-side proactive saves via bridge rule.
+10. **Memory is local-first.** Mesh sync is explicit, selective, and never includes secrets by default.
+11. **Schema validation on every write.** Not optional, not just a check command.
+12. **Cron jitter + prompt uniqueness + backoff** for resilient periodic tasks.
+13. **Bundled starter skills ship with CodeTerm.** At minimum: `codeterm`, `ontology`, `skill-creator`, `skill-evaluator`, `self-improving-agent`.
+14. **Dreaming disabled by default.** Opt-in via config. Uses existing cron system.
