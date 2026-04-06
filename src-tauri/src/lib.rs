@@ -3,6 +3,7 @@ mod api;
 pub mod attachments;
 mod autostart;
 pub mod bridge;
+mod clipboard_files;
 mod commands;
 pub mod dispatch;
 mod commands_mesh;
@@ -875,6 +876,7 @@ pub fn run() {
             commands::generate_api_token,
             commands::save_clipboard_image,
             commands::save_clipboard_file,
+            clipboard_files::read_clipboard_files,
             commands::save_temp_file,
             commands::copy_image_to_clipboard,
             commands::install_project_rules,
