@@ -10,8 +10,9 @@ import {
   usePtyConnection,
   useTerminalInput,
   useAgentDetection,
+  useTauriFileDrop,
 } from "../../hooks/terminal";
-import { dropFilesToPty } from "../../lib/clipboardPaste";
+import { sendFilePathsToPty } from "../../lib/clipboardPaste";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
@@ -79,6 +80,16 @@ export function TerminalPane({
 
   // --- Agent detection ---
   useAgentDetection({ termRef, paneId, termReady });
+
+  // --- Tauri native drag-drop (provides real file paths, no byte copy) ---
+  useTauriFileDrop({
+    containerRef,
+    enabled: termReady,
+    onPaths: (paths) => {
+      const id = connectedPtyRef.current;
+      if (id) sendFilePathsToPty(id, paths);
+    },
+  });
 
   // --- Input handling ---
   const { copySelection, pasteFromClipboard, clearTerminal } = useTerminalInput({
@@ -181,20 +192,14 @@ export function TerminalPane({
       onMouseDown={handleClick}
       onContextMenu={handleContextMenu}
       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-      onDrop={async (e) => {
+      onDrop={(e) => {
+        // File drops are handled by Tauri's native drag-drop event (useTauriFileDrop).
+        // This handler only covers plain-text drops (e.g. drag a selection from another
+        // app and drop it into the terminal).
         e.preventDefault();
         e.stopPropagation();
         const currentPtyId = connectedPtyRef.current;
         if (!currentPtyId) return;
-
-        const files = Array.from(e.dataTransfer.files || []);
-        if (files.length > 0) {
-          // All files (image or not) → tmp → path (Telegram-style)
-          await dropFilesToPty(currentPtyId, files);
-          return;
-        }
-
-        // Plain text drop → bracket paste
         const text = e.dataTransfer.getData("text/plain");
         if (text) {
           const bracketedPaste = `\x1b[200~${text}\x1b[201~`;

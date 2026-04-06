@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { parseJsonlSession, parseTerminalOutput } from "./parser";
 import { getAgentProvider, isProviderNoise } from "../../lib/agentProviders";
+import { useTauriFileDrop } from "../../hooks/terminal";
 import { MessageBubble } from "./MessageBubble";
 import type { ChatMessage } from "./parser";
 import { AlertTriangle, File } from "lucide-react";
@@ -17,6 +18,18 @@ interface ChatViewProps {
 }
 
 type ParseMode = "jsonl" | "terminal" | "detecting";
+
+function basename(p: string): string {
+  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+  return i >= 0 ? p.slice(i + 1) : p;
+}
+
+const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"]);
+function mimeFromPath(p: string): string {
+  const ext = p.split(".").pop()?.toLowerCase() || "";
+  if (IMAGE_EXTS.has(ext)) return ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+  return "application/octet-stream";
+}
 
 export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: ChatViewProps) {
   const provider = getAgentProvider(agentType);
@@ -59,6 +72,24 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     _base64?: string;     // raw base64 for non-image files (pasted, no path)
   }>>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useTauriFileDrop({
+    containerRef: rootRef,
+    onPaths: (paths) => {
+      setAttachments(prev => [
+        ...prev,
+        ...paths.map((path) => ({
+          id: `drop-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: basename(path),
+          path,
+          type: mimeFromPath(path),
+        })),
+      ]);
+      setDragOver(false);
+      textareaRef.current?.focus();
+    },
+  });
 
   // Clear waitingForReply when Claude responds
   useEffect(() => {
@@ -418,54 +449,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
     }
   }, [input, attachments, ptyId, paneId]);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOver(false);
-
-    const files = Array.from(e.dataTransfer.files);
-    for (const file of files) {
-      const path = (file as unknown as { path?: string }).path;
-      const id = `attach-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-
-      const isImage = file.type.startsWith("image/");
-      if (path) {
-        // Dropped from Finder — has file path
-        setAttachments(prev => [...prev, {
-          id,
-          name: file.name,
-          path,
-          preview: isImage ? undefined : undefined, // load preview below for images
-          type: file.type,
-        }]);
-        if (isImage) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            setAttachments(prev => prev.map(a => a.id === id ? { ...a, preview: reader.result as string } : a));
-          };
-          reader.readAsDataURL(file);
-        }
-      } else {
-        // No path — read content and store base64 (for both images and non-images)
-        const reader = new FileReader();
-        reader.onload = () => {
-          const dataUrl = reader.result as string;
-          const base64 = dataUrl.split(",")[1];
-          setAttachments(prev => [...prev, {
-            id,
-            name: file.name,
-            preview: isImage ? dataUrl : undefined,
-            type: file.type,
-            _base64: base64,
-          }]);
-        };
-        reader.readAsDataURL(file);
-      }
-    }
-    // Focus input after drop
-    textareaRef.current?.focus();
-  }, []);
-
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     // Check for files (images, PDFs, any file type)
     const items = Array.from(e.clipboardData.items);
@@ -572,6 +555,7 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
 
   return (
     <div
+      ref={rootRef}
       className="flex flex-col w-full h-full select-text"
       style={{
         background: "var(--ct-bg, #0d1117)",
@@ -581,7 +565,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       }}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
-      onDrop={handleDrop}
     >
       {/* Messages area */}
       <div

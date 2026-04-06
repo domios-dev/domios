@@ -49,7 +49,7 @@ webdriver = ["tauri-plugin-webdriver"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder"] }
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
 objc2-foundation = "0.3"
 
 [target.'cfg(windows)'.dependencies]

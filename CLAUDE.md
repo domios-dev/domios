@@ -125,6 +125,12 @@ When adding agent-related features, ask: "How would this work with Codex? With A
 
 **Never hardcode specific strings for detection.** Always use structural patterns/fingerprints. If Claude changes wording from "Do you want to proceed?" to "Do you want to create?", detection must still work. Same for any agent — detect by structure (numbered options + footer), not by specific text. This applies everywhere: prompt detection, task completion, agent identification, output parsing. Generalize, don't enumerate.
 
+## Code style: SOLID, DRY, no long comments
+
+**SOLID + DRY are non-negotiable.** Single responsibility per module, dependencies flow through explicit interfaces, no repeated logic. Duplicated 20-line blocks across three files is a refactor signal, not a copy-paste signal.
+
+**No long comments inside code.** If a block needs more than a one-liner to explain what it does, the code itself is unclear — refactor instead of documenting. Good code reads like prose: function names describe intent, types describe shape, short comments only point at *why* when it's non-obvious (a workaround, a quirk, a spec reference). Never write a paragraph inside a function to explain its body. If you catch yourself writing `// Step 1: ... Step 2: ... Step 3: ...`, those steps should be separate functions.
+
 ## Lock ordering (deadlock prevention)
 
 All parking_lot Mutexes must be acquired in this order. Never hold a higher-numbered lock while acquiring a lower-numbered one.
