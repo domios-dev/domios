@@ -151,7 +151,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
                 let mut store = cron_state.lock();
                 if store.read_log(&job_id, &run_id).is_none() {
                     let text = svc.output_buf.lock().get_text(pty_id).unwrap_or_default();
-                    let clean = crate::api::routes::clean_terminal_output(&text);
+                    let clean = crate::pty::ansi::clean_terminal_output(&text);
                     let _ = store.save_log(&job_id, &run_id, &clean);
                     let _ = store.update_run_status(
                         &job_id,

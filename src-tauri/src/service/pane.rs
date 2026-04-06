@@ -122,7 +122,7 @@ impl ServiceContext {
                 let buf = self.output_buf.lock();
                 buf.get_text(&pty_id).unwrap_or_default()
             };
-            let clean = crate::api::routes::clean_terminal_output(&screen);
+            let clean = crate::pty::ansi::clean_terminal_output(&screen);
             let prompt_on_screen = crate::agent::detector::detect_interactive_prompt(&clean);
 
             if prompt_on_screen {

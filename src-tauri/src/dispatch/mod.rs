@@ -139,7 +139,7 @@ fn cmd_get_output(
     };
 
     let output = if strip_ansi {
-        crate::api::routes::clean_terminal_output(truncated)
+        crate::pty::ansi::clean_terminal_output(truncated)
     } else {
         truncated.to_string()
     };

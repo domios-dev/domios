@@ -528,7 +528,7 @@ fn dispatch(
                 text
             };
             let output = if strip {
-                crate::api::routes::clean_terminal_output(&trimmed)
+                crate::pty::ansi::clean_terminal_output(&trimmed)
             } else {
                 trimmed
             };

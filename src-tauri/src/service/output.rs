@@ -138,7 +138,7 @@ impl ServiceContext {
 
         if let (Some(ref pid), Some(ref at)) = (&pane_id, &agent_type) {
             if let Ok(raw) = std::str::from_utf8(data) {
-                let chunk_text = crate::api::routes::clean_terminal_output(raw);
+                let chunk_text = crate::pty::ansi::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
 
                 // Read screen text if markers found OR if there's an active prompt
