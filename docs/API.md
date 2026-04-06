@@ -55,7 +55,6 @@ Then: `Authorization: Bearer your-secret-token`
 | GET | `/api/panes/{id}/output/stream` | — | SSE real-time output stream |
 | POST | `/api/panes/{id}/focus` | — | Focus pane |
 | POST | `/api/panes/{id}/close` | — | Close pane + kill PTY |
-| POST | `/api/panes/{id}/split` | `{direction: "right"\|"down"}` | Split pane |
 | POST | `/api/panes/{id}/rename` | `{title}` | Rename pane/tab (pinned) |
 | POST | `/api/panes/{id}/resize` | `{cols, rows}` | Resize terminal |
 | POST | `/api/panes/{id}/hook/permission` | `{question?, options?: [{label, value}]}` | Notify that agent is showing a permission prompt (see below) |
@@ -453,7 +452,6 @@ Newline-delimited JSON:
 | `pane.close` | `{pane_id}` | Close pane |
 | `pane.send_text` | `{pane_id, text, enter?}` | Send text to PTY (`enter` defaults to `true`, appends `\r`) |
 | `pane.get_output` | `{pane_id, max_bytes?}` | Read terminal output |
-| `pane.split` | `{pane_id, direction?}` | Split pane |
 | `pane.rename` | `{pane_id, title}` | Rename pane (pinned) |
 | `browser.open` | `{url}` | Open canvas panel (localhost, data URLs) |
 | `notification.create` | `{title, body?, level?, pane_id?}` | Create notification |
@@ -504,7 +502,6 @@ codeterm pane current                           # Get current pane ID
 codeterm pane current --last                    # Get last pane ID
 codeterm pane focus ID                          # Focus pane
 codeterm pane close ID                          # Close pane
-codeterm pane split [--id ID] [--pane ID] [--direction right|down]  # Split (default: current)
 codeterm pane rename "title" [--pane ID] [--id ID]  # Rename tab (default: current)
 
 # Terminal I/O

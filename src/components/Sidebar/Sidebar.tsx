@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useMultiplexer } from "../../store/multiplexer";
 import { useCrons, CRON_SIDEBAR_RUNS_VISIBLE } from "../../store/crons";
 import { CronEditor } from "../CronEditor/CronEditor";
-import { getAgentProvider } from "../../lib/agentProviders";
+import { getAgentProvider, getAllProviders } from "../../lib/agentProviders";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TitleLevel } from "../../lib/types";
 import type { Workspace, Tab, SplitNode, PaneStatus, Pane, AgentRole, CronJob, CronRunInfo } from "../../lib/types";
@@ -51,11 +51,12 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     setActiveTab,
     setPaneTitle,
     spawnClaudeTab,
+    spawnAgentTab,
   } = useMultiplexer();
   const { cronPaneIds } = useCrons();
 
-  // Claude spawn modal state
-  const [claudeSpawnModal, setClaudeSpawnModal] = useState<{ folder: string } | null>(null);
+  // Agent spawn modal state
+  const [agentSpawnModal, setAgentSpawnModal] = useState<{ folder: string; agentId: string } | null>(null);
   const [claudeSkipPerms, setClaudeSkipPerms] = useState(() => {
     try { return localStorage.getItem("codeterm-claude-skip-perms") === "true"; } catch { return false; }
   });
@@ -63,29 +64,27 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
     try { return localStorage.getItem("codeterm-claude-remember") === "true"; } catch { return false; }
   });
 
-  const handleClaudeSpawn = useCallback(async () => {
+  const handleAgentSpawn = useCallback(async (agentId: string) => {
+    const provider = getAgentProvider(agentId);
     let folder: string | null;
     try {
-      folder = await open({ directory: true, multiple: false, title: "Choose project folder for Claude" });
+      folder = await open({ directory: true, multiple: false, title: `Choose project folder for ${provider?.displayName ?? agentId}` });
     } catch (err) {
-      console.error("[claude-spawn] folder picker failed:", err);
+      console.error(`[agent-spawn] folder picker failed:`, err);
       return;
     }
     if (!folder) return;
-    const path = folder;
-    console.log("[claude-spawn] folder picked:", path);
     // If user chose "remember", skip the modal and spawn directly
     if (claudeRememberChoice) {
       const wsId = state.active_workspace_id ?? state.workspaces[0]?.id;
-      console.log("[claude-spawn] remember mode, wsId:", wsId, "skip:", claudeSkipPerms);
-      if (wsId) spawnClaudeTab(wsId, claudeSkipPerms, path);
+      if (wsId) spawnAgentTab(wsId, agentId, claudeSkipPerms, folder);
       return;
     }
-    setClaudeSpawnModal({ folder: path });
-  }, [state.active_workspace_id, state.workspaces, spawnClaudeTab, claudeRememberChoice, claudeSkipPerms]);
+    setAgentSpawnModal({ folder, agentId });
+  }, [state.active_workspace_id, state.workspaces, spawnAgentTab, claudeRememberChoice, claudeSkipPerms]);
 
   const handleClaudeConfirm = useCallback(() => {
-    if (!claudeSpawnModal) return;
+    if (!agentSpawnModal) return;
     if (claudeRememberChoice) {
       try {
         localStorage.setItem("codeterm-claude-skip-perms", String(claudeSkipPerms));
@@ -93,9 +92,9 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
       } catch { /* ignore */ }
     }
     const wsId = state.active_workspace_id ?? state.workspaces[0]?.id;
-    if (wsId) spawnClaudeTab(wsId, claudeSkipPerms, claudeSpawnModal.folder);
-    setClaudeSpawnModal(null);
-  }, [claudeSpawnModal, claudeSkipPerms, claudeRememberChoice, state.active_workspace_id, state.workspaces, spawnClaudeTab]);
+    if (wsId) spawnAgentTab(wsId, agentSpawnModal.agentId, claudeSkipPerms, agentSpawnModal.folder);
+    setAgentSpawnModal(null);
+  }, [agentSpawnModal, claudeSkipPerms, claudeRememberChoice, state.active_workspace_id, state.workspaces, spawnAgentTab]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
@@ -325,7 +324,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                   onClose={() => closeWorkspace(ws.id)}
                   onRename={(name) => renameWorkspace(ws.id, name)}
                   onNewTerminal={() => createTab(ws.id)}
-                  onNewClaude={handleClaudeSpawn}
+                  onNewAgent={handleAgentSpawn}
                   canClose={true}
                   status={wsStatus}
                   hasWaiting={hasWaiting}
@@ -506,15 +505,15 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
         />
       </aside>
 
-      {/* Claude spawn modal */}
-      {claudeSpawnModal && (
+      {/* Agent spawn modal */}
+      {agentSpawnModal && (
         <>
-          <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setClaudeSpawnModal(null)} />
+          <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setAgentSpawnModal(null)} />
           <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[320px] overflow-hidden">
             <div className="px-4 pt-4 pb-2">
-              <div className="text-[13px] font-medium text-[var(--ct-fg)]">Spawn Claude Code</div>
-              <div className="mt-2 text-[11px] text-[var(--ct-muted)] truncate" title={claudeSpawnModal.folder}>
-                {claudeSpawnModal.folder}
+              <div className="text-[13px] font-medium text-[var(--ct-fg)]">Spawn {getAgentProvider(agentSpawnModal.agentId)?.displayName ?? agentSpawnModal.agentId}</div>
+              <div className="mt-2 text-[11px] text-[var(--ct-muted)] truncate" title={agentSpawnModal.folder}>
+                {agentSpawnModal.folder}
               </div>
             </div>
             <div className="px-4 py-3 flex flex-col gap-2.5">
@@ -539,7 +538,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
             </div>
             <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-[var(--ct-border)]">
               <button
-                onClick={() => setClaudeSpawnModal(null)}
+                onClick={() => setAgentSpawnModal(null)}
                 className="px-3 py-1.5 text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] rounded-md hover:bg-[var(--ct-hover)] transition-colors"
               >
                 Cancel
@@ -693,7 +692,7 @@ interface WorkspaceItemProps {
   onClose: () => void;
   onRename: (name: string) => void;
   onNewTerminal: () => void;
-  onNewClaude: () => void;
+  onNewAgent: (agentId: string) => void;
   canClose: boolean;
   status: PaneStatus | null;
   hasWaiting: boolean;
@@ -710,7 +709,7 @@ function WorkspaceItem({
   onClose,
   onRename,
   onNewTerminal,
-  onNewClaude,
+  onNewAgent,
   canClose: _canClose,
   status: _status,
   hasWaiting,
@@ -747,12 +746,15 @@ function WorkspaceItem({
         icon: <TerminalSquare size={11} strokeWidth={1.5} />,
         onClick: onNewTerminal,
       },
-      {
-        label: "New Claude Session",
-        icon: <span className="text-[11px] leading-none" style={{ color: "#d4a574" }}>{"\u2733"}</span>,
-        onClick: onNewClaude,
-      },
     ];
+    // Dynamic agent provider entries from registry
+    for (const provider of getAllProviders()) {
+      items.push({
+        label: `New ${provider.displayName} Session`,
+        icon: <span className="text-[11px] leading-none" style={{ color: provider.iconColor }}>{provider.icon}</span>,
+        onClick: () => onNewAgent(provider.id),
+      });
+    }
     if (!workspace.protected) {
       items.push({
         label: "Delete Workspace",
@@ -762,7 +764,7 @@ function WorkspaceItem({
       });
     }
     return items;
-  }, [onNewTerminal, onNewClaude, onClose, workspace.protected]);
+  }, [onNewTerminal, onNewAgent, onClose, workspace.protected]);
 
   return (
     <div

@@ -39,6 +39,7 @@ impl ServiceContext {
 
     pub fn link_pty(&self, pane_id: &str, pty_id: String) {
         self.mux.lock().link_pty(pane_id, pty_id);
+        self.emit_state_changed();
     }
 
     pub fn update_pane_cwd(&self, pane_id: &str, cwd: String) {

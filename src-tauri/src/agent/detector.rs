@@ -273,7 +273,7 @@ fn detect_task_completion(text: &str) -> bool {
 /// Some VT100 parsers mangle UTF-8 — the byte sequence E2 9D AF (❯) can lose
 /// the middle byte 0x9D (C1 control) and become `â¯` (U+00E2 U+00AF).
 /// We match all variants so detection works regardless of terminal encoding.
-const SELECTOR_CHARS: &[char] = &['❯', '>'];
+const SELECTOR_CHARS: &[char] = &['❯', '>', '›'];
 const GARBLED_SELECTOR: &str = "\u{00e2}\u{00af}"; // â¯ — VT100-mangled ❯
 
 /// Strip selector prefix from a line, returning the remainder trimmed.
@@ -326,8 +326,10 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
         }
 
         // Keyboard hint footer: contains Esc/Tab/Enter as shortcuts
-        if (trimmed.contains("Esc") || trimmed.contains("Enter"))
-            && (trimmed.contains("cancel") || trimmed.contains("amend") || trimmed.contains("confirm"))
+        let lower = trimmed.to_lowercase();
+        if (lower.contains("esc") || lower.contains("enter"))
+            && (lower.contains("cancel") || lower.contains("amend")
+                || lower.contains("confirm") || lower.contains("continue"))
         {
             footer_idx = Some(i);
         }
@@ -409,8 +411,10 @@ pub fn parse_permission_prompt(text: &str) -> Option<(String, Vec<(String, Strin
         has_selector_prefix(lines[*idx].trim())
     });
     let has_footer = (last_opt..lines.len().min(last_opt + 5)).any(|i| {
-        let t = lines[i].trim();
-        (t.contains("Esc") || t.contains("Enter")) && (t.contains("cancel") || t.contains("amend") || t.contains("confirm"))
+        let t = lines[i].trim().to_lowercase();
+        (t.contains("esc") || t.contains("enter"))
+            && (t.contains("cancel") || t.contains("amend")
+                || t.contains("confirm") || t.contains("continue"))
     });
     if !has_selector && !has_footer { return None; }
 
@@ -984,5 +988,39 @@ mod tests {
         assert!(has_selector_prefix("\u{00e2}\u{00af} 1. Yes"));
         assert!(!has_selector_prefix("1. Yes"));
         assert!(!has_selector_prefix("  1. Yes"));
+    }
+
+    #[test]
+    fn test_trust_directory_prompt_detected() {
+        let text = "\
+? Do you trust the contents of this directory?
+
+  1. Yes, continue
+  2. No, quit
+
+❯ 1. Yes, continue
+
+Press enter to continue";
+        assert!(detect_interactive_prompt(text));
+    }
+
+    #[test]
+    fn test_trust_directory_prompt_parsed() {
+        let text = "\
+? Do you trust the contents of this directory?
+
+  1. Yes, continue
+  2. No, quit
+
+❯ 1. Yes, continue
+
+Press enter to continue";
+        let result = parse_permission_prompt(text);
+        assert!(result.is_some());
+        let (question, options) = result.unwrap();
+        assert!(question.contains("trust"));
+        // First option label starts with "Yes" — this is what auto-approve checks
+        assert!(options[0].0.starts_with("Yes"));
+        assert_eq!(options[0].1, "1");
     }
 }

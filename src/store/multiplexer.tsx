@@ -232,23 +232,16 @@ function reducer(state: ExtendedState, action: Action): ExtendedState {
       for (const [id, pane] of Object.entries(mergedPanes)) {
         const oldPane = state.panes[id];
         if (pane.pending_prompt && !oldPane?.pending_prompt) {
-          const prompt = pane.pending_prompt;
           newToasts.push({
             id: `prompt-${id}-${Date.now()}`,
             pane_id: id,
             workspace_id: null,
             title: pane.title || "Agent",
-            body: prompt.question,
+            body: "Needs your attention",
             level: "Warning" as const,
             read: false,
-            sticky: true,
+            sticky: false,
             timestamp: Date.now(),
-            actions: prompt.options.map((opt: { label: string; value: string }) => ({
-              label: opt.label,
-              type: "invoke" as const,
-              value: "mux_respond_prompt",
-              args: { paneId: id, value: opt.value },
-            })),
           });
         }
       }
@@ -592,7 +585,6 @@ interface MultiplexerContextType {
   createTab: (workspaceId: string, cwd?: string) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
   setActiveTab: (workspaceId: string, tabId: string) => void;
-  splitPane: (paneId: string, orientation: Orientation) => void;
   closePane: (paneId: string) => void;
   setFocusedPane: (paneId: string) => void;
   openBrowser: (url: string) => void;
@@ -609,8 +601,9 @@ interface MultiplexerContextType {
   setAgentType: (paneId: string, agentType: string | null) => void;
   // Pane status
   updatePaneStatus: (paneId: string, status: PaneStatus) => void;
-  // Spawn Claude in a new tab
+  // Spawn an agent in a new tab
   spawnClaudeTab: (workspaceId: string, skipPermissions: boolean, cwd?: string) => void;
+  spawnAgentTab: (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => void;
 }
 
 const MultiplexerContext = createContext<MultiplexerContextType | null>(null);
@@ -671,43 +664,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   // Startup check: outdated skills → show action toast
   useEffect(() => {
-    const checkSkills = async () => {
-      try {
-        const skills = await invoke<Array<{
-          id: string; name: string; installed: boolean;
-          update_available: boolean; revision: number; installed_revision: number;
-        }>>("list_skills");
-
-        for (const skill of skills) {
-          if (skill.update_available) {
-            dispatch({
-              type: "ADD_NOTIFICATION",
-              notification: {
-                id: uid(),
-                pane_id: null,
-                workspace_id: null,
-                title: `Skill update: ${skill.name}`,
-                body: `v${skill.installed_revision} → v${skill.revision}`,
-                level: "Info" as const,
-                timestamp: Date.now(),
-                read: false,
-                sticky: true,
-                actions: [
-                  { label: "Update", type: "invoke" as const, value: "install_skill", args: { skillId: skill.id } },
-                  { label: "Dismiss", type: "dismiss" as const },
-                ],
-              },
-            });
-          }
-        }
-      } catch (e) {
-        console.warn("Skill check failed:", e);
-      }
-    };
-
-    // Delay check so UI renders first
-    const timer = setTimeout(checkSkills, 2000);
-    return () => clearTimeout(timer);
+    // Skills are auto-synced by the sync watcher — no manual check needed
   }, []);
 
   // Listen for Tauri events
@@ -923,25 +880,29 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshFromBackend]);
 
-  const spawnClaudeTab = useCallback(async (workspaceId: string, skipPermissions: boolean, cwd?: string) => {
+  const spawnAgentTab = useCallback(async (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => {
     try {
       invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
       const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId });
-      // Set cwd both on backend and in pending map (state may not be ready when PTY spawns)
       if (cwd) {
         setPendingCwd(tabInfo.pane_id, cwd);
         await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd });
       }
-      const cmd = skipPermissions ? "claude --dangerously-skip-permissions" : "claude";
+      // Build launch command from provider: ask backend for the right CLI invocation
+      const cmd = await invoke<string>("build_agent_launch_command", { agentId, skipPermissions });
       setPendingCommand(tabInfo.pane_id, cmd);
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
       dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId: tabInfo.id });
       refreshFromBackend();
     } catch (e) {
-      console.error("Failed to spawn Claude tab:", e);
+      console.error(`Failed to spawn ${agentId} tab:`, e);
     }
   }, [refreshFromBackend]);
+
+  const spawnClaudeTab = useCallback(async (workspaceId: string, skipPermissions: boolean, cwd?: string) => {
+    spawnAgentTab(workspaceId, "claude", skipPermissions, cwd);
+  }, [spawnAgentTab]);
 
   const closeTab = useCallback(
     (workspaceId: string, tabId: string) => {
@@ -975,28 +936,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     invoke("mux_set_active_tab", { workspaceId, tabId }).catch(() => {});
     dispatch({ type: "SET_ACTIVE_TAB", workspaceId, tabId });
   }, []);
-
-  const splitPane = useCallback(
-    async (paneId: string, orientation: Orientation) => {
-      try {
-        // Use backend mux_split_pane which creates pane + spawns PTY + links + starts read loop
-        await invoke<{ new_pane_id: string; new_pty_id: string }>("mux_split_pane", {
-          paneId,
-          orientation,
-          cols: 80,
-          rows: 24,
-        });
-        refreshFromBackend();
-        // Trigger terminal refit after layout updates with new split dimensions
-        requestAnimationFrame(() => {
-          window.dispatchEvent(new CustomEvent("codeterm-pane-resize"));
-        });
-      } catch (e) {
-        console.error("Failed to split pane:", e);
-      }
-    },
-    [findContext, refreshFromBackend],
-  );
 
   const closePane = useCallback(
     (paneId: string) => {
@@ -1150,7 +1089,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     createTab,
     closeTab,
     setActiveTab,
-    splitPane,
     closePane,
     setFocusedPane,
     openBrowser,
@@ -1165,6 +1103,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     setAgentType,
     updatePaneStatus,
     spawnClaudeTab,
+    spawnAgentTab,
   };
 
   return (

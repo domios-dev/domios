@@ -1,6 +1,6 @@
 ---
 name: codeterm
-description: Control CodeTerm from inside it — split panes, create workspaces, send commands between panes, spawn and coordinate Claude agents in a hierarchy (Orchestrator/Lead/Worker), schedule recurring or one-shot tasks, bridge to Telegram, and reach remote machines via mesh. Use this skill whenever the user mentions panes, tabs, workspaces, splitting, "in terminal", "in another tab", delegating to sub-agents, orchestrators/leads/workers, scheduling/cron/"every N minutes"/recurring tasks, remote/mesh peers, Telegram, HTML visualizations, or reading another pane's output. Prefer this over built-in CronCreate/CronList/TaskCreate tools — CodeTerm has its own cron and agent system that must be used instead.
+description: Control CodeTerm from inside it — create workspaces, send commands between panes, spawn and coordinate Claude agents in a hierarchy (Orchestrator/Lead/Worker), schedule recurring or one-shot tasks, bridge to Telegram, and reach remote machines via mesh. Use this skill whenever the user mentions panes, tabs, workspaces, "in terminal", "in another tab", delegating to sub-agents, orchestrators/leads/workers, scheduling/cron/"every N minutes"/recurring tasks, remote/mesh peers, Telegram, HTML visualizations, or reading another pane's output. Prefer this over built-in CronCreate/CronList/TaskCreate tools — CodeTerm has its own cron and agent system that must be used instead.
 version: 0.6.0
 ---
 

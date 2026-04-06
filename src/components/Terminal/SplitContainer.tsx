@@ -4,7 +4,7 @@ import { BrowserPane } from "../Browser/BrowserPane";
 
 import { Divider } from "./Divider";
 import { getAgentProvider } from "../../lib/agentProviders";
-import type { SplitNode, Pane, Orientation, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+import type { SplitNode, Pane, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { CloseXIcon } from "../Icons";
 
 interface SplitContainerProps {
@@ -12,7 +12,6 @@ interface SplitContainerProps {
   panes: Record<string, Pane>;
   focusedPaneId: string | null;
   onFocusPane: (paneId: string) => void;
-  onSplitPane: (paneId: string, orientation: Orientation) => void;
   onClosePane: (paneId: string) => void;
   onPtySpawned: (paneId: string, ptyId: string) => void;
   /** Path from root to this node, used for ratio updates */
@@ -40,7 +39,6 @@ export function SplitContainer({
   panes,
   focusedPaneId,
   onFocusPane,
-  onSplitPane,
   onClosePane,
   onPtySpawned,
   path,
@@ -122,7 +120,6 @@ export function SplitContainer({
           panes={panes}
           focusedPaneId={focusedPaneId}
           onFocusPane={onFocusPane}
-          onSplitPane={onSplitPane}
           onClosePane={onClosePane}
           onPtySpawned={onPtySpawned}
           path={[...path, i]}

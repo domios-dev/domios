@@ -31,7 +31,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/workspaces/{id}/tabs", post(create_tab))
         .route("/api/workspaces/{id}/tabs/{tab_id}/move", post(move_tab))
         .route("/api/panes", get(list_panes))
-        .route("/api/panes/{id}/split", post(split_pane))
         .route("/api/panes/{id}/send", post(send_text))
         .route("/api/panes/{id}/focus", post(focus_pane))
         .route("/api/panes/{id}/close", post(close_pane))
@@ -51,10 +50,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/themes", get(list_themes_api).post(save_theme_api))
         .route("/api/themes/{id}", axum::routing::delete(delete_theme_api))
         .route("/api/themes/apply", post(apply_theme_api))
-        // Setup endpoints — skills, rules, hooks
-        .route("/api/setup/skills", get(list_skills_api))
-        .route("/api/setup/skills/{id}/install", post(install_skill_api))
-        .route("/api/setup/skills/{id}/uninstall", post(uninstall_skill_api))
+        // Setup endpoints — rules, hooks
         .route("/api/setup/rules", get(check_rules_api))
         .route("/api/setup/rules/install", post(install_rules_api))
         .route("/api/setup/hooks", get(check_hooks_api))
@@ -275,30 +271,6 @@ async fn create_tab(
     })))
 }
 
-#[derive(Deserialize)]
-struct SplitPaneBody {
-    direction: Option<String>,
-}
-
-async fn split_pane(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(raw_pane_id): Path<String>,
-    body: Option<Json<SplitPaneBody>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let direction = body
-        .as_ref()
-        .and_then(|b| b.direction.clone())
-        .unwrap_or_else(|| "right".to_string());
-    let result = crate::dispatch::dispatch(
-        &crate::dispatch::Command::PaneSplit { pane_id, direction },
-        &state.svc,
-    )
-    .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
-    Ok(Json(result.into_json()))
-}
 
 async fn list_panes(
     AxumState(state): AxumState<AppState>,
@@ -1457,38 +1429,6 @@ async fn apply_theme_api(
 // ---------------------------------------------------------------------------
 // Setup endpoints — skills, rules, hooks
 // ---------------------------------------------------------------------------
-
-async fn list_skills_api(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let skills = crate::commands::list_skills()
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list skills"))?;
-    Ok(Json(serde_json::to_value(skills).unwrap_or_default()))
-}
-
-async fn install_skill_api(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    crate::commands::install_skill(id)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to install skill"))?;
-    Ok(Json(serde_json::json!({ "ok": true })))
-}
-
-async fn uninstall_skill_api(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    crate::commands::uninstall_skill(id)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to uninstall skill"))?;
-    Ok(Json(serde_json::json!({ "ok": true })))
-}
 
 async fn check_rules_api(
     AxumState(state): AxumState<AppState>,

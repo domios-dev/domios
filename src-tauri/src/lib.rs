@@ -129,8 +129,7 @@ fn init_states() -> AppStates {
     let mut mux_state_inner = mux_state_inner;
     if general_config.enabled {
         service::general_agent::ensure_directories();
-        let instructions_file = if general_config.agent_provider == "claude" { "CLAUDE.md" } else { "AGENT.md" };
-        service::general_agent::generate_instructions(&general_config.agent_provider, instructions_file);
+        service::general_agent::generate_instructions(&general_config.agent_provider);
         service::general_agent::ensure_general_workspace(&mut mux_state_inner);
     }
 
@@ -651,6 +650,9 @@ fn start_servers(
         }
     }
 
+    // Start reactive sync watcher (skills + MEMORY.md → provider directories)
+    service::sync_watcher::start(crate::paths::data_dir());
+
     // Start mesh discovery if enabled
     {
         let mesh_config = states.config.lock().mesh.clone();
@@ -798,11 +800,8 @@ pub fn run() {
     // Initialize all shared states
     let states = init_states();
 
-    // Auto-update installed skills if bundled version is newer
-    let updated_skills = commands::auto_update_skills();
-    if !updated_skills.is_empty() {
-        log::info!("Auto-updated skills: {}", updated_skills.join(", "));
-    }
+    // Seed bundled skills to ~/.codeterm/skills/ (sync watcher mirrors to providers)
+    commands::seed_bundled_skills();
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -870,9 +869,7 @@ pub fn run() {
             commands::resize_pty,
             commands::kill_pty,
             commands::get_pane_git_info,
-            commands::list_skills,
-            commands::install_skill,
-            commands::uninstall_skill,
+            commands::restart_general_agent,
             commands::get_network_info,
             commands::generate_api_token,
             commands::save_clipboard_image,
@@ -899,7 +896,6 @@ pub fn run() {
             multiplexer::commands::mux_create_tab,
             multiplexer::commands::mux_close_tab,
             multiplexer::commands::mux_set_active_tab,
-            multiplexer::commands::mux_split_pane,
             multiplexer::commands::mux_close_pane,
             multiplexer::commands::mux_set_focused_pane,
             multiplexer::commands::mux_link_pty,
@@ -909,6 +905,7 @@ pub fn run() {
             multiplexer::commands::mux_set_chat_view,
             multiplexer::commands::detect_claude_session_id,
             multiplexer::commands::mux_set_claude_session_id,
+            multiplexer::commands::build_agent_launch_command,
             multiplexer::commands::mux_set_pane_role,
             multiplexer::commands::mux_clear_pane_role,
             multiplexer::commands::mux_set_can_spawn,
@@ -984,6 +981,15 @@ pub fn run() {
                     .expect("agent-claude plugin attach failed");
                 plugin_manager.activate(plugin::agent_claude::PLUGIN_ID)
                     .expect("agent-claude plugin activation failed");
+            }
+            {
+                use plugin::agent_codex::AgentCodexPlugin;
+                let manifest = AgentCodexPlugin::manifest();
+                plugin_manager.register(manifest);
+                plugin_manager.attach_native(Box::new(AgentCodexPlugin::new()))
+                    .expect("agent-codex plugin attach failed");
+                plugin_manager.activate(plugin::agent_codex::PLUGIN_ID)
+                    .expect("agent-codex plugin activation failed");
             }
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
 

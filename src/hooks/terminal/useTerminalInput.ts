@@ -53,10 +53,10 @@ export function useTerminalInput({
     // Wait for PTY connection
     if (!connectedPtyRef.current) return;
 
-    const ptyId = connectedPtyRef.current;
-
     // Smart Ctrl+C / Cmd+C: copy if text selected, interrupt if not
     // Ctrl+V: platform-specific paste (image + text)
+    // Read connectedPtyRef.current dynamically in handlers — PTY ID can change
+    // when backend replaces the auto-spawned shell (e.g. General Agent lifecycle).
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       const mod = isMac ? e.metaKey : e.ctrlKey;
@@ -74,9 +74,10 @@ export function useTerminalInput({
       }
 
       if (e.code === "KeyV") {
-        // xterm handles text natively with bracketed paste. We only inject
-        // non-text items (images, files, native file refs) alongside.
-        pasteClipboardToPty(ptyId, { skipText: true }).catch(() => {});
+        const currentPty = connectedPtyRef.current;
+        if (currentPty) {
+          pasteClipboardToPty(currentPty, { skipText: true }).catch(() => {});
+        }
         return true;
       }
 
@@ -84,6 +85,8 @@ export function useTerminalInput({
     });
 
     // Primary: xterm.js onData — Tab completion + PTY write
+    // Read connectedPtyRef.current dynamically — the PTY ID can change when
+    // backend links a different PTY (e.g. General Agent replacing auto-spawned shell).
     const onDataDisposable = term.onData((data) => {
       if (data === "\x16") return; // Ctrl+V handled above
 
@@ -94,7 +97,8 @@ export function useTerminalInput({
       if (data !== "\t") onNonTabKey();
 
       onInputData(data);
-      invoke("write_pty_string", { ptyId, data });
+      const currentPty = connectedPtyRef.current;
+      if (currentPty) invoke("write_pty_string", { ptyId: currentPty, data });
     });
 
     const el = containerRef.current;

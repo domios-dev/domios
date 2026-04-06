@@ -300,15 +300,6 @@ pub enum PaneAction {
         /// Pane ID
         id: String,
     },
-    /// Split a pane (default: current pane)
-    Split {
-        /// Pane ID to split (default: current focused pane)
-        #[arg(long, alias = "pane")]
-        id: Option<String>,
-        /// Split direction: right or down
-        #[arg(long, default_value = "right")]
-        direction: String,
-    },
     /// Rename a pane tab (default: current pane)
     Rename {
         /// New title
@@ -856,13 +847,6 @@ fn main() {
             }
             PaneAction::Close { id } => {
                 client.call("pane.close", Some(serde_json::json!({ "pane_id": id })))
-            }
-            PaneAction::Split { id, direction } => {
-                let pane_id = resolve_pane(&mut client, id);
-                client.call(
-                    "pane.split",
-                    Some(serde_json::json!({ "pane_id": pane_id, "direction": direction })),
-                )
             }
             PaneAction::Rename { pane, title } => {
                 let pane_id = resolve_pane(&mut client, pane);

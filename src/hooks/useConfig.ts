@@ -51,8 +51,6 @@ const DEFAULT_CONFIG: AppConfig = {
     close_tab: "Ctrl+Shift+W",
     next_tab: "Ctrl+Tab",
     prev_tab: "Ctrl+Shift+Tab",
-    split_right: "Ctrl+Shift+D",
-    split_down: "Ctrl+Shift+E",
     close_pane: "Ctrl+Shift+Q",
     focus_pane_left: "Alt+Left",
     focus_pane_right: "Alt+Right",

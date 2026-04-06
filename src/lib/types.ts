@@ -75,11 +75,6 @@ export interface WorkspaceInfo {
   protected?: boolean;
 }
 
-export interface SplitResult {
-  new_pane_id: string;
-  new_pty_id: string;
-}
-
 export interface TabInfo {
   id: string;
   title: string;
@@ -205,8 +200,6 @@ export interface KeybindingsConfig {
   close_tab: string;
   next_tab: string;
   prev_tab: string;
-  split_right: string;
-  split_down: string;
   close_pane: string;
   focus_pane_left: string;
   focus_pane_right: string;

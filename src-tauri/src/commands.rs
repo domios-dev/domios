@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::Read;
 use base64::Engine as _;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::UpdaterExt;
 
 use crate::agent::git_info::{self, GitInfo};
@@ -121,52 +121,58 @@ pub async fn spawn_pty(
 
     // Auto-resume: if this pane has a saved session_id, resume it after shell is ready.
     // This runs in backend so it works even for non-visible tabs.
+    // Skip protected panes (General Agent) — backend manages their lifecycle.
     if let Some(ref pid) = pane_id {
-        let session_id = mux_state.lock().get_pane(pid)
-            .and_then(|p| p.agent_session_id.clone());
-        if let Some(session_id) = session_id {
-            // Pane has a saved session → it was a Claude pane.
-            // Set agent_type now so ChatView knows it's an agent pane immediately.
-            svc.set_pane_agent_type(pid, Some("claude".to_string()));
+        let (session_id, is_protected) = {
+            let m = mux_state.lock();
+            let pane = m.get_pane(pid);
+            (
+                pane.and_then(|p| p.agent_session_id.clone()),
+                pane.map(|p| p.protected).unwrap_or(false),
+            )
+        };
+        // Also grab agent_type from pane (snapshot preserves it)
+        let agent_type = mux_state.lock().get_pane(pid)
+            .and_then(|p| p.agent_type.clone());
+        if let Some(session_id) = session_id.filter(|_| !is_protected) {
+            let provider_id = agent_type.unwrap_or_else(|| "claude".to_string());
+            svc.set_pane_agent_type(pid, Some(provider_id.clone()));
             svc.emit_state_changed();
 
-            // Backend reader is ONLY for General Agent pane (started in general_agent.rs).
-            // For regular panes, frontend TerminalPane handles reading.
-            // Starting backend reader here would steal bytes from frontend → broken UI.
-
-            let pty_clone = state.inner().clone();
-            let pty_id_for_poll = pty_id.clone();
-            let pty_id_for_write = pty_id.clone();
-            let screen_state_clone = screen_state.inner().clone();
-            // Extract config values before spawning (MutexGuard is not Send)
+            // Build resume command via provider registry (provider-agnostic)
             let (resume_enabled, skip_perms) = {
                 let cfg = config_state.lock();
                 (cfg.agent.resume_sessions, cfg.agent.resume_skip_permissions)
             };
-            tokio::spawn(async move {
-                if !resume_enabled { return; }
-                let skip_flag = if skip_perms { " --dangerously-skip-permissions" } else { "" };
+            let resume_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
+                p.build_resume_command(&session_id, skip_perms)
+            }).flatten();
 
-                // Wait for shell to be ready
-                let ready = tokio::task::spawn_blocking(move || {
-                    crate::service::pty_io::poll_shell_prompt(
-                        &screen_state_clone, &pty_id_for_poll,
-                        std::time::Duration::from_secs(15),
-                    )
-                }).await.unwrap_or(false);
+            if let Some(cmd) = resume_cmd {
+                let pty_clone = state.inner().clone();
+                let pty_id_for_poll = pty_id.clone();
+                let pty_id_for_write = pty_id.clone();
+                let screen_state_clone = screen_state.inner().clone();
+                tokio::spawn(async move {
+                    if !resume_enabled { return; }
 
-                if !ready {
-                    log::warn!("[resume] shell not ready for session {}, skipping", session_id);
-                    return;
-                }
+                    let ready = tokio::task::spawn_blocking(move || {
+                        crate::service::pty_io::poll_shell_prompt(
+                            &screen_state_clone, &pty_id_for_poll,
+                            std::time::Duration::from_secs(15),
+                        )
+                    }).await.unwrap_or(false);
 
-                let unset = crate::shell::ShellSyntax::UNSET_CLAUDECODE;
-                let cmd = format!("{} claude --resume {}{}", unset, session_id, skip_flag);
-                log::info!("[resume] sending: {}", cmd);
-                // Use bracket paste to prevent shell from eating characters
-                let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
-                let _ = pty_clone.lock().write(&pty_id_for_write, paste.as_bytes());
-            });
+                    if !ready {
+                        log::warn!("[resume] shell not ready for session {}, skipping", session_id);
+                        return;
+                    }
+
+                    log::info!("[resume] sending: {}", cmd);
+                    let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
+                    let _ = pty_clone.lock().write(&pty_id_for_write, paste.as_bytes());
+                });
+            }
         }
     }
 
@@ -551,22 +557,11 @@ pub fn read_session_jsonl(
 }
 
 // ---------------------------------------------------------------------------
-// Skills management
+// Skills — bundled skills are copied to ~/.codeterm/skills/ on startup.
+// The sync watcher mirrors that directory to provider-specific locations
+// (~/.claude/skills/, ~/.agents/skills/) reactively on any file change.
+// No install/uninstall commands needed — just drop files in the directory.
 // ---------------------------------------------------------------------------
-
-#[derive(serde::Serialize, Clone)]
-pub struct SkillInfo {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub installed: bool,
-    /// Current revision from bundled skill
-    pub revision: u32,
-    /// Installed revision (0 if not installed)
-    pub installed_revision: u32,
-    /// True if installed version is outdated
-    pub update_available: bool,
-}
 
 /// Extract revision number from file content.
 /// Looks for `<!-- revision: N -->` pattern.
@@ -587,138 +582,93 @@ fn extract_revision(content: &str) -> u32 {
         .unwrap_or(0)
 }
 
-/// Resolve skills source directory. Checks (in order):
+/// Resolve bundled skills source directory. Checks (in order):
 /// 1. Adjacent to exe (production build)
 /// 2. Project root /skills (dev mode — exe in target/debug)
-fn find_skills_dir() -> std::path::PathBuf {
+fn find_bundled_skills_dir() -> std::path::PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         let exe_dir = exe.parent().unwrap_or(std::path::Path::new("."));
 
-        // Production: skills/ next to exe
         let adjacent = exe_dir.join("skills");
         if adjacent.exists() { return adjacent; }
 
-        // macOS .app bundle: Contents/MacOS/../Resources/skills
         #[cfg(target_os = "macos")]
         {
             let resources = exe_dir.join("../Resources/skills");
             if resources.exists() { return resources.canonicalize().unwrap_or(resources); }
         }
 
-        // Dev: exe is in src-tauri/target/{debug,release} — project root is 3 levels up
         let dev = exe_dir.join("../../../skills");
         if dev.exists() { return dev.canonicalize().unwrap_or(dev); }
 
-        // Dev on macOS: exe might be deeper in .app bundle during dev
         let dev_deep = exe_dir.join("../../../../skills");
         if dev_deep.exists() { return dev_deep.canonicalize().unwrap_or(dev_deep); }
     }
     std::path::PathBuf::from("skills")
 }
 
-fn claude_skills_dir() -> std::path::PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(".claude").join("skills"))
-        .unwrap_or_default()
-}
+/// Copy bundled skills to `~/.codeterm/skills/` if missing or outdated.
+/// Called once at startup. The sync watcher handles mirroring to providers.
+pub fn seed_bundled_skills() {
+    let bundled = find_bundled_skills_dir();
+    let canonical = crate::service::sync_watcher::canonical_skills_dir();
+    let _ = std::fs::create_dir_all(&canonical);
 
-fn scan_skills() -> Vec<SkillInfo> {
-    let dir = find_skills_dir();
-    let installed_dir = claude_skills_dir();
-
-    let mut skills = Vec::new();
-    let Ok(entries) = std::fs::read_dir(&dir) else { return skills };
-
+    let Ok(entries) = std::fs::read_dir(&bundled) else { return };
     for entry in entries.flatten() {
         if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) { continue; }
+        let id = entry.file_name();
+        let src_skill = entry.path().join("SKILL.md");
+        let dst_dir = canonical.join(&id);
+        let dst_skill = dst_dir.join("SKILL.md");
 
-        let id = entry.file_name().to_string_lossy().to_string();
-        let skill_file = entry.path().join("SKILL.md");
-        if !skill_file.exists() { continue; }
+        // Skip if installed version is up to date
+        if dst_skill.exists() {
+            let src_rev = std::fs::read_to_string(&src_skill).map(|c| extract_revision(&c)).unwrap_or(0);
+            let dst_rev = std::fs::read_to_string(&dst_skill).map(|c| extract_revision(&c)).unwrap_or(0);
+            if dst_rev >= src_rev { continue; }
+        }
 
-        let content = std::fs::read_to_string(&skill_file).unwrap_or_default();
-        let name = content.lines()
-            .find(|l| l.starts_with("name:"))
-            .map(|l| l.trim_start_matches("name:").trim().to_string())
-            .unwrap_or_else(|| id.clone());
-        let description = content.lines()
-            .find(|l| l.starts_with("description:"))
-            .map(|l| l.trim_start_matches("description:").trim().to_string())
-            .unwrap_or_default();
-
-        let revision = extract_revision(&content);
-        let installed_path = installed_dir.join(&id);
-        let installed = installed_path.exists();
-        let installed_revision = if installed {
-            let installed_skill = installed_path.join("SKILL.md");
-            std::fs::read_to_string(&installed_skill)
-                .map(|c| extract_revision(&c))
-                .unwrap_or(0)
+        let _ = std::fs::create_dir_all(&dst_dir);
+        if let Err(e) = copy_dir_recursive(&entry.path(), &dst_dir) {
+            log::warn!("[skills] Failed to seed {:?}: {}", id, e);
         } else {
-            0
-        };
-        let update_available = installed && installed_revision < revision;
-        skills.push(SkillInfo { id, name, description, installed, revision, installed_revision, update_available });
-    }
-    skills
-}
-
-/// List available CodeTerm skills and their install status.
-#[tauri::command]
-pub fn list_skills() -> Result<Vec<SkillInfo>, String> {
-    Ok(scan_skills())
-}
-
-/// Install a skill by copying it to ~/.claude/skills/
-#[tauri::command]
-pub fn install_skill(skill_id: String) -> Result<(), String> {
-    let source = find_skills_dir().join(&skill_id);
-    if !source.exists() {
-        return Err(format!("Skill not found: {}", skill_id));
-    }
-
-    let dest = claude_skills_dir().join(&skill_id);
-    std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
-
-    // Copy all files recursively
-    fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
-        for entry in std::fs::read_dir(src).map_err(|e| e.to_string())?.flatten() {
-            let src_path = entry.path();
-            let dst_path = dst.join(entry.file_name());
-            if src_path.is_dir() {
-                std::fs::create_dir_all(&dst_path).map_err(|e| e.to_string())?;
-                copy_dir(&src_path, &dst_path)?;
-            } else {
-                std::fs::copy(&src_path, &dst_path).map_err(|e| e.to_string())?;
-            }
-        }
-        Ok(())
-    }
-    copy_dir(&source, &dest)
-}
-
-/// Auto-update all installed skills that have a newer bundled version.
-/// Returns list of skill IDs that were updated.
-pub fn auto_update_skills() -> Vec<String> {
-    let skills = scan_skills();
-    let mut updated = Vec::new();
-    for skill in skills {
-        if skill.installed && skill.update_available {
-            if install_skill(skill.id.clone()).is_ok() {
-                updated.push(skill.id);
-            }
+            log::info!("[skills] Seeded {:?} to canonical dir", id);
         }
     }
-    updated
 }
 
-/// Uninstall a skill by removing it from ~/.claude/skills/
-#[tauri::command]
-pub fn uninstall_skill(skill_id: String) -> Result<(), String> {
-    let dest = claude_skills_dir().join(&skill_id);
-    if dest.exists() {
-        std::fs::remove_dir_all(&dest).map_err(|e| e.to_string())?;
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+    for entry in std::fs::read_dir(src).map_err(|e| e.to_string())?.flatten() {
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            std::fs::create_dir_all(&dst_path).map_err(|e| e.to_string())?;
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path).map_err(|e| e.to_string())?;
+        }
     }
+    Ok(())
+}
+
+/// Restart the General Agent (e.g. after switching provider).
+#[tauri::command]
+pub fn restart_general_agent(
+    svc: State<'_, ServiceState>,
+    config: State<'_, crate::config::ConfigState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let svc = (*svc).clone();
+    let mux = svc.mux.clone();
+    let pty = svc.pty.clone();
+    let screen_state = svc.screen_state.clone();
+    let config = (*config).clone();
+    std::thread::spawn(move || {
+        crate::service::general_agent::restart_general_agent(
+            &svc, &mux, &pty, &screen_state, &config, &app,
+        );
+    });
     Ok(())
 }
 
@@ -1425,56 +1375,6 @@ mod tests {
     #[test]
     fn test_extract_revision_invalid_number() {
         assert_eq!(extract_revision("<!-- revision: abc -->"), 0);
-    }
-
-    #[test]
-    fn test_claude_skills_dir_is_under_home() {
-        let dir = claude_skills_dir();
-        let home = dirs::home_dir().unwrap();
-        assert!(dir.starts_with(&home));
-        assert!(dir.ends_with(".claude/skills"));
-    }
-
-    #[test]
-    fn test_scan_skills_with_temp_dir() {
-        let tmp = tempfile::tempdir().unwrap();
-        let skill_dir = tmp.path().join("test-skill");
-        fs::create_dir_all(&skill_dir).unwrap();
-        fs::write(
-            skill_dir.join("SKILL.md"),
-            "---\nname: test\ndescription: A test skill\n---\n\n<!-- revision: 3 -->\n",
-        ).unwrap();
-
-        // scan_skills uses find_skills_dir which we can't override easily,
-        // but we can test the extract_revision and parse logic directly
-        let content = fs::read_to_string(skill_dir.join("SKILL.md")).unwrap();
-        let name = content.lines()
-            .find(|l| l.starts_with("name:"))
-            .map(|l| l.trim_start_matches("name:").trim().to_string())
-            .unwrap();
-        let desc = content.lines()
-            .find(|l| l.starts_with("description:"))
-            .map(|l| l.trim_start_matches("description:").trim().to_string())
-            .unwrap();
-        let rev = extract_revision(&content);
-
-        assert_eq!(name, "test");
-        assert_eq!(desc, "A test skill");
-        assert_eq!(rev, 3);
-    }
-
-    #[test]
-    fn test_install_skill_nonexistent() {
-        let result = install_skill("nonexistent-skill-xyz-12345".to_string());
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Skill not found"));
-    }
-
-    #[test]
-    fn test_uninstall_skill_nonexistent_is_ok() {
-        // Uninstalling a skill that doesn't exist should succeed silently
-        let result = uninstall_skill("nonexistent-skill-xyz-12345".to_string());
-        assert!(result.is_ok());
     }
 
     #[test]

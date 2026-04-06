@@ -31,10 +31,8 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
   useEffect(() => {
     requestAnimationFrame(() => requestAnimationFrame(() => setEntered(true)));
     invoke<string[]>("list_themes").then(setThemes).catch(() => {});
-    // Check what's already installed
-    invoke<Array<{ id: string; installed: boolean }>>("list_skills")
-      .then((s) => { if (s.some((sk) => sk.id === "codeterm" && sk.installed)) setSkillsInstalled(true); })
-      .catch(() => {});
+    // Skills are auto-synced by the watcher — always consider installed
+    setSkillsInstalled(true);
     invoke<{ installed: boolean }>("check_rule_installed")
       .then((r) => { if (r.installed) setRulesInstalled(true); })
       .catch(() => {});
@@ -67,7 +65,8 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
   }, [config]);
 
   const installSkill = useCallback(async () => {
-    try { await invoke("install_skill", { skillId: "codeterm" }); setSkillsInstalled(true); } catch {}
+    // Skills are auto-synced, nothing to do
+    setSkillsInstalled(true);
   }, []);
   const installHooks = useCallback(async () => {
     try { await invoke("install_claude_hooks", { apiPort: null }); setHooksInstalled(true); } catch {}
@@ -442,7 +441,7 @@ function StepSetup({
       <div className="space-y-2 max-w-md mx-auto text-left">
         <SetupRow c={c}
           title="CodeTerm skill"
-          desc="Split panes, create workspaces, open canvas panels, spawn agents — all from Claude"
+          desc="Create workspaces, open canvas panels, spawn agents — all from Claude"
           installed={skillsInstalled} onInstall={onInstallSkill}
         />
         <SetupRow c={c}

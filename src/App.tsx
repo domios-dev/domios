@@ -92,7 +92,6 @@ function AppInner() {
     createTab,
     closeTab,
     setActiveTab,
-    splitPane,
     closePane,
     setFocusedPane,
     openBrowser,
@@ -455,7 +454,6 @@ function AppInner() {
                   panes={state.panes}
                   focusedPaneId={state.focused_pane_id}
                   onFocusPane={setFocusedPane}
-                  onSplitPane={splitPane}
                   onClosePane={closePane}
                   onPtySpawned={handlePtySpawned}
                   path={[]}
@@ -496,6 +494,7 @@ function AppInner() {
       <NotificationToastContainer
         toasts={state.toasts}
         onDismiss={dismissToast}
+        onNavigate={setFocusedPane}
       />
 
       {/* Settings panel */}
