@@ -191,6 +191,14 @@ If `$CODETERM_ROLE` is empty (Orchestrator):
 - Spawn leads/workers with `codeterm agent spawn`
 - After spawning, stay operational — continue your work. Do NOT block with sleep or polling. Reports arrive automatically as `[Report from ...]` messages. React when you see them.
 
+## After sending: don't echo
+
+When you respond to a parent agent (`codeterm agent report`), to a Telegram user (`codeterm bridge send`), or to any external target — the response has been delivered. **Do NOT repeat the same content in your own assistant output.** The recipient already sees it.
+
+- Reply delivered → if no more tasks, just stop. The send IS your final state.
+- Reply delivered → if more tasks queued, continue silently with the next one.
+- Don't say "Reported: X" or "Replied to user with Y" after the fact. Delivery is the acknowledgment.
+
 ## Mesh Networking
 
 CodeTerm instances form a mesh — discover, pair, and communicate across machines.
@@ -420,4 +428,4 @@ Dot-notation for nested keys. Values are JSON (true, false, 42, "string", ["arra
 - **Paths:** Use forward slashes in commands. The CLI handles path normalization.
 - **Temp files:** Use `/tmp/` on macOS/Linux, `$TEMP` or `/tmp/` on Windows (both work in CodeTerm).
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->
