@@ -5,6 +5,7 @@
 - [Plugin Architecture](plans/plugin-architecture.md) — core + plugins, MCP agent interface, unified dispatch, 6-phase roadmap
 - [Browser Improvements](plans/browser_improvements.md) — WebView2/WKWebView, CDP control, agent screenshots
 - [Whiteboard Plugin](plans/whiteboard-plugin.md) — tldraw canvas, agents draw/read diagrams, MCP tools
+- [Naming Research](plans/naming-research.md) — rebrand candidates, trademark checks, available names
 
 ---
 
