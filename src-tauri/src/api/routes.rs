@@ -156,14 +156,11 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (S
     Err((StatusCode::UNAUTHORIZED, "Invalid or missing token"))
 }
 
-async fn health() -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "status": "ok",
-        "version": env!("CARGO_PKG_VERSION"),
-        "build": env!("BUILD_HASH"),
-        "build_number": env!("BUILD_NUMBER"),
-        "name": "CodeTerm"
-    }))
+async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
+    match crate::dispatch::dispatch(&crate::dispatch::Command::Health, &state.svc) {
+        Ok(r) => Json(r.into_json()),
+        Err(_) => Json(serde_json::json!({"status": "error"})),
+    }
 }
 
 async fn identify(
