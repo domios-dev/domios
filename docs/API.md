@@ -51,7 +51,7 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/send` | `{text?, enter?, batch?: [{text, enter?, delay_ms?}]}` | Send text to PTY (fire & forget) |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
 | GET | `/api/panes/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
-| GET | `/api/panes/{id}/screen` | — | Get visible terminal text (alternate buffer included) |
+| GET | `/api/panes/{id}/screen` | — | Get visible terminal text (alternate buffer included). Served from the backend VT100 screen — no frontend roundtrip, no 3s timeout, works even if no frontend is attached. |
 | GET | `/api/panes/{id}/output/stream` | — | SSE real-time output stream |
 | POST | `/api/panes/{id}/focus` | — | Focus pane |
 | POST | `/api/panes/{id}/close` | — | Close pane + kill PTY |
@@ -673,4 +673,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->
