@@ -326,4 +326,107 @@ mod tests {
         let json = result.into_json();
         assert_eq!(json["test"], true);
     }
+
+    // ── Command enum round-trip tests ───────────────────────────────
+
+    #[test]
+    fn pane_split_deserialize_with_default_direction() {
+        let json = r#"{"cmd": "pane_split", "pane_id": "p1"}"#;
+        let cmd: Command = serde_json::from_str(json).unwrap();
+        match cmd {
+            Command::PaneSplit { pane_id, direction } => {
+                assert_eq!(pane_id, "p1");
+                assert_eq!(direction, "right");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn pane_split_deserialize_explicit_direction() {
+        let json = r#"{"cmd": "pane_split", "pane_id": "p1", "direction": "down"}"#;
+        let cmd: Command = serde_json::from_str(json).unwrap();
+        match cmd {
+            Command::PaneSplit { direction, .. } => assert_eq!(direction, "down"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn pane_close_deserialize() {
+        let cmd: Command = serde_json::from_str(r#"{"cmd": "pane_close", "pane_id": "abc"}"#).unwrap();
+        assert!(matches!(cmd, Command::PaneClose { .. }));
+    }
+
+    #[test]
+    fn pane_focus_deserialize() {
+        let cmd: Command = serde_json::from_str(r#"{"cmd": "pane_focus", "pane_id": "abc"}"#).unwrap();
+        assert!(matches!(cmd, Command::PaneFocus { .. }));
+    }
+
+    #[test]
+    fn pane_rename_deserialize() {
+        let json = r#"{"cmd": "pane_rename", "pane_id": "abc", "title": "My Pane"}"#;
+        let cmd: Command = serde_json::from_str(json).unwrap();
+        match cmd {
+            Command::PaneRename { pane_id, title } => {
+                assert_eq!(pane_id, "abc");
+                assert_eq!(title, "My Pane");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn get_output_deserialize_full_params() {
+        let json = r#"{"cmd":"get_output","pane_id":"p","offset":100,"max_bytes":4096,"strip_ansi":true,"full":true}"#;
+        let cmd: Command = serde_json::from_str(json).unwrap();
+        match cmd {
+            Command::GetOutput { pane_id, offset, max_bytes, strip_ansi, full } => {
+                assert_eq!(pane_id, "p");
+                assert_eq!(offset, Some(100));
+                assert_eq!(max_bytes, Some(4096));
+                assert!(strip_ansi);
+                assert!(full);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn default_direction_helper() {
+        assert_eq!(default_direction(), "right");
+    }
+
+    #[test]
+    fn command_round_trips_through_json() {
+        // Validates that every variant we migrated survives a JSON
+        // round trip with tag-based dispatch.
+        let commands = vec![
+            Command::Health,
+            Command::PaneList,
+            Command::SendText { pane_id: "p".into(), text: "hi".into(), enter: true },
+            Command::GetOutput {
+                pane_id: "p".into(),
+                offset: None,
+                max_bytes: None,
+                strip_ansi: false,
+                full: false,
+            },
+            Command::GetScreen { pane_id: "p".into(), formatted: false },
+            Command::PaneSplit { pane_id: "p".into(), direction: "right".into() },
+            Command::PaneClose { pane_id: "p".into() },
+            Command::PaneFocus { pane_id: "p".into() },
+            Command::PaneRename { pane_id: "p".into(), title: "t".into() },
+        ];
+        for cmd in commands {
+            let json = serde_json::to_value(&cmd).unwrap();
+            let roundtrip: Command = serde_json::from_value(json).unwrap();
+            // Same variant tag after roundtrip.
+            assert_eq!(
+                std::mem::discriminant(&cmd),
+                std::mem::discriminant(&roundtrip),
+            );
+        }
+    }
 }

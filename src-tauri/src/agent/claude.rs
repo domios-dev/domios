@@ -253,6 +253,45 @@ mod tests {
     }
 
     #[test]
+    fn claude_auto_approve_flags_has_dangerously_skip() {
+        let p = ClaudeProvider::new();
+        assert_eq!(p.auto_approve_flags(), vec!["--dangerously-skip-permissions"]);
+    }
+
+    #[test]
+    fn claude_compact_command() {
+        let p = ClaudeProvider::new();
+        assert_eq!(p.compact_command(), Some("/compact"));
+    }
+
+    #[test]
+    fn claude_model_switch_command_formats_slash_model() {
+        let p = ClaudeProvider::new();
+        assert_eq!(p.model_switch_command("sonnet").as_deref(), Some("/model sonnet"));
+    }
+
+    #[test]
+    fn claude_exit_command() {
+        let p = ClaudeProvider::new();
+        assert_eq!(p.exit_command(), Some("/exit"));
+    }
+
+    #[test]
+    fn claude_supports_lazy_skills() {
+        let p = ClaudeProvider::new();
+        assert!(p.supports_lazy_skills());
+    }
+
+    #[test]
+    fn claude_install_skills_default_noop_is_ok() {
+        let p = ClaudeProvider::new();
+        // Default implementation is a no-op that returns Ok(()) — ClaudeProvider
+        // doesn't override it yet (real skill delivery comes with Phase 2).
+        assert!(p.install_skills(&[]).is_ok());
+        assert!(p.uninstall_skills(&[]).is_ok());
+    }
+
+    #[test]
     fn test_build_launch_no_task() {
         let p = ClaudeProvider::new();
         let params = AgentLaunchParams {
