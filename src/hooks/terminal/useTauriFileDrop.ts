@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 
 export interface UseTauriFileDropOptions {
@@ -13,6 +13,9 @@ export function useTauriFileDrop({
   onPaths,
   enabled = true,
 }: UseTauriFileDropOptions): void {
+  const onPathsRef = useRef(onPaths);
+  onPathsRef.current = onPaths;
+
   useEffect(() => {
     if (!enabled) return;
     let unlisten: (() => void) | null = null;
@@ -24,7 +27,7 @@ export function useTauriFileDrop({
       if (!el) return;
       if (!isDropInside(event.payload.position, el)) return;
       const paths = event.payload.paths || [];
-      if (paths.length > 0) onPaths(paths);
+      if (paths.length > 0) onPathsRef.current(paths);
     }).then((fn) => {
       if (cancelled) fn(); else unlisten = fn;
     });
@@ -33,15 +36,13 @@ export function useTauriFileDrop({
       cancelled = true;
       unlisten?.();
     };
-  }, [enabled, containerRef, onPaths]);
+  }, [enabled, containerRef]);
 }
 
 function isDropInside(
   position: { x: number; y: number },
   el: HTMLElement,
 ): boolean {
-  // Tauri reports physical pixels; convert to CSS via DPR, then hit-test via DOM.
-  // elementFromPoint handles all layout/transform/overlay cases correctly.
   const dpr = window.devicePixelRatio || 1;
   const target = document.elementFromPoint(position.x / dpr, position.y / dpr);
   return target !== null && (target === el || el.contains(target));
