@@ -235,6 +235,14 @@ pub struct ProviderDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
     pub settings_schema: Vec<SettingField>,
+    /// Schema rendered into the global Settings → Notifications tab,
+    /// next to (not inside) the per-provider settings tab. Lets a
+    /// provider plug into the notifications surface without having
+    /// the Notifications tab know about specific providers.
+    /// Default empty — providers without notification integration
+    /// (e.g. Codex today) simply contribute nothing.
+    #[serde(default)]
+    pub notifications_schema: Vec<SettingField>,
     pub supports_lazy_skills: bool,
     pub has_hooks: bool,
     pub preserves_context_on_resume: bool,
@@ -388,8 +396,17 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Declarative settings panel — frontend renders generically.
+    /// Declarative settings panel for the per-provider Settings → Agents tab.
+    /// Frontend renders generically via `<SchemaRenderer />`.
     fn settings_schema(&self) -> Vec<SettingField> {
+        Vec::new()
+    }
+
+    /// Declarative schema contributed to the global Settings → Notifications
+    /// tab. Each provider that wants to plug into notifications (e.g. Claude
+    /// installing hook handlers) returns a non-empty schema; the renderer
+    /// composes one section per contributing provider. Default empty.
+    fn notifications_schema(&self) -> Vec<SettingField> {
         Vec::new()
     }
 
@@ -417,6 +434,7 @@ pub trait AgentProvider: Send + Sync {
             available_models: self.available_models(),
             default_model: self.default_model().map(|s| s.to_string()),
             settings_schema: self.settings_schema(),
+            notifications_schema: self.notifications_schema(),
             supports_lazy_skills: self.supports_lazy_skills(),
             has_hooks: self.has_hooks(),
             preserves_context_on_resume: self.preserves_context_on_resume(),
@@ -483,6 +501,16 @@ mod tests {
                     }],
                 },
             ],
+            notifications_schema: vec![SettingField::Section {
+                title: "Notify".into(),
+                description: None,
+                fields: vec![SettingField::Toggle {
+                    key: "notify_on_idle".into(),
+                    label: "Notify on idle".into(),
+                    default: true,
+                    description: None,
+                }],
+            }],
             supports_lazy_skills: true,
             has_hooks: true,
             preserves_context_on_resume: true,
@@ -504,6 +532,7 @@ mod tests {
             "display_name": "Test",
             "available_models": [],
             "settings_schema": [],
+            "notifications_schema": [],
             "supports_lazy_skills": false,
             "has_hooks": false,
             "preserves_context_on_resume": true,

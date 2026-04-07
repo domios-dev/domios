@@ -290,6 +290,32 @@ const BADGE_COLORS: Record<BadgeStyle, string> = {
   gray: "bg-[var(--ct-border)] text-[var(--ct-muted-fg)]",
 };
 
+/**
+ * Map a backend status query response to a variant id string.
+ *
+ * Recognized shapes (in order):
+ *   - plain string                    → use as-is
+ *   - { variant: "..." }              → explicit variant id
+ *   - { update_available: true }      → "update"
+ *   - { installed: true }             → "installed"  (e.g. check_rule_installed)
+ *   - { hooks_installed: true }       → "installed"  (e.g. check_claude_hooks)
+ *   - anything else                   → "missing"
+ *
+ * Plugins that need a unique state machine should return `{ variant: "..." }`
+ * — the legacy boolean shapes are convenience adapters for existing commands.
+ */
+function mapQueryResultToVariantId(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (result && typeof result === "object") {
+    const r = result as Record<string, unknown>;
+    if (typeof r.variant === "string") return r.variant;
+    if (r.update_available === true) return "update";
+    if (r.installed === true) return "installed";
+    if (r.hooks_installed === true) return "installed";
+  }
+  return "missing";
+}
+
 function BadgeField({
   queryCommand,
   variants,
@@ -301,29 +327,10 @@ function BadgeField({
 
   useEffect(() => {
     let active = true;
-    invoke<{ installed?: boolean; update_available?: boolean } | string>(queryCommand)
+    invoke(queryCommand)
       .then((result) => {
         if (!active) return;
-        // Map common shapes to variant ids. Plugins may either return a
-        // `{ variant: "..." }` object or one of the legacy shapes used by
-        // existing Tauri commands like check_rule_installed.
-        let id: string;
-        if (typeof result === "string") {
-          id = result;
-        } else if (result && typeof result === "object") {
-          const r = result as { variant?: string; installed?: boolean; update_available?: boolean };
-          if (r.variant) {
-            id = r.variant;
-          } else if (r.update_available) {
-            id = "update";
-          } else if (r.installed) {
-            id = "installed";
-          } else {
-            id = "missing";
-          }
-        } else {
-          id = "missing";
-        }
+        const id = mapQueryResultToVariantId(result);
         const match = variants.find((v) => v.id === id) ?? null;
         setVariant(match);
       })
@@ -364,19 +371,29 @@ function ActionField({
 
   const refreshState = useCallback(() => {
     if (!stateQuery) return;
-    invoke<{ installed?: boolean; update_available?: boolean; variant?: string; label?: string }>(stateQuery)
+    invoke<unknown>(stateQuery)
       .then((result) => {
-        // Map known shapes (e.g. check_rule_installed) into a button label.
-        if (result?.update_available) {
-          setState({ label: "Update Available", style: "primary" });
-        } else if (result?.installed) {
-          setState({ label: "Reinstall", style: "secondary" });
-        } else if (result?.variant === "missing") {
-          setState({ label, style: "primary" });
-        } else if (result?.label) {
-          setState({ label: result.label, style: "primary" });
-        } else {
-          setState({ label, style: "primary" });
+        // Map common state-query shapes into a button label/style.
+        // Reuses the same variant-id mapping as Badge so the same backend
+        // command can drive both a status badge and an action button.
+        const id = mapQueryResultToVariantId(result);
+        const r = result as Record<string, unknown> | undefined;
+        if (r && typeof r === "object" && typeof r.label === "string") {
+          // Explicit { label, style } from a plugin overrides the mapping.
+          const explicitStyle = (r.style as "primary" | "secondary" | "danger" | undefined) ?? "primary";
+          setState({ label: r.label, style: explicitStyle });
+          return;
+        }
+        switch (id) {
+          case "update":
+            setState({ label: "Update Available", style: "primary" });
+            break;
+          case "installed":
+            setState({ label: "Reinstall", style: "secondary" });
+            break;
+          default:
+            setState({ label, style: "primary" });
+            break;
         }
       })
       .catch(() => setState({ label, style: "primary" }));

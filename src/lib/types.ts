@@ -395,6 +395,10 @@ export interface ProviderDescriptor {
   available_models: ModelInfo[];
   default_model?: string;
   settings_schema: SettingField[];
+  /// Schema rendered into Settings → Notifications. Optional / may be empty
+  /// (e.g. Codex contributes none today). Notifications tab iterates providers
+  /// and renders one section per non-empty contribution.
+  notifications_schema: SettingField[];
   supports_lazy_skills: boolean;
   has_hooks: boolean;
   preserves_context_on_resume: boolean;
