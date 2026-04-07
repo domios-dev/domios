@@ -75,6 +75,36 @@ pub fn default_agent_provider() -> String {
     load_config().general_agent.agent_provider.clone()
 }
 
+/// Resolve effective per-provider config for the given agent id.
+///
+/// Lookup order:
+///   1. Explicit `[agents.<id>]` section in config.
+///   2. Back-compat fallback to the global `[agent]` section
+///      (`resume_sessions`, `resume_skip_permissions`).
+///   3. Built-in defaults from `ProviderConfig::default()`.
+///
+/// This is the single read path for provider-scoped settings — call sites
+/// that previously read `cfg.agent.resume_sessions` should call this with
+/// the actual provider id of the pane.
+pub fn provider_config(provider_id: &str) -> schema::ProviderConfig {
+    let cfg = load_config();
+    let mut out = cfg
+        .agents
+        .get(provider_id)
+        .cloned()
+        .unwrap_or_default();
+    // Back-compat: fall through to global [agent] for any field not set
+    // in the per-provider section. Lets existing configs keep working
+    // without an explicit [agents.<id>] block.
+    if out.resume_sessions.is_none() {
+        out.resume_sessions = Some(cfg.agent.resume_sessions);
+    }
+    if out.resume_skip_permissions.is_none() {
+        out.resume_skip_permissions = Some(cfg.agent.resume_skip_permissions);
+    }
+    out
+}
+
 /// Load config from disk, or create default if missing.
 pub fn load_config() -> AppConfig {
     let path = match config_path() {

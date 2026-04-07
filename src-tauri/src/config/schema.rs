@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -11,6 +13,13 @@ pub struct AppConfig {
     pub socket: SocketConfig,
     pub agent: AgentConfig,
     pub api: ApiConfig,
+    /// Per-provider settings keyed by provider id.
+    /// Section header in TOML: `[agents.claude]`, `[agents.codex]`, etc.
+    /// Plugin authors declare what fields belong here via the
+    /// `settings_schema()` trait method; the renderer reads/writes
+    /// the `agents.<id>.*` paths.
+    #[serde(default)]
+    pub agents: HashMap<String, ProviderConfig>,
     #[serde(default)]
     pub general_agent: GeneralAgentConfig,
     #[serde(default)]
@@ -32,12 +41,33 @@ impl Default for AppConfig {
             socket: SocketConfig::default(),
             agent: AgentConfig::default(),
             api: ApiConfig::default(),
+            agents: HashMap::new(),
             general_agent: GeneralAgentConfig::default(),
             integrations: IntegrationsConfig::default(),
             mesh: MeshConfig::default(),
             onboarding_completed: false,
         }
     }
+}
+
+/// Per-provider settings owned by an agent plugin.
+/// Plugins declare which of these fields they use through `settings_schema()`.
+/// All fields are optional so a brand-new plugin can add a `[agents.<id>]`
+/// section without colliding with unknown keys.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProviderConfig {
+    /// Resume previous sessions on CodeTerm restart (per provider).
+    pub resume_sessions: Option<bool>,
+    /// Use the provider's auto-approve flag when resuming
+    /// (Claude: --dangerously-skip-permissions, Codex: --dangerously-bypass-...).
+    pub resume_skip_permissions: Option<bool>,
+    /// Default model id used for fresh sessions.
+    pub default_model: Option<String>,
+    /// Free-form per-provider settings the schema can declare without
+    /// requiring a Rust struct field. Pluggable.
+    #[serde(flatten)]
+    pub extra: HashMap<String, toml::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

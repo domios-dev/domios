@@ -245,6 +245,19 @@ impl ServiceContext {
     pub fn spawn_agent_sync(&self, mut params: SpawnAgentParams) -> Result<SpawnResult, String> {
         let default_provider = crate::config::default_agent_provider();
         let agent_cmd = params.agent.as_deref().unwrap_or(&default_provider).to_string();
+        // Validate against the registry — reject unknown provider ids before
+        // we touch workspaces, PTYs, or the filesystem.
+        if self
+            .agent_registry
+            .with_provider(&agent_cmd, |_| ())
+            .is_none()
+        {
+            let available = self.agent_registry.provider_ids().join(", ");
+            return Err(format!(
+                "Unknown agent provider: '{}'. Available: [{}]",
+                agent_cmd, available
+            ));
+        }
         let title = params.title.as_deref()
             .or(params.agent_name.as_deref())
             .unwrap_or(&agent_cmd).to_string();
@@ -326,6 +339,18 @@ impl ServiceContext {
     pub async fn spawn_agent(&self, mut params: SpawnAgentParams) -> Result<SpawnResult, String> {
         let default_provider = crate::config::default_agent_provider();
         let agent_cmd = params.agent.as_deref().unwrap_or(&default_provider);
+        // Validate against the registry — reject unknown provider ids upfront.
+        if self
+            .agent_registry
+            .with_provider(agent_cmd, |_| ())
+            .is_none()
+        {
+            let available = self.agent_registry.provider_ids().join(", ");
+            return Err(format!(
+                "Unknown agent provider: '{}'. Available: [{}]",
+                agent_cmd, available
+            ));
+        }
         let title = params
             .title
             .as_deref()
