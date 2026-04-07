@@ -243,7 +243,8 @@ impl ServiceContext {
     ///   Agent exits after responding.
     /// Synchronous spawn — for socket API. No tokio runtime needed.
     pub fn spawn_agent_sync(&self, mut params: SpawnAgentParams) -> Result<SpawnResult, String> {
-        let agent_cmd = params.agent.as_deref().unwrap_or("claude").to_string();
+        let default_provider = crate::config::default_agent_provider();
+        let agent_cmd = params.agent.as_deref().unwrap_or(&default_provider).to_string();
         let title = params.title.as_deref()
             .or(params.agent_name.as_deref())
             .unwrap_or(&agent_cmd).to_string();
@@ -323,7 +324,8 @@ impl ServiceContext {
     }
 
     pub async fn spawn_agent(&self, mut params: SpawnAgentParams) -> Result<SpawnResult, String> {
-        let agent_cmd = params.agent.as_deref().unwrap_or("claude");
+        let default_provider = crate::config::default_agent_provider();
+        let agent_cmd = params.agent.as_deref().unwrap_or(&default_provider);
         let title = params
             .title
             .as_deref()
@@ -530,7 +532,7 @@ mod tests {
 
     fn test_registry() -> AgentRegistry {
         let reg = AgentRegistry::new();
-        reg.register_provider(Box::new(crate::agent::claude::ClaudeProvider::new()));
+        reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
         reg
     }
 

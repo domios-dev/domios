@@ -127,7 +127,7 @@ impl Default for AgentRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::claude::ClaudeProvider;
+    use crate::plugin::agent_claude::ClaudeProvider;
 
     fn registry_with_claude() -> AgentRegistry {
         let reg = AgentRegistry::new();

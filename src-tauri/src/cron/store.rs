@@ -331,7 +331,7 @@ impl CronStore {
             workspace_id: params.workspace_id,
             schedule: params.schedule,
             enabled: params.enabled.unwrap_or(true),
-            agent: params.agent.unwrap_or_else(|| "claude".to_string()),
+            agent: params.agent.unwrap_or_else(crate::config::default_agent_provider),
             task: params.task,
             cwd: params.cwd,
             role: params.role,
