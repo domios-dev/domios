@@ -12,7 +12,18 @@ interface OnboardingProps {
   onComplete: (config: AppConfig) => void;
 }
 
-const TOTAL_STEPS = 5;
+// Onboarding steps:
+//   0 — Welcome
+//   1 — Theme
+//   2 — General Agent (was step 3)
+//   3 — Network & API (was step 4)
+//
+// The legacy "AI integration" step (skill no-op + Claude hook installer +
+// Claude rule installer) was removed: skills auto-sync, hooks and rules
+// belong in Settings → Notifications / Settings → Agents → Claude where
+// they're now declarative provider contributions. The General Agent will
+// guide the user through hook/rule install via chat when relevant.
+const TOTAL_STEPS = 4;
 
 export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
   const [step, setStep] = useState(0);
@@ -20,9 +31,6 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
   const [leaving, setLeaving] = useState(false);
   const [themes, setThemes] = useState<string[]>([]);
   const [selectedTheme, setSelectedTheme] = useState(theme.name);
-  const [skillsInstalled, setSkillsInstalled] = useState(false);
-  const [hooksInstalled, setHooksInstalled] = useState(false);
-  const [rulesInstalled, setRulesInstalled] = useState(false);
   const [gaEnabled, setGaEnabled] = useState(config.general_agent?.enabled ?? true);
   const [gaAutostart, setGaAutostart] = useState(false);
   const [apiToken, setApiToken] = useState<string | null>(config.api?.token ?? null);
@@ -31,14 +39,6 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
   useEffect(() => {
     requestAnimationFrame(() => requestAnimationFrame(() => setEntered(true)));
     invoke<string[]>("list_themes").then(setThemes).catch(() => {});
-    // Skills are auto-synced by the watcher — always consider installed
-    setSkillsInstalled(true);
-    invoke<{ installed: boolean }>("check_rule_installed")
-      .then((r) => { if (r.installed) setRulesInstalled(true); })
-      .catch(() => {});
-    invoke<{ installed: boolean }>("check_claude_hooks")
-      .then((r) => { if (r.installed) setHooksInstalled(true); })
-      .catch(() => {});
   }, []);
 
   const finish = useCallback((cfg: AppConfig) => {
@@ -64,20 +64,9 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
     } catch {}
   }, [config]);
 
-  const installSkill = useCallback(async () => {
-    // Skills are auto-synced, nothing to do
-    setSkillsInstalled(true);
-  }, []);
-  const installHooks = useCallback(async () => {
-    try { await invoke("install_claude_hooks", { apiPort: null }); setHooksInstalled(true); } catch {}
-  }, []);
-  const installRules = useCallback(async () => {
-    try { await invoke("install_project_rules"); setRulesInstalled(true); } catch {}
-  }, []);
-
-  // Auto-initialize network info when reaching the network step
+  // Auto-initialize network info when reaching the network step (now step 3).
   useEffect(() => {
-    if (step !== 4) return;
+    if (step !== 3) return;
     (async () => {
       try {
         // Generate token if we don't have one yet
@@ -197,18 +186,12 @@ export function Onboarding({ config, theme, onComplete }: OnboardingProps) {
               <StepTheme c={c} themes={themes} selected={selectedTheme} onSelect={applyTheme} />
             )}
             {step === 2 && (
-              <StepSetup c={c}
-                skillsInstalled={skillsInstalled} hooksInstalled={hooksInstalled} rulesInstalled={rulesInstalled}
-                onInstallSkill={installSkill} onInstallHooks={installHooks} onInstallRules={installRules}
-              />
-            )}
-            {step === 3 && (
               <StepAgents c={c}
                 gaEnabled={gaEnabled} onGaEnabled={setGaEnabled}
                 autostart={gaAutostart} onAutostart={setGaAutostart}
               />
             )}
-            {step === 4 && (
+            {step === 3 && (
               <StepNetwork c={c}
                 token={apiToken} networkInfo={networkInfo}
                 onDisable={disableNetwork}
@@ -417,89 +400,7 @@ function TerminalPreview({ c }: { c: C }) {
   );
 }
 
-// ── Step 3: Setup ───────────────────────────────────────────────────
-
-function StepSetup({
-  c, skillsInstalled, hooksInstalled, rulesInstalled,
-  onInstallSkill, onInstallHooks, onInstallRules,
-}: {
-  c: C;
-  skillsInstalled: boolean; hooksInstalled: boolean; rulesInstalled: boolean;
-  onInstallSkill: () => void; onInstallHooks: () => void; onInstallRules: () => void;
-}) {
-  const allDone = skillsInstalled && hooksInstalled && rulesInstalled;
-
-  return (
-    <div className="text-center">
-      <h2 className="text-xl font-semibold mb-1" style={{ color: c.fg }}>
-        AI integration
-      </h2>
-      <p className="text-sm mb-8" style={{ color: c.muted }}>
-        Connect Claude Code with CodeTerm for the full experience.
-      </p>
-
-      <div className="space-y-2 max-w-md mx-auto text-left">
-        <SetupRow c={c}
-          title="CodeTerm skill"
-          desc="Create workspaces, open canvas panels, spawn agents — all from Claude"
-          installed={skillsInstalled} onInstall={onInstallSkill}
-        />
-        <SetupRow c={c}
-          title="Notification hooks"
-          desc="Get desktop alerts when Claude finishes a task or needs your permission to proceed"
-          installed={hooksInstalled} onInstall={onInstallHooks}
-        />
-        <SetupRow c={c}
-          title="Project rules"
-          desc="Claude auto-renames tabs, uses workspaces instead of mkdir, opens browser panels inline"
-          installed={rulesInstalled} onInstall={onInstallRules}
-        />
-      </div>
-
-      {allDone && (
-        <p className="text-xs mt-6" style={{ color: c.green }}>
-          &#10003; All set up
-        </p>
-      )}
-    </div>
-  );
-}
-
-function SetupRow({
-  c, title, desc, installed, onInstall,
-}: { c: C; title: string; desc: string; installed: boolean; onInstall: () => void }) {
-  return (
-    <div
-      className="flex items-center justify-between px-4 py-3 rounded-lg border transition-colors"
-      style={{
-        borderColor: installed ? c.green + "40" : c.border,
-        backgroundColor: installed ? c.green + "08" : c.surface + "60",
-      }}
-    >
-      <div className="min-w-0 mr-4">
-        <div className="text-xs font-medium" style={{ color: c.fg }}>{title}</div>
-        <div className="text-[11px]" style={{ color: c.muted }}>{desc}</div>
-      </div>
-      {installed ? (
-        <span className="text-xs shrink-0 font-medium" style={{ color: c.green }}>
-          &#10003;
-        </span>
-      ) : (
-        <button
-          onClick={onInstall}
-          className="shrink-0 text-[11px] px-3 py-1.5 rounded-md font-medium transition-all"
-          style={{ backgroundColor: c.accent, color: "#fff" }}
-          onMouseEnter={(e) => (e.currentTarget.style.filter = "brightness(1.15)")}
-          onMouseLeave={(e) => (e.currentTarget.style.filter = "none")}
-        >
-          Install
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ── Step 3: General Agent ──────────────────────────────────────────
+// ── Step 2: General Agent ──────────────────────────────────────────
 
 function OnbSwitch({ checked, onChange, c }: { checked: boolean; onChange: (v: boolean) => void; c: C }) {
   return (

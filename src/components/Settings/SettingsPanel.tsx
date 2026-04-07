@@ -832,6 +832,35 @@ function AgentsTab({
         </div>
       </div>
 
+      {/* Skills — CodeTerm-wide source of truth, NOT a provider contribution.
+          Hardcoded here on purpose: skills are a CodeTerm feature that
+          syncs to all providers, not something Claude or Codex own. The
+          Phase 3 broker will replace the auto-mirror with on-demand CLI
+          access (see docs/plans/memory-architecture.md). */}
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3 mb-5">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Skills</div>
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">
+            auto-synced
+          </span>
+        </div>
+        <div className="text-xs text-[var(--ct-muted-fg)]">
+          Drop skill folders into <code className="text-[10px]">~/.codeterm/skills/</code> — they're
+          available to every agent provider automatically. Source of truth lives in CodeTerm; providers
+          read on demand. The dedicated <code className="text-[10px]">codeterm skill</code> CLI broker
+          arrives with the memory plugin (Phase 3).
+        </div>
+        <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]">
+          <span className="font-mono">~/.codeterm/skills/</span>
+          <button
+            onClick={() => invoke("open_folder", { path: "~/.codeterm/skills" }).catch(() => {})}
+            className="text-[var(--ct-accent)] hover:underline"
+          >
+            Open folder
+          </button>
+        </div>
+      </div>
+
       {error && (
         <div className="text-[10px] text-[var(--ct-red)] mb-3">
           Failed to load agent providers: {error}
