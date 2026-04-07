@@ -68,6 +68,13 @@ cors = true
     .to_string()
 }
 
+/// Default agent provider id when caller has no explicit choice.
+/// Single source of truth — read by all sites that previously hardcoded `"claude"`.
+/// Sourced from `[general_agent].agent_provider` in config (defaults to `"claude"`).
+pub fn default_agent_provider() -> String {
+    load_config().general_agent.agent_provider.clone()
+}
+
 /// Load config from disk, or create default if missing.
 pub fn load_config() -> AppConfig {
     let path = match config_path() {

@@ -1,9 +1,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::agent::provider::{AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery};
 use crate::shell::ShellSyntax;
-
-use super::provider::{AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery};
 
 /// OpenAI Codex CLI agent provider.
 pub struct CodexProvider;

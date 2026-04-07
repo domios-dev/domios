@@ -1,40 +1,42 @@
-//! agent-claude — bundled native plugin that provides the Claude Code agent.
+//! agent-codex — bundled native plugin that provides the OpenAI Codex agent.
 //!
-//! Owns `ClaudeProvider` and registers it as an `AgentProvider`
-//! during activation. All Claude-specific knowledge (detection patterns,
-//! session file layout, TUI noise, slash commands) lives here or in
-//! `agent::claude` — core never references Claude directly.
+//! Owns `CodexProvider` and registers it as an `AgentProvider`
+//! during activation. All Codex-specific knowledge (detection patterns,
+//! session file layout, TUI noise, slash commands) lives in this module —
+//! core never references Codex directly.
 
-use crate::agent::claude::ClaudeProvider;
+pub mod provider;
+
+pub use provider::CodexProvider;
+
 use crate::agent::provider::AgentProvider;
 use crate::api::events::SystemEvent;
 use super::Plugin;
 
-pub const PLUGIN_ID: &str = "agent-claude";
-pub const PROVIDER_ID: &str = "claude";
+pub const PLUGIN_ID: &str = "agent-codex";
+pub const PROVIDER_ID: &str = "codex";
 
-/// Bundled native plugin that contributes the Claude Code agent provider.
-pub struct AgentClaudePlugin {
+/// Bundled native plugin that contributes the OpenAI Codex agent provider.
+pub struct AgentCodexPlugin {
     activated: bool,
 }
 
-impl AgentClaudePlugin {
+impl AgentCodexPlugin {
     pub fn new() -> Self {
         Self { activated: false }
     }
 
-    /// Build a `PluginManifest` for the bundled plugin (no TOML file needed).
     pub fn manifest() -> super::PluginManifest {
         super::PluginManifest {
             plugin: super::PluginMeta {
                 name: PLUGIN_ID.into(),
                 version: env!("CARGO_PKG_VERSION").into(),
-                description: "Claude Code agent provider — detection, sessions, TUI control"
+                description: "OpenAI Codex agent provider — detection, sessions, TUI control"
                     .into(),
                 tier: super::PluginTier::Native,
                 entrypoint: None,
                 wasm_module: None,
-                platforms: vec![], // universal
+                platforms: vec![],
                 min_codeterm: None,
             },
             capabilities: super::PluginCapabilities {
@@ -55,7 +57,7 @@ impl AgentClaudePlugin {
     }
 }
 
-impl Plugin for AgentClaudePlugin {
+impl Plugin for AgentCodexPlugin {
     fn id(&self) -> &str {
         PLUGIN_ID
     }
@@ -72,12 +74,10 @@ impl Plugin for AgentClaudePlugin {
         Ok(())
     }
 
-    fn on_event(&mut self, _event: &SystemEvent) {
-        // Future: react to events (e.g. auto-detect Claude on pane title change)
-    }
+    fn on_event(&mut self, _event: &SystemEvent) {}
 
     fn agent_providers(&self) -> Vec<Box<dyn AgentProvider>> {
-        vec![Box::new(ClaudeProvider::new())]
+        vec![Box::new(CodexProvider::new())]
     }
 }
 
@@ -87,16 +87,16 @@ mod tests {
 
     #[test]
     fn manifest_is_valid() {
-        let m = AgentClaudePlugin::manifest();
+        let m = AgentCodexPlugin::manifest();
         assert_eq!(m.plugin.name, PLUGIN_ID);
         assert_eq!(m.plugin.tier, super::super::PluginTier::Native);
         assert!(m.matches_platform());
-        assert_eq!(m.capabilities.agent_providers, vec!["claude"]);
+        assert_eq!(m.capabilities.agent_providers, vec!["codex"]);
     }
 
     #[test]
     fn plugin_lifecycle() {
-        let mut p = AgentClaudePlugin::new();
+        let mut p = AgentCodexPlugin::new();
         assert!(!p.activated);
         assert!(p.activate().is_ok());
         assert!(p.activated);
@@ -105,23 +105,23 @@ mod tests {
     }
 
     #[test]
-    fn contributes_claude_provider() {
-        let p = AgentClaudePlugin::new();
+    fn contributes_codex_provider() {
+        let p = AgentCodexPlugin::new();
         let providers = p.agent_providers();
         assert_eq!(providers.len(), 1);
-        assert_eq!(providers[0].id(), "claude");
+        assert_eq!(providers[0].id(), "codex");
     }
 
     #[test]
     fn provider_has_expected_capabilities() {
-        let p = AgentClaudePlugin::new();
+        let p = AgentCodexPlugin::new();
         let providers = p.agent_providers();
-        let claude = &providers[0];
-        assert_eq!(claude.display_name(), "Claude Code");
-        assert_eq!(claude.compact_command(), Some("/compact"));
-        assert_eq!(claude.exit_command(), Some("/exit"));
-        assert!(claude.supports_lazy_skills());
-        assert!(claude.has_hooks());
-        assert_eq!(claude.status_bar_rows(), 3);
+        let codex = &providers[0];
+        assert_eq!(codex.display_name(), "Codex");
+        assert_eq!(codex.compact_command(), Some("/compact"));
+        assert_eq!(codex.exit_command(), Some("/exit"));
+        assert!(!codex.supports_lazy_skills());
+        assert!(!codex.has_hooks());
+        assert_eq!(codex.status_bar_rows(), 1);
     }
 }

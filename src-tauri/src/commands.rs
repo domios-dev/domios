@@ -135,7 +135,7 @@ pub async fn spawn_pty(
         let agent_type = mux_state.lock().get_pane(pid)
             .and_then(|p| p.agent_type.clone());
         if let Some(session_id) = session_id.filter(|_| !is_protected) {
-            let provider_id = agent_type.unwrap_or_else(|| "claude".to_string());
+            let provider_id = agent_type.unwrap_or_else(crate::config::default_agent_provider);
             svc.set_pane_agent_type(pid, Some(provider_id.clone()));
             svc.emit_state_changed();
 
@@ -478,7 +478,7 @@ pub fn read_session_jsonl(
         let sid = pane.agent_session_id.clone();
         let cwd = pane.cwd.clone()
             .ok_or_else(|| "Pane has no CWD".to_string())?;
-        let at = pane.agent_type.clone().unwrap_or_else(|| "claude".to_string());
+        let at = pane.agent_type.clone().unwrap_or_else(crate::config::default_agent_provider);
         (sid, cwd, at)
     };
 

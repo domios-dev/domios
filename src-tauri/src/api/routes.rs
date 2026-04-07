@@ -1032,7 +1032,9 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
     // Set agent_type if not already set
     let agent_changed = agent_type.is_none();
     if agent_changed {
-        // Hook comes from Claude Code hooks → agent is claude
+        // Hook is dispatched from Claude Code, so the source provider is known to be "claude".
+        // TODO(plugin-prep): when plugins can register HTTP routes, move this whole hook
+        // handler into plugin/agent_claude/ and let each provider own its own hook endpoints.
         state.svc.set_pane_agent_type(pane_id, Some("claude".to_string()));
         log::info!("[hook] set agent_type=claude for pane {}", pane_id);
     }
@@ -1104,7 +1106,7 @@ async fn hook_permission(
             .and_then(|p| p.agent_type.clone());
 
         if let Some(pty_id) = pty_id {
-            let at = agent_type.unwrap_or_else(|| "claude".to_string());
+            let at = agent_type.unwrap_or_else(crate::config::default_agent_provider);
             let registry = &state.svc.agent_registry;
 
             // Primary: VT100-parsed screen state (accurate screen content)
