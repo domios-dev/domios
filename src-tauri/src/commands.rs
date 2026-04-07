@@ -139,11 +139,14 @@ pub async fn spawn_pty(
             svc.set_pane_agent_type(pid, Some(provider_id.clone()));
             svc.emit_state_changed();
 
-            // Build resume command via provider registry (provider-agnostic)
-            let (resume_enabled, skip_perms) = {
-                let cfg = config_state.lock();
-                (cfg.agent.resume_sessions, cfg.agent.resume_skip_permissions)
-            };
+            // Build resume command via provider registry (provider-agnostic).
+            // Per-provider config: each plugin has its own resume_sessions /
+            // resume_skip_permissions in `[agents.<id>]` (back-compat fallback
+            // to global `[agent]` is handled by `provider_config()`).
+            let pc = crate::config::provider_config(&provider_id);
+            let _ = config_state; // global lock no longer needed for these fields
+            let resume_enabled = pc.resume_sessions.unwrap_or(true);
+            let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
             let resume_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
                 p.build_resume_command(&session_id, skip_perms)
             }).flatten();

@@ -404,10 +404,14 @@ pub fn start_general_agent(
     log::info!("[general-agent] Shell ready, building launch command...");
 
     // Build launch command.
-    // Claude: resume previous session if available (context carries over).
-    // Other providers (Codex etc): always fresh start — their sessions are CWD-bound
-    // and resuming from a different project triggers interactive directory prompts.
-    let use_resume = session_id.is_some() && provider_name == "claude";
+    // Resume only when the provider preserves prior context across resume
+    // (Claude replays JSONL → true; Codex restarts fresh → false).
+    // Single-source-of-truth comes from the AgentProvider trait.
+    let preserves_context = svc
+        .agent_registry
+        .with_provider(provider_name, |p| p.preserves_context_on_resume())
+        .unwrap_or(false);
+    let use_resume = session_id.is_some() && preserves_context;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
         match svc.agent_registry.with_provider(provider_name, |p| p.build_resume_command(sid, true)).flatten() {
