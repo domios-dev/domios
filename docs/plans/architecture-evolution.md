@@ -206,6 +206,8 @@ Rationale:
 - [ ] Agent ops batch: `AgentSpawn`, `AgentReport`, `AgentList`, plus `ListAgentProviders` from Chunk B.
 - [ ] Mesh ops batch: `MeshPeers`, `MeshSendText`, `MeshAgentSpawn`.
 
+**Sync watcher hands-off (applies to ALL chunks before Phase 3 / memory plugin):** Do NOT touch `src-tauri/src/service/sync_watcher.rs` from any of the plugin-prep chunks. Today it does the wrong thing (mirrors `~/.codeterm/skills/` into `~/.claude/skills/` with `clean_stale` — would silently delete user-installed Claude skills if exercised). Reverting and replacing with the bridge-rule generator is **Phase 3.0** and lives entirely inside the memory plugin work — see `docs/plans/memory-architecture.md` Phase 3.0 prerequisite. The plugin-prep chunks must not introduce new mirror destinations or new dependencies on the existing mirror behaviour.
+
 **Chunk D — Move Claude-specific HTTP/installer code into the plugin:** unblocks the `api/routes.rs:1036` TODO. Requires plugin trait to gain a `register_routes(router: &mut Router)` hook. Targets:
 
 - [ ] `commands.rs:675-700` (`~/.claude/rules/codeterm.md` install)

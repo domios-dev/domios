@@ -1,7 +1,7 @@
 # Memory & Knowledge Architecture Plan
 
 **Status:** Research complete, implementation not started
-**Date:** 2026-04-06
+**Date:** 2026-04-06 (revised 2026-04-07 with skill-sync hardening)
 **Parent:** `docs/plans/plugin-architecture.md` Phase 3 (Memory Plugin) — this is the detailed design.
 
 ## Problem
@@ -279,6 +279,33 @@ codeterm memory graph schema-append --data '{"types":{"NewType":{"required":["na
 
 Skills live in `~/.codeterm/skills/`. No duplication to agent-specific directories.
 
+### CRITICAL: rules ≠ skills
+
+Claude has two distinct mechanisms that are easy to conflate:
+
+| Mechanism | Path | Lifecycle | Purpose |
+|-----------|------|-----------|---------|
+| **Skills** | `~/.claude/skills/<name>/SKILL.md` | Lazy — auto-discovered, loaded on demand by Skill tool when trigger words match | Reference material the agent pulls in only when relevant |
+| **Rules** | `~/.claude/rules/*.md` | Eager — injected into the system prompt of every session | Always-active instructions the agent must remember |
+
+CodeTerm's `~/.claude/rules/codeterm.md` is a **rule**, not a skill. It contains the bridge — a small always-on document that teaches Claude how to reach into CodeTerm via the broker (`codeterm skill list / get / search`, `codeterm memory ...`). It must always be loaded, hence the rule slot.
+
+The actual skill content stays in `~/.codeterm/skills/` and is fetched **lazily** by the agent calling `codeterm skill get <name>` from inside the bridge rule's instructions. The bridge rule contains a **compact index** (~660 tokens for 44 skills) so the agent knows which names exist.
+
+Codex has no native rule directory; its bridge equivalent is inlined into `AGENTS.md` (CodeTerm already regenerates this). Generic / local LLMs receive the bridge content prepended to their system prompt at spawn time.
+
+### Skill lookup hierarchy
+
+The skill broker MUST scan, in order:
+
+1. **`~/.codeterm/skills/`** — user-installed and bundled skills (canonical CodeTerm-managed source)
+2. **`~/.codeterm/plugins/<plugin-name>/skills/`** — skills shipped by installed plugins (auto-registered when a plugin activates)
+3. **`<workspace-cwd>/.codeterm/skills/`** — workspace-local skills (project-scoped, not synced to mesh, not in global index)
+
+Conflicts (same skill name in multiple layers): later layer wins for the matching scope. Workspace-local overrides global; plugin skills are namespaced by plugin id to avoid collisions.
+
+`codeterm skill list` returns the union of all three layers, tagged with origin. `codeterm skill get <name>` resolves the highest-priority match.
+
 Each skill is a folder. `SKILL.md` is the canonical file and also carries the skill metadata in its
 header. No extra `skill.json` or manifest is required for v1.
 
@@ -337,7 +364,35 @@ skills/
 
 This keeps the broker, installer, evaluator, and future plugin migration simple.
 
-### Bridge rule (installed per provider)
+### Bridge rule generation owner
+
+Bridge rules must be **regenerated** when the skill set changes (install / uninstall / plugin activation). The current `src-tauri/src/service/sync_watcher.rs` already uses the `notify` crate to react to filesystem changes in `~/.codeterm/skills/` — that mechanism stays, but the **operation** changes from "mirror folders to provider dirs" to "regenerate compact skill index and re-deliver bridge rules".
+
+Per-provider delivery is owned by the agent provider plugin, NOT the watcher. The watcher just calls into each registered provider:
+
+```rust
+// AgentProvider trait — NEW dedicated method, replaces / supersedes
+// the existing `install_skills(&[SkillFile])` no-op default.
+fn install_bridge_rule(&self, compact_index: &str, broker_help: &str) -> Result<(), String> {
+    // Default no-op for providers that don't carry bridge rules
+    // (e.g. local LLMs handled via system-prompt injection at spawn time).
+    Ok(())
+}
+
+fn uninstall_bridge_rule(&self) -> Result<(), String> { Ok(()) }
+```
+
+Per-provider implementations:
+
+| Provider | Where the bridge rule lands | Format |
+|----------|----------------------------|--------|
+| **Claude** | `~/.claude/rules/codeterm.md` | Markdown rule (always-on) |
+| **Codex** | Inlined into `~/.codeterm/general/AGENTS.md` (already generated) | Plain markdown section |
+| **Generic** | Returned as system-prompt prepend at spawn time (no on-disk install) | Provider passes via `deliver_prompt()` |
+
+The watcher iterates `agent_registry.list_providers()` and calls `install_bridge_rule()` on each. When a plugin activates / deactivates, the registry change triggers a regeneration via the same `contributions-changed` event we already added in Chunk B.
+
+### Bridge rule content (the universal payload)
 
 The `codeterm.md` bridge rule tells agents about skill access:
 
@@ -571,6 +626,40 @@ provider-native skill folder. It already owns the canonical source of truth.
 - Report back via `codeterm agent report`
 - Minimal skill knowledge (only what's needed for task)
 
+### Canonical use case: ad-hoc skill discovery from a non-GA tab
+
+This is the scenario that drives the bridge-rule + broker design. Without it, project-session agents would be blind to CodeTerm's skill library.
+
+```
+1. User opens a workspace tab (Claude session in their project, NOT the General Agent).
+2. User: "Send a message to my home assistant about ..."
+3. Agent has the bridge rule loaded (compact skill index already in system prompt
+   via ~/.claude/rules/codeterm.md). Sees that skill `home-assistant` exists with
+   the description "Control HA entities, scenes, automations".
+4. Agent calls `codeterm skill get home-assistant` via Bash tool.
+5. Broker returns the full SKILL.md content (instructions, scripts, references).
+6. Agent uses the skill to complete the task.
+7. Agent optionally calls `codeterm memory save "successfully sent HA notify via skill X"`
+   so dreaming can pick it up later.
+```
+
+If the agent isn't sure which skill applies (vague trigger), it can fall back to:
+
+```
+codeterm skill search "home automation"            # FTS5 keyword search
+codeterm memory recall "skill for home control"    # semantic recall (Phase 3.5)
+```
+
+Both return ranked candidate skills. `memory recall` uses vector search when embeddings are enabled, otherwise BM25 over skill descriptions.
+
+The bridge rule MUST teach the agent these three escalation steps explicitly, in this order: try the compact index first, fall back to `skill search`, then `memory recall` for fuzzy intent matching. Without explicit ordering, agents tend to load every skill upfront — defeats the lazy design.
+
+### Invariant: project sessions never see CodeTerm skill files in their own skill directory
+
+`~/.claude/skills/` and `~/.agents/skills/` are USER territory. CodeTerm MUST NOT mirror skills there (see Phase 3.0 prerequisite below). Project sessions reach skills exclusively through the broker CLI.
+
+This is the opposite of what `src-tauri/src/service/sync_watcher.rs` does today. Phase 3.0 reverts that.
+
 ## Config Schema
 
 ```toml
@@ -620,6 +709,19 @@ max_vector_docs = 15000
 
 ## Implementation Phases
 
+### Phase 3.0: Skill-sync legacy cleanup (PREREQUISITE — must land before any 3.x work)
+
+The current `src-tauri/src/service/sync_watcher.rs` does the **opposite** of what this plan requires: it mirrors `~/.codeterm/skills/` into `~/.claude/skills/` AND `~/.agents/skills/`, with `clean_stale` deleting any entries in the destination that aren't in the source. **This is a footgun**: a user who installed Claude skills via the marketplace into `~/.claude/skills/` will have those skills silently removed on the next sync.
+
+Phase 3.0 reverts that and replaces it with the bridge-rule generator described above. No core memory work proceeds until this is done — otherwise Phase 3.2 builds on top of a destructive watcher.
+
+- [ ] **Backup pass on first run after upgrade**: scan `~/.claude/skills/` and `~/.agents/skills/` for entries NOT present in `~/.codeterm/skills/`. Move those to `~/.codeterm/skills-imported-from-providers/<provider>/<name>/` and log a one-time migration report. This rescues any skills the old mirror would have deleted.
+- [ ] **Replace `sync_watcher::sync_skills()`** — instead of `mirror_dir`, build the compact skill index from `~/.codeterm/skills/` (+ plugin skill dirs once Phase 3.2 lookup hierarchy lands) and call `agent_registry.with_each_provider(|p| p.install_bridge_rule(index, broker_help))`.
+- [ ] **Stop touching `~/.claude/skills/` entirely.** Remove `provider_skill_dirs()` mirror destinations from the watcher. Provider skill directories belong to the user; CodeTerm only writes its own bridge rule under `~/.claude/rules/codeterm.md` (Claude) and to its own files (Codex AGENTS.md).
+- [ ] **Add `AgentProvider::install_bridge_rule(compact_index, broker_help) -> Result`** to the trait. Default no-op (for generic / system-prompt providers). Claude impl writes the rule file. Codex impl regenerates AGENTS.md section.
+- [ ] **Hook into `contributions-changed`**: when a plugin activates / deactivates and the registered provider set changes, regenerate bridge rules for the new set. Reuses the event channel added in Chunk B.3.
+- [ ] **Tests**: bridge rule round-trip (build index → install → uninstall → assert clean state); migration backup test (pre-existing user skills are preserved, not deleted).
+
 ### Phase 3.1: Memory Store + Graph Engine (1 week)
 
 - [ ] `src-tauri/src/memory/mod.rs` — MemoryManager facade
@@ -634,13 +736,22 @@ max_vector_docs = 15000
 ### Phase 3.2: Skill Broker (1 week)
 
 - [ ] `src-tauri/src/memory/skills.rs` — skill discovery, indexing, search
-- [ ] CLI: `codeterm skill list`, `codeterm skill preview`, `codeterm skill get`, `codeterm skill search`
+- [ ] **Three-layer lookup hierarchy** (must be implemented in this order, with origin tagging in `skill list` output):
+  1. `~/.codeterm/skills/` — canonical user / bundled skills
+  2. `~/.codeterm/plugins/<plugin-name>/skills/` — plugin-contributed skills (auto-registered when a plugin activates via the contributions bus)
+  3. `<workspace-cwd>/.codeterm/skills/` — workspace-local project skills (resolved at command time using the current pane's cwd; never indexed globally; not synced to mesh)
+- [ ] **Conflict resolution**: workspace-local overrides global; plugin skills are namespaced by plugin id (e.g. `ha-bridge:home-assistant`) so they can't collide with user-installed entries.
+- [ ] CLI: `codeterm skill list [--origin user|plugin|workspace]`, `codeterm skill preview`, `codeterm skill get`, `codeterm skill search`
 - [ ] CLI: `codeterm skill install <path>`, `codeterm skill uninstall <name>`
 - [ ] Parse skill metadata from `SKILL.md` header, no extra manifest
-- [ ] Skill registry in graph (Skill entities + relations)
-- [ ] Bridge rule generation for Claude/Codex without skill mirroring
-- [ ] Plugin skill contribution: plugins declare skills in manifest, auto-registered
+- [ ] Skill registry in graph (Skill entities + relations, with `origin` and `plugin` properties)
+- [ ] **Bridge rule generation** (built on Phase 3.0 plumbing): generate compact index across all three layers, regenerate on:
+  - Filesystem changes in `~/.codeterm/skills/` (existing watcher channel)
+  - `contributions-changed { kind: "agent_provider" }` (provider set change → re-deliver to new providers)
+  - `contributions-changed { kind: "skill" }` (plugin contributed/removed skills)
+- [ ] Plugin skill contribution: plugins declare skills in manifest, auto-registered into the broker AND emitted as `contributions-changed { kind: "skill" }`
 - [ ] Bundle starter skills: `codeterm`, `ontology`, `skill-creator`, `skill-evaluator`, `self-improving-agent`
+- [ ] **Tests**: lookup hierarchy precedence, conflict namespace isolation, bridge regeneration on plugin activation/deactivation
 
 ### Phase 3.3: Learnings + Compaction (1 week)
 
@@ -901,3 +1012,7 @@ max_tokens_per_run = 50000    # approximate budget
 12. **Cron jitter + prompt uniqueness + backoff** for resilient periodic tasks.
 13. **Bundled starter skills ship with CodeTerm.** At minimum: `codeterm`, `ontology`, `skill-creator`, `skill-evaluator`, `self-improving-agent`.
 14. **Dreaming disabled by default.** Opt-in via config. Uses existing cron system.
+15. **Provider skill directories belong to the user, not to CodeTerm.** `~/.claude/skills/` and `~/.agents/skills/` are NEVER written to or cleaned by CodeTerm. The current `sync_watcher.rs` mirror behaviour is a footgun and Phase 3.0 reverts it before any other memory work begins.
+16. **Bridge rule (always-on) ≠ skill (lazy).** `~/.claude/rules/codeterm.md` is a rule containing the compact skill index + broker instructions; actual skill bodies stay in `~/.codeterm/skills/` and are pulled on demand via `codeterm skill get`.
+17. **Bridge rule delivery is owned by the provider.** `AgentProvider::install_bridge_rule(compact_index, broker_help)` is the abstract channel — Claude writes a rule file, Codex regenerates AGENTS.md, generic injects into system prompt at spawn. The watcher just regenerates the index and fans out to registered providers.
+18. **Skill lookup is layered**: user > plugin > workspace, with origin tagging and namespace isolation for plugin-contributed entries.
