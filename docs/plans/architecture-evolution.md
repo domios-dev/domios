@@ -35,18 +35,169 @@
 
 **Chunk B — Provider self-presentation (Phase D.3, "1.5"):** make plugins fully contribute their UI/config presence so the frontend has ONE source of truth.
 
-- [ ] Extend `AgentProvider` trait with metadata methods:
-  - `available_models() -> Vec<ModelInfo>` (id + display name)
-  - `default_model() -> Option<&str>`
-  - `icon_hint() -> Option<&str>`
-  - `settings_schema() -> Vec<SettingField>` (declarative API key / flags / etc.)
-  - Default impls return empty so existing providers don't break.
-- [ ] Implement metadata in `ClaudeProvider` (sonnet/opus/haiku) and `CodexProvider` (gpt-5/o1).
-- [ ] New `dispatch::Command::ListAgentProviders` returning `Vec<ProviderDescriptor>`; expose via REST `GET /api/agents/providers`, Socket `agents.list_providers`, and Tauri command. Single definition, three transports — first real Phase B win for an agent op.
-- [ ] Config schema: add `[agents.<id>]` per-provider sections (default_model, api_key_env, etc.) validated against each provider's `settings_schema()`.
-- [ ] Spawn validation: `service/orchestrator::spawn_agent[_sync]` rejects unknown provider ids via `registry.with_provider(...)` lookup before launching anything. Today any string is silently accepted.
-- [ ] Frontend: replace hardcoded registrations in `src/lib/agentProviders.ts` with `useAgentProviders()` hook that fetches from the new endpoint and refetches on `PluginActivated` / `PluginDeactivated` events. Repoint `src/components/Settings/SettingsPanel.tsx` AgentsTab and `src/components/Sidebar/Sidebar.tsx` workspace menu at the hook.
-- [ ] Move `provider_name == "claude"` resume-vs-fresh check in `service/general_agent.rs:410` into a new trait method `preserves_context_on_resume() -> bool`.
+Today's gap: backend providers are extracted but the frontend still hardcodes Claude+Codex in `src/lib/agentProviders.ts`. Adding a new plugin = backend code AND a manual TS edit. Chunk B closes this loop so plugin = backend code only.
+
+### Design decision (reviewed 2026-04-07)
+
+Two designs were considered: (A) one-liner `list_descriptors()` over the existing provider HashMap, vs (B) separate descriptor cache + generalized `ContributionRegistry` covering skills/commands/panels/etc. Consensus after review: **build Design A. Add three forward-compat hooks that cost nothing now and make the eventual contribution-registry refactor a one-day job, not a rename of half the project.**
+
+Rationale:
+- Design A fully delivers everything in B.1-B.7. The cache in Design B is not *needed* by any current requirement — it's a bet on contribution kinds that don't exist in code yet.
+- "ProviderDescriptor and SkillDescriptor share `id` + `display_name` and nothing else" — a unified container is just a namespace of unrelated maps, not a real abstraction. Don't commit to that namespace until two populated maps actually exist.
+- YAGNI applies to *implementation*. *Naming/shape* should be forward-compatible so the second contribution type is additive, not retrofit.
+
+**Forward-compat hooks (apply to B.1, B.3, B.6):**
+1. **Lifecycle lives on `PluginManager`, not on `AgentRegistry`.** When a plugin activates, `PluginManager.activate()` calls `plugin.agent_providers()` and registers them. When contribution #2 lands, adding it = `+1` line in the same method (`plugin.skills()` → push into a new sibling map). No retrofit of existing call sites.
+2. **Generic event name.** Emit `contributions-changed { kind: "agent_provider" }` (NOT `provider-descriptor-changed`) from `PluginManager` on attach/detach. Frontend filters by `kind`. Skills/commands reuse the same channel.
+3. **Frontend hook parameterized internally.** `useContributions<T>(kind, fetcher)` is the primitive; `useAgentProviders()` is a one-line wrapper (`useContributions<ProviderDescriptor>("agent_provider", fetchProviders)`). Zero cost, makes the second hook trivial.
+
+**Wire-format insurance:** `ProviderDescriptor` carries `schema_version: u32 = 1` and `#[serde(deny_unknown_fields)]`. Round-trip golden test before exposing the endpoint. Cheap now, no clients to break, hard to add later.
+
+**Concurrency contract:** `AgentProvider::describe()` MUST be pure, cheap, no I/O, no locks, no `.await`. Document in the trait. `list_descriptors()` collects into a `Vec` and drops the read guard before serializing. The descriptor cache (Design B) does NOT make this safer — it just hides stale data instead of surfacing it.
+
+**Explicitly NOT in Chunk B:** `ContributionRegistry` umbrella struct, descriptor cache / `update_descriptor()` / push invalidation, `SkillDescriptor`/`CommandDescriptor`/etc, generic `ContributionKind` trait. These land in Chunk B+1 *only when the second contribution type has a real implementation behind it*. Trigger: when adding contribution #2 requires touching `PluginManager.activate()` for the second time, refactor that method to iterate `Vec<Box<dyn ContributionKind>>`. Not before.
+
+### B.1 — Trait extension (backend, no behavior change)
+
+- [ ] Define new types in `src-tauri/src/agent/provider.rs`:
+  - `pub struct ModelInfo { id: String, display_name: String, description: Option<String> }`
+  - `pub struct ProviderDescriptor { schema_version: u32, id, display_name, icon_hint, available_models, default_model, settings_schema, supports_lazy_skills, has_hooks }` — the wire format. `schema_version = 1` from day one. `#[serde(deny_unknown_fields)]` + serialize/deserialize round-trip golden test.
+- [ ] **Rich `SettingField` enum** — must cover everything currently rendered by `ClaudeAgentSettings` and `CodexAgentSettings` in `src/components/Settings/SettingsPanel.tsx:820-980` (sections, toggles, conditional warnings, info cards, path links, status badges, multi-state action buttons). Variants:
+  ```rust
+  pub enum SettingField {
+      // Grouping
+      Section { title: String, description: Option<String>, fields: Vec<SettingField> },
+
+      // Inputs
+      Toggle { key: String, label: String, default: bool, description: Option<String> },
+      Text   { key: String, label: String, default: Option<String>, placeholder: Option<String> },
+      Number { key: String, label: String, default: Option<i64>, min: Option<i64>, max: Option<i64> },
+      Select { key: String, label: String, options: Vec<(String, String)>, default: Option<String> },
+      ApiKey { env_var: String, label: String, link: Option<String> },
+
+      // Display
+      Info     { markdown: String },                            // formatted text with inline `code`
+      PathLink { label: String, path: String, open: PathOpenKind }, // OpenFolder | OpenFile | RevealInExplorer
+      Badge    { query_command: String, variants: Vec<BadgeVariant> }, // queries backend, colored badge
+
+      // Actions
+      Action {
+          id: String,
+          label: String,
+          command: String,           // Tauri command name to invoke
+          state_query: Option<String>, // optional command returning {variant, label, style} for dynamic state
+          confirm: Option<String>,
+          style: ActionStyle,        // Primary | Secondary | Danger
+      },
+
+      // Conditional visibility
+      When { field: String, equals: serde_json::Value, then: Vec<SettingField> },
+  }
+  ```
+  Plus support enums: `BadgeVariant { id, label, style }`, `BadgeStyle { Green | Orange | Red | Gray }`, `ActionStyle`, `PathOpenKind`.
+- [ ] Add methods to `AgentProvider` trait with empty default impls (so nothing breaks):
+  - `fn available_models(&self) -> Vec<ModelInfo> { vec![] }`
+  - `fn default_model(&self) -> Option<&str> { None }`
+  - `fn icon_hint(&self) -> Option<&str> { None }`
+  - `fn settings_schema(&self) -> Vec<SettingField> { vec![] }`
+  - `fn preserves_context_on_resume(&self) -> bool { true }` — replaces the `provider_name == "claude"` literal at `service/general_agent.rs:410`.
+  - `fn describe(&self) -> ProviderDescriptor` — default impl assembles from the methods above.
+- [ ] **Document the `describe()` contract in the trait doc-comment:** "MUST be pure, cheap, no I/O, no locks, no `.await`. Called while holding a read lock on the registry."
+
+**Schema completeness rule:** if Chunk B uncovers a UI pattern in the existing Claude/Codex panels that doesn't fit the variants above, **add a new variant to the enum**. Do NOT add an "escape hatch" component slot. There is no legacy mode and no hardcoded fallback — the schema is the only path. We have no external users to protect; if the schema needs to grow, grow it.
+
+### B.2 — ClaudeProvider / CodexProvider implement full metadata
+
+- [ ] `plugin/agent_claude/provider.rs`:
+  - `available_models` — sonnet, opus, haiku (current Claude Code ids)
+  - `default_model` = sonnet, `icon_hint`, `preserves_context_on_resume = true`
+  - **`settings_schema` must reproduce 100% of `ClaudeAgentSettings` from `SettingsPanel.tsx:820-931`:**
+    - Section "Session Resume" with two `Toggle`s + `When` block showing an `Info` warning when `resume_skip_permissions = true`
+    - Section "Rule" with `Info` description, `PathLink` to `~/.claude/rules/codeterm.md`, `Badge` driven by `check_rule_installed`, `Action` "Install" wired to `install_project_rules` with `state_query = check_rule_installed`
+- [ ] `plugin/agent_codex/provider.rs`:
+  - `available_models` (gpt-5, o1, etc.), `default_model`, `icon_hint`, `preserves_context_on_resume = false`
+  - **`settings_schema` reproduces 100% of `CodexAgentSettings` from `SettingsPanel.tsx:933-980`:**
+    - Section "Session Resume" with two `Toggle`s + conditional warning
+    - Section "Requirements" with `Info` containing the install instructions (markdown with inline code)
+- [ ] Tests in each provider's `mod tests` covering the metadata + a snapshot test asserting the schema serializes to a stable JSON shape.
+
+### B.3 — Expose via unified dispatch (first real agent-op Phase B win)
+- [ ] Add `AgentRegistry::list_descriptors()` — one-liner over the existing `RwLock<HashMap>`:
+  ```rust
+  pub fn list_descriptors(&self) -> Vec<ProviderDescriptor> {
+      let guard = self.providers.read();
+      let out: Vec<_> = guard.values().map(|p| p.describe()).collect();
+      drop(guard);
+      out
+  }
+  ```
+  No second cache, no parallel storage. Same `providers: RwLock<HashMap<String, Box<dyn AgentProvider>>>` we have today.
+- [ ] New command `dispatch::Command::ListAgentProviders` in `src-tauri/src/dispatch/mod.rs` returning `Vec<ProviderDescriptor>` from `registry.list_descriptors()`.
+- [ ] Wire through three adapters via existing dispatch glue:
+  - REST: `GET /api/agents/providers`
+  - Socket: `"agents.list_providers"` JSON-RPC method
+  - Tauri: `#[tauri::command] list_agent_providers`
+- [ ] Parity test: same input → identical JSON across all three transports.
+- [ ] **PluginManager emits `contributions-changed { kind: "agent_provider" }`** (generic event name, not provider-specific) on `attach_native` / `detach`. Both via the typed `SystemEvent` bus and via Tauri `app_handle.emit("contributions-changed", { kind })` for the frontend.
+
+### B.4 — Spawn validation
+- [ ] `service/orchestrator::spawn_agent[_sync]`: before building the launch command, look up `params.agent` in `registry`. If unknown → return `Err("Unknown agent provider: {id}. Available: {list}")`. Today any string is silently accepted and `build_agent_command` falls back to a no-op.
+- [ ] Add a unit test asserting that spawn with `agent: Some("nonexistent".to_string())` returns Err.
+
+### B.5 — Per-provider config schema
+- [ ] In `src-tauri/src/config/schema.rs` add `pub agents: HashMap<String, toml::Value>` (or typed `AgentSettings { defaults: HashMap<String, ProviderSettings> }`) for `[agents.<id>]` sections.
+- [ ] Schema example in default config TOML:
+  ```toml
+  [agents.claude]
+  default_model = "sonnet"
+  api_key_env = "ANTHROPIC_API_KEY"
+
+  [agents.codex]
+  default_model = "gpt-5"
+  ```
+- [ ] At config load, validate each `[agents.<id>]` section against the corresponding `provider.settings_schema()` (warn on unknown fields, error on type mismatch).
+- [ ] `default_agent_provider()` helper stays as the global default; new helper `default_model_for(provider_id)` reads from `[agents.<id>].default_model` falling back to `provider.default_model()`.
+
+### B.6 — Frontend: kill the hardcode
+
+- [ ] Build the primitive first: `src/hooks/useContributions.ts`
+  ```ts
+  function useContributions<T>(kind: string, fetcher: () => Promise<T[]>): T[]
+  ```
+  Generic over contribution kind. Internally fetches via `fetcher`, caches in React context, refetches when a Tauri `contributions-changed` event arrives with matching `{ kind }`. **Forward-compat primitive for skills/commands/panels later — they'll be one-line wrappers.**
+- [ ] Build `useAgentProviders()` as a one-line wrapper:
+  ```ts
+  export const useAgentProviders = () =>
+      useContributions<ProviderDescriptor>('agent_provider', fetchAgentProviders);
+  ```
+- [ ] Replace `src/lib/agentProviders.ts` hardcoded registrations with calls to `useAgentProviders()`. `getAllProviders()` is removed; component code uses the hook directly.
+- [ ] **Build the generic `<SchemaRenderer />` component** in `src/components/Settings/SchemaRenderer.tsx`:
+  - One React component that takes `{ schema: SettingField[], configPath: string }` and renders any tree of fields
+  - One sub-component per `SettingField` variant (`<SectionField/>`, `<ToggleField/>`, `<TextField/>`, `<SelectField/>`, `<InfoField/>`, `<PathLinkField/>`, `<BadgeField/>`, `<ActionField/>`, `<WhenField/>`, etc.)
+  - `<ActionField/>` handles the dynamic state machine: on mount call `state_query`, render label/style from response, on click call `command`, refetch `state_query` after response
+  - `<BadgeField/>` polls `query_command` on mount + on `config-changed` events
+  - `<WhenField/>` reads the dependent config field from the same `configPath` namespace and conditionally renders children
+- [ ] **Delete `ClaudeAgentSettings` and `CodexAgentSettings` React components entirely.** No legacy mode, no escape hatch, no `if (activeProvider === "claude")`. The provider sub-tab content becomes:
+  ```tsx
+  <SchemaRenderer schema={activeProvider.settings_schema} configPath={`agents.${activeProvider.id}`} />
+  ```
+- [ ] Move the **Skills** card (currently inside `ClaudeAgentSettings:868-884`) out of any single provider's panel into a global "Skills" section at the top of the Agents tab — it's a CodeTerm-wide feature that syncs to all providers, not Claude-specific.
+- [ ] Audit and migrate the remaining hardcoded sites:
+  - `src/components/Settings/SettingsPanel.tsx:735+` AgentsTab — uses hook ✓
+  - `src/components/Settings/SettingsPanel.tsx:813-814` `if (activeProvider === "claude") { ... } else if (codex)` — replace with data-driven render of `provider.settings_schema` (one component per `SettingField` variant).
+  - `src/components/Sidebar/Sidebar.tsx:750-757` "New X Session" menu — uses hook ✓
+  - `src/store/multiplexer.tsx:605, 904` `spawnClaudeTab()` helper — rename to `spawnAgentTab(providerId)` or delete (callers pass id explicitly).
+  - `src/components/CommandPalette/CommandPalette.tsx:33, 521-525` "spawn-claude" command — generate dynamically from `useAgentProviders()` (one command per provider).
+  - `src/hooks/terminal/useAgentDetection.ts:51, 69, 72` `detect_claude_session_id` / `mux_set_claude_session_id` — keep as-is for now (Tauri command name; the actual generic rename happens in Chunk D).
+
+### B.7 — Acceptance criteria for Chunk B
+
+- [ ] Adding a hypothetical third native plugin (`plugin/agent_aider/`) requires ZERO frontend changes — it appears in Settings dropdown, Sidebar menu, CommandPalette, AND its own settings panel (rendered from its `settings_schema`) automatically after a restart.
+- [ ] `src/components/Settings/SettingsPanel.tsx` contains **no** `ClaudeAgentSettings`, **no** `CodexAgentSettings`, **no** `if (activeProvider === "claude")` / `=== "codex"` branches. Provider settings are rendered exclusively by `<SchemaRenderer />`.
+- [ ] `src/lib/agentProviders.ts` contains **no** hardcoded provider registrations.
+- [ ] Sending `POST /api/agents/spawn` with an unknown agent id returns 400 with a useful error.
+- [ ] Sending `GET /api/agents/providers` returns the same JSON as the Socket and Tauri equivalents (parity test).
+- [ ] All existing tests pass; new tests cover trait metadata, dispatch parity, spawn validation, and `SchemaRenderer` rendering each `SettingField` variant.
 
 **Chunk C — Phase B3 batches:** continue unified-dispatch migration, one batch per commit, parity tests before/after.
 
