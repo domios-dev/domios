@@ -544,4 +544,15 @@ mod tests {
             serde_json::from_str(&json).expect("deserialize");
         assert_eq!(desc, decoded);
     }
+
+    #[test]
+    fn codex_has_no_notifications_contribution() {
+        // Codex doesn't have a hook system like Claude — it contributes
+        // an empty notifications_schema. The Notifications tab simply
+        // skips it. When Codex grows a notification path, it adds a
+        // schema here without any frontend changes.
+        let p = CodexProvider::new();
+        assert!(p.notifications_schema().is_empty());
+        assert!(p.describe().notifications_schema.is_empty());
+    }
 }

@@ -315,7 +315,13 @@ export function SettingsPanel({
                   />
                 </Group>
 
-                <ClaudeHooksGroup />
+                <ProviderNotifications
+                  fullConfig={localConfig}
+                  onUpdateFullConfig={(next) => {
+                    setLocalConfig(next);
+                    onUpdateConfig(next).catch(() => {});
+                  }}
+                />
               </div>
             )}
 
@@ -934,101 +940,49 @@ function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K
   );
 }
 
-function ClaudeHooksGroup() {
-  const [status, setStatus] = useState<{
-    settings_exists: boolean;
-    hooks_installed: boolean;
-    notification_hook: boolean;
-    stop_hook: boolean;
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
+/**
+ * Render the Notifications section contributed by each active agent provider.
+ *
+ * Iterates `useAgentProviders()` and renders one `<SchemaRenderer />` per
+ * provider whose `notifications_schema` is non-empty. Codex contributes
+ * nothing today, so only Claude shows up. When a hypothetical third
+ * provider plugin contributes a notification schema, it appears here
+ * automatically — zero changes to this component.
+ */
+function ProviderNotifications({
+  fullConfig,
+  onUpdateFullConfig,
+}: {
+  fullConfig: AppConfig;
+  onUpdateFullConfig: (next: AppConfig) => void;
+}) {
+  const { providers } = useAgentProviders();
 
-  useEffect(() => {
-    invoke<typeof status>("check_claude_hooks").then(setStatus).catch(() => {});
-  }, []);
+  const onProviderConfigChange = useCallback(
+    (providerId: string, patch: Partial<ProviderConfig>) => {
+      const prev = fullConfig.agents?.[providerId] ?? {};
+      const nextProvider: ProviderConfig = { ...prev, ...patch };
+      const nextAgents = { ...(fullConfig.agents ?? {}), [providerId]: nextProvider };
+      onUpdateFullConfig({ ...fullConfig, agents: nextAgents });
+    },
+    [fullConfig, onUpdateFullConfig],
+  );
 
-  const handleInstall = useCallback(async () => {
-    setLoading(true);
-    try {
-      await invoke("install_claude_hooks", {});
-      const s = await invoke<typeof status>("check_claude_hooks");
-      setStatus(s);
-    } catch (e) {
-      console.error("Failed to install hooks:", e);
-    }
-    setLoading(false);
-  }, []);
-
-  const handleUninstall = useCallback(async () => {
-    setLoading(true);
-    try {
-      await invoke("uninstall_claude_hooks");
-      const s = await invoke<typeof status>("check_claude_hooks");
-      setStatus(s);
-    } catch (e) {
-      console.error("Failed to uninstall hooks:", e);
-    }
-    setLoading(false);
-  }, []);
+  const contributors = providers.filter((p) => p.notifications_schema.length > 0);
+  if (contributors.length === 0) return null;
 
   return (
-    <Group title="Claude Code Notifications">
-      <div className="text-xs text-[var(--ct-muted-fg)] mb-2">
-        Get notified when Claude Code needs permission or finishes a task.
-        This installs hooks into <span className="font-mono text-[var(--ct-fg)]">~/.claude/settings.json</span>.
-      </div>
-
-      {status === null ? (
-        <div className="text-xs text-[var(--ct-muted)]">Checking...</div>
-      ) : status.hooks_installed ? (
-        <>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="w-2 h-2 rounded-full bg-[var(--ct-green)]" />
-            <span className="text-xs text-[var(--ct-fg)]">Hooks installed</span>
-          </div>
-          <div className="text-[10px] text-[var(--ct-muted)] space-y-0.5 mb-2">
-            <div className="flex items-center gap-1.5">
-              <span>{status.notification_hook ? "\u2713" : "\u2717"}</span>
-              <span>Permission requests</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span>{status.stop_hook ? "\u2713" : "\u2717"}</span>
-              <span>Task completion</span>
-            </div>
-          </div>
-          <button
-            onClick={handleUninstall}
-            disabled={loading}
-            className="w-full py-1.5 text-xs rounded font-medium border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
-          >
-            {loading ? "..." : "Uninstall Hooks"}
-          </button>
-        </>
-      ) : (
-        <>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="w-2 h-2 rounded-full bg-[var(--ct-muted)]" />
-            <span className="text-xs text-[var(--ct-muted-fg)]">Hooks not installed</span>
-          </div>
-          <div className="text-[10px] text-[var(--ct-muted)] mb-2">
-            {!status.settings_exists
-              ? "~/.claude/settings.json does not exist yet. It will be created."
-              : "CodeTerm hooks will be added to your existing Claude Code settings."}
-          </div>
-          <button
-            onClick={handleInstall}
-            disabled={loading}
-            className="w-full py-1.5 text-xs rounded font-medium bg-[var(--ct-accent)] text-white hover:brightness-110 transition-colors"
-          >
-            {loading ? "Installing..." : "Install Claude Hooks"}
-          </button>
-        </>
-      )}
-
-      <div className="text-[10px] text-[var(--ct-muted)] mt-2">
-        Restart Claude Code after changes for hooks to take effect.
-      </div>
-    </Group>
+    <>
+      {contributors.map((p) => (
+        <SchemaRenderer
+          key={p.id}
+          schema={p.notifications_schema}
+          providerId={p.id}
+          config={fullConfig}
+          onChange={onProviderConfigChange}
+        />
+      ))}
+    </>
   );
 }
 

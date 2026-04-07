@@ -277,6 +277,52 @@ impl AgentProvider for ClaudeProvider {
         true
     }
 
+    fn notifications_schema(&self) -> Vec<SettingField> {
+        // Mirrors the legacy `ClaudeHooksGroup` React component:
+        // status badge from check_claude_hooks + Install action that
+        // calls install_claude_hooks. Lives in the global Notifications
+        // tab so it sits next to desktop / sound / toast settings.
+        vec![SettingField::Section {
+            title: "Claude Code Notifications".into(),
+            description: Some(
+                "Get notified when Claude Code needs permission or finishes a task. \
+                 Installs PostToolUse / Stop hooks into ~/.claude/settings.json that POST \
+                 back to CodeTerm so notifications fire on the right pane."
+                    .into(),
+            ),
+            fields: vec![
+                SettingField::PathLink {
+                    label: "Settings file".into(),
+                    path: "~/.claude/settings.json".into(),
+                    open: PathOpenKind::OpenFolder,
+                },
+                SettingField::Badge {
+                    query_command: "check_claude_hooks".into(),
+                    variants: vec![
+                        BadgeVariant {
+                            id: "installed".into(),
+                            label: "installed".into(),
+                            style: BadgeStyle::Green,
+                        },
+                        BadgeVariant {
+                            id: "missing".into(),
+                            label: "not installed".into(),
+                            style: BadgeStyle::Gray,
+                        },
+                    ],
+                },
+                SettingField::Action {
+                    id: "install_hooks".into(),
+                    label: "Install hooks".into(),
+                    command: "install_claude_hooks".into(),
+                    state_query: Some("check_claude_hooks".into()),
+                    confirm: None,
+                    style: ActionStyle::Primary,
+                },
+            ],
+        }]
+    }
+
     fn settings_schema(&self) -> Vec<SettingField> {
         vec![
             // ── Section: Session Resume ──
@@ -722,5 +768,47 @@ mod tests {
         let decoded: crate::agent::provider::ProviderDescriptor =
             serde_json::from_str(&json).expect("deserialize");
         assert_eq!(desc, decoded);
+    }
+
+    #[test]
+    fn claude_notifications_schema_present() {
+        let p = ClaudeProvider::new();
+        let schema = p.notifications_schema();
+        assert!(!schema.is_empty(), "Claude must contribute notifications");
+        // The single top-level Section should be the hooks card.
+        match &schema[0] {
+            SettingField::Section { title, fields, .. } => {
+                assert_eq!(title, "Claude Code Notifications");
+                // Must contain a Badge wired to check_claude_hooks AND an
+                // Action wired to install_claude_hooks — the two backend
+                // commands the legacy ClaudeHooksGroup used.
+                let mut saw_badge = false;
+                let mut saw_action = false;
+                for f in fields {
+                    if let SettingField::Badge { query_command, .. } = f {
+                        if query_command == "check_claude_hooks" {
+                            saw_badge = true;
+                        }
+                    }
+                    if let SettingField::Action { command, state_query, .. } = f {
+                        if command == "install_claude_hooks"
+                            && state_query.as_deref() == Some("check_claude_hooks")
+                        {
+                            saw_action = true;
+                        }
+                    }
+                }
+                assert!(saw_badge, "expected Badge wired to check_claude_hooks");
+                assert!(saw_action, "expected Action wired to install_claude_hooks");
+            }
+            _ => panic!("expected Section as top-level notifications field"),
+        }
+    }
+
+    #[test]
+    fn claude_describe_includes_notifications_schema() {
+        let p = ClaudeProvider::new();
+        let desc = p.describe();
+        assert!(!desc.notifications_schema.is_empty());
     }
 }
