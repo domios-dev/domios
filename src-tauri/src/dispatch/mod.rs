@@ -60,6 +60,10 @@ pub enum Command {
         pane_id: String,
         title: String,
     },
+
+    /// List all registered agent providers as `ProviderDescriptor`s.
+    /// First dispatch command for the plugin self-presentation system (Chunk B.3).
+    ListAgentProviders,
 }
 
 fn default_true() -> bool { true }
@@ -96,6 +100,7 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
         Command::PaneClose { pane_id } => cmd_pane_close(ctx, pane_id),
         Command::PaneFocus { pane_id } => cmd_pane_focus(ctx, pane_id),
         Command::PaneRename { pane_id, title } => cmd_pane_rename(ctx, pane_id, title),
+        Command::ListAgentProviders => cmd_list_agent_providers(ctx),
     }
 }
 
@@ -209,6 +214,13 @@ fn cmd_pane_rename(
 ) -> Result<CommandResult, String> {
     ctx.rename_pane(pane_id, title)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
+}
+
+fn cmd_list_agent_providers(ctx: &ServiceContext) -> Result<CommandResult, String> {
+    let descriptors = ctx.agent_registry.list_descriptors();
+    let json = serde_json::to_value(&descriptors)
+        .map_err(|e| format!("serialize ProviderDescriptor: {}", e))?;
+    Ok(CommandResult::Json(json))
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -363,6 +375,7 @@ mod tests {
             Command::PaneClose { pane_id: "p".into() },
             Command::PaneFocus { pane_id: "p".into() },
             Command::PaneRename { pane_id: "p".into(), title: "t".into() },
+            Command::ListAgentProviders,
         ];
         for cmd in commands {
             let json = serde_json::to_value(&cmd).unwrap();
@@ -373,5 +386,12 @@ mod tests {
                 std::mem::discriminant(&roundtrip),
             );
         }
+    }
+
+    #[test]
+    fn list_agent_providers_deserialize() {
+        let cmd: Command =
+            serde_json::from_str(r#"{"cmd": "list_agent_providers"}"#).unwrap();
+        assert!(matches!(cmd, Command::ListAgentProviders));
     }
 }

@@ -116,6 +116,20 @@ impl AgentRegistry {
     pub fn provider_ids(&self) -> Vec<String> {
         self.providers.read().keys().cloned().collect()
     }
+
+    /// Snapshot every registered provider as a `ProviderDescriptor` —
+    /// the wire format the frontend reads via `dispatch::Command::ListAgentProviders`.
+    ///
+    /// Iterates the existing provider map; no separate descriptor cache.
+    /// Each `provider.describe()` is documented as pure/cheap, so the
+    /// read lock is held only for the iteration and dropped before any
+    /// caller serializes the result.
+    pub fn list_descriptors(&self) -> Vec<crate::agent::provider::ProviderDescriptor> {
+        let guard = self.providers.read();
+        let out: Vec<_> = guard.values().map(|p| p.describe()).collect();
+        drop(guard);
+        out
+    }
 }
 
 impl Default for AgentRegistry {
@@ -183,5 +197,39 @@ mod tests {
     fn test_provider_ids() {
         let reg = registry_with_claude();
         assert_eq!(reg.provider_ids(), vec!["claude".to_string()]);
+    }
+
+    #[test]
+    fn list_descriptors_returns_one_per_provider() {
+        let reg = registry_with_claude();
+        let descs = reg.list_descriptors();
+        assert_eq!(descs.len(), 1);
+        assert_eq!(descs[0].id, "claude");
+        assert_eq!(descs[0].display_name, "Claude Code");
+        assert!(!descs[0].available_models.is_empty());
+        assert!(!descs[0].settings_schema.is_empty());
+    }
+
+    #[test]
+    fn list_descriptors_with_two_providers() {
+        use crate::plugin::agent_codex::CodexProvider;
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(ClaudeProvider::new()));
+        reg.register_provider(Box::new(CodexProvider::new()));
+        let descs = reg.list_descriptors();
+        assert_eq!(descs.len(), 2);
+        let ids: std::collections::HashSet<&str> =
+            descs.iter().map(|d| d.id.as_str()).collect();
+        assert!(ids.contains("claude"));
+        assert!(ids.contains("codex"));
+    }
+
+    #[test]
+    fn list_descriptors_serializes_to_json_array() {
+        let reg = registry_with_claude();
+        let descs = reg.list_descriptors();
+        let json = serde_json::to_value(&descs).expect("serialize");
+        assert!(json.is_array());
+        assert_eq!(json.as_array().unwrap().len(), 1);
     }
 }

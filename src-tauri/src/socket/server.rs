@@ -454,6 +454,15 @@ fn dispatch(
             .map_err(|e| JsonRpcError { code: -32602, message: e })
         }
 
+        "agents.list_providers" => {
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::ListAgentProviders,
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError { code: -32603, message: e })
+        }
+
         "pane.send_text" => {
             let pane_id = get_string_param(&params, "pane_id")?;
             let text = get_string_param(&params, "text")?;

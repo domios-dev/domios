@@ -69,6 +69,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/hook/permission", post(hook_permission))
         .route("/api/panes/{id}/hook/stop", post(hook_stop))
         .route("/api/agents", get(list_agents))
+        .route("/api/agents/providers", get(list_agent_providers))
         .route("/api/agents/hierarchy", get(get_hierarchy))
         .route("/api/agents/spawn", post(spawn_agent))
         .route("/api/batch", post(batch_commands))
@@ -1197,6 +1198,21 @@ async fn list_agents(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     Ok(Json(serde_json::json!(state.svc.list_agents())))
+}
+
+/// List all registered agent providers as `ProviderDescriptor`s.
+/// Single source of truth for the frontend's Settings/Sidebar/CommandPalette UI.
+async fn list_agent_providers(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    crate::dispatch::dispatch(
+        &crate::dispatch::Command::ListAgentProviders,
+        &state.svc,
+    )
+    .map(|r| Json(r.into_json()))
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
 async fn get_hierarchy(

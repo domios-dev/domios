@@ -21,6 +21,12 @@ pub enum SystemEvent {
     AgentStarted { pane_id: String, provider: String },
     AgentIdle { pane_id: String, duration_secs: u64 },
     ConfigChanged { section: String, key: String },
+    /// A plugin contribution map changed (provider added/removed, etc.).
+    /// `kind` identifies which contribution type changed: "agent_provider",
+    /// "skill", "command", "pane_renderer", etc. Frontend hooks filter by kind
+    /// and refetch the matching list. Generic on purpose so future contribution
+    /// types reuse the same channel without churn.
+    ContributionsChanged { kind: String },
     /// Escape hatch for events that don't have a typed variant yet.
     Generic { event_type: String, data: serde_json::Value },
 }
@@ -36,6 +42,7 @@ impl SystemEvent {
             Self::AgentStarted { .. } => "agent-started",
             Self::AgentIdle { .. } => "agent-idle",
             Self::ConfigChanged { .. } => "config-changed",
+            Self::ContributionsChanged { .. } => "contributions-changed",
             Self::Generic { .. } => "generic",
         }
     }
