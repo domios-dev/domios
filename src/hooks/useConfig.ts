@@ -80,6 +80,7 @@ const DEFAULT_CONFIG: AppConfig = {
     token: null,
     cors: true,
   },
+  agents: {},
   general_agent: {
     enabled: true,
     agent_provider: "claude",

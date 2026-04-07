@@ -317,6 +317,16 @@ export interface MeshPeersResponse {
   incoming_requests: MeshPairingRequest[];
 }
 
+/// Per-provider settings stored under `agents.<id>` in the TOML config.
+/// Mirrors `src-tauri/src/config/schema.rs::ProviderConfig`.
+export interface ProviderConfig {
+  resume_sessions?: boolean;
+  resume_skip_permissions?: boolean;
+  default_model?: string;
+  // Additional plugin-declared fields land in this map (TOML #[serde(flatten)]).
+  [key: string]: unknown;
+}
+
 export interface AppConfig {
   theme: ThemeConfig;
   font: FontConfig;
@@ -326,8 +336,66 @@ export interface AppConfig {
   socket: SocketConfigSettings;
   agent: AgentConfig;
   api: ApiConfig;
+  agents: { [providerId: string]: ProviderConfig };
   general_agent: GeneralAgentConfig;
   integrations: IntegrationsConfig;
   mesh: MeshConfig;
   onboarding_completed: boolean;
+}
+
+// ── Plugin self-presentation wire types (Chunk B) ──────────────────
+// Mirror `src-tauri/src/agent/provider.rs`. Frontend reads these via
+// the `list_agent_providers` Tauri command / REST endpoint.
+
+export interface ModelInfo {
+  id: string;
+  display_name: string;
+  description?: string;
+}
+
+export type NoteLevel = "info" | "warn" | "error";
+export type BadgeStyle = "green" | "orange" | "red" | "gray";
+export type ActionStyle = "primary" | "secondary" | "danger";
+export type PathOpenKind = "open_folder" | "open_file" | "reveal_in_explorer";
+
+export interface BadgeVariant {
+  id: string;
+  label: string;
+  style: BadgeStyle;
+}
+
+/// Discriminated union — `kind` field tags the variant. Mirror of
+/// `SettingField` enum (snake_case rename) on the Rust side.
+export type SettingField =
+  | { kind: "section"; title: string; description?: string; fields: SettingField[] }
+  | { kind: "toggle"; key: string; label: string; default: boolean; description?: string }
+  | { kind: "text"; key: string; label: string; default?: string; placeholder?: string; description?: string }
+  | { kind: "number"; key: string; label: string; default?: number; min?: number; max?: number; description?: string }
+  | { kind: "select"; key: string; label: string; options: [string, string][]; default?: string; description?: string }
+  | { kind: "api_key"; env_var: string; label: string; link?: string }
+  | { kind: "info"; title?: string; body: string; level: NoteLevel }
+  | { kind: "path_link"; label: string; path: string; open: PathOpenKind }
+  | { kind: "badge"; query_command: string; variants: BadgeVariant[] }
+  | {
+      kind: "action";
+      id: string;
+      label: string;
+      command: string;
+      state_query?: string;
+      confirm?: string;
+      style: ActionStyle;
+    }
+  | { kind: "when"; field: string; equals: unknown; then: SettingField[] };
+
+export interface ProviderDescriptor {
+  schema_version: number;
+  id: string;
+  display_name: string;
+  icon_hint?: string;
+  available_models: ModelInfo[];
+  default_model?: string;
+  settings_schema: SettingField[];
+  supports_lazy_skills: boolean;
+  has_hooks: boolean;
+  preserves_context_on_resume: boolean;
 }
