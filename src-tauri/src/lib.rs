@@ -864,6 +864,7 @@ pub fn run() {
             commands::get_pane_output,
             commands::get_pane_screen,
             commands::get_pane_screen_formatted,
+            commands::list_agent_providers,
             commands::wait_shell_ready,
             commands::read_session_jsonl,
             commands::resize_pty,
@@ -971,6 +972,27 @@ pub fn run() {
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
             let mut plugin_manager = plugin::PluginManager::new();
             plugin_manager.set_agent_registry(agent_registry.clone());
+            plugin_manager.set_event_broadcaster(states.event_broadcaster.clone());
+
+            // Bridge ContributionsChanged events from the in-process bus
+            // to the Tauri frontend. We forward only this event type to
+            // avoid double-emit with manually-emitted events like
+            // `mux-state-changed` (still emitted directly from service/mod.rs).
+            {
+                use tauri::Emitter;
+                let mut sub = states.event_broadcaster.subscribe();
+                let bridge_handle = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    while let Ok(ev) = sub.recv().await {
+                        if let crate::api::events::SystemEvent::ContributionsChanged { kind } = &ev {
+                            let _ = bridge_handle.emit(
+                                "contributions-changed",
+                                serde_json::json!({ "kind": kind }),
+                            );
+                        }
+                    }
+                });
+            }
 
             // Register and activate bundled plugins
             {

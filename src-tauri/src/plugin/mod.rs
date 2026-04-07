@@ -200,6 +200,13 @@ pub trait Plugin: Send + Sync {
 pub struct PluginManager {
     entries: RwLock<HashMap<String, PluginEntry>>,
     agent_registry: Option<Arc<crate::agent::registry::AgentRegistry>>,
+    /// Event broadcaster for emitting `ContributionsChanged` when a plugin's
+    /// contribution surface (agent providers, skills, commands, ...) changes.
+    /// Optional so tests can construct a manager without a live event bus.
+    /// The Tauri-side bridge subscribes to the bus and forwards
+    /// `ContributionsChanged` to the frontend — the manager itself never
+    /// touches `tauri::AppHandle` (keeps test linkage clean of webview deps).
+    events: Option<Arc<crate::api::events::EventBroadcaster>>,
 }
 
 impl PluginManager {
@@ -207,12 +214,35 @@ impl PluginManager {
         Self {
             entries: RwLock::new(HashMap::new()),
             agent_registry: None,
+            events: None,
         }
     }
 
     /// Set the agent registry for provider registration during plugin activation.
     pub fn set_agent_registry(&mut self, registry: Arc<crate::agent::registry::AgentRegistry>) {
         self.agent_registry = Some(registry);
+    }
+
+    /// Wire the event broadcaster so contribution changes notify in-process
+    /// subscribers (and through them, the Tauri frontend via the bus bridge
+    /// installed in `lib.rs`).
+    pub fn set_event_broadcaster(
+        &mut self,
+        events: Arc<crate::api::events::EventBroadcaster>,
+    ) {
+        self.events = Some(events);
+    }
+
+    /// Emit `ContributionsChanged { kind }` to in-process subscribers.
+    /// `kind` identifies which contribution category changed: "agent_provider",
+    /// "skill", "command", etc. Frontend hooks filter by kind and refetch
+    /// the matching list. The Tauri bridge forwards this event to JS-land.
+    fn emit_contributions_changed(&self, kind: &str) {
+        if let Some(ref events) = self.events {
+            events.publish(crate::api::events::SystemEvent::ContributionsChanged {
+                kind: kind.to_string(),
+            });
+        }
     }
 
     /// Scan a directory for `<dir>/*/plugin.toml` manifests and register
@@ -285,54 +315,70 @@ impl PluginManager {
     /// contributed agent providers, and transitions to `Active` on success
     /// or `Failed` on error.
     pub fn activate(&self, id: &str) -> Result<(), String> {
-        let mut guard = self.entries.write();
-        let entry = guard
-            .get_mut(id)
-            .ok_or_else(|| format!("plugin {} is not registered", id))?;
-        if let Some(plugin) = entry.plugin.as_mut() {
-            match plugin.activate() {
-                Ok(()) => {
-                    // Register agent providers contributed by this plugin
-                    if let Some(ref registry) = self.agent_registry {
-                        for provider in plugin.agent_providers() {
-                            registry.register_provider(provider);
+        let mut contributed_providers = false;
+        let result = {
+            let mut guard = self.entries.write();
+            let entry = guard
+                .get_mut(id)
+                .ok_or_else(|| format!("plugin {} is not registered", id))?;
+            if let Some(plugin) = entry.plugin.as_mut() {
+                match plugin.activate() {
+                    Ok(()) => {
+                        // Register agent providers contributed by this plugin
+                        if let Some(ref registry) = self.agent_registry {
+                            for provider in plugin.agent_providers() {
+                                registry.register_provider(provider);
+                                contributed_providers = true;
+                            }
                         }
+                        entry.state = PluginState::Active;
+                        entry.error = None;
+                        Ok(())
                     }
-                    entry.state = PluginState::Active;
-                    entry.error = None;
-                    Ok(())
+                    Err(e) => {
+                        entry.state = PluginState::Failed;
+                        entry.error = Some(e.clone());
+                        Err(e)
+                    }
                 }
-                Err(e) => {
-                    entry.state = PluginState::Failed;
-                    entry.error = Some(e.clone());
-                    Err(e)
-                }
+            } else {
+                // Process / WASM plugins: activation is a no-op at this level
+                // until the respective hosts are implemented.
+                entry.state = PluginState::Active;
+                Ok(())
             }
-        } else {
-            // Process / WASM plugins: activation is a no-op at this level
-            // until the respective hosts are implemented.
-            entry.state = PluginState::Active;
-            Ok(())
+        };
+        if result.is_ok() && contributed_providers {
+            self.emit_contributions_changed("agent_provider");
         }
+        result
     }
 
     /// Deactivate a plugin. Idempotent: returns Ok on unknown ids.
     pub fn deactivate(&self, id: &str) -> Result<(), String> {
-        let mut guard = self.entries.write();
-        let Some(entry) = guard.get_mut(id) else {
-            return Ok(());
-        };
-        // Unregister agent providers contributed by this plugin
-        if let Some(ref registry) = self.agent_registry {
-            for provider_id in &entry.manifest.capabilities.agent_providers {
-                registry.unregister_provider(provider_id);
+        let mut removed_providers = false;
+        {
+            let mut guard = self.entries.write();
+            let Some(entry) = guard.get_mut(id) else {
+                return Ok(());
+            };
+            // Unregister agent providers contributed by this plugin
+            if let Some(ref registry) = self.agent_registry {
+                for provider_id in &entry.manifest.capabilities.agent_providers {
+                    if registry.unregister_provider(provider_id) {
+                        removed_providers = true;
+                    }
+                }
             }
+            if let Some(plugin) = entry.plugin.as_mut() {
+                plugin.deactivate()?;
+            }
+            entry.state = PluginState::Discovered;
+            entry.error = None;
         }
-        if let Some(plugin) = entry.plugin.as_mut() {
-            plugin.deactivate()?;
+        if removed_providers {
+            self.emit_contributions_changed("agent_provider");
         }
-        entry.state = PluginState::Discovered;
-        entry.error = None;
         Ok(())
     }
 

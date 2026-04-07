@@ -435,6 +435,20 @@ pub async fn get_pane_screen_formatted(
         .ok_or_else(|| "No screen state".to_string())
 }
 
+/// List all registered agent providers as `ProviderDescriptor`s.
+/// Frontend reads this once on mount and refetches on `contributions-changed` events.
+/// Mirrors `GET /api/agents/providers` and Socket `agents.list_providers`.
+#[tauri::command]
+pub async fn list_agent_providers(
+    svc: tauri::State<'_, ServiceState>,
+) -> Result<serde_json::Value, String> {
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::ListAgentProviders,
+        svc.as_ref(),
+    )?;
+    Ok(result.into_json())
+}
+
 #[tauri::command]
 pub async fn wait_shell_ready(
     screen_state: tauri::State<'_, ScreenStateHandle>,
