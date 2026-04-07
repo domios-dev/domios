@@ -452,6 +452,26 @@ pub fn start_general_agent(
         log::warn!("[general-agent] Agent not detected within 15s — watchdog will retry if needed");
     }
 
+    // Fresh-session init: when we couldn't resume, the agent has no prior
+    // context — kick it with a single "init" message so it loads MEMORY.md,
+    // checks its general dir, and acks readiness. The GA prompt teaches what
+    // "init" means; backend just delivers it.
+    //
+    // For resumed sessions we deliberately do NOT send init — the agent
+    // already has the previous turn-by-turn context replayed by `--resume`,
+    // and re-running init would burn tokens for no gain.
+    if launched && !use_resume {
+        // Small delay so the agent's TUI is fully ready to accept input
+        // (the readiness poll catches detection markers, not input-readiness).
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        let init_paste = "\x1b[200~init\x1b[201~\r";
+        if let Err(e) = pty.lock().write(&pty_id, init_paste.as_bytes()) {
+            log::warn!("[general-agent] Failed to send init kick: {}", e);
+        } else {
+            log::info!("[general-agent] Sent fresh-session init kick");
+        }
+    }
+
     // Emit state changed so frontend picks up the new workspace/pane
     svc.emit_state_changed();
     log::info!("[general-agent] Started successfully (pane={}, pty={})", pane_id, pty_id);
