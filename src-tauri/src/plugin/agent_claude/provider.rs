@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::agent::provider::{AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery};
+use crate::agent::provider::{
+    ActionStyle, AgentLaunchParams, AgentProvider, BadgeStyle, BadgeVariant, ModelInfo,
+    NoteLevel, PathOpenKind, ReadinessStrategy, SettingField, TaskDelivery,
+};
 use crate::shell::ShellSyntax;
 
 /// Claude Code agent provider.
@@ -237,6 +240,134 @@ impl AgentProvider for ClaudeProvider {
 
     fn supports_lazy_skills(&self) -> bool {
         true
+    }
+
+    // ── Self-presentation (Chunk B.2) ────────────────────────────
+
+    fn icon_hint(&self) -> Option<&str> {
+        Some("✳")
+    }
+
+    fn available_models(&self) -> Vec<ModelInfo> {
+        vec![
+            ModelInfo {
+                id: "sonnet".into(),
+                display_name: "Claude Sonnet 4.5".into(),
+                description: Some("Balanced — fast and capable. Default for most tasks.".into()),
+            },
+            ModelInfo {
+                id: "opus".into(),
+                display_name: "Claude Opus 4.6".into(),
+                description: Some("Highest capability for complex reasoning.".into()),
+            },
+            ModelInfo {
+                id: "haiku".into(),
+                display_name: "Claude Haiku 4.5".into(),
+                description: Some("Fastest, lightweight tasks.".into()),
+            },
+        ]
+    }
+
+    fn default_model(&self) -> Option<&str> {
+        Some("sonnet")
+    }
+
+    fn preserves_context_on_resume(&self) -> bool {
+        // Claude replays the JSONL session file on `--resume`, preserving context.
+        true
+    }
+
+    fn settings_schema(&self) -> Vec<SettingField> {
+        vec![
+            // ── Section: Session Resume ──
+            SettingField::Section {
+                title: "Session Resume".into(),
+                description: Some(
+                    "Automatically resume Claude Code sessions when CodeTerm restarts.".into(),
+                ),
+                fields: vec![
+                    SettingField::Toggle {
+                        key: "resume_sessions".into(),
+                        label: "Resume previous sessions".into(),
+                        default: true,
+                        description: None,
+                    },
+                    SettingField::Toggle {
+                        key: "resume_skip_permissions".into(),
+                        label: "Resume with --dangerously-skip-permissions".into(),
+                        default: true,
+                        description: None,
+                    },
+                    SettingField::When {
+                        field: "resume_skip_permissions".into(),
+                        equals: serde_json::Value::Bool(true),
+                        then: vec![SettingField::Info {
+                            title: None,
+                            body: "⚠ Claude Code will run without asking for tool approvals. Use with caution.".into(),
+                            level: NoteLevel::Warn,
+                        }],
+                    },
+                ],
+            },
+            // ── Section: Model ──
+            SettingField::Section {
+                title: "Model".into(),
+                description: Some("Default model for new Claude Code sessions.".into()),
+                fields: vec![SettingField::Select {
+                    key: "default_model".into(),
+                    label: "Default model".into(),
+                    options: self
+                        .available_models()
+                        .into_iter()
+                        .map(|m| (m.id, m.display_name))
+                        .collect(),
+                    default: self.default_model().map(|s| s.to_string()),
+                    description: None,
+                }],
+            },
+            // ── Section: Rule (Claude-specific instruction file) ──
+            SettingField::Section {
+                title: "Rule".into(),
+                description: Some(
+                    "Teaches Claude Code when and how to use CodeTerm — auto-rename tabs, use workspaces instead of mkdir, open browser panel instead of external browser.".into(),
+                ),
+                fields: vec![
+                    SettingField::PathLink {
+                        label: "Rule file".into(),
+                        path: "~/.claude/rules/codeterm.md".into(),
+                        open: PathOpenKind::OpenFolder,
+                    },
+                    SettingField::Badge {
+                        query_command: "check_rule_installed".into(),
+                        variants: vec![
+                            BadgeVariant {
+                                id: "installed".into(),
+                                label: "installed".into(),
+                                style: BadgeStyle::Green,
+                            },
+                            BadgeVariant {
+                                id: "update".into(),
+                                label: "update available".into(),
+                                style: BadgeStyle::Orange,
+                            },
+                            BadgeVariant {
+                                id: "missing".into(),
+                                label: "not installed".into(),
+                                style: BadgeStyle::Gray,
+                            },
+                        ],
+                    },
+                    SettingField::Action {
+                        id: "install_rule".into(),
+                        label: "Install".into(),
+                        command: "install_project_rules".into(),
+                        state_query: Some("check_rule_installed".into()),
+                        confirm: None,
+                        style: ActionStyle::Primary,
+                    },
+                ],
+            },
+        ]
     }
 }
 
@@ -536,5 +667,60 @@ mod tests {
         let text = "Building project...\nCompilation complete\n";
         let events = detect_claude_events(text);
         assert!(events.is_empty());
+    }
+
+    // --- Self-presentation metadata (B.2) ---
+
+    #[test]
+    fn claude_metadata_describes_three_models() {
+        let p = ClaudeProvider::new();
+        let models = p.available_models();
+        assert_eq!(models.len(), 3);
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"sonnet"));
+        assert!(ids.contains(&"opus"));
+        assert!(ids.contains(&"haiku"));
+        assert_eq!(p.default_model(), Some("sonnet"));
+    }
+
+    #[test]
+    fn claude_describe_assembles_full_descriptor() {
+        let p = ClaudeProvider::new();
+        let desc = p.describe();
+        assert_eq!(desc.id, "claude");
+        assert_eq!(desc.display_name, "Claude Code");
+        assert_eq!(desc.icon_hint.as_deref(), Some("✳"));
+        assert_eq!(desc.default_model.as_deref(), Some("sonnet"));
+        assert!(desc.preserves_context_on_resume);
+        assert!(desc.supports_lazy_skills);
+        assert!(desc.has_hooks);
+        assert!(!desc.settings_schema.is_empty());
+    }
+
+    #[test]
+    fn claude_settings_schema_has_required_sections() {
+        let p = ClaudeProvider::new();
+        let schema = p.settings_schema();
+        let section_titles: Vec<&str> = schema
+            .iter()
+            .filter_map(|f| match f {
+                SettingField::Section { title, .. } => Some(title.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(section_titles.contains(&"Session Resume"));
+        assert!(section_titles.contains(&"Model"));
+        assert!(section_titles.contains(&"Rule"));
+    }
+
+    #[test]
+    fn claude_settings_schema_round_trips_as_json() {
+        // Snapshot/golden — catches accidental schema breakage.
+        let p = ClaudeProvider::new();
+        let desc = p.describe();
+        let json = serde_json::to_string(&desc).expect("serialize");
+        let decoded: crate::agent::provider::ProviderDescriptor =
+            serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(desc, decoded);
     }
 }

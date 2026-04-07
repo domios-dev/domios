@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::agent::provider::{AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery};
+use crate::agent::provider::{
+    AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SettingField,
+    TaskDelivery,
+};
 use crate::shell::ShellSyntax;
 
 /// OpenAI Codex CLI agent provider.
@@ -165,6 +168,99 @@ impl AgentProvider for CodexProvider {
             events.push(crate::agent::detector::AgentEvent::PermissionRequest);
         }
         events
+    }
+
+    // ── Self-presentation (Chunk B.2) ────────────────────────────
+
+    fn icon_hint(&self) -> Option<&str> {
+        Some("◆")
+    }
+
+    fn available_models(&self) -> Vec<ModelInfo> {
+        vec![
+            ModelInfo {
+                id: "gpt-5".into(),
+                display_name: "GPT-5".into(),
+                description: Some("OpenAI's flagship coding model.".into()),
+            },
+            ModelInfo {
+                id: "o1".into(),
+                display_name: "o1".into(),
+                description: Some("Reasoning-optimized model.".into()),
+            },
+        ]
+    }
+
+    fn default_model(&self) -> Option<&str> {
+        Some("gpt-5")
+    }
+
+    fn preserves_context_on_resume(&self) -> bool {
+        // Codex `resume` starts a fresh process and replays only the user
+        // turns from the rollout file — context is partially reconstructed,
+        // not preserved like Claude's JSONL replay.
+        false
+    }
+
+    fn settings_schema(&self) -> Vec<SettingField> {
+        vec![
+            // ── Section: Session Resume ──
+            SettingField::Section {
+                title: "Session Resume".into(),
+                description: Some(
+                    "Automatically resume Codex sessions when CodeTerm restarts.".into(),
+                ),
+                fields: vec![
+                    SettingField::Toggle {
+                        key: "resume_sessions".into(),
+                        label: "Resume previous sessions".into(),
+                        default: true,
+                        description: None,
+                    },
+                    SettingField::Toggle {
+                        key: "resume_skip_permissions".into(),
+                        label: "Resume with --dangerously-bypass-approvals-and-sandbox".into(),
+                        default: true,
+                        description: None,
+                    },
+                    SettingField::When {
+                        field: "resume_skip_permissions".into(),
+                        equals: serde_json::Value::Bool(true),
+                        then: vec![SettingField::Info {
+                            title: None,
+                            body: "⚠ Codex will run without asking for tool approvals. Use with caution.".into(),
+                            level: NoteLevel::Warn,
+                        }],
+                    },
+                ],
+            },
+            // ── Section: Model ──
+            SettingField::Section {
+                title: "Model".into(),
+                description: Some("Default model for new Codex sessions.".into()),
+                fields: vec![SettingField::Select {
+                    key: "default_model".into(),
+                    label: "Default model".into(),
+                    options: self
+                        .available_models()
+                        .into_iter()
+                        .map(|m| (m.id, m.display_name))
+                        .collect(),
+                    default: self.default_model().map(|s| s.to_string()),
+                    description: None,
+                }],
+            },
+            // ── Section: Requirements (read-only docs) ──
+            SettingField::Section {
+                title: "Requirements".into(),
+                description: None,
+                fields: vec![SettingField::Info {
+                    title: None,
+                    body: "**CLI:** `codex` — install with `npm i -g @openai/codex`\n\n**Auth:** set `OPENAI_API_KEY` or run `codex login`".into(),
+                    level: NoteLevel::Info,
+                }],
+            },
+        ]
     }
 }
 
@@ -397,5 +493,55 @@ mod tests {
     fn codex_status_bar_rows() {
         let p = CodexProvider::new();
         assert_eq!(p.status_bar_rows(), 1);
+    }
+
+    // --- Self-presentation metadata (B.2) ---
+
+    #[test]
+    fn codex_metadata_describes_models() {
+        let p = CodexProvider::new();
+        let models = p.available_models();
+        assert!(!models.is_empty());
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert!(ids.contains(&"gpt-5"));
+        assert_eq!(p.default_model(), Some("gpt-5"));
+    }
+
+    #[test]
+    fn codex_describe_assembles_full_descriptor() {
+        let p = CodexProvider::new();
+        let desc = p.describe();
+        assert_eq!(desc.id, "codex");
+        assert_eq!(desc.display_name, "Codex");
+        assert_eq!(desc.icon_hint.as_deref(), Some("◆"));
+        assert!(!desc.preserves_context_on_resume); // Codex resumes fresh
+        assert!(!desc.has_hooks);
+        assert!(!desc.settings_schema.is_empty());
+    }
+
+    #[test]
+    fn codex_settings_schema_has_required_sections() {
+        let p = CodexProvider::new();
+        let schema = p.settings_schema();
+        let section_titles: Vec<&str> = schema
+            .iter()
+            .filter_map(|f| match f {
+                crate::agent::provider::SettingField::Section { title, .. } => Some(title.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(section_titles.contains(&"Session Resume"));
+        assert!(section_titles.contains(&"Model"));
+        assert!(section_titles.contains(&"Requirements"));
+    }
+
+    #[test]
+    fn codex_settings_schema_round_trips_as_json() {
+        let p = CodexProvider::new();
+        let desc = p.describe();
+        let json = serde_json::to_string(&desc).expect("serialize");
+        let decoded: crate::agent::provider::ProviderDescriptor =
+            serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(desc, decoded);
     }
 }

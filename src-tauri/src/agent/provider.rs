@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 /// How to wait for agent readiness after PTY spawn.
 #[derive(Debug, Clone)]
 pub enum ReadinessStrategy {
@@ -24,6 +26,222 @@ pub struct AgentLaunchParams {
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
 }
+
+// ── Plugin self-presentation types (Chunk B.1) ─────────────────────
+//
+// `ProviderDescriptor` is the wire format every plugin reports through
+// `AgentProvider::describe()`. The frontend reads ONE list and uses it
+// to render Settings panels, Sidebar menus, command palette entries —
+// no hardcoded provider knowledge anywhere on the JS side.
+
+/// Single model offered by an agent provider.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ModelInfo {
+    pub id: String,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Severity flavor for `SettingField::Info` notes.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum NoteLevel {
+    Info,
+    Warn,
+    Error,
+}
+
+/// Visual style for status badges.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum BadgeStyle {
+    Green,
+    Orange,
+    Red,
+    Gray,
+}
+
+/// Single state in a polled status badge.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct BadgeVariant {
+    /// Value returned by the query command (e.g. "installed", "missing", "update").
+    pub id: String,
+    pub label: String,
+    pub style: BadgeStyle,
+}
+
+/// Visual style for action buttons.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ActionStyle {
+    Primary,
+    Secondary,
+    Danger,
+}
+
+/// What to do when the user clicks a `PathLink`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PathOpenKind {
+    OpenFolder,
+    OpenFile,
+    RevealInExplorer,
+}
+
+/// Declarative settings UI primitives. The frontend ships ONE
+/// `<SchemaRenderer />` component that knows how to render each variant.
+/// Plugin authors describe their settings panel as a `Vec<SettingField>`
+/// — no JS, no per-plugin React component, no hardcoded fallback.
+///
+/// **Schema completeness rule:** if a real plugin needs a UI pattern not
+/// covered here, ADD A NEW VARIANT — never carve out an escape hatch.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SettingField {
+    // ── Grouping ─────────────────────────────────────────────────
+    /// Card with title + description + nested fields.
+    Section {
+        title: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        fields: Vec<SettingField>,
+    },
+
+    // ── Inputs ───────────────────────────────────────────────────
+    Toggle {
+        /// Config path relative to the plugin's namespace
+        /// (e.g. `"resume_sessions"` → `agents.<id>.resume_sessions`).
+        key: String,
+        label: String,
+        default: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+    Text {
+        key: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+    Number {
+        key: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+    Select {
+        key: String,
+        label: String,
+        /// `(value, display)` pairs.
+        options: Vec<(String, String)>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+    /// Read-only field that reports an env var the user must set externally.
+    ApiKey {
+        env_var: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        link: Option<String>,
+    },
+
+    // ── Display ──────────────────────────────────────────────────
+    /// Static documentation block. Body supports inline `code` and links.
+    Info {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        body: String,
+        #[serde(default = "NoteLevel::default_info")]
+        level: NoteLevel,
+    },
+    /// Filesystem path with an "Open folder/file" button.
+    PathLink {
+        label: String,
+        path: String,
+        open: PathOpenKind,
+    },
+    /// Polled status badge: frontend invokes `query_command` and renders
+    /// the variant whose `id` matches the returned value.
+    Badge {
+        query_command: String,
+        variants: Vec<BadgeVariant>,
+    },
+
+    // ── Actions ──────────────────────────────────────────────────
+    /// Button that invokes a backend command. Optional `state_query`
+    /// turns it into a multi-state button (Install / Reinstall / Update).
+    Action {
+        id: String,
+        label: String,
+        command: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        state_query: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        confirm: Option<String>,
+        #[serde(default = "ActionStyle::default_primary")]
+        style: ActionStyle,
+    },
+
+    // ── Conditional visibility ───────────────────────────────────
+    /// Render `then` only when the named field equals `equals`.
+    When {
+        field: String,
+        equals: serde_json::Value,
+        then: Vec<SettingField>,
+    },
+}
+
+impl NoteLevel {
+    fn default_info() -> Self {
+        NoteLevel::Info
+    }
+}
+
+impl ActionStyle {
+    fn default_primary() -> Self {
+        ActionStyle::Primary
+    }
+}
+
+/// Wire format describing one agent provider to the frontend.
+/// Built from the trait via `AgentProvider::describe()`.
+///
+/// `schema_version` lets us evolve the wire format without silently
+/// breaking external consumers. Bump it when fields are added/removed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderDescriptor {
+    pub schema_version: u32,
+    pub id: String,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_hint: Option<String>,
+    pub available_models: Vec<ModelInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
+    pub settings_schema: Vec<SettingField>,
+    pub supports_lazy_skills: bool,
+    pub has_hooks: bool,
+    pub preserves_context_on_resume: bool,
+}
+
+/// Current `ProviderDescriptor` schema version. Bump on breaking change.
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 1;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 pub trait AgentProvider: Send + Sync {
@@ -146,5 +364,185 @@ pub trait AgentProvider: Send + Sync {
     /// merging skills into the system prompt up-front.
     fn supports_lazy_skills(&self) -> bool {
         false
+    }
+
+    // ── Self-presentation metadata (Chunk B.1) ───────────────────────
+    //
+    // The frontend renders provider tabs, model dropdowns, and settings
+    // panels purely from these methods + `describe()`. Default impls are
+    // empty so existing providers don't break; real providers override
+    // what they actually offer.
+
+    /// Models this provider offers (e.g. sonnet, opus, haiku for Claude).
+    fn available_models(&self) -> Vec<ModelInfo> {
+        Vec::new()
+    }
+
+    /// Default model id, must match one of `available_models()` if non-None.
+    fn default_model(&self) -> Option<&str> {
+        None
+    }
+
+    /// Optional icon hint (emoji or single character) for the provider tab.
+    fn icon_hint(&self) -> Option<&str> {
+        None
+    }
+
+    /// Declarative settings panel — frontend renders generically.
+    fn settings_schema(&self) -> Vec<SettingField> {
+        Vec::new()
+    }
+
+    /// Whether resuming a session preserves the agent's prior context.
+    /// Claude=true (JSONL replay), Codex=false. Replaces the
+    /// `provider_name == "claude"` literal in `service/general_agent.rs`.
+    fn preserves_context_on_resume(&self) -> bool {
+        true
+    }
+
+    /// Build the wire descriptor reported to the frontend.
+    ///
+    /// **Contract:** this method MUST be pure, cheap, and free of I/O.
+    /// No locks, no `.await`, no remote calls. It is invoked while
+    /// holding a read lock on the agent registry, and the result is
+    /// serialized to JSON for REST/Socket/Tauri callers. The default
+    /// impl just assembles the other metadata methods — providers
+    /// rarely need to override it.
+    fn describe(&self) -> ProviderDescriptor {
+        ProviderDescriptor {
+            schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
+            id: self.id().to_string(),
+            display_name: self.display_name().to_string(),
+            icon_hint: self.icon_hint().map(|s| s.to_string()),
+            available_models: self.available_models(),
+            default_model: self.default_model().map(|s| s.to_string()),
+            settings_schema: self.settings_schema(),
+            supports_lazy_skills: self.supports_lazy_skills(),
+            has_hooks: self.has_hooks(),
+            preserves_context_on_resume: self.preserves_context_on_resume(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Round-trip golden test for the wire format.
+    /// Catches accidental field renames or breaking serde changes
+    /// before they reach external consumers.
+    #[test]
+    fn provider_descriptor_round_trip() {
+        let original = ProviderDescriptor {
+            schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
+            id: "test".into(),
+            display_name: "Test Provider".into(),
+            icon_hint: Some("T".into()),
+            available_models: vec![ModelInfo {
+                id: "model-1".into(),
+                display_name: "Model One".into(),
+                description: Some("first model".into()),
+            }],
+            default_model: Some("model-1".into()),
+            settings_schema: vec![
+                SettingField::Section {
+                    title: "Group".into(),
+                    description: Some("desc".into()),
+                    fields: vec![
+                        SettingField::Toggle {
+                            key: "flag".into(),
+                            label: "Flag".into(),
+                            default: true,
+                            description: None,
+                        },
+                        SettingField::When {
+                            field: "flag".into(),
+                            equals: serde_json::json!(true),
+                            then: vec![SettingField::Info {
+                                title: None,
+                                body: "Visible when flag is on".into(),
+                                level: NoteLevel::Warn,
+                            }],
+                        },
+                    ],
+                },
+                SettingField::Action {
+                    id: "do_thing".into(),
+                    label: "Do Thing".into(),
+                    command: "test_command".into(),
+                    state_query: Some("query_state".into()),
+                    confirm: None,
+                    style: ActionStyle::Primary,
+                },
+                SettingField::Badge {
+                    query_command: "check_state".into(),
+                    variants: vec![BadgeVariant {
+                        id: "ok".into(),
+                        label: "OK".into(),
+                        style: BadgeStyle::Green,
+                    }],
+                },
+            ],
+            supports_lazy_skills: true,
+            has_hooks: true,
+            preserves_context_on_resume: true,
+        };
+
+        let json = serde_json::to_string(&original).expect("serialize");
+        let decoded: ProviderDescriptor =
+            serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(original, decoded, "round-trip must be lossless");
+    }
+
+    #[test]
+    fn provider_descriptor_rejects_unknown_fields() {
+        // schema_version protects against silent breakage; deny_unknown_fields
+        // protects against typos in field names.
+        let bad = r#"{
+            "schema_version": 1,
+            "id": "test",
+            "display_name": "Test",
+            "available_models": [],
+            "settings_schema": [],
+            "supports_lazy_skills": false,
+            "has_hooks": false,
+            "preserves_context_on_resume": true,
+            "extra_unknown_field": "boom"
+        }"#;
+        let result: Result<ProviderDescriptor, _> = serde_json::from_str(bad);
+        assert!(result.is_err(), "deny_unknown_fields must reject extras");
+    }
+
+    /// Minimal stub provider — exercises `describe()` default impl through
+    /// the trait, ensuring it compiles and assembles correctly.
+    struct StubProvider;
+
+    impl AgentProvider for StubProvider {
+        fn id(&self) -> &str { "stub" }
+        fn display_name(&self) -> &str { "Stub" }
+        fn build_launch_command(&self, _: &AgentLaunchParams) -> String { String::new() }
+        fn readiness_strategy(&self) -> ReadinessStrategy {
+            ReadinessStrategy::FixedDelay { duration: Duration::from_secs(0) }
+        }
+        fn task_delivery(&self) -> TaskDelivery { TaskDelivery::PtyInput }
+        fn detect_from_title(&self, _: &str) -> bool { false }
+        fn detect_from_output(&self, _: &str) -> bool { false }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> { None }
+        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> { None }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> { None }
+    }
+
+    #[test]
+    fn default_describe_assembles_from_methods() {
+        let p = StubProvider;
+        let desc = p.describe();
+        assert_eq!(desc.schema_version, PROVIDER_DESCRIPTOR_SCHEMA_VERSION);
+        assert_eq!(desc.id, "stub");
+        assert_eq!(desc.display_name, "Stub");
+        assert!(desc.available_models.is_empty());
+        assert!(desc.settings_schema.is_empty());
+        assert!(desc.preserves_context_on_resume);  // default true
+        assert!(!desc.supports_lazy_skills);          // default false
+        assert!(!desc.has_hooks);                     // default false
     }
 }
