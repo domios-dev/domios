@@ -236,6 +236,142 @@ pub enum Commands {
         action: MeshAction,
     },
 
+    /// Unified memory store — skills, facts, notes, scripts, peers, preferences
+    Mem {
+        #[command(subcommand)]
+        action: MemAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemAction {
+    /// Search across mem_items (FTS5 + hybrid scoring)
+    Search {
+        /// Query text
+        query: String,
+        /// Filter by kind: skill | fact | note | conversation | script | peer | preference | daily | learning | rule | summary
+        #[arg(long)]
+        kind: Option<String>,
+        /// Filter by area tag
+        #[arg(long)]
+        area: Option<String>,
+        /// Restrict to global / workspace / workspace:<id>
+        #[arg(long)]
+        scope: Option<String>,
+        /// Max results (default 5)
+        #[arg(long, default_value = "5")]
+        limit: usize,
+    },
+    /// Print one item by id
+    Get {
+        /// Mem item id (e.g. skill_home_assistant)
+        id: String,
+    },
+    /// Delete an item by id
+    Delete {
+        id: String,
+    },
+    /// Save a new mem item
+    Save {
+        /// Item kind: skill | fact | note | conversation | script | peer | preference | daily | learning | rule | summary
+        #[arg(long)]
+        kind: String,
+        /// Title (will be slugified into id). If omitted, first line of body.
+        #[arg(long)]
+        title: Option<String>,
+        /// Body content. If omitted and stdin is piped, read stdin.
+        body: Option<String>,
+        /// Optional summary (~50-200 chars)
+        #[arg(long)]
+        summary: Option<String>,
+        /// Comma-separated tags
+        #[arg(long)]
+        tags: Option<String>,
+        /// Area tag (auth | deploy | home | ...)
+        #[arg(long)]
+        area: Option<String>,
+        /// Importance 1-5 (default 3.0). Higher = more likely in L1 wake-up.
+        #[arg(long, default_value = "3.0")]
+        importance: f64,
+        /// Scope: global (default) or workspace
+        #[arg(long)]
+        scope: Option<String>,
+    },
+    /// Semantic-first search (vectors when enabled, FTS fallback)
+    Recall {
+        query: String,
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long, default_value = "5")]
+        limit: usize,
+    },
+    /// Print L0+L1 wake-up context (GA init injection)
+    WakeUp {
+        /// Total token budget (split L0 + L1)
+        #[arg(long)]
+        budget: Option<usize>,
+        /// Identity layer only (~100 tokens)
+        #[arg(long)]
+        l0_only: bool,
+        /// Skip identity layer (return L1 only)
+        #[arg(long)]
+        no_l0: bool,
+    },
+    /// Show mem store stats (counts by kind, blob sizes)
+    Stats,
+    /// Graph operations
+    Graph {
+        #[command(subcommand)]
+        action: MemGraphAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemGraphAction {
+    /// Create a graph entity
+    Create {
+        /// Entity id (e.g. person_kai)
+        #[arg(long)]
+        id: String,
+        /// Entity type (Person, Project, Task, Skill, ...)
+        #[arg(long, name = "type")]
+        entity_type: String,
+        /// JSON properties
+        #[arg(long, default_value = "{}")]
+        props: String,
+        #[arg(long)]
+        scope: Option<String>,
+    },
+    /// Create a relation between entities or mem_items
+    Relate {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        rel: String,
+        #[arg(long)]
+        to: String,
+        /// Validity start (ISO 8601, default now)
+        #[arg(long)]
+        valid_from: Option<String>,
+        /// Validity end (ISO 8601, optional)
+        #[arg(long)]
+        valid_to: Option<String>,
+        #[arg(long, default_value = "1.0")]
+        confidence: f64,
+        #[arg(long)]
+        scope: Option<String>,
+    },
+    /// List outgoing relations from an id
+    Related {
+        #[arg(long)]
+        id: String,
+        /// Filter by relation type
+        #[arg(long)]
+        rel: Option<String>,
+        /// As-of date (ISO 8601) — filters by valid_from/valid_to
+        #[arg(long)]
+        as_of: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1774,9 +1910,152 @@ fn main() {
                 }
             }
         }
+        Commands::Mem { action } => {
+            let json_mode = cli.json;
+            handle_mem(json_mode, action);
+            return;
+        }
     };
 
     handle_result(cli.json, result);
+}
+
+// ── Mem CLI handler ─────────────────────────────────────────────────
+
+fn mem_get_request(http: &reqwest::blocking::Client, url: &str) -> Result<serde_json::Value, String> {
+    let resp = http.get(url).send().map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let val: serde_json::Value = resp.json().unwrap_or_default();
+    if !status.is_success() {
+        return Err(val.get("message").and_then(|v| v.as_str()).map(String::from)
+            .unwrap_or_else(|| format!("HTTP {}", status)));
+    }
+    Ok(val)
+}
+
+fn mem_post_request(
+    http: &reqwest::blocking::Client,
+    url: &str,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let resp = http.post(url).json(body).send().map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let val: serde_json::Value = resp.json().unwrap_or_default();
+    if !status.is_success() {
+        return Err(val.to_string());
+    }
+    Ok(val)
+}
+
+fn handle_mem(json_mode: bool, action: MemAction) {
+    use std::io::Read;
+    let (base, token) = read_api_config();
+    let http = build_http(&token);
+
+    let result: Result<serde_json::Value, String> = match action {
+        MemAction::Search { query, kind, area, scope, limit } => {
+            let mut url = format!("{}/api/mem/search?q={}&limit={}",
+                base, urlencoding::encode(&query), limit);
+            if let Some(k) = &kind { url.push_str(&format!("&kind={}", k)); }
+            if let Some(a) = &area { url.push_str(&format!("&area={}", a)); }
+            if let Some(s) = &scope { url.push_str(&format!("&scope={}", s)); }
+            mem_get_request(&http, &url)
+        }
+        MemAction::Recall { query, kind, limit } => {
+            // Recall in 3.1 is FTS5-backed; 3.5 layers vectors on top via the
+            // same endpoint. Same backend route, friendlier name for agents.
+            let mut url = format!("{}/api/mem/search?q={}&limit={}",
+                base, urlencoding::encode(&query), limit);
+            if let Some(k) = &kind { url.push_str(&format!("&kind={}", k)); }
+            mem_get_request(&http, &url)
+        }
+        MemAction::Get { id } => {
+            mem_get_request(&http, &format!("{}/api/mem/items/{}", base, id))
+        }
+        MemAction::Delete { id } => {
+            let resp = http.delete(format!("{}/api/mem/items/{}", base, id))
+                .send().map_err(|e| e.to_string());
+            resp.map(|r| serde_json::json!({"deleted": r.status().is_success()}))
+        }
+        MemAction::Save { kind, title, body, summary, tags, area, importance, scope } => {
+            // Body: positional arg, else read stdin if piped
+            let resolved_body = match body {
+                Some(b) => b,
+                None => {
+                    let mut s = String::new();
+                    if std::io::stdin().read_to_string(&mut s).is_err() || s.trim().is_empty() {
+                        eprintln!("Error: no body provided (pass as arg or pipe to stdin)");
+                        std::process::exit(1);
+                    }
+                    s
+                }
+            };
+            let resolved_title = title.unwrap_or_else(|| {
+                resolved_body.lines().next().unwrap_or("untitled").chars().take(80).collect()
+            });
+            let tag_list: Vec<String> = tags
+                .map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+                .unwrap_or_default();
+            let payload = serde_json::json!({
+                "kind": kind,
+                "title": resolved_title,
+                "summary": summary,
+                "area": area,
+                "tags": tag_list,
+                "body": resolved_body,
+                "importance": importance,
+                "scope": scope,
+            });
+            mem_post_request(&http, &format!("{}/api/mem/items", base), &payload)
+        }
+        MemAction::WakeUp { budget, l0_only, no_l0 } => {
+            let mut url = format!("{}/api/mem/wake-up", base);
+            let mut sep = '?';
+            if let Some(b) = budget {
+                url.push_str(&format!("{}budget={}", sep, b));
+                sep = '&';
+            }
+            if l0_only { url.push_str(&format!("{}l0_only=true", sep)); sep = '&'; }
+            if no_l0 { url.push_str(&format!("{}no_l0=true", sep)); let _ = sep; }
+            mem_get_request(&http, &url)
+        }
+        MemAction::Stats => {
+            mem_get_request(&http, &format!("{}/api/mem/stats", base))
+        }
+        MemAction::Graph { action } => match action {
+            MemGraphAction::Create { id, entity_type, props, scope } => {
+                let props_val: serde_json::Value =
+                    serde_json::from_str(&props).unwrap_or(serde_json::json!({}));
+                let payload = serde_json::json!({
+                    "id": id, "type": entity_type, "scope": scope, "properties": props_val,
+                });
+                mem_post_request(&http, &format!("{}/api/mem/graph/entities", base), &payload)
+            }
+            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope } => {
+                let payload = serde_json::json!({
+                    "from": from, "rel": rel, "to": to,
+                    "valid_from": valid_from, "valid_to": valid_to,
+                    "confidence": confidence, "scope": scope,
+                });
+                mem_post_request(&http, &format!("{}/api/mem/graph/relate", base), &payload)
+            }
+            MemGraphAction::Related { id, rel, as_of } => {
+                let mut url = format!("{}/api/mem/graph/related?id={}", base, urlencoding::encode(&id));
+                if let Some(r) = &rel { url.push_str(&format!("&rel={}", r)); }
+                if let Some(d) = &as_of { url.push_str(&format!("&as_of={}", urlencoding::encode(d))); }
+                mem_get_request(&http, &url)
+            }
+        }
+    };
+
+    // Wake-up returns plain text in `text` field — print it directly.
+    if let Ok(ref val) = result {
+        if let Some(text) = val.get("text").and_then(|v| v.as_str()) {
+            println!("{}", text);
+            return;
+        }
+    }
+    handle_result(json_mode, result);
 }
 
 fn handle_result(json: bool, result: Result<serde_json::Value, String>) {

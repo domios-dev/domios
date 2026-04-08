@@ -18,3 +18,4 @@ toml = "0.8"
 base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
+urlencoding = "2"

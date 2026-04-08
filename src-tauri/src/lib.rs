@@ -9,6 +9,7 @@ pub mod dispatch;
 mod commands_mesh;
 mod config;
 pub mod cron;
+pub mod mem;
 pub mod mesh;
 pub mod multiplexer;
 mod notification;
@@ -1017,6 +1018,15 @@ pub fn run() {
 
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
             let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
+
+            let mem = mem::MemManager::open(&crate::paths::data_dir())
+                .expect("mem manager init failed");
+            match mem.seed_bundled_if_needed() {
+                Ok(n) if n > 0 => log::info!("[mem] seeded {} bundled starter items", n),
+                Ok(_) => log::info!("[mem] starter items already seeded"),
+                Err(e) => log::warn!("[mem] seed failed: {}", e),
+            }
+
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
@@ -1028,6 +1038,7 @@ pub fn run() {
                 agent_tracker: states.agent_tracker.clone(),
                 report_store: states.report_store.clone(),
                 agent_registry,
+                mem,
                 prompt_detector,
                 bridge_outbound: bridge_outbound_tx,
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
