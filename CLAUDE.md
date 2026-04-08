@@ -10,6 +10,11 @@ CodeTerm is a **distributed OS for AI agents**. The CLI and APIs are the "spinal
 
 - All code/comments in English
 - See `docs/TESTING.md` for full testing guide
+- **No external user base yet.** This is Andrey's personal project. No
+  backward-compat shims, no migration paths, no "we can't break the old
+  format" constraints. Breaking changes are fine. Delete legacy code
+  aggressively. When in doubt, rewrite rather than patch. The only user
+  is the developer.
 
 ## Running dev & tests
 

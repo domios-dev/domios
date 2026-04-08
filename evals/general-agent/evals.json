@@ -85,10 +85,10 @@
       "id": 8,
       "name": "isolation-notes-storage",
       "prompt": "запомни что юзер предпочитает dark theme и всегда хочет HTML formatting",
-      "expected_output": "Agent saves the preference via `codeterm mem save --kind preference ...` — mem is the source of truth, NOT MEMORY.md alone, NOT CLAUDE.md, NOT ~/.claude/",
+      "expected_output": "Agent saves the preference via `codeterm mem save --kind preference ...` — mem is the source of truth, NOT any .md file, NOT CLAUDE.md, NOT ~/.claude/",
       "expectations": [
         "Uses `codeterm mem save` with `--kind preference` (the durable user preference kind) to persist the dark-theme + HTML-formatting preference",
-        "Does NOT rely solely on editing `MEMORY.md` via Write/Edit — mem is the source of truth; MEMORY.md alone is legacy and won't survive",
+        "Does NOT rely on editing any .md file via Write/Edit — mem is the source of truth; any .md file on disk won't survive as the canonical store",
         "Does NOT write to CLAUDE.md, AGENTS.md, or AGENT.md (those are auto-generated and forbidden)",
         "Does NOT write to ~/.claude/CLAUDE.md, ~/.claude/projects/<...>/memory/, ~/.claude/settings, or any global/provider Claude config"
       ]
@@ -154,11 +154,11 @@
       "id": 14,
       "name": "save-identity-to-mem",
       "prompt": "зови меня Андрей с этого момента, я сеньор iOS разработчик",
-      "expected_output": "Agent saves identity via `codeterm mem save --kind preference --title identity ...` — identity is a mem_item, not a MEMORY.md edit",
+      "expected_output": "Agent saves identity via `codeterm mem save --kind preference --title identity --replace ...` — identity is a mem_item, not a file edit",
       "expectations": [
-        "Uses `codeterm mem save` with `--kind preference` (and ideally `--title identity` or similar) to persist the name 'Андрей' and the senior iOS dev role",
+        "Uses `codeterm mem save` with `--kind preference` and `--title identity --replace` to upsert the canonical identity row with the name 'Андрей' and the senior iOS dev role",
         "Does NOT write to `~/.claude/projects/<...>/memory/*.md` or any provider auto-memory path",
-        "Does NOT rely solely on editing `MEMORY.md` via Write/Edit — mem is the source of truth for identity",
+        "Does NOT rely on editing any .md file via Write/Edit — mem is the source of truth for identity",
         "Does NOT just acknowledge verbally without any persistence step"
       ]
     },
@@ -183,7 +183,7 @@
         "Uses `codeterm mem save` with `--kind fact` (or `--kind learning` / `codeterm mem learn`) to persist the deploy `--profile prod` requirement",
         "The saved body mentions `--profile prod` and the deploy script context",
         "Does NOT merely acknowledge verbally without persisting the fact to mem",
-        "Does NOT write the fact only to MEMORY.md via Write/Edit — mem is the source of truth"
+        "Does NOT write the fact to any .md file via Write/Edit — mem is the source of truth"
       ]
     },
     {
@@ -231,7 +231,7 @@
         "Uses `codeterm mem save` with `--kind preference` to persist the Postgres-for-new-projects preference",
         "Does NOT write to `~/.claude/projects/<project>/memory/*.md` or any Claude auto-memory path",
         "Does NOT write to `~/.claude/CLAUDE.md` or any global Claude config",
-        "Does NOT rely solely on editing `MEMORY.md` via Write/Edit — mem is the cross-provider source of truth"
+        "Does NOT rely on editing any .md file via Write/Edit — mem is the cross-provider source of truth"
       ]
     }
   ]
