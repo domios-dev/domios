@@ -253,6 +253,7 @@ mod tests {
             enabled: Some(true),
             max_history: None,
             oneshot: None,
+            jitter_max_ms: Some(0),
         }).unwrap();
 
         store.create(CronCreateParams {
@@ -268,6 +269,7 @@ mod tests {
             enabled: Some(false),
             max_history: None,
             oneshot: None,
+            jitter_max_ms: Some(0),
         }).unwrap();
 
         let enabled = store.list_enabled();

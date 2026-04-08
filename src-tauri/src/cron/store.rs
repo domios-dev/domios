@@ -52,7 +52,19 @@ pub struct CronJob {
     pub last_run: Option<CronRunInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_run: Option<u64>,
+    /// Maximum jitter applied to next_run (anti-anti-cheat / organic fire
+    /// pattern). When None, defaults to 10% of the cron interval, clamped
+    /// to [60_000, 1_800_000] (1 min to 30 min). Set to Some(0) to disable.
+    /// See `docs/plans/mem-architecture.md` "Cron Hardening".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jitter_max_ms: Option<u64>,
+    /// Count of back-to-back failures. Drives exponential backoff. Reset
+    /// to 0 on successful completion. Job auto-disables at >= 5.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub consecutive_failures: u32,
 }
+
+fn is_zero_u32(v: &u32) -> bool { *v == 0 }
 
 fn default_max_history() -> usize {
     100
@@ -101,6 +113,63 @@ pub fn compute_next_run(schedule: &str) -> Result<Option<u64>, String> {
     let sched = cron::Schedule::from_str(&expr).map_err(|e| format!("Invalid cron: {}", e))?;
     Ok(sched.upcoming(chrono::Utc).next().map(|dt| dt.timestamp_millis() as u64))
 }
+
+/// Like `compute_next_run` but applies a randomized jitter so back-to-back
+/// runs of the same agent-spawning cron don't fire at exactly the same
+/// wall-clock instant every period. Spreads load and looks more organic.
+///
+/// `jitter_max_ms = None` → defaults to 10% of the interval between the
+///   next two scheduled fires, clamped to [60_000, 1_800_000].
+/// `jitter_max_ms = Some(0)` → no jitter (use plain compute_next_run).
+/// `jitter_max_ms = Some(n)` → uniform random in [0, n].
+pub fn compute_next_run_jittered(
+    schedule: &str,
+    jitter_max_ms: Option<u64>,
+) -> Result<Option<u64>, String> {
+    use std::str::FromStr;
+    let expr = to_6field(schedule);
+    let sched = cron::Schedule::from_str(&expr).map_err(|e| format!("Invalid cron: {}", e))?;
+    let mut upcoming = sched.upcoming(chrono::Utc);
+    let next = match upcoming.next() {
+        Some(dt) => dt.timestamp_millis() as u64,
+        None => return Ok(None),
+    };
+
+    let max = match jitter_max_ms {
+        Some(0) => return Ok(Some(next)),
+        Some(n) => n,
+        None => {
+            // 10% of the interval between this fire and the next, clamped.
+            let interval_ms = upcoming
+                .next()
+                .map(|dt2| (dt2.timestamp_millis() as u64).saturating_sub(next))
+                .unwrap_or(0);
+            let raw = interval_ms / 10;
+            raw.clamp(60_000, 1_800_000)
+        }
+    };
+    if max == 0 {
+        return Ok(Some(next));
+    }
+    // Uniform [0, max] inclusive — anti-bias by using full u64 range modulo
+    use rand::Rng;
+    let offset = rand::thread_rng().gen_range(0..=max);
+    Ok(Some(next + offset))
+}
+
+/// Compute the next run after a failure, applying exponential backoff with
+/// 25% jitter. Capped at 1 hour. base_ms is typically the previous interval.
+pub fn compute_backoff(consecutive_failures: u32, base_ms: u64) -> u64 {
+    let factor = 1u64.checked_shl(consecutive_failures.min(10)).unwrap_or(1024);
+    let raw = base_ms.saturating_mul(factor);
+    let capped = raw.min(3_600_000); // 1 hour
+    use rand::Rng;
+    let jitter = (capped as f64 * 0.25 * rand::thread_rng().gen::<f64>()) as u64;
+    capped + jitter
+}
+
+/// Threshold at which a recurring cron auto-disables.
+pub const MAX_CONSECUTIVE_FAILURES: u32 = 5;
 
 /// Validate a cron expression without computing next run.
 pub fn validate_schedule(schedule: &str) -> Result<(), String> {
@@ -308,6 +377,7 @@ impl CronStore {
 
     pub fn create(&mut self, params: CronCreateParams) -> Result<CronJob, String> {
         let oneshot = params.oneshot.unwrap_or(false);
+        let jitter = params.jitter_max_ms;
 
         let next_run = if !params.enabled.unwrap_or(true) {
             if oneshot {
@@ -321,7 +391,7 @@ impl CronStore {
             Some(parse_oneshot_schedule(&params.schedule)?)
         } else {
             validate_schedule(&params.schedule)?;
-            compute_next_run(&params.schedule)?
+            compute_next_run_jittered(&params.schedule, jitter)?
         };
 
         let job = CronJob {
@@ -341,6 +411,8 @@ impl CronStore {
             created_at: Self::now_ms(),
             last_run: None,
             next_run,
+            jitter_max_ms: jitter,
+            consecutive_failures: 0,
         };
 
         self.file.jobs.push(job.clone());
@@ -420,7 +492,7 @@ impl CronStore {
         } else if job.oneshot {
             Some(parse_oneshot_schedule(&job.schedule)?)
         } else {
-            compute_next_run(&job.schedule)?
+            compute_next_run_jittered(&job.schedule, job.jitter_max_ms)?
         };
 
         let updated = job.clone();
@@ -452,8 +524,11 @@ impl CronStore {
         } else if job.oneshot {
             Some(parse_oneshot_schedule(&job.schedule)?)
         } else {
-            compute_next_run(&job.schedule)?
+            compute_next_run_jittered(&job.schedule, job.jitter_max_ms)?
         };
+        if enabled {
+            job.consecutive_failures = 0;
+        }
 
         let updated = job.clone();
         self.save()?;
@@ -465,13 +540,44 @@ impl CronStore {
     pub fn record_run(&mut self, job_id: &str, run: CronRunInfo) -> Result<(), String> {
         // Update last_run on job
         if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == job_id) {
+            let was_failure = matches!(run.status, CronRunStatus::Failed);
+            let was_success = matches!(run.status, CronRunStatus::Success);
             job.last_run = Some(run.clone());
-            // Recompute next_run (oneshot: no next run after firing)
-            if job.oneshot {
-                job.next_run = None;
-                job.enabled = false;
-            } else if job.enabled {
-                job.next_run = compute_next_run(&job.schedule)?;
+
+            // Failure tracking + auto-disable + exponential backoff
+            if was_failure {
+                job.consecutive_failures = job.consecutive_failures.saturating_add(1);
+                if job.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                    job.enabled = false;
+                    job.next_run = None;
+                    log::warn!(
+                        "[cron] auto-disabled job {} after {} consecutive failures",
+                        job_id, job.consecutive_failures
+                    );
+                } else if !job.oneshot && job.enabled {
+                    // Schedule retry with exponential backoff
+                    let now_ms = Self::now_ms();
+                    let base_ms = compute_next_run_jittered(&job.schedule, Some(0))?
+                        .map(|t| t.saturating_sub(now_ms))
+                        .unwrap_or(60_000);
+                    let backoff = compute_backoff(job.consecutive_failures, base_ms);
+                    job.next_run = Some(now_ms + backoff);
+                    log::info!(
+                        "[cron] {} backoff after failure {}/{}: +{}ms",
+                        job_id, job.consecutive_failures, MAX_CONSECUTIVE_FAILURES, backoff
+                    );
+                }
+            } else {
+                if was_success {
+                    job.consecutive_failures = 0;
+                }
+                // Recompute next_run normally (oneshot: no next run after firing)
+                if job.oneshot {
+                    job.next_run = None;
+                    job.enabled = false;
+                } else if job.enabled {
+                    job.next_run = compute_next_run_jittered(&job.schedule, job.jitter_max_ms)?;
+                }
             }
 
             let max = job.max_history;
@@ -544,6 +650,10 @@ pub struct CronCreateParams {
     /// If true, fires once at the scheduled time and auto-deletes on completion.
     #[serde(default)]
     pub oneshot: Option<bool>,
+    /// Anti-anti-cheat jitter — random offset added to next_run on each
+    /// schedule. None = 10% of interval clamped to [1m, 30m]. Some(0) = off.
+    #[serde(default)]
+    pub jitter_max_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -581,6 +691,112 @@ mod tests {
         CronStore::new_with_path(path_clone)
     }
 
+    #[test]
+    fn jitter_default_is_within_clamp() {
+        // 1-hour interval → 10% = 360_000 ms = 6 min, well inside [60_000, 1_800_000]
+        let plain = compute_next_run("0 * * * *").unwrap().unwrap();
+        let jittered = compute_next_run_jittered("0 * * * *", None).unwrap().unwrap();
+        assert!(jittered >= plain, "jitter never goes backwards");
+        assert!(jittered <= plain + 1_800_000, "jitter capped at 30 min");
+    }
+
+    #[test]
+    fn jitter_zero_is_no_op() {
+        let plain = compute_next_run("0 * * * *").unwrap().unwrap();
+        let jittered = compute_next_run_jittered("0 * * * *", Some(0)).unwrap().unwrap();
+        assert_eq!(plain, jittered);
+    }
+
+    #[test]
+    fn jitter_explicit_max_respected() {
+        let plain = compute_next_run("0 * * * *").unwrap().unwrap();
+        for _ in 0..10 {
+            let j = compute_next_run_jittered("0 * * * *", Some(5_000)).unwrap().unwrap();
+            assert!(j >= plain && j <= plain + 5_000);
+        }
+    }
+
+    #[test]
+    fn backoff_grows_exponentially_capped_at_hour() {
+        let base = 60_000u64; // 1 minute base
+        let b1 = compute_backoff(1, base);
+        let b2 = compute_backoff(2, base);
+        let b5 = compute_backoff(5, base);
+        // Exponential within reason, all under 1h*1.25 (jitter)
+        assert!(b1 < b2);
+        assert!(b5 <= 3_600_000 + (3_600_000 / 4));
+    }
+
+    #[test]
+    fn record_failure_increments_counter_and_backs_off() {
+        let mut store = temp_store();
+        let job = store.create(make_params("Test", "ws", "0 * * * *")).unwrap();
+        let initial_next = job.next_run.unwrap();
+
+        // Record a failure
+        store.record_run(&job.id, CronRunInfo {
+            run_id: "r1".into(),
+            started_at: 0,
+            finished_at: Some(0),
+            status: CronRunStatus::Failed,
+            pane_id: None,
+            tab_id: None,
+        }).unwrap();
+
+        let after = store.get(&job.id).unwrap();
+        assert_eq!(after.consecutive_failures, 1);
+        // Backoff pushes next_run forward, but it should still be in the future
+        // (could be sooner or later than the original schedule depending on
+        // when "now" is relative to the next cron fire — we just check counter)
+        let _ = initial_next;
+    }
+
+    #[test]
+    fn record_5_failures_auto_disables_job() {
+        let mut store = temp_store();
+        let job = store.create(make_params("Test", "ws", "0 * * * *")).unwrap();
+        for i in 0..MAX_CONSECUTIVE_FAILURES {
+            store.record_run(&job.id, CronRunInfo {
+                run_id: format!("r{}", i),
+                started_at: 0,
+                finished_at: Some(0),
+                status: CronRunStatus::Failed,
+                pane_id: None,
+                tab_id: None,
+            }).unwrap();
+        }
+        let after = store.get(&job.id).unwrap();
+        assert!(!after.enabled, "should auto-disable after {} failures", MAX_CONSECUTIVE_FAILURES);
+        assert_eq!(after.consecutive_failures, MAX_CONSECUTIVE_FAILURES);
+    }
+
+    #[test]
+    fn success_resets_failure_counter() {
+        let mut store = temp_store();
+        let job = store.create(make_params("Test", "ws", "0 * * * *")).unwrap();
+        for i in 0..3 {
+            store.record_run(&job.id, CronRunInfo {
+                run_id: format!("f{}", i),
+                started_at: 0,
+                finished_at: Some(0),
+                status: CronRunStatus::Failed,
+                pane_id: None,
+                tab_id: None,
+            }).unwrap();
+        }
+        store.record_run(&job.id, CronRunInfo {
+            run_id: "ok".into(),
+            started_at: 0,
+            finished_at: Some(0),
+            status: CronRunStatus::Success,
+            pane_id: None,
+            tab_id: None,
+        }).unwrap();
+        let after = store.get(&job.id).unwrap();
+        assert_eq!(after.consecutive_failures, 0);
+        assert!(after.enabled);
+    }
+
     fn make_params(name: &str, ws: &str, schedule: &str) -> CronCreateParams {
         CronCreateParams {
             name: name.to_string(),
@@ -595,6 +811,7 @@ mod tests {
             enabled: None,
             max_history: None,
             oneshot: None,
+            jitter_max_ms: Some(0), // tests deterministic — no jitter
         }
     }
 

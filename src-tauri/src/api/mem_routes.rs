@@ -93,6 +93,10 @@ pub struct SaveBody {
     pub source: Option<String>,
     #[serde(default)]
     pub importance: Option<f64>,
+    /// If true and a row with the same slug-derived id exists, overwrite it
+    /// in place. If false (default), collision falls through to hash suffix.
+    #[serde(default)]
+    pub replace: bool,
 }
 
 pub async fn mem_save(
@@ -115,7 +119,11 @@ pub async fn mem_save(
         source: body.source,
         importance: body.importance.unwrap_or(3.0),
     };
-    let id = state.svc.mem.save(item).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let id = if body.replace {
+        state.svc.mem.save_replace(item)
+    } else {
+        state.svc.mem.save(item)
+    }.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "id": id })))
 }
 

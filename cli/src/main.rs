@@ -299,6 +299,10 @@ pub enum MemAction {
         /// Scope: global (default) or workspace
         #[arg(long)]
         scope: Option<String>,
+        /// Overwrite an existing row with the same id (upsert). Use this to
+        /// update the bundled identity placeholder or any pinned record.
+        #[arg(long)]
+        replace: bool,
     },
     /// Semantic-first search (vectors when enabled, FTS fallback)
     Recall {
@@ -2017,7 +2021,7 @@ fn handle_mem(json_mode: bool, action: MemAction) {
                 .send().map_err(|e| e.to_string());
             resp.map(|r| serde_json::json!({"deleted": r.status().is_success()}))
         }
-        MemAction::Save { kind, title, body, summary, tags, area, importance, scope } => {
+        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, replace } => {
             // Body: positional arg, else read stdin if piped
             let resolved_body = match body {
                 Some(b) => b,
@@ -2045,6 +2049,7 @@ fn handle_mem(json_mode: bool, action: MemAction) {
                 "body": resolved_body,
                 "importance": importance,
                 "scope": scope,
+                "replace": replace,
             });
             mem_post_request(&http, &format!("{}/api/mem/items", base), &payload)
         }
