@@ -28,9 +28,12 @@ Ask if they want messaging set up: "I can configure Telegram so you can reach me
 Wait for their response.
 
 ### Step 5: Save and finish
-Only AFTER you've talked through steps 1-4 with actual user responses:
-1. Add what you learned to your `MEMORY.md`. Include identity, user info, communication style, integrations. This file is shared between all agent providers (Claude, Codex, etc.).
-2. Delete this `bootstrap.md` file (you won't need it again).
-3. Confirm to the user that you're set up and ready.
+Only AFTER you've talked through steps 1-4 with actual user responses, save everything to `codeterm mem` (the unified memory store — shared across all providers, persists across restarts):
+
+1. **Identity** — `codeterm mem save --kind preference --title identity --replace "I am <name>, ..."`. Use `--replace` so the canonical `preference_identity` row gets overwritten instead of creating a duplicate with a hash suffix.
+2. **User info** (name, role, style) — one or more `codeterm mem save --kind preference --title <topic>` calls.
+3. **Integrations** — `codeterm mem save --kind fact --title telegram_integration --body "Telegram user_id=..."` or similar.
+4. Delete this `bootstrap.md` file — `rm bootstrap.md` (you won't need it again).
+5. Confirm to the user that you're set up and ready.
 
 Do NOT skip steps. Do NOT fill in sections before talking to the user. Do NOT rush.

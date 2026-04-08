@@ -38,12 +38,14 @@ pub fn ensure_directories() {
 
 /// Generate agent instructions for the General Agent.
 ///
-/// File layout:
+/// File layout (mem-centric, no MEMORY.md legacy):
 /// - `AGENT.md` — system prompt (regenerated every start)
-/// - `MEMORY.md` — shared memory (created once, agent-editable, persistent)
-/// - `CLAUDE.md` — thin import wrapper for Claude (`@./AGENT.md\n@./MEMORY.md`)
-/// - `AGENTS.md` — full inline for Codex (AGENT.md + MEMORY.md + codeterm rule)
+/// - `CLAUDE.md` — thin import wrapper (`@./AGENT.md`)
+/// - `AGENTS.md` — inline for Codex (AGENT.md + codeterm rule + bridge_mem)
 /// - `bootstrap.md` — first-run onboarding (deleted by agent after completion)
+///
+/// Persistent memory lives in `codeterm mem` (SQLite), not on disk as .md.
+/// The agent reads mem via `codeterm mem wake-up` on init.
 pub fn generate_instructions(provider_name: &str) {
     let version = env!("CARGO_PKG_VERSION");
     let platform = if cfg!(target_os = "windows") { "Windows" }
@@ -71,70 +73,27 @@ pub fn generate_instructions(provider_name: &str) {
         log::info!("[general-agent] AGENT.md updated");
     }
 
-    // 2. MEMORY.md — shared memory, created once.
-    //    Migration: if CLAUDE.md has user content beyond the template, seed MEMORY.md with it.
-    let memory_path = dir.join("MEMORY.md");
-    if !memory_path.exists() {
-        let mut migrated = false;
-        let claude_path = dir.join("CLAUDE.md");
-        if claude_path.exists() {
-            if let Ok(existing) = std::fs::read_to_string(&claude_path) {
-                let user_content = extract_user_content(&existing);
-                if !user_content.is_empty() {
-                    if let Err(e) = std::fs::write(&memory_path, &user_content) {
-                        log::error!("[general-agent] Failed to migrate to MEMORY.md: {}", e);
-                    } else {
-                        log::info!("[general-agent] Migrated user notes from CLAUDE.md to MEMORY.md");
-                        migrated = true;
-                    }
-                }
-            }
-        }
-        if !migrated {
-            let default = "# Memory\n\nShared memory for the General Agent.\nBoth Claude and Codex read and write this file — it persists across provider switches.\n";
-            let _ = std::fs::write(&memory_path, default);
-            log::info!("[general-agent] MEMORY.md created");
-        }
-    }
-
-    // 3. CLAUDE.md — thin import wrapper (regenerated every start)
-    let claude_content = "@./AGENT.md\n@./MEMORY.md\n";
+    // 2. CLAUDE.md — thin import wrapper (regenerated every start)
+    let claude_content = "@./AGENT.md\n";
     if let Err(e) = std::fs::write(dir.join("CLAUDE.md"), claude_content) {
         log::error!("[general-agent] Failed to write CLAUDE.md: {}", e);
     }
 
-    // 4. AGENTS.md — full inline for Codex (regenerated every start)
-    let memory_content = std::fs::read_to_string(&memory_path).unwrap_or_default();
+    // 3. AGENTS.md — inline for Codex (regenerated every start)
     let agents_content = format!(
         "{}\n\n---\n\n{}\n\n---\n\n{}",
         agent_content,
-        memory_content,
         crate::prompts::CODETERM_RULE,
+        crate::prompts::BRIDGE_MEM,
     );
     if let Err(e) = std::fs::write(dir.join("AGENTS.md"), agents_content) {
         log::error!("[general-agent] Failed to write AGENTS.md: {}", e);
     }
 
-    // 5. bootstrap.md — first-run onboarding
+    // 4. bootstrap.md — first-run onboarding
     let bootstrap = dir.join("bootstrap.md");
     if !bootstrap.exists() {
         let _ = std::fs::write(&bootstrap, crate::prompts::BOOTSTRAP_INSTRUCTIONS_TEMPLATE);
-    }
-}
-
-/// Extract user-written content from an existing CLAUDE.md, stripping template boilerplate.
-fn extract_user_content(content: &str) -> String {
-    let stripped: String = content
-        .lines()
-        .filter(|l| !l.starts_with("@./"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let trimmed = stripped.trim();
-    let default_notes = "# Notes\n\nYour personal notes and memory go here.";
-    if trimmed.is_empty() || trimmed == default_notes {
-        String::new()
-    } else {
-        trimmed.to_string()
     }
 }
 
@@ -453,9 +412,9 @@ pub fn start_general_agent(
     }
 
     // Fresh-session init: when we couldn't resume, the agent has no prior
-    // context — kick it with a single "init" message so it loads MEMORY.md,
-    // checks its general dir, and acks readiness. The GA prompt teaches what
-    // "init" means; backend just delivers it.
+    // context — kick it with a single "init" message so it runs `codeterm mem
+    // wake-up` to load L0+L1, checks peers, and acks readiness. The GA prompt
+    // teaches what "init" means; backend just delivers it.
     //
     // For resumed sessions we deliberately do NOT send init — the agent
     // already has the previous turn-by-turn context replayed by `--resume`,
