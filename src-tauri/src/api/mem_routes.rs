@@ -48,11 +48,13 @@ pub async fn mem_search(
         limit: p.limit,
     };
     let hits = if p.rerank.unwrap_or(false) {
+        // "auto" precedence: local fastembed cross-encoder first (truly free,
+        // no API key, runs offline). Then API providers if keys are in env.
         let cfg = RerankConfig {
             enabled: true,
-            provider: "haiku".into(),
-            api_key_env: Some("ANTHROPIC_API_KEY".into()),
-            model: Some("claude-haiku-4-5-20251001".into()),
+            provider: "auto".into(),
+            api_key_env: None,
+            model: None,
         };
         state.svc.mem.search_with_rerank(&q, &cfg)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
