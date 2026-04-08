@@ -178,9 +178,9 @@ async fn list_workspaces(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let mux = state.svc.mux.lock();
-    let workspaces = mux.list_workspaces();
-    Ok(Json(serde_json::to_value(workspaces).unwrap()))
+    let result = crate::dispatch::dispatch(&crate::dispatch::Command::WorkspaceList, &state.svc)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list workspaces"))?;
+    Ok(Json(result.into_json()))
 }
 
 #[derive(Deserialize)]
@@ -196,8 +196,10 @@ async fn create_workspace(
     Json(body): Json<CreateWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let ws = state.svc.create_workspace(body.name, body.cwd);
-    Ok(Json(serde_json::to_value(ws).unwrap()))
+    let cmd = crate::dispatch::Command::WorkspaceCreate { name: body.name, cwd: body.cwd };
+    let result = crate::dispatch::dispatch(&cmd, &state.svc)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create workspace"))?;
+    Ok(Json(result.into_json()))
 }
 
 async fn focus_workspace(
@@ -223,9 +225,10 @@ async fn rename_workspace(
     Json(body): Json<RenameWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.rename_workspace(&id, &body.name)
+    let cmd = crate::dispatch::Command::WorkspaceRename { workspace_id: id, name: body.name };
+    let result = crate::dispatch::dispatch(&cmd, &state.svc)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    Ok(Json(result.into_json()))
 }
 
 async fn close_workspace(
@@ -234,9 +237,10 @@ async fn close_workspace(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.close_workspace(&id)
+    let cmd = crate::dispatch::Command::WorkspaceClose { workspace_id: id };
+    let result = crate::dispatch::dispatch(&cmd, &state.svc)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    Ok(Json(result.into_json()))
 }
 
 #[derive(Deserialize)]
