@@ -21,6 +21,9 @@ pub const CRON_COMPLETE_SUFFIX: &str = include_str!("../prompts/cron_complete_su
 /// CodeTerm rule installed to ~/.claude/rules/codeterm.md.
 pub const CODETERM_RULE: &str = include_str!("../prompts/codeterm_rule.md");
 
+/// Mem bridge rule payload installed per provider via `install_bridge_rule`.
+pub const BRIDGE_MEM: &str = include_str!("../prompts/bridge_mem.md");
+
 /// General Agent CLAUDE.md template (uses format!() placeholders).
 pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.md");
 

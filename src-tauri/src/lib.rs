@@ -650,9 +650,6 @@ fn start_servers(
         }
     }
 
-    // Start reactive sync watcher (skills + MEMORY.md → provider directories)
-    service::sync_watcher::start(crate::paths::data_dir());
-
     // Start mesh discovery if enabled
     {
         let mesh_config = states.config.lock().mesh.clone();
@@ -974,14 +971,12 @@ pub fn run() {
             plugin_manager.set_agent_registry(agent_registry.clone());
             plugin_manager.set_event_broadcaster(states.event_broadcaster.clone());
 
-            // Bridge ContributionsChanged events from the in-process bus
-            // to the Tauri frontend. We forward only this event type to
-            // avoid double-emit with manually-emitted events like
-            // `mux-state-changed` (still emitted directly from service/mod.rs).
+            // Bridge ContributionsChanged → frontend event + mem bridge rule refresh.
             {
                 use tauri::Emitter;
                 let mut sub = states.event_broadcaster.subscribe();
                 let bridge_handle = app_handle.clone();
+                let bridge_registry = agent_registry.clone();
                 tauri::async_runtime::spawn(async move {
                     while let Ok(ev) = sub.recv().await {
                         if let crate::api::events::SystemEvent::ContributionsChanged { kind } = &ev {
@@ -989,6 +984,11 @@ pub fn run() {
                                 "contributions-changed",
                                 serde_json::json!({ "kind": kind }),
                             );
+                            if kind == "agent_provider" {
+                                crate::service::sync_watcher::install_bridge_rules_for_all(
+                                    &bridge_registry,
+                                );
+                            }
                         }
                     }
                 });
@@ -1039,6 +1039,7 @@ pub fn run() {
             install_bundled_cli(app);
             start_servers(app, &states, &service_state);
             build_system_tray(app)?;
+            service::sync_watcher::start(crate::paths::data_dir(), service_state.agent_registry.clone());
             start_background_tasks(&app_handle, &states);
 
             // PTY read loops are started by spawn_pty command (initiated by frontend)

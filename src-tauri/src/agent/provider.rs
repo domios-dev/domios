@@ -374,6 +374,17 @@ pub trait AgentProvider: Send + Sync {
         false
     }
 
+    /// Install the mem bridge payload in whatever slot this provider
+    /// reads at session start. MUST NOT write into user-owned skill dirs
+    /// (`~/.claude/skills/`, `~/.agents/skills/`).
+    fn install_bridge_rule(&self, _payload: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn uninstall_bridge_rule(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     // ── Self-presentation metadata (Chunk B.1) ───────────────────────
     //
     // The frontend renders provider tabs, model dropdowns, and settings

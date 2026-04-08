@@ -625,10 +625,11 @@ fn find_bundled_skills_dir() -> std::path::PathBuf {
 }
 
 /// Copy bundled skills to `~/.codeterm/skills/` if missing or outdated.
-/// Called once at startup. The sync watcher handles mirroring to providers.
+/// Called once at startup. Agents reach these via `codeterm mem search`
+/// once Phase 3.1 lands; until then the files are read directly.
 pub fn seed_bundled_skills() {
     let bundled = find_bundled_skills_dir();
-    let canonical = crate::service::sync_watcher::canonical_skills_dir();
+    let canonical = crate::paths::data_dir().join("skills");
     let _ = std::fs::create_dir_all(&canonical);
 
     let Ok(entries) = std::fs::read_dir(&bundled) else { return };

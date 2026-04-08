@@ -63,7 +63,7 @@ pub fn generate_instructions(provider_name: &str) {
         .replace("{provider_name}", provider_name)
         .replace("{general_dir}", &dir.to_string_lossy())
         .replace("{secrets_dir}", &secrets_dir().to_string_lossy())
-        .replace("{skills_dir}", &crate::service::sync_watcher::canonical_skills_dir().to_string_lossy());
+        .replace("{skills_dir}", &crate::paths::data_dir().join("skills").to_string_lossy());
 
     if let Err(e) = std::fs::write(dir.join("AGENT.md"), &agent_content) {
         log::error!("[general-agent] Failed to write AGENT.md: {}", e);
