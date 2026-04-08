@@ -27,6 +27,7 @@ Key questions this plan answers:
 | User's `self-improving-agent` | Capture pipeline: activator hook → error-detector → .learnings/ → promote to MEMORY.md/SOUL.md |
 | CodeTerm cron system | Already supports agent spawn + completion tracking + log archival |
 | SQLite docs (`JSON1` / `JSONB`, `FTS5`) | One local DB file can hold structured entities, relations, full-text search, and optional opaque JSON payloads |
+| [MemPalace](https://github.com/milla-jovovich/mempalace) ([local notes](references/mempalace.md)) | Verbatim-first storage beats summaries on LongMemEval (96.6% raw mode). Hierarchical metadata filtering (wing/room ≈ workspace/area) gives ~34% retrieval boost, but it's just SQL `WHERE` — no new vector magic. Temporal validity windows on graph facts for as-of queries. Reject: AAAK dialect (maintainers' own correction says it regresses), ChromaDB (we stay SQLite-only), verbatim-only purism (we keep dreaming as complement). |
 
 ## Architecture Overview
 
