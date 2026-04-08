@@ -79,10 +79,10 @@ codeterm config set integrations.telegram_allowed_users '["USER_ID"]'
 Sending messages from the agent:
 ```bash
 # Send a new message
-codeterm bridge send --to 186809246 --service telegram "Hello from CodeTerm"
+codeterm bridge send --to 123456789 --service telegram "Hello from CodeTerm"
 
 # Append to the previous message (edits in-place)
-codeterm bridge send --to 186809246 --service telegram --append "...continued"
+codeterm bridge send --to 123456789 --service telegram --append "...continued"
 ```
 
 Connected panes show service icons in the sidebar (`connected_services` field).

@@ -13,7 +13,7 @@ Connect a Telegram bot to the General Agent. CodeTerm handles inbound routing; t
 3. Enable and restrict users (optional):
    ```bash
    codeterm config set integrations.telegram_enabled true
-   codeterm config set integrations.telegram_allowed_users '["186809246"]'
+   codeterm config set integrations.telegram_allowed_users '["123456789"]'
    ```
 4. Restart CodeTerm (hot-reload not yet supported)
 

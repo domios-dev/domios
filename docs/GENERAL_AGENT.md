@@ -228,7 +228,7 @@ When message comes through bridge (or floating chat input):
 ```toml
 enabled = false
 # Agent reads token from ~/.codeterm/secrets/telegram.md
-allowed_users = ["186809246"]
+allowed_users = ["123456789"]
 chunk_size = 4000
 ```
 
@@ -242,7 +242,7 @@ chunk_size = 4000
 │                                         │
 │ ── Telegram ──                          │
 │ ○ Enable              [toggle: OFF]     │
-│ ○ Allowed users       [186809246     ]  │
+│ ○ Allowed users       [123456789     ]  │
 │ ○ Status: Not configured                │
 │   [Configure via General Agent]         │
 │                                         │

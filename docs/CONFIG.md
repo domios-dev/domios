@@ -157,7 +157,7 @@ telegram_allowed_users = []     # Telegram user IDs as strings, empty = allow al
 1. Create a bot via @BotFather on Telegram, get the token
 2. Save token to `~/.codeterm/secrets/telegram.token` (Windows: `%APPDATA%/codeterm/secrets/telegram.token`)
 3. Enable: `codeterm config set integrations.telegram_enabled true`
-4. Optionally restrict users: `codeterm config set integrations.telegram_allowed_users '["186809246"]'`
+4. Optionally restrict users: `codeterm config set integrations.telegram_allowed_users '["123456789"]'`
 5. Restart CodeTerm (hot-reload not yet supported)
 
 Connected services are shown as icons next to the pane title in the sidebar (`connected_services` field on the pane object).

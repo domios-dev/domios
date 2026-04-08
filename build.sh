@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CodeTerm build script — works on macOS, Linux, and Windows (BLACKSTAR).
+# CodeTerm build script — works on macOS, Linux, and Windows.
 # Usage:
 #   ./build.sh dev       — dev mode (hot reload, incremental)
 #   ./build.sh check     — cargo check only (~2s incremental)
