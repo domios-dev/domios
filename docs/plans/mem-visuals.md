@@ -62,6 +62,344 @@ Key insights from research:
 - **xyflow's `onlyRenderVisibleElements` viewport culling** is the baseline scale strategy below the WebGL tier — render only nodes whose bounding box intersects the visible viewport, which keeps us smooth through ~2k rich DOM nodes.
 - **Sigma.js custom node programs** (shader-based renderers with texture atlases for images) are the escape hatch at 10k+, but only for the overview renderer.
 
+## Research deep-dive: concrete patterns from references
+
+After writing the first draft of this plan I dug deeper into each cloned repo to extract specific code patterns. This section is the result — anchored to actual files so future-me (or future-agent) knows exactly where to look when implementing.
+
+### From langflow — memoization discipline + form schemas + running state
+
+**Key files:**
+- `references/langflow/src/frontend/src/CustomNodes/GenericNode/index.tsx` — main 450-line component
+- `references/langflow/src/frontend/src/CustomNodes/GenericNode/components/RenderInputParameters/` — dynamic form field rendering
+- `references/langflow/src/frontend/src/CustomNodes/NoteNode/index.tsx` — smaller rich-node analog
+
+**Memoization discipline (non-negotiable for us):**
+
+Every sub-component is wrapped in `memo()`. Zustand selectors use `useShallow` to avoid false re-renders. State derivation with `useMemo`. Our 200 simultaneously rendered DOM nodes will re-render on every pan/zoom frame otherwise — that's 200 * 16ms = 3200ms per frame = unusable.
+
+```typescript
+// Pattern to adopt in every node renderer (from langflow GenericNode structure)
+const MemoizedMemoryNode = memo(function MemoryNode({ data, selected }: NodeProps) {
+  const [showDetails, setShowDetails] = useState(false);
+
+  // useShallow for any zustand slices that return objects
+  const pulseState = useMemoryStore(
+    useShallow((s) => s.pulses.get(data.id) ?? null)
+  );
+
+  // Stable callbacks
+  const handleExpand = useCallback(() => setShowDetails((s) => !s), []);
+
+  // Derived state via useMemo
+  const borderColor = useMemo(() => colorForKind(data.kind), [data.kind]);
+
+  return (
+    <div className={cn("mem-node", selected && "selected")}>
+      <MemoizedNodeHeader title={data.title} kind={data.kind} />
+      <MemoizedNodeBody summary={data.summary} expanded={showDetails} />
+      {pulseState && <MemoizedPulseRing state={pulseState} />}
+    </div>
+  );
+}, (prev, next) => prev.data === next.data && prev.selected === next.selected);
+```
+
+**Running state — no spinner component, use a hook that reads global store:**
+
+Langflow doesn't have a `<LoadingSpinner/>` baked into nodes. They derive running status from the build store:
+
+```typescript
+// Their approach: hook-based derivation
+const buildStatus = useBuildStatus(data, data.id);
+// We'll mirror this: useWorkerActivity(nodeId) returns { touchedByWorkers: string[], lastAccess: number }
+// The visual effect (pulse ring) is a separate component that reads from the hook
+```
+
+**Dynamic form rendering via field type switch** — exactly what we need for our `form` node kind rendering edit UI for different mem kinds:
+
+```typescript
+// Pattern from RenderInputParameters (adapted to our mem schema)
+function MemoryEditForm({ item }: { item: MemItem }) {
+  return (
+    <>
+      <TagInput value={item.tags} onChange={(tags) => patchItem(item.id, { tags })} />
+      <ImportanceSlider value={item.importance} onChange={(imp) => patchItem(item.id, { importance: imp })} />
+      <textarea
+        value={item.body}
+        onChange={(e) => debouncedPatch(item.id, { body: e.target.value })}
+      />
+      {item.kind === "skill" && <AreaSelect area={item.area} />}
+    </>
+  );
+}
+```
+
+**Styling approach — mix of Tailwind + CSS modules + inline for dynamic:**
+
+Langflow uses `cn()` (classnames wrapper) for conditional classes, CSS modules for animations (border pulse, hover), inline styles for dynamic colors (`style={{ borderColor }}`). Our stack (Tailwind v4 + CSS custom properties) maps cleanly — no new dependencies needed.
+
+### From xyflow — viewport culling algorithm (copy directly)
+
+**Key files:**
+- `references/xyflow/packages/react/src/hooks/useVisibleNodeIds.ts`
+- `references/xyflow/packages/system/src/utils/graph.ts` — function `getNodesInside()` ~lines 257-296
+
+**Important finding:** xyflow does **NOT use a quadtree or spatial index**. Just a linear scan over the node Map, filtered by rect-overlap check. Works fine because:
+
+1. Map iteration is cheap (<1μs per node)
+2. Rect overlap math is 4 floating-point compares
+3. Called once per frame, not per node
+
+For our 50k item scale, that's 50000 * a few ns = ~150μs per frame — trivial. Cosmos-style GPU quadtree is **overkill** for our use case and adds complexity without benefit.
+
+**Adopted verbatim:**
+
+```typescript
+// src/components/MemoryPanel/lib/viewport.ts
+// Adapted from xyflow packages/system/src/utils/graph.ts
+export function getVisibleNodeIds(
+  nodes: Map<string, GraphNode>,
+  viewportRect: { x: number; y: number; width: number; height: number },
+  transform: [number, number, number], // [panX, panY, zoom]
+  partial = true,
+): string[] {
+  const [tx, ty, scale] = transform;
+  // Transform screen viewport into world space
+  const worldRect = {
+    x: (-viewportRect.x - tx) / scale,
+    y: (-viewportRect.y - ty) / scale,
+    width: viewportRect.width / scale,
+    height: viewportRect.height / scale,
+  };
+
+  const visible: string[] = [];
+  for (const [id, node] of nodes) {
+    if (node.hidden) continue;
+
+    const nodeRect = {
+      x: node.x - node.width / 2,
+      y: node.y - node.height / 2,
+      width: node.width,
+      height: node.height,
+    };
+
+    const overlap = getOverlapArea(worldRect, nodeRect);
+    const area = nodeRect.width * nodeRect.height;
+    const isFullyVisible = overlap >= area;
+    const isPartiallyVisible = partial && overlap > 0;
+
+    // Always render dragging nodes even if off-screen (UX)
+    if (isFullyVisible || isPartiallyVisible || node.isDragging) {
+      visible.push(id);
+    }
+  }
+  return visible;
+}
+
+function getOverlapArea(a: Rect, b: Rect): number {
+  const xOverlap = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+  const yOverlap = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+  return xOverlap * yOverlap;
+}
+```
+
+**Transform representation:** `[tx, ty, scale]` — simple 3-tuple, no full 3x3 matrix. Pan is translation, zoom is uniform scale. Enough for our needs.
+
+**Transform application** — xyflow applies it via CSS transform on a single container div, NOT per-node. Critical for perf: one GPU-accelerated transform vs 200 node-level layouts.
+
+```tsx
+<div
+  className="mem-canvas-viewport"
+  style={{
+    transform: `translate(${tx}px, ${ty}px) scale(${scale})`,
+    transformOrigin: "0 0",
+  }}
+>
+  {visibleNodeIds.map((id) => (
+    <MemoryNode key={id} data={nodes.get(id)!} />
+  ))}
+</div>
+```
+
+Nodes are positioned absolutely at their world coordinates, the container transform handles zoom/pan.
+
+### From sigma — minimal custom WebGL node program
+
+**Key files:**
+- `references/sigma/packages/sigma/src/rendering/node.ts` — abstract base (~38 lines)
+- `references/sigma/packages/node-piechart/src/factory.ts` — simplest example with per-node custom data
+- `references/sigma/packages/node-image/src/factory.ts` + `texture.ts` — texture atlas
+
+**What we build for the overview WebGL layer:**
+
+We inherit from sigma's `NodeProgram` and define:
+1. Attributes buffer layout: `position[2], kind_color[4], size[1], pulse_age[1]`
+2. Vertex shader: transforms position, passes color/size/pulse to fragment shader
+3. Fragment shader: renders a circle, optionally with a pulse ring if `pulse_age > 0`
+
+**Minimal pulse-capable node program:**
+
+```glsl
+// vertex shader
+attribute vec2 a_position;
+attribute vec4 a_color;
+attribute float a_size;
+attribute float a_pulseAge;   // 0 = no pulse, 1 = just started, 0..1 fading
+attribute vec4 a_pulseColor;
+
+uniform mat3 u_matrix;
+uniform float u_sizeRatio;
+
+varying vec4 v_color;
+varying float v_pulseAge;
+varying vec4 v_pulseColor;
+
+void main() {
+  gl_Position = vec4((u_matrix * vec3(a_position, 1.0)).xy, 0.0, 1.0);
+  gl_PointSize = a_size * u_sizeRatio * (1.0 + a_pulseAge * 0.5);  // grow on pulse
+  v_color = a_color;
+  v_pulseAge = a_pulseAge;
+  v_pulseColor = a_pulseColor;
+}
+
+// fragment shader
+precision mediump float;
+varying vec4 v_color;
+varying float v_pulseAge;
+varying vec4 v_pulseColor;
+
+void main() {
+  vec2 coord = gl_PointCoord - vec2(0.5);
+  float dist = length(coord);
+
+  // Discard outside the circle
+  if (dist > 0.5) discard;
+
+  // Base color
+  vec4 color = v_color;
+
+  // Pulse ring overlay if pulseAge > 0
+  if (v_pulseAge > 0.0) {
+    float ringRadius = 0.3 + v_pulseAge * 0.2;   // ring expands as pulse ages
+    float ringThickness = 0.05;
+    if (abs(dist - ringRadius) < ringThickness) {
+      color = mix(color, v_pulseColor, v_pulseAge);
+    }
+  }
+
+  gl_FragColor = color;
+}
+```
+
+Attribute packing in `processVisibleItem`:
+
+```typescript
+processVisibleItem(nodeIndex: number, offset: number, data: MemNodeData) {
+  const arr = this.array;
+  arr[offset++] = data.x;
+  arr[offset++] = data.y;
+  arr[offset++] = data.kindColor[0] / 255;
+  arr[offset++] = data.kindColor[1] / 255;
+  arr[offset++] = data.kindColor[2] / 255;
+  arr[offset++] = 1.0;  // alpha
+  arr[offset++] = data.size;
+  arr[offset++] = data.pulseAge;  // 0..1, set from pulse map
+  arr[offset++] = data.pulseColor[0] / 255;
+  arr[offset++] = data.pulseColor[1] / 255;
+  arr[offset++] = data.pulseColor[2] / 255;
+  arr[offset++] = 1.0;
+}
+```
+
+**Per-frame uniforms bound in `setUniforms`:** view matrix, time (for animation), size ratio (screen DPI).
+
+**Gotcha:** attribute stride matters. Forgetting an attribute shifts all subsequent offsets and the GPU reads garbage. Use a shared `const STRIDE = 12 * Float32Array.BYTES_PER_ELEMENT;` constant.
+
+**Image rendering on nodes** (for later when we want avatar images on peer nodes): use `node-image` texture atlas pattern. Load all images into one big 4096x4096 canvas, pack with simple bin-packing, each node stores UV coordinates. Not needed for Phase F MVP — add in a later iteration.
+
+### From cosmos — architecture inspiration only (CC-BY-NC, no code copy)
+
+**Key files:**
+- `references/cosmos/src/modules/Points/` — WebGL point rendering
+- `references/cosmos/src/modules/ForceManyBody/` — GPU force simulation (Barnes-Hut quadtree)
+- `references/cosmos/src/modules/Drag/`, `Zoom/` — interaction handling
+- `references/cosmos/src/modules/Clusters/` — clustering for scale
+
+**What cosmos does that we're NOT copying:**
+
+1. **GPU-based force simulation with Barnes-Hut approximation.** All positions/velocities live in WebGL textures. Every simulation step is a shader pass that reads and writes texture pingpongs. Extremely fast (tested at 100k+ nodes), BUT:
+   - Couples rendering pipeline tightly to physics
+   - Assumes all nodes are identical dots (no DOM heterogeneity)
+   - Adds ~2000 lines of WebGL boilerplate for quadtree construction
+
+   **Our decision:** use CPU-side `graphology-layout-forceatlas2` for initial layout (~5-10 seconds for 10k nodes, acceptable because we persist positions and skip subsequent runs). Cosmos's GPU approach is overkill for 50k and blocks us from the DOM-rich rendering we actually want.
+
+2. **Continuous 60fps render loop** even when nothing is happening. Energy-inefficient for static graphs. Our approach: dirty-tracking — only re-render when `graphology.on('nodeAdded'/'nodeUpdated'/...')` fires or user interacts.
+
+3. **Texture ping-pong for position updates.** Elegant for simulation but requires GPU↔CPU sync for picking. Not worth it for our use case.
+
+**What we ARE adopting from cosmos (architectural pattern, not code):**
+
+1. **Color-picking framebuffer for WebGL click detection.** Render nodes to an off-screen framebuffer with color = encoded node index. On click, read the pixel at mouse coordinates, decode the index. This gives us reliable picking in overview mode without DOM hit-testing.
+
+   ```
+   // Pseudocode for the picking render pass
+   1. Bind offscreen framebuffer (same size as canvas)
+   2. Render nodes with fragment shader that outputs encoded index as RGBA:
+      gl_FragColor = vec4(
+        float((id >> 0) & 0xFF) / 255,
+        float((id >> 8) & 0xFF) / 255,
+        float((id >> 16) & 0xFF) / 255,
+        1.0
+      );
+   3. On mouse click, readPixels(x, y, 1, 1) → decode → nodeId
+   ```
+
+2. **Module-based architecture** — each concern (Points, Lines, Zoom, Drag, FPS monitor) is a self-contained module that registers with a central renderer. We mirror this for `MemoryCanvas`: modules for the rich DOM layer, WebGL overview layer, pulse overlay, agent bubbles. Each module is 200-400 lines, testable in isolation.
+
+### Decisions this research changed vs the first draft
+
+1. **Dropped quadtree — use linear-scan viewport culling (xyflow pattern).** My first draft mentioned d3-quadtree as a possible dependency. Not needed. Linear scan over the graphology node Map with rect-overlap check is fast enough up to 50k items and simpler.
+
+2. **No full 3x3 transform matrix — use `[panX, panY, zoom]` 3-tuple.** Simpler, same power for our needs, one fewer source of bugs.
+
+3. **Viewport transform via single container CSS transform, not per-node math.** GPU-accelerated, one reflow per pan/zoom instead of 200.
+
+4. **Force simulation stays CPU-side via graphology-layout-forceatlas2, not GPU.** Cosmos approach rejected for architectural reasons (forces a pure-WebGL rendering pipeline incompatible with our DOM-hybrid).
+
+5. **Color-picking framebuffer for WebGL overview click detection.** Added to Phase F. Not needed for DOM mode where browsers handle click events natively.
+
+6. **Memoization is mandatory, not optional.** Every node renderer and sub-component wraps in `memo()` with explicit equality check. Every zustand selector uses `useShallow`. This is what makes 200 simultaneous DOM nodes feasible.
+
+### Open questions the code research didn't answer
+
+These need experimentation or user input, not more reading:
+
+1. **How do we cap DOM nodes at 200 if the viewport contains 500 visible candidates at zoom level 1.5?** xyflow renders all visible nodes, no cap. Our options:
+   - Secondary priority sort: render nodes by (importance desc, distance from viewport center asc), take top 200
+   - Force higher-zoom threshold so ≤200 nodes ever fit on screen at rich mode
+   - Cluster overlapping nodes into "stack" nodes that expand on click
+   - **Decision needed:** I lean on option 1 + 2 combined. Top 200 by priority, and guide zoom-fit so the visible count at rich mode is always ≤200.
+
+2. **How do we transition between DOM (rich) and WebGL (overview)?** Snap vs cross-fade?
+   - **Snap:** at zoom 1.0 boundary, instantly swap renderers. Jarring but simple.
+   - **Cross-fade:** both render for 200ms, opacity interpolates. Smooth but doubles cost during transition.
+   - **Decision needed:** I lean cross-fade with a narrow band (zoom 0.9–1.1), DOM fully opaque ≥1.1, WebGL fully opaque ≤0.9.
+
+3. **How do we keep the WebGL overview data in sync with the graphology graph without double-storing?**
+   - Option A: WebGL reads directly from the same graphology instance. Every frame, build attribute arrays from graph data. Works for <5k nodes, gets slow after.
+   - Option B: Cache attribute arrays, update only on `graph.on('*')` events. Harder but scales.
+   - **Decision:** Option A for MVP (Phase F initial), Option B as an optimization when items > 5k.
+
+4. **Should the pulse animation run on the GPU or CPU?**
+   - CPU: compute `age = (now - startTime) / 3000`, pass as uniform, re-upload every frame. Simple.
+   - GPU: pass `startTime` as attribute, compute age in shader from `u_now` uniform. Fewer uploads.
+   - **Decision:** GPU approach, one uniform (`u_now`) updated per frame, pulse state baked into vertex attributes. Only re-upload when pulses are added/removed, not every frame.
+
+5. **How do we pick between overlapping DOM nodes when clicking?**
+   - Standard HTML handles it via z-index (topmost wins). Fine for 200 nodes that rarely overlap due to force layout. Not a real problem.
+
+6. **Node editing in-place vs modal dialog?** Still open from first draft. Leaning in-place for v1.
+
 ## Architecture
 
 ### Dual-renderer hybrid
@@ -721,6 +1059,8 @@ MemoryPanel.open(returnTo.state)  // opens with restored zoom/pan/selection
 
 ## Open decisions (need user input)
 
+### Architecture-level (from first draft)
+
 1. **Dreaming cron as graph-worker by default?** Or opt-in via config? Default probably yes — the whole point is visibility.
 
 2. **Graph-worker persistence across restarts.** Workers keep running if they're still alive; their state in `workers.json` is a snapshot. But if CodeTerm restarts, the worker PTY is gone — do we auto-mark all workers as `orphaned` and let the user clean up, or do we try to resume them? Probably orphan them. We don't try to auto-resume.
@@ -734,6 +1074,22 @@ MemoryPanel.open(returnTo.state)  // opens with restored zoom/pan/selection
 6. **Node editing in-place vs dialog.** Form renderer mutates the node in place. Alternative: click edit → open a modal dialog. In-place is slicker but takes more screen real estate when many nodes are being edited. I lean in-place for v1, add a "pin edit dialog" option later.
 
 7. **Graph worker reuse of regular agent infra vs dedicated track.** We reuse the same agent spawn / PTY / session system — a graph-worker is a regular agent with a flag. This is simpler than building a parallel track, but means the graph-worker can technically spawn sub-workers of its own, send text to other panes, etc — things we may not want. We can enforce limits via the worker's task prompt ("you are not allowed to spawn sub-agents or read other panes, only work with mem") and document this rather than locking it in code. I lean toward prompt-based discipline for v1, code-enforced for v2 if it becomes a problem.
+
+### Rendering-level (from research deep-dive)
+
+8. **DOM node count cap strategy** — when viewport contains more than 200 visible candidates at rich zoom level, how do we pick which 200 to render? My recommendation: composite priority = `importance * 0.5 + (1 - distanceFromCenter) * 0.3 + (isSelected ? 0.2 : 0)`, render top 200. Plus: auto-adjust the rich-mode zoom threshold so the visible count is naturally constrained on typical content. Alternative: cluster overlapping nodes into "stack" nodes expandable on click.
+
+9. **DOM ↔ WebGL renderer transition — snap or cross-fade?** My recommendation: cross-fade in a narrow zoom band (0.9–1.1). Below 0.9 → pure WebGL, above 1.1 → pure DOM, in between both render with opacity interpolated. 200ms per direction. Cost during transition doubles but only for that brief window.
+
+10. **Pulse animation — CPU or GPU?** My recommendation: GPU. Pass start-time per pulse as attribute, `u_now` uniform updated each frame, compute age `(u_now - a_startTime) / duration` in shader. Only re-upload attribute buffer when pulses are added/removed, not every frame. Saves 60 buffer uploads/second.
+
+11. **WebGL overview data source — live from graphology or cached attribute arrays?** My recommendation: live from graphology for < 5k items (Phase F initial), cached + event-driven invalidation for ≥ 5k (optimization). Don't pre-optimize.
+
+12. **Initial force layout — client-side or server-side?** CPU-side `graphology-layout-forceatlas2` on the client is my recommendation. 5-10 seconds for 10k nodes, acceptable because results are persisted to `mem_items.graph_x/y` on first settle, and subsequent loads skip the computation entirely. Server-side layout would require adding a layout engine to the Rust backend — unnecessary complexity.
+
+13. **Pulse visual — ring vs fill vs glow?** Research looked at how cosmos/sigma do this. My recommendation: expanding ring (like a water drop) — circle radius grows from `r` to `1.5r` as age goes 0→1, alpha decays linearly. Visually distinct from base color, doesn't obscure the node's own color. Works in both DOM (CSS animation) and WebGL (fragment shader).
+
+14. **Clustering trigger threshold.** When do we enable area-based clustering in the WebGL overview? My recommendation: N > 5000 items, or viewport area density > 50 nodes per 100x100 pixel block, whichever comes first. Below that, no clustering, just raw dots.
 
 ## Risks
 
