@@ -138,12 +138,13 @@ EVAL_WRAPPER_SUFFIX = """
 ---
 [Note from CodeTerm test harness — not from the user above]
 
-You are in EVALUATION MODE. The message above is a test scenario from an eval set, not a real user request. Respond with ONLY the concrete codeterm CLI commands you would execute to handle the scenario, one per line, in order. Use the actual flags and arguments you would pass.
+You are in EVALUATION MODE. The message above is a test scenario from an eval set, not a real user request. Respond with ONLY the concrete shell commands you would execute to handle the scenario, one per line, in order. This includes both `codeterm` subcommands (`codeterm workspace create ...`, `codeterm agent spawn ...`, `codeterm bridge send ...`, etc.) AND raw shell commands (`ls`, `cat`, `git log`, `cargo test`, ...) — whichever you would actually type. Use the actual flags and arguments.
 
 Format rules:
 - One command per line, exactly as you would run it
 - No explanations, no questions, no greetings, no preamble
-- If you would NOT issue any commands (e.g. you would just send a text reply), write a single line in this form: `# NO_COMMAND: <one-line description of what you would do instead>`
+- Mix codeterm subcommands and raw shell freely — list them in the order you'd execute them
+- If you would NOT issue any commands (e.g. you would just reply with text, or the task requires an Edit/Write tool you don't have), write a single line in this form: `# NO_COMMAND: <one-line description of what you would do instead>`
 - If you would issue several commands AND also reply with text, list the commands first then add a final `# REPLY: <one-line summary>` line
 - Use real placeholder values like $WS or 123456789 where appropriate; do not invent fake user IDs
 """
