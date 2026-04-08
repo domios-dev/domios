@@ -306,6 +306,8 @@ fn dispatch(
                     "pane.send_text",
                     "pane.get_output",
                     "pane.rename",
+                    "pane.resize",
+                    "pane.kill_pty",
                     "browser.open",
                     "notification.create",
                     "notification.list",
@@ -499,6 +501,38 @@ fn dispatch(
             )
             .map(|r| r.into_json())
             .map_err(|e| JsonRpcError { code: -32602, message: e })
+        }
+
+        "pane.resize" => {
+            let pane_id = get_string_param(&params, "pane_id")?;
+            let cols = params
+                .as_ref()
+                .and_then(|p| p.get("cols"))
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| JsonRpcError { code: -32602, message: "missing cols".into() })?
+                as u16;
+            let rows = params
+                .as_ref()
+                .and_then(|p| p.get("rows"))
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| JsonRpcError { code: -32602, message: "missing rows".into() })?
+                as u16;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::PtyResize { pane_id, cols, rows },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError { code: -32603, message: e })
+        }
+
+        "pane.kill_pty" => {
+            let pane_id = get_string_param(&params, "pane_id")?;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::PtyKill { pane_id },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError { code: -32603, message: e })
         }
 
         "browser.open" => {
