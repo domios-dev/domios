@@ -415,6 +415,43 @@ impl AgentProvider for ClaudeProvider {
             },
         ]
     }
+
+    fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {
+        let rules_dir = dirs::home_dir()
+            .ok_or_else(|| "no home directory".to_string())?
+            .join(".claude")
+            .join("rules");
+        std::fs::create_dir_all(&rules_dir)
+            .map_err(|e| format!("create {}: {}", rules_dir.display(), e))?;
+
+        let final_path = rules_dir.join("codeterm.md");
+        let tmp_path = rules_dir.join("codeterm.md.tmp");
+
+        std::fs::write(&tmp_path, payload)
+            .map_err(|e| format!("write {}: {}", tmp_path.display(), e))?;
+        std::fs::rename(&tmp_path, &final_path)
+            .map_err(|e| format!("rename → {}: {}", final_path.display(), e))?;
+
+        log::info!(
+            "[agent-claude] bridge rule installed to {}",
+            final_path.display()
+        );
+        Ok(())
+    }
+
+    fn uninstall_bridge_rule(&self) -> Result<(), String> {
+        let path = dirs::home_dir()
+            .ok_or_else(|| "no home directory".to_string())?
+            .join(".claude")
+            .join("rules")
+            .join("codeterm.md");
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .map_err(|e| format!("remove {}: {}", path.display(), e))?;
+            log::info!("[agent-claude] bridge rule removed from {}", path.display());
+        }
+        Ok(())
+    }
 }
 
 /// Scan text for Claude-specific events using structural fingerprints.
