@@ -41,11 +41,11 @@
       "id": 4,
       "name": "recon-before-action",
       "prompt": "[Telegram: 123456789] глянь что за проект ~/Developer/something-new, разберись что там",
-      "expected_output": "Agent opens a terminal or uses existing one to explore first, not immediately creating workspace + agent",
+      "expected_output": "Agent explores the directory first (raw bash in its own pane OR via pane exec / send-text to another pane), not immediately creating a workspace",
       "expectations": [
-        "Explores the directory first (ls, tree, or similar) before creating workspace",
-        "Does NOT immediately create workspace without looking",
-        "May use pane exec or send-text to explore"
+        "Explores the directory first — any of `ls`, `cat README`, `git log`, `tree`, or equivalent — before any `codeterm workspace create`",
+        "Does NOT immediately call `codeterm workspace create` without looking",
+        "Exploration may be raw bash in the agent's own shell (ls/cat/git) OR `codeterm pane exec` / `codeterm send-text` to delegate to another pane — BOTH are valid approaches"
       ]
     },
     {
