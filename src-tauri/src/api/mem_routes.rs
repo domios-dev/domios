@@ -16,7 +16,7 @@ use crate::mem::{
     learnings::{self, LearnKind},
     rerank::RerankConfig,
     search::SearchQuery,
-    store::{MemKind, MemScope, NewMemItem},
+    store::{MemKind, MemScope, MemUpdate, NewMemItem},
 };
 
 #[derive(Deserialize)]
@@ -135,6 +135,45 @@ pub async fn mem_delete(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let removed = state.svc.mem.delete(&id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "deleted": removed })))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateBody {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub area: Option<String>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub importance: Option<f64>,
+}
+
+pub async fn mem_update(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let patch = MemUpdate {
+        title: body.title,
+        summary: body.summary,
+        area: body.area,
+        tags: body.tags,
+        body: body.body,
+        importance: body.importance,
+    };
+    let updated = state.svc.mem.update(&id, patch)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !updated {
+        return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
+    }
+    Ok(Json(serde_json::json!({ "updated": id })))
 }
 
 #[derive(Deserialize)]

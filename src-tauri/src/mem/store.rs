@@ -359,6 +359,75 @@ pub fn get(
     }))
 }
 
+/// Partial update — only the fields explicitly Some(_) are written.
+/// Returns true if the row existed and was updated.
+pub struct MemUpdate {
+    pub title: Option<String>,
+    pub summary: Option<String>,
+    pub area: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub body: Option<String>,
+    pub importance: Option<f64>,
+}
+
+pub fn update(
+    conn: &Connection,
+    id: &str,
+    patch: &MemUpdate,
+    blobs_dir: &Path,
+) -> Result<bool, String> {
+    // Need the existing row to know whether body landed inline or in a blob
+    // (so we can update FTS body even when only metadata changed).
+    let existing = get(conn, id, blobs_dir)?;
+    let Some(prev) = existing else {
+        return Ok(false);
+    };
+
+    let new_title = patch.title.clone().unwrap_or(prev.title);
+    let new_summary = patch.summary.clone().or(prev.summary);
+    let new_area = patch.area.clone().or(prev.area);
+    let new_tags = patch.tags.clone().unwrap_or(prev.tags);
+    let new_body = patch.body.clone().unwrap_or(prev.body);
+    let new_importance = patch.importance.unwrap_or(prev.importance);
+
+    let tags_json = serde_json::to_string(&new_tags)
+        .map_err(|e| format!("serialize tags: {}", e))?;
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let (body_inline, body_blob_path): (Option<String>, Option<String>) =
+        if new_body.len() > INLINE_BODY_LIMIT {
+            let path = write_blob(blobs_dir, &new_body)?;
+            (None, Some(path))
+        } else {
+            (Some(new_body.clone()), None)
+        };
+
+    conn.execute(
+        r#"UPDATE mem_items
+           SET title = ?1, summary = ?2, area = ?3, tags_json = ?4,
+               body_inline = ?5, body_blob_path = ?6, importance = ?7,
+               updated_at = ?8
+           WHERE id = ?9"#,
+        params![
+            &new_title, &new_summary, &new_area, &tags_json,
+            &body_inline, &body_blob_path, new_importance, &now, &id,
+        ],
+    ).map_err(|e| format!("update mem_item: {}", e))?;
+
+    // Refresh FTS row
+    let tags_text = new_tags.join(" ");
+    let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&id]);
+    conn.execute(
+        r#"INSERT INTO mem_fts (mem_id, title, summary, body, tags)
+           VALUES (?1, ?2, ?3, ?4, ?5)"#,
+        params![
+            &id, &new_title, new_summary.as_deref().unwrap_or(""), &new_body, &tags_text,
+        ],
+    ).map_err(|e| format!("update fts: {}", e))?;
+
+    Ok(true)
+}
+
 pub fn delete(conn: &Connection, id: &str) -> Result<bool, String> {
     let n = conn
         .execute("DELETE FROM mem_items WHERE id = ?1", params![id])
@@ -377,6 +446,10 @@ pub fn stats(conn: &Connection) -> Result<MemStats, String> {
     let total_entities: i64 = conn
         .query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))
         .map_err(|e| format!("count entities: {}", e))?;
+    // mem_vectors only exists when sqlite-vec is loaded; missing = 0
+    let total_vectors: i64 = conn
+        .query_row("SELECT COUNT(*) FROM mem_vectors", [], |r| r.get(0))
+        .unwrap_or(0);
 
     let mut by_kind: HashMap<String, u64> = HashMap::new();
     let mut stmt = conn
@@ -395,6 +468,7 @@ pub fn stats(conn: &Connection) -> Result<MemStats, String> {
         by_kind,
         total_relations: total_relations as u64,
         total_entities: total_entities as u64,
+        total_vectors: total_vectors as u64,
     })
 }
 
@@ -483,6 +557,75 @@ mod tests {
         .unwrap();
         let got = get(&conn, &id, &blobs).unwrap().unwrap();
         assert_eq!(got.body.len(), big.len());
+    }
+
+    #[test]
+    fn update_partial_only_changes_provided_fields() {
+        let (conn, blobs) = fresh();
+        let id = insert(&conn, &NewMemItem {
+            kind: MemKind::Fact,
+            scope: MemScope::Global,
+            title: "original title".into(),
+            summary: Some("original summary".into()),
+            area: Some("original".into()),
+            tags: vec!["a".into(), "b".into()],
+            body: "original body".into(),
+            source: None,
+            importance: 3.0,
+        }, &blobs).unwrap();
+
+        // Update only tags + importance
+        let updated = update(&conn, &id, &MemUpdate {
+            title: None, summary: None, area: None,
+            tags: Some(vec!["x".into(), "y".into(), "z".into()]),
+            body: None,
+            importance: Some(4.5),
+        }, &blobs).unwrap();
+        assert!(updated);
+
+        let after = get(&conn, &id, &blobs).unwrap().unwrap();
+        assert_eq!(after.title, "original title");      // unchanged
+        assert_eq!(after.summary.unwrap(), "original summary"); // unchanged
+        assert_eq!(after.area.unwrap(), "original");    // unchanged
+        assert_eq!(after.body, "original body");        // unchanged
+        assert_eq!(after.tags, vec!["x", "y", "z"]);    // changed
+        assert_eq!(after.importance, 4.5);              // changed
+    }
+
+    #[test]
+    fn update_returns_false_for_unknown_id() {
+        let (conn, blobs) = fresh();
+        let r = update(&conn, "nonexistent", &MemUpdate {
+            title: Some("x".into()), summary: None, area: None,
+            tags: None, body: None, importance: None,
+        }, &blobs).unwrap();
+        assert!(!r);
+    }
+
+    #[test]
+    fn update_body_refreshes_fts() {
+        let (conn, blobs) = fresh();
+        let id = insert(&conn, &NewMemItem {
+            kind: MemKind::Fact,
+            scope: MemScope::Global,
+            title: "x".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "the quick brown fox".into(),
+            source: None,
+            importance: 3.0,
+        }, &blobs).unwrap();
+        update(&conn, &id, &MemUpdate {
+            title: None, summary: None, area: None, tags: None,
+            body: Some("changed to grey wolf".into()),
+            importance: None,
+        }, &blobs).unwrap();
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM mem_fts WHERE mem_id = ?1 AND body LIKE '%grey wolf%'",
+            params![&id], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(n, 1);
     }
 
     #[test]

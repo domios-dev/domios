@@ -36,17 +36,32 @@ impl Default for EmbeddingsConfig {
 pub mod inner {
     use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
     use parking_lot::Mutex;
-    use rusqlite::{params, Connection};
-    use std::sync::OnceLock;
+    use rusqlite::{ffi::sqlite3_auto_extension, params, Connection};
+    use std::sync::{OnceLock, Once};
 
     static MODEL: OnceLock<Mutex<Option<TextEmbedding>>> = OnceLock::new();
+    static EXT_REGISTERED: Once = Once::new();
 
-    /// Load sqlite-vec extension into a connection. Idempotent.
+    /// Register sqlite-vec as an auto-extension. This installs it into the
+    /// global auto-extension list — every Connection opened after this call
+    /// will have the `vec0` virtual table module available. Must be called
+    /// before the first `Connection::open`. Idempotent via `Once`.
+    fn register_auto_extension() {
+        EXT_REGISTERED.call_once(|| {
+            unsafe {
+                sqlite3_auto_extension(Some(std::mem::transmute(
+                    sqlite_vec::sqlite3_vec_init as *const (),
+                )));
+            }
+        });
+    }
+
+    /// Create the mem_vectors table on `conn`. Auto-registers the extension
+    /// if not already registered, but note that on an existing connection
+    /// opened BEFORE registration the module won't be loaded — caller is
+    /// responsible for opening the connection after register_auto_extension.
     pub fn init_extension(conn: &Connection) -> Result<(), String> {
-        unsafe {
-            sqlite_vec::sqlite3_vec_init();
-        }
-        // Create the vectors table 1:1 with mem_items
+        register_auto_extension();
         conn.execute_batch(
             r#"
             CREATE VIRTUAL TABLE IF NOT EXISTS mem_vectors USING vec0(
@@ -56,6 +71,13 @@ pub mod inner {
             "#,
         ).map_err(|e| format!("create mem_vectors: {}", e))?;
         Ok(())
+    }
+
+    /// Pre-register the sqlite-vec auto-extension. Call this BEFORE opening
+    /// any connection that needs vec0. Idempotent. Public so MemManager::open
+    /// can hit it before its `Connection::open` call.
+    pub fn ensure_extension_registered() {
+        register_auto_extension();
     }
 
     /// Compute an embedding for `text`. Initializes the model on first call.
@@ -76,14 +98,21 @@ pub mod inner {
     }
 
     /// Index a single mem_item by id (re-embed body + write to mem_vectors).
+    /// Uses DELETE + INSERT because vec0 virtual tables don't support
+    /// `INSERT OR REPLACE` semantics — they only accept fresh inserts.
     pub fn index(conn: &Connection, mem_id: &str, body: &str) -> Result<(), String> {
         let vec = embed(body)?;
         let bytes: Vec<u8> = vec
             .iter()
             .flat_map(|f| f.to_le_bytes())
             .collect();
+        // vec0 virtual tables don't support OR REPLACE; do explicit upsert
+        let _ = conn.execute(
+            "DELETE FROM mem_vectors WHERE mem_id = ?1",
+            params![mem_id],
+        );
         conn.execute(
-            "INSERT OR REPLACE INTO mem_vectors (mem_id, embedding) VALUES (?1, ?2)",
+            "INSERT INTO mem_vectors (mem_id, embedding) VALUES (?1, ?2)",
             params![mem_id, bytes],
         ).map_err(|e| format!("insert vector: {}", e))?;
         Ok(())
@@ -116,6 +145,7 @@ pub mod inner {
     use rusqlite::Connection;
 
     pub fn init_extension(_conn: &Connection) -> Result<(), String> { Ok(()) }
+    pub fn ensure_extension_registered() {}
     pub fn embed(_text: &str) -> Result<Vec<f32>, String> {
         Err("embeddings feature not enabled — rebuild with --features embeddings".into())
     }
@@ -125,7 +155,7 @@ pub mod inner {
     }
 }
 
-pub use inner::{embed, index, init_extension, recall};
+pub use inner::{embed, ensure_extension_registered, index, init_extension, recall};
 
 #[cfg(test)]
 mod tests {

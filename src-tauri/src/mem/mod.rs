@@ -61,6 +61,11 @@ impl MemManager {
         std::fs::create_dir_all(&blobs_dir)
             .map_err(|e| format!("create blobs dir: {}", e))?;
 
+        // Register sqlite-vec as a global auto-extension BEFORE opening the
+        // connection so the vec0 virtual-table module is available. No-op
+        // when the embeddings feature is off.
+        embeddings::ensure_extension_registered();
+
         let db_path = mem_dir.join("knowledge.db");
         let conn = Connection::open(&db_path)
             .map_err(|e| format!("open knowledge.db: {}", e))?;
@@ -68,8 +73,8 @@ impl MemManager {
         store::init_schema(&conn)
             .map_err(|e| format!("init schema: {}", e))?;
 
-        // Auto-init sqlite-vec when the feature is compiled in. No-op stub
-        // when disabled. Failure here is non-fatal — we just skip vectors.
+        // Create the mem_vectors virtual table now that the extension is loaded.
+        // Failure here is non-fatal — FTS5 hybrid recall still works.
         if let Err(e) = embeddings::init_extension(&conn) {
             log::warn!("[mem] sqlite-vec init failed: {} — semantic recall disabled", e);
         }
@@ -179,13 +184,15 @@ impl MemManager {
             let body_clone = item.body.clone();
             let db_path = self.db_path.clone();
             std::thread::spawn(move || {
+                embeddings::ensure_extension_registered();
                 match rusqlite::Connection::open(&db_path) {
                     Ok(bg_conn) => {
-                        if let Err(e) = embeddings::index(&bg_conn, &id_clone, &body_clone) {
-                            log::debug!("[mem] bg embedding index skipped for {}: {}", id_clone, e);
+                        match embeddings::index(&bg_conn, &id_clone, &body_clone) {
+                            Ok(()) => log::info!("[mem] indexed embedding for {}", id_clone),
+                            Err(e) => log::warn!("[mem] bg embedding index failed for {}: {}", id_clone, e),
                         }
                     }
-                    Err(e) => log::debug!("[mem] bg conn open failed: {}", e),
+                    Err(e) => log::warn!("[mem] bg conn open failed: {}", e),
                 }
             });
         }
@@ -235,6 +242,32 @@ impl MemManager {
     pub fn delete(&self, id: &str) -> Result<bool, String> {
         let conn = self.conn.lock();
         store::delete(&conn, id)
+    }
+
+    /// Partial update of an existing mem_item. Only fields that are Some(_)
+    /// are touched; the rest stay as they were. If `body` is updated, the
+    /// new content is also re-indexed in mem_vectors (background).
+    pub fn update(&self, id: &str, patch: store::MemUpdate) -> Result<bool, String> {
+        let body_changed = patch.body.is_some();
+        let new_body_for_index = patch.body.clone();
+        let updated = {
+            let conn = self.conn.lock();
+            store::update(&conn, id, &patch, &self.blobs_dir)?
+        };
+        if updated && body_changed {
+            #[cfg(feature = "embeddings")]
+            if let Some(body) = new_body_for_index {
+                let id_clone = id.to_string();
+                let db_path = self.db_path.clone();
+                std::thread::spawn(move || {
+                    embeddings::ensure_extension_registered();
+                    if let Ok(bg_conn) = rusqlite::Connection::open(&db_path) {
+                        let _ = embeddings::index(&bg_conn, &id_clone, &body);
+                    }
+                });
+            }
+        }
+        Ok(updated)
     }
 
     pub fn search(&self, q: &SearchQuery) -> Result<Vec<SearchHit>, String> {
@@ -317,6 +350,10 @@ pub struct MemStats {
     pub by_kind: std::collections::HashMap<String, u64>,
     pub total_relations: u64,
     pub total_entities: u64,
+    /// Number of rows in mem_vectors. Zero when sqlite-vec extension is
+    /// not loaded or background indexing hasn't caught up yet.
+    #[serde(default)]
+    pub total_vectors: u64,
 }
 
 #[cfg(test)]

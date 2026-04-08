@@ -107,7 +107,7 @@ pub fn create_router(state: AppState) -> Router {
         // Mem — unified memory store
         .route("/api/mem/search", get(super::mem_routes::mem_search))
         .route("/api/mem/items", post(super::mem_routes::mem_save))
-        .route("/api/mem/items/{id}", get(super::mem_routes::mem_get).delete(super::mem_routes::mem_delete))
+        .route("/api/mem/items/{id}", get(super::mem_routes::mem_get).delete(super::mem_routes::mem_delete).patch(super::mem_routes::mem_update))
         .route("/api/mem/wake-up", get(super::mem_routes::mem_wake_up))
         .route("/api/mem/stats", get(super::mem_routes::mem_stats))
         .route("/api/mem/graph/entities", post(super::mem_routes::mem_graph_create))

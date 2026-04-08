@@ -274,6 +274,27 @@ pub enum MemAction {
     Delete {
         id: String,
     },
+    /// Partial update of an existing mem item by id. Only the flags you
+    /// pass are written; everything else stays as-is.
+    Update {
+        /// Mem item id
+        id: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        summary: Option<String>,
+        #[arg(long)]
+        area: Option<String>,
+        /// Comma-separated tags (REPLACES existing tags)
+        #[arg(long)]
+        tags: Option<String>,
+        /// New body content (re-indexes embedding)
+        #[arg(long)]
+        body: Option<String>,
+        /// New importance 1-5
+        #[arg(long)]
+        importance: Option<f64>,
+    },
     /// Save a new mem item
     Save {
         /// Item kind: skill | fact | note | conversation | script | peer | preference | daily | learning | rule | summary
@@ -2020,6 +2041,27 @@ fn handle_mem(json_mode: bool, action: MemAction) {
             let resp = http.delete(format!("{}/api/mem/items/{}", base, id))
                 .send().map_err(|e| e.to_string());
             resp.map(|r| serde_json::json!({"deleted": r.status().is_success()}))
+        }
+        MemAction::Update { id, title, summary, area, tags, body, importance } => {
+            let tag_list: Option<Vec<String>> = tags.map(|t|
+                t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+            );
+            let payload = serde_json::json!({
+                "title": title, "summary": summary, "area": area,
+                "tags": tag_list, "body": body, "importance": importance,
+            });
+            let resp = http.patch(format!("{}/api/mem/items/{}", base, id))
+                .json(&payload)
+                .send()
+                .map_err(|e| e.to_string());
+            match resp {
+                Ok(r) => {
+                    let status = r.status();
+                    let val: serde_json::Value = r.json().unwrap_or_default();
+                    if status.is_success() { Ok(val) } else { Err(val.to_string()) }
+                }
+                Err(e) => Err(e),
+            }
         }
         MemAction::Save { kind, title, body, summary, tags, area, importance, scope, replace } => {
             // Body: positional arg, else read stdin if piped
