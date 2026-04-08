@@ -571,6 +571,18 @@ fn start_servers(
     let cron_store = cron::store::CronStore::new();
     let cron_state: CronState = Arc::new(Mutex::new(cron_store));
     let cron_wake: CronWake = Arc::new(std::sync::Condvar::new());
+
+    // Auto-install bundled mem dreaming cron if not present. Idempotent
+    // by name. Schedule "0 3 * * *" + ±90min jitter (anti-anti-cheat).
+    {
+        let mut cs = cron_state.lock();
+        match mem::dreaming::ensure_dreaming_cron(&mut cs) {
+            Ok(true) => log::info!("[mem] auto-installed dreaming cron"),
+            Ok(false) => log::debug!("[mem] dreaming cron already present"),
+            Err(e) => log::warn!("[mem] failed to install dreaming cron: {}", e),
+        }
+    }
+
     app.manage(cron_state.clone());
     app.manage(cron_wake.clone());
     cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
@@ -1026,6 +1038,11 @@ pub fn run() {
                 Ok(_) => log::info!("[mem] starter items already seeded"),
                 Err(e) => log::warn!("[mem] seed failed: {}", e),
             }
+
+            // Auto-install Claude hooks (Notification, Stop, PreCompact).
+            // PreCompact is critical for mem — it flushes pane scrollback
+            // before Claude summarizes the context window.
+            commands::ensure_claude_hooks_installed();
 
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),

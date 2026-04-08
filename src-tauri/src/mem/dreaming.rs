@@ -122,6 +122,48 @@ pub fn run_all(mem: &MemManager) -> Result<Vec<DreamReport>, String> {
     Ok(out)
 }
 
+/// Marker name for the auto-installed dreaming cron job. Used to
+/// detect "already exists" so we don't create duplicates on every start.
+pub const DREAMING_CRON_NAME: &str = "mem-dreaming-auto";
+
+/// Create the bundled dreaming cron if it doesn't exist already.
+/// - Schedule: "0 3 * * *" (3 AM)
+/// - Jitter: ±90 minutes (5_400_000 ms) — anti-anti-cheat, so the job
+///   actually fires anywhere from 1:30 AM to 4:30 AM, never the same
+///   instant two days in a row.
+/// - Task: runs `codeterm mem dream` in a fresh agent
+/// - Workspace: "general" (the GA workspace)
+///
+/// Returns true if a new cron was created, false if one already existed.
+pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> Result<bool, String> {
+    let exists = cron_store
+        .list()
+        .iter()
+        .any(|j| j.name == DREAMING_CRON_NAME);
+    if exists {
+        return Ok(false);
+    }
+    let _ = cron_store.create(crate::cron::store::CronCreateParams {
+        name: DREAMING_CRON_NAME.into(),
+        workspace_id: "general".into(),
+        schedule: "0 3 * * *".into(),
+        task: "Run `codeterm mem dream` to consolidate learnings into facts and prune stale conversations. Report stats to your parent pane via `codeterm agent report`.".into(),
+        description: Some("Auto-installed mem dreaming consolidation. Disable via `codeterm cron disable <id>` if not wanted.".into()),
+        agent: None, // use default provider
+        cwd: None,
+        role: None,
+        creator_pane_id: None,
+        enabled: Some(true),
+        max_history: Some(30),
+        oneshot: Some(false),
+        // ±90 minutes around 3 AM, so the job never fires at exactly the
+        // same wall-clock time two days in a row. Looks organic, spreads
+        // load if multiple machines are running cron at once.
+        jitter_max_ms: Some(5_400_000),
+    })?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -197,6 +239,30 @@ mod tests {
         let report = deep_phase(&mem).unwrap();
         assert_eq!(report.dropped, 1);
         assert!(mem.get(&id).unwrap().is_none());
+    }
+
+    #[test]
+    fn ensure_dreaming_cron_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crons.json");
+        std::mem::forget(dir);
+        let mut store = crate::cron::store::CronStore::new_with_path(path);
+
+        let first = ensure_dreaming_cron(&mut store).unwrap();
+        assert!(first, "first call should create");
+        let second = ensure_dreaming_cron(&mut store).unwrap();
+        assert!(!second, "second call should be no-op");
+        let count = store
+            .list()
+            .iter()
+            .filter(|j| j.name == DREAMING_CRON_NAME)
+            .count();
+        assert_eq!(count, 1, "exactly one auto-cron must exist");
+
+        let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
+        assert_eq!(job.jitter_max_ms, Some(5_400_000));
+        assert!(job.enabled);
+        assert_eq!(job.schedule, "0 3 * * *");
     }
 
     #[test]

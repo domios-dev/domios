@@ -199,12 +199,43 @@ pub fn insert(
     item: &NewMemItem,
     blobs_dir: &Path,
 ) -> Result<String, String> {
+    insert_with_options(conn, item, blobs_dir, false)
+}
+
+/// Insert with replace=true — UPDATE existing row with the same id instead
+/// of generating a hash-suffixed alternative. Used by `mem save --replace`
+/// for explicit upsert (e.g. when the user wants to overwrite the bundled
+/// identity placeholder with their actual identity).
+pub fn upsert(
+    conn: &Connection,
+    item: &NewMemItem,
+    blobs_dir: &Path,
+) -> Result<String, String> {
+    insert_with_options(conn, item, blobs_dir, true)
+}
+
+fn insert_with_options(
+    conn: &Connection,
+    item: &NewMemItem,
+    blobs_dir: &Path,
+    replace: bool,
+) -> Result<String, String> {
     let kind_str = item.kind.as_str();
     let slug = ids::slugify(&item.title);
     let candidate = ids::compose(kind_str, &slug);
 
-    // Check collision; on hit, switch to body-hashed suffix.
-    let id = if exists(conn, &candidate).map_err(|e| e.to_string())? {
+    // Three modes:
+    // - replace=true + exists → DELETE old + INSERT new with the same id (preserves id stability)
+    // - replace=false + exists → switch to body-hashed suffix (collision-safe)
+    // - new id → INSERT
+    let collision = exists(conn, &candidate).map_err(|e| e.to_string())?;
+    let id = if collision && replace {
+        // Drop the existing row + its FTS mirror; we re-insert below.
+        conn.execute("DELETE FROM mem_items WHERE id = ?1", params![&candidate])
+            .map_err(|e| format!("delete on replace: {}", e))?;
+        let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&candidate]);
+        candidate
+    } else if collision {
         ids::with_collision_suffix(kind_str, &slug, &item.body)
     } else {
         candidate
@@ -452,6 +483,32 @@ mod tests {
         .unwrap();
         let got = get(&conn, &id, &blobs).unwrap().unwrap();
         assert_eq!(got.body.len(), big.len());
+    }
+
+    #[test]
+    fn upsert_replaces_existing_in_place() {
+        let (conn, blobs) = fresh();
+        let mk = |body: &str| NewMemItem {
+            kind: MemKind::Preference,
+            scope: MemScope::Global,
+            title: "identity".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: body.into(),
+            source: None,
+            importance: 5.0,
+        };
+        let id1 = insert(&conn, &mk("placeholder"), &blobs).unwrap();
+        assert_eq!(id1, "preference_identity");
+        // Plain insert collides → hash suffix
+        let id2 = insert(&conn, &mk("real identity"), &blobs).unwrap();
+        assert_ne!(id1, id2);
+        // Upsert collapses back to the canonical id
+        let id3 = upsert(&conn, &mk("updated identity"), &blobs).unwrap();
+        assert_eq!(id3, "preference_identity");
+        let got = get(&conn, "preference_identity", &blobs).unwrap().unwrap();
+        assert_eq!(got.body, "updated identity");
     }
 
     #[test]

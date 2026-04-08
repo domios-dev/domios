@@ -896,7 +896,8 @@ fn is_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
                     let is_codeterm_path = cmd.contains("/api/notifications")
                         || cmd.contains("/api/panes/")
                         || cmd.contains("/hook/permission")
-                        || cmd.contains("/hook/stop");
+                        || cmd.contains("/hook/stop")
+                        || cmd.contains("/api/mem/flush");
                     is_codeterm_url && is_codeterm_path
                 })
                 .unwrap_or(false)
@@ -929,13 +930,35 @@ pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(is_codeterm_hook))
         .unwrap_or(false);
+    let precompact_hook = json.pointer("/hooks/PreCompact")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(is_codeterm_hook))
+        .unwrap_or(false);
 
     Ok(ClaudeHooksStatus {
         settings_exists: true,
-        hooks_installed: notification_hook && stop_hook,
+        hooks_installed: notification_hook && stop_hook && precompact_hook,
         notification_hook,
         stop_hook,
     })
+}
+
+/// Idempotent — install hooks if not already present. Called from startup
+/// after MemManager init so the PreCompact flush hook is always available.
+/// Never errors out the boot path: failure logs and returns Ok.
+pub fn ensure_claude_hooks_installed() {
+    match check_claude_hooks() {
+        Ok(status) if status.hooks_installed => {
+            log::debug!("[startup] claude hooks already installed");
+        }
+        Ok(_) | Err(_) => {
+            if let Err(e) = install_claude_hooks(None) {
+                log::warn!("[startup] failed to auto-install claude hooks: {}", e);
+            } else {
+                log::info!("[startup] claude hooks auto-installed (Notification, Stop, PreCompact)");
+            }
+        }
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -982,6 +1005,13 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
     let stop_cmd = format!(
         "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
     );
+    // PreCompact: flush PTY scrollback to mem as a kind=conversation row
+    // BEFORE Claude summarizes the context (and destroys it). The hook
+    // hits /api/mem/flush which reads the pane's full output buffer and
+    // stores it via MemManager.
+    let precompact_cmd = format!(
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/mem/flush -H 'Content-Type: application/json' -d '{{\"pane\":\"'\"$CODETERM_PANE_ID\"'\",\"title\":\"pre-compact\"}}' > {null_dev} 2>&1 || true"
+    );
 
     // Ensure hooks object exists
     if json.get("hooks").is_none() {
@@ -1010,12 +1040,23 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
         }]
     });
 
+    // PreCompact hook (flush context to mem before summarization)
+    let precompact_hook = serde_json::json!({
+        "matcher": "",
+        "hooks": [{
+            "type": "command",
+            "command": precompact_cmd,
+            "timeout": 10000,
+            "_source": CODETERM_HOOK_MARKER
+        }]
+    });
+
     // Add to existing hooks arrays (don't overwrite user's hooks)
     let hooks = json["hooks"].as_object_mut()
         .ok_or("hooks is not an object")?;
 
     // Remove old codeterm hooks first (by _source marker or legacy command detection)
-    for key in &["Notification", "Stop"] {
+    for key in &["Notification", "Stop", "PreCompact"] {
         if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
             arr.retain(|h| !is_codeterm_hook(h));
         }
@@ -1031,6 +1072,11 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
         hooks.insert("Stop".into(), serde_json::json!([]));
     }
     hooks["Stop"].as_array_mut().unwrap().push(stop_hook);
+
+    if !hooks.contains_key("PreCompact") {
+        hooks.insert("PreCompact".into(), serde_json::json!([]));
+    }
+    hooks["PreCompact"].as_array_mut().unwrap().push(precompact_hook);
 
     // Write back
     let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
@@ -1281,6 +1327,7 @@ pub fn cron_create(
         enabled: Some(true),
         max_history: None,
         oneshot,
+        jitter_max_ms: None,
     };
     let job = svc.cron_create(&cron, &wake, params)?;
     serde_json::to_value(job).map_err(|e| e.to_string())

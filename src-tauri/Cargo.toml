@@ -51,7 +51,7 @@ sqlite-vec = { version = "0.1.9", optional = true }
 fastembed = { version = "5", optional = true }
 
 [features]
-default = []
+default = ["embeddings"]
 webdriver = ["tauri-plugin-webdriver"]
 embeddings = ["dep:sqlite-vec", "dep:fastembed"]
 

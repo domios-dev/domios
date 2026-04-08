@@ -17,6 +17,17 @@ pub mod dreaming;
 pub mod rerank;
 pub mod embeddings;
 
+// TODO(mesh-sync): Cross-machine mem replication anchor.
+// Not implemented in 3.x — left intentionally as a hole for the
+// scale phase. When we add it, the entry point will live here as a
+// `pub mod sync;` with a selective replication policy:
+//   - Replicate kinds: rule, preference, skill, fact (curated only)
+//   - Never replicate: workspace-scoped items, raw conversations,
+//     daily notes, .learnings/ noise, secrets
+//   - Modes: manual / scheduled / eventual (per
+//     `docs/plans/mem-architecture.md` "Mesh replication policy")
+// Until then, mem is per-machine. Each peer keeps its own knowledge.db.
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -38,7 +49,10 @@ pub struct MemManager {
 
 impl MemManager {
     /// Open (or create) the mem database at `data_dir/mem/knowledge.db`.
-    /// Runs migrations on first call. Idempotent.
+    /// Runs migrations on first call. Idempotent. When the `embeddings`
+    /// feature is on (default), also initializes the sqlite-vec extension
+    /// and the mem_vectors virtual table so semantic recall works out of
+    /// the box without a config flip.
     pub fn open(data_dir: &std::path::Path) -> Result<Arc<Self>, String> {
         let mem_dir = data_dir.join("mem");
         std::fs::create_dir_all(&mem_dir)
@@ -53,6 +67,12 @@ impl MemManager {
 
         store::init_schema(&conn)
             .map_err(|e| format!("init schema: {}", e))?;
+
+        // Auto-init sqlite-vec when the feature is compiled in. No-op stub
+        // when disabled. Failure here is non-fatal — we just skip vectors.
+        if let Err(e) = embeddings::init_extension(&conn) {
+            log::warn!("[mem] sqlite-vec init failed: {} — semantic recall disabled", e);
+        }
 
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
@@ -130,8 +150,45 @@ impl MemManager {
     /// Save a new mem_item. Returns the assigned slug id.
     /// Runs preference extraction if kind is conversation/note/daily.
     pub fn save(&self, item: NewMemItem) -> Result<String, String> {
+        self.save_inner(item, false)
+    }
+
+    /// Upsert: if a row with the slug-derived id already exists, replace it
+    /// in place (preserves id stability). Otherwise behaves like `save`.
+    pub fn save_replace(&self, item: NewMemItem) -> Result<String, String> {
+        self.save_inner(item, true)
+    }
+
+    fn save_inner(&self, item: NewMemItem, replace: bool) -> Result<String, String> {
         let conn = self.conn.lock();
-        let id = store::insert(&conn, &item, &self.blobs_dir)?;
+        let id = if replace {
+            store::upsert(&conn, &item, &self.blobs_dir)?
+        } else {
+            store::insert(&conn, &item, &self.blobs_dir)?
+        };
+
+        // Auto-index in mem_vectors as a background task. The fastembed
+        // model is ~50MB and downloads from HuggingFace on first use, so
+        // doing this synchronously inside save() would block the caller
+        // for tens of seconds on first save. A spawned thread keeps save()
+        // fast; the embedding lands eventually. SQLite WAL mode handles
+        // the concurrent write safely.
+        #[cfg(feature = "embeddings")]
+        {
+            let id_clone = id.clone();
+            let body_clone = item.body.clone();
+            let db_path = self.db_path.clone();
+            std::thread::spawn(move || {
+                match rusqlite::Connection::open(&db_path) {
+                    Ok(bg_conn) => {
+                        if let Err(e) = embeddings::index(&bg_conn, &id_clone, &body_clone) {
+                            log::debug!("[mem] bg embedding index skipped for {}: {}", id_clone, e);
+                        }
+                    }
+                    Err(e) => log::debug!("[mem] bg conn open failed: {}", e),
+                }
+            });
+        }
         // Auto-extract preferences from free-form text
         if matches!(
             item.kind,
