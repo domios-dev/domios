@@ -85,6 +85,7 @@ Defined in `.claude/agents/*.md`:
 | **docs** | `docs/*.md`, `README.md`, skills | Worker |
 | **code-reviewer** | Read-only review | Worker |
 | **devops** | Builds, releases, CI/CD | Lead (coordinates multi-machine builds) |
+| **prompt-evaluator** | `src-tauri/prompts/*.md`, `.claude/agents/*.md`, eval sets in `evals/` | Worker (read-only; runs `.claude/skills/prompt-evaluator/` harness and reports) |
 
 ### Orchestrator-only rules
 
@@ -169,6 +170,18 @@ FOLLOWUP: anything Lead should know
 ### Proactive delegation rules
 
 **After significant changes, auto-invoke `docs`.** Significant = new Tauri command, new CLI subcommand, new config option, new feature, API breaking change, README-visible behavior change. Don't ask — just do `Agent(subagent_type="docs", prompt="sync docs with HEAD~N")`.
+
+**Any edit to a CodeTerm prompt file → auto-invoke `prompt-evaluator` before considering the change done.** This applies to:
+- `src-tauri/prompts/*.md` (general_agent, worker_suffix, lead_suffix, orchestrator_suffix, codeterm_rule, bootstrap_instructions, cron_complete_suffix)
+- `.claude/agents/*.md` (agent definitions)
+- Any future prompt-like artifact that has an eval set under `evals/`
+
+Rules:
+- Spawn `Agent(subagent_type="prompt-evaluator", prompt="A/B compare HEAD~1 vs HEAD for <path>. Report regressions.")` after committing a prompt change locally but before pushing.
+- If the evaluator reports `Δ < 0` on any eval, fix or revert the prompt change before pushing. Do not push through a regression.
+- If no eval set exists for the prompt file yet, first ask the evaluator to bootstrap one from the prompt's documented behaviors, THEN run the A/B.
+- You (as Orchestrator or Lead) do NOT run the prompt-evaluator harness yourself — always delegate to the subagent. It knows `.claude/skills/prompt-evaluator/SKILL.md`, the `runner.py` CLI flags, and how to interpret reports. Reading the skill every time is wasted tokens.
+- Test cases are added to `evals/<name>/evals.json` by the user or by prompt-evaluator in "Mode 4" (add-a-test-case). You don't hand-edit eval sets — describe the scenario to the subagent and let it handle the JSON.
 
 **Before merging feat branch to develop, auto-invoke `code-reviewer`** on the full branch diff. Act on Critical + High findings before merge.
 
