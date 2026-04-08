@@ -3,6 +3,7 @@
 **Source:** https://github.com/milla-jovovich/mempalace
 **License:** MIT
 **Imported:** 2026-04-08
+**Local clone:** `/references/mempalace/` (repo-root `references/` dir, gitignored — same place as `openclaw`, `cmux`, `nebula`, `wezterm` research clones)
 **Relevant to:** `docs/plans/memory-architecture.md` — CodeTerm memory plugin (Phase 3)
 
 ## What it is
