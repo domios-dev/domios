@@ -64,6 +64,27 @@ pub enum Command {
     /// List all registered agent providers as `ProviderDescriptor`s.
     /// First dispatch command for the plugin self-presentation system (Chunk B.3).
     ListAgentProviders,
+
+    /// Create a workspace, optionally with a starting cwd inherited by spawned agents.
+    WorkspaceCreate {
+        name: String,
+        #[serde(default)]
+        cwd: Option<String>,
+    },
+
+    /// Rename an existing workspace.
+    WorkspaceRename {
+        workspace_id: String,
+        name: String,
+    },
+
+    /// Close a workspace and kill all of its PTYs.
+    WorkspaceClose {
+        workspace_id: String,
+    },
+
+    /// List all workspaces with their metadata.
+    WorkspaceList,
 }
 
 fn default_true() -> bool { true }
@@ -101,6 +122,14 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
         Command::PaneFocus { pane_id } => cmd_pane_focus(ctx, pane_id),
         Command::PaneRename { pane_id, title } => cmd_pane_rename(ctx, pane_id, title),
         Command::ListAgentProviders => cmd_list_agent_providers(ctx),
+        Command::WorkspaceCreate { name, cwd } => {
+            cmd_workspace_create(ctx, name.clone(), cwd.clone())
+        }
+        Command::WorkspaceRename { workspace_id, name } => {
+            cmd_workspace_rename(ctx, workspace_id, name)
+        }
+        Command::WorkspaceClose { workspace_id } => cmd_workspace_close(ctx, workspace_id),
+        Command::WorkspaceList => cmd_workspace_list(ctx),
     }
 }
 
@@ -214,6 +243,41 @@ fn cmd_pane_rename(
 ) -> Result<CommandResult, String> {
     ctx.rename_pane(pane_id, title)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
+}
+
+fn cmd_workspace_create(
+    ctx: &ServiceContext,
+    name: String,
+    cwd: Option<String>,
+) -> Result<CommandResult, String> {
+    let ws = ctx.create_workspace(name, cwd);
+    let json = serde_json::to_value(&ws)
+        .map_err(|e| format!("serialize WorkspaceInfo: {}", e))?;
+    Ok(CommandResult::Json(json))
+}
+
+fn cmd_workspace_rename(
+    ctx: &ServiceContext,
+    workspace_id: &str,
+    name: &str,
+) -> Result<CommandResult, String> {
+    ctx.rename_workspace(workspace_id, name)?;
+    Ok(CommandResult::Json(serde_json::json!({"ok": true})))
+}
+
+fn cmd_workspace_close(
+    ctx: &ServiceContext,
+    workspace_id: &str,
+) -> Result<CommandResult, String> {
+    ctx.close_workspace(workspace_id)?;
+    Ok(CommandResult::Json(serde_json::json!({"ok": true})))
+}
+
+fn cmd_workspace_list(ctx: &ServiceContext) -> Result<CommandResult, String> {
+    let workspaces = ctx.list_workspaces();
+    let json = serde_json::to_value(&workspaces)
+        .map_err(|e| format!("serialize workspaces: {}", e))?;
+    Ok(CommandResult::Json(json))
 }
 
 fn cmd_list_agent_providers(ctx: &ServiceContext) -> Result<CommandResult, String> {
@@ -376,6 +440,10 @@ mod tests {
             Command::PaneFocus { pane_id: "p".into() },
             Command::PaneRename { pane_id: "p".into(), title: "t".into() },
             Command::ListAgentProviders,
+            Command::WorkspaceCreate { name: "w".into(), cwd: None },
+            Command::WorkspaceRename { workspace_id: "w".into(), name: "n".into() },
+            Command::WorkspaceClose { workspace_id: "w".into() },
+            Command::WorkspaceList,
         ];
         for cmd in commands {
             let json = serde_json::to_value(&cmd).unwrap();
@@ -386,6 +454,59 @@ mod tests {
                 std::mem::discriminant(&roundtrip),
             );
         }
+    }
+
+    #[test]
+    fn workspace_create_deserialize() {
+        let json = r#"{"cmd":"workspace_create","name":"proj","cwd":"/tmp"}"#;
+        let cmd: Command = serde_json::from_str(json).unwrap();
+        match cmd {
+            Command::WorkspaceCreate { name, cwd } => {
+                assert_eq!(name, "proj");
+                assert_eq!(cwd.as_deref(), Some("/tmp"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn workspace_create_deserialize_no_cwd() {
+        let json = r#"{"cmd":"workspace_create","name":"proj"}"#;
+        let cmd: Command = serde_json::from_str(json).unwrap();
+        match cmd {
+            Command::WorkspaceCreate { name, cwd } => {
+                assert_eq!(name, "proj");
+                assert!(cwd.is_none());
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn workspace_rename_deserialize() {
+        let json = r#"{"cmd":"workspace_rename","workspace_id":"w1","name":"new"}"#;
+        let cmd: Command = serde_json::from_str(json).unwrap();
+        match cmd {
+            Command::WorkspaceRename { workspace_id, name } => {
+                assert_eq!(workspace_id, "w1");
+                assert_eq!(name, "new");
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn workspace_close_deserialize() {
+        let cmd: Command = serde_json::from_str(
+            r#"{"cmd":"workspace_close","workspace_id":"w1"}"#,
+        ).unwrap();
+        assert!(matches!(cmd, Command::WorkspaceClose { .. }));
+    }
+
+    #[test]
+    fn workspace_list_deserialize() {
+        let cmd: Command = serde_json::from_str(r#"{"cmd":"workspace_list"}"#).unwrap();
+        assert!(matches!(cmd, Command::WorkspaceList));
     }
 
     #[test]

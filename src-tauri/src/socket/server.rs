@@ -338,12 +338,9 @@ fn dispatch(
         }
 
         "workspace.list" => {
-            let mux = mux.lock();
-            let workspaces = mux.list_workspaces();
-            serde_json::to_value(&workspaces).map_err(|e| JsonRpcError {
-                code: -32603,
-                message: format!("Serialization error: {}", e),
-            })
+            crate::dispatch::dispatch(&crate::dispatch::Command::WorkspaceList, svc.as_ref())
+                .map(|r| r.into_json())
+                .map_err(|e| JsonRpcError { code: -32603, message: e })
         }
 
         "workspace.create" => {
@@ -359,15 +356,12 @@ fn dispatch(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
 
-            let info = {
-                let mut mux = mux.lock();
-                mux.create_workspace(name, cwd)
-            };
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
-            serde_json::to_value(&info).map_err(|e| JsonRpcError {
-                code: -32603,
-                message: format!("Serialization error: {}", e),
-            })
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::WorkspaceCreate { name, cwd },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError { code: -32603, message: e })
         }
 
         "workspace.focus" => {
@@ -384,33 +378,24 @@ fn dispatch(
         }
 
         "workspace.rename" => {
-            let id = get_string_param(&params, "workspace_id")?;
+            let workspace_id = get_string_param(&params, "workspace_id")?;
             let name = get_string_param(&params, "name")?;
-            {
-                let mut mux = mux.lock();
-                mux.rename_workspace(&id, &name).map_err(|e| JsonRpcError {
-                    code: -32602,
-                    message: e,
-                })?;
-            }
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
-            Ok(serde_json::json!({"ok": true}))
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::WorkspaceRename { workspace_id, name },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError { code: -32602, message: e })
         }
 
         "workspace.close" => {
-            let id = get_string_param(&params, "workspace_id")?;
-            let pty_ids = {
-                let mut mux = mux.lock();
-                mux.close_workspace(&id).map_err(|e| JsonRpcError {
-                    code: -32602,
-                    message: e,
-                })?
-            };
-            for pty_id in &pty_ids {
-                let _ = _pty.lock().kill(pty_id);
-            }
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
-            Ok(serde_json::json!({"ok": true}))
+            let workspace_id = get_string_param(&params, "workspace_id")?;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::WorkspaceClose { workspace_id },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError { code: -32602, message: e })
         }
 
         "workspace.move_tab" => {
