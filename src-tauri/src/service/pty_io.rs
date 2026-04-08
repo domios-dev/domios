@@ -69,6 +69,14 @@ impl ServiceContext {
             .map_err(|e| e.to_string())
     }
 
+    /// Kill the PTY process for a pane without removing the pane from the mux.
+    /// Different from `close_pane`, which both kills the PTY and removes the pane.
+    pub fn kill_pane_pty(&self, pane_id: &str) -> Result<(), String> {
+        let pty_id = self.resolve_pty_id(pane_id)?;
+        self.pty.lock().remove(&pty_id);
+        Ok(())
+    }
+
     /// Resolve pane_id (or alias) → pty_id.
     pub fn resolve_pty_id(&self, pane_id: &str) -> Result<String, String> {
         let mux = self.mux.lock();

@@ -521,9 +521,12 @@ async fn resize_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    state.svc.resize_pane(&pane_id, body.cols, body.rows)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to resize PTY"))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PtyResize { pane_id, cols: body.cols, rows: body.rows },
+        &state.svc,
+    )
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to resize PTY"))?;
+    Ok(Json(result.into_json()))
 }
 
 /// SSE stream of pane output — real-time output streaming for external agents.

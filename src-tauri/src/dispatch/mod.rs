@@ -85,6 +85,19 @@ pub enum Command {
 
     /// List all workspaces with their metadata.
     WorkspaceList,
+
+    /// Resize the PTY backing a pane.
+    PtyResize {
+        pane_id: String,
+        cols: u16,
+        rows: u16,
+    },
+
+    /// Kill the PTY process for a pane without removing the pane from the mux.
+    /// Compare to `PaneClose`, which both stops the process and drops the pane.
+    PtyKill {
+        pane_id: String,
+    },
 }
 
 fn default_true() -> bool { true }
@@ -130,6 +143,10 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
         }
         Command::WorkspaceClose { workspace_id } => cmd_workspace_close(ctx, workspace_id),
         Command::WorkspaceList => cmd_workspace_list(ctx),
+        Command::PtyResize { pane_id, cols, rows } => {
+            cmd_pty_resize(ctx, pane_id, *cols, *rows)
+        }
+        Command::PtyKill { pane_id } => cmd_pty_kill(ctx, pane_id),
     }
 }
 
@@ -278,6 +295,21 @@ fn cmd_workspace_list(ctx: &ServiceContext) -> Result<CommandResult, String> {
     let json = serde_json::to_value(&workspaces)
         .map_err(|e| format!("serialize workspaces: {}", e))?;
     Ok(CommandResult::Json(json))
+}
+
+fn cmd_pty_resize(
+    ctx: &ServiceContext,
+    pane_id: &str,
+    cols: u16,
+    rows: u16,
+) -> Result<CommandResult, String> {
+    ctx.resize_pane(pane_id, cols, rows)?;
+    Ok(CommandResult::Json(serde_json::json!({"ok": true})))
+}
+
+fn cmd_pty_kill(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, String> {
+    ctx.kill_pane_pty(pane_id)?;
+    Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
 fn cmd_list_agent_providers(ctx: &ServiceContext) -> Result<CommandResult, String> {
@@ -444,6 +476,8 @@ mod tests {
             Command::WorkspaceRename { workspace_id: "w".into(), name: "n".into() },
             Command::WorkspaceClose { workspace_id: "w".into() },
             Command::WorkspaceList,
+            Command::PtyResize { pane_id: "p".into(), cols: 80, rows: 24 },
+            Command::PtyKill { pane_id: "p".into() },
         ];
         for cmd in commands {
             let json = serde_json::to_value(&cmd).unwrap();
@@ -507,6 +541,27 @@ mod tests {
     fn workspace_list_deserialize() {
         let cmd: Command = serde_json::from_str(r#"{"cmd":"workspace_list"}"#).unwrap();
         assert!(matches!(cmd, Command::WorkspaceList));
+    }
+
+    #[test]
+    fn pty_resize_deserialize() {
+        let json = r#"{"cmd":"pty_resize","pane_id":"p","cols":120,"rows":40}"#;
+        let cmd: Command = serde_json::from_str(json).unwrap();
+        match cmd {
+            Command::PtyResize { pane_id, cols, rows } => {
+                assert_eq!(pane_id, "p");
+                assert_eq!(cols, 120);
+                assert_eq!(rows, 40);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn pty_kill_deserialize() {
+        let cmd: Command =
+            serde_json::from_str(r#"{"cmd":"pty_kill","pane_id":"p"}"#).unwrap();
+        assert!(matches!(cmd, Command::PtyKill { .. }));
     }
 
     #[test]
