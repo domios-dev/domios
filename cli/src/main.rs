@@ -319,6 +319,41 @@ pub enum MemAction {
     },
     /// Show mem store stats (counts by kind, blob sizes)
     Stats,
+    /// Capture a quick learning (insight, error, feature request)
+    Learn {
+        /// What you learned. If omitted and stdin piped, read stdin.
+        text: Option<String>,
+        /// "insight" (default), "error", or "feature"
+        #[arg(long)]
+        kind: Option<String>,
+        /// Comma-separated tags
+        #[arg(long)]
+        tags: Option<String>,
+        /// Shortcut: --error <text> = --kind error
+        #[arg(long)]
+        error: Option<String>,
+        /// Shortcut: --feature <text> = --kind feature
+        #[arg(long)]
+        feature: Option<String>,
+    },
+    /// List pending learnings (kind=learning items)
+    LearnList,
+    /// Promote a learning to a fact (raises importance)
+    LearnPromote {
+        id: String,
+    },
+    /// Flush a pane's PTY scrollback as a kind=conversation mem_item
+    /// (called by PreCompact hook before context summarization).
+    Flush {
+        /// Pane id (default: $CODETERM_PANE_ID)
+        #[arg(long)]
+        pane: Option<String>,
+        /// Optional title hint
+        #[arg(long)]
+        title: Option<String>,
+    },
+    /// Run dreaming consolidation (light + deep phases)
+    Dream,
     /// Graph operations
     Graph {
         #[command(subcommand)]
@@ -2021,6 +2056,45 @@ fn handle_mem(json_mode: bool, action: MemAction) {
         }
         MemAction::Stats => {
             mem_get_request(&http, &format!("{}/api/mem/stats", base))
+        }
+        MemAction::Learn { text, kind, tags, error, feature } => {
+            let (resolved_text, resolved_kind) = if let Some(t) = error {
+                (t, "error".to_string())
+            } else if let Some(t) = feature {
+                (t, "feature".to_string())
+            } else if let Some(t) = text {
+                (t, kind.unwrap_or_else(|| "insight".into()))
+            } else {
+                let mut s = String::new();
+                if std::io::stdin().read_to_string(&mut s).is_err() || s.trim().is_empty() {
+                    eprintln!("Error: provide text as arg, --error/--feature, or pipe to stdin");
+                    std::process::exit(1);
+                }
+                (s, kind.unwrap_or_else(|| "insight".into()))
+            };
+            let tag_list: Vec<String> = tags
+                .map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+                .unwrap_or_default();
+            mem_post_request(&http, &format!("{}/api/mem/learn", base), &serde_json::json!({
+                "text": resolved_text, "kind": resolved_kind, "tags": tag_list,
+            }))
+        }
+        MemAction::LearnList => {
+            mem_get_request(&http, &format!("{}/api/mem/search?q=learning&kind=learning&limit=50", base))
+        }
+        MemAction::LearnPromote { id } => {
+            mem_post_request(&http, &format!("{}/api/mem/promote/{}", base, id), &serde_json::json!({}))
+        }
+        MemAction::Flush { pane, title } => {
+            let pane_id = pane
+                .or_else(|| std::env::var("CODETERM_PANE_ID").ok())
+                .unwrap_or_else(|| "current".to_string());
+            mem_post_request(&http, &format!("{}/api/mem/flush", base), &serde_json::json!({
+                "pane": pane_id, "title": title,
+            }))
+        }
+        MemAction::Dream => {
+            mem_post_request(&http, &format!("{}/api/mem/dream", base), &serde_json::json!({}))
         }
         MemAction::Graph { action } => match action {
             MemGraphAction::Create { id, entity_type, props, scope } => {

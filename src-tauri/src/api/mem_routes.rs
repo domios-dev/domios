@@ -10,8 +10,10 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::mem::{
+    dreaming,
     graph::{Entity, Relation},
     layers::WakeUpOptions,
+    learnings::{self, LearnKind},
     search::SearchQuery,
     store::{MemKind, MemScope, NewMemItem},
 };
@@ -219,6 +221,88 @@ pub struct GraphCreateEntityBody {
     pub scope: Option<String>,
     #[serde(default)]
     pub properties: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+pub struct LearnBody {
+    pub text: String,
+    /// "insight" (default) | "error" | "feature"
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+pub async fn mem_learn(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<LearnBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let lk = match b.kind.as_deref() {
+        Some("error") => LearnKind::Error,
+        Some("feature") => LearnKind::Feature,
+        _ => LearnKind::Insight,
+    };
+    let id = learnings::learn(&state.svc.mem, &b.text, lk, b.tags)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+pub async fn mem_promote(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    state.svc.mem.promote_learning(&id)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({ "promoted": id })))
+}
+
+#[derive(Deserialize)]
+pub struct FlushBody {
+    pub pane: String,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+pub async fn mem_flush(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<FlushBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    // Resolve pane id (supports aliases like "general" / "current")
+    let pty_id = {
+        let mux = state.svc.mux.lock();
+        mux.resolve_pane_id(&b.pane)
+            .ok_or((StatusCode::NOT_FOUND, format!("pane not found: {}", b.pane)))?
+    };
+    let pty_id_for_buffer = state.svc.resolve_pty_id(&pty_id)
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    let body = {
+        let buf = state.svc.output_buf.lock();
+        buf.get_full_text(&pty_id_for_buffer).unwrap_or_default()
+    };
+    let id = learnings::flush_pane(
+        &state.svc.mem,
+        &b.pane,
+        b.title.as_deref().unwrap_or(""),
+        body,
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+pub async fn mem_dream(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let reports = dreaming::run_all(&state.svc.mem)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "phases": reports })))
 }
 
 pub async fn mem_graph_create(

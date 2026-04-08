@@ -12,6 +12,8 @@ pub mod layers;
 pub mod extract;
 pub mod seed;
 pub mod ids;
+pub mod learnings;
+pub mod dreaming;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -75,6 +77,11 @@ impl MemManager {
 
     pub fn db_path(&self) -> &std::path::Path { &self.db_path }
     pub fn blobs_dir(&self) -> &std::path::Path { &self.blobs_dir }
+
+    /// Internal: lock-free borrow of the connection mutex for dreaming + tests.
+    pub(crate) fn conn_for_dream(&self) -> &parking_lot::Mutex<rusqlite::Connection> {
+        &self.conn
+    }
 
     /// Save a new mem_item. Returns the assigned slug id.
     /// Runs preference extraction if kind is conversation/note/daily.
@@ -162,6 +169,21 @@ impl MemManager {
     /// Run bundled starter mem_items seeding once. Idempotent via marker file.
     pub fn seed_bundled_if_needed(&self) -> Result<usize, String> {
         seed::seed_bundled(self)
+    }
+
+    /// Promote a `kind=learning` row to `kind=fact` (preserves id, body,
+    /// relations). Bumps importance to ≥4.0 so dreaming may pull it into L1.
+    pub fn promote_learning(&self, id: &str) -> Result<(), String> {
+        let item = self.get(id)?.ok_or_else(|| format!("not found: {}", id))?;
+        if item.kind != "learning" {
+            return Err(format!("can only promote kind=learning, got kind={}", item.kind));
+        }
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
+            rusqlite::params![chrono::Utc::now().to_rfc3339(), id],
+        ).map_err(|e| format!("promote: {}", e))?;
+        Ok(())
     }
 
     /// Stats for diagnostic / wake-up footer.
