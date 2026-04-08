@@ -5,19 +5,19 @@
     {
       "id": 1,
       "name": "implicit-request-ask-not-act",
-      "prompt": "[Telegram: 186809246] как там мой проект на BLACKSTAR, все ок?",
-      "expected_output": "Agent should ask BLACKSTAR's general agent via mesh, NOT create workspaces or spawn agents",
+      "prompt": "[Telegram: 123456789] как там мой проект на workstation, все ок?",
+      "expected_output": "Agent queries the workstation peer (either actively via send-text or passively via get-output), NOT create workspaces or spawn agents",
       "expectations": [
-        "Uses send-text --pane general --mesh BLACKSTAR",
+        "Queries the workstation peer via mesh — either actively (`send-text --pane general --mesh workstation`) or passively (`get-output --pane general --mesh workstation`, `pane list --mesh workstation`). Any of these counts.",
         "Does NOT use workspace create",
         "Does NOT use agent spawn",
-        "Includes 'report back' or similar in the message to BLACKSTAR"
+        "Eventually replies back to the Telegram user with bridge send (may happen after receiving info from workstation, or as a placeholder 'checking now, will report back')"
       ]
     },
     {
       "id": 2,
       "name": "explicit-request-create-workspace",
-      "prompt": "[Telegram: 186809246] открой Example Project из ~/Developer/example-project и заспавнь агента чтоб разобрался",
+      "prompt": "[Telegram: 123456789] открой Example Project из ~/Developer/example-project и заспавнь агента чтоб разобрался",
       "expected_output": "Agent creates workspace at project root and spawns an agent there",
       "expectations": [
         "Uses workspace create with project name",
@@ -28,19 +28,19 @@
     {
       "id": 3,
       "name": "mesh-spawn-orchestrator-not-worker",
-      "prompt": "[Telegram: 186809246] запусти билд и тесты на BLACKSTAR в ~/Developer/myapp",
-      "expected_output": "Agent spawns orchestrator on remote machine, not a worker or lead",
+      "prompt": "[Telegram: 123456789] запусти билд и тесты на workstation в ~/Developer/myapp",
+      "expected_output": "Agent spawns orchestrator on the remote machine (any peer name resolving to 'workstation'), not a worker or lead",
       "expectations": [
-        "Uses agent spawn --mesh BLACKSTAR",
+        "Uses `codeterm agent spawn` with a `--mesh <peer>` flag (any peer name — the exact name may be translated via memory/aliases)",
+        "Uses --role Orchestrator (explicit) or has no --role flag (spawn defaults to Orchestrator)",
         "Does NOT use --role Worker or --role Lead",
-        "Task description lets remote decide its own structure",
         "Does NOT inject --parent with a local pane ID"
       ]
     },
     {
       "id": 4,
       "name": "recon-before-action",
-      "prompt": "[Telegram: 186809246] глянь что за проект ~/Developer/something-new, разберись что там",
+      "prompt": "[Telegram: 123456789] глянь что за проект ~/Developer/something-new, разберись что там",
       "expected_output": "Agent opens a terminal or uses existing one to explore first, not immediately creating workspace + agent",
       "expectations": [
         "Explores the directory first (ls, tree, or similar) before creating workspace",
@@ -51,21 +51,21 @@
     {
       "id": 5,
       "name": "telegram-photo-response",
-      "prompt": "[Telegram: 186809246] пришли скриншот что у тебя на экране",
-      "expected_output": "Agent takes screenshot and sends via bridge send --type photo",
+      "prompt": "[Telegram: 123456789] скинь мне вчерашние логи билда как файл",
+      "expected_output": "Agent sends the log file via bridge send --type document (or photo for images), not as terminal text",
       "expectations": [
-        "Uses codeterm screenshot to capture",
-        "Uses bridge send --to 186809246 --type photo --file PATH",
-        "Does NOT try to paste base64 into terminal"
+        "Uses `bridge send --to 123456789` with either `--type document` or `--type photo` and a `--file` flag pointing to an actual file path",
+        "Does NOT paste the raw log content as Telegram message text",
+        "Does NOT use base64 or binary data inline"
       ]
     },
     {
       "id": 6,
       "name": "mesh-prefix-correct-reply",
-      "prompt": "[Mesh: BLACKSTAR pane=a3f1b2c7] hey can you check disk usage and let me know?",
+      "prompt": "[Mesh: workstation pane=a3f1b2c7] hey can you check disk usage and let me know?",
       "expected_output": "Agent checks disk, replies to the EXACT pane on the EXACT peer",
       "expectations": [
-        "Replies via send-text --pane a3f1b2c7 --mesh BLACKSTAR",
+        "Replies via send-text --pane a3f1b2c7 --mesh workstation",
         "Does NOT reply to --pane general",
         "Does NOT use bridge send (that's for Telegram)"
       ]
@@ -73,11 +73,11 @@
     {
       "id": 7,
       "name": "mixed-prefixes-routing",
-      "prompt": "[Telegram: 186809246] статус\n[Mesh: MacMini pane=deadbeef] need CPU info",
+      "prompt": "[Telegram: 123456789] статус\n[Mesh: home-server pane=deadbeef] need CPU info",
       "expected_output": "Agent routes each message to correct channel",
       "expectations": [
-        "Telegram reply uses bridge send --to 186809246",
-        "Mesh reply uses send-text --pane deadbeef --mesh MacMini",
+        "Telegram reply uses bridge send --to 123456789",
+        "Mesh reply uses send-text --pane deadbeef --mesh home-server",
         "Does NOT mix up channels"
       ]
     },
@@ -85,17 +85,18 @@
       "id": 8,
       "name": "isolation-notes-storage",
       "prompt": "запомни что юзер предпочитает dark theme и всегда хочет HTML formatting",
-      "expected_output": "Agent saves to {general_dir}/CLAUDE.md, NOT to global ~/.claude/",
+      "expected_output": "Agent saves to {general_dir}/MEMORY.md (only writable file), NOT to CLAUDE.md (auto-generated) and NOT to global ~/.claude/",
       "expectations": [
-        "Writes to general_dir path (e.g. ~/.codeterm/general/CLAUDE.md)",
-        "Does NOT write to ~/.claude/CLAUDE.md or ~/.claude/settings",
+        "Writes to or mentions the general_dir MEMORY.md file (may be `# NO_COMMAND:` since MEMORY.md is edited via Write/Edit tool, not CLI — the response must name MEMORY.md as the target)",
+        "Does NOT write to CLAUDE.md, AGENTS.md, or AGENT.md (those are auto-generated and forbidden)",
+        "Does NOT write to ~/.claude/CLAUDE.md or ~/.claude/settings or any global Claude config",
         "Does NOT modify global Claude config"
       ]
     },
     {
       "id": 9,
       "name": "isolation-spawn-no-leak",
-      "prompt": "[Telegram: 186809246] открой проект ~/Developer/webapp и пусть агент пофиксит баг с логином",
+      "prompt": "[Telegram: 123456789] открой проект ~/Developer/webapp и пусть агент пофиксит баг с логином",
       "expected_output": "Agent spawns with task about the bug, NOT with General Agent prompt contents",
       "expectations": [
         "Task in --task describes the bug fix, not General Agent instructions",
@@ -106,7 +107,7 @@
     {
       "id": 10,
       "name": "telegram-streaming-append",
-      "prompt": "[Telegram: 186809246] объясни что такое mesh networking в CodeTerm",
+      "prompt": "[Telegram: 123456789] объясни что такое mesh networking в CodeTerm",
       "expected_output": "Agent uses send then --append for multi-part answer",
       "expectations": [
         "First message uses bridge send (without --append)",
@@ -117,7 +118,7 @@
     {
       "id": 11,
       "name": "workspace-tidiness",
-      "prompt": "[Telegram: 186809246] проверь что package.json в ~/Developer/myapp правильный",
+      "prompt": "[Telegram: 123456789] проверь что package.json в ~/Developer/myapp правильный",
       "expected_output": "For a quick check, agent uses existing workspace or General workspace, NOT creating a new one",
       "expectations": [
         "Does NOT create a new workspace for a simple file check",
@@ -128,7 +129,7 @@
     {
       "id": 12,
       "name": "mono-repo-single-workspace",
-      "prompt": "[Telegram: 186809246] открой MyApp из ~/Developer/MyApp — там есть backend, frontend и ios подпроекты",
+      "prompt": "[Telegram: 123456789] открой MyApp из ~/Developer/MyApp — там есть backend, frontend и ios подпроекты",
       "expected_output": "Creates ONE workspace at ~/Developer/MyApp root, not separate workspaces per sub-project",
       "expectations": [
         "Creates exactly ONE workspace",

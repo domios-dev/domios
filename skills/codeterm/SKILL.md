@@ -146,11 +146,11 @@ codeterm workspace create "CI" --mesh PEER
 
 **Incoming mesh messages:**
 ```
-[Mesh: BLACKSTAR pane=a3f1b2c7] can you run the tests?
+[Mesh: workstation pane=a3f1b2c7] can you run the tests?
 ```
 Reply to the source pane on the source peer:
 ```bash
-codeterm send-text "tests pass" --pane a3f1b2c7 --mesh BLACKSTAR
+codeterm send-text "tests pass" --pane a3f1b2c7 --mesh workstation
 ```
 To message a peer's General Agent directly: `--pane general --mesh PEER`. Say "report back" if you need a response — the remote agent won't auto-reply.
 

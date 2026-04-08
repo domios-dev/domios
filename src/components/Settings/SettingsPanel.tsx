@@ -738,7 +738,6 @@ function NetworkTab({
             ["POST", "/api/browser/open", "Open URL {url}"],
             ["POST", "/api/notifications", "Create {title, body, level}"],
             ["GET", "/api/network", "Connection info + IPs"],
-            ["GET", "/api/screenshot", "Capture screenshot"],
             ["GET", "/api/serve-file", "Serve local file {?path=}"],
           ]} />
         </div>
@@ -945,7 +944,7 @@ function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K
                   const ids = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
                   onUpdate("integrations", { telegram_allowed_users: ids });
                 }}
-                placeholder="e.g. 186809246, 123456789"
+                placeholder="e.g. 123456789, 987654321"
                 className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none font-mono"
               />
             </div>

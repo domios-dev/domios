@@ -17,7 +17,7 @@ Triggers: "on another machine" / "remote" / "mesh" / "send to X" / "run on X" / 
 Always use CLI, never raw curl:
 ```bash
 codeterm mesh peers                                        # find peers (paired = can send)
-codeterm pane list --mesh "Andreys-MacBook-Air-3"          # list panes on remote
+codeterm pane list --mesh "home-laptop"                    # list panes on remote
 codeterm send-text "git pull && ./build.sh dev" --pane ID --mesh PEER  # send command
 codeterm agent spawn claude --task "..." --mesh PEER       # spawn agent remotely
 codeterm get-output --pane ID --mesh PEER                  # read remote output
