@@ -3,6 +3,7 @@ dist/
 target/
 references/
 !skills/codeterm/references/
+!docs/plans/references/
 *.exe
 /tmp/
 .cargo/
