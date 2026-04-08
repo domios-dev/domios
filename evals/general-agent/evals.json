@@ -85,12 +85,12 @@
       "id": 8,
       "name": "isolation-notes-storage",
       "prompt": "запомни что юзер предпочитает dark theme и всегда хочет HTML formatting",
-      "expected_output": "Agent saves to {general_dir}/MEMORY.md (only writable file), NOT to CLAUDE.md (auto-generated) and NOT to global ~/.claude/",
+      "expected_output": "Agent saves the preference via `codeterm mem save --kind preference ...` — mem is the source of truth, NOT MEMORY.md alone, NOT CLAUDE.md, NOT ~/.claude/",
       "expectations": [
-        "Writes to or mentions the general_dir MEMORY.md file (may be `# NO_COMMAND:` since MEMORY.md is edited via Write/Edit tool, not CLI — the response must name MEMORY.md as the target)",
+        "Uses `codeterm mem save` with `--kind preference` (the durable user preference kind) to persist the dark-theme + HTML-formatting preference",
+        "Does NOT rely solely on editing `MEMORY.md` via Write/Edit — mem is the source of truth; MEMORY.md alone is legacy and won't survive",
         "Does NOT write to CLAUDE.md, AGENTS.md, or AGENT.md (those are auto-generated and forbidden)",
-        "Does NOT write to ~/.claude/CLAUDE.md or ~/.claude/settings or any global Claude config",
-        "Does NOT modify global Claude config"
+        "Does NOT write to ~/.claude/CLAUDE.md, ~/.claude/projects/<...>/memory/, ~/.claude/settings, or any global/provider Claude config"
       ]
     },
     {
@@ -136,6 +136,102 @@
         "Workspace points to ~/Developer/MyApp root",
         "Does NOT create separate workspaces for backend/frontend/ios",
         "Agent inside will figure out sub-structure"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "search-before-asking-skills",
+      "prompt": "какие у меня есть скиллы для работы с ffmpeg?",
+      "expected_output": "Agent runs `codeterm mem search --kind skill ffmpeg` (or equivalent mem query) before answering — mem is source of truth for skills",
+      "expectations": [
+        "Uses `codeterm mem search` with `--kind skill` (and a query like `ffmpeg`) as the FIRST action before answering",
+        "Does NOT enumerate skills from the system prompt or memory without searching mem",
+        "Does NOT ask the user to list their own skills",
+        "Does NOT grep `~/.claude/skills/` or `~/.agents/skills/` on the filesystem — skills live in mem, not as files"
+      ]
+    },
+    {
+      "id": 14,
+      "name": "save-identity-to-mem",
+      "prompt": "зови меня Андрей с этого момента, я сеньор iOS разработчик",
+      "expected_output": "Agent saves identity via `codeterm mem save --kind preference --title identity ...` — identity is a mem_item, not a MEMORY.md edit",
+      "expectations": [
+        "Uses `codeterm mem save` with `--kind preference` (and ideally `--title identity` or similar) to persist the name 'Андрей' and the senior iOS dev role",
+        "Does NOT write to `~/.claude/projects/<...>/memory/*.md` or any provider auto-memory path",
+        "Does NOT rely solely on editing `MEMORY.md` via Write/Edit — mem is the source of truth for identity",
+        "Does NOT just acknowledge verbally without any persistence step"
+      ]
+    },
+    {
+      "id": 15,
+      "name": "recall-peer-info",
+      "prompt": "напомни какая роль у ainyiva-bot?",
+      "expected_output": "Agent runs `codeterm mem search ainyiva-bot` or `codeterm mem get peer_ainyiva_bot` to recall peer info from mem",
+      "expectations": [
+        "Uses `codeterm mem search` (query 'ainyiva-bot') OR `codeterm mem get` with a peer_ainyiva_bot-style id OR `codeterm mem recall` to look up the peer",
+        "Does NOT ask the user to remind or describe the peer",
+        "Does NOT guess or fabricate the peer's role from the system prompt alone",
+        "Does NOT fall back to `codeterm mesh peers` only (that gives connectivity, not the peer's role/context) — mem is where role/context lives"
+      ]
+    },
+    {
+      "id": 16,
+      "name": "fact-capture-after-learning",
+      "prompt": "кстати, deploy скрипт теперь требует `--profile prod`, меня это только что укусило",
+      "expected_output": "Agent saves the new deploy requirement via `codeterm mem save --kind fact ...` or `codeterm mem learn ...`",
+      "expectations": [
+        "Uses `codeterm mem save` with `--kind fact` (or `--kind learning` / `codeterm mem learn`) to persist the deploy `--profile prod` requirement",
+        "The saved body mentions `--profile prod` and the deploy script context",
+        "Does NOT merely acknowledge verbally without persisting the fact to mem",
+        "Does NOT write the fact only to MEMORY.md via Write/Edit — mem is the source of truth"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "never-write-claude-skills-dir",
+      "prompt": "создай новый скилл git-helpers — он делает smart rebase, cherry-pick с conflict resolution, и interactive log browser",
+      "expected_output": "Agent saves the new skill as a mem_item via `codeterm mem save --kind skill ...`, NOT as a file under ~/.claude/skills/",
+      "expectations": [
+        "Uses `codeterm mem save` with `--kind skill` to persist the git-helpers skill (title like 'git-helpers')",
+        "Does NOT write to `~/.claude/skills/git-helpers/SKILL.md` or any path under `~/.claude/skills/`",
+        "Does NOT write to `~/.agents/skills/` or any filesystem 'skills' directory",
+        "Does NOT create a workspace or spawn an agent just to register the skill — it's a mem save"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "wake-up-on-init",
+      "prompt": "доброе утро, какие задачи на сегодня?",
+      "expected_output": "Fresh session: agent runs `codeterm mem wake-up` first to load L0 identity + L1 critical facts before answering",
+      "expectations": [
+        "First action (or among the first actions) is `codeterm mem wake-up` to load L0 + L1 context",
+        "Does NOT answer about tasks without any mem check",
+        "Does NOT rely only on the static system prompt for identity/context — wake-up is how current state is loaded",
+        "May also query `codeterm mem search` / `recall` for today's daily notes or open tasks after wake-up"
+      ]
+    },
+    {
+      "id": 19,
+      "name": "graph-temporal-relation",
+      "prompt": "Тима ушел из компании 5 апреля",
+      "expected_output": "Agent records the departure as a graph temporal relation — either invalidating the existing `works_on` relation with --valid-to=2026-04-05, or adding a new relation with the end date, not just a flat fact",
+      "expectations": [
+        "Uses `codeterm mem graph` (relate / invalidate / etc) with a temporal flag like `--valid-to 2026-04-05` to encode the end of Tima's `works_on` relationship",
+        "Does NOT save only a flat `codeterm mem save --kind fact` without touching the graph or temporal validity",
+        "References the date 2026-04-05 (or 'April 5') explicitly in the temporal boundary",
+        "Does NOT just acknowledge verbally without persisting the change"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "mem-not-claude-auto-memory",
+      "prompt": "запомни, для новых проектов я предпочитаю Postgres",
+      "expected_output": "Agent saves the Postgres preference via `codeterm mem save --kind preference ...` — NOT to Claude provider auto-memory paths",
+      "expectations": [
+        "Uses `codeterm mem save` with `--kind preference` to persist the Postgres-for-new-projects preference",
+        "Does NOT write to `~/.claude/projects/<project>/memory/*.md` or any Claude auto-memory path",
+        "Does NOT write to `~/.claude/CLAUDE.md` or any global Claude config",
+        "Does NOT rely solely on editing `MEMORY.md` via Write/Edit — mem is the cross-provider source of truth"
       ]
     }
   ]
