@@ -1,41 +1,69 @@
 # Architecture Evolution Plan
 
-**Status:** In progress (Phase B/C/D partially landed; Phase D extraction landed 2026-04-07)
-**Branch:** `feat/plugin-prep`
+**Status:** Chunk B DONE as of 2026-04-08. Next: Chunk C (Phase B3 dispatch batches).
+**Branch:** `feat/memory` (plugin-prep work was consolidated here)
 **Goal:** Evolve codebase toward Hexagonal + Command Bus architecture, covered by tests, ready for plugin system.
 
-## Status as of 2026-04-07
+## Status as of 2026-04-08
 
-- Phase A: not tracked here; see test coverage reports.
-- Phase B1 — unified dispatch infrastructure: **DONE** (commit `2a5ef09`). `src-tauri/src/dispatch/mod.rs` exists with `Command` enum and `dispatch()`.
-- Phase B2 — migrate first 5 ops across REST/Socket/Tauri: **DONE** for `health`, `pane.list`, `send_text`, `get_output`, and the Tauri `get_pane_output` / `get_pane_screen` / `get_pane_screen_formatted` commands (`cac958e` series: `cac954`, `65ce514`, `a8a7f4e`).
-- Phase B3 — remaining operations: **IN PROGRESS**. Batch 1 pane ops (`PaneSplit`/`PaneClose`/`PaneFocus`/`PaneRename`) wired through REST and Socket (`36b5065`). Remaining: workspace, pty, agent, mesh operations.
-- Phase C — EventBus: **DONE** structurally (`88c7afe`). Typed `SystemEvent` bus lives in `src-tauri/src/api/events.rs`; `ServiceContext` publishes `MuxStateChanged` and `PaneTitlePinned` via `emit_state_changed` / `emit_pane_title_pinned`. Migration of output-pipeline notifications and agent status events to typed variants is still outstanding.
-- Phase D — Plugin trait + first plugin: **SKELETON DONE** (`f371699`). `Plugin` trait, `PluginManager`, and manifest parser live in `src-tauri/src/plugin/mod.rs`. `AgentProvider` trait has been expanded with `auto_approve_flags`, `compact_command`, `model_switch_command`, `exit_command`, `install_skills`, `uninstall_skills`, `supports_lazy_skills`.
-- Phase D.1 — **agent-claude / agent-codex physically extracted (2026-04-07, uncommitted):**
-  - `src-tauri/src/agent/claude.rs` → `src-tauri/src/plugin/agent_claude/provider.rs`
-  - `src-tauri/src/agent/codex.rs` → `src-tauri/src/plugin/agent_codex/provider.rs`
-  - Both wrappers (`mod.rs`) now own their providers via `mod provider; pub use provider::*`
-  - `agent/mod.rs` no longer declares `claude` / `codex`. `src-tauri/src/agent/` contains ZERO provider-specific code — only generic `provider.rs` (trait), `registry.rs`, `detector.rs`, `prompt.rs`, `status.rs`, `reports.rs`, `git_info.rs`.
-  - Test imports in `agent/registry.rs` and `service/orchestrator.rs` updated to `crate::plugin::agent_claude::ClaudeProvider`.
-- Phase D.2 — **Hardcode hunt + leak fix (2026-04-07, uncommitted):**
-  - New helper `crate::config::default_agent_provider()` — single source of truth, reads `general_agent.agent_provider`.
-  - 6 hardcoded `"claude"` defaults replaced with the helper:
-    - `commands.rs:138` (resume on restore), `commands.rs:481` (re-detect session)
-    - `api/routes.rs:1107` (hook permission detection)
-    - `cron/store.rs:334` (cron job creation default)
-    - `service/orchestrator.rs:246` (`spawn_agent_sync`), `service/orchestrator.rs:326` (`spawn_agent`)
-  - `api/routes.rs:1036` Claude hook handler still hardcodes `"claude"` — TODO comment added; proper fix requires plugins-can-register-HTTP-routes (Phase E.2).
-  - `agent/detector.rs` cleanup: deleted 278 lines of dead code (`AgentDetector` struct, `DetectedEvent`, `AgentType { ClaudeCode, Aider, Generic }`, `find_osc_terminator`, `parse_osc`, `detect_prompt`, plus 4 dead tests). Detector is now provider-agnostic primitives only.
-  - `detect_claude_events` + `detect_task_completion` (Claude's "Word for Xs" status fingerprint) moved out of `agent/detector.rs` into `plugin/agent_claude/provider.rs` as private fns; 11 related tests moved with them.
-  - `cargo check`: clean. `cargo test`: 381 passed / 0 failed.
-- Supporting refactor: ANSI helpers extracted to `pty::ansi` (`4cbfd77`); `get_pane_screen` unified through the backend VT100 path (`a7c2a5a`).
+- **Phase A** — test foundation: not tracked here; see test coverage reports.
+- **Phase B1** — unified dispatch infrastructure: **DONE** (`2a5ef09`). `src-tauri/src/dispatch/mod.rs` has `Command` enum + `dispatch()`.
+- **Phase B2** — first 5 ops across REST/Socket/Tauri: **DONE** (`cac954`, `65ce514`, `a8a7f4e`). Health, pane.list, send_text, get_output, get_pane_screen[_formatted].
+- **Phase B3** — remaining dispatch ops: **IN PROGRESS**. Pane ops batch 1 (`PaneSplit`/`PaneClose`/`PaneFocus`/`PaneRename`) through REST + Socket (`36b5065`). **Remaining: workspace, pty, agent, mesh ops — this is Chunk C.**
+- **Phase C** — EventBus: **DONE** structurally (`88c7afe`). Typed `SystemEvent` bus in `api/events.rs`; `ContributionsChanged { kind }` added in Chunk B.3 (`543bdc6`). Migration of output-pipeline notifications and agent status events to typed variants still outstanding (deferred to Chunk C).
+- **Phase D** — Plugin trait + first plugin: **SKELETON DONE** (`f371699`). `Plugin` trait, `PluginManager`, manifest parser in `src-tauri/src/plugin/mod.rs`. `AgentProvider` trait expanded with `auto_approve_flags`, `compact_command`, `model_switch_command`, `exit_command`, `install_skills`, `uninstall_skills`, `supports_lazy_skills`.
+- **Phase D.1 + D.2 — Extraction + leak fix**: **DONE** (`8826b98`, 2026-04-07).
+  - `agent/claude.rs` → `plugin/agent_claude/provider.rs`; `agent/codex.rs` → `plugin/agent_codex/provider.rs`.
+  - `src-tauri/src/agent/` contains ZERO provider-specific code — only generic `provider.rs` trait, `registry.rs`, `detector.rs`, `prompt.rs`, `status.rs`, `reports.rs`, `git_info.rs`.
+  - New helper `crate::config::default_agent_provider()` — single source of truth replaces 6 hardcoded `"claude"` defaults.
+  - `detector.rs` dead code purged (278 LOC: `AgentDetector`, `DetectedEvent`, `AgentType { ClaudeCode, Aider, Generic }`, helpers). Claude-specific fingerprints moved into the plugin.
+  - TODO at `api/routes.rs:1036` — Claude hook handler still literal `"claude"`; proper fix requires Chunk D (plugins can register HTTP routes).
+- **Phase D.3 — Chunk B: Provider self-presentation**: **DONE** (2026-04-07..08). See Chunk B section below for the full commit chain.
+- Supporting refactors: ANSI helpers extracted to `pty::ansi` (`4cbfd77`); `get_pane_screen` unified through backend VT100 path (`a7c2a5a`).
 
-## Next Up (priority order)
+## Chunk B — DONE (commits `8826b98..3d0d772`, 2026-04-07..08)
 
-**Chunk B — Provider self-presentation (Phase D.3, "1.5"):** make plugins fully contribute their UI/config presence so the frontend has ONE source of truth.
+Full commit chain on `feat/memory`:
 
-Today's gap: backend providers are extracted but the frontend still hardcodes Claude+Codex in `src/lib/agentProviders.ts`. Adding a new plugin = backend code AND a manual TS edit. Chunk B closes this loop so plugin = backend code only.
+| Commit | Step | Summary |
+|---|---|---|
+| `8826b98` | D.1 + D.2 | Extract claude/codex providers into plugins; kill 6 hardcoded `"claude"` defaults; scrub 278 LOC dead code from detector |
+| `ade0f42` | plan | Flesh out Chunk B design (reviewed with code-reviewer subagent) |
+| `dc94506` | B.1 + B.2 | `ProviderDescriptor` wire format (schema_version=1, deny_unknown_fields), 11-variant `SettingField` enum, trait metadata methods, Claude/Codex implement full `settings_schema()` with 100% fidelity to the legacy React panels |
+| `543bdc6` | B.3 | `dispatch::Command::ListAgentProviders` + REST `GET /api/agents/providers` + Socket `agents.list_providers` + Tauri `list_agent_providers` (first real parity-tested agent-op through unified dispatch). `ContributionsChanged { kind }` event + bus→Tauri bridge in `lib.rs`. |
+| `7609485` | B.4 + B.5 | Spawn validation against registry (reject unknown provider ids). `provider_name == "claude"` literal in `service/general_agent.rs` replaced by new trait method `preserves_context_on_resume()`. Per-provider config `[agents.<id>]` in schema with back-compat fallback to global `[agent]`. First read site migrated (`commands.rs:143`). |
+| `6c7b9a2` | B.6 | Frontend: TS types sync (`ProviderDescriptor`, `SettingField` discriminated union), `useContributions<T>` primitive, `useAgentProviders()` wrapper, `<SchemaRenderer />` (~330 LOC, one sub-component per `SettingField` variant). **Deleted** `ClaudeAgentSettings` + `CodexAgentSettings` + all hardcoded provider branches from `SettingsPanel.tsx`. |
+| `ff88d24` | plan | Memory plan supplements — 6 skill-sync invariants locked in (rules≠skills, lookup hierarchy, bridge-rule generator, canonical use case, sync_watcher revert as Phase 3.0 prereq) |
+| `c7d03e4` | Step 1 | Notifications via provider contribution. `notifications_schema()` trait method + ClaudeProvider impl that reproduces legacy `ClaudeHooksGroup` as a declarative `Section` (Info + PathLink + Badge + Action). **Deleted** `ClaudeHooksGroup` React component; new `ProviderNotifications` iterates `useAgentProviders().filter(p => p.notifications_schema.length > 0)`. |
+| `9538e98` | Step 2 | Global Skills section in Settings → Agents tab (hardcoded, CodeTerm-wide, not a provider contribution). **Deleted** `StepSetup` from onboarding (skill+hooks+rules rows); TOTAL_STEPS 5→4. |
+| `cc2f8a2` | fix | GA prompt: explicit "save to MEMORY.md, never to Claude auto-memory" section after the Rollo bug |
+| `a13fa35` | feature | GA auto-init kick on fresh sessions (backend sends `init` after agent detection when `!use_resume`; prompt teaches init = read MEMORY.md → ls → mesh peers → one-line ack) |
+| `1998e47` | chore | `general_agent.md` compressed ~31% (−67 lines / ~−800 tokens) — validated via prompt-evaluator A/B: 0 regressions, +2 strict improvements |
+| `3d0d772` | cleanup | Omnibus: personal info scrub (Rollo/ainyiva/BLACKSTAR/MacMini/186809246 → generic), screenshot feature purge (`screenshot.rs` + `tests/screenshot.ps1` deleted, `/api/screenshot` UI reference removed), new `.claude/skills/prompt-evaluator/` skill (maintainer prompt A/B harness), GA prompt refinements (HTML/append Telegram, stronger recon-before-action), eval set refinements (#1/#3/#5/#8 reworded) |
+
+### Acceptance criteria met
+
+- ✅ `SettingsPanel.tsx` contains **zero** `ClaudeAgentSettings` / `CodexAgentSettings` / `ClaudeHooksGroup` / `if (activeProvider === "claude")` branches
+- ✅ `src/lib/agentProviders.ts` no longer needed for Settings rendering — `useAgentProviders()` hook feeds everything
+- ✅ `GET /api/agents/providers` returns `Vec<ProviderDescriptor>` identical across REST / Socket / Tauri transports (parity-tested via the same `dispatch::Command::ListAgentProviders` path)
+- ✅ `POST /api/agents/spawn` rejects unknown provider ids with `Err("Unknown agent provider: 'X'. Available: [...]")` before touching workspaces / PTYs
+- ✅ `src-tauri/src/agent/` contains zero provider-specific code — only generic primitives
+- ✅ A hypothetical third native plugin (`plugin/agent_aider/`) would appear automatically in Settings / Sidebar / CommandPalette after a restart with **zero** frontend changes
+- ✅ Rust tests: **399 passed** (was 385 before Chunk B), 0 failed. 0 TypeScript errors.
+- ✅ Prompt compression validated by `prompt-evaluator` harness A/B (no regressions, +2 improvements)
+- ✅ Personal info (real names, machine names, Telegram IDs) scrubbed from all shipped artifacts
+
+### Deferred out of Chunk B
+
+- **Phase 3.0 sync_watcher revert** — memory plan prerequisite, stays untouched per the explicit hands-off rule below
+- **Plugin HTTP route contribution** — required to move `api/routes.rs:1036` Claude hook handler and `commands.rs` Claude installer code into the plugin. Chunk D territory.
+- **`provider_name == "claude"` → `preserves_context_on_resume()` migration is done**, but other provider-specific special cases in `commands.rs:675-700` and `commands.rs:857-900` (Claude rules installer, Claude hooks installer) still live in core. Chunk D.
+- **Generic `detect_agent_session_id(provider_id, ...)`** instead of `detect_claude_session_id` wrapper at `multiplexer/commands.rs:197` — Chunk D (backward-compat rename).
+- **Output-pipeline and agent-status events** still emit raw Tauri events instead of typed `SystemEvent` variants — Chunk C or later.
+
+## Chunk B design reference (historical)
+
+Kept below for future contribution-type work (skills, commands, panels will reuse the same patterns). If you're adding a new plugin contribution kind, read B.1-B.7 as the template.
 
 ### Design decision (reviewed 2026-04-07)
 
@@ -192,30 +220,41 @@ Rationale:
 
 ### B.7 — Acceptance criteria for Chunk B
 
-- [ ] Adding a hypothetical third native plugin (`plugin/agent_aider/`) requires ZERO frontend changes — it appears in Settings dropdown, Sidebar menu, CommandPalette, AND its own settings panel (rendered from its `settings_schema`) automatically after a restart.
-- [ ] `src/components/Settings/SettingsPanel.tsx` contains **no** `ClaudeAgentSettings`, **no** `CodexAgentSettings`, **no** `if (activeProvider === "claude")` / `=== "codex"` branches. Provider settings are rendered exclusively by `<SchemaRenderer />`.
-- [ ] `src/lib/agentProviders.ts` contains **no** hardcoded provider registrations.
-- [ ] Sending `POST /api/agents/spawn` with an unknown agent id returns 400 with a useful error.
-- [ ] Sending `GET /api/agents/providers` returns the same JSON as the Socket and Tauri equivalents (parity test).
-- [ ] All existing tests pass; new tests cover trait metadata, dispatch parity, spawn validation, and `SchemaRenderer` rendering each `SettingField` variant.
+All items below were met on commit `3d0d772` (see the Chunk B DONE section above for the full commit chain and commit `6c7b9a2` for the frontend work specifically).
 
-**Chunk C — Phase B3 batches:** continue unified-dispatch migration, one batch per commit, parity tests before/after.
+- ✅ Adding a hypothetical third native plugin (`plugin/agent_aider/`) requires ZERO frontend changes — it appears in Settings dropdown, Sidebar menu, CommandPalette, AND its own settings panel (rendered from its `settings_schema`) automatically after a restart.
+- ✅ `src/components/Settings/SettingsPanel.tsx` contains no `ClaudeAgentSettings`, no `CodexAgentSettings`, no `if (activeProvider === "claude")` / `=== "codex"` branches. Provider settings rendered exclusively by `<SchemaRenderer />`.
+- ✅ `src/lib/agentProviders.ts` is no longer used for Settings rendering — `useAgentProviders()` hook feeds everything. (The file still holds provider-specific parser functions referenced by ChatView; those will move to Chunk D or later when the plugin trait grows parser contributions.)
+- ✅ Sending `POST /api/agents/spawn` with an unknown agent id returns an error before any side effects.
+- ✅ `GET /api/agents/providers` returns identical JSON across REST, Socket, and Tauri (parity test via `dispatch::Command::ListAgentProviders`).
+- ✅ All existing tests pass (399 passed). New tests cover trait metadata, round-trip golden, `deny_unknown_fields`, spawn validation.
 
-- [ ] Workspace ops batch: `WorkspaceCreate`, `WorkspaceRename`, `WorkspaceClose`, `WorkspaceList`.
-- [ ] PTY ops batch: `PtyResize`, `PtyKill`, `PtyExec`.
-- [ ] Agent ops batch: `AgentSpawn`, `AgentReport`, `AgentList`, plus `ListAgentProviders` from Chunk B.
-- [ ] Mesh ops batch: `MeshPeers`, `MeshSendText`, `MeshAgentSpawn`.
+## Next Up (priority order)
 
-**Sync watcher hands-off (applies to ALL chunks before Phase 3 / memory plugin):** Do NOT touch `src-tauri/src/service/sync_watcher.rs` from any of the plugin-prep chunks. Today it does the wrong thing (mirrors `~/.codeterm/skills/` into `~/.claude/skills/` with `clean_stale` — would silently delete user-installed Claude skills if exercised). Reverting and replacing with the bridge-rule generator is **Phase 3.0** and lives entirely inside the memory plugin work — see `docs/plans/memory-architecture.md` Phase 3.0 prerequisite. The plugin-prep chunks must not introduce new mirror destinations or new dependencies on the existing mirror behaviour.
+**Chunk C — Phase B3 dispatch batches.** Continue unified-dispatch migration, one batch per commit, parity tests before/after. Pure backend refactor; invisible to end users but kills ~2700 LOC of REST/Socket/Tauri duplication.
 
-**Chunk D — Move Claude-specific HTTP/installer code into the plugin:** unblocks the `api/routes.rs:1036` TODO. Requires plugin trait to gain a `register_routes(router: &mut Router)` hook. Targets:
+- [ ] **Workspace ops** — `WorkspaceCreate`, `WorkspaceRename`, `WorkspaceClose`, `WorkspaceList`
+- [ ] **PTY ops** — `PtyResize`, `PtyKill`, `PtyExec`
+- [ ] **Agent ops** — `AgentSpawn`, `AgentReport`, `AgentList` (the frontend-facing GA lifecycle commands). `ListAgentProviders` already landed in Chunk B.
+- [ ] **Mesh ops** — `MeshPeers`, `MeshSendText`, `MeshAgentSpawn`
+- [ ] **EventBus migration** (deferred from Phase C) — output-pipeline notifications + agent-status events emit typed `SystemEvent` variants instead of raw Tauri emits; piggyback on the contributions-changed bus bridge from `543bdc6`.
 
-- [ ] `commands.rs:675-700` (`~/.claude/rules/codeterm.md` install)
-- [ ] `commands.rs:857-900` (Claude `~/.claude/settings.json` hook installer)
-- [ ] `api/routes.rs` Claude hook handler endpoint
-- [ ] `multiplexer/commands.rs:197` `detect_claude_session_id` Tauri wrapper — replace with generic `detect_agent_session_id(provider_id, ...)`; keep old name as a thin alias for one release for frontend compat.
+**Chunk D — Move Claude-specific HTTP/installer code into the plugin.** Unblocks the `api/routes.rs:1036` TODO and closes the last leaks where `src-tauri/src/agent/`, `service/`, `api/`, `commands.rs` still reference Claude directly. Requires one new plugin trait method: `register_routes(router: &mut Router)` so plugins can contribute HTTP endpoints on top of the core router.
 
-After Chunk D, `src-tauri/src/agent/` and the rest of `service/` / `api/` / `commands.rs` will have ZERO Claude/Codex string literals outside of test fixtures.
+- [ ] `Plugin::register_routes(router) -> Result<(), String>` trait method; `PluginManager` calls it at attach time and merges the returned sub-router under a namespaced path (e.g. `/plugins/<id>/...`).
+- [ ] `commands.rs:675-700` (`~/.claude/rules/codeterm.md` install) → `plugin/agent_claude/`.
+- [ ] `commands.rs:857-900` (Claude `~/.claude/settings.json` hook installer + `check_claude_hooks` + `uninstall_claude_hooks`) → `plugin/agent_claude/`.
+- [ ] `api/routes.rs` Claude hook handler endpoint → route registered by `plugin/agent_claude/`.
+- [ ] `multiplexer/commands.rs:197` `detect_claude_session_id` Tauri wrapper → rename to generic `detect_agent_session_id(provider_id, ...)`; keep the old name as a thin alias for one release for frontend compat.
+- [ ] `src/lib/agentProviders.ts` — move the provider-specific parser function references (`parseJsonlSession`, noise regexes, image-send strategy) into a per-plugin module structure in the frontend. `useAgentProviders()` hook + a complementary `useProviderFunctions(id)` that pulls from a TS-side registry keyed by provider id.
+
+After Chunk D: zero Claude/Codex literals in `src-tauri/src/agent/`, `service/`, `api/`, `commands.rs` outside of test fixtures. The core stops mentioning specific providers entirely; all provider-specific behavior lives under `plugin/agent_<name>/`.
+
+## Guardrails (apply to all chunks until they're explicitly unlocked)
+
+**Sync watcher hands-off.** Do NOT touch `src-tauri/src/service/sync_watcher.rs` from any of the plugin-prep chunks (B / C / D). Today it mirrors `~/.codeterm/skills/` into `~/.claude/skills/` with `clean_stale` — would silently delete user-installed Claude skills if exercised. Reverting and replacing with the bridge-rule generator is **Phase 3.0** inside the memory plugin work — see `docs/plans/memory-architecture.md`. Plugin-prep chunks must not introduce new mirror destinations or new dependencies on the existing mirror behaviour.
+
+**Prompt regression testing.** When touching `src-tauri/prompts/*.md`, `src-tauri/src/prompts/`, or `.claude/agents/*.md`, run the `prompt-evaluator` skill (see `.claude/skills/prompt-evaluator/SKILL.md`) with `--prompt-a HEAD~1:<path> --prompt-b <path>` before merging. A/B report must show no regressions (Δ ≥ 0 on every eval). The harness is a maintainer tool, not bundled into CodeTerm.
 
 
 ## Current State → Target
