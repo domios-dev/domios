@@ -112,7 +112,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/stats", get(super::mem_routes::mem_stats))
         .route("/api/mem/graph/entities", post(super::mem_routes::mem_graph_create))
         .route("/api/mem/graph/relate", post(super::mem_routes::mem_graph_relate))
-        .route("/api/mem/graph/related", get(super::mem_routes::mem_graph_related));
+        .route("/api/mem/graph/related", get(super::mem_routes::mem_graph_related))
+        .route("/api/mem/learn", post(super::mem_routes::mem_learn))
+        .route("/api/mem/promote/{id}", post(super::mem_routes::mem_promote))
+        .route("/api/mem/flush", post(super::mem_routes::mem_flush))
+        .route("/api/mem/dream", post(super::mem_routes::mem_dream));
 
 
     router
