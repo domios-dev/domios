@@ -103,7 +103,16 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/introduce", post(super::mesh_routes::mesh_introduce))
         .route("/api/mesh/sync", post(super::mesh_routes::mesh_sync))
         .route("/api/mesh/relay", post(super::mesh_routes::mesh_relay))
-        .route("/api/mesh/peers/{id}", axum::routing::delete(super::mesh_routes::mesh_unpair));
+        .route("/api/mesh/peers/{id}", axum::routing::delete(super::mesh_routes::mesh_unpair))
+        // Mem — unified memory store
+        .route("/api/mem/search", get(super::mem_routes::mem_search))
+        .route("/api/mem/items", post(super::mem_routes::mem_save))
+        .route("/api/mem/items/{id}", get(super::mem_routes::mem_get).delete(super::mem_routes::mem_delete))
+        .route("/api/mem/wake-up", get(super::mem_routes::mem_wake_up))
+        .route("/api/mem/stats", get(super::mem_routes::mem_stats))
+        .route("/api/mem/graph/entities", post(super::mem_routes::mem_graph_create))
+        .route("/api/mem/graph/relate", post(super::mem_routes::mem_graph_relate))
+        .route("/api/mem/graph/related", get(super::mem_routes::mem_graph_related));
 
 
     router

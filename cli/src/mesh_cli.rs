@@ -231,6 +231,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             super::ThemeAction::List => ("GET".into(), "/api/themes".into(), None),
             _ => ("GET".into(), "/api/themes".into(), None),
         },
+        // Mem — relay to /api/mem/stats as a safe default. Direct relay of
+        // mem operations isn't routed through mesh in 3.1; users should run
+        // `codeterm mem ...` on the local pane (mem is per-machine state).
+        Commands::Mem { .. } => ("GET".into(), "/api/mem/stats".into(), None),
     }
 }
 

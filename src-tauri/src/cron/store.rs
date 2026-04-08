@@ -588,7 +588,7 @@ mod tests {
             schedule: schedule.to_string(),
             task: "test task".to_string(),
             description: None,
-            agent: None,
+            agent: Some("claude".to_string()),
             cwd: None,
             role: None,
             creator_pane_id: None,
