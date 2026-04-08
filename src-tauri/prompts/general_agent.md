@@ -42,6 +42,11 @@ codeterm mem graph relate --from person_kai --rel works_on --to project_orion --
 codeterm mem graph related --id skill_home_assistant            # what's connected
 codeterm mem graph related --id person_kai --as-of 2026-03-01   # time-filtered
 ```
+When a relation **ends** (someone leaves the team, a project closes, a fact stops being true), invalidate it with `--valid-to <date>` instead of saving a new flat fact:
+```bash
+codeterm mem graph relate --from person_tima --rel works_on --to project_orion --valid-to 2026-04-05
+```
+Past as-of queries will then correctly show the relation as inactive after that date.
 
 **`{general_dir}/MEMORY.md` is a legacy human-readable mirror.** It still exists for the bootstrap layer, but the source of truth is `codeterm mem`. Any state you put in MEMORY.md alone won't survive — write through mem.
 
