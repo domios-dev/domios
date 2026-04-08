@@ -116,7 +116,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/learn", post(super::mem_routes::mem_learn))
         .route("/api/mem/promote/{id}", post(super::mem_routes::mem_promote))
         .route("/api/mem/flush", post(super::mem_routes::mem_flush))
-        .route("/api/mem/dream", post(super::mem_routes::mem_dream));
+        .route("/api/mem/dream", post(super::mem_routes::mem_dream))
+        .route("/api/mem/recall", get(super::mem_routes::mem_recall));
 
 
     router

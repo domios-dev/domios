@@ -261,6 +261,9 @@ pub enum MemAction {
         /// Max results (default 5)
         #[arg(long, default_value = "5")]
         limit: usize,
+        /// Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY)
+        #[arg(long)]
+        rerank: bool,
     },
     /// Print one item by id
     Get {
@@ -1988,18 +1991,20 @@ fn handle_mem(json_mode: bool, action: MemAction) {
     let http = build_http(&token);
 
     let result: Result<serde_json::Value, String> = match action {
-        MemAction::Search { query, kind, area, scope, limit } => {
+        MemAction::Search { query, kind, area, scope, limit, rerank } => {
             let mut url = format!("{}/api/mem/search?q={}&limit={}",
                 base, urlencoding::encode(&query), limit);
             if let Some(k) = &kind { url.push_str(&format!("&kind={}", k)); }
             if let Some(a) = &area { url.push_str(&format!("&area={}", a)); }
             if let Some(s) = &scope { url.push_str(&format!("&scope={}", s)); }
+            if rerank { url.push_str("&rerank=true"); }
             mem_get_request(&http, &url)
         }
         MemAction::Recall { query, kind, limit } => {
-            // Recall in 3.1 is FTS5-backed; 3.5 layers vectors on top via the
-            // same endpoint. Same backend route, friendlier name for agents.
-            let mut url = format!("{}/api/mem/search?q={}&limit={}",
+            // Recall hits the dedicated endpoint that uses sqlite-vec when
+            // the embeddings feature is compiled in, otherwise falls back to
+            // FTS5 hybrid search transparently.
+            let mut url = format!("{}/api/mem/recall?q={}&limit={}",
                 base, urlencoding::encode(&query), limit);
             if let Some(k) = &kind { url.push_str(&format!("&kind={}", k)); }
             mem_get_request(&http, &url)

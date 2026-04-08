@@ -14,6 +14,8 @@ pub mod seed;
 pub mod ids;
 pub mod learnings;
 pub mod dreaming;
+pub mod rerank;
+pub mod embeddings;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -83,6 +85,48 @@ impl MemManager {
         &self.conn
     }
 
+    /// Initialize the sqlite-vec extension and mem_vectors table.
+    /// No-op when the `embeddings` feature is not compiled in.
+    pub fn init_embeddings(&self) -> Result<(), String> {
+        let conn = self.conn.lock();
+        embeddings::init_extension(&conn)
+    }
+
+    /// Hybrid recall: when embeddings feature is on, runs vector ANN over
+    /// mem_vectors and merges with FTS5 hybrid scoring. When the feature is
+    /// off, falls through to plain `search` (FTS5 hybrid). Same return type.
+    pub fn recall(&self, q: &SearchQuery) -> Result<Vec<SearchHit>, String> {
+        #[cfg(feature = "embeddings")]
+        {
+            let limit = q.limit.unwrap_or(5);
+            let conn = self.conn.lock();
+            // Vector candidates
+            let vec_hits = embeddings::recall(&conn, &q.query, limit * 5).unwrap_or_default();
+            if vec_hits.is_empty() {
+                return search::run(&conn, q, &self.blobs_dir);
+            }
+            let mut out = Vec::new();
+            for (id, dist) in vec_hits {
+                if let Ok(Some(item)) = store::get(&conn, &id, &self.blobs_dir) {
+                    out.push(SearchHit { item, score: dist });
+                }
+            }
+            out.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+            out.truncate(limit);
+            return Ok(out);
+        }
+        #[cfg(not(feature = "embeddings"))]
+        {
+            self.search(q)
+        }
+    }
+
+    /// Index a mem_item's body in mem_vectors. No-op without embeddings feature.
+    pub fn index_embedding(&self, id: &str, body: &str) -> Result<(), String> {
+        let conn = self.conn.lock();
+        embeddings::index(&conn, id, body)
+    }
+
     /// Save a new mem_item. Returns the assigned slug id.
     /// Runs preference extraction if kind is conversation/note/daily.
     pub fn save(&self, item: NewMemItem) -> Result<String, String> {
@@ -139,6 +183,23 @@ impl MemManager {
     pub fn search(&self, q: &SearchQuery) -> Result<Vec<SearchHit>, String> {
         let conn = self.conn.lock();
         search::run(&conn, q, &self.blobs_dir)
+    }
+
+    /// Search with optional LLM rerank pass on the top candidates.
+    /// Falls back to plain search if rerank is disabled or unavailable.
+    pub fn search_with_rerank(
+        &self,
+        q: &SearchQuery,
+        rerank_cfg: &rerank::RerankConfig,
+    ) -> Result<Vec<SearchHit>, String> {
+        let mut overfetch = q.clone();
+        overfetch.limit = Some(q.limit.unwrap_or(5).max(20));
+        let candidates = {
+            let conn = self.conn.lock();
+            search::run(&conn, &overfetch, &self.blobs_dir)?
+        };
+        let reranker = rerank::build(rerank_cfg);
+        Ok(reranker.rerank(&q.query, candidates, q.limit.unwrap_or(5)))
     }
 
     pub fn wake_up(&self, opts: &WakeUpOptions) -> Result<String, String> {
