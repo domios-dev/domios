@@ -14,6 +14,7 @@ use crate::mem::{
     graph::{Entity, Relation},
     layers::WakeUpOptions,
     learnings::{self, LearnKind},
+    rerank::RerankConfig,
     search::SearchQuery,
     store::{MemKind, MemScope, NewMemItem},
 };
@@ -29,6 +30,8 @@ pub struct SearchParams {
     pub area: Option<String>,
     #[serde(default)]
     pub limit: Option<usize>,
+    #[serde(default)]
+    pub rerank: Option<bool>,
 }
 
 pub async fn mem_search(
@@ -44,7 +47,19 @@ pub async fn mem_search(
         area: p.area,
         limit: p.limit,
     };
-    let hits = state.svc.mem.search(&q).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let hits = if p.rerank.unwrap_or(false) {
+        let cfg = RerankConfig {
+            enabled: true,
+            provider: "haiku".into(),
+            api_key_env: Some("ANTHROPIC_API_KEY".into()),
+            model: Some("claude-haiku-4-5-20251001".into()),
+        };
+        state.svc.mem.search_with_rerank(&q, &cfg)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+    } else {
+        state.svc.mem.search(&q)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+    };
     Ok(Json(serde_json::json!({ "hits": hits })))
 }
 
@@ -293,6 +308,32 @@ pub async fn mem_flush(
     )
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({ "id": id })))
+}
+
+#[derive(Deserialize)]
+pub struct RecallParams {
+    pub q: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+pub async fn mem_recall(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<RecallParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let q = SearchQuery {
+        query: p.q,
+        kind: p.kind,
+        scope: None,
+        area: None,
+        limit: p.limit,
+    };
+    let hits = state.svc.mem.recall(&q).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "hits": hits })))
 }
 
 pub async fn mem_dream(

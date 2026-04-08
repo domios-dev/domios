@@ -27,7 +27,7 @@ dirs = "6"
 axum = "0.8"
 tower-http = { version = "0.6", features = ["cors"] }
 git2 = { version = "0.19", features = ["vendored-openssl"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
 async-stream = "0.3"
 futures-core = "0.3"
 png = "0.17"
@@ -44,13 +44,16 @@ x25519-dalek = { version = "2", features = ["static_secrets"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 aes-gcm = "0.10"
 rand = "0.8"
-rusqlite = { version = "0.32", features = ["bundled", "blob", "functions"] }
+rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
 regex = "1"
 ulid = "1"
+sqlite-vec = { version = "0.1.9", optional = true }
+fastembed = { version = "5", optional = true }
 
 [features]
 default = []
 webdriver = ["tauri-plugin-webdriver"]
+embeddings = ["dep:sqlite-vec", "dep:fastembed"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
