@@ -167,6 +167,7 @@ fn cmd_pane_list(ctx: &ServiceContext) -> Result<CommandResult, String> {
     let mux = ctx.mux.lock();
     let snapshot = mux.snapshot();
     let panes: Vec<serde_json::Value> = snapshot.panes.values()
+        .filter(|p| !p.hidden)
         .map(|p| serde_json::to_value(p).unwrap_or_default())
         .collect();
     Ok(CommandResult::Json(serde_json::json!(panes)))

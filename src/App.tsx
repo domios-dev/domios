@@ -6,6 +6,10 @@ import { SplitContainer } from "./components/Terminal/SplitContainer";
 import { NotificationToastContainer } from "./components/Notifications/NotificationToast";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { Onboarding } from "./components/Onboarding/Onboarding";
+import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
+import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
+import { navigationStore } from "./components/Navigation/navigationStore";
+import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
@@ -51,7 +55,22 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
 
 function AppInner() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory">("workspace");
+  const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
+  const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
+    setMainView((cur) => {
+      const wasOpen = cur === "settings";
+      const open = typeof next === "function" ? next(wasOpen) : next;
+      return open ? "settings" : "workspace";
+    });
+  }, []);
+  const setMemoryOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
+    setMainView((cur) => {
+      const wasOpen = cur === "memory";
+      const open = typeof next === "function" ? next(wasOpen) : next;
+      return open ? "memory" : "workspace";
+    });
+  }, []);
   const [showOnboarding, setShowOnboarding] = useState(false);
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
   const { config, updateConfig, theme, loading } = useConfig();
@@ -104,9 +123,39 @@ function AppInner() {
   // Git info hook (side effects: updates git status in state)
   useGitInfo(state.focused_pane_id);
 
+  // When user focuses any pane (via sidebar click, Ctrl+Tab, etc), return to workspace view
+  const lastFocusedRef = useRef(state.focused_pane_id);
+  useEffect(() => {
+    if (state.focused_pane_id !== lastFocusedRef.current) {
+      lastFocusedRef.current = state.focused_pane_id;
+      if (state.focused_pane_id != null && mainView !== "workspace") {
+        setMainView("workspace");
+      }
+    }
+  }, [state.focused_pane_id, mainView]);
+
   // Keep ref to latest state for keyboard handler closure
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  const handleBackToMemory = useCallback(() => {
+    const ret = navigationStore.get();
+    const focused = stateRef.current.focused_pane_id;
+    if (focused) workerFocusStore.unfocus(focused);
+    if (ret) {
+      setMemoryInitial({
+        selectedId: ret.memoryState.selectedNodeId,
+        feedVisible: ret.memoryState.feedVisible,
+        workerPanelVisible: ret.memoryState.workerPanelVisible,
+      });
+    }
+    setMemoryOpen(true);
+    navigationStore.clear();
+  }, []);
+
+  const handleMemoryFocusPane = useCallback((paneId: string) => {
+    setFocusedPane(paneId);
+  }, []);
 
   const activeWs = useMemo(
     () => state.workspaces.find((ws) => ws.id === state.active_workspace_id),
@@ -272,6 +321,13 @@ function AppInner() {
         return;
       }
 
+      // Memory panel: Cmd+Shift+M / Ctrl+Shift+M
+      if (e.code === "KeyM" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setMemoryOpen((v) => !v);
+        return;
+      }
+
       // TODO: Swarm overlay — future feature
       // if (matchesBinding(e, "Mod+Shift+G")) {
       //   e.preventDefault();
@@ -430,12 +486,30 @@ function AppInner() {
 
       <div className="flex flex-1 min-h-0">
         {sidebarOpen && (
-          <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
+          <Sidebar onOpenSettings={() => setSettingsOpen(true)} onOpenMemory={() => setMemoryOpen(true)} />
         )}
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
-          {state.workspaces.length > 0 ? (
+          {mainView === "settings" && (
+            <SettingsPanel
+              config={config}
+              onUpdateConfig={updateConfig}
+              onClose={() => setSettingsOpen(false)}
+            />
+          )}
+          {mainView === "memory" && (
+            <MemoryPanel
+              api={config.api}
+              onClose={() => {
+                setMemoryOpen(false);
+                setMemoryInitial(undefined);
+              }}
+              initialState={memoryInitial}
+              onFocusPane={handleMemoryFocusPane}
+            />
+          )}
+          {mainView === "workspace" && state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
                 const isVisible = ws.id === state.active_workspace_id && tab.id === ws.active_tab_id;
@@ -466,7 +540,7 @@ function AppInner() {
                 );
               })
             )
-          ) : (
+          ) : mainView === "workspace" ? (
             <div
               className="flex items-center justify-center w-full h-full text-sm"
               style={{ color: theme.bright_black }}
@@ -475,7 +549,7 @@ function AppInner() {
                 ? "Loading..."
                 : "No tabs open. Press Ctrl+Shift+T to create one."}
             </div>
-          )}
+          ) : null}
         </main>
         {/* Status bar removed — git info not needed */}
         </div>
@@ -497,17 +571,11 @@ function AppInner() {
         onNavigate={setFocusedPane}
       />
 
-      {/* Settings panel */}
-      {settingsOpen && (
-        <SettingsPanel
-          config={config}
-          onUpdateConfig={updateConfig}
-          onClose={() => setSettingsOpen(false)}
-        />
-      )}
-
       {/* Command palette (Cmd+K / Ctrl+K) */}
       <CommandPalette commands={paletteCommands} />
+
+      {/* Navigation back bar (visible only when navigationStore has a return target) */}
+      <NavigationBackBar onBack={handleBackToMemory} />
 
       {/* TODO: Agent swarm visualization — future feature */}
       {/* <SwarmOverlay visible={swarmVisible} onClose={() => setSwarmVisible(false)} /> */}

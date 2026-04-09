@@ -117,7 +117,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/promote/{id}", post(super::mem_routes::mem_promote))
         .route("/api/mem/flush", post(super::mem_routes::mem_flush))
         .route("/api/mem/dream", post(super::mem_routes::mem_dream))
-        .route("/api/mem/recall", get(super::mem_routes::mem_recall));
+        .route("/api/mem/recall", get(super::mem_routes::mem_recall))
+        .route("/api/mem/graph/full", get(super::mem_routes::mem_graph_full))
+        .route("/api/mem/positions", axum::routing::patch(super::mem_routes::mem_positions))
+        .route("/api/mem/activity/recent", get(super::mem_routes::mem_activity_recent))
+        .route("/api/mem/workers", get(super::mem_routes::workers_list).post(super::mem_routes::workers_spawn))
+        .route("/api/mem/workers/{id}", get(super::mem_routes::workers_get).delete(super::mem_routes::workers_kill))
+        .route("/api/mem/workers/{id}/progress", post(super::mem_routes::workers_progress))
+        .route("/api/mem/workers/{id}/report", post(super::mem_routes::workers_report));
 
 
     router

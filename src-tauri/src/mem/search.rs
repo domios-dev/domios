@@ -279,6 +279,7 @@ mod tests {
             title: "Postgres notes".into(), summary: None, area: None, tags: vec![],
             body: "Postgres database tuning".into(), source: None, importance: 3.0,
             created_at: "".into(), updated_at: "".into(), accessed_at: None,
+            graph_x: None, graph_y: None,
         };
         assert!((keyword_overlap(&kw, &item) - 1.0).abs() < 0.01);
     }

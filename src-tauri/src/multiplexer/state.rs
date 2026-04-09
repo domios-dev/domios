@@ -78,6 +78,9 @@ impl MultiplexerState {
             protected: false,
             connected_services: vec![],
             agent_set_at: None,
+            hidden: false,
+            show_in_tabbar: true,
+            worker_id: None,
         };
 
         let tab = Tab {
@@ -426,6 +429,9 @@ impl MultiplexerState {
             protected: false,
             connected_services: vec![],
             agent_set_at: None,
+            hidden: false,
+            show_in_tabbar: true,
+            worker_id: None,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -455,6 +461,9 @@ impl MultiplexerState {
             protected: false,
             connected_services: vec![],
             agent_set_at: None,
+            hidden: false,
+            show_in_tabbar: true,
+            worker_id: None,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -988,6 +997,9 @@ impl MultiplexerState {
                         protected: false,
             connected_services: vec![],
             agent_set_at: None,
+            hidden: false,
+            show_in_tabbar: true,
+            worker_id: None,
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }

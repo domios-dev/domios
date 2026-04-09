@@ -8,7 +8,10 @@ use axum::{
 };
 use serde::Deserialize;
 
+use tauri::Emitter;
+
 use crate::api::routes::{check_auth, AppState};
+use crate::mem::activity::{now_ms, MemActivityEvent, MemActivitySource};
 use crate::mem::{
     dreaming,
     graph::{Entity, Relation},
@@ -17,7 +20,53 @@ use crate::mem::{
     rerank::RerankConfig,
     search::SearchQuery,
     store::{MemKind, MemScope, MemUpdate, NewMemItem},
+    workers::{self, GraphWorkerInfo, WorkerStatus},
 };
+use crate::service::SpawnAgentParams;
+
+fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem_ids: Vec<String>) {
+    let pane_id = headers
+        .get("x-codeterm-pane-id")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+    let worker_id = headers
+        .get("x-codeterm-worker-id")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+    let kind = if worker_id.is_some() { "worker" } else { "rest" }.to_string();
+
+    let event = MemActivityEvent {
+        op: op.to_string(),
+        mem_ids,
+        source: MemActivitySource {
+            kind,
+            pane_id,
+            worker_id,
+            agent_provider: None,
+        },
+        ts_ms: now_ms(),
+    };
+
+    state.svc.activity.record(event.clone());
+    let _ = state.svc.app_handle.emit("mem-activity", &event);
+}
+
+#[derive(Deserialize)]
+pub struct ActivityRecentParams {
+    #[serde(default)]
+    pub since_ms: Option<u64>,
+}
+
+pub async fn mem_activity_recent(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<ActivityRecentParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let since = p.since_ms.unwrap_or_else(|| now_ms().saturating_sub(60_000));
+    let events = state.svc.activity.recent(since);
+    Ok(Json(serde_json::json!({ "events": events })))
+}
 
 #[derive(Deserialize)]
 pub struct SearchParams {
@@ -62,6 +111,8 @@ pub async fn mem_search(
         state.svc.mem.search(&q)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
     };
+    let ids: Vec<String> = hits.iter().map(|h| h.item.id.clone()).collect();
+    emit_activity(&state, &headers, "search", ids);
     Ok(Json(serde_json::json!({ "hits": hits })))
 }
 
@@ -73,7 +124,10 @@ pub async fn mem_get(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let item = state.svc.mem.get(&id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     match item {
-        Some(item) => Ok(Json(serde_json::to_value(item).unwrap_or_default())),
+        Some(item) => {
+            emit_activity(&state, &headers, "read", vec![id.clone()]);
+            Ok(Json(serde_json::to_value(item).unwrap_or_default()))
+        }
         None => Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id))),
     }
 }
@@ -126,6 +180,7 @@ pub async fn mem_save(
     } else {
         state.svc.mem.save(item)
     }.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    emit_activity(&state, &headers, "write", vec![id.clone()]);
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
@@ -136,6 +191,7 @@ pub async fn mem_delete(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let removed = state.svc.mem.delete(&id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    emit_activity(&state, &headers, "delete", vec![id.clone()]);
     Ok(Json(serde_json::json!({ "deleted": removed })))
 }
 
@@ -175,6 +231,7 @@ pub async fn mem_update(
     if !updated {
         return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
     }
+    emit_activity(&state, &headers, "update", vec![id.clone()]);
     Ok(Json(serde_json::json!({ "updated": id })))
 }
 
@@ -382,6 +439,8 @@ pub async fn mem_recall(
         limit: p.limit,
     };
     let hits = state.svc.mem.recall(&q).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let ids: Vec<String> = hits.iter().map(|h| h.item.id.clone()).collect();
+    emit_activity(&state, &headers, "search", ids);
     Ok(Json(serde_json::json!({ "hits": hits })))
 }
 
@@ -393,6 +452,73 @@ pub async fn mem_dream(
     let reports = dreaming::run_all(&state.svc.mem)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "phases": reports })))
+}
+
+pub async fn mem_graph_full(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let dump = state.svc.mem.graph_full()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let nodes: Vec<serde_json::Value> = dump.nodes.iter().map(|n| serde_json::json!({
+        "id": n.id,
+        "kind": n.kind,
+        "title": n.title,
+        "summary": n.summary,
+        "area": n.area,
+        "importance": n.importance,
+        "tags": n.tags,
+        "has_vector": n.has_vector,
+        "has_body": n.has_body,
+        "graph_x": n.graph_x,
+        "graph_y": n.graph_y,
+    })).collect();
+    let edges: Vec<serde_json::Value> = dump.edges.iter().map(|e| serde_json::json!({
+        "from": e.from,
+        "to": e.to,
+        "rel": e.rel,
+        "confidence": e.confidence,
+        "valid_from": e.valid_from,
+        "valid_to": e.valid_to,
+    })).collect();
+    Ok(Json(serde_json::json!({
+        "nodes": nodes,
+        "edges": edges,
+        "stats": {
+            "node_count": dump.stats.node_count,
+            "edge_count": dump.stats.edge_count,
+        }
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct PositionEntry {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Deserialize)]
+pub struct PositionsBody {
+    pub positions: Vec<PositionEntry>,
+}
+
+pub async fn mem_positions(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<PositionsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let entries: Vec<(String, f64, f64)> = b.positions
+        .into_iter()
+        .map(|p| (p.id, p.x, p.y))
+        .collect();
+    let ids: Vec<String> = entries.iter().map(|(id, _, _)| id.clone()).collect();
+    let updated = state.svc.mem.set_positions(&entries)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    emit_activity(&state, &headers, "update", ids);
+    Ok(Json(serde_json::json!({ "updated": updated })))
 }
 
 pub async fn mem_graph_create(
@@ -408,5 +534,172 @@ pub async fn mem_graph_create(
         properties: b.properties,
     };
     state.svc.mem.graph_create_entity(&e).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+// ── Graph workers ───────────────────────────────────────────────────
+
+pub async fn workers_list(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<GraphWorkerInfo>>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    Ok(Json(state.svc.workers.list()))
+}
+
+pub async fn workers_get(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<GraphWorkerInfo>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    state
+        .svc
+        .workers
+        .get(&id)
+        .map(Json)
+        .ok_or((StatusCode::NOT_FOUND, format!("worker {} not found", id)))
+}
+
+#[derive(Deserialize)]
+pub struct WorkerSpawnBody {
+    pub intent: String,
+    pub task: String,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub parent: Option<String>,
+}
+
+pub async fn workers_spawn(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<WorkerSpawnBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+
+    let worker_id = workers::new_worker_id();
+    let agent = b.agent.clone().unwrap_or_else(|| "claude".to_string());
+    let parent = b.parent.clone().unwrap_or_else(|| "user:memory-panel".to_string());
+    let task = workers::build_worker_task(&b.intent, &worker_id, &b.task);
+
+    let params = SpawnAgentParams {
+        agent: Some(agent),
+        agent_name: Some(format!("worker:{}", b.intent)),
+        args: None,
+        cwd: None,
+        title: Some(format!("worker:{}", b.intent)),
+        role: None,
+        parent_pane_id: None,
+        can_spawn: None,
+        task: Some(task),
+        workspace_id: None,
+        force_tab: Some(true),
+        report_target_pane_id: None,
+        skip_permissions: Some(true),
+    };
+
+    let result = state
+        .svc
+        .spawn_agent(params)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    {
+        let mut mux = state.svc.mux.lock();
+        if let Some(pane) = mux.get_pane_mut(&result.pane_id) {
+            pane.hidden = true;
+            pane.show_in_tabbar = false;
+            pane.worker_id = Some(worker_id.clone());
+        }
+    }
+
+    let color = state.svc.workers.pick_color();
+    let info = workers::make_info(
+        worker_id.clone(),
+        result.pane_id.clone(),
+        b.intent.clone(),
+        parent,
+        color,
+    );
+    state.svc.workers.register(info.clone());
+
+    let _ = state.svc.app_handle.emit("graph-worker-spawned", &info);
+
+    Ok(Json(serde_json::json!({
+        "worker_id": worker_id,
+        "pane_id": result.pane_id,
+        "info": info,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct WorkerProgressBody {
+    pub text: String,
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+pub async fn workers_progress(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(b): Json<WorkerProgressBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    state
+        .svc
+        .workers
+        .update_progress(&id, b.text.clone())
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    if let Some(s) = b.status.as_deref().and_then(WorkerStatus::from_str) {
+        state
+            .svc
+            .workers
+            .update_status(&id, s)
+            .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    }
+    if let Some(info) = state.svc.workers.get(&id) {
+        let _ = state.svc.app_handle.emit("graph-worker-progress", &info);
+    }
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct WorkerReportBody {
+    pub summary: String,
+}
+
+pub async fn workers_report(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(b): Json<WorkerReportBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let info = state
+        .svc
+        .workers
+        .complete(&id, b.summary)
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    let _ = state.svc.app_handle.emit("graph-worker-reported", &info);
+    Ok(Json(serde_json::json!({ "ok": true, "info": info })))
+}
+
+pub async fn workers_kill(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let info = state
+        .svc
+        .workers
+        .kill(&id)
+        .map_err(|e| (StatusCode::NOT_FOUND, e))?;
+    if let Err(e) = state.svc.close_pane(&info.pane_id) {
+        log::warn!("[graph-workers] kill pane {}: {}", info.pane_id, e);
+    }
+    let _ = state.svc.app_handle.emit("graph-worker-done", &info);
     Ok(Json(serde_json::json!({ "ok": true })))
 }

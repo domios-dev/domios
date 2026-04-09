@@ -16,6 +16,8 @@ pub mod learnings;
 pub mod dreaming;
 pub mod rerank;
 pub mod embeddings;
+pub mod activity;
+pub mod workers;
 
 // TODO(mesh-sync): Cross-machine mem replication anchor.
 // Not implemented in 3.x — left intentionally as a hole for the
@@ -335,6 +337,21 @@ impl MemManager {
             rusqlite::params![chrono::Utc::now().to_rfc3339(), id],
         ).map_err(|e| format!("promote: {}", e))?;
         Ok(())
+    }
+
+    /// Full graph dump for visualization frontend.
+    pub fn graph_full(&self) -> Result<store::GraphDump, String> {
+        let conn = self.conn.lock();
+        store::graph_full(&conn)
+    }
+
+    /// Batch write force-layout positions. Returns number of rows updated.
+    pub fn set_positions(
+        &self,
+        positions: &[(String, f64, f64)],
+    ) -> Result<usize, String> {
+        let mut conn = self.conn.lock();
+        store::set_positions(&mut conn, positions)
     }
 
     /// Stats for diagnostic / wake-up footer.

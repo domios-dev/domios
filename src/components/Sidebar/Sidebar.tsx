@@ -12,9 +12,21 @@ import { X, Pencil, UserMinus, Ban, CircleCheck, TerminalSquare, Plus } from "lu
 import { TelegramIcon, TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ShieldCheckIcon } from "../Icons";
 import { timeAgo } from "../../lib/formatters";
 
-function collectPaneIds(node: SplitNode): string[] {
+function collectPaneIdsRaw(node: SplitNode): string[] {
   if (node.type === "Leaf") return [node.pane_id];
-  return node.children.flatMap(collectPaneIds);
+  return node.children.flatMap(collectPaneIdsRaw);
+}
+
+function collectPaneIds(
+  node: SplitNode,
+  panes?: Record<string, Pane>,
+): string[] {
+  const ids = collectPaneIdsRaw(node);
+  if (!panes) return ids;
+  return ids.filter((id) => {
+    const p = panes[id];
+    return p && !p.hidden;
+  });
 }
 
 /** Returns the "worst" status among a set of pane statuses. */
@@ -36,9 +48,10 @@ function aggregateStatus(
 
 interface SidebarProps {
   onOpenSettings?: () => void;
+  onOpenMemory?: () => void;
 }
 
-export function Sidebar({ onOpenSettings }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onOpenMemory }: SidebarProps) {
   const {
     state,
     createWorkspace,
@@ -270,7 +283,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                       <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
                     </button>
                     {isExpanded && ws.tabs.map((tab) => {
-                      const tabPaneIds = collectPaneIds(tab.split_tree);
+                      const tabPaneIds = collectPaneIds(tab.split_tree, state.panes);
                       const isTabActive = isActive && tab.id === ws.active_tab_id;
                       return (
                         <button
@@ -301,7 +314,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
               })}
             </div>
           ) : state.workspaces.map((ws) => {
-            const allPaneIds = ws.tabs.flatMap((t) => collectPaneIds(t.split_tree));
+            const allPaneIds = ws.tabs.flatMap((t) => collectPaneIds(t.split_tree, state.panes));
             const wsStatus = aggregateStatus(allPaneIds, state.paneStatuses);
             const hasWaiting = allPaneIds.some(
               (pid) => state.paneStatuses[pid] === "Waiting",
@@ -354,25 +367,25 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                       // Build pane→tab lookup and find which tabs are children
                       const paneToTab: Record<string, typeof ws.tabs[0]> = {};
                       for (const tab of ws.tabs) {
-                        const pids = collectPaneIds(tab.split_tree);
+                        const pids = collectPaneIds(tab.split_tree, state.panes);
                         if (pids[0]) paneToTab[pids[0]] = tab;
                       }
                       // Set of pane IDs that are children (have a parent) — skip at top level
                       const childPaneIds = new Set<string>();
                       for (const tab of ws.tabs) {
-                        const pids = collectPaneIds(tab.split_tree);
+                        const pids = collectPaneIds(tab.split_tree, state.panes);
                         const pane = pids[0] ? state.panes[pids[0]] : null;
                         if (pane?.parent_pane_id) childPaneIds.add(pids[0]);
                       }
 
                       // Render a tab + its children recursively
                       const renderTab = (tab: Tab, index: number, depth: number): React.ReactNode => {
-                        const tabPids = collectPaneIds(tab.split_tree);
+                        const tabPids = collectPaneIds(tab.split_tree, state.panes);
                         const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
                         // Find child tabs (tabs whose pane.parent_pane_id === this pane)
                         const childTabs = firstPane
                           ? ws.tabs.filter((t) => {
-                              const tPids = collectPaneIds(t.split_tree);
+                              const tPids = collectPaneIds(t.split_tree, state.panes);
                               const tPane = tPids[0] ? state.panes[tPids[0]] : null;
                               return tPane?.parent_pane_id === firstPane.id;
                             })
@@ -420,7 +433,8 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                       // Only render top-level tabs (not children, not cron-owned)
                       return ws.tabs
                         .filter((tab) => {
-                          const pids = collectPaneIds(tab.split_tree);
+                          const pids = collectPaneIds(tab.split_tree, state.panes);
+                          if (pids.length === 0) return false;
                           if (childPaneIds.has(pids[0])) return false;
                           if (pids.some((pid) => cronPaneIds.has(pid))) return false;
                           return true;
@@ -454,7 +468,7 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
                   (() => {
                     const activeTab = ws.tabs.find((t) => t.id === ws.active_tab_id);
                     if (!activeTab) return null;
-                    const atPids = collectPaneIds(activeTab.split_tree);
+                    const atPids = collectPaneIds(activeTab.split_tree, state.panes);
                     const atFirstPane = atPids[0] ? state.panes[atPids[0]] : null;
                     return (
                       <TabItem
@@ -487,8 +501,24 @@ export function Sidebar({ onOpenSettings }: SidebarProps) {
           })}
         </div>
 
-        {/* Settings button at bottom — hmr test */}
-        <div className={`border-t border-[var(--ct-border)] ${isCompact ? "px-1 py-2.5 flex justify-center" : "px-3 py-2.5"}`}>
+        {/* Memory + Settings buttons at bottom */}
+        <div className={`border-t border-[var(--ct-border)] ${isCompact ? "px-1 py-2 flex flex-col items-center gap-1" : "px-3 py-2 flex flex-col gap-1"}`}>
+          <button
+            onClick={onOpenMemory}
+            className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] transition-colors`}
+            title="Memory Graph (Ctrl+Shift+M)"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <circle cx="12" cy="5" r="2" />
+              <circle cx="5" cy="19" r="2" />
+              <circle cx="19" cy="19" r="2" />
+              <circle cx="12" cy="13" r="2" />
+              <line x1="12" y1="7" x2="12" y2="11" />
+              <line x1="10.5" y1="14.5" x2="6.5" y2="17.5" />
+              <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
+            </svg>
+            {!isCompact && <span className="text-[11px]">Memory</span>}
+          </button>
           <button
             onClick={onOpenSettings}
             className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] transition-colors`}
@@ -1116,7 +1146,7 @@ function CronSection({ workspaceId }: { workspaceId: string }) {
             onFocusPane={(paneId) => {
               for (const ws of state.workspaces) {
                 for (const tab of ws.tabs) {
-                  const pids = collectPaneIds(tab.split_tree);
+                  const pids = collectPaneIds(tab.split_tree, state.panes);
                   if (pids.includes(paneId)) {
                     setActiveWorkspace(ws.id);
                     setActiveTab(ws.id, tab.id);

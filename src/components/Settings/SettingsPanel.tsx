@@ -79,8 +79,8 @@ export function SettingsPanel({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px]">
-      <div className="w-[860px] h-[640px] max-w-[90vw] max-h-[85vh] bg-[var(--ct-sidebar-bg)] border border-[var(--ct-border)] rounded-xl shadow-2xl flex flex-col overflow-hidden relative ct-float">
+    <div className="absolute inset-0 flex flex-col bg-[var(--ct-sidebar-bg)]">
+      <div className="absolute inset-0 flex flex-col overflow-hidden relative">
         {/* Subtle dot grid background */}
         <div
           className="absolute inset-0 pointer-events-none"

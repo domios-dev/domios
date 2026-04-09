@@ -1,0 +1,345 @@
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+pub const WORKER_TASK_PREAMBLE: &str = r#"You are a Graph Worker for the CodeTerm memory system.
+Your intent: {intent}
+Your worker id: {worker_id}
+
+You are NOT visible as a regular tab — you exist in the memory panel only.
+Report progress via `codeterm mem worker progress "<status>"`.
+When finished, run `codeterm mem worker report "<summary>"` and exit.
+
+TASK:
+{task}
+"#;
+
+pub fn build_worker_task(intent: &str, worker_id: &str, task: &str) -> String {
+    WORKER_TASK_PREAMBLE
+        .replace("{intent}", intent)
+        .replace("{worker_id}", worker_id)
+        .replace("{task}", task)
+}
+
+const COLOR_PALETTE: [&str; 12] = [
+    "hsl(  0, 70%, 60%)",
+    "hsl( 30, 75%, 58%)",
+    "hsl( 60, 70%, 55%)",
+    "hsl( 90, 65%, 55%)",
+    "hsl(120, 60%, 55%)",
+    "hsl(150, 60%, 55%)",
+    "hsl(180, 60%, 55%)",
+    "hsl(210, 70%, 60%)",
+    "hsl(240, 70%, 65%)",
+    "hsl(270, 65%, 65%)",
+    "hsl(300, 65%, 60%)",
+    "hsl(330, 70%, 60%)",
+];
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerStatus {
+    Starting,
+    Reading,
+    Analyzing,
+    Writing,
+    Done,
+    Error,
+    Orphaned,
+}
+
+impl WorkerStatus {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "starting" => Some(Self::Starting),
+            "reading" => Some(Self::Reading),
+            "analyzing" => Some(Self::Analyzing),
+            "writing" => Some(Self::Writing),
+            "done" => Some(Self::Done),
+            "error" => Some(Self::Error),
+            "orphaned" => Some(Self::Orphaned),
+            _ => None,
+        }
+    }
+
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Done | Self::Error | Self::Orphaned)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GraphWorkerInfo {
+    pub worker_id: String,
+    pub pane_id: String,
+    pub intent: String,
+    pub spawned_by: String,
+    pub spawned_at: u64,
+    pub status: WorkerStatus,
+    pub progress_text: Option<String>,
+    pub touched_nodes: HashSet<String>,
+    pub color: String,
+    pub report: Option<String>,
+    pub done_at: Option<u64>,
+}
+
+pub struct GraphWorkerRegistry {
+    inner: RwLock<HashMap<String, GraphWorkerInfo>>,
+    persist_path: PathBuf,
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+pub fn new_worker_id() -> String {
+    let uuid = uuid::Uuid::new_v4();
+    let bytes = uuid.as_bytes();
+    format!(
+        "gw_{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3]
+    )
+}
+
+impl GraphWorkerRegistry {
+    pub fn load(persist_path: PathBuf) -> Arc<Self> {
+        let mut inner: HashMap<String, GraphWorkerInfo> = HashMap::new();
+        if persist_path.exists() {
+            match std::fs::read_to_string(&persist_path) {
+                Ok(text) => match serde_json::from_str::<Vec<GraphWorkerInfo>>(&text) {
+                    Ok(items) => {
+                        for mut item in items {
+                            if !item.status.is_terminal() {
+                                item.status = WorkerStatus::Orphaned;
+                                if item.done_at.is_none() {
+                                    item.done_at = Some(now_ms());
+                                }
+                            }
+                            inner.insert(item.worker_id.clone(), item);
+                        }
+                    }
+                    Err(e) => log::warn!("[graph-workers] parse {}: {}", persist_path.display(), e),
+                },
+                Err(e) => log::warn!("[graph-workers] read {}: {}", persist_path.display(), e),
+            }
+        }
+        let reg = Arc::new(Self {
+            inner: RwLock::new(inner),
+            persist_path,
+        });
+        reg.persist();
+        reg
+    }
+
+    fn persist(&self) {
+        let items: Vec<GraphWorkerInfo> = self.inner.read().values().cloned().collect();
+        if let Some(parent) = self.persist_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        match serde_json::to_string_pretty(&items) {
+            Ok(text) => {
+                if let Err(e) = std::fs::write(&self.persist_path, text) {
+                    log::warn!("[graph-workers] persist write: {}", e);
+                }
+            }
+            Err(e) => log::warn!("[graph-workers] persist serialize: {}", e),
+        }
+    }
+
+    pub fn pick_color(&self) -> String {
+        let active_count = self
+            .inner
+            .read()
+            .values()
+            .filter(|w| !w.status.is_terminal())
+            .count();
+        COLOR_PALETTE[active_count % COLOR_PALETTE.len()].to_string()
+    }
+
+    pub fn register(&self, worker: GraphWorkerInfo) {
+        self.inner.write().insert(worker.worker_id.clone(), worker);
+        self.persist();
+    }
+
+    pub fn list(&self) -> Vec<GraphWorkerInfo> {
+        self.inner.read().values().cloned().collect()
+    }
+
+    pub fn get(&self, worker_id: &str) -> Option<GraphWorkerInfo> {
+        self.inner.read().get(worker_id).cloned()
+    }
+
+    pub fn update_status(&self, worker_id: &str, status: WorkerStatus) -> Result<(), String> {
+        {
+            let mut map = self.inner.write();
+            let w = map
+                .get_mut(worker_id)
+                .ok_or_else(|| format!("worker not found: {}", worker_id))?;
+            w.status = status;
+        }
+        self.persist();
+        Ok(())
+    }
+
+    pub fn update_progress(&self, worker_id: &str, text: String) -> Result<(), String> {
+        {
+            let mut map = self.inner.write();
+            let w = map
+                .get_mut(worker_id)
+                .ok_or_else(|| format!("worker not found: {}", worker_id))?;
+            w.progress_text = Some(text);
+        }
+        self.persist();
+        Ok(())
+    }
+
+    pub fn touch(&self, worker_id: &str, mem_id: &str) {
+        let mut map = self.inner.write();
+        if let Some(w) = map.get_mut(worker_id) {
+            w.touched_nodes.insert(mem_id.to_string());
+        }
+        drop(map);
+        self.persist();
+    }
+
+    pub fn complete(&self, worker_id: &str, report: String) -> Result<GraphWorkerInfo, String> {
+        let info = {
+            let mut map = self.inner.write();
+            let w = map
+                .get_mut(worker_id)
+                .ok_or_else(|| format!("worker not found: {}", worker_id))?;
+            w.status = WorkerStatus::Done;
+            w.report = Some(report);
+            w.done_at = Some(now_ms());
+            w.clone()
+        };
+        self.persist();
+        Ok(info)
+    }
+
+    pub fn kill(&self, worker_id: &str) -> Result<GraphWorkerInfo, String> {
+        let info = {
+            let mut map = self.inner.write();
+            let w = map
+                .get_mut(worker_id)
+                .ok_or_else(|| format!("worker not found: {}", worker_id))?;
+            if !w.status.is_terminal() {
+                w.status = WorkerStatus::Done;
+            }
+            if w.done_at.is_none() {
+                w.done_at = Some(now_ms());
+            }
+            w.clone()
+        };
+        self.persist();
+        Ok(info)
+    }
+}
+
+pub fn make_info(
+    worker_id: String,
+    pane_id: String,
+    intent: String,
+    spawned_by: String,
+    color: String,
+) -> GraphWorkerInfo {
+    GraphWorkerInfo {
+        worker_id,
+        pane_id,
+        intent,
+        spawned_by,
+        spawned_at: now_ms(),
+        status: WorkerStatus::Starting,
+        progress_text: None,
+        touched_nodes: HashSet::new(),
+        color,
+        report: None,
+        done_at: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("workers-{}-{}.json", name, uuid::Uuid::new_v4()))
+    }
+
+    fn fresh_info(id: &str) -> GraphWorkerInfo {
+        make_info(
+            id.into(),
+            "pane1".into(),
+            "test intent".into(),
+            "user:test".into(),
+            "hsl(0,0%,0%)".into(),
+        )
+    }
+
+    #[test]
+    fn register_list_get() {
+        let reg = GraphWorkerRegistry::load(tmp_path("rlg"));
+        reg.register(fresh_info("gw_aaaa"));
+        reg.register(fresh_info("gw_bbbb"));
+        assert_eq!(reg.list().len(), 2);
+        assert!(reg.get("gw_aaaa").is_some());
+        assert!(reg.get("gw_zzzz").is_none());
+    }
+
+    #[test]
+    fn progress_and_complete() {
+        let reg = GraphWorkerRegistry::load(tmp_path("pc"));
+        reg.register(fresh_info("gw_x"));
+        reg.update_progress("gw_x", "scanning 5/10".into()).unwrap();
+        reg.touch("gw_x", "skill_a");
+        reg.touch("gw_x", "fact_b");
+        let info = reg.complete("gw_x", "all done".into()).unwrap();
+        assert_eq!(info.status, WorkerStatus::Done);
+        assert_eq!(info.report.as_deref(), Some("all done"));
+        assert_eq!(info.progress_text.as_deref(), Some("scanning 5/10"));
+        assert_eq!(info.touched_nodes.len(), 2);
+    }
+
+    #[test]
+    fn persist_marks_orphaned_on_reload() {
+        let path = tmp_path("orph");
+        let reg = GraphWorkerRegistry::load(path.clone());
+        let mut alive = fresh_info("gw_alive");
+        alive.status = WorkerStatus::Reading;
+        let mut done = fresh_info("gw_done");
+        done.status = WorkerStatus::Done;
+        done.done_at = Some(123);
+        reg.register(alive);
+        reg.register(done);
+        drop(reg);
+
+        let reg2 = GraphWorkerRegistry::load(path);
+        let alive_after = reg2.get("gw_alive").unwrap();
+        let done_after = reg2.get("gw_done").unwrap();
+        assert_eq!(alive_after.status, WorkerStatus::Orphaned);
+        assert!(alive_after.done_at.is_some());
+        assert_eq!(done_after.status, WorkerStatus::Done);
+        assert_eq!(done_after.done_at, Some(123));
+    }
+
+    #[test]
+    fn build_task_substitutes_fields() {
+        let task = build_worker_task("dedup db", "gw_test", "merge dups");
+        assert!(task.contains("Your intent: dedup db"));
+        assert!(task.contains("Your worker id: gw_test"));
+        assert!(task.contains("merge dups"));
+        assert!(task.contains("codeterm mem worker report"));
+    }
+
+    #[test]
+    fn worker_id_format() {
+        let id = new_worker_id();
+        assert!(id.starts_with("gw_"));
+        assert_eq!(id.len(), 3 + 8);
+    }
+}

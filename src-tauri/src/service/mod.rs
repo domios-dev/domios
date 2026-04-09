@@ -56,6 +56,8 @@ pub struct ServiceContext {
     pub report_store: ReportStoreState,
     pub agent_registry: Arc<AgentRegistry>,
     pub mem: Arc<crate::mem::MemManager>,
+    pub activity: Arc<crate::mem::activity::ActivityRing>,
+    pub workers: Arc<crate::mem::workers::GraphWorkerRegistry>,
     pub prompt_detector: PromptDetectorState,
     /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
