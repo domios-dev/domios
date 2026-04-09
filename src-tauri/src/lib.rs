@@ -1056,6 +1056,10 @@ pub fn run() {
                 report_store: states.report_store.clone(),
                 agent_registry,
                 mem,
+                activity: crate::mem::activity::ActivityRing::new(500),
+                workers: crate::mem::workers::GraphWorkerRegistry::load(
+                    crate::paths::data_dir().join("mem").join("workers.json"),
+                ),
                 prompt_detector,
                 bridge_outbound: bridge_outbound_tx,
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),

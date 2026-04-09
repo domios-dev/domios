@@ -102,6 +102,16 @@ pub fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
             headers.insert(reqwest::header::AUTHORIZATION, val);
         }
     }
+    if let Ok(pane) = std::env::var("CODETERM_PANE_ID") {
+        if let Ok(v) = reqwest::header::HeaderValue::from_str(&pane) {
+            headers.insert("X-CodeTerm-Pane-Id", v);
+        }
+    }
+    if let Ok(worker) = std::env::var("CODETERM_WORKER_ID") {
+        if let Ok(v) = reqwest::header::HeaderValue::from_str(&worker) {
+            headers.insert("X-CodeTerm-Worker-Id", v);
+        }
+    }
     reqwest::blocking::Client::builder()
         .default_headers(headers)
         .build()
@@ -387,6 +397,40 @@ pub enum MemAction {
         #[command(subcommand)]
         action: MemGraphAction,
     },
+    /// Graph-worker operations (hidden mem panel agents)
+    Worker {
+        #[command(subcommand)]
+        action: MemWorkerAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemWorkerAction {
+    /// Spawn a new graph worker
+    Spawn {
+        #[arg(long)]
+        intent: String,
+        #[arg(long)]
+        task: String,
+        #[arg(long, default_value = "claude")]
+        agent: String,
+        #[arg(long)]
+        parent: Option<String>,
+    },
+    /// List all graph workers
+    List,
+    /// Get one worker by id
+    Get { id: String },
+    /// Report progress (called by worker itself; uses $CODETERM_WORKER_ID)
+    Progress {
+        text: String,
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Submit final report and mark done (uses $CODETERM_WORKER_ID)
+    Report { summary: String },
+    /// Kill a worker by id
+    Kill { id: String },
 }
 
 #[derive(Subcommand)]
@@ -2170,6 +2214,46 @@ fn handle_mem(json_mode: bool, action: MemAction) {
                 if let Some(r) = &rel { url.push_str(&format!("&rel={}", r)); }
                 if let Some(d) = &as_of { url.push_str(&format!("&as_of={}", urlencoding::encode(d))); }
                 mem_get_request(&http, &url)
+            }
+        }
+        MemAction::Worker { action } => match action {
+            MemWorkerAction::Spawn { intent, task, agent, parent } => {
+                let payload = serde_json::json!({
+                    "intent": intent,
+                    "task": task,
+                    "agent": agent,
+                    "parent": parent,
+                });
+                mem_post_request(&http, &format!("{}/api/mem/workers", base), &payload)
+            }
+            MemWorkerAction::List => {
+                mem_get_request(&http, &format!("{}/api/mem/workers", base))
+            }
+            MemWorkerAction::Get { id } => {
+                mem_get_request(&http, &format!("{}/api/mem/workers/{}", base, id))
+            }
+            MemWorkerAction::Progress { text, status } => {
+                match std::env::var("CODETERM_WORKER_ID") {
+                    Ok(id) => {
+                        let payload = serde_json::json!({ "text": text, "status": status });
+                        mem_post_request(&http, &format!("{}/api/mem/workers/{}/progress", base, id), &payload)
+                    }
+                    Err(_) => Err("not in a worker pane: $CODETERM_WORKER_ID is not set".into()),
+                }
+            }
+            MemWorkerAction::Report { summary } => {
+                match std::env::var("CODETERM_WORKER_ID") {
+                    Ok(id) => {
+                        let payload = serde_json::json!({ "summary": summary });
+                        mem_post_request(&http, &format!("{}/api/mem/workers/{}/report", base, id), &payload)
+                    }
+                    Err(_) => Err("not in a worker pane: $CODETERM_WORKER_ID is not set".into()),
+                }
+            }
+            MemWorkerAction::Kill { id } => {
+                let resp = http.delete(format!("{}/api/mem/workers/{}", base, id))
+                    .send().map_err(|e| e.to_string());
+                resp.map(|r| serde_json::json!({"ok": r.status().is_success()}))
             }
         }
     };

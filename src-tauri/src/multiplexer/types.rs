@@ -225,7 +225,20 @@ pub struct Pane {
     /// Connected external services (e.g. ["telegram"]). Shown as icons next to pane title.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub connected_services: Vec<String>,
+    /// Hidden panes are excluded from default pane listings and TabBar.
+    /// Used by graph-worker panes that live only in the memory panel.
+    #[serde(default)]
+    pub hidden: bool,
+    /// Whether this pane should be rendered in the TabBar. Defaults to true.
+    /// Graph-worker panes set this to false even when temporarily focused.
+    #[serde(default = "default_show_in_tabbar")]
+    pub show_in_tabbar: bool,
+    /// Graph-worker id linking this pane to a GraphWorkerRegistry entry.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub worker_id: Option<String>,
 }
+
+fn default_show_in_tabbar() -> bool { true }
 
 /// Title priority: higher levels cannot be overwritten by lower ones.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]

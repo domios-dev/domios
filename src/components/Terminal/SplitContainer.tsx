@@ -4,6 +4,7 @@ import { BrowserPane } from "../Browser/BrowserPane";
 
 import { Divider } from "./Divider";
 import { getAgentProvider } from "../../lib/agentProviders";
+import { isPaneVisible, useWorkerFocusVersion } from "../MemoryPanel/workerFocusStore";
 import type { SplitNode, Pane, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { CloseXIcon } from "../Icons";
 
@@ -28,10 +29,12 @@ interface SplitContainerProps {
 
 const MIN_PANE_SIZE = 100; // px
 
-/** Count total leaf panes in a split tree */
-function countLeaves(node: SplitNode): number {
-  if (node.type === "Leaf") return 1;
-  return node.children.reduce((sum, child) => sum + countLeaves(child), 0);
+/** Count total visible leaf panes in a split tree (skips hidden). */
+function countLeaves(node: SplitNode, panes: Record<string, Pane>): number {
+  if (node.type === "Leaf") {
+    return isPaneVisible(panes[node.pane_id]) ? 1 : 0;
+  }
+  return node.children.reduce((sum, child) => sum + countLeaves(child, panes), 0);
 }
 
 export function SplitContainer({
@@ -47,13 +50,16 @@ export function SplitContainer({
   fontConfig,
   terminalConfig,
 }: SplitContainerProps) {
+  // Subscribe so tree re-renders when force-focus set changes
+  useWorkerFocusVersion();
   // Determine if we are the root node (path is empty) and count panes
   const isRoot = path.length === 0;
-  const hasSplits = isRoot ? countLeaves(node) > 1 : true;
+  const hasSplits = isRoot ? countLeaves(node, panes) > 1 : true;
 
   if (node.type === "Leaf") {
     const pane = panes[node.pane_id];
     if (!pane) return null;
+    if (!isPaneVisible(pane)) return null;
 
     const agentProvider = getAgentProvider(pane.agent_type);
     const hasAgent = !!agentProvider;
@@ -105,6 +111,30 @@ export function SplitContainer({
   // Split node
   const { orientation, ratio, children } = node;
   const isHorizontal = orientation === "Horizontal";
+
+  // Collapse: if only one child has visible leaves, render it directly with no divider.
+  const visibleChildIndices = children
+    .map((c, i) => (countLeaves(c, panes) > 0 ? i : -1))
+    .filter((i) => i >= 0);
+  if (visibleChildIndices.length === 0) return null;
+  if (visibleChildIndices.length === 1) {
+    const i = visibleChildIndices[0];
+    return (
+      <SplitContainer
+        node={children[i]}
+        panes={panes}
+        focusedPaneId={focusedPaneId}
+        onFocusPane={onFocusPane}
+        onClosePane={onClosePane}
+        onPtySpawned={onPtySpawned}
+        path={[...path, i]}
+        onUpdateRatio={onUpdateRatio}
+        theme={theme}
+        fontConfig={fontConfig}
+        terminalConfig={terminalConfig}
+      />
+    );
+  }
 
   return (
     <SplitView

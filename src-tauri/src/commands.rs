@@ -104,6 +104,9 @@ pub async fn spawn_pty(
             if let Some(ref parent) = pane.parent_pane_id {
                 env_vars.insert("CODETERM_PARENT_PANE_ID".to_string(), parent.clone());
             }
+            if let Some(ref wid) = pane.worker_id {
+                env_vars.insert("CODETERM_WORKER_ID".to_string(), wid.clone());
+            }
         }
         drop(mux);
     }

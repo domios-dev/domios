@@ -117,6 +117,10 @@ pub struct MemItem {
     pub created_at: String,
     pub updated_at: String,
     pub accessed_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_x: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_y: Option<f64>,
 }
 
 pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
@@ -188,6 +192,21 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_relations_valid ON relations(valid_from, valid_to);
         "#,
     )?;
+
+    let has_graph_x: bool = {
+        let mut stmt = conn.prepare("PRAGMA table_info(mem_items)")?;
+        let cols: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))?
+            .filter_map(Result::ok)
+            .collect();
+        cols.iter().any(|c| c == "graph_x")
+    };
+    if !has_graph_x {
+        conn.execute_batch(
+            "ALTER TABLE mem_items ADD COLUMN graph_x REAL;\n\
+             ALTER TABLE mem_items ADD COLUMN graph_y REAL;",
+        )?;
+    }
     Ok(())
 }
 
@@ -312,11 +331,11 @@ pub fn get(
     id: &str,
     blobs_dir: &Path,
 ) -> Result<Option<MemItem>, String> {
-    let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String, Option<String>, Option<String>, Option<String>, f64, String, String, Option<String>)> = conn
+    let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String, Option<String>, Option<String>, Option<String>, f64, String, String, Option<String>, Option<f64>, Option<f64>)> = conn
         .query_row(
             r#"SELECT id, uid, kind, scope, title, summary, area, tags_json,
                       body_inline, body_blob_path, source, importance,
-                      created_at, updated_at, accessed_at
+                      created_at, updated_at, accessed_at, graph_x, graph_y
                FROM mem_items WHERE id = ?1"#,
             params![id],
             |r| {
@@ -324,6 +343,7 @@ pub fn get(
                     r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
                     r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
                     r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?, r.get(14)?,
+                    r.get(15)?, r.get(16)?,
                 ))
             },
         )
@@ -332,7 +352,7 @@ pub fn get(
 
     let Some((id, uid, kind, scope, title, summary, area, tags_json,
               body_inline, body_blob_path, source, importance,
-              created_at, updated_at, accessed_at)) = row else {
+              created_at, updated_at, accessed_at, graph_x, graph_y)) = row else {
         return Ok(None);
     };
 
@@ -355,7 +375,7 @@ pub fn get(
 
     Ok(Some(MemItem {
         id, uid, kind, scope, title, summary, area, tags, body, source,
-        importance, created_at, updated_at, accessed_at,
+        importance, created_at, updated_at, accessed_at, graph_x, graph_y,
     }))
 }
 
@@ -470,6 +490,150 @@ pub fn stats(conn: &Connection) -> Result<MemStats, String> {
         total_entities: total_entities as u64,
         total_vectors: total_vectors as u64,
     })
+}
+
+// ── Graph visualization (nodes + edges dump, position writes) ──────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphNode {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub area: Option<String>,
+    pub importance: f64,
+    pub tags: Vec<String>,
+    pub has_vector: bool,
+    pub has_body: bool,
+    pub graph_x: Option<f64>,
+    pub graph_y: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphEdge {
+    pub from: String,
+    pub to: String,
+    pub rel: String,
+    pub confidence: f64,
+    pub valid_from: String,
+    pub valid_to: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphDump {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+    pub stats: GraphDumpStats,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphDumpStats {
+    pub node_count: usize,
+    pub edge_count: usize,
+}
+
+pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
+    let vector_ids: std::collections::HashSet<String> = {
+        let mut set = std::collections::HashSet::new();
+        if let Ok(mut stmt) = conn.prepare("SELECT id FROM mem_vectors") {
+            if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
+                for r in rows.flatten() {
+                    set.insert(r);
+                }
+            }
+        }
+        set
+    };
+
+    let mut stmt = conn
+        .prepare(
+            r#"SELECT id, kind, title, summary, area, tags_json, importance,
+                      body_inline, body_blob_path, graph_x, graph_y
+               FROM mem_items"#,
+        )
+        .map_err(|e| format!("prepare graph nodes: {}", e))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, String>(5)?,
+                r.get::<_, f64>(6)?,
+                r.get::<_, Option<String>>(7)?,
+                r.get::<_, Option<String>>(8)?,
+                r.get::<_, Option<f64>>(9)?,
+                r.get::<_, Option<f64>>(10)?,
+            ))
+        })
+        .map_err(|e| format!("query graph nodes: {}", e))?;
+
+    let mut nodes: Vec<GraphNode> = Vec::new();
+    for row in rows {
+        let (id, kind, title, summary, area, tags_json, importance,
+             body_inline, body_blob_path, graph_x, graph_y) =
+            row.map_err(|e| format!("row graph nodes: {}", e))?;
+        let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+        let has_body = body_inline.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
+            || body_blob_path.is_some();
+        let has_vector = vector_ids.contains(&id);
+        nodes.push(GraphNode {
+            id, kind, title, summary, area, importance, tags,
+            has_vector, has_body, graph_x, graph_y,
+        });
+    }
+
+    let mut estmt = conn
+        .prepare(
+            r#"SELECT from_id, to_id, relation_type, confidence, valid_from, valid_to
+               FROM relations
+               WHERE valid_to IS NULL OR valid_to > datetime('now')"#,
+        )
+        .map_err(|e| format!("prepare graph edges: {}", e))?;
+    let erows = estmt
+        .query_map([], |r| {
+            Ok(GraphEdge {
+                from: r.get(0)?,
+                to: r.get(1)?,
+                rel: r.get(2)?,
+                confidence: r.get(3)?,
+                valid_from: r.get(4)?,
+                valid_to: r.get(5)?,
+            })
+        })
+        .map_err(|e| format!("query graph edges: {}", e))?;
+    let mut edges: Vec<GraphEdge> = Vec::new();
+    for e in erows {
+        edges.push(e.map_err(|e| format!("row graph edge: {}", e))?);
+    }
+
+    let stats = GraphDumpStats { node_count: nodes.len(), edge_count: edges.len() };
+    Ok(GraphDump { nodes, edges, stats })
+}
+
+pub fn set_positions(
+    conn: &mut Connection,
+    positions: &[(String, f64, f64)],
+) -> Result<usize, String> {
+    let tx = conn.transaction().map_err(|e| format!("begin tx: {}", e))?;
+    let mut updated = 0usize;
+    {
+        let mut stmt = tx
+            .prepare("UPDATE mem_items SET graph_x = ?1, graph_y = ?2 WHERE id = ?3")
+            .map_err(|e| format!("prepare set_positions: {}", e))?;
+        for (id, x, y) in positions {
+            let n = stmt
+                .execute(params![x, y, id])
+                .map_err(|e| format!("update position: {}", e))?;
+            updated += n;
+        }
+    }
+    tx.commit().map_err(|e| format!("commit tx: {}", e))?;
+    Ok(updated)
 }
 
 // ── Blob storage (content-addressed) ────────────────────────────────────
@@ -704,6 +868,64 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn migration_adds_graph_columns_idempotently() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        init_schema(&conn).unwrap();
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(mem_items)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert!(cols.iter().any(|c| c == "graph_x"));
+        assert!(cols.iter().any(|c| c == "graph_y"));
+    }
+
+    #[test]
+    fn graph_full_returns_nodes_and_edges() {
+        let (mut conn, blobs) = fresh();
+        let a = insert(&conn, &NewMemItem {
+            kind: MemKind::Skill, scope: MemScope::Global,
+            title: "alpha".into(), summary: Some("first".into()),
+            area: Some("core".into()), tags: vec!["t1".into()],
+            body: "body alpha".into(), source: None, importance: 4.0,
+        }, &blobs).unwrap();
+        let b = insert(&conn, &NewMemItem {
+            kind: MemKind::Script, scope: MemScope::Global,
+            title: "beta".into(), summary: None, area: None, tags: vec![],
+            body: "body beta".into(), source: None, importance: 3.0,
+        }, &blobs).unwrap();
+        super::super::graph::insert_relation(&conn, &super::super::graph::Relation {
+            from_id: a.clone(), relation_type: "has_script".into(), to_id: b.clone(),
+            scope: "global".into(), valid_from: chrono::Utc::now().to_rfc3339(),
+            valid_to: None, confidence: 1.0, properties: serde_json::json!({}),
+        }).unwrap();
+
+        let dump = graph_full(&conn).unwrap();
+        assert_eq!(dump.stats.node_count, 2);
+        assert_eq!(dump.stats.edge_count, 1);
+        assert!(dump.nodes.iter().any(|n| n.id == a && n.kind == "skill" && n.has_body));
+        assert!(dump.nodes.iter().any(|n| n.id == b));
+        let edge = &dump.edges[0];
+        assert_eq!(edge.from, a);
+        assert_eq!(edge.to, b);
+        assert_eq!(edge.rel, "has_script");
+
+        // set_positions roundtrip
+        let n = set_positions(&mut conn, &[(a.clone(), 12.5, -3.25)]).unwrap();
+        assert_eq!(n, 1);
+        let got = get(&conn, &a, &blobs).unwrap().unwrap();
+        assert_eq!(got.graph_x, Some(12.5));
+        assert_eq!(got.graph_y, Some(-3.25));
+
+        // unknown id is skipped
+        let n2 = set_positions(&mut conn, &[("nope".into(), 1.0, 2.0)]).unwrap();
+        assert_eq!(n2, 0);
     }
 
     #[test]

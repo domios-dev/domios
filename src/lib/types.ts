@@ -57,6 +57,9 @@ export interface Pane {
   pending_prompt?: PendingPrompt | null;
   protected?: boolean;
   connected_services?: string[];
+  hidden?: boolean;
+  show_in_tabbar?: boolean;
+  worker_id?: string | null;
 }
 
 export interface MultiplexerState {
@@ -112,6 +115,38 @@ export interface Notification {
 }
 
 export type PaneStatus = "Working" | "Waiting" | "Idle" | "Dead";
+
+// Graph worker (Phase E memory visualization)
+
+export type GraphWorkerStatus =
+  | "starting"
+  | "reading"
+  | "analyzing"
+  | "writing"
+  | "done"
+  | "error"
+  | "orphaned";
+
+export interface GraphWorkerInfo {
+  worker_id: string;
+  pane_id: string;
+  intent: string;
+  spawned_by: string;
+  spawned_at: number;
+  status: GraphWorkerStatus;
+  progress_text: string | null;
+  touched_nodes: string[];
+  color: string;
+  report: string | null;
+  done_at: number | null;
+}
+
+export interface SpawnWorkerReq {
+  intent: string;
+  task: string;
+  agent?: string;
+  parent?: string;
+}
 
 // Cron types
 
