@@ -131,16 +131,29 @@ impl ServiceContext {
             tab_id: None,
         };
 
-        // Spawn agent
+        // Spawn agent — pass model from dreaming config if this is the dreaming cron
         let mut task_text = task;
         if creator_pane_id.is_some() {
             task_text.push_str(crate::prompts::CRON_REPORT_HINT);
         }
         task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
+
+        let model_args = {
+            let mem_cfg = crate::config::memory_config();
+            if !mem_cfg.dreaming_model.is_empty() {
+                let args = self.agent_registry
+                    .with_provider(&agent, |p| p.model_launch_args(&mem_cfg.dreaming_model))
+                    .unwrap_or_default();
+                if args.is_empty() { None } else { Some(args) }
+            } else {
+                None
+            }
+        };
+
         let params = super::SpawnAgentParams {
             agent: Some(agent),
             agent_name: None,
-            args: None,
+            args: model_args,
             cwd,
             title: None,
             role,

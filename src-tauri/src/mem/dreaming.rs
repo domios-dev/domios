@@ -248,10 +248,10 @@ pub const DREAMING_CRON_NAME: &str = "mem-dreaming-auto";
 const DREAMING_TASK: &str = concat!(
     "Run nightly memory optimization.\n",
     "1. codeterm mem dream\n",
-    "2. Get data: curl -s $CODETERM_API_URL/api/mem/dream/report -H \"Authorization: Bearer $CODETERM_API_TOKEN\"\n",
-    "3. For UNCLASSIFIED: codeterm mem get <id>, then codeterm mem update <id> --area <area>\n",
-    "4. For DUPLICATES: compare bodies, delete lower importance one\n",
-    "5. For HOT ITEMS with 2+ similar topics: codeterm mem save --kind fact --title \"insight: <pattern>\" --tags dream-insight --area <area> \"<meaning>\"\n",
+    "2. codeterm mem search \"\" --limit 50  (scan all items, note areas and titles)\n",
+    "3. For items without area: codeterm mem get <id>, then codeterm mem update <id> --area <area>\n",
+    "4. For items with very similar titles+kind: compare bodies (codeterm mem get), delete lower importance\n",
+    "5. If 2+ items about same topic: codeterm mem save --kind fact --title \"insight: <pattern>\" --tags dream-insight --area <area> \"<meaning>\"\n",
     "6. codeterm mem save --kind daily --title \"dream: YYYY-MM-DD\" --tags dream-diary --area _dreams \"<80-150 word reflection>\"\n",
     "7. codeterm agent report \"dreaming complete\"\n",
 );

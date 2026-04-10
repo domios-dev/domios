@@ -135,20 +135,33 @@ fn fire_job(
         task_text.push_str(crate::prompts::CRON_REPORT_HINT);
     }
     task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
+    // Pass dreaming model from config
+    let model_args = {
+        let mem_cfg = crate::config::memory_config();
+        if !mem_cfg.dreaming_model.is_empty() {
+            let args = service.agent_registry
+                .with_provider(agent, |p| p.model_launch_args(&mem_cfg.dreaming_model))
+                .unwrap_or_default();
+            if args.is_empty() { None } else { Some(args) }
+        } else {
+            None
+        }
+    };
+
     let params = SpawnAgentParams {
         agent: Some(agent.to_string()),
         agent_name: None,
-        args: None,
+        args: model_args,
         cwd: cwd.map(|s| s.to_string()),
         title: None,
         role: role.map(|s| s.to_string()),
         parent_pane_id: None,
         can_spawn: None,
         task: Some(task_text),
-        workspace_id: Some(workspace_id.to_string()),
+        workspace_id: if workspace_id.is_empty() { None } else { Some(workspace_id.to_string()) },
         force_tab: Some(true),
         report_target_pane_id: creator_pane_id.map(|s| s.to_string()),
-            skip_permissions: None,
+        skip_permissions: None,
     };
 
     match service.spawn_agent_sync(params) {
