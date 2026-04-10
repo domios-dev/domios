@@ -10,7 +10,7 @@ interface LayoutInput {
 
 export type LayoutOutput = Record<string, { x: number; y: number }>;
 
-function hashString(s: string): number {
+export function hashString(s: string): number {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);

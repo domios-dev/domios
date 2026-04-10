@@ -5,28 +5,9 @@ import type {
   GraphWorkerInfo,
   SpawnWorkerReq,
 } from "../../lib/types";
+import { baseUrl, authHeaders, jsonHeaders, isTauriEnv } from "./memoryApi";
 
 const POLL_INTERVAL_MS = 3000;
-
-function isTauriEnv(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
-function baseUrl(api: ApiConfig): string {
-  const host = api.host === "0.0.0.0" ? "127.0.0.1" : api.host;
-  return `http://${host}:${api.port}`;
-}
-
-function authHeaders(api: ApiConfig): HeadersInit {
-  return api.token ? { Authorization: `Bearer ${api.token}` } : {};
-}
-
-function jsonHeaders(api: ApiConfig): HeadersInit {
-  return {
-    "Content-Type": "application/json",
-    ...(api.token ? { Authorization: `Bearer ${api.token}` } : {}),
-  };
-}
 
 export interface UseGraphWorkersResult {
   workers: GraphWorkerInfo[];

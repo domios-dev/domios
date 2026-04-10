@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import type { MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
-import { fetchItemFull, deleteItem } from "./memoryApi";
+import { fetchItemFull, deleteItem, baseUrl, authHeaders } from "./memoryApi";
 
 interface Props {
   api: ApiConfig;
@@ -38,23 +38,24 @@ function MemoryListTabImpl({ api, nodes, selectedId, onSelectItem, onViewInGraph
   const [expandedBody, setExpandedBody] = useState<Record<string, string>>({});
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Search via API (debounced)
+  // Search via API (debounced, with AbortController to prevent stale results)
   const [searchResults, setSearchResults] = useState<string[] | null>(null);
   useEffect(() => {
     if (!search.trim()) { setSearchResults(null); return; }
+    const ctrl = new AbortController();
     const timer = setTimeout(async () => {
       try {
         const params = new URLSearchParams({ q: search, limit: "50" });
-        const host = api.host === "0.0.0.0" ? "127.0.0.1" : api.host;
-        const res = await fetch(`http://${host}:${api.port}/api/mem/search?${params}`, {
-          headers: api.token ? { Authorization: `Bearer ${api.token}` } : {},
+        const res = await fetch(`${baseUrl(api)}/api/mem/search?${params}`, {
+          headers: authHeaders(api),
+          signal: ctrl.signal,
         });
         if (!res.ok) return;
         const data = await res.json();
         setSearchResults((data.hits || []).map((h: { item: { id: string } }) => h.item.id));
-      } catch { /* ignore */ }
+      } catch { /* ignore (includes AbortError) */ }
     }, 300);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); ctrl.abort(); };
   }, [search, api]);
 
   const areas = useMemo(() => {
@@ -68,8 +69,9 @@ function MemoryListTabImpl({ api, nodes, selectedId, onSelectItem, onViewInGraph
     if (searchResults) {
       const ids = new Set(searchResults);
       list = list.filter(n => ids.has(n.id));
-      // Preserve search result order
-      list.sort((a, b) => searchResults.indexOf(a.id) - searchResults.indexOf(b.id));
+      // Preserve search result order (Map for O(1) index lookup)
+      const orderMap = new Map(searchResults.map((id, i) => [id, i]));
+      list.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
     } else {
       // Apply filters
       if (kindFilter.size > 0) list = list.filter(n => kindFilter.has(n.kind));

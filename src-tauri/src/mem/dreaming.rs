@@ -97,11 +97,7 @@ pub fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
 
     let mut dropped = 0u64;
     for id in &ids {
-        let n = conn
-            .execute("DELETE FROM mem_items WHERE id = ?1", params![id])
-            .map_err(|e| e.to_string())?;
-        let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![id]);
-        if n > 0 {
+        if super::store::delete(&conn, id)? {
             dropped += 1;
         }
     }

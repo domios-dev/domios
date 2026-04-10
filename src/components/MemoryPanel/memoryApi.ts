@@ -1,13 +1,24 @@
 import type { ApiConfig } from "../../lib/types";
 import type { GraphFullResponse, MemItemFull } from "./types";
 
-function baseUrl(api: ApiConfig): string {
+export function baseUrl(api: ApiConfig): string {
   const host = api.host === "0.0.0.0" ? "127.0.0.1" : api.host;
   return `http://${host}:${api.port}`;
 }
 
-function authHeaders(api: ApiConfig): HeadersInit {
+export function authHeaders(api: ApiConfig): HeadersInit {
   return api.token ? { Authorization: `Bearer ${api.token}` } : {};
+}
+
+export function jsonHeaders(api: ApiConfig): HeadersInit {
+  return {
+    "Content-Type": "application/json",
+    ...authHeaders(api),
+  };
+}
+
+export function isTauriEnv(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 export async function fetchGraphFull(

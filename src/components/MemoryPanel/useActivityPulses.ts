@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { ApiConfig } from "../../lib/types";
+import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
+import { hashString } from "./forceLayout";
 
 export type MemOp =
   | "read"
@@ -38,32 +40,10 @@ const POLL_INTERVAL_MS = 1000;
 
 const PALETTE_HUES = [0, 36, 72, 108, 144, 180, 216, 252, 288, 324];
 
-function hashString(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
 export function colorForSource(source: MemActivitySource): string {
   const key = source.worker_id || source.pane_id || source.kind || "unknown";
   const hue = PALETTE_HUES[hashString(key) % PALETTE_HUES.length];
   return `hsl(${hue}, 70%, 55%)`;
-}
-
-function isTauriEnv(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
-function baseUrl(api: ApiConfig): string {
-  const host = api.host === "0.0.0.0" ? "127.0.0.1" : api.host;
-  return `http://${host}:${api.port}`;
-}
-
-function authHeaders(api: ApiConfig): HeadersInit {
-  return api.token ? { Authorization: `Bearer ${api.token}` } : {};
 }
 
 export interface UseActivityPulsesResult {

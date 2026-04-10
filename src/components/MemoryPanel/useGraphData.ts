@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { ApiConfig } from "../../lib/types";
-import { fetchGraphFull, patchPositions } from "./memoryApi";
+import { fetchGraphFull, patchPositions, isTauriEnv } from "./memoryApi";
 import { forceLayout } from "./forceLayout";
 import type { MemEdge, MemNode } from "./types";
 
@@ -244,8 +244,7 @@ export function useGraphData(api: ApiConfig) {
       debounceTimer = setTimeout(refresh, 800);
     };
 
-    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-    if (isTauri) {
+    if (isTauriEnv()) {
       listen<{ op: string }>("mem-activity", (ev) => {
         if (!active) return;
         const op = ev.payload?.op;
