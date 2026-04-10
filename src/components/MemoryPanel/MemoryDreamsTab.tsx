@@ -113,7 +113,8 @@ function MemoryDreamsTabImpl({ api }: Props) {
     setDiaryLoading(true);
     try {
       const params = new URLSearchParams({
-        q: "dream-diary",
+        q: "dream",
+        kind: "daily",
         limit: "20",
       });
       const res = await fetch(`${baseUrl(api)}/api/mem/search?${params}`, {
@@ -121,9 +122,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
       });
       if (!res.ok || !mountedRef.current) return;
       const data = (await res.json()) as { hits: SearchHit[] };
-      const entries = (data.hits || [])
-        .map(h => h.item)
-        .filter(i => i.tags?.includes("dream-diary"));
+      const entries = (data.hits || []).map(h => h.item);
       entries.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       setDiaryEntries(entries);
     } catch {
