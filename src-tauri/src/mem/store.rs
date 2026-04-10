@@ -356,13 +356,26 @@ pub fn get(
         return Ok(None);
     };
 
-    let body = if let Some(inline) = body_inline {
+    let mut body = if let Some(inline) = body_inline {
         inline
     } else if let Some(rel) = body_blob_path.as_ref() {
         read_blob(blobs_dir, rel)?
     } else {
         String::new()
     };
+
+    // For file-backed items (source starts with "file:"), read full body from disk.
+    // The inline body is just a short summary for FTS; the real content lives on disk.
+    if let Some(ref src) = source {
+        if let Some(path) = src.strip_prefix("file:") {
+            if let Ok(disk_content) = std::fs::read_to_string(path) {
+                let trimmed = disk_content.trim();
+                if !trimmed.is_empty() {
+                    body = trimmed.to_string();
+                }
+            }
+        }
+    }
 
     let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
@@ -453,6 +466,16 @@ pub fn delete(conn: &Connection, id: &str) -> Result<bool, String> {
         .execute("DELETE FROM mem_items WHERE id = ?1", params![id])
         .map_err(|e| format!("delete mem_item: {}", e))?;
     let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![id]);
+    // Clean up vectors (exact id + chunk suffixes)
+    let _ = conn.execute(
+        "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
+        params![id, format!("{}_chunk_%", id)],
+    );
+    // Clean up relations referencing this item
+    let _ = conn.execute(
+        "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
+        params![id],
+    );
     Ok(n > 0)
 }
 
@@ -587,6 +610,38 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
         });
     }
 
+    // Include entities as synthetic graph nodes (person_, project_, tech_, kind_, area_)
+    let node_ids: std::collections::HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    if let Ok(mut entity_stmt) = conn.prepare(
+        "SELECT id, entity_type, properties_json FROM entities"
+    ) {
+        if let Ok(erows) = entity_stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+        }) {
+            for row in erows.flatten() {
+                let (id, entity_type, props_json) = row;
+                if node_ids.contains(&id) { continue; }
+                let label = serde_json::from_str::<serde_json::Value>(&props_json)
+                    .ok()
+                    .and_then(|v| v.get("label").and_then(|l| l.as_str()).map(String::from))
+                    .unwrap_or_else(|| id.clone());
+                nodes.push(GraphNode {
+                    id: id.clone(),
+                    kind: entity_type.to_lowercase(),
+                    title: label,
+                    summary: None,
+                    area: None,
+                    importance: 3.0,
+                    tags: vec!["entity".to_string()],
+                    has_vector: false,
+                    has_body: false,
+                    graph_x: None,
+                    graph_y: None,
+                });
+            }
+        }
+    }
+
     let mut estmt = conn
         .prepare(
             r#"SELECT from_id, to_id, relation_type, confidence, valid_from, valid_to
@@ -606,9 +661,15 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
             })
         })
         .map_err(|e| format!("query graph edges: {}", e))?;
+    // Collect all node IDs for edge filtering (only include edges where both ends exist)
+    let all_node_ids: std::collections::HashSet<String> =
+        nodes.iter().map(|n| n.id.clone()).collect();
     let mut edges: Vec<GraphEdge> = Vec::new();
     for e in erows {
-        edges.push(e.map_err(|e| format!("row graph edge: {}", e))?);
+        let edge = e.map_err(|e| format!("row graph edge: {}", e))?;
+        if all_node_ids.contains(&edge.from) && all_node_ids.contains(&edge.to) {
+            edges.push(edge);
+        }
     }
 
     let stats = GraphDumpStats { node_count: nodes.len(), edge_count: edges.len() };

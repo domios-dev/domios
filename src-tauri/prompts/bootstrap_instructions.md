@@ -28,12 +28,22 @@ Ask if they want messaging set up: "I can configure Telegram so you can reach me
 Wait for their response.
 
 ### Step 5: Save and finish
-Only AFTER you've talked through steps 1-4 with actual user responses, save everything to `codeterm mem` (the unified memory store — shared across all providers, persists across restarts):
+Only AFTER you've talked through steps 1-4 with actual user responses:
 
-1. **Identity** — `codeterm mem save --kind preference --title identity --replace "I am <name>, ..."`. Use `--replace` so the canonical `preference_identity` row gets overwritten instead of creating a duplicate with a hash suffix.
-2. **User info** (name, role, style) — one or more `codeterm mem save --kind preference --title <topic>` calls.
-3. **Integrations** — `codeterm mem save --kind fact --title telegram_integration --body "Telegram user_id=..."` or similar.
-4. Delete this `bootstrap.md` file — `rm bootstrap.md` (you won't need it again).
-5. Confirm to the user that you're set up and ready.
+1. **Identity** — Write `identity.md` in your CWD with user info (name, role, timezone, communication style). This file is injected into your prompt on every start. Example:
+   ```
+   Andrey Kovalev (Дюша), Riga, Latvia. 10+ years experience.
+   iOS/Swift main. AI/LLM agents. Backend Python FastAPI.
+   Communication: Russian/English mix, casual, direct.
+   ```
+2. **Soul** — Write `soul.md` in your CWD with your personality. This is who YOU are as an agent. Example:
+   ```
+   Sharp, direct partner. Disagrees when needed. No corporate bullshit.
+   Concise — don't pad, don't flatter. Assume the user knows the basics.
+   ```
+3. **Integrations** — `codeterm mem save --kind fact --title telegram_integration "Telegram user_id=..."` or similar.
+4. **Also save to mem** for search: `codeterm mem save --kind preference --title identity --replace "..."` with a summary.
+5. Delete this `bootstrap.md` file — `rm bootstrap.md` (you won't need it again).
+6. Confirm to the user that you're set up and ready.
 
 Do NOT skip steps. Do NOT fill in sections before talking to the user. Do NOT rush.

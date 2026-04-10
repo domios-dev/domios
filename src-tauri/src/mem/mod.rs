@@ -18,6 +18,7 @@ pub mod rerank;
 pub mod embeddings;
 pub mod activity;
 pub mod workers;
+pub mod auto_extract;
 
 // TODO(mesh-sync): Cross-machine mem replication anchor.
 // Not implemented in 3.x — left intentionally as a hole for the
@@ -71,6 +72,9 @@ impl MemManager {
         let db_path = mem_dir.join("knowledge.db");
         let conn = Connection::open(&db_path)
             .map_err(|e| format!("open knowledge.db: {}", e))?;
+        // Allow concurrent writers to wait up to 5s instead of failing immediately
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| format!("set busy_timeout: {}", e))?;
 
         store::init_schema(&conn)
             .map_err(|e| format!("init schema: {}", e))?;
@@ -107,6 +111,93 @@ impl MemManager {
     pub fn db_path(&self) -> &std::path::Path { &self.db_path }
     pub fn blobs_dir(&self) -> &std::path::Path { &self.blobs_dir }
 
+}
+
+/// Query mem_items without corresponding vectors (free function for use in threads).
+#[cfg(feature = "embeddings")]
+fn query_missing_vectors(conn: &rusqlite::Connection) -> Vec<(String, String)> {
+    let sql = r#"SELECT m.id, COALESCE(m.body_inline, '')
+                 FROM mem_items m
+                 LEFT JOIN mem_vectors v ON v.mem_id = m.id
+                 WHERE v.mem_id IS NULL AND m.body_inline IS NOT NULL AND LENGTH(m.body_inline) > 10"#;
+    let mut out = Vec::new();
+    if let Ok(mut stmt) = conn.prepare(sql) {
+        if let Ok(rows) = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        }) {
+            for row in rows.flatten() {
+                out.push(row);
+            }
+        }
+    }
+    out
+}
+
+impl MemManager {
+    /// Re-index items that have no vector in mem_vectors. Runs in a background
+    /// thread. On first call (startup), indexes all missing items then starts
+    /// a periodic loop that checks every 30s for new unindexed items.
+    /// Catches: failed bg indexing, model download timeouts, items created by
+    /// workers or other processes. Idempotent — skips already indexed.
+    #[cfg(feature = "embeddings")]
+    pub fn reindex_missing(self: &Arc<Self>) {
+        let db_path = self.db_path.clone();
+        let blobs_dir = self.blobs_dir.clone();
+        std::thread::spawn(move || {
+            embeddings::ensure_extension_registered();
+            let conn = match rusqlite::Connection::open(&db_path) {
+                Ok(c) => {
+                    let _ = c.busy_timeout(std::time::Duration::from_secs(5));
+                    c
+                }
+                Err(e) => { log::warn!("[mem] reindex: open failed: {}", e); return; }
+            };
+            // Find mem_items that have no row in mem_vectors
+            let mut missing: Vec<(String, String)> = query_missing_vectors(&conn);
+            // Initial pass + periodic loop
+            loop {
+                if missing.is_empty() {
+                    log::debug!("[mem] reindex: all items indexed");
+                } else {
+                    log::info!("[mem] reindex: {} items missing vectors, indexing...", missing.len());
+                    let mut indexed = 0;
+                    for (id, body) in &missing {
+                        let actual_body = if body.is_empty() {
+                            let blob_path: Option<String> = conn.query_row(
+                                "SELECT body_blob_path FROM mem_items WHERE id = ?1",
+                                rusqlite::params![id],
+                                |r| r.get(0),
+                            ).ok().flatten();
+                            if let Some(rel) = blob_path {
+                                std::fs::read_to_string(blobs_dir.join(rel)).unwrap_or_default()
+                            } else {
+                                continue;
+                            }
+                        } else {
+                            body.clone()
+                        };
+                        match embeddings::index(&conn, id, &actual_body) {
+                            Ok(()) => { indexed += 1; }
+                            Err(e) => { log::warn!("[mem] reindex {}: {}", id, e); }
+                        }
+                    }
+                    if indexed > 0 {
+                        log::info!("[mem] reindex: indexed {} items", indexed);
+                    }
+                }
+
+                // Sleep 30s, then re-check for new unindexed items
+                std::thread::sleep(std::time::Duration::from_secs(30));
+
+                // Re-query missing items for next iteration
+                missing = query_missing_vectors(&conn);
+            }
+        });
+    }
+
+    #[cfg(not(feature = "embeddings"))]
+    pub fn reindex_missing(self: &Arc<Self>) {}
+
     /// Internal: lock-free borrow of the connection mutex for dreaming + tests.
     pub(crate) fn conn_for_dream(&self) -> &parking_lot::Mutex<rusqlite::Connection> {
         &self.conn
@@ -119,33 +210,13 @@ impl MemManager {
         embeddings::init_extension(&conn)
     }
 
-    /// Hybrid recall: when embeddings feature is on, runs vector ANN over
-    /// mem_vectors and merges with FTS5 hybrid scoring. When the feature is
-    /// off, falls through to plain `search` (FTS5 hybrid). Same return type.
+    /// Hybrid recall: RRF fusion of FTS5 + vector ANN results.
+    /// Always runs both backends and merges via Reciprocal Rank Fusion
+    /// for maximum recall quality (typo-tolerant + keyword-precise).
+    /// Falls back to FTS5-only when embeddings feature is off.
     pub fn recall(&self, q: &SearchQuery) -> Result<Vec<SearchHit>, String> {
-        #[cfg(feature = "embeddings")]
-        {
-            let limit = q.limit.unwrap_or(5);
-            let conn = self.conn.lock();
-            // Vector candidates
-            let vec_hits = embeddings::recall(&conn, &q.query, limit * 5).unwrap_or_default();
-            if vec_hits.is_empty() {
-                return search::run(&conn, q, &self.blobs_dir);
-            }
-            let mut out = Vec::new();
-            for (id, dist) in vec_hits {
-                if let Ok(Some(item)) = store::get(&conn, &id, &self.blobs_dir) {
-                    out.push(SearchHit { item, score: dist });
-                }
-            }
-            out.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
-            out.truncate(limit);
-            return Ok(out);
-        }
-        #[cfg(not(feature = "embeddings"))]
-        {
-            self.search(q)
-        }
+        let conn = self.conn.lock();
+        search::hybrid_rrf(&conn, q, &self.blobs_dir)
     }
 
     /// Index a mem_item's body in mem_vectors. No-op without embeddings feature.
@@ -168,11 +239,70 @@ impl MemManager {
 
     fn save_inner(&self, item: NewMemItem, replace: bool) -> Result<String, String> {
         let conn = self.conn.lock();
+
+        // Dedup check: skip if an item with same kind+title already exists
+        // (unless replace mode, which is intentional overwrite).
+        if !replace && !item.title.is_empty() {
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM mem_items WHERE kind = ?1 AND title = ?2 LIMIT 1",
+                    rusqlite::params![item.kind.as_str(), &item.title],
+                    |r| r.get(0),
+                )
+                .ok();
+            if let Some(dup_id) = existing {
+                log::info!("[mem] dedup: skipping save, existing item {} has same kind+title", dup_id);
+                return Ok(dup_id);
+            }
+        }
+
         let id = if replace {
             store::upsert(&conn, &item, &self.blobs_dir)?
         } else {
             store::insert(&conn, &item, &self.blobs_dir)?
         };
+
+        // Auto-connect: every item gets a `kind_of` relation to its kind group entity.
+        // This prevents orphan nodes in the graph — every node has at least one edge.
+        {
+            let kind_entity_id = format!("kind_{}", item.kind.as_str());
+            let _ = graph::insert_entity(&conn, &Entity {
+                id: kind_entity_id.clone(),
+                entity_type: "Kind".into(),
+                scope: "global".into(),
+                properties: serde_json::json!({"label": item.kind.as_str()}),
+            });
+            let _ = graph::insert_relation(&conn, &Relation {
+                from_id: id.clone(),
+                relation_type: "kind_of".into(),
+                to_id: kind_entity_id,
+                scope: "global".into(),
+                valid_from: chrono::Utc::now().to_rfc3339(),
+                valid_to: None,
+                confidence: 1.0,
+                properties: serde_json::json!({}),
+            });
+            // Also connect to area group if specified
+            if let Some(ref area) = item.area {
+                let area_entity_id = format!("area_{}", area);
+                let _ = graph::insert_entity(&conn, &Entity {
+                    id: area_entity_id.clone(),
+                    entity_type: "Area".into(),
+                    scope: "global".into(),
+                    properties: serde_json::json!({"label": area}),
+                });
+                let _ = graph::insert_relation(&conn, &Relation {
+                    from_id: id.clone(),
+                    relation_type: "belongs_to".into(),
+                    to_id: area_entity_id,
+                    scope: "global".into(),
+                    valid_from: chrono::Utc::now().to_rfc3339(),
+                    valid_to: None,
+                    confidence: 1.0,
+                    properties: serde_json::json!({}),
+                });
+            }
+        }
 
         // Auto-index in mem_vectors as a background task. The fastembed
         // model is ~50MB and downloads from HuggingFace on first use, so
@@ -183,13 +313,24 @@ impl MemManager {
         #[cfg(feature = "embeddings")]
         {
             let id_clone = id.clone();
-            let body_clone = item.body.clone();
+            // For file-backed items, read full content from disk for vectorization.
+            // item.body may be just a short summary.
+            let embed_text = if let Some(ref src) = item.source {
+                if let Some(path) = src.strip_prefix("file:") {
+                    std::fs::read_to_string(path).unwrap_or_else(|_| item.body.clone())
+                } else {
+                    item.body.clone()
+                }
+            } else {
+                item.body.clone()
+            };
             let db_path = self.db_path.clone();
             std::thread::spawn(move || {
                 embeddings::ensure_extension_registered();
                 match rusqlite::Connection::open(&db_path) {
                     Ok(bg_conn) => {
-                        match embeddings::index(&bg_conn, &id_clone, &body_clone) {
+                        let _ = bg_conn.busy_timeout(std::time::Duration::from_secs(5));
+                        match embeddings::index(&bg_conn, &id_clone, &embed_text) {
                             Ok(()) => log::info!("[mem] indexed embedding for {}", id_clone),
                             Err(e) => log::warn!("[mem] bg embedding index failed for {}: {}", id_clone, e),
                         }
@@ -198,23 +339,32 @@ impl MemManager {
                 }
             });
         }
-        // Auto-extract preferences from free-form text
+        // Auto-extract all 5 categories from free-form text (regex, sync, fast)
         if matches!(
             item.kind,
-            MemKind::Conversation | MemKind::Note | MemKind::Daily
+            MemKind::Conversation | MemKind::Note | MemKind::Daily | MemKind::Learning | MemKind::Fact
         ) {
-            let extracted = extract::extract_preferences(&item.body);
-            for prefbody in extracted {
+            let extracted = extract::extract_all(&item.body);
+            for ext in extracted {
+                let child_kind = match ext.kind {
+                    extract::ExtractKind::Preference => MemKind::Preference,
+                    extract::ExtractKind::Decision => MemKind::Fact,
+                    extract::ExtractKind::Milestone => MemKind::Fact,
+                    extract::ExtractKind::Problem => MemKind::Learning,
+                    extract::ExtractKind::Emotional => MemKind::Note,
+                };
+                let body = format!("User has mentioned ({}): {}", ext.label, ext.captured);
+                let tags: Vec<String> = ext.kind.tag().split(',').map(|s| s.to_string()).collect();
                 let child = NewMemItem {
-                    kind: MemKind::Preference,
+                    kind: child_kind,
                     scope: item.scope.clone(),
-                    title: format!("auto: {}", &prefbody.chars().take(50).collect::<String>()),
-                    summary: Some(prefbody.clone()),
+                    title: format!("auto: {}", &body.chars().take(50).collect::<String>()),
+                    summary: Some(body.clone()),
                     area: item.area.clone(),
-                    tags: vec!["auto-extracted".to_string()],
-                    body: prefbody,
+                    tags,
+                    body,
                     source: Some(format!("extracted_from:{}", id)),
-                    importance: 3.5,
+                    importance: 2.0, // low importance so originals rank above auto-extracted
                 };
                 if let Ok(child_id) = store::insert(&conn, &child, &self.blobs_dir) {
                     let _ = graph::insert_relation(
@@ -244,6 +394,35 @@ impl MemManager {
     pub fn delete(&self, id: &str) -> Result<bool, String> {
         let conn = self.conn.lock();
         store::delete(&conn, id)
+    }
+
+    /// Batch delete all items matching an area. Returns count of deleted items.
+    /// Cleans up vectors, relations, and FTS entries for each.
+    pub fn delete_by_area(&self, area: &str) -> Result<usize, String> {
+        let conn = self.conn.lock();
+        let ids: Vec<String> = {
+            let mut out = Vec::new();
+            if let Ok(mut stmt) = conn.prepare("SELECT id FROM mem_items WHERE area = ?1") {
+                if let Ok(rows) = stmt.query_map(rusqlite::params![area], |r| r.get::<_, String>(0)) {
+                    for row in rows.flatten() {
+                        out.push(row);
+                    }
+                }
+            }
+            out
+        };
+        let mut count = 0;
+        for id in &ids {
+            if store::delete(&conn, id)? {
+                count += 1;
+            }
+        }
+        // Also remove the area entity
+        let _ = conn.execute(
+            "DELETE FROM entities WHERE id = ?1",
+            rusqlite::params![format!("area_{}", area)],
+        );
+        Ok(count)
     }
 
     /// Partial update of an existing mem_item. Only fields that are Some(_)

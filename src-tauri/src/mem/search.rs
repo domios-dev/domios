@@ -14,7 +14,7 @@
 //!
 //! Plus: importance bumps highly-curated items by up to 20%.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use rusqlite::{params_from_iter, Connection, ToSql};
@@ -206,6 +206,89 @@ fn temporal_boost_for(
     } else {
         0.40 * (1.0 - diff_days / window)
     }
+}
+
+/// Reciprocal Rank Fusion: merge FTS5 + vector results into unified ranking.
+/// RRF score = Σ 1/(k + rank_i) where k=60 (standard constant).
+/// Higher RRF score = more relevant.
+const RRF_K: f64 = 60.0;
+
+pub fn hybrid_rrf(
+    conn: &Connection,
+    q: &SearchQuery,
+    blobs_dir: &Path,
+) -> Result<Vec<SearchHit>, String> {
+    let limit = q.limit.unwrap_or(5).clamp(1, 50);
+
+    // 1. FTS5 candidates (may be empty on typos)
+    let fts_hits = run(conn, q, blobs_dir).unwrap_or_default();
+
+    // 2. Vector candidates
+    #[cfg(feature = "embeddings")]
+    let vec_hits = {
+        let pool = limit * 5;
+        let raw = super::embeddings::recall(conn, &q.query, pool).unwrap_or_default();
+        let mut out = Vec::new();
+        for (id, dist) in raw {
+            if let Ok(Some(item)) = super::store::get(conn, &id, blobs_dir) {
+                // Filter by kind/scope/area if specified
+                if let Some(ref k) = q.kind { if item.kind != *k { continue; } }
+                if let Some(ref s) = q.scope { if item.scope != *s { continue; } }
+                if let Some(ref a) = q.area { if item.area.as_deref() != Some(a) { continue; } }
+                out.push(SearchHit { item, score: dist });
+            }
+        }
+        out
+    };
+    #[cfg(not(feature = "embeddings"))]
+    let vec_hits: Vec<SearchHit> = Vec::new();
+
+    // 3. If only one source has results, return it directly
+    if fts_hits.is_empty() && vec_hits.is_empty() {
+        return Ok(Vec::new());
+    }
+    if vec_hits.is_empty() {
+        return Ok(fts_hits);
+    }
+    if fts_hits.is_empty() {
+        let mut sorted = vec_hits;
+        sorted.truncate(limit);
+        return Ok(sorted);
+    }
+
+    // 4. RRF fusion: combine ranks from both sources
+    let mut rrf_scores: HashMap<String, (f64, MemItem)> = HashMap::new();
+
+    for (rank, hit) in fts_hits.iter().enumerate() {
+        let rrf = 1.0 / (RRF_K + rank as f64);
+        rrf_scores
+            .entry(hit.item.id.clone())
+            .and_modify(|(s, _)| *s += rrf)
+            .or_insert((rrf, hit.item.clone()));
+    }
+
+    for (rank, hit) in vec_hits.iter().enumerate() {
+        let rrf = 1.0 / (RRF_K + rank as f64);
+        rrf_scores
+            .entry(hit.item.id.clone())
+            .and_modify(|(s, _)| *s += rrf)
+            .or_insert((rrf, hit.item.clone()));
+    }
+
+    // Higher RRF = better. Apply penalty to auto-extracted items so originals
+    // rank above their derivatives. Without this, the sheer count of extracted
+    // items pushes originals out of top-5.
+    let mut merged: Vec<SearchHit> = rrf_scores
+        .into_values()
+        .map(|(rrf, item)| {
+            let is_auto = item.tags.iter().any(|t| t == "auto-extracted");
+            let adjusted = if is_auto { rrf * 0.5 } else { rrf };
+            SearchHit { item, score: -adjusted }
+        })
+        .collect();
+    merged.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+    merged.truncate(limit);
+    Ok(merged)
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
-    routing::{get, post},
+    routing::{get, post, delete},
     Json, Router,
 };
 use serde::Deserialize;
@@ -108,6 +108,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/search", get(super::mem_routes::mem_search))
         .route("/api/mem/items", post(super::mem_routes::mem_save))
         .route("/api/mem/items/{id}", get(super::mem_routes::mem_get).delete(super::mem_routes::mem_delete).patch(super::mem_routes::mem_update))
+        .route("/api/mem/forget/{area}", delete(super::mem_routes::mem_forget_area))
         .route("/api/mem/wake-up", get(super::mem_routes::mem_wake_up))
         .route("/api/mem/stats", get(super::mem_routes::mem_stats))
         .route("/api/mem/graph/entities", post(super::mem_routes::mem_graph_create))
@@ -124,7 +125,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/workers", get(super::mem_routes::workers_list).post(super::mem_routes::workers_spawn))
         .route("/api/mem/workers/{id}", get(super::mem_routes::workers_get).delete(super::mem_routes::workers_kill))
         .route("/api/mem/workers/{id}/progress", post(super::mem_routes::workers_progress))
-        .route("/api/mem/workers/{id}/report", post(super::mem_routes::workers_report));
+        .route("/api/mem/workers/{id}/report", post(super::mem_routes::workers_report))
+        .route("/api/mem/workers/{id}/log", get(super::mem_routes::workers_log));
 
 
     router

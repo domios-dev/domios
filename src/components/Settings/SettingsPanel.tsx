@@ -15,6 +15,7 @@ interface SettingsPanelProps {
 
 enum SettingsTab {
   General = "general",
+  Memory = "memory",
   Mesh = "mesh",
   Notifications = "notifications",
   Agents = "agents",
@@ -24,6 +25,7 @@ enum SettingsTab {
 
 const TAB_ICONS: Record<SettingsTab, string> = {
   [SettingsTab.General]: "M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16ZM7 6.5C7 5.672 7.448 5 8 5s1 .672 1 1.5S8.552 8 8 8s-1-.672-1-1.5ZM4.255 9.515a.75.75 0 0 1 .98.058 3.997 3.997 0 0 0 5.53 0 .75.75 0 0 1 1.037 1.085 5.497 5.497 0 0 1-7.607 0 .75.75 0 0 1 .058-.98Z",
+  [SettingsTab.Memory]: "M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM4.5 7.5a.5.5 0 0 0 0 1h2.793l-2.147 2.146a.5.5 0 0 0 .708.708L8 9.207l2.146 2.147a.5.5 0 0 0 .708-.708L8.707 8.5H11.5a.5.5 0 0 0 0-1H8.707l2.147-2.146a.5.5 0 0 0-.708-.708L8 6.793 5.854 4.646a.5.5 0 1 0-.708.708L7.293 7.5Z",
   [SettingsTab.Mesh]: "M8 1a1 1 0 0 1 1 1v1.07A5.5 5.5 0 0 1 12.93 7H14a1 1 0 1 1 0 2h-1.07A5.5 5.5 0 0 1 9 12.93V14a1 1 0 1 1-2 0v-1.07A5.5 5.5 0 0 1 3.07 9H2a1 1 0 0 1 0-2h1.07A5.5 5.5 0 0 1 7 3.07V2a1 1 0 0 1 1-1Zm0 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
   [SettingsTab.Notifications]: "M8 16a2 2 0 0 0 1.985-1.75c.017-.137-.097-.25-.235-.25h-3.5c-.138 0-.252.113-.235.25A2 2 0 0 0 8 16ZM3 5a5 5 0 0 1 10 0c0 1.862.818 2.726 1.49 3.434.233.246.46.485.653.752.19.262.357.571.357.974 0 .593-.477 1.09-1.107 1.168C13.477 11.44 12.025 11.5 8 11.5c-4.025 0-5.477-.06-6.393-.172C.977 11.24.5 10.743.5 10.16c0-.403.167-.712.356-.974a6.96 6.96 0 0 0 .653-.752C2.182 7.726 3 6.862 3 5Z",
   [SettingsTab.Agents]: "M5.75 7.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75Zm5.25.75a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0ZM6 1h4a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V5a4 4 0 0 1 4-4Zm-.25 1.5A2.75 2.75 0 0 0 3 5.25v5.5A2.75 2.75 0 0 0 5.75 13.5h4.5a2.75 2.75 0 0 0 2.75-2.75v-5.5A2.75 2.75 0 0 0 10.25 2.5Z",
@@ -33,6 +35,7 @@ const TAB_ICONS: Record<SettingsTab, string> = {
 
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: SettingsTab.General, label: "General" },
+  { id: SettingsTab.Memory, label: "Memory" },
   { id: SettingsTab.Mesh, label: "Mesh" },
   { id: SettingsTab.Notifications, label: "Notifications" },
   { id: SettingsTab.Agents, label: "Agents" },
@@ -323,6 +326,10 @@ export function SettingsPanel({
                   }}
                 />
               </div>
+            )}
+
+            {activeTab === SettingsTab.Memory && (
+              <MemoryTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
             )}
 
             {activeTab === SettingsTab.Agents && (
@@ -903,6 +910,93 @@ function AgentsTab({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
+  const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_enabled: true };
+  const mem = { ...defaultMem, ...(config.memory ?? {}) };
+  const { providers } = useAgentProviders();
+  const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
+
+  // Get available models from the selected provider
+  const selectedProvider = mem.extraction_agent || config.general_agent?.agent_provider || "claude";
+  const providerInfo = providers.find(p => p.id === selectedProvider);
+  const availableModels = providerInfo?.available_models ?? [];
+
+  return (
+    <div className="space-y-6">
+      <Group title="Extraction Workers">
+        <p className="text-[11px] text-[var(--ct-muted)] mb-3">
+          When you save memories, extraction workers analyze the content and build a knowledge graph — entities, relations, decisions, problems. Workers run as headless agents in the Memory Panel.
+        </p>
+        <Label text="Auto-extraction">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={mem.auto_extract}
+              onChange={(e) => onUpdate("memory", { ...mem, auto_extract: e.target.checked })}
+              className="w-4 h-4 rounded"
+            />
+            <span className="text-xs text-[var(--ct-fg)]">Spawn extraction workers on save</span>
+          </label>
+        </Label>
+        <Label text="Agent provider">
+          <select
+            value={mem.extraction_agent || ""}
+            onChange={(e) => onUpdate("memory", { ...mem, extraction_agent: e.target.value })}
+            className={inputClass}
+          >
+            <option value="">Default ({config.general_agent?.agent_provider || "claude"})</option>
+            {providers.map(p => (
+              <option key={p.id} value={p.id}>{p.display_name}</option>
+            ))}
+          </select>
+          <p className="text-[10px] text-[var(--ct-muted)] mt-1">Which AI agent runs extraction workers.</p>
+        </Label>
+        <Label text="Model">
+          {availableModels.length > 0 ? (
+            <select
+              value={mem.extraction_model}
+              onChange={(e) => onUpdate("memory", { ...mem, extraction_model: e.target.value })}
+              className={inputClass}
+            >
+              <option value="">Provider default</option>
+              {availableModels.map(m => (
+                <option key={m.id} value={m.id}>{m.display_name}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              value={mem.extraction_model}
+              onChange={(e) => onUpdate("memory", { ...mem, extraction_model: e.target.value })}
+              className={inputClass}
+              placeholder="haiku, sonnet, o3-mini..."
+            />
+          )}
+          <p className="text-[10px] text-[var(--ct-muted)] mt-1">
+            Smaller models (haiku, o3-mini) are faster and cheaper for extraction. On Claude Max, model may be overridden by subscription.
+          </p>
+        </Label>
+      </Group>
+
+      <Group title="Nightly Optimizer (Dreaming)">
+        <p className="text-[11px] text-[var(--ct-muted)] mb-3">
+          Runs at ~3 AM (±90 min jitter for anti-detection). Promotes validated learnings to facts, removes stale conversations, deduplicates items, classifies areas, cleans orphan nodes. Cannot be deleted, only toggled.
+        </p>
+        <Label text="Dreaming">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={mem.dreaming_enabled}
+              onChange={(e) => onUpdate("memory", { ...mem, dreaming_enabled: e.target.checked })}
+              className="w-4 h-4 rounded"
+            />
+            <span className="text-xs text-[var(--ct-fg)]">Nightly memory optimization</span>
+          </label>
+        </Label>
+      </Group>
     </div>
   );
 }

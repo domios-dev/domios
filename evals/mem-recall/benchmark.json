@@ -1,0 +1,181 @@
+{
+  "description": "Memory recall quality benchmark. Tests store→recall pipeline across typos, languages, semantics, cross-references.",
+  "seed_data": [
+    {
+      "id": "seed_1",
+      "kind": "conversation",
+      "title": "SoundCalm architecture discussion",
+      "body": "Обсуждали с Тимой архитектуру аудио движка для SoundCalm. Решили использовать Core Audio вместо AVAudioEngine. Anya сделала дизайн нового онбординга. Жека задеплоил бэкенд на fly.io. Проблема с HealthKit — не получается синхронизировать данные сна в фоне. I prefer using async/await over Combine for the networking layer.",
+      "area": "soundcalm",
+      "tags": ["binaura", "soundcalm", "ios"]
+    },
+    {
+      "id": "seed_2",
+      "kind": "fact",
+      "title": "PostgreSQL connection pooling decision",
+      "body": "We decided to use PgBouncer for connection pooling instead of built-in Rails pool. Under 200 concurrent connections, built-in pool was dropping connections. PgBouncer with transaction mode solved this. Config: max_client_conn=400, default_pool_size=20.",
+      "area": "rekap",
+      "tags": ["postgres", "infrastructure"],
+      "importance": 5.0
+    },
+    {
+      "id": "seed_3",
+      "kind": "learning",
+      "title": "JWT refresh token bug",
+      "body": "JWT refresh endpoint returning 401 with valid tokens. Root cause: kid header missing from refresh token JWT. Auth0 requires kid even though RFC 7515 says optional. Fix: added kid extraction from JWKS endpoint. Took 2 days to debug.",
+      "area": "rekap",
+      "tags": ["auth", "jwt", "bug"],
+      "importance": 4.5
+    },
+    {
+      "id": "seed_4",
+      "kind": "note",
+      "title": "team roles march 2026",
+      "body": "Tima handles iOS build pipeline with Fastlane and match. Zheka manages backend deployment via Docker Compose on Mac Mini. Anya redesigns Binaura landing page in Figma, prefers dark backgrounds with purple accents. Standups Monday and Thursday 10am Riga time.",
+      "area": "binaura",
+      "tags": ["team"]
+    },
+    {
+      "id": "seed_5",
+      "kind": "fact",
+      "title": "home network setup",
+      "body": "MikroTik hAP ac3 router. Tailscale mesh on all machines. Mac Mini (rollacode-bot) runs Docker with Home Assistant, Mosquitto MQTT, OpenClaw gateway. MacBook Pro (ainyiva-bot) handles iOS builds. BLACKSTAR (Windows, RTX 4090) does heavy compute.",
+      "area": "home",
+      "tags": ["infra", "network"],
+      "importance": 4.0
+    },
+    {
+      "id": "seed_6",
+      "kind": "preference",
+      "title": "coding preferences",
+      "body": "Always use vim keybindings. Prefer dark themes, specifically Dracula. For new projects PostgreSQL over MySQL. Hate ORMs, prefer raw SQL or query builders like Knex. Tab width 2 spaces. zsh with oh-my-zsh and powerlevel10k.",
+      "tags": ["preferences"]
+    },
+    {
+      "id": "seed_7",
+      "kind": "fact",
+      "title": "Rekap LangGraph migration",
+      "body": "Migrating Rekap AI pipeline from plain LangChain to LangGraph. LangGraph handles state machines better for multi-step meeting summarization. LiveKit for audio transport. Whisper for transcription. Claude for summarization.",
+      "area": "rekap",
+      "tags": ["ai", "langgraph"],
+      "importance": 4.0
+    },
+    {
+      "id": "seed_8",
+      "kind": "preference",
+      "title": "identity",
+      "body": "Andrey Kovalev (Дюша), Riga Latvia. 10+ years experience. iOS/Swift main. AI/LLM agents. Backend Python FastAPI. Communication: Russian/English mix, casual, direct.",
+      "tags": ["identity"],
+      "importance": 5.0
+    }
+  ],
+  "test_cases": [
+    {
+      "id": "T01",
+      "name": "exact_keyword",
+      "query": "PgBouncer connection pooling",
+      "expected_top": "seed_2",
+      "category": "keyword"
+    },
+    {
+      "id": "T02",
+      "name": "typo_english",
+      "query": "postgress poolling",
+      "expected_top": "seed_2",
+      "category": "typo"
+    },
+    {
+      "id": "T03",
+      "name": "typo_russian",
+      "query": "саундкалм архитектура",
+      "expected_top": "seed_1",
+      "category": "typo"
+    },
+    {
+      "id": "T04",
+      "name": "semantic_no_keyword",
+      "query": "database connection issues",
+      "expected_top": "seed_2",
+      "category": "semantic"
+    },
+    {
+      "id": "T05",
+      "name": "russian_query_english_content",
+      "query": "какую базу данных мы используем",
+      "expected_top_any": ["seed_2", "seed_6"],
+      "category": "crosslang"
+    },
+    {
+      "id": "T06",
+      "name": "person_recall",
+      "query": "what does Tima work on",
+      "expected_top_any": ["seed_1", "seed_4"],
+      "category": "person"
+    },
+    {
+      "id": "T07",
+      "name": "person_recall_russian",
+      "query": "чем занимается Жека",
+      "expected_top_any": ["seed_1", "seed_4"],
+      "category": "person"
+    },
+    {
+      "id": "T08",
+      "name": "problem_recall",
+      "query": "auth token problem",
+      "expected_top": "seed_3",
+      "category": "problem"
+    },
+    {
+      "id": "T09",
+      "name": "preference_recall",
+      "query": "what database do I prefer",
+      "expected_top_any": ["seed_6", "seed_2"],
+      "category": "preference"
+    },
+    {
+      "id": "T10",
+      "name": "tech_stack_recall",
+      "query": "what AI tools does Rekap use",
+      "expected_top": "seed_7",
+      "expected_id_contains": ["rekap", "langgraph"],
+      "category": "tech"
+    },
+    {
+      "id": "T11",
+      "name": "infrastructure_recall",
+      "query": "home automation setup",
+      "expected_top": "seed_5",
+      "category": "infra"
+    },
+    {
+      "id": "T12",
+      "name": "identity_recall",
+      "query": "who am I",
+      "expected_top": "seed_8",
+      "category": "identity"
+    },
+    {
+      "id": "T13",
+      "name": "cross_fact_indirect",
+      "query": "which project uses LiveKit",
+      "expected_top": "seed_7",
+      "category": "cross"
+    },
+    {
+      "id": "T14",
+      "name": "negation_recall",
+      "query": "why did we not use AVAudioEngine",
+      "expected_top": "seed_1",
+      "category": "negation"
+    },
+    {
+      "id": "T15",
+      "name": "temporal_recall",
+      "query": "what bug did we fix recently with JWT",
+      "expected_top": "seed_3",
+      "expected_id_contains": ["jwt"],
+      "category": "temporal"
+    }
+  ]
+}

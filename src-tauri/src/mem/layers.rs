@@ -85,8 +85,9 @@ fn collect_l1_candidates(
     let mut stmt = conn
         .prepare(
             r#"SELECT id FROM mem_items
-               WHERE kind IN ('rule', 'preference', 'peer')
-                  OR (kind IN ('fact', 'summary') AND importance >= 4.0)
+               WHERE (kind IN ('rule', 'preference', 'peer')
+                  OR (kind IN ('fact', 'summary') AND importance >= 4.0))
+                 AND tags_json NOT LIKE '%auto-extracted%'
                ORDER BY importance DESC, updated_at DESC"#,
         )
         .map_err(|e| e.to_string())?;

@@ -75,6 +75,11 @@ pub fn default_agent_provider() -> String {
     load_config().general_agent.agent_provider.clone()
 }
 
+/// Memory config accessor.
+pub fn memory_config() -> schema::MemoryConfig {
+    load_config().memory.clone()
+}
+
 /// Resolve effective per-provider config for the given agent id.
 ///
 /// Lookup order:

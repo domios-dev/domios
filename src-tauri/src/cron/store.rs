@@ -62,6 +62,10 @@ pub struct CronJob {
     /// to 0 on successful completion. Job auto-disables at >= 5.
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub consecutive_failures: u32,
+    /// Protected crons cannot be deleted via API/CLI. Only toggled on/off.
+    /// Used for system crons like dreaming optimizer.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub protected: bool,
 }
 
 fn is_zero_u32(v: &u32) -> bool { *v == 0 }
@@ -413,6 +417,7 @@ impl CronStore {
             next_run,
             jitter_max_ms: jitter,
             consecutive_failures: 0,
+            protected: false,
         };
 
         self.file.jobs.push(job.clone());
@@ -501,6 +506,12 @@ impl CronStore {
     }
 
     pub fn delete(&mut self, id: &str) -> Result<(), String> {
+        // Protected crons cannot be deleted
+        if let Some(job) = self.file.jobs.iter().find(|j| j.id == id) {
+            if job.protected {
+                return Err(format!("Cron job '{}' is protected and cannot be deleted. Use disable instead.", job.name));
+            }
+        }
         let before = self.file.jobs.len();
         self.file.jobs.retain(|j| j.id != id);
         if self.file.jobs.len() == before {

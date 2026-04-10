@@ -126,6 +126,38 @@ pub fn run_all(mem: &MemManager) -> Result<Vec<DreamReport>, String> {
 /// detect "already exists" so we don't create duplicates on every start.
 pub const DREAMING_CRON_NAME: &str = "mem-dreaming-auto";
 
+/// The nightly optimizer task. First runs SQL phases (light + deep),
+/// then spawns a graph worker for intelligent optimization.
+const DREAMING_TASK: &str = r#"You are the Memory Optimizer. Run these steps:
+
+1. LIGHT PHASE — promote validated learnings:
+   codeterm mem dream
+
+2. GRAPH OPTIMIZATION — spawn a graph worker:
+   codeterm mem worker spawn --intent "nightly-optimize" --task "You are the nightly memory optimizer. Do these in order:
+
+   a) ORPHAN CLEANUP: Search for items with no relations (no edges in graph). For each orphan:
+      - If it has area, connect it: codeterm mem graph relate --from <id> --rel belongs_to --to area_<area>
+      - If no area, classify from content and set: codeterm mem update <id> --area <detected_area>
+      - If truly useless (empty body, no title), delete: codeterm mem delete <id>
+
+   b) NEAR-DUPLICATE DETECTION: For each area, search items and compare titles.
+      If two items have very similar titles and same kind, compare bodies.
+      If >85% similar content, merge: keep the one with higher importance, delete the other.
+      Update the surviving item if the deleted one had useful extra info.
+
+   c) AREA CLASSIFICATION: Find items without area (area is null or empty).
+      Read the body, determine the project/topic, set area: codeterm mem update <id> --area <area>
+
+   d) STALE ENTITY CLEANUP: Check entities (person_, project_, tech_) that have no mentions relations pointing to them from items created in last 90 days. Report them as stale but do NOT delete — just log.
+
+   e) STATS: Report summary — orphans fixed, duplicates merged, areas classified, stale entities found.
+      codeterm mem worker report 'nightly: N orphans fixed, M dupes merged, K areas set, S stale entities'
+   "
+
+3. Report completion: codeterm agent report "dreaming complete"
+"#;
+
 /// Create the bundled dreaming cron if it doesn't exist already.
 /// - Schedule: "0 3 * * *" (3 AM)
 /// - Jitter: ±90 minutes (5_400_000 ms) — anti-anti-cheat, so the job
@@ -147,20 +179,25 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
         name: DREAMING_CRON_NAME.into(),
         workspace_id: "general".into(),
         schedule: "0 3 * * *".into(),
-        task: "Run `codeterm mem dream` to consolidate learnings into facts and prune stale conversations. Report stats to your parent pane via `codeterm agent report`.".into(),
-        description: Some("Auto-installed mem dreaming consolidation. Disable via `codeterm cron disable <id>` if not wanted.".into()),
-        agent: None, // use default provider
+        task: DREAMING_TASK.into(),
+        description: Some("Memory optimizer. Runs nightly as a graph worker inside Memory Panel. Toggle on/off in settings. Cannot be deleted.".into()),
+        agent: None,
         cwd: None,
         role: None,
         creator_pane_id: None,
         enabled: Some(true),
         max_history: Some(30),
         oneshot: Some(false),
-        // ±90 minutes around 3 AM, so the job never fires at exactly the
-        // same wall-clock time two days in a row. Looks organic, spreads
-        // load if multiple machines are running cron at once.
         jitter_max_ms: Some(5_400_000),
     })?;
+    // Mark as protected after creation
+    if let Some(job) = cron_store.list().iter().find(|j| j.name == DREAMING_CRON_NAME) {
+        let job_id = job.id.clone();
+        if let Some(j) = cron_store.get_mut(&job_id) {
+            j.protected = true;
+        }
+        let _ = cron_store.save();
+    }
     Ok(true)
 }
 

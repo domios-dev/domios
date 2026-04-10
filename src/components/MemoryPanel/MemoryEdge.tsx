@@ -5,9 +5,10 @@ interface Props {
   edge: MemEdge;
   fromNode: MemNode;
   toNode: MemNode;
+  showLabel?: boolean;
 }
 
-function MemoryEdgeImpl({ edge, fromNode, toNode }: Props) {
+function MemoryEdgeImpl({ edge, fromNode, toNode, showLabel = true }: Props) {
   if (
     fromNode.graph_x == null || fromNode.graph_y == null ||
     toNode.graph_x == null || toNode.graph_y == null
@@ -20,8 +21,6 @@ function MemoryEdgeImpl({ edge, fromNode, toNode }: Props) {
   const x2 = toNode.graph_x;
   const y2 = toNode.graph_y;
 
-  // Quadratic bezier — control point offset perpendicular to the midpoint
-  // Curvature hashed from ids so each edge has a stable, distinct arc
   const mx = (x1 + x2) / 2;
   const my = (y1 + y2) / 2;
   const dx = x2 - x1;
@@ -34,16 +33,34 @@ function MemoryEdgeImpl({ edge, fromNode, toNode }: Props) {
   const curvature = (0.15 + (hash / 7) * 0.2) * side;
   const cx = mx + nx * len * curvature;
   const cy = my + ny * len * curvature;
+  const labelX = (x1 + 2 * cx + x2) / 4;
+  const labelY = (y1 + 2 * cy + y2) / 4;
 
   const path = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
   return (
-    <path
-      d={path}
-      fill="none"
-      stroke={`rgba(180,180,220,${alpha})`}
-      strokeWidth={1.2}
-      strokeLinecap="round"
-    />
+    <g>
+      <path
+        d={path}
+        fill="none"
+        stroke={`rgba(180,180,220,${alpha})`}
+        strokeWidth={1.2}
+        strokeLinecap="round"
+      />
+      {showLabel && len > 100 && (
+        <text
+          x={labelX}
+          y={labelY}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fill={`rgba(160,160,190,${Math.min(alpha + 0.2, 0.7)})`}
+          fontSize={9}
+          fontFamily="inherit"
+          pointerEvents="none"
+        >
+          {edge.rel}
+        </text>
+      )}
+    </g>
   );
 }
 
@@ -52,5 +69,6 @@ export const MemoryEdge = memo(
   (prev, next) =>
     prev.edge === next.edge &&
     prev.fromNode === next.fromNode &&
-    prev.toNode === next.toNode,
+    prev.toNode === next.toNode &&
+    prev.showLabel === next.showLabel,
 );

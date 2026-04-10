@@ -75,7 +75,7 @@ Key questions this plan answers:
 │                                                               │
 │  CLI (wraps dispatch):                                        │
 │   codeterm mem search/get/save/recall/wake-up/learn/flush     │
-│   codeterm mem graph create/relate/query/related/validate    │
+│   codeterm mem graph create/relate/related                   │
 │                                                               │
 │  (NO `codeterm skill *` — skills are mem_items with kind=skill)│
 │                                                               │
@@ -362,7 +362,7 @@ codeterm mem get fact_api_timeout_fix
 # Save (manual capture from any tab)
 codeterm mem save --kind fact "API timeout fixed by bumping deadline to 30s"
 codeterm mem save --kind learning --tags auth,jwt "JWT refresh needs the kid header"
-codeterm mem save --kind skill --title weather-api --body "$(cat skills/weather.md)"
+codeterm mem save --kind skill --title weather-api "$(cat skills/weather.md)"
 
 # Recall — semantic-first (uses vectors if enabled, FTS5 otherwise)
 codeterm mem recall "how do I check HA automation state"
@@ -384,11 +384,10 @@ codeterm mem flush --pane PANE_ID                # grabs PTY buffer, stores as r
 
 # ── Graph subcommands (entities + temporal triples) ──
 
-codeterm mem graph create --type Task --props '{"title":"Port graph","status":"open"}'
+codeterm mem graph create --entity-type Task --props '{"title":"Port graph","status":"open"}'
 codeterm mem graph get --id task_abc123
-codeterm mem graph list --type Task
-codeterm mem graph query --type Task --where '{"status":"open"}'
-codeterm mem graph query --type Task --as-of 2026-04-01  # temporal query
+# NOTE: `graph list` and `graph query` are not implemented.
+# Use `mem search --kind fact` or `mem graph related` for discovery.
 codeterm mem graph update --id task_abc123 --props '{"status":"done"}'
 codeterm mem graph delete --id task_abc123
 
@@ -559,7 +558,7 @@ items are always included by default).
 ### Graph queries (temporal facts and relations)
 
 - `codeterm mem graph related --id <id>` — what's connected to this thing
-- `codeterm mem graph query --type Task --where '{"status":"open"}'` — entity filter
+- `codeterm mem graph related --id <id> --rel <type>` — filter by relation type
 - Add `--as-of <date>` for as-of-<date> temporal queries (stale facts auto-filtered)
 
 ### Invariants you should know
@@ -690,7 +689,7 @@ Recurring learnings become graph entities:
 
 ```bash
 # After 3rd occurrence of same error pattern:
-codeterm mem graph create --type Issue --props '{"name":"sqlite lock timeout","status":"open","recurrence":3}'
+codeterm mem graph create --entity-type Issue --props '{"name":"sqlite lock timeout","status":"open","recurrence":3}'
 codeterm mem graph relate --from issue_xxx --rel affects --to skill_memory
 ```
 
@@ -1069,8 +1068,8 @@ codeterm mem import --from ~/Desktop/clawd-skills-scripts/skills/ --kind skill
 
 # Or per-skill:
 codeterm mem save --kind skill --title home-assistant \
-  --body "$(cat ~/Desktop/clawd-skills-scripts/skills/home-assistant/SKILL.md)" \
-  --tags home,automation,zigbee
+  --tags home,automation,zigbee \
+  "$(cat ~/Desktop/clawd-skills-scripts/skills/home-assistant/SKILL.md)"
 ```
 
 This copies the whole skill folder to `~/.codeterm/skills/{name}/`, preserving local `scripts/`
@@ -1205,8 +1204,8 @@ JSON-in-shell-quotes is error-prone.
 
 **Solution:** Key-value sugar for common queries:
 ```bash
-codeterm mem graph list --type Task --status open     # sugar
-codeterm mem graph query --type Task --where '{"status":"open"}'  # full power
+# NOTE: `graph list` and `graph query` are not implemented.
+# Use `mem search` or `mem graph related` for entity discovery.
 codeterm mem graph stats                               # entity counts by type
 ```
 
@@ -1374,7 +1373,7 @@ LIMIT 5;
 |---|---|
 | **AAAK dialect** (`dialect.py`, 1075 LOC — biggest file in the repo) | Maintainers' own correction says it regresses at small scale (73 vs 66 tokens: worse). Custom compressed-instruction format is maintenance burden with no proven win. |
 | **ChromaDB** for vectors | Second storage engine, Python dependency, non-Rust. `sqlite-vec` gives us the same with one file, Rust native. |
-| **`entity_detector.py`** auto-detection | 853 LOC of NLP heuristics to find people / projects in text. For CodeTerm our entities come from explicit graph operations (`codeterm mem graph create --type Task ...`), not auto-detection. If we want this later it's a separate agent-side skill, not core mem. |
+| **`entity_detector.py`** auto-detection | 853 LOC of NLP heuristics to find people / projects in text. For CodeTerm our entities come from explicit graph operations (`codeterm mem graph create --entity-type Task ...`), not auto-detection. If we want this later it's a separate agent-side skill, not core mem. |
 | **`room_detector_local.py`** (70+ folder → room patterns) | We don't have rooms; we use tags + areas freely. Manual tagging is fine for a project-scoped tool. |
 | **`spellcheck.py`** | Proper-noun-preserving spellcheck is a niche need we don't have. |
 | **Palace vocabulary** (wings / rooms / halls / drawers / closets / tunnels) | Evocative metaphor but adds cognitive load. Our model is flat: `mem_items` + `area` tag + graph relations. UX decision, not architectural. |

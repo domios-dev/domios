@@ -83,6 +83,12 @@ pub struct GraphWorkerInfo {
     pub color: String,
     pub report: Option<String>,
     pub done_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 pub struct GraphWorkerRegistry {
@@ -207,6 +213,15 @@ impl GraphWorkerRegistry {
         self.persist();
     }
 
+    pub fn set_log_path(&self, worker_id: &str, path: String) {
+        let mut map = self.inner.write();
+        if let Some(w) = map.get_mut(worker_id) {
+            w.log_path = Some(path);
+        }
+        drop(map);
+        self.persist();
+    }
+
     pub fn complete(&self, worker_id: &str, report: String) -> Result<GraphWorkerInfo, String> {
         let info = {
             let mut map = self.inner.write();
@@ -241,6 +256,21 @@ impl GraphWorkerRegistry {
     }
 }
 
+/// Save worker PTY output to a log file. Returns the path on success.
+pub fn save_worker_log(worker_id: &str, output: &str) -> Result<PathBuf, String> {
+    let dir = crate::paths::data_dir().join("mem").join("workers");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("create {}: {}", dir.display(), e))?;
+    let path = dir.join(format!("{}.log", worker_id));
+    // Use the VT100 parser with worker PTY dimensions (120x40) — matches the
+    // actual terminal width so TUI elements (horizontal rules, status bars)
+    // render at the correct column width.
+    let clean = crate::pty::ansi::clean_terminal_output_sized(output, 500, 120);
+    std::fs::write(&path, clean)
+        .map_err(|e| format!("write {}: {}", path.display(), e))?;
+    Ok(path)
+}
+
 pub fn make_info(
     worker_id: String,
     pane_id: String,
@@ -260,6 +290,9 @@ pub fn make_info(
         color,
         report: None,
         done_at: None,
+        log_path: None,
+        agent_provider: None,
+        model: None,
     }
 }
 
