@@ -74,3 +74,30 @@ export async function deleteItem(api: ApiConfig, id: string): Promise<{ deleted:
   if (!res.ok) throw new Error(`delete item failed: ${res.status} ${await res.text()}`);
   return res.json();
 }
+
+export interface MemStats {
+  total_items: number;
+  total_vectors: number;
+  total_relations: number;
+  total_entities: number;
+  by_kind: Record<string, number>;
+}
+
+export async function fetchWorkerLog(api: ApiConfig, workerId: string): Promise<string> {
+  const res = await fetch(`${baseUrl(api)}/api/mem/workers/${encodeURIComponent(workerId)}/log`, {
+    headers: authHeaders(api),
+  });
+  if (!res.ok) {
+    if (res.status === 404) return "(no log available)";
+    throw new Error(`worker log failed: ${res.status}`);
+  }
+  return res.text();
+}
+
+export async function fetchStats(api: ApiConfig): Promise<MemStats> {
+  const res = await fetch(`${baseUrl(api)}/api/mem/stats`, {
+    headers: authHeaders(api),
+  });
+  if (!res.ok) throw new Error(`stats failed: ${res.status}`);
+  return res.json();
+}

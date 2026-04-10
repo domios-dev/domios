@@ -7,7 +7,7 @@ import { ImageNode } from "./nodes/ImageNode";
 import type { NodeRendererProps } from "./nodes/NodeRenderer";
 import { useViewport } from "./useViewport";
 import { usePhysics } from "./usePhysics";
-import { deriveNodeKind } from "./nodeKind";
+import { deriveNodeKind, KIND_COLORS } from "./nodeKind";
 import type { ApiConfig } from "../../lib/types";
 import type { MemEdge, MemNode, NodeKind } from "./types";
 import type { Pulse } from "./useActivityPulses";
@@ -249,6 +249,15 @@ export function MemoryCanvas({
           onDelete={handleDelete}
         />
       )}
+      {/* Kind legend */}
+      <div className="absolute bottom-3 left-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--ct-muted-fg)] pointer-events-none opacity-60">
+        {Object.entries(KIND_COLORS).map(([kind, color]) => (
+          <span key={kind} className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full inline-block" style={{ background: color }} />
+            {kind}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

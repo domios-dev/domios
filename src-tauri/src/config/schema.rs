@@ -23,6 +23,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub general_agent: GeneralAgentConfig,
     #[serde(default)]
+    pub memory: MemoryConfig,
+    #[serde(default)]
     pub integrations: IntegrationsConfig,
     #[serde(default)]
     pub mesh: MeshConfig,
@@ -43,6 +45,7 @@ impl Default for AppConfig {
             api: ApiConfig::default(),
             agents: HashMap::new(),
             general_agent: GeneralAgentConfig::default(),
+            memory: MemoryConfig::default(),
             integrations: IntegrationsConfig::default(),
             mesh: MeshConfig::default(),
             onboarding_completed: false,
@@ -304,6 +307,31 @@ impl Default for GeneralAgentConfig {
             auto_restart: true,
             max_restart_attempts: 5,
             restart_delay_s: 5,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MemoryConfig {
+    /// Agent provider for extraction workers (default: same as general_agent)
+    pub extraction_agent: String,
+    /// Model for extraction workers. "haiku" for claude, "o3-mini" for codex.
+    /// Empty string = use provider default.
+    pub extraction_model: String,
+    /// Enable auto-extraction workers on save
+    pub auto_extract: bool,
+    /// Enable nightly dreaming optimizer
+    pub dreaming_enabled: bool,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            extraction_agent: String::new(), // empty = use general_agent provider
+            extraction_model: "haiku".to_string(),
+            auto_extract: true,
+            dreaming_enabled: true,
         }
     }
 }

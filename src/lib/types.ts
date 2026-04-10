@@ -139,6 +139,9 @@ export interface GraphWorkerInfo {
   color: string;
   report: string | null;
   done_at: number | null;
+  log_path?: string | null;
+  agent_provider?: string | null;
+  model?: string | null;
 }
 
 export interface SpawnWorkerReq {
@@ -362,6 +365,13 @@ export interface ProviderConfig {
   [key: string]: unknown;
 }
 
+export interface MemoryConfig {
+  extraction_agent: string;
+  extraction_model: string;
+  auto_extract: boolean;
+  dreaming_enabled: boolean;
+}
+
 export interface AppConfig {
   theme: ThemeConfig;
   font: FontConfig;
@@ -373,6 +383,7 @@ export interface AppConfig {
   api: ApiConfig;
   agents: { [providerId: string]: ProviderConfig };
   general_agent: GeneralAgentConfig;
+  memory: MemoryConfig;
   integrations: IntegrationsConfig;
   mesh: MeshConfig;
   onboarding_completed: boolean;

@@ -46,6 +46,41 @@ pub fn ensure_directories() {
 ///
 /// Persistent memory lives in `codeterm mem` (SQLite), not on disk as .md.
 /// The agent reads mem via `codeterm mem wake-up` on init.
+/// Sync file-backed items (identity.md, soul.md) into mem as lightweight
+/// index entries. The full content stays on disk — mem stores only a short
+/// summary for FTS + the file path in `source`. Vectors are built from
+/// the file content by the reindex daemon.
+pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
+    let dir = general_dir();
+
+    let files: &[(&str, &str, &str, &[&str])] = &[
+        ("identity.md", "identity", "User identity — name, role, location, communication style", &["identity"]),
+        ("soul.md", "soul", "Agent personality — character, tone, behavior rules", &["soul"]),
+    ];
+
+    for (filename, title, summary, tags) in files {
+        let path = dir.join(filename);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            let trimmed = content.trim();
+            if trimmed.is_empty() { continue; }
+            // Build a short summary (first 200 chars) for FTS, not the full body
+            let short: String = trimmed.chars().take(200).collect();
+            let source_path = format!("file:{}", path.to_string_lossy());
+            let _ = mem.save_replace(crate::mem::store::NewMemItem {
+                kind: crate::mem::store::MemKind::Preference,
+                scope: crate::mem::store::MemScope::Global,
+                title: title.to_string(),
+                summary: Some(summary.to_string()),
+                area: None,
+                tags: tags.iter().map(|t| t.to_string()).collect(),
+                body: short, // short summary for FTS, full content on disk
+                source: Some(source_path),
+                importance: 5.0,
+            });
+        }
+    }
+}
+
 pub fn generate_instructions(provider_name: &str) {
     let version = env!("CARGO_PKG_VERSION");
     let platform = if cfg!(target_os = "windows") { "Windows" }
@@ -57,6 +92,24 @@ pub fn generate_instructions(provider_name: &str) {
 
     let dir = general_dir();
 
+    // Read identity.md and soul.md from general dir (user-editable files)
+    let identity = std::fs::read_to_string(dir.join("identity.md"))
+        .unwrap_or_default();
+    let soul = std::fs::read_to_string(dir.join("soul.md"))
+        .unwrap_or_default();
+
+    let identity_section = if identity.trim().is_empty() {
+        "No identity configured yet. Ask the user who they are during bootstrap.".to_string()
+    } else {
+        identity.trim().to_string()
+    };
+
+    let soul_section = if soul.trim().is_empty() {
+        String::new()
+    } else {
+        format!("\n## Soul\n\n{}\n", soul.trim())
+    };
+
     // 1. AGENT.md — system prompt, regenerated every start
     let agent_content = crate::prompts::GENERAL_AGENT_TEMPLATE
         .replace("{version}", version)
@@ -65,7 +118,9 @@ pub fn generate_instructions(provider_name: &str) {
         .replace("{provider_name}", provider_name)
         .replace("{general_dir}", &dir.to_string_lossy())
         .replace("{secrets_dir}", &secrets_dir().to_string_lossy())
-        .replace("{skills_dir}", &crate::paths::data_dir().join("skills").to_string_lossy());
+        .replace("{skills_dir}", &crate::paths::data_dir().join("skills").to_string_lossy())
+        .replace("{identity}", &identity_section)
+        .replace("{soul}", &soul_section);
 
     if let Err(e) = std::fs::write(dir.join("AGENT.md"), &agent_content) {
         log::error!("[general-agent] Failed to write AGENT.md: {}", e);
@@ -423,8 +478,9 @@ pub fn start_general_agent(
         // Small delay so the agent's TUI is fully ready to accept input
         // (the readiness poll catches detection markers, not input-readiness).
         std::thread::sleep(std::time::Duration::from_millis(800));
-        let init_paste = "\x1b[200~init\x1b[201~\r";
-        if let Err(e) = pty.lock().write(&pty_id, init_paste.as_bytes()) {
+        // Use send_text() — the single source of truth for delivering text to
+        // Claude's TUI. Handles bracketed paste + delayed Enter correctly.
+        if let Err(e) = svc.send_text(&pane_id, "init", true) {
             log::warn!("[general-agent] Failed to send init kick: {}", e);
         } else {
             log::info!("[general-agent] Sent fresh-session init kick");

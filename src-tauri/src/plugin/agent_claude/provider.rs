@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::agent::provider::{
-    ActionStyle, AgentLaunchParams, AgentProvider, BadgeStyle, BadgeVariant, ModelInfo,
+    self, ActionStyle, AgentLaunchParams, AgentProvider, BadgeStyle, BadgeVariant, ModelInfo,
     NoteLevel, PathOpenKind, ReadinessStrategy, SettingField, TaskDelivery,
 };
 use crate::shell::ShellSyntax;
@@ -325,52 +325,15 @@ impl AgentProvider for ClaudeProvider {
 
     fn settings_schema(&self) -> Vec<SettingField> {
         vec![
-            // ── Section: Session Resume ──
-            SettingField::Section {
-                title: "Session Resume".into(),
-                description: Some(
-                    "Automatically resume Claude Code sessions when CodeTerm restarts.".into(),
-                ),
-                fields: vec![
-                    SettingField::Toggle {
-                        key: "resume_sessions".into(),
-                        label: "Resume previous sessions".into(),
-                        default: true,
-                        description: None,
-                    },
-                    SettingField::Toggle {
-                        key: "resume_skip_permissions".into(),
-                        label: "Resume with --dangerously-skip-permissions".into(),
-                        default: true,
-                        description: None,
-                    },
-                    SettingField::When {
-                        field: "resume_skip_permissions".into(),
-                        equals: serde_json::Value::Bool(true),
-                        then: vec![SettingField::Info {
-                            title: None,
-                            body: "⚠ Claude Code will run without asking for tool approvals. Use with caution.".into(),
-                            level: NoteLevel::Warn,
-                        }],
-                    },
-                ],
-            },
-            // ── Section: Model ──
-            SettingField::Section {
-                title: "Model".into(),
-                description: Some("Default model for new Claude Code sessions.".into()),
-                fields: vec![SettingField::Select {
-                    key: "default_model".into(),
-                    label: "Default model".into(),
-                    options: self
-                        .available_models()
-                        .into_iter()
-                        .map(|m| (m.id, m.display_name))
-                        .collect(),
-                    default: self.default_model().map(|s| s.to_string()),
-                    description: None,
-                }],
-            },
+            provider::session_resume_section(
+                "Automatically resume Claude Code sessions when CodeTerm restarts.",
+                "--dangerously-skip-permissions",
+            ),
+            provider::model_select_section(
+                "Default model for new Claude Code sessions.",
+                self.available_models(),
+                self.default_model(),
+            ),
             // ── Section: Rule (Claude-specific instruction file) ──
             SettingField::Section {
                 title: "Rule".into(),

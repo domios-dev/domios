@@ -1039,6 +1039,12 @@ pub fn run() {
                 Err(e) => log::warn!("[mem] seed failed: {}", e),
             }
 
+            // Sync identity.md + soul.md into mem for search/vectorization
+            crate::service::general_agent::sync_identity_to_mem(&mem);
+
+            // Re-index any items missing vectors (catches failed bg indexing)
+            mem.reindex_missing();
+
             // Auto-install Claude hooks (Notification, Stop, PreCompact).
             // PreCompact is critical for mem — it flushes pane scrollback
             // before Claude summarizes the context window.

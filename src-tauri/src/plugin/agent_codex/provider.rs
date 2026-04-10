@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::agent::provider::{
-    AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SettingField,
+    self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SettingField,
     TaskDelivery,
 };
 use crate::shell::ShellSyntax;
@@ -34,22 +34,23 @@ impl AgentProvider for CodexProvider {
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         let mut parts: Vec<String> = Vec::new();
 
-        if params.task.is_some() {
-            // Non-interactive: codex exec
+        if let Some(ref task) = params.task {
+            // Non-interactive: codex exec <prompt>
             parts.push("codex".to_string());
             parts.push("exec".to_string());
             if params.skip_permissions {
-                parts.push("--full-auto".to_string());
+                parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
             }
-            if let Some(ref task) = params.task {
-                parts.push("-p".to_string());
-                parts.push(ShellSyntax::quote(task));
-            }
+            // Inherit PTY env vars (CODETERM_SOCKET_PATH, etc.) into sandbox
+            parts.push("-c".to_string());
+            parts.push("'shell_environment_policy.inherit=all'".to_string());
+            parts.push("--skip-git-repo-check".to_string());
+            parts.push(ShellSyntax::quote(task));
         } else {
             // Interactive session
             parts.push("codex".to_string());
             if params.skip_permissions {
-                parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
+                parts.push("--full-auto".to_string());
             }
         }
 
@@ -142,6 +143,13 @@ impl AgentProvider for CodexProvider {
         vec!["--dangerously-bypass-approvals-and-sandbox".to_string()]
     }
 
+    fn model_launch_args(&self, model: &str) -> Vec<String> {
+        if model.is_empty() {
+            return Vec::new();
+        }
+        vec!["-m".into(), model.into()]
+    }
+
     fn compact_command(&self) -> Option<&str> {
         Some("/compact")
     }
@@ -179,20 +187,30 @@ impl AgentProvider for CodexProvider {
     fn available_models(&self) -> Vec<ModelInfo> {
         vec![
             ModelInfo {
-                id: "gpt-5".into(),
-                display_name: "GPT-5".into(),
-                description: Some("OpenAI's flagship coding model.".into()),
+                id: "gpt-5.4".into(),
+                display_name: "GPT-5.4".into(),
+                description: Some("Latest frontier agentic coding model.".into()),
             },
             ModelInfo {
-                id: "o1".into(),
-                display_name: "o1".into(),
-                description: Some("Reasoning-optimized model.".into()),
+                id: "gpt-5.4-mini".into(),
+                display_name: "GPT-5.4 Mini".into(),
+                description: Some("Smaller frontier agentic model.".into()),
+            },
+            ModelInfo {
+                id: "gpt-5.3-codex".into(),
+                display_name: "GPT-5.3 Codex".into(),
+                description: Some("Frontier Codex-optimized agentic coding model.".into()),
+            },
+            ModelInfo {
+                id: "gpt-5.2".into(),
+                display_name: "GPT-5.2".into(),
+                description: Some("Optimized for professional work and long-running agents.".into()),
             },
         ]
     }
 
     fn default_model(&self) -> Option<&str> {
-        Some("gpt-5")
+        Some("gpt-5.4")
     }
 
     fn preserves_context_on_resume(&self) -> bool {
@@ -204,52 +222,15 @@ impl AgentProvider for CodexProvider {
 
     fn settings_schema(&self) -> Vec<SettingField> {
         vec![
-            // ── Section: Session Resume ──
-            SettingField::Section {
-                title: "Session Resume".into(),
-                description: Some(
-                    "Automatically resume Codex sessions when CodeTerm restarts.".into(),
-                ),
-                fields: vec![
-                    SettingField::Toggle {
-                        key: "resume_sessions".into(),
-                        label: "Resume previous sessions".into(),
-                        default: true,
-                        description: None,
-                    },
-                    SettingField::Toggle {
-                        key: "resume_skip_permissions".into(),
-                        label: "Resume with --dangerously-bypass-approvals-and-sandbox".into(),
-                        default: true,
-                        description: None,
-                    },
-                    SettingField::When {
-                        field: "resume_skip_permissions".into(),
-                        equals: serde_json::Value::Bool(true),
-                        then: vec![SettingField::Info {
-                            title: None,
-                            body: "⚠ Codex will run without asking for tool approvals. Use with caution.".into(),
-                            level: NoteLevel::Warn,
-                        }],
-                    },
-                ],
-            },
-            // ── Section: Model ──
-            SettingField::Section {
-                title: "Model".into(),
-                description: Some("Default model for new Codex sessions.".into()),
-                fields: vec![SettingField::Select {
-                    key: "default_model".into(),
-                    label: "Default model".into(),
-                    options: self
-                        .available_models()
-                        .into_iter()
-                        .map(|m| (m.id, m.display_name))
-                        .collect(),
-                    default: self.default_model().map(|s| s.to_string()),
-                    description: None,
-                }],
-            },
+            provider::session_resume_section(
+                "Automatically resume Codex sessions when CodeTerm restarts.",
+                "--full-auto",
+            ),
+            provider::model_select_section(
+                "Default model for new Codex sessions.",
+                self.available_models(),
+                self.default_model(),
+            ),
             // ── Section: Requirements (read-only docs) ──
             SettingField::Section {
                 title: "Requirements".into(),
@@ -418,7 +399,7 @@ mod tests {
             args: None,
             skip_permissions: true,
         });
-        assert_eq!(cmd, "codex --dangerously-bypass-approvals-and-sandbox");
+        assert_eq!(cmd, "codex --full-auto");
     }
 
     #[test]
@@ -430,7 +411,9 @@ mod tests {
             args: None,
             skip_permissions: true,
         });
-        assert!(cmd.starts_with("codex exec --full-auto -p"));
+        assert!(cmd.contains("codex exec --dangerously-bypass-approvals-and-sandbox"));
+        assert!(cmd.contains("shell_environment_policy.inherit=all"));
+        assert!(cmd.contains("--skip-git-repo-check"));
         assert!(cmd.contains("fix the bug"));
     }
 
@@ -501,10 +484,13 @@ mod tests {
     fn codex_metadata_describes_models() {
         let p = CodexProvider::new();
         let models = p.available_models();
-        assert!(!models.is_empty());
+        assert_eq!(models.len(), 4);
         let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
-        assert!(ids.contains(&"gpt-5"));
-        assert_eq!(p.default_model(), Some("gpt-5"));
+        assert!(ids.contains(&"gpt-5.4"));
+        assert!(ids.contains(&"gpt-5.4-mini"));
+        assert!(ids.contains(&"gpt-5.3-codex"));
+        assert!(ids.contains(&"gpt-5.2"));
+        assert_eq!(p.default_model(), Some("gpt-5.4"));
     }
 
     #[test]

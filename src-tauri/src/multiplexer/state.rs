@@ -923,7 +923,14 @@ impl MultiplexerState {
                 active_tab_id: ws.active_tab_id.clone(),
                 cwd: ws.cwd.clone(),
                 protected: ws.protected,
-                tabs: ws.tabs.iter().map(|tab| {
+                tabs: ws.tabs.iter().filter(|tab| {
+                    // Skip hidden worker panes — they're ephemeral and shouldn't
+                    // persist across restarts. Prevents ghost tabs in sidebar.
+                    let pane_ids = tab.split_tree.collect_pane_ids();
+                    !pane_ids.iter().any(|pid| {
+                        self.panes.get(pid).map(|p| p.hidden).unwrap_or(false)
+                    })
+                }).map(|tab| {
                     TabSnapshot {
                         id: tab.id.clone(),
                         title: tab.title.clone(),

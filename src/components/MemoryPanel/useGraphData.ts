@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import type { ApiConfig } from "../../lib/types";
 import { fetchGraphFull, patchPositions } from "./memoryApi";
 import { forceLayout } from "./forceLayout";
@@ -34,20 +35,48 @@ export function useGraphData(api: ApiConfig) {
         const map = new Map<string, MemNode>();
         resp.nodes.forEach((n) => map.set(n.id, n));
 
-        const needsLayout = resp.nodes.length > 0 &&
-          resp.nodes.every((n) => n.graph_x == null || n.graph_y == null);
+        // Scatter any nodes missing positions — prevents center clump.
+        // If ALL nodes lack positions, run full force layout.
+        // If only SOME lack positions, scatter them near existing nodes.
+        const unpositioned = resp.nodes.filter(
+          (n) => n.graph_x == null || n.graph_y == null,
+        );
 
-        if (needsLayout) {
-          const positions = forceLayout({ nodes: resp.nodes, edges: resp.edges });
+        if (unpositioned.length > 0) {
           const patch: Array<{ id: string; x: number; y: number }> = [];
-          for (const [id, p] of Object.entries(positions)) {
-            const cur = map.get(id);
-            if (cur) {
-              map.set(id, { ...cur, graph_x: p.x, graph_y: p.y });
-              patch.push({ id, x: p.x, y: p.y });
+
+          if (unpositioned.length === resp.nodes.length) {
+            // All new — full force layout
+            const positions = forceLayout({ nodes: resp.nodes, edges: resp.edges });
+            for (const [id, p] of Object.entries(positions)) {
+              const cur = map.get(id);
+              if (cur) {
+                map.set(id, { ...cur, graph_x: p.x, graph_y: p.y });
+                patch.push({ id, x: p.x, y: p.y });
+              }
+            }
+          } else {
+            // Some new — scatter near center of existing nodes
+            const positioned = resp.nodes.filter(
+              (n) => n.graph_x != null && n.graph_y != null,
+            );
+            let cx = 0, cy = 0;
+            for (const n of positioned) { cx += n.graph_x!; cy += n.graph_y!; }
+            if (positioned.length > 0) { cx /= positioned.length; cy /= positioned.length; }
+            const radius = Math.max(200, positioned.length * 15);
+            for (const n of unpositioned) {
+              const angle = Math.random() * Math.PI * 2;
+              const r = radius * (0.5 + Math.random() * 0.5);
+              const x = cx + Math.cos(angle) * r;
+              const y = cy + Math.sin(angle) * r;
+              map.set(n.id, { ...n, graph_x: x, graph_y: y });
+              patch.push({ id: n.id, x, y });
             }
           }
-          patchPositions(api, patch).catch(() => {});
+
+          if (patch.length > 0) {
+            patchPositions(api, patch).catch(() => {});
+          }
         }
 
         nodesRef.current = map;
@@ -166,6 +195,75 @@ export function useGraphData(api: ApiConfig) {
       };
     });
   }, []);
+
+  // Event-driven refresh: listen for mem-activity write events → re-fetch graph.
+  // Debounces rapid writes (e.g. auto-extraction spawning multiple saves).
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | null = null;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const refresh = () => {
+      const ctrl = new AbortController();
+      fetchGraphFull(api, ctrl.signal)
+        .then((resp) => {
+          if (!active || ctrl.signal.aborted) return;
+          setState((prev) => {
+            const next = new Map(prev.nodes);
+            let changed = false;
+            const patch: Array<{ id: string; x: number; y: number }> = [];
+
+            for (const n of resp.nodes) {
+              if (!next.has(n.id)) {
+                let cx = 0, cy = 0, count = 0;
+                for (const existing of next.values()) {
+                  if (existing.graph_x != null) { cx += existing.graph_x; cy += existing.graph_y!; count++; }
+                }
+                if (count > 0) { cx /= count; cy /= count; }
+                const angle = Math.random() * Math.PI * 2;
+                const r = Math.max(150, count * 12) * (0.5 + Math.random() * 0.5);
+                const x = cx + Math.cos(angle) * r;
+                const y = cy + Math.sin(angle) * r;
+                next.set(n.id, { ...n, graph_x: n.graph_x ?? x, graph_y: n.graph_y ?? y });
+                if (n.graph_x == null) patch.push({ id: n.id, x, y });
+                changed = true;
+              }
+            }
+
+            if (!changed) return prev;
+            nodesRef.current = next;
+            if (patch.length > 0) patchPositions(api, patch).catch(() => {});
+            return { ...prev, nodes: next, edges: resp.edges, stats: resp.stats };
+          });
+        })
+        .catch(() => {});
+    };
+
+    const debouncedRefresh = () => {
+      if (debounceTimer != null) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(refresh, 800);
+    };
+
+    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+    if (isTauri) {
+      listen<{ op: string }>("mem-activity", (ev) => {
+        if (!active) return;
+        const op = ev.payload?.op;
+        if (op === "write" || op === "update" || op === "delete") {
+          debouncedRefresh();
+        }
+      }).then((fn) => {
+        if (!active) { fn(); return; }
+        unlisten = fn;
+      }).catch(() => {});
+    }
+
+    return () => {
+      active = false;
+      if (unlisten) unlisten();
+      if (debounceTimer != null) clearTimeout(debounceTimer);
+    };
+  }, [api]);
 
   return { ...state, updateNode, bulkUpdatePositions, removeNode, flushDirty };
 }

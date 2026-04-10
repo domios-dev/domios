@@ -218,6 +218,58 @@ impl ActionStyle {
     }
 }
 
+// ── Reusable settings schema builders ───────────────────────────────
+//
+// Shared across providers to avoid duplicating identical UI sections.
+
+/// Build the "Session Resume" settings section common to all providers.
+/// `skip_flag` is the provider-specific CLI flag for skipping approvals.
+pub fn session_resume_section(description: &str, skip_flag: &str) -> SettingField {
+    SettingField::Section {
+        title: "Session Resume".into(),
+        description: Some(description.into()),
+        fields: vec![
+            SettingField::Toggle {
+                key: "resume_sessions".into(),
+                label: "Resume previous sessions".into(),
+                default: true,
+                description: None,
+            },
+            SettingField::Toggle {
+                key: "resume_skip_permissions".into(),
+                label: format!("Resume with {}", skip_flag),
+                default: true,
+                description: None,
+            },
+            SettingField::When {
+                field: "resume_skip_permissions".into(),
+                equals: serde_json::Value::Bool(true),
+                then: vec![SettingField::Info {
+                    title: None,
+                    body: "⚠ Agent will run without asking for tool approvals. Use with caution."
+                        .into(),
+                    level: NoteLevel::Warn,
+                }],
+            },
+        ],
+    }
+}
+
+/// Build the "Model" settings section from a provider's available models.
+pub fn model_select_section(description: &str, models: Vec<ModelInfo>, default: Option<&str>) -> SettingField {
+    SettingField::Section {
+        title: "Model".into(),
+        description: Some(description.into()),
+        fields: vec![SettingField::Select {
+            key: "default_model".into(),
+            label: "Default model".into(),
+            options: models.into_iter().map(|m| (m.id, m.display_name)).collect(),
+            default: default.map(|s| s.to_string()),
+            description: None,
+        }],
+    }
+}
+
 /// Wire format describing one agent provider to the frontend.
 /// Built from the trait via `AgentProvider::describe()`.
 ///
@@ -337,6 +389,16 @@ pub trait AgentProvider: Send + Sync {
     /// Flags to pass to the CLI so the agent auto-approves tool calls.
     fn auto_approve_flags(&self) -> Vec<String> {
         Vec::new()
+    }
+
+    /// CLI flags to select a specific model at launch time.
+    /// Each provider knows its own flag format (e.g. `--model haiku` for Claude,
+    /// `-m gpt-5.4-mini` for Codex). Returns empty vec if model is empty/default.
+    fn model_launch_args(&self, model: &str) -> Vec<String> {
+        if model.is_empty() {
+            return Vec::new();
+        }
+        vec!["--model".into(), model.into()]
     }
 
     /// In-agent command that triggers context compaction, if supported.

@@ -49,9 +49,10 @@ function aggregateStatus(
 interface SidebarProps {
   onOpenSettings?: () => void;
   onOpenMemory?: () => void;
+  onNavigateToTab?: () => void;
 }
 
-export function Sidebar({ onOpenSettings, onOpenMemory }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onOpenMemory, onNavigateToTab }: SidebarProps) {
   const {
     state,
     createWorkspace,
@@ -288,7 +289,7 @@ export function Sidebar({ onOpenSettings, onOpenMemory }: SidebarProps) {
                       return (
                         <button
                           key={tab.id}
-                          onClick={() => { setActiveWorkspace(ws.id); setActiveTab(ws.id, tab.id); }}
+                          onClick={() => { setActiveWorkspace(ws.id); setActiveTab(ws.id, tab.id); onNavigateToTab?.(); }}
                           className={`w-8 h-7 flex items-center justify-center rounded transition-colors ${
                             isTabActive
                               ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
@@ -403,6 +404,7 @@ export function Sidebar({ onOpenSettings, onOpenMemory }: SidebarProps) {
                               onClick={() => {
                                 setActiveWorkspace(ws.id);
                                 setActiveTab(ws.id, tab.id);
+                                onNavigateToTab?.();
                               }}
                               onClose={() => animatedCloseTab(ws.id, tab.id)}
                               canClose={true}
@@ -459,7 +461,7 @@ export function Sidebar({ onOpenSettings, onOpenMemory }: SidebarProps) {
                       <span className="text-[11px]">New session</span>
                     </button>
                     {/* Cron jobs section */}
-                    <CronSection workspaceId={ws.id} />
+                    <CronSection workspaceId={ws.id} onNavigateToTab={onNavigateToTab} />
                   </>
                   </div>
                 </div>
@@ -475,7 +477,7 @@ export function Sidebar({ onOpenSettings, onOpenMemory }: SidebarProps) {
                         tab={activeTab}
                         index={0}
                         isActive={true}
-                        onClick={() => setActiveTab(ws.id, activeTab.id)}
+                        onClick={() => { setActiveTab(ws.id, activeTab.id); onNavigateToTab?.(); }}
                         onClose={() => animatedCloseTab(ws.id, activeTab.id)}
                         canClose={true}
                         paneCount={atPids.length}
@@ -1114,7 +1116,7 @@ function TabItem({
 
 
 
-function CronSection({ workspaceId }: { workspaceId: string }) {
+function CronSection({ workspaceId, onNavigateToTab }: { workspaceId: string; onNavigateToTab?: () => void }) {
   const { crons, runHistory, update, remove } = useCrons();
   const { setActiveWorkspace, setActiveTab, state } = useMultiplexer();
   const [expanded, setExpanded] = useState(true);
@@ -1150,6 +1152,7 @@ function CronSection({ workspaceId }: { workspaceId: string }) {
                   if (pids.includes(paneId)) {
                     setActiveWorkspace(ws.id);
                     setActiveTab(ws.id, tab.id);
+                    onNavigateToTab?.();
                     return;
                   }
                 }

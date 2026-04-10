@@ -96,9 +96,9 @@ pub async fn mem_search(
         area: p.area,
         limit: p.limit,
     };
+    // Always use RRF hybrid (FTS5 + vector fusion) for best recall.
+    // Falls back gracefully when one backend has no results.
     let hits = if p.rerank.unwrap_or(false) {
-        // "auto" precedence: local fastembed cross-encoder first (truly free,
-        // no API key, runs offline). Then API providers if keys are in env.
         let cfg = RerankConfig {
             enabled: true,
             provider: "auto".into(),
@@ -108,7 +108,7 @@ pub async fn mem_search(
         state.svc.mem.search_with_rerank(&q, &cfg)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
     } else {
-        state.svc.mem.search(&q)
+        state.svc.mem.recall(&q)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
     };
     let ids: Vec<String> = hits.iter().map(|h| h.item.id.clone()).collect();
@@ -164,6 +164,9 @@ pub async fn mem_save(
     let kind = MemKind::from_str(&body.kind)
         .ok_or((StatusCode::BAD_REQUEST, format!("unknown kind: {}", body.kind)))?;
     let scope = body.scope.map(|s| MemScope::from_str(&s)).unwrap_or(MemScope::Global);
+    // Check BEFORE moving fields — prevents extraction cascade
+    let is_auto_extracted = body.tags.iter().any(|t| t == "auto-extracted")
+        || body.source.as_deref().map_or(false, |s| s.starts_with("extracted_from:"));
     let item = NewMemItem {
         kind,
         scope,
@@ -175,12 +178,35 @@ pub async fn mem_save(
         source: body.source,
         importance: body.importance.unwrap_or(3.0),
     };
+    let title_clone = item.title.clone();
+    let body_clone = item.body.clone();
+    let kind_for_extract = item.kind;
     let id = if body.replace {
         state.svc.mem.save_replace(item)
     } else {
         state.svc.mem.save(item)
     }.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "write", vec![id.clone()]);
+
+    // Auto-extraction: spawn a headless graph-worker to extract entities/relations
+    // via claude --model haiku. Fire-and-forget, non-blocking.
+    // SKIP for items that are themselves auto-extracted (prevents cascade)
+    // or if auto-extraction is disabled in config.
+    let auto_extract_enabled = crate::config::memory_config().auto_extract;
+    if !is_auto_extracted && auto_extract_enabled {
+        let svc = state.svc.clone();
+        let id_for_extract = id.clone();
+        std::thread::spawn(move || {
+            crate::mem::auto_extract::spawn_extraction_worker(
+                &svc,
+                id_for_extract,
+                title_clone,
+                body_clone,
+                kind_for_extract,
+            );
+        });
+    }
+
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
@@ -193,6 +219,18 @@ pub async fn mem_delete(
     let removed = state.svc.mem.delete(&id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "delete", vec![id.clone()]);
     Ok(Json(serde_json::json!({ "deleted": removed })))
+}
+
+pub async fn mem_forget_area(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(area): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let count = state.svc.mem.delete_by_area(&area)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    emit_activity(&state, &headers, "delete", vec![format!("area:{}", area)]);
+    Ok(Json(serde_json::json!({ "deleted": count, "area": area })))
 }
 
 #[derive(Deserialize)]
@@ -579,14 +617,29 @@ pub async fn workers_spawn(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
 
     let worker_id = workers::new_worker_id();
-    let agent = b.agent.clone().unwrap_or_else(|| "claude".to_string());
+    let mem_cfg = crate::config::memory_config();
+    let agent = b.agent.clone().unwrap_or_else(|| {
+        if mem_cfg.extraction_agent.is_empty() {
+            crate::config::default_agent_provider()
+        } else {
+            mem_cfg.extraction_agent.clone()
+        }
+    });
     let parent = b.parent.clone().unwrap_or_else(|| "user:memory-panel".to_string());
     let task = workers::build_worker_task(&b.intent, &worker_id, &b.task);
 
+    // Ask the provider how to pass the model — no provider-specific branches here
+    let model_args: Option<Vec<String>> = {
+        let args = state.svc.agent_registry
+            .with_provider(&agent, |p| p.model_launch_args(&mem_cfg.extraction_model))
+            .unwrap_or_default();
+        if args.is_empty() { None } else { Some(args) }
+    };
+
     let params = SpawnAgentParams {
-        agent: Some(agent),
+        agent: Some(agent.clone()),
         agent_name: Some(format!("worker:{}", b.intent)),
-        args: None,
+        args: model_args,
         cwd: None,
         title: Some(format!("worker:{}", b.intent)),
         role: None,
@@ -605,26 +658,53 @@ pub async fn workers_spawn(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
+    // Set worker_id immediately but defer hidden until PTY is ready.
+    // Frontend must see the pane to create xterm and spawn PTY.
     {
         let mut mux = state.svc.mux.lock();
         if let Some(pane) = mux.get_pane_mut(&result.pane_id) {
-            pane.hidden = true;
-            pane.show_in_tabbar = false;
             pane.worker_id = Some(worker_id.clone());
         }
     }
 
     let color = state.svc.workers.pick_color();
-    let info = workers::make_info(
+    let mut info = workers::make_info(
         worker_id.clone(),
         result.pane_id.clone(),
         b.intent.clone(),
         parent,
         color,
     );
+    info.agent_provider = Some(agent);
+    if !mem_cfg.extraction_model.is_empty() {
+        info.model = Some(mem_cfg.extraction_model.clone());
+    }
     state.svc.workers.register(info.clone());
 
     let _ = state.svc.app_handle.emit("graph-worker-spawned", &info);
+
+    // Hide pane after PTY is ready (background task)
+    let svc = state.svc.clone();
+    let pane_id = result.pane_id.clone();
+    tokio::spawn(async move {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        loop {
+            if std::time::Instant::now() > deadline { break; }
+            let has_pty = svc.mux.lock()
+                .get_pane(&pane_id)
+                .and_then(|p| p.pty_id.clone())
+                .is_some();
+            if has_pty {
+                let mut mux = svc.mux.lock();
+                if let Some(pane) = mux.get_pane_mut(&pane_id) {
+                    pane.hidden = true;
+                    pane.show_in_tabbar = false;
+                }
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    });
 
     Ok(Json(serde_json::json!({
         "worker_id": worker_id,
@@ -677,12 +757,41 @@ pub async fn workers_report(
     Json(b): Json<WorkerReportBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    // Capture full PTY output before completing (pane will be closed soon)
+    let worker_pane_id = state.svc.workers.get(&id).map(|w| w.pane_id.clone());
+    let pty_id = worker_pane_id.as_ref().and_then(|pid| {
+        state.svc.mux.lock().get_pane(pid).and_then(|p| p.pty_id.clone())
+    });
+
+    if let Some(ref pty_id) = pty_id {
+        let output = state.svc.output_buf.lock().get_full_text(pty_id).unwrap_or_default();
+        if !output.is_empty() {
+            match workers::save_worker_log(&id, &output) {
+                Ok(path) => {
+                    state.svc.workers.set_log_path(&id, path.display().to_string());
+                }
+                Err(e) => log::warn!("[graph-workers] save log: {}", e),
+            }
+        }
+    }
+
     let info = state
         .svc
         .workers
         .complete(&id, b.summary)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     let _ = state.svc.app_handle.emit("graph-worker-reported", &info);
+
+    // Auto-close the pane after a short delay to let output flush.
+    let svc = state.svc.clone();
+    let pane_id = info.pane_id.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        if let Err(e) = svc.close_pane(&pane_id) {
+            log::warn!("[graph-workers] auto-close pane {}: {}", pane_id, e);
+        }
+    });
+
     Ok(Json(serde_json::json!({ "ok": true, "info": info })))
 }
 
@@ -702,4 +811,38 @@ pub async fn workers_kill(
     }
     let _ = state.svc.app_handle.emit("graph-worker-done", &info);
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn workers_log(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<(StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String), (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+
+    let worker = state.svc.workers.get(&id)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("worker not found: {}", id)))?;
+
+    // If still running, return live PTY output via VT100 parser
+    if !worker.status.is_terminal() {
+        let pty_id = state.svc.mux.lock()
+            .get_pane(&worker.pane_id)
+            .and_then(|p| p.pty_id.clone());
+        if let Some(pty_id) = pty_id {
+            let output = state.svc.output_buf.lock()
+                .get_full_text(&pty_id)
+                .unwrap_or_default();
+            let clean = crate::pty::ansi::clean_terminal_output_sized(&output, 500, 120);
+            return Ok((StatusCode::OK, [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], clean));
+        }
+    }
+
+    // Done — read from saved log file
+    if let Some(ref path) = worker.log_path {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("read log: {}", e)))?;
+        return Ok((StatusCode::OK, [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], content));
+    }
+
+    Err((StatusCode::NOT_FOUND, "no log available".into()))
 }

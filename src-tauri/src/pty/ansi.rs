@@ -44,7 +44,11 @@ pub fn strip_ansi_codes(s: &str) -> String {
 }
 
 pub fn clean_terminal_output(raw: &str) -> String {
-    let mut parser = vt100::Parser::new(500, 200, 10000);
+    clean_terminal_output_sized(raw, 500, 200)
+}
+
+pub fn clean_terminal_output_sized(raw: &str, rows: u16, cols: u16) -> String {
+    let mut parser = vt100::Parser::new(rows, cols, 10000);
     parser.process(raw.as_bytes());
     parser.screen().contents()
 }

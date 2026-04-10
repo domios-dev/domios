@@ -7,22 +7,13 @@ import type {
 } from "../../lib/types";
 import { useGraphWorkers } from "./useGraphWorkers";
 import { MemorySpawnWorkerDialog } from "./MemorySpawnWorkerDialog";
+import { WorkerLogPopup } from "./WorkerLogPopup";
 
 interface Props {
   api: ApiConfig;
   onOpenWorker: (worker: GraphWorkerInfo) => void;
   onClose: () => void;
 }
-
-const STATUS_FILL: Record<GraphWorkerStatus, number> = {
-  starting: 1,
-  reading: 2,
-  analyzing: 3,
-  writing: 4,
-  done: 5,
-  error: 5,
-  orphaned: 0,
-};
 
 const STATUS_COLOR: Record<GraphWorkerStatus, string> = {
   starting: "var(--ct-muted-fg, #888)",
@@ -34,116 +25,84 @@ const STATUS_COLOR: Record<GraphWorkerStatus, string> = {
   orphaned: "var(--ct-muted, #555)",
 };
 
-function ProgressBar({ status }: { status: GraphWorkerStatus }) {
-  const fill = STATUS_FILL[status];
-  const color = STATUS_COLOR[status];
-  const cells: React.ReactNode[] = [];
-  for (let i = 0; i < 5; i++) {
-    cells.push(
-      <div
-        key={i}
-        className="flex-1 h-1.5 rounded-[1px]"
-        style={{ background: i < fill ? color : "var(--ct-border)" }}
-      />,
-    );
-  }
-  return <div className="flex gap-0.5">{cells}</div>;
-}
+const STATUS_ICON: Record<GraphWorkerStatus, string> = {
+  starting: "◌",
+  reading: "◑",
+  analyzing: "◕",
+  writing: "◉",
+  done: "✓",
+  error: "✕",
+  orphaned: "○",
+};
 
-interface BubbleProps {
+interface RowProps {
   worker: GraphWorkerInfo;
   onOpen: () => void;
   onKill: () => void;
 }
 
-const WorkerBubble = memo(function WorkerBubble({
-  worker,
-  onOpen,
-  onKill,
-}: BubbleProps) {
-  const [expanded, setExpanded] = useState(false);
+const WorkerRow = memo(function WorkerRow({ worker, onOpen, onKill }: RowProps) {
   const isDone =
     worker.status === "done" ||
     worker.status === "error" ||
     worker.status === "orphaned";
 
+  const intent = worker.intent.replace(/^extract:/, "");
+
   return (
-    <div
-      className="border border-[var(--ct-border)] rounded-md p-2.5 mb-2 bg-[var(--ct-surface)] text-[11px]"
-      style={{ opacity: isDone ? 0.6 : 1 }}
-    >
-      <div className="flex items-center gap-1.5 mb-1.5">
-        <span
-          className="w-2 h-2 rounded-full shrink-0"
-          style={{ background: worker.color }}
-        />
-        <span
-          className="flex-1 font-mono text-[10px] text-[var(--ct-muted-fg)] overflow-hidden text-ellipsis whitespace-nowrap"
-          title={worker.worker_id}
-        >
-          {worker.worker_id}
-        </span>
-        <button
-          onClick={onKill}
-          className="bg-transparent border-0 text-[var(--ct-muted-fg)] cursor-pointer text-xs px-1"
-          title="Kill worker"
-        >
-          ✕
-        </button>
-      </div>
-      <div className="mb-1">
-        <span className="text-[var(--ct-muted-fg)]">Intent: </span>
-        <span>{worker.intent}</span>
-      </div>
-      <div className="mb-1.5">
-        <div className="flex justify-between mb-[3px]">
-          <span className="text-[var(--ct-muted-fg)]">Status</span>
-          <span style={{ color: STATUS_COLOR[worker.status] }}>{worker.status}</span>
-        </div>
-        <ProgressBar status={worker.status} />
-      </div>
-      {worker.progress_text && (
-        <div className="mb-1 text-[var(--ct-muted-fg)]">{worker.progress_text}</div>
-      )}
-      <div className="text-[var(--ct-muted-fg)] mb-0.5">By: {worker.spawned_by}</div>
-      <div className="text-[var(--ct-muted-fg)] mb-2">
-        Touched: {worker.touched_nodes.length}
-      </div>
-      <button
+    <div style={{ opacity: isDone ? 0.55 : 1 }}>
+      <div
+        className="flex items-center gap-1.5 px-2 py-[5px] cursor-pointer rounded hover:bg-[var(--ct-hover-bg)]"
         onClick={onOpen}
-        className="w-full bg-transparent border border-[var(--ct-border)] text-inherit px-2 py-1 rounded text-[11px] cursor-pointer"
+        title={isDone ? "View log" : "View live output"}
       >
-        → Open terminal
-      </button>
-      {worker.report && (
-        <div className="mt-2">
+        <span
+          className="shrink-0 text-[10px] w-3 text-center"
+          style={{ color: worker.color }}
+        >
+          {STATUS_ICON[worker.status]}
+        </span>
+        <span className="flex-1 text-[11px] overflow-hidden text-ellipsis whitespace-nowrap min-w-0">
+          {intent}
+        </span>
+        {worker.model && (
+          <span className="text-[9px] text-[var(--ct-muted-fg)] shrink-0">
+            {worker.model}
+          </span>
+        )}
+        <span
+          className="text-[9px] px-1.5 py-[1px] rounded-full shrink-0"
+          style={{
+            color: STATUS_COLOR[worker.status],
+            border: `1px solid ${STATUS_COLOR[worker.status]}`,
+          }}
+        >
+          {worker.status}
+        </span>
+        {!isDone && (
           <button
-            onClick={() => setExpanded((v) => !v)}
-            className="bg-transparent border-0 text-[var(--ct-accent)] cursor-pointer text-[11px] p-0"
+            onClick={(e) => { e.stopPropagation(); onKill(); }}
+            className="bg-transparent border-0 text-[var(--ct-muted-fg)] cursor-pointer text-[10px] px-0.5 hover:text-[var(--ct-red)]"
+            title="Kill"
           >
-            {expanded ? "▼" : "▶"} Report
+            ✕
           </button>
-          {expanded && (
-            <pre className="mt-1 p-1.5 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded text-[10px] whitespace-pre-wrap break-words max-h-[200px] overflow-auto">
-              {worker.report}
-            </pre>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 });
 
-function MemoryWorkerPanelImpl({ api, onOpenWorker, onClose }: Props) {
+function MemoryWorkerPanelImpl({ api, onClose }: Props) {
   const { workers, loading, error, spawn, kill, refresh } = useGraphWorkers(api);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [logWorker, setLogWorker] = useState<GraphWorkerInfo | null>(null);
 
   const handleSpawn = async (req: SpawnWorkerReq) => {
     await spawn(req);
   };
 
   const handleKill = async (workerId: string) => {
-    if (!window.confirm(`Kill worker ${workerId}?`)) return;
     try {
       await kill(workerId);
       await refresh();
@@ -157,8 +116,8 @@ function MemoryWorkerPanelImpl({ api, onOpenWorker, onClose }: Props) {
 
   return (
     <>
-      <div className="absolute top-0 right-0 bottom-0 w-[300px] flex flex-col z-20 bg-[var(--ct-sidebar-bg)] border-l border-[var(--ct-border)] text-[var(--ct-fg)]">
-        <div className="px-3 py-2.5 border-b border-[var(--ct-border)] flex items-center justify-between gap-2">
+      <div className="absolute top-0 right-0 bottom-0 w-[260px] flex flex-col z-20 bg-[var(--ct-sidebar-bg)] border-l border-[var(--ct-border)] text-[var(--ct-fg)]">
+        <div className="px-3 py-2 border-b border-[var(--ct-border)] flex items-center justify-between gap-2">
           <strong className="text-xs">Workers ({workers.length})</strong>
           <div className="flex gap-1">
             <button onClick={() => setDialogOpen(true)} className={btnClass} title="Spawn worker">
@@ -169,28 +128,28 @@ function MemoryWorkerPanelImpl({ api, onOpenWorker, onClose }: Props) {
             </button>
           </div>
         </div>
-        <div className="flex-1 overflow-auto p-2.5">
+        <div className="flex-1 overflow-auto py-1">
           {loading && (
-            <div className="text-[11px] text-[var(--ct-muted-fg)]">Loading…</div>
+            <div className="text-[11px] text-[var(--ct-muted-fg)] px-3 py-2">Loading…</div>
           )}
           {error && !loading && (
-            <div className="p-2 bg-[var(--ct-red)] text-white rounded text-[11px] mb-2">
-              <div>{error}</div>
+            <div className="p-2 mx-2 bg-[var(--ct-red)] text-white rounded text-[11px] mb-1">
+              {error}
               <button onClick={() => refresh()} className={`${btnClass} mt-1 !text-white`}>
                 Retry
               </button>
             </div>
           )}
           {!loading && !error && workers.length === 0 && (
-            <div className="text-[11px] text-[var(--ct-muted-fg)] text-center p-5">
+            <div className="text-[11px] text-[var(--ct-muted-fg)] text-center py-6">
               No workers yet — spawn one
             </div>
           )}
           {workers.map((w) => (
-            <WorkerBubble
+            <WorkerRow
               key={w.worker_id}
               worker={w}
-              onOpen={() => onOpenWorker(w)}
+              onOpen={() => setLogWorker(w)}
               onKill={() => handleKill(w.worker_id)}
             />
           ))}
@@ -200,6 +159,13 @@ function MemoryWorkerPanelImpl({ api, onOpenWorker, onClose }: Props) {
         <MemorySpawnWorkerDialog
           onSpawn={handleSpawn}
           onClose={() => setDialogOpen(false)}
+        />
+      )}
+      {logWorker && (
+        <WorkerLogPopup
+          worker={logWorker}
+          api={api}
+          onClose={() => setLogWorker(null)}
         />
       )}
     </>

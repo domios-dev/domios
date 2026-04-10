@@ -88,6 +88,12 @@ const DEFAULT_CONFIG: AppConfig = {
     max_restart_attempts: 3,
     restart_delay_s: 60,
   },
+  memory: {
+    extraction_agent: "",
+    extraction_model: "haiku",
+    auto_extract: true,
+    dreaming_enabled: true,
+  },
   integrations: {
     telegram_enabled: false,
     telegram_allowed_users: [],
