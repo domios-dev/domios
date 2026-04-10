@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import type { ApiConfig, CronJob, CronRunInfo, CronRunStatus } from "../../lib/types";
+import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
 import { baseUrl, authHeaders } from "./memoryApi";
+import { WorkerLogPopup } from "./WorkerLogPopup";
 
 interface Props {
   api: ApiConfig;
@@ -52,14 +53,6 @@ function formatDateTime(ms: number): string {
   });
 }
 
-function statusColor(status: CronRunStatus): string {
-  switch (status) {
-    case "Success": return "#10b981";
-    case "Failed": return "#ef4444";
-    case "Running": return "#eab308";
-  }
-}
-
 function parseDreamStats(body: string): { promoted: number; expired: number } {
   let promoted = 0;
   let expired = 0;
@@ -73,7 +66,8 @@ function parseDreamStats(body: string): { promoted: number; expired: number } {
 function MemoryDreamsTabImpl({ api }: Props) {
   const [dreamCron, setDreamCron] = useState<CronJob | null>(null);
   const [cronLoading, setCronLoading] = useState(true);
-  const [history, setHistory] = useState<CronRunInfo[]>([]);
+  const [dreamWorkers, setDreamWorkers] = useState<GraphWorkerInfo[]>([]);
+  const [logWorker, setLogWorker] = useState<GraphWorkerInfo | null>(null);
   const [diaryEntries, setDiaryEntries] = useState<DreamDiaryEntry[]>([]);
   const [diaryLoading, setDiaryLoading] = useState(true);
   const mountedRef = useRef(true);
@@ -85,25 +79,23 @@ function MemoryDreamsTabImpl({ api }: Props) {
   const fetchCronData = useCallback(async () => {
     setCronLoading(true);
     try {
+      // Fetch cron info (next run, enabled status)
       const res = await fetch(`${baseUrl(api)}/api/crons`, { headers: authHeaders(api) });
-      if (!res.ok) return;
-      const jobs = (await res.json()) as CronJob[];
-      const dream = jobs.find(j => j.name === "mem-dreaming-auto") ?? null;
-      if (!mountedRef.current) return;
-      setDreamCron(dream);
-
-      if (dream) {
-        const histRes = await fetch(`${baseUrl(api)}/api/crons/${encodeURIComponent(dream.id)}/history`, {
-          headers: authHeaders(api),
-        });
-        if (histRes.ok && mountedRef.current) {
-          const runs = (await histRes.json()) as CronRunInfo[];
-          runs.sort((a, b) => b.started_at - a.started_at);
-          setHistory(runs);
-        }
+      if (res.ok && mountedRef.current) {
+        const jobs = (await res.json()) as CronJob[];
+        setDreamCron(jobs.find(j => j.name === "mem-dreaming-auto") ?? null);
+      }
+      // Fetch dream workers (run history)
+      const wRes = await fetch(`${baseUrl(api)}/api/mem/workers`, { headers: authHeaders(api) });
+      if (wRes.ok && mountedRef.current) {
+        const workers = (await wRes.json()) as GraphWorkerInfo[];
+        const dreamRuns = workers
+          .filter(w => w.intent.startsWith("dreaming:"))
+          .sort((a, b) => b.spawned_at - a.spawned_at);
+        setDreamWorkers(dreamRuns);
       }
     } catch {
-      // network error, leave defaults
+      // network error
     } finally {
       if (mountedRef.current) setCronLoading(false);
     }
@@ -213,45 +205,49 @@ function MemoryDreamsTabImpl({ api }: Props) {
           </section>
         )}
 
-        {/* Run history */}
+        {/* Run history (from workers) */}
         <section>
           <h3 className="text-xs font-semibold text-[var(--ct-muted-fg)] uppercase tracking-wider mb-2">
             Run History
           </h3>
-          {history.length === 0 && !cronLoading && (
+          {dreamWorkers.length === 0 && !cronLoading && (
             <div className="text-xs text-[var(--ct-muted-fg)]">No dream runs yet</div>
           )}
           <div className="space-y-1">
-            {history.map(run => (
-              <div
-                key={run.run_id}
-                className="flex items-center gap-2.5 px-3 py-1.5 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)]"
-              >
-                <span
-                  className="px-1.5 py-px rounded-[3px] text-[10px] font-semibold uppercase tracking-[0.3px] w-[58px] text-center shrink-0"
-                  style={{
-                    background: `${statusColor(run.status)}22`,
-                    color: statusColor(run.status),
-                  }}
+            {dreamWorkers.map(w => {
+              const isDone = w.status === "done" || w.status === "error" || w.status === "orphaned";
+              const color = w.status === "done" ? "#10b981" : w.status === "error" ? "#ef4444" : "#eab308";
+              const dur = isDone && w.done_at ? formatDuration(w.spawned_at, w.done_at) : "";
+              return (
+                <div
+                  key={w.worker_id}
+                  className="flex items-center gap-2.5 px-3 py-1.5 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)] cursor-pointer hover:border-[var(--ct-accent)]"
+                  onClick={() => setLogWorker(w)}
                 >
-                  {run.status}
-                </span>
-                <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
-                  {formatDateTime(run.started_at)}
-                </span>
-                {run.finished_at && (
-                  <span className="text-[10px] text-[var(--ct-muted-fg)] ml-auto tabular-nums">
-                    {formatDuration(run.started_at, run.finished_at)}
+                  <span
+                    className="px-1.5 py-px rounded-[3px] text-[10px] font-semibold uppercase w-[58px] text-center shrink-0"
+                    style={{ background: `${color}22`, color }}
+                  >
+                    {w.status}
                   </span>
-                )}
-                {!run.finished_at && run.status === "Running" && (
-                  <span className="text-[10px] text-[#eab308] ml-auto flex items-center gap-1">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#eab308] animate-pulse" />
-                    running
+                  <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
+                    {formatDateTime(w.spawned_at)}
                   </span>
-                )}
-              </div>
-            ))}
+                  {w.model && (
+                    <span className="text-[9px] text-[var(--ct-muted-fg)]">{w.model}</span>
+                  )}
+                  {dur && (
+                    <span className="text-[10px] text-[var(--ct-muted-fg)] ml-auto tabular-nums">{dur}</span>
+                  )}
+                  {!isDone && (
+                    <span className="text-[10px] ml-auto flex items-center gap-1" style={{ color }}>
+                      <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: color }} />
+                      running
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
 
@@ -294,6 +290,9 @@ function MemoryDreamsTabImpl({ api }: Props) {
           )}
         </section>
       </div>
+      {logWorker && (
+        <WorkerLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
+      )}
     </div>
   );
 }

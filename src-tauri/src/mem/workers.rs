@@ -318,6 +318,117 @@ pub fn make_info(
     }
 }
 
+/// Spawn a fully headless worker: hidden pane, backend PTY, backend reader.
+/// Used by extraction workers and dreaming. Returns worker_id or error.
+pub fn spawn_headless(
+    svc: &Arc<crate::service::ServiceContext>,
+    intent: String,
+    task_prompt: String,
+    spawned_by: String,
+    agent_provider: String,
+    model: String,
+) -> Result<String, String> {
+    let worker_id = new_worker_id();
+    let task = build_worker_task(&intent, &worker_id, &task_prompt);
+
+    // Find workspace
+    let ws_id = svc.mux.lock()
+        .list_workspaces().first().map(|w| w.id.clone())
+        .ok_or("no workspace")?;
+    let ws_cwd = svc.mux.lock()
+        .get_workspace(&ws_id).and_then(|ws| ws.cwd.clone());
+
+    // Create hidden pane
+    let (_tab_id, pane_id) = {
+        let mut mux = svc.mux.lock();
+        let result = mux.create_tab(&ws_id)?;
+        if let Some(pane) = mux.get_pane_mut(&result.1) {
+            pane.hidden = true;
+            pane.show_in_tabbar = false;
+            pane.worker_id = Some(worker_id.clone());
+            pane.auto_approve = true;
+        }
+        result
+    };
+
+    // Spawn PTY
+    let mut env_vars: HashMap<String, String> = HashMap::new();
+    env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
+    env_vars.insert("CODETERM_WORKER_ID".into(), worker_id.clone());
+    env_vars.insert("CODETERM_SOCKET_PATH".into(), crate::socket::server::socket_display_path());
+    let api_cfg = crate::config::load_config().api;
+    let host = if api_cfg.host == "0.0.0.0" { "127.0.0.1".to_string() } else { api_cfg.host.clone() };
+    env_vars.insert("CODETERM_API_URL".into(), format!("http://{}:{}", host, api_cfg.port));
+    if let Some(ref tok) = api_cfg.token {
+        env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
+    }
+
+    let pty_id = svc.pty.lock()
+        .spawn(None, ws_cwd, 120, 40, env_vars)
+        .map(|(id, _)| id)?;
+
+    svc.mux.lock().link_pty(&pane_id, pty_id.clone());
+    svc.emit_state_changed();
+
+    // Resolve model args
+    let agent_registry = svc.agent_registry.clone();
+    let model_args: Vec<String> = agent_registry
+        .with_provider(&agent_provider, |p| p.model_launch_args(&model))
+        .unwrap_or_default();
+
+    // Register worker
+    let color = svc.workers.pick_color();
+    let mut info = make_info(worker_id.clone(), pane_id.clone(), intent, spawned_by, color);
+    info.agent_provider = Some(agent_provider.clone());
+    if !model.is_empty() {
+        info.model = Some(model);
+    }
+    svc.workers.register(info.clone());
+    let _ = tauri::Emitter::emit(&svc.app_handle, "graph-worker-spawned", &info);
+
+    log::info!("[worker] headless {} pane={} pty={}", worker_id, pane_id, pty_id);
+
+    // Background: reader + launch agent
+    let svc2 = svc.clone();
+    let pane_id2 = pane_id.clone();
+    let pty_id2 = pty_id.clone();
+    std::thread::spawn(move || {
+        let svc3 = svc2.clone();
+        let pty_id3 = pty_id2.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all().build().expect("backend reader runtime");
+            rt.block_on(async {
+                match crate::service::pty_lifecycle::start_backend_reader(&svc3, &pty_id3) {
+                    Ok(handle) => { let _ = handle.await; }
+                    Err(e) => log::warn!("[worker] backend reader: {}", e),
+                }
+            });
+        });
+
+        crate::service::pty_io::poll_shell_prompt(
+            &svc2.screen_state, &pty_id2,
+            std::time::Duration::from_secs(10),
+        );
+
+        let launch_params = crate::agent::provider::AgentLaunchParams {
+            agent_name: None,
+            task: Some(task),
+            args: if model_args.is_empty() { None } else { Some(model_args) },
+            skip_permissions: true,
+        };
+        let launch_cmd = agent_registry
+            .with_provider(&agent_provider, |p| p.build_launch_command(&launch_params))
+            .unwrap_or_else(|| format!("{} --dangerously-skip-permissions", agent_provider));
+
+        if let Err(e) = svc2.send_text(&pane_id2, &launch_cmd, true) {
+            log::error!("[worker] send launch cmd: {}", e);
+        }
+    });
+
+    Ok(worker_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

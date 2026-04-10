@@ -231,12 +231,45 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
     }
 }
 
-/// Run SQL phases (light + deep). The dream agent handles diary + REM.
+/// Run SQL phases (light + deep), then spawn headless REM worker.
 pub fn run_all(mem: &MemManager) -> Result<Vec<DreamReport>, String> {
     let mut out = Vec::new();
     out.push(light_phase(mem)?);
     out.push(deep_phase(mem)?);
     Ok(out)
+}
+
+/// Spawn a headless dreaming worker for REM phase (dedup, classify, insights, diary).
+/// Called after `run_all` completes SQL phases.
+pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
+    let mem_cfg = crate::config::memory_config();
+    let agent = if mem_cfg.dreaming_agent.is_empty() {
+        crate::config::default_agent_provider()
+    } else {
+        mem_cfg.dreaming_agent.clone()
+    };
+    let model = mem_cfg.dreaming_model.clone();
+
+    let rem_prompt = concat!(
+        "Optimize the memory store. Steps:\n",
+        "1. codeterm mem search \"\" --limit 50  (scan items, note areas and titles)\n",
+        "2. For items without area: codeterm mem get <id>, determine area, codeterm mem update <id> --area <area>\n",
+        "3. For items with very similar titles and same kind: read both (codeterm mem get), delete lower importance one\n",
+        "4. If 2+ items about same topic: codeterm mem save --kind fact --title \"insight: <pattern>\" --tags dream-insight --area <area> \"<meaning>\"\n",
+        "5. codeterm mem save --kind daily --title \"dream: YYYY-MM-DD\" --tags dream-diary --area _dreams \"<80-150 word reflection on what was optimized>\"\n",
+    );
+
+    match super::workers::spawn_headless(
+        svc,
+        "dreaming:rem".into(),
+        rem_prompt.into(),
+        "system:dreaming".into(),
+        agent,
+        model,
+    ) {
+        Ok(wid) => log::info!("[dreaming] REM worker spawned: {}", wid),
+        Err(e) => log::error!("[dreaming] REM worker spawn failed: {}", e),
+    }
 }
 
 /// Marker name for the auto-installed dreaming cron job. Used to
@@ -245,16 +278,7 @@ pub const DREAMING_CRON_NAME: &str = "mem-dreaming-auto";
 
 /// The nightly optimizer task. First runs SQL phases (light + deep),
 /// then spawns a graph worker for intelligent optimization.
-const DREAMING_TASK: &str = concat!(
-    "Run nightly memory optimization.\n",
-    "1. codeterm mem dream\n",
-    "2. codeterm mem search \"\" --limit 50  (scan all items, note areas and titles)\n",
-    "3. For items without area: codeterm mem get <id>, then codeterm mem update <id> --area <area>\n",
-    "4. For items with very similar titles+kind: compare bodies (codeterm mem get), delete lower importance\n",
-    "5. If 2+ items about same topic: codeterm mem save --kind fact --title \"insight: <pattern>\" --tags dream-insight --area <area> \"<meaning>\"\n",
-    "6. codeterm mem save --kind daily --title \"dream: YYYY-MM-DD\" --tags dream-diary --area _dreams \"<80-150 word reflection>\"\n",
-    "7. codeterm agent report \"dreaming complete\"\n",
-);
+const DREAMING_TASK: &str = "codeterm mem dream && codeterm agent report \"dreaming complete\"\n";
 
 /// Create the bundled dreaming cron if it doesn't exist already.
 /// - Schedule: "0 3 * * *" (3 AM)
