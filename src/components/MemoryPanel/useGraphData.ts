@@ -213,20 +213,38 @@ export function useGraphData(api: ApiConfig) {
             let changed = false;
             const patch: Array<{ id: string; x: number; y: number }> = [];
 
+            const newNodes: MemNode[] = [];
             for (const n of resp.nodes) {
               if (!next.has(n.id)) {
-                let cx = 0, cy = 0, count = 0;
-                for (const existing of next.values()) {
-                  if (existing.graph_x != null) { cx += existing.graph_x; cy += existing.graph_y!; count++; }
-                }
-                if (count > 0) { cx /= count; cy /= count; }
-                const angle = Math.random() * Math.PI * 2;
-                const r = Math.max(150, count * 12) * (0.5 + Math.random() * 0.5);
-                const x = cx + Math.cos(angle) * r;
-                const y = cy + Math.sin(angle) * r;
-                next.set(n.id, { ...n, graph_x: n.graph_x ?? x, graph_y: n.graph_y ?? y });
-                if (n.graph_x == null) patch.push({ id: n.id, x, y });
+                next.set(n.id, n);
+                newNodes.push(n);
                 changed = true;
+              }
+            }
+
+            // Position new nodes via force layout — existing nodes are pinned
+            const unpositioned = newNodes.filter(n => n.graph_x == null || n.graph_y == null);
+            if (unpositioned.length > 0) {
+              const pinned = new Set<string>();
+              const allForLayout: MemNode[] = [];
+              for (const [id, n] of next) {
+                if (!unpositioned.some(u => u.id === id) && n.graph_x != null) {
+                  pinned.add(id);
+                }
+                allForLayout.push(n);
+              }
+              const layoutResult = forceLayout({
+                nodes: allForLayout,
+                edges: resp.edges,
+                iterations: 100,
+                pinned,
+              });
+              for (const n of unpositioned) {
+                const p = layoutResult[n.id];
+                if (p) {
+                  next.set(n.id, { ...n, graph_x: p.x, graph_y: p.y });
+                  patch.push({ id: n.id, x: p.x, y: p.y });
+                }
               }
             }
 

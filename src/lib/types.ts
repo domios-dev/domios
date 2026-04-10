@@ -370,6 +370,8 @@ export interface MemoryConfig {
   extraction_model: string;
   auto_extract: boolean;
   dreaming_enabled: boolean;
+  dreaming_agent: string;
+  dreaming_model: string;
 }
 
 export interface AppConfig {

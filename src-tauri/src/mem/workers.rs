@@ -143,6 +143,28 @@ impl GraphWorkerRegistry {
     }
 
     fn persist(&self) {
+        // Evict oldest done workers beyond MAX_HISTORY, delete their log files
+        const MAX_HISTORY: usize = 200;
+        {
+            let mut map = self.inner.write();
+            let total = map.len();
+            if total > MAX_HISTORY {
+                let mut done_workers: Vec<(String, u64, Option<String>)> = map
+                    .values()
+                    .filter(|w| w.status.is_terminal())
+                    .map(|w| (w.worker_id.clone(), w.spawned_at, w.log_path.clone()))
+                    .collect();
+                done_workers.sort_by_key(|(_, ts, _)| *ts);
+                let to_remove = total - MAX_HISTORY;
+                for (id, _, log_path) in done_workers.into_iter().take(to_remove) {
+                    map.remove(&id);
+                    if let Some(path) = log_path {
+                        let _ = std::fs::remove_file(&path);
+                    }
+                }
+            }
+        }
+
         let items: Vec<GraphWorkerInfo> = self.inner.read().values().cloned().collect();
         if let Some(parent) = self.persist_path.parent() {
             let _ = std::fs::create_dir_all(parent);

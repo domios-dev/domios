@@ -36,51 +36,51 @@ fn build_extraction_prompt(mem_item_id: &str, title: &str, body: &str) -> String
     let truncated = if body.len() > 4000 { &body[..4000] } else { body };
 
     format!(
-        r#"Analyze this text and extract entities and relationships. Then execute the CLI commands below.
+        r#"Extract people, projects, decisions, and area from this text. Execute the CLI commands below.
 
-SOURCE mem_item: id="{id}", title="{title}"
+SOURCE: id="{id}", title="{title}"
 
 TEXT:
 ---
 {body}
 ---
 
-INSTRUCTIONS:
-1. For each PERSON mentioned (by name), run:
-   codeterm mem graph create --id person_<lowercase_name> --entity-type Person --scope global
-   codeterm mem graph relate --from {id} --rel mentions --to person_<lowercase_name>
+STEP 1 — CLASSIFY AREA first (needed for steps below):
+Determine the primary project or topic. Use a short lowercase name (rekap, soundcalm, deploy, auth, infra, home).
+Run: codeterm mem update {id} --area <area>
 
-2. For each PROJECT or REPOSITORY mentioned, run:
-   codeterm mem graph create --id project_<lowercase_name> --entity-type Project --scope global
-   codeterm mem graph relate --from {id} --rel mentions --to project_<lowercase_name>
+STEP 2 — PEOPLE (only named individuals, not roles):
+For each person mentioned by name:
+  codeterm mem graph create --id person_<name> --entity-type Person --scope global
+  codeterm mem graph relate --from {id} --rel mentions --to person_<name>
 
-3. For each TECHNOLOGY (language, framework, tool, service) mentioned, run:
-   codeterm mem graph create --id tech_<lowercase_name> --entity-type Technology --scope global
-   codeterm mem graph relate --from {id} --rel uses --to tech_<lowercase_name>
+STEP 3 — PROJECTS (only named projects/repos/products):
+For each project mentioned by name:
+  codeterm mem graph create --id project_<name> --entity-type Project --scope global
+  codeterm mem graph relate --from {id} --rel mentions --to project_<name>
 
-4. For DECISIONS found ("we decided to...", "let's use...", "better to..."), run:
-   codeterm mem save --kind fact --title "decision: <short>" --tags auto-extracted,decision --area <area> --importance 2 "<what was decided and why>"
+STEP 4 — DECISIONS (explicit "we decided", "let's use", "better to"):
+For each clear decision:
+  codeterm mem save --kind fact --title "decision: <short>" --tags auto-extracted,decision --area <area> --importance 2 "<what was decided and why>"
 
-5. For PROBLEMS found ("bug in...", "doesn't work...", "the issue was..."), run:
-   codeterm mem save --kind learning --title "problem: <short>" --tags auto-extracted,problem --area <area> --importance 2 "<problem description and fix if mentioned>"
+STEP 5 — PROBLEMS (explicit "bug in", "doesn't work", "the issue was"):
+For each clear problem:
+  codeterm mem save --kind learning --title "problem: <short>" --tags auto-extracted,problem --area <area> --importance 2 "<problem and fix if mentioned>"
 
-6. For MILESTONES found ("shipped...", "got it working...", "deployed..."), run:
-   codeterm mem save --kind fact --title "milestone: <short>" --tags auto-extracted,milestone --area <area> --importance 2 "<what was achieved>"
-
-7. CLASSIFY AREA: Determine the primary topic/project this text belongs to.
-   Choose from existing areas or create a new short lowercase name (e.g. rekap, soundcalm, deploy, auth, infra, home).
-   Then update the source item: codeterm mem update {id} --area <detected_area>
-   Also add --area <detected_area> to any facts/learnings you create in steps 4-6.
+STEP 6 — Report:
+  codeterm mem worker report "N people, M projects, K decisions, area=<area>"
 
 RULES:
+- Do NOT create technology entities — technologies are searchable via FTS in the body text.
 - Only extract what's clearly stated. Don't infer or guess.
-- Use lowercase_underscore for IDs: "John Smith" → person_john_smith, "React" → tech_react
-- Skip generic terms (e.g. don't create entity for "the project" without a name)
-- Area should be a project name or broad topic, not a technology. E.g. "rekap" not "python", "soundcalm" not "swiftui".
-- If nothing meaningful to extract, just report "nothing to extract" and exit.
-- After all commands, run: codeterm mem worker report "extracted: N entities, M relations, K facts, area=<detected_area>"
+- IDs: lowercase_underscore. "John Smith" → person_john_smith, "Rekap" → project_rekap.
+- Skip generic terms without a specific name.
+- Use canonical names: "Tima" and "Timofey" → person_tima (pick the short form).
+- `graph create` is idempotent — safe to call even if entity already exists.
+- Decisions must be specific: "use PostgreSQL" is too vague. "Use PgBouncer transaction mode with max_client_conn=400" is good.
+- If nothing to extract, report "nothing to extract" and exit.
 
-Execute the commands now."#,
+Execute now."#,
         id = mem_item_id,
         title = title,
         body = truncated,

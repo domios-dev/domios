@@ -323,15 +323,21 @@ pub struct MemoryConfig {
     pub auto_extract: bool,
     /// Enable nightly dreaming optimizer
     pub dreaming_enabled: bool,
+    /// Agent provider for dreaming cron (default: same as general_agent)
+    pub dreaming_agent: String,
+    /// Model for dreaming agent
+    pub dreaming_model: String,
 }
 
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
-            extraction_agent: String::new(), // empty = use general_agent provider
+            extraction_agent: String::new(),
             extraction_model: "haiku".to_string(),
             auto_extract: true,
             dreaming_enabled: true,
+            dreaming_agent: String::new(),
+            dreaming_model: "haiku".to_string(),
         }
     }
 }

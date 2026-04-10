@@ -93,6 +93,8 @@ const DEFAULT_CONFIG: AppConfig = {
     extraction_model: "haiku",
     auto_extract: true,
     dreaming_enabled: true,
+    dreaming_agent: "",
+    dreaming_model: "haiku",
   },
   integrations: {
     telegram_enabled: false,

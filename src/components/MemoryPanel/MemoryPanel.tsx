@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MemoryCanvas } from "./MemoryCanvas";
 import { MemoryListTab } from "./MemoryListTab";
 import { MemoryActivityTab } from "./MemoryActivityTab";
+import { MemoryDreamsTab } from "./MemoryDreamsTab";
 import { MemoryWorkerPanel } from "./MemoryWorkerPanel";
 import { useGraphData } from "./useGraphData";
 import { useActivityPulses } from "./useActivityPulses";
@@ -10,7 +11,7 @@ import { navigationStore } from "../Navigation/navigationStore";
 import { fetchStats, isTauriEnv, type MemStats } from "./memoryApi";
 import type { ApiConfig, GraphWorkerInfo } from "../../lib/types";
 
-export type MemoryTab = "list" | "graph" | "activity";
+export type MemoryTab = "list" | "graph" | "activity" | "dreams";
 
 export interface MemoryInitialState {
   selectedId: string | null;
@@ -29,7 +30,7 @@ const BTN_CLASS =
 const BTN_ACTIVE_CLASS =
   "bg-[var(--ct-hover)] border border-[var(--ct-border)] text-inherit px-2.5 py-1 rounded text-xs cursor-pointer";
 
-const TABS: MemoryTab[] = ["list", "graph", "activity"];
+const TABS: MemoryTab[] = ["list", "graph", "activity", "dreams"];
 
 interface Props {
   api: ApiConfig;
@@ -126,6 +127,7 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
       if (e.key === "1") { e.preventDefault(); setActiveTab("list"); }
       else if (e.key === "2") { e.preventDefault(); setActiveTab("graph"); }
       else if (e.key === "3") { e.preventDefault(); setActiveTab("activity"); }
+      else if (e.key === "4") { e.preventDefault(); setActiveTab("dreams"); }
       else if (e.key === "w" || e.key === "W") { e.preventDefault(); setWorkerPanelVisible((v) => !v); }
       else if (e.key === "f" || e.key === "F") { if (activeTab === "graph") { e.preventDefault(); fitRef.current(); } }
       else if (e.key === "0") { if (activeTab === "graph") { e.preventDefault(); recenterRef.current(); } }
@@ -232,6 +234,9 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
             nodes={nodes}
             onNavigateToItem={handleNavigateToItem}
           />
+        )}
+        {activeTab === "dreams" && (
+          <MemoryDreamsTab api={api} />
         )}
         {workerPanelVisible && (
           <MemoryWorkerPanel

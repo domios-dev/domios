@@ -117,6 +117,11 @@ pub struct MemItem {
     pub created_at: String,
     pub updated_at: String,
     pub accessed_at: Option<String>,
+    #[serde(default)]
+    pub access_count: i64,
+    /// How many times a similar topic recurred (set by dreaming consolidation)
+    #[serde(default)]
+    pub recurrence_count: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graph_x: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -145,7 +150,9 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
             importance    REAL NOT NULL DEFAULT 3.0,
             created_at    TEXT NOT NULL,
             updated_at    TEXT NOT NULL,
-            accessed_at   TEXT
+            accessed_at   TEXT,
+            access_count  INTEGER NOT NULL DEFAULT 0,
+            recurrence_count INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE INDEX IF NOT EXISTS idx_mem_kind ON mem_items(kind);
@@ -207,6 +214,35 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
              ALTER TABLE mem_items ADD COLUMN graph_y REAL;",
         )?;
     }
+
+    let has_access_count = {
+        let mut stmt = conn.prepare("PRAGMA table_info(mem_items)")?;
+        let cols: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))?
+            .filter_map(Result::ok)
+            .collect();
+        cols.iter().any(|c| c == "access_count")
+    };
+    if !has_access_count {
+        conn.execute_batch(
+            "ALTER TABLE mem_items ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0;",
+        )?;
+    }
+
+    let has_recurrence = {
+        let mut stmt = conn.prepare("PRAGMA table_info(mem_items)")?;
+        let cols: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))?
+            .filter_map(Result::ok)
+            .collect();
+        cols.iter().any(|c| c == "recurrence_count")
+    };
+    if !has_recurrence {
+        conn.execute_batch(
+            "ALTER TABLE mem_items ADD COLUMN recurrence_count INTEGER NOT NULL DEFAULT 0;",
+        )?;
+    }
+
     Ok(())
 }
 
@@ -331,11 +367,11 @@ pub fn get(
     id: &str,
     blobs_dir: &Path,
 ) -> Result<Option<MemItem>, String> {
-    let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String, Option<String>, Option<String>, Option<String>, f64, String, String, Option<String>, Option<f64>, Option<f64>)> = conn
+    let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String, Option<String>, Option<String>, Option<String>, f64, String, String, Option<String>, i64, i64, Option<f64>, Option<f64>)> = conn
         .query_row(
             r#"SELECT id, uid, kind, scope, title, summary, area, tags_json,
                       body_inline, body_blob_path, source, importance,
-                      created_at, updated_at, accessed_at, graph_x, graph_y
+                      created_at, updated_at, accessed_at, access_count, recurrence_count, graph_x, graph_y
                FROM mem_items WHERE id = ?1"#,
             params![id],
             |r| {
@@ -343,7 +379,7 @@ pub fn get(
                     r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
                     r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
                     r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?, r.get(14)?,
-                    r.get(15)?, r.get(16)?,
+                    r.get(15)?, r.get(16)?, r.get(17)?, r.get(18)?,
                 ))
             },
         )
@@ -352,7 +388,7 @@ pub fn get(
 
     let Some((id, uid, kind, scope, title, summary, area, tags_json,
               body_inline, body_blob_path, source, importance,
-              created_at, updated_at, accessed_at, graph_x, graph_y)) = row else {
+              created_at, updated_at, accessed_at, access_count, recurrence_count, graph_x, graph_y)) = row else {
         return Ok(None);
     };
 
@@ -379,16 +415,16 @@ pub fn get(
 
     let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
-    // Bump accessed_at (best-effort, ignore errors)
+    // Bump access tracking (best-effort, ignore errors)
     let now = chrono::Utc::now().to_rfc3339();
     let _ = conn.execute(
-        "UPDATE mem_items SET accessed_at = ?1 WHERE id = ?2",
+        "UPDATE mem_items SET accessed_at = ?1, access_count = access_count + 1 WHERE id = ?2",
         params![&now, &id],
     );
 
     Ok(Some(MemItem {
         id, uid, kind, scope, title, summary, area, tags, body, source,
-        importance, created_at, updated_at, accessed_at, graph_x, graph_y,
+        importance, created_at, updated_at, accessed_at, access_count, recurrence_count, graph_x, graph_y,
     }))
 }
 
@@ -401,6 +437,8 @@ pub struct MemUpdate {
     pub tags: Option<Vec<String>>,
     pub body: Option<String>,
     pub importance: Option<f64>,
+    /// Increment recurrence_count by this amount (dreaming consolidation)
+    pub bump_recurrence: Option<i64>,
 }
 
 pub fn update(
@@ -435,15 +473,16 @@ pub fn update(
             (Some(new_body.clone()), None)
         };
 
+    let recur_bump = patch.bump_recurrence.unwrap_or(0);
     conn.execute(
         r#"UPDATE mem_items
            SET title = ?1, summary = ?2, area = ?3, tags_json = ?4,
                body_inline = ?5, body_blob_path = ?6, importance = ?7,
-               updated_at = ?8
+               updated_at = ?8, recurrence_count = recurrence_count + ?10
            WHERE id = ?9"#,
         params![
             &new_title, &new_summary, &new_area, &tags_json,
-            &body_inline, &body_blob_path, new_importance, &now, &id,
+            &body_inline, &body_blob_path, new_importance, &now, &id, recur_bump,
         ],
     ).map_err(|e| format!("update mem_item: {}", e))?;
 
@@ -805,6 +844,7 @@ mod tests {
             tags: Some(vec!["x".into(), "y".into(), "z".into()]),
             body: None,
             importance: Some(4.5),
+            bump_recurrence: None,
         }, &blobs).unwrap();
         assert!(updated);
 
@@ -822,7 +862,7 @@ mod tests {
         let (conn, blobs) = fresh();
         let r = update(&conn, "nonexistent", &MemUpdate {
             title: Some("x".into()), summary: None, area: None,
-            tags: None, body: None, importance: None,
+            tags: None, body: None, importance: None, bump_recurrence: None,
         }, &blobs).unwrap();
         assert!(!r);
     }
@@ -844,7 +884,7 @@ mod tests {
         update(&conn, &id, &MemUpdate {
             title: None, summary: None, area: None, tags: None,
             body: Some("changed to grey wolf".into()),
-            importance: None,
+            importance: None, bump_recurrence: None,
         }, &blobs).unwrap();
         let n: i64 = conn.query_row(
             "SELECT COUNT(*) FROM mem_fts WHERE mem_id = ?1 AND body LIKE '%grey wolf%'",
