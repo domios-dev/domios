@@ -5,6 +5,7 @@ import type { MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
 import type { MemActivityEvent } from "./useActivityPulses";
 import { colorForSource } from "./useActivityPulses";
+import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
 
 interface Props {
   api: ApiConfig;
@@ -52,9 +53,8 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
   // Fetch existing events on mount
   useEffect(() => {
     let active = true;
-    const host = api.host === "0.0.0.0" ? "127.0.0.1" : api.host;
-    fetch(`http://${host}:${api.port}/api/mem/activity/recent?since_ms=0`, {
-      headers: api.token ? { Authorization: `Bearer ${api.token}` } : {},
+    fetch(`${baseUrl(api)}/api/mem/activity/recent?since_ms=0`, {
+      headers: authHeaders(api),
     })
       .then(r => r.json())
       .then(data => {
@@ -71,8 +71,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
   useEffect(() => {
     let active = true;
     let unlisten: (() => void) | null = null;
-    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-    if (isTauri) {
+    if (isTauriEnv()) {
       listen<MemActivityEvent>("mem-activity", (ev) => {
         if (!active) return;
         setEvents(prev => {

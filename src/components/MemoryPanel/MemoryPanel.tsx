@@ -7,7 +7,7 @@ import { useGraphData } from "./useGraphData";
 import { useActivityPulses } from "./useActivityPulses";
 import { workerFocusStore } from "./workerFocusStore";
 import { navigationStore } from "../Navigation/navigationStore";
-import { fetchStats, type MemStats } from "./memoryApi";
+import { fetchStats, isTauriEnv, type MemStats } from "./memoryApi";
 import type { ApiConfig, GraphWorkerInfo } from "../../lib/types";
 
 export type MemoryTab = "list" | "graph" | "activity";
@@ -28,6 +28,8 @@ const BTN_CLASS =
   "bg-transparent border border-[var(--ct-border)] text-inherit px-2.5 py-1 rounded text-xs cursor-pointer";
 const BTN_ACTIVE_CLASS =
   "bg-[var(--ct-hover)] border border-[var(--ct-border)] text-inherit px-2.5 py-1 rounded text-xs cursor-pointer";
+
+const TABS: MemoryTab[] = ["list", "graph", "activity"];
 
 interface Props {
   api: ApiConfig;
@@ -62,8 +64,7 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
     const load = () => fetchStats(api).then((s) => { if (active) setMemStats(s); }).catch(() => {});
     load();
     let unlisten: (() => void) | null = null;
-    const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-    if (isTauri) {
+    if (isTauriEnv()) {
       import("@tauri-apps/api/event").then(({ listen }) => {
         listen<{ op: string }>("mem-activity", (ev) => {
           if (!active) return;
@@ -133,8 +134,6 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose, activeTab]);
-
-  const TABS: MemoryTab[] = ["list", "graph", "activity"];
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)]">
