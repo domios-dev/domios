@@ -2,7 +2,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import type { MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
-import { fetchItemFull, deleteItem, baseUrl, authHeaders } from "./memoryApi";
+import { baseUrl, authHeaders } from "./memoryApi";
+import { MemoryItemEditor } from "./MemoryItemEditor";
 
 interface Props {
   api: ApiConfig;
@@ -30,13 +31,17 @@ function relTime(iso: string): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
-function MemoryListTabImpl({ api, nodes, selectedId, onSelectItem, onViewInGraph, removeNode }: Props) {
+const PAGE_SIZE = 50;
+
+function MemoryListTabImpl({ api, nodes, onSelectItem, removeNode }: Props) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [kindFilter, setKindFilter] = useState<Set<string>>(new Set());
   const [areaFilter, setAreaFilter] = useState<string | null>(null);
-  const [expandedBody, setExpandedBody] = useState<Record<string, string>>({});
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [editorItemId, setEditorItemId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Search via API (debounced, with AbortController to prevent stale results)
   const [searchResults, setSearchResults] = useState<string[] | null>(null);
@@ -95,28 +100,19 @@ function MemoryListTabImpl({ api, nodes, selectedId, onSelectItem, onViewInGraph
     });
   }, []);
 
-  const handleExpand = useCallback(async (id: string) => {
-    if (selectedId === id) { onSelectItem(null); return; }
-    onSelectItem(id);
-    if (!expandedBody[id]) {
-      try {
-        const item = await fetchItemFull(api, id);
-        setExpandedBody(prev => ({ ...prev, [id]: item.body || "(empty)" }));
-      } catch { setExpandedBody(prev => ({ ...prev, [id]: "(failed to load)" })); }
+  // Reset visible count when filters change
+  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [search, sort, kindFilter, areaFilter]);
+
+  const visibleItems = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+  const hasMore = visibleCount < filtered.length;
+
+  const handleScroll = useCallback(() => {
+    const el = listRef.current;
+    if (!el || !hasMore) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+      setVisibleCount(prev => Math.min(prev + PAGE_SIZE, filtered.length));
     }
-  }, [api, selectedId, onSelectItem, expandedBody]);
-
-  const handleDelete = useCallback(async (id: string) => {
-    try {
-      await deleteItem(api, id);
-      removeNode(id);
-      onSelectItem(null);
-    } catch { /* */ }
-  }, [api, removeNode, onSelectItem]);
-
-  const handleCopyId = useCallback((id: string) => {
-    navigator.clipboard.writeText(id).catch(() => {});
-  }, []);
+  }, [hasMore, filtered.length]);
 
   // Keyboard: / to focus search
   useEffect(() => {
@@ -184,19 +180,17 @@ function MemoryListTabImpl({ api, nodes, selectedId, onSelectItem, onViewInGraph
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={listRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
         {filtered.length === 0 && (
           <div className="text-xs text-[var(--ct-muted-fg)] text-center py-8">
             {search ? `No results for "${search}"` : "No memories yet"}
           </div>
         )}
-        {filtered.map(n => {
-          const expanded = selectedId === n.id;
+        {visibleItems.map(n => {
           const color = colorForKind(n.kind);
-          const impBars = Math.round((n.importance ?? 3) * 2);
           return (
-            <div key={n.id} className={`border-b border-white/[0.04] ${expanded ? "bg-[var(--ct-hover-bg)]" : "hover:bg-[var(--ct-hover-bg)]"} transition-colors duration-75`}>
-              <div className="flex items-start gap-2.5 px-3 py-2 cursor-pointer" onClick={() => handleExpand(n.id)}>
+            <div key={n.id} className="border-b border-white/[0.04] hover:bg-[var(--ct-hover-bg)] transition-colors duration-75">
+              <div className="flex items-start gap-2.5 px-3 py-2 cursor-pointer" onClick={() => setEditorItemId(n.id)}>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
@@ -206,12 +200,6 @@ function MemoryListTabImpl({ api, nodes, selectedId, onSelectItem, onViewInGraph
                   <div className="flex items-center gap-2 pl-[18px] mt-0.5 flex-wrap">
                     <span className="px-1.5 py-px rounded-[3px] text-[10px] font-semibold" style={{ background: `${color}22`, color }}>{n.kind}</span>
                     {n.area && <><span className="text-[10px] text-[var(--ct-muted-fg)]">&middot;</span><span className="px-1.5 py-px rounded-[3px] text-[10px] bg-[var(--ct-hover-bg)] text-[var(--ct-muted-fg)]">{n.area}</span></>}
-                    <span className="text-[10px] text-[var(--ct-muted-fg)]">&middot;</span>
-                    <span className="flex items-center gap-px h-[6px]">
-                      {Array.from({ length: 10 }, (_, i) => (
-                        <span key={i} className="w-[3px] h-full rounded-[1px]" style={{ background: i < impBars ? color : "rgba(255,255,255,0.08)", opacity: i < impBars ? 0.8 : 1 }} />
-                      ))}
-                    </span>
                     {(n.tags?.length ?? 0) > 0 && (
                       <>
                         <span className="text-[10px] text-[var(--ct-muted-fg)]">&middot;</span>
@@ -221,23 +209,24 @@ function MemoryListTabImpl({ api, nodes, selectedId, onSelectItem, onViewInGraph
                   </div>
                 </div>
               </div>
-              {expanded && (
-                <div className="mx-3 mb-2 ml-[18px] p-2.5 rounded bg-[var(--ct-bg)] border border-[var(--ct-border)]">
-                  <pre className="text-[11px] font-mono text-[var(--ct-fg)] whitespace-pre-wrap leading-relaxed max-h-[160px] overflow-y-auto m-0">
-                    {expandedBody[n.id] || "Loading..."}
-                  </pre>
-                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[var(--ct-border)]">
-                    <button onClick={() => onViewInGraph(n.id)} className="bg-transparent border border-[var(--ct-border)] text-[var(--ct-fg)] px-2 py-0.5 rounded text-[10px] cursor-pointer hover:bg-[var(--ct-hover-bg)]">Graph</button>
-                    <button onClick={() => handleCopyId(n.id)} className="bg-transparent border border-[var(--ct-border)] text-[var(--ct-fg)] px-2 py-0.5 rounded text-[10px] cursor-pointer hover:bg-[var(--ct-hover-bg)]">Copy ID</button>
-                    <button onClick={() => handleDelete(n.id)} className="bg-transparent border border-[#ef4444] text-[#ef4444] px-2 py-0.5 rounded text-[10px] cursor-pointer hover:bg-[#ef444422]">Delete</button>
-                    <span className="ml-auto text-[10px] text-[var(--ct-muted-fg)]">{n.id}</span>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
+        {hasMore && (
+          <div className="text-[10px] text-[var(--ct-muted-fg)] text-center py-3">
+            {filtered.length - visibleCount} more — scroll to load
+          </div>
+        )}
       </div>
+      {editorItemId && (
+        <MemoryItemEditor
+          itemId={editorItemId}
+          api={api}
+          onClose={() => setEditorItemId(null)}
+          onDeleted={(id) => { removeNode(id); onSelectItem(null); }}
+          onUpdated={() => { /* graph refetch will pick up changes */ }}
+        />
+      )}
     </div>
   );
 }

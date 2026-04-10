@@ -1,8 +1,24 @@
 # CodeTerm Mem
 
-CodeTerm has a unified memory system containing skills, learned facts, notes, scripts, peer info, user preferences, and past conversation excerpts. Query it **before** doing any integration work, **before** asking the user questions you might already have answers for, and **whenever** a task touches something you don't remember clearly.
+## Memory Protocol — follow these rules at all times
 
-## Primary commands
+1. **BEFORE RESPONDING** about any person, project, or past event — `codeterm mem search` FIRST. Never guess from vague memory. Wrong is worse than slow.
+2. **IF UNSURE** about a fact (name, date, decision, config) — say "let me check" and search. Don't fabricate.
+3. **WHEN THE USER SAYS "запомни" / "remember"** — save immediately via `codeterm mem save`. Extraction workers will auto-process the graph (people, projects, area classification). You don't need to create graph entities manually.
+4. **WHEN FACTS CHANGE** — save the new fact. Old version stays in history. If explicitly outdated, `codeterm mem delete` the old one.
+5. **WHEN A SESSION ENDS** (context compaction) — the PreCompact hook auto-flushes conversation to mem. You don't need to manually save session summaries.
+
+## How memory works
+
+You save items → extraction workers (hidden agents) auto-process them in the background:
+- Extract **people** and **projects** as graph entities
+- Create **relations** (who mentioned whom, which project)
+- Classify **area** (rekap, soundcalm, deploy, auth...)
+- Extract **decisions** and **problems** as separate facts
+
+You only need to `save`. Workers handle the rest. Don't create graph entities yourself unless specifically asked.
+
+## Commands
 
 - `codeterm mem search "<query>"` — full-text search across every kind of item. Returns ranked results with id, kind, title, short summary. Default limit 5.
 - `codeterm mem get <id>` — print the full body of one item. Use this to load a skill's instructions, the contents of a script, or the full text of a past conversation excerpt.

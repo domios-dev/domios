@@ -57,6 +57,12 @@ export function WorkerLogPopup({ worker, api, onClose }: Props) {
 
   const intent = worker.intent.replace(/^extract:/, "");
   const statusLabel = isRunning ? `${worker.status}…` : worker.status;
+  const statusColor: Record<string, string> = {
+    starting: "var(--ct-muted-fg)", reading: "var(--ct-accent)",
+    analyzing: "var(--ct-accent)", writing: "var(--ct-yellow)",
+    done: "var(--ct-green)", error: "var(--ct-red)", orphaned: "var(--ct-muted-fg)",
+  };
+  const badgeColor = statusColor[worker.status] ?? "var(--ct-muted-fg)";
 
   return (
     <div
@@ -85,7 +91,7 @@ export function WorkerLogPopup({ worker, api, onClose }: Props) {
             )}
             <span
               className="text-[9px] px-1.5 py-[1px] rounded-full shrink-0"
-              style={{ color: worker.color, border: `1px solid ${worker.color}` }}
+              style={{ color: badgeColor, border: `1px solid ${badgeColor}` }}
             >
               {statusLabel}
             </span>

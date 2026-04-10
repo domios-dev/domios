@@ -6,6 +6,8 @@ interface LayoutInput {
   iterations?: number;
   width?: number;
   height?: number;
+  /** Node IDs that keep their current graph_x/graph_y and don't move. */
+  pinned?: Set<string>;
 }
 
 export type LayoutOutput = Record<string, { x: number; y: number }>;
@@ -40,14 +42,20 @@ export function forceLayout(input: LayoutInput): LayoutOutput {
   const seed = hashString(input.nodes.map((nd) => nd.id).join(""));
   const rand = mulberry32(seed);
 
+  const pinned = input.pinned ?? new Set<string>();
   const k = Math.sqrt(area / n);
   const pos: Record<string, { x: number; y: number }> = {};
 
   for (const node of input.nodes) {
-    pos[node.id] = {
-      x: (rand() - 0.5) * width,
-      y: (rand() - 0.5) * height,
-    };
+    // Use existing position for pinned nodes, random for new
+    if (pinned.has(node.id) && node.graph_x != null && node.graph_y != null) {
+      pos[node.id] = { x: node.graph_x, y: node.graph_y };
+    } else {
+      pos[node.id] = {
+        x: (rand() - 0.5) * width,
+        y: (rand() - 0.5) * height,
+      };
+    }
   }
 
   const idToIdx: Record<string, number> = {};
@@ -94,8 +102,9 @@ export function forceLayout(input: LayoutInput): LayoutOutput {
       disp[bi].x += fx; disp[bi].y += fy;
     }
 
-    // Apply displacement with temperature cap
+    // Apply displacement with temperature cap (skip pinned nodes)
     for (let i = 0; i < n; i++) {
+      if (pinned.has(input.nodes[i].id)) continue;
       const d = disp[i];
       const mag = Math.sqrt(d.x * d.x + d.y * d.y);
       if (mag < 0.01) continue;

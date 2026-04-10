@@ -1,19 +1,8 @@
 import type { MemNode, NodeKind } from "./types";
 
-const IMAGE_MD_RE = /!\[[^\]]*\]\([^)]+\)/;
-
-export function deriveNodeKind(node: MemNode): NodeKind {
-  const tags = node.tags ?? [];
-  if (tags.includes("image") || (node.body && IMAGE_MD_RE.test(node.body))) {
-    return "image";
-  }
-  const importance = node.importance ?? 0;
-  if (
-    node.has_body &&
-    (node.kind === "skill" || node.kind === "note" || importance > 7.0)
-  ) {
-    return "expanded";
-  }
+export function deriveNodeKind(_node: MemNode): NodeKind {
+  // All nodes render as dots on the graph canvas.
+  // Expanded/image renderers are kept for future use but not active.
   return "basic";
 }
 

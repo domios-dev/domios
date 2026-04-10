@@ -23,45 +23,84 @@ pub struct DreamReport {
 /// Light phase: identify learnings that have been accessed multiple times,
 /// auto-promote them to facts and bump importance.
 ///
-/// Heuristic (no LLM): a learning is "validated" if it has been read
-/// (`accessed_at IS NOT NULL`) and survived more than 1 day since creation.
-/// Frequency proxy is (importance * recency).
+/// Weighted scoring for learning promotion (inspired by a gateway).
+///
+/// Score = frequency × 0.30 + recency × 0.25 + importance × 0.25 + age × 0.20
+///
+/// - frequency: access_count / 10 (capped at 1.0)
+/// - recency: exp(-days_since_access * ln2 / 14) — 14-day half-life
+/// - importance: current_importance / 5.0
+/// - age: min(days_since_creation / 7, 1.0) — older = more validated
+///
+/// Items with score >= 0.5 AND access_count >= 3 get promoted.
 pub fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
     let conn = mem.conn_for_dream();
     let conn = conn.lock();
 
     let mut considered = 0u64;
     let mut promoted = 0u64;
+    let now_ts = chrono::Utc::now();
 
-    // Pull learnings older than 1 day that have been accessed at least once.
-    // Ordered by importance desc.
-    let one_day_ago = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+    let one_day_ago = (now_ts - chrono::Duration::days(1)).to_rfc3339();
     let mut stmt = conn
         .prepare(
-            r#"SELECT id FROM mem_items
+            r#"SELECT id, access_count, importance, created_at, accessed_at
+               FROM mem_items
                WHERE kind = 'learning'
-                 AND accessed_at IS NOT NULL
-                 AND created_at < ?1
-               ORDER BY importance DESC"#,
+                 AND access_count >= 3
+                 AND created_at < ?1"#,
         )
         .map_err(|e| e.to_string())?;
-    let ids: Vec<String> = stmt
-        .query_map(params![one_day_ago], |r| r.get::<_, String>(0))
+
+    let candidates: Vec<(String, i64, f64, String, Option<String>)> = stmt
+        .query_map(params![one_day_ago], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })
         .map_err(|e| e.to_string())?
         .filter_map(|r| r.ok())
         .collect();
 
-    for id in ids {
+    for (id, access_count, importance, created_at, accessed_at) in &candidates {
         considered += 1;
-        let now = chrono::Utc::now().to_rfc3339();
-        let n = conn
-            .execute(
-                "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
-                params![&now, &id],
-            )
-            .map_err(|e| e.to_string())?;
-        if n > 0 {
-            promoted += 1;
+
+        let frequency = (*access_count as f64 / 10.0).min(1.0);
+
+        let recency = accessed_at
+            .as_ref()
+            .and_then(|a| chrono::DateTime::parse_from_rfc3339(a).ok())
+            .map(|a| {
+                let days = (now_ts - a.with_timezone(&chrono::Utc))
+                    .num_hours()
+                    .max(0) as f64 / 24.0;
+                (-days * 0.693 / 14.0).exp() // ln(2)/14 ≈ 0.0495
+            })
+            .unwrap_or(0.0);
+
+        let imp_score = (*importance / 5.0).min(1.0);
+
+        let age = chrono::DateTime::parse_from_rfc3339(created_at)
+            .ok()
+            .map(|c| {
+                let days = (now_ts - c.with_timezone(&chrono::Utc))
+                    .num_hours()
+                    .max(0) as f64 / 24.0;
+                (days / 7.0).min(1.0)
+            })
+            .unwrap_or(0.5);
+
+        let score = frequency * 0.30 + recency * 0.25 + imp_score * 0.25 + age * 0.20;
+
+        if score >= 0.5 {
+            let now = chrono::Utc::now().to_rfc3339();
+            let n = conn
+                .execute(
+                    "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
+                    params![&now, &id],
+                )
+                .map_err(|e| e.to_string())?;
+            if n > 0 {
+                promoted += 1;
+            }
         }
     }
 
@@ -73,44 +112,126 @@ pub fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
     })
 }
 
-/// Deep phase: drop very stale conversations (>30 days, never accessed) to
-/// keep blob storage from accumulating noise. Returns count of items dropped.
+/// Deep phase: expire stale conversations (>30 days, never accessed, low importance).
+/// Sets importance to 0 instead of deleting — items remain searchable but won't
+/// appear in L1 wake-up. Keeps history intact for future reference.
 pub fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
     let conn = mem.conn_for_dream();
     let conn = conn.lock();
 
     let one_month_ago = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
-    let mut stmt = conn
-        .prepare(
-            r#"SELECT id FROM mem_items
+    let now = chrono::Utc::now().to_rfc3339();
+    let expired = conn
+        .execute(
+            r#"UPDATE mem_items
+               SET importance = 0.0, updated_at = ?1
                WHERE kind = 'conversation'
-                 AND accessed_at IS NULL
-                 AND created_at < ?1
+                 AND access_count = 0
+                 AND created_at < ?2
+                 AND importance > 0.0
                  AND importance < 4.0"#,
+            params![&now, &one_month_ago],
         )
-        .map_err(|e| e.to_string())?;
-    let ids: Vec<String> = stmt
-        .query_map(params![one_month_ago], |r| r.get::<_, String>(0))
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    let mut dropped = 0u64;
-    for id in &ids {
-        if super::store::delete(&conn, id)? {
-            dropped += 1;
-        }
-    }
+        .map_err(|e| e.to_string())? as u64;
 
     Ok(DreamReport {
-        considered: ids.len() as u64,
+        considered: expired,
         promoted: 0,
-        dropped,
+        dropped: expired,
         phase: "deep".into(),
     })
 }
 
-/// Run all phases sequentially, return combined report.
+/// Prepare data for the REM agent — returns a text summary of candidates.
+/// Called by `codeterm mem dream --report` so the agent gets concrete data.
+pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
+    let conn = mem.conn_for_dream();
+    let conn = conn.lock();
+    let mut lines = Vec::new();
+
+    // 1. Unclassified items (no area)
+    let mut stmt = conn.prepare(
+        "SELECT id, kind, title FROM mem_items WHERE (area IS NULL OR area = '') LIMIT 20"
+    ).map_err(|e| e.to_string())?;
+    let unclassified: Vec<(String, String, String)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !unclassified.is_empty() {
+        lines.push(format!("UNCLASSIFIED ({}):", unclassified.len()));
+        for (id, kind, title) in &unclassified {
+            lines.push(format!("  {} [{}] {}", id, kind, title));
+        }
+    }
+
+    // 2. Potential duplicates — same kind, similar titles (first 6 chars match)
+    let mut stmt = conn.prepare(
+        r#"SELECT a.id, b.id, a.kind, a.title, b.title, a.importance, b.importance
+           FROM mem_items a
+           JOIN mem_items b ON a.kind = b.kind
+             AND a.id < b.id
+             AND substr(a.title, 1, 12) = substr(b.title, 1, 12)
+             AND a.title != b.title
+           LIMIT 20"#
+    ).map_err(|e| e.to_string())?;
+    let dupes: Vec<(String, String, String, String, String, f64, f64)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !dupes.is_empty() {
+        lines.push(format!("\nPOTENTIAL DUPLICATES ({}):", dupes.len()));
+        for (a_id, b_id, kind, a_title, b_title, a_imp, b_imp) in &dupes {
+            lines.push(format!("  [{}] \"{}\" (imp={}) vs \"{}\" (imp={})", kind, a_title, a_imp, b_title, b_imp));
+            lines.push(format!("    ids: {} vs {}", a_id, b_id));
+        }
+    }
+
+    // 3. Recent high-access items (last 7 days, for pattern finding)
+    let week_ago = (chrono::Utc::now() - chrono::Duration::days(7)).to_rfc3339();
+    let mut stmt = conn.prepare(
+        r#"SELECT id, kind, title, area, access_count, recurrence_count
+           FROM mem_items
+           WHERE updated_at > ?1 AND access_count >= 2
+           ORDER BY access_count DESC
+           LIMIT 15"#
+    ).map_err(|e| e.to_string())?;
+    let hot: Vec<(String, String, String, Option<String>, i64, i64)> = stmt
+        .query_map(params![&week_ago], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !hot.is_empty() {
+        lines.push(format!("\nHOT ITEMS last 7d ({}):", hot.len()));
+        for (id, kind, title, area, ac, rc) in &hot {
+            let recur = if *rc > 0 { format!(" recur={}", rc) } else { String::new() };
+            lines.push(format!("  {} [{}] area={} access={}{} {}", id, kind, area.as_deref().unwrap_or("?"), ac, recur, title));
+        }
+    }
+
+    // 4. Area distribution
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(area, '(none)'), COUNT(*) FROM mem_items GROUP BY area ORDER BY COUNT(*) DESC LIMIT 10"
+    ).map_err(|e| e.to_string())?;
+    let areas: Vec<(String, i64)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    lines.push("\nAREA DISTRIBUTION:".into());
+    for (area, count) in &areas {
+        lines.push(format!("  {}: {} items", area, count));
+    }
+
+    if lines.is_empty() {
+        Ok("Nothing to optimize.".into())
+    } else {
+        Ok(lines.join("\n"))
+    }
+}
+
+/// Run SQL phases (light + deep). The dream agent handles diary + REM.
 pub fn run_all(mem: &MemManager) -> Result<Vec<DreamReport>, String> {
     let mut out = Vec::new();
     out.push(light_phase(mem)?);
@@ -124,35 +245,16 @@ pub const DREAMING_CRON_NAME: &str = "mem-dreaming-auto";
 
 /// The nightly optimizer task. First runs SQL phases (light + deep),
 /// then spawns a graph worker for intelligent optimization.
-const DREAMING_TASK: &str = r#"You are the Memory Optimizer. Run these steps:
-
-1. LIGHT PHASE — promote validated learnings:
-   codeterm mem dream
-
-2. GRAPH OPTIMIZATION — spawn a graph worker:
-   codeterm mem worker spawn --intent "nightly-optimize" --task "You are the nightly memory optimizer. Do these in order:
-
-   a) ORPHAN CLEANUP: Search for items with no relations (no edges in graph). For each orphan:
-      - If it has area, connect it: codeterm mem graph relate --from <id> --rel belongs_to --to area_<area>
-      - If no area, classify from content and set: codeterm mem update <id> --area <detected_area>
-      - If truly useless (empty body, no title), delete: codeterm mem delete <id>
-
-   b) NEAR-DUPLICATE DETECTION: For each area, search items and compare titles.
-      If two items have very similar titles and same kind, compare bodies.
-      If >85% similar content, merge: keep the one with higher importance, delete the other.
-      Update the surviving item if the deleted one had useful extra info.
-
-   c) AREA CLASSIFICATION: Find items without area (area is null or empty).
-      Read the body, determine the project/topic, set area: codeterm mem update <id> --area <area>
-
-   d) STALE ENTITY CLEANUP: Check entities (person_, project_, tech_) that have no mentions relations pointing to them from items created in last 90 days. Report them as stale but do NOT delete — just log.
-
-   e) STATS: Report summary — orphans fixed, duplicates merged, areas classified, stale entities found.
-      codeterm mem worker report 'nightly: N orphans fixed, M dupes merged, K areas set, S stale entities'
-   "
-
-3. Report completion: codeterm agent report "dreaming complete"
-"#;
+const DREAMING_TASK: &str = concat!(
+    "Run nightly memory optimization.\n",
+    "1. codeterm mem dream\n",
+    "2. Get data: curl -s $CODETERM_API_URL/api/mem/dream/report -H \"Authorization: Bearer $CODETERM_API_TOKEN\"\n",
+    "3. For UNCLASSIFIED: codeterm mem get <id>, then codeterm mem update <id> --area <area>\n",
+    "4. For DUPLICATES: compare bodies, delete lower importance one\n",
+    "5. For HOT ITEMS with 2+ similar topics: codeterm mem save --kind fact --title \"insight: <pattern>\" --tags dream-insight --area <area> \"<meaning>\"\n",
+    "6. codeterm mem save --kind daily --title \"dream: YYYY-MM-DD\" --tags dream-diary --area _dreams \"<80-150 word reflection>\"\n",
+    "7. codeterm agent report \"dreaming complete\"\n",
+);
 
 /// Create the bundled dreaming cron if it doesn't exist already.
 /// - Schedule: "0 3 * * *" (3 AM)
@@ -164,20 +266,38 @@ const DREAMING_TASK: &str = r#"You are the Memory Optimizer. Run these steps:
 ///
 /// Returns true if a new cron was created, false if one already existed.
 pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> Result<bool, String> {
-    let exists = cron_store
-        .list()
-        .iter()
-        .any(|j| j.name == DREAMING_CRON_NAME);
-    if exists {
+    let mem_cfg = crate::config::memory_config();
+
+    // Update agent on existing cron if config changed
+    if let Some(job) = cron_store.list().iter().find(|j| j.name == DREAMING_CRON_NAME) {
+        let desired = if mem_cfg.dreaming_agent.is_empty() {
+            crate::config::default_agent_provider()
+        } else {
+            mem_cfg.dreaming_agent.clone()
+        };
+        if job.agent != desired {
+            let job_id = job.id.clone();
+            if let Some(j) = cron_store.get_mut(&job_id) {
+                j.agent = desired;
+                let _ = cron_store.save();
+            }
+        }
         return Ok(false);
     }
+
+    let agent = if mem_cfg.dreaming_agent.is_empty() {
+        None
+    } else {
+        Some(mem_cfg.dreaming_agent.clone())
+    };
+
     let _ = cron_store.create(crate::cron::store::CronCreateParams {
         name: DREAMING_CRON_NAME.into(),
         workspace_id: "general".into(),
         schedule: "0 3 * * *".into(),
         task: DREAMING_TASK.into(),
         description: Some("Memory optimizer. Runs nightly as a graph worker inside Memory Panel. Toggle on/off in settings. Cannot be deleted.".into()),
-        agent: None,
+        agent,
         cwd: None,
         role: None,
         creator_pane_id: None,
@@ -219,13 +339,13 @@ mod tests {
             })
             .unwrap();
 
-        // Backdate creation + simulate access
+        // Backdate creation + simulate 3 accesses (meets threshold)
         {
             let conn = mem.conn_for_dream();
             let conn = conn.lock();
             let two_days_ago = (chrono::Utc::now() - chrono::Duration::days(2)).to_rfc3339();
             conn.execute(
-                "UPDATE mem_items SET created_at = ?1, accessed_at = ?2 WHERE id = ?3",
+                "UPDATE mem_items SET created_at = ?1, accessed_at = ?2, access_count = 3 WHERE id = ?3",
                 params![&two_days_ago, &two_days_ago, &id],
             )
             .unwrap();
@@ -241,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn deep_phase_drops_old_unaccessed_conversations() {
+    fn deep_phase_expires_old_unaccessed_conversations() {
         let mem = MemManager::open_in_memory().unwrap();
         let id = mem
             .save(NewMemItem {
@@ -263,7 +383,7 @@ mod tests {
             let conn = conn.lock();
             let sixty_days_ago = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
             conn.execute(
-                "UPDATE mem_items SET created_at = ?1, accessed_at = NULL WHERE id = ?2",
+                "UPDATE mem_items SET created_at = ?1, access_count = 0 WHERE id = ?2",
                 params![&sixty_days_ago, &id],
             )
             .unwrap();
@@ -271,7 +391,9 @@ mod tests {
 
         let report = deep_phase(&mem).unwrap();
         assert_eq!(report.dropped, 1);
-        assert!(mem.get(&id).unwrap().is_none());
+        // Item still exists but with importance = 0 (expired, not deleted)
+        let after = mem.get(&id).unwrap().unwrap();
+        assert_eq!(after.importance, 0.0);
     }
 
     #[test]

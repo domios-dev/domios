@@ -915,15 +915,20 @@ function AgentsTab({
 }
 
 function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
-  const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_enabled: true };
+  const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_enabled: true, dreaming_agent: "", dreaming_model: "haiku" };
   const mem = { ...defaultMem, ...(config.memory ?? {}) };
   const { providers } = useAgentProviders();
   const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
 
-  // Get available models from the selected provider
-  const selectedProvider = mem.extraction_agent || config.general_agent?.agent_provider || "claude";
-  const providerInfo = providers.find(p => p.id === selectedProvider);
-  const availableModels = providerInfo?.available_models ?? [];
+  const defaultProvider = config.general_agent?.agent_provider || "claude";
+
+  // Extraction models
+  const extractionProvider = mem.extraction_agent || defaultProvider;
+  const extractionModels = providers.find(p => p.id === extractionProvider)?.available_models ?? [];
+
+  // Dreaming models
+  const dreamingProvider = mem.dreaming_agent || defaultProvider;
+  const dreamingModels = providers.find(p => p.id === dreamingProvider)?.available_models ?? [];
 
   return (
     <div className="space-y-6">
@@ -956,14 +961,14 @@ function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
           <p className="text-[10px] text-[var(--ct-muted)] mt-1">Which AI agent runs extraction workers.</p>
         </Label>
         <Label text="Model">
-          {availableModels.length > 0 ? (
+          {extractionModels.length > 0 ? (
             <select
               value={mem.extraction_model}
               onChange={(e) => onUpdate("memory", { ...mem, extraction_model: e.target.value })}
               className={inputClass}
             >
               <option value="">Provider default</option>
-              {availableModels.map(m => (
+              {extractionModels.map(m => (
                 <option key={m.id} value={m.id}>{m.display_name}</option>
               ))}
             </select>
@@ -995,6 +1000,39 @@ function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
             />
             <span className="text-xs text-[var(--ct-fg)]">Nightly memory optimization</span>
           </label>
+        </Label>
+        <Label text="Agent provider">
+          <select
+            value={mem.dreaming_agent || ""}
+            onChange={(e) => onUpdate("memory", { ...mem, dreaming_agent: e.target.value })}
+            className={inputClass}
+          >
+            <option value="">Default ({defaultProvider})</option>
+            {providers.map(p => (
+              <option key={p.id} value={p.id}>{p.display_name}</option>
+            ))}
+          </select>
+        </Label>
+        <Label text="Model">
+          {dreamingModels.length > 0 ? (
+            <select
+              value={mem.dreaming_model}
+              onChange={(e) => onUpdate("memory", { ...mem, dreaming_model: e.target.value })}
+              className={inputClass}
+            >
+              <option value="">Provider default</option>
+              {dreamingModels.map(m => (
+                <option key={m.id} value={m.id}>{m.display_name}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              value={mem.dreaming_model}
+              onChange={(e) => onUpdate("memory", { ...mem, dreaming_model: e.target.value })}
+              className={inputClass}
+              placeholder="haiku, sonnet, o3-mini..."
+            />
+          )}
         </Label>
       </Group>
     </div>

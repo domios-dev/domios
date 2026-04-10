@@ -263,6 +263,7 @@ pub async fn mem_update(
         tags: body.tags,
         body: body.body,
         importance: body.importance,
+        bump_recurrence: None,
     };
     let updated = state.svc.mem.update(&id, patch)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -490,6 +491,16 @@ pub async fn mem_dream(
     let reports = dreaming::run_all(&state.svc.mem)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "phases": reports })))
+}
+
+pub async fn mem_dream_report(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let report = dreaming::prepare_rem_data(&state.svc.mem)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "report": report })))
 }
 
 pub async fn mem_graph_full(
