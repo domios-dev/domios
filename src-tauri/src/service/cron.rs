@@ -147,7 +147,7 @@ impl ServiceContext {
             parent_pane_id: None,
             can_spawn: None,
             task: Some(task_text),
-            workspace_id: Some(workspace_id),
+            workspace_id: if workspace_id.is_empty() { None } else { Some(workspace_id) },
             force_tab: Some(true),
             report_target_pane_id: creator_pane_id,
             skip_permissions: None,

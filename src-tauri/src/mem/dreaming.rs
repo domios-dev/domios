@@ -293,7 +293,7 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
 
     let _ = cron_store.create(crate::cron::store::CronCreateParams {
         name: DREAMING_CRON_NAME.into(),
-        workspace_id: "general".into(),
+        workspace_id: String::new(),
         schedule: "0 3 * * *".into(),
         task: DREAMING_TASK.into(),
         description: Some("Memory optimizer. Runs nightly as a graph worker inside Memory Panel. Toggle on/off in settings. Cannot be deleted.".into()),
