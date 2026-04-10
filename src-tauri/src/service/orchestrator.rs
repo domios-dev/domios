@@ -457,16 +457,49 @@ fn launch_agent_in_background(
 ) {
     let registry = svc.agent_registry.clone();
     std::thread::spawn(move || {
-        // 1. Wait for PTY (frontend creates it after mux-state-changed)
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        // 1. Wait for PTY (frontend creates it after mux-state-changed).
+        //    If frontend doesn't create it (cron/headless tabs), spawn from backend.
+        let frontend_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let pty_id = loop {
-            if std::time::Instant::now() > deadline {
-                log::error!("launch_agent: PTY wait timeout for {}", pane_id);
-                return;
-            }
             if let Some(pid) = svc.mux.try_lock()
                 .and_then(|m| m.get_pane(&pane_id).and_then(|p| p.pty_id.clone())) {
                 break pid;
+            }
+            if std::time::Instant::now() > frontend_deadline {
+                // Frontend didn't create PTY — spawn from backend (cron/headless)
+                log::info!("launch_agent: backend PTY spawn for {}", pane_id);
+                let cwd = svc.mux.lock().get_pane(&pane_id).and_then(|p| p.cwd.clone());
+                let mut env_vars: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
+                env_vars.insert("CODETERM_SOCKET_PATH".into(), crate::socket::server::socket_display_path());
+                let api_cfg = crate::config::load_config().api;
+                let host = if api_cfg.host == "0.0.0.0" { "127.0.0.1".to_string() } else { api_cfg.host.clone() };
+                env_vars.insert("CODETERM_API_URL".into(), format!("http://{}:{}", host, api_cfg.port));
+                if let Some(ref tok) = api_cfg.token {
+                    env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
+                }
+                match svc.pty.lock().spawn(None, cwd, 120, 40, env_vars) {
+                    Ok((pid, _)) => {
+                        svc.mux.lock().link_pty(&pane_id, pid.clone());
+                        // Start backend reader
+                        let svc_arc = std::sync::Arc::new(svc.clone());
+                        let pid2 = pid.clone();
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Builder::new_current_thread()
+                                .enable_all().build().expect("backend reader runtime");
+                            rt.block_on(async {
+                                if let Ok(h) = crate::service::pty_lifecycle::start_backend_reader(&svc_arc, &pid2) {
+                                    let _ = h.await;
+                                }
+                            });
+                        });
+                        break pid;
+                    }
+                    Err(e) => {
+                        log::error!("launch_agent: backend PTY spawn failed: {}", e);
+                        return;
+                    }
+                }
             }
             std::thread::sleep(std::time::Duration::from_millis(300));
         };
