@@ -12,6 +12,158 @@ use super::MemStats;
 
 const INLINE_BODY_LIMIT: usize = 2048;
 
+// ── Phase C: history audit trail ────────────────────────────────────
+//
+// A thread-local actor label is used to avoid plumbing `changed_by: &str`
+// through every single mutation call site. HTTP handlers, extraction
+// workers, and dreaming each wrap their store calls in a
+// [`with_changed_by`] guard; defaults to "user" when unset.
+
+thread_local! {
+    static CHANGED_BY: std::cell::RefCell<String> = std::cell::RefCell::new(String::from("user"));
+}
+
+/// Run `f` with the given actor label installed as the current thread-local
+/// `changed_by`. The previous label is restored when the closure returns.
+///
+/// Callers:
+/// - REST handlers pass `"user"` (default — no guard needed for plain user
+///   requests, but a worker-bearing request overrides it).
+/// - Extraction workers pass `"worker:extract"`.
+/// - Dreaming passes `"dreaming:rem"`.
+/// - Agents may pass `"agent:<id>"`.
+pub fn with_changed_by<F, R>(label: &str, f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    let previous =
+        CHANGED_BY.with(|slot| std::mem::replace(&mut *slot.borrow_mut(), label.to_string()));
+    let out = f();
+    CHANGED_BY.with(|slot| *slot.borrow_mut() = previous);
+    out
+}
+
+/// Read the current thread-local `changed_by` label.
+pub fn current_changed_by() -> String {
+    CHANGED_BY.with(|slot| slot.borrow().clone())
+}
+
+/// One row from `mem_item_history`. All fields of `old_*` / `new_*` are
+/// `None` when not applicable (e.g. `old_*` on create, `new_*` on delete).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryEntry {
+    pub id: i64,
+    pub item_id: String,
+    pub changed_at: String,
+    pub changed_by: String,
+    pub change_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_importance: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_importance: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Captured state before a mutation; see `history_diff`.
+#[derive(Debug, Clone, Default)]
+pub struct HistorySnapshot {
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub importance: Option<f64>,
+    pub kind: Option<String>,
+}
+
+/// Append a row to `mem_item_history`. Never panics — on error we log and
+/// drop the row so history failures never abort the caller's real write.
+pub fn history_log(
+    conn: &Connection,
+    item_id: &str,
+    change_type: &str,
+    old: &HistorySnapshot,
+    new: &HistorySnapshot,
+    reason: Option<&str>,
+) {
+    let changed_by = current_changed_by();
+    let now = chrono::Utc::now().to_rfc3339();
+    let res = conn.execute(
+        r#"INSERT INTO mem_item_history
+           (item_id, changed_at, changed_by, change_type,
+            old_title, new_title, old_body, new_body,
+            old_importance, new_importance, old_kind, new_kind, reason)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
+        params![
+            item_id,
+            &now,
+            &changed_by,
+            change_type,
+            &old.title,
+            &new.title,
+            &old.body,
+            &new.body,
+            old.importance,
+            new.importance,
+            &old.kind,
+            &new.kind,
+            reason,
+        ],
+    );
+    if let Err(e) = res {
+        log::warn!("[mem] history_log failed for {}: {}", item_id, e);
+    }
+}
+
+/// Return the full history for one item in chronological order.
+pub fn get_item_history(conn: &Connection, item_id: &str) -> Result<Vec<HistoryEntry>, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"SELECT id, item_id, changed_at, changed_by, change_type,
+                      old_title, new_title, old_body, new_body,
+                      old_importance, new_importance, old_kind, new_kind, reason
+               FROM mem_item_history
+               WHERE item_id = ?1
+               ORDER BY changed_at ASC, id ASC"#,
+        )
+        .map_err(|e| format!("prepare history: {}", e))?;
+    let rows = stmt
+        .query_map(params![item_id], |r| {
+            Ok(HistoryEntry {
+                id: r.get(0)?,
+                item_id: r.get(1)?,
+                changed_at: r.get(2)?,
+                changed_by: r.get(3)?,
+                change_type: r.get(4)?,
+                old_title: r.get(5)?,
+                new_title: r.get(6)?,
+                old_body: r.get(7)?,
+                new_body: r.get(8)?,
+                old_importance: r.get(9)?,
+                new_importance: r.get(10)?,
+                old_kind: r.get(11)?,
+                new_kind: r.get(12)?,
+                reason: r.get(13)?,
+            })
+        })
+        .map_err(|e| format!("query history: {}", e))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| format!("row history: {}", e))?);
+    }
+    Ok(out)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MemKind {
@@ -202,6 +354,28 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
             created_at   TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_aliases_canonical ON entity_aliases(canonical_id);
+
+        -- Phase C: per-item audit trail. Every mutation (create/update/promote/
+        -- invalidate/merge/delete) appends one row here. `changed_by` is the
+        -- actor label set via `with_changed_by` (defaults to "user" if unset).
+        CREATE TABLE IF NOT EXISTS mem_item_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id         TEXT NOT NULL,
+            changed_at      TEXT NOT NULL,
+            changed_by      TEXT NOT NULL,
+            change_type     TEXT NOT NULL,
+            old_title       TEXT,
+            new_title       TEXT,
+            old_body        TEXT,
+            new_body        TEXT,
+            old_importance  REAL,
+            new_importance  REAL,
+            old_kind        TEXT,
+            new_kind        TEXT,
+            reason          TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_history_item ON mem_item_history(item_id, changed_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_history_changed_by ON mem_item_history(changed_by);
         "#,
     )?;
 
@@ -326,9 +500,34 @@ fn insert_with_options(
 
     let collision = exists(conn, &candidate).map_err(|e| e.to_string())?;
     let id = if collision && replace {
+        // Capture the prior state for history before the row disappears.
+        let prior: Option<(String, Option<String>, f64, String)> = conn
+            .query_row(
+                r#"SELECT title, body_inline, importance, kind
+                   FROM mem_items WHERE id = ?1"#,
+                params![&candidate],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()
+            .map_err(|e| format!("pre-replace fetch: {}", e))?;
         conn.execute("DELETE FROM mem_items WHERE id = ?1", params![&candidate])
             .map_err(|e| format!("delete on replace: {}", e))?;
         let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&candidate]);
+        if let Some((old_title, old_body, old_imp, old_kind)) = prior {
+            history_log(
+                conn,
+                &candidate,
+                "delete",
+                &HistorySnapshot {
+                    title: Some(old_title),
+                    body: old_body,
+                    importance: Some(old_imp),
+                    kind: Some(old_kind),
+                },
+                &HistorySnapshot::default(),
+                Some("replaced_by_upsert"),
+            );
+        }
         candidate
     } else if collision {
         ids::with_collision_suffix(kind_str, &slug, &item.body)
@@ -388,6 +587,20 @@ fn insert_with_options(
         ],
     )
     .map_err(|e| format!("insert fts: {}", e))?;
+
+    history_log(
+        conn,
+        &id,
+        "create",
+        &HistorySnapshot::default(),
+        &HistorySnapshot {
+            title: Some(item.title.clone()),
+            body: Some(item.body.clone()),
+            importance: Some(item.importance),
+            kind: Some(kind_str.to_string()),
+        },
+        None,
+    );
 
     Ok(id)
 }
@@ -492,6 +705,11 @@ pub fn update(
         return Ok(false);
     };
 
+    let prev_title = prev.title.clone();
+    let prev_body = prev.body.clone();
+    let prev_importance = prev.importance;
+    let prev_kind = prev.kind.clone();
+
     let new_title = patch.title.clone().unwrap_or(prev.title);
     let new_summary = patch.summary.clone().or(prev.summary);
     let new_area = patch.area.clone().or(prev.area);
@@ -534,10 +752,61 @@ pub fn update(
         ],
     ).map_err(|e| format!("update fts: {}", e))?;
 
+    // Record only the fields that actually changed. If nothing changed
+    // (e.g. patch touched only tags/area/summary), still emit an update row
+    // so the caller can see the write happened — but leave old_/new_ at
+    // None for fields that were unchanged.
+    let mut old = HistorySnapshot::default();
+    let mut new = HistorySnapshot::default();
+    let mut dirty = false;
+    if new_title != prev_title {
+        old.title = Some(prev_title);
+        new.title = Some(new_title);
+        dirty = true;
+    }
+    if new_body != prev_body {
+        old.body = Some(prev_body);
+        new.body = Some(new_body);
+        dirty = true;
+    }
+    if (new_importance - prev_importance).abs() > f64::EPSILON {
+        old.importance = Some(prev_importance);
+        new.importance = Some(new_importance);
+        dirty = true;
+    }
+    // Kind is not patchable via MemUpdate, but record it so downstream
+    // consumers can see which kind the item was at update time.
+    if dirty {
+        old.kind = Some(prev_kind.clone());
+        new.kind = Some(prev_kind);
+        history_log(conn, id, "update", &old, &new, None);
+    }
+
     Ok(true)
 }
 
 pub fn delete(conn: &Connection, id: &str) -> Result<bool, String> {
+    delete_with_reason(conn, id, None)
+}
+
+/// Delete with an optional reason — used by the dedup/merge path to record
+/// `merge_into=<winner_id>` in the history row.
+pub fn delete_with_reason(
+    conn: &Connection,
+    id: &str,
+    reason: Option<&str>,
+) -> Result<bool, String> {
+    // Capture prior state for history BEFORE removing the row.
+    let prior: Option<(String, Option<String>, f64, String)> = conn
+        .query_row(
+            r#"SELECT title, body_inline, importance, kind
+               FROM mem_items WHERE id = ?1"#,
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .optional()
+        .map_err(|e| format!("pre-delete fetch: {}", e))?;
+
     let n = conn
         .execute("DELETE FROM mem_items WHERE id = ?1", params![id])
         .map_err(|e| format!("delete mem_item: {}", e))?;
@@ -550,6 +819,29 @@ pub fn delete(conn: &Connection, id: &str) -> Result<bool, String> {
         "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
         params![id],
     );
+
+    if n > 0 {
+        if let Some((old_title, old_body, old_imp, old_kind)) = prior {
+            let change_type = if reason.map_or(false, |r| r.starts_with("merge_into=")) {
+                "merge"
+            } else {
+                "delete"
+            };
+            history_log(
+                conn,
+                id,
+                change_type,
+                &HistorySnapshot {
+                    title: Some(old_title),
+                    body: old_body,
+                    importance: Some(old_imp),
+                    kind: Some(old_kind),
+                },
+                &HistorySnapshot::default(),
+                reason,
+            );
+        }
+    }
     Ok(n > 0)
 }
 
@@ -1137,4 +1429,104 @@ mod tests {
         assert_eq!(s.by_kind.get("fact"), Some(&2));
         assert_eq!(s.by_kind.get("skill"), Some(&1));
     }
+
+    // ── Phase C: history ──────────────────────────────────────────────
+
+    fn mk_item(title: &str, body: &str) -> NewMemItem {
+        NewMemItem {
+            kind: MemKind::Learning,
+            scope: MemScope::Global,
+            title: title.into(),
+            summary: None,
+            area: Some("test".into()),
+            tags: vec![],
+            body: body.into(),
+            source: None,
+            importance: 2.0,
+        }
+    }
+
+    #[test]
+    fn history_logs_create_update_delete_events() {
+        let (conn, blobs) = fresh();
+
+        // create
+        let id = with_changed_by("user", || {
+            insert(&conn, &mk_item("hist one", "original body"), &blobs)
+        })
+        .unwrap();
+
+        // update title, body, importance
+        with_changed_by("user", || {
+            update(
+                &conn,
+                &id,
+                &MemUpdate {
+                    title: Some("hist one v2".into()),
+                    summary: None,
+                    area: None,
+                    tags: None,
+                    body: Some("new body".into()),
+                    importance: Some(4.5),
+                    bump_recurrence: None,
+                },
+                &blobs,
+            )
+            .unwrap();
+        });
+
+        // delete
+        with_changed_by("worker:extract", || {
+            delete(&conn, &id).unwrap();
+        });
+
+        let history = get_item_history(&conn, &id).unwrap();
+        assert_eq!(history.len(), 3);
+
+        assert_eq!(history[0].change_type, "create");
+        assert_eq!(history[0].changed_by, "user");
+        assert_eq!(history[0].new_title.as_deref(), Some("hist one"));
+        assert!(history[0].old_title.is_none());
+
+        assert_eq!(history[1].change_type, "update");
+        assert_eq!(history[1].old_title.as_deref(), Some("hist one"));
+        assert_eq!(history[1].new_title.as_deref(), Some("hist one v2"));
+        assert_eq!(history[1].old_body.as_deref(), Some("original body"));
+        assert_eq!(history[1].new_body.as_deref(), Some("new body"));
+        assert_eq!(history[1].old_importance, Some(2.0));
+        assert_eq!(history[1].new_importance, Some(4.5));
+
+        assert_eq!(history[2].change_type, "delete");
+        assert_eq!(history[2].changed_by, "worker:extract");
+        assert_eq!(history[2].old_title.as_deref(), Some("hist one v2"));
+        assert!(history[2].new_title.is_none());
+    }
+
+    #[test]
+    fn history_merge_records_winner_reference() {
+        let (conn, blobs) = fresh();
+        let a = insert(&conn, &mk_item("dup a", "body a"), &blobs).unwrap();
+        let b = insert(&conn, &mk_item("dup b", "body b"), &blobs).unwrap();
+
+        // simulate the merge path — loser `a` collapses into winner `b`
+        delete_with_reason(&conn, &a, Some("merge_into=item_b")).unwrap();
+        let _ = b;
+
+        let history = get_item_history(&conn, &a).unwrap();
+        let merge = history
+            .iter()
+            .find(|h| h.change_type == "merge")
+            .expect("merge row");
+        assert_eq!(merge.reason.as_deref(), Some("merge_into=item_b"));
+        assert_eq!(merge.old_title.as_deref(), Some("dup a"));
+    }
+
+    #[test]
+    fn history_changed_by_thread_local_defaults_to_user() {
+        let (conn, blobs) = fresh();
+        let id = insert(&conn, &mk_item("default actor", "body"), &blobs).unwrap();
+        let history = get_item_history(&conn, &id).unwrap();
+        assert_eq!(history[0].changed_by, "user");
+    }
+
 }

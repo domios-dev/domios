@@ -517,11 +517,31 @@ impl MemManager {
         if item.kind != "learning" {
             return Err(format!("can only promote kind=learning, got kind={}", item.kind));
         }
+        let old_importance = item.importance;
+        let new_importance = old_importance.max(4.0);
         let conn = self.conn.lock();
         conn.execute(
             "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
             rusqlite::params![chrono::Utc::now().to_rfc3339(), id],
         ).map_err(|e| format!("promote: {}", e))?;
+        store::history_log(
+            &conn,
+            id,
+            "promote",
+            &store::HistorySnapshot {
+                title: None,
+                body: None,
+                importance: Some(old_importance),
+                kind: Some("learning".into()),
+            },
+            &store::HistorySnapshot {
+                title: None,
+                body: None,
+                importance: Some(new_importance),
+                kind: Some("fact".into()),
+            },
+            None,
+        );
         Ok(())
     }
 
@@ -541,6 +561,13 @@ impl MemManager {
     pub fn stats(&self) -> Result<MemStats, String> {
         let conn = self.conn.lock();
         store::stats(&conn)
+    }
+
+    /// Full per-item audit trail: every create/update/promote/invalidate/
+    /// merge/delete event ever logged for this id, ordered chronologically.
+    pub fn get_item_history(&self, id: &str) -> Result<Vec<store::HistoryEntry>, String> {
+        let conn = self.conn.lock();
+        store::get_item_history(&conn, id)
     }
 }
 
@@ -585,6 +612,49 @@ mod tests {
         let got = mem.get(&id).unwrap().unwrap();
         assert_eq!(got.title, "test fact");
         assert_eq!(got.body, "the body of the fact");
+    }
+
+    #[test]
+    fn history_tracks_full_lifecycle_with_promote() {
+        let mem = MemManager::open_in_memory().unwrap();
+        let id = mem
+            .save(NewMemItem {
+                kind: MemKind::Learning,
+                scope: MemScope::Global,
+                title: "lifecycle test".into(),
+                summary: None,
+                area: Some("test".into()),
+                tags: vec![],
+                body: "first cut".into(),
+                source: None,
+                importance: 2.0,
+            })
+            .unwrap();
+
+        mem.update(
+            &id,
+            store::MemUpdate {
+                title: None,
+                summary: None,
+                area: None,
+                tags: None,
+                body: Some("refined body".into()),
+                importance: Some(3.5),
+                bump_recurrence: None,
+            },
+        )
+        .unwrap();
+
+        mem.promote_learning(&id).unwrap();
+
+        let history = mem.get_item_history(&id).unwrap();
+        let change_types: Vec<&str> = history.iter().map(|h| h.change_type.as_str()).collect();
+        assert!(change_types.contains(&"create"));
+        assert!(change_types.contains(&"update"));
+        assert!(change_types.contains(&"promote"));
+        let promote = history.iter().find(|h| h.change_type == "promote").unwrap();
+        assert_eq!(promote.old_kind.as_deref(), Some("learning"));
+        assert_eq!(promote.new_kind.as_deref(), Some("fact"));
     }
 
     #[test]
