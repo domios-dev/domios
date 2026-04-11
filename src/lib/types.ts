@@ -182,6 +182,10 @@ export interface CronJob {
   created_at: number;
   last_run: CronRunInfo | null;
   next_run: number | null;
+  /** Anti-predictability jitter cap in milliseconds. `null` = provider
+   *  default (auto ~10% of interval), `0` = disabled, positive = max ms
+   *  added to each scheduled fire. */
+  jitter_max_ms: number | null;
 }
 
 export interface GitInfo {

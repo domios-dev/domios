@@ -1345,6 +1345,7 @@ pub fn cron_update(
     enabled: Option<bool>,
     agent: Option<String>,
     model: Option<String>,
+    jitter_max_ms: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     let patch = crate::cron::store::CronUpdateParams {
         name,
@@ -1357,6 +1358,7 @@ pub fn cron_update(
         max_history: None,
         agent,
         model,
+        jitter_max_ms,
     };
     let job = svc.cron_update(&cron, &wake, &id, patch)?;
     serde_json::to_value(job).map_err(|e| e.to_string())

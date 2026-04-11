@@ -943,6 +943,10 @@ pub enum CronAction {
         /// Model within the agent provider. Pass empty string to clear.
         #[arg(long)]
         model: Option<String>,
+        /// Max jitter in milliseconds added to each scheduled fire. Set
+        /// 0 to disable jitter. Omit to leave unchanged.
+        #[arg(long)]
+        jitter_max_ms: Option<u64>,
     },
     /// Delete a cron job
     Delete {
@@ -1870,7 +1874,7 @@ fn main() {
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
                 }
-                CronAction::Edit { id, name, schedule, task, cwd, description, agent, model } => {
+                CronAction::Edit { id, name, schedule, task, cwd, description, agent, model, jitter_max_ms } => {
                     let mut params = serde_json::json!({"id": id});
                     if let Some(n) = name { params["name"] = serde_json::json!(n); }
                     if let Some(s) = schedule { params["schedule"] = serde_json::json!(s); }
@@ -1879,6 +1883,7 @@ fn main() {
                     if let Some(d) = description { params["description"] = serde_json::json!(d); }
                     if let Some(a) = agent { params["agent"] = serde_json::json!(a); }
                     if let Some(m) = model { params["model"] = serde_json::json!(m); }
+                    if let Some(j) = jitter_max_ms { params["jitter_max_ms"] = serde_json::json!(j); }
                     match client.call("cron.update", Some(params)) {
                         Ok(val) => {
                             if cli.json {

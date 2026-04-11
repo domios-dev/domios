@@ -193,6 +193,16 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
   const [cwd, setCwd] = useState(job?.cwd ?? "");
   const [agent, setAgent] = useState(job?.agent ?? "claude");
   const [model, setModel] = useState(job?.model ?? "");
+  // Jitter — encoded as an opaque string so the select can distinguish
+  // "auto" (null, provider default) from "off" (Some(0)) from explicit
+  // millisecond caps without an extra ms input field.
+  const initialJitterKey =
+    job?.jitter_max_ms == null
+      ? "auto"
+      : job.jitter_max_ms === 0
+        ? "off"
+        : String(job.jitter_max_ms);
+  const [jitterKey, setJitterKey] = useState(initialJitterKey);
   const [runs, setRuns] = useState<CronRunInfo[]>([]);
   const [showAllRuns, setShowAllRuns] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -238,6 +248,18 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
   }, []);
 
   const handleSave = useCallback(async () => {
+    // Translate the opaque jitter key back into the u64 the backend wants.
+    // "auto" → skip the field so the cron store leaves its current value
+    // alone (the backend has no "reset to None" path over the update API).
+    // "off" → 0, anything else → parsed ms.
+    let jitter_max_ms: number | undefined;
+    if (jitterKey === "off") {
+      jitter_max_ms = 0;
+    } else if (jitterKey !== "auto") {
+      const n = Number(jitterKey);
+      if (Number.isFinite(n) && n > 0) jitter_max_ms = n;
+    }
+
     await update(cronId, {
       name: name.trim() || undefined,
       description: description.trim() || undefined,
@@ -246,9 +268,10 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
       cwd: cwd.trim() || undefined,
       agent,
       model: model || null,
+      jitter_max_ms,
     });
     setDirty(false);
-  }, [cronId, name, description, schedule, task, cwd, agent, model, update]);
+  }, [cronId, name, description, schedule, task, cwd, agent, model, jitterKey, update]);
 
   const handleDelete = useCallback(async () => {
     await remove(cronId);
@@ -401,6 +424,35 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
             ))}
           </select>
         </div>
+      </div>
+
+      {/* Schedule jitter — random offset added to each fire so back-to-back
+          runs don't land at clockwork-predictable timestamps. */}
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="text-[11px] text-[var(--ct-muted)]">Schedule jitter</label>
+          <span className="text-[10px] text-[var(--ct-muted)]">
+            {jitterKey === "auto"
+              ? "auto: ~10% of interval, capped at 30 min"
+              : jitterKey === "off"
+                ? "fires exactly on schedule"
+                : `up to ${Math.round(Number(jitterKey) / 60_000)} min added per fire`}
+          </span>
+        </div>
+        <select
+          value={jitterKey}
+          onChange={(e) => { setJitterKey(e.target.value); setDirty(true); }}
+          className={inputClass}
+        >
+          <option value="auto">Auto (provider default)</option>
+          <option value="off">Off</option>
+          <option value="60000">1 minute</option>
+          <option value="300000">5 minutes</option>
+          <option value="600000">10 minutes</option>
+          <option value="900000">15 minutes</option>
+          <option value="1800000">30 minutes</option>
+          <option value="3600000">1 hour</option>
+        </select>
       </div>
 
       {/* Save / Delete */}
