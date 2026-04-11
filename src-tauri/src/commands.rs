@@ -1435,9 +1435,12 @@ pub fn cron_read_log(
             full: true,
         };
         let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
+        // dispatch::cmd_get_output returns the payload under the "output"
+        // key, not "text". Don't confuse it with /api/panes/{id}/text which
+        // is a totally different endpoint backed by GetText, not GetOutput.
         let text = result
             .into_json()
-            .get("text")
+            .get("output")
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string();
