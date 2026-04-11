@@ -50,6 +50,10 @@ interface CronContextValue {
       enabled?: boolean;
       agent?: string;
       model?: string | null;
+      /** Pass a number to set the jitter cap in ms (0 = off). Omit to
+       *  leave it unchanged. There is no "reset to provider default"
+       *  value on the update surface. */
+      jitter_max_ms?: number;
     },
   ) => Promise<CronJob>;
   remove: (id: string) => Promise<void>;
@@ -159,6 +163,7 @@ export function CronProvider({ children }: { children: ReactNode }) {
         enabled?: boolean;
         agent?: string;
         model?: string | null;
+        jitter_max_ms?: number;
       },
     ) => {
       const result = await invoke<CronJob>("cron_update", { id, ...patch });

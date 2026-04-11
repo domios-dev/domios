@@ -507,6 +507,9 @@ impl CronStore {
             // Empty string = clear the override (fall back to provider default)
             job.model = if model.is_empty() { None } else { Some(model) };
         }
+        if let Some(jitter) = patch.jitter_max_ms {
+            job.jitter_max_ms = Some(jitter);
+        }
 
         // Recompute next_run
         job.next_run = if !job.enabled {
@@ -708,6 +711,14 @@ pub struct CronUpdateParams {
     pub agent: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    /// Jitter override on update.
+    ///   absent / null → don't touch the current value
+    ///   0             → disable jitter
+    ///   positive n    → use n ms as the cap
+    /// Resetting back to "auto" (provider default ~10% of interval) is
+    /// not exposed on the update surface — use DELETE + CREATE if needed.
+    #[serde(default)]
+    pub jitter_max_ms: Option<u64>,
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -880,6 +891,7 @@ mod tests {
                     max_history: None,
                     agent: None,
                     model: None,
+                    jitter_max_ms: None,
                 },
             )
             .unwrap();
