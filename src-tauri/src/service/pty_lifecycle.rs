@@ -89,9 +89,19 @@ async fn backend_read_loop(
             Ok(Ok((data, reader_back))) => {
                 reader = reader_back;
 
-                // headless PTY: answer CSI 6n so PowerShell doesn't hang
+                // hidden pane only: answer CSI 6n so PowerShell doesn't hang
+                // (visible panes let xterm.js answer — double-answering races
+                //  and leaks the second response into the terminal as input)
                 if data.windows(4).any(|w| w == b"\x1b[6n") {
-                    let _ = svc.pty.lock().write(&pty_id, b"\x1b[1;1R");
+                    let is_hidden = svc
+                        .mux
+                        .lock()
+                        .pane_id_for_pty(&pty_id)
+                        .and_then(|pid| svc.mux.lock().get_pane(&pid).map(|p| p.hidden))
+                        .unwrap_or(false);
+                    if is_hidden {
+                        let _ = svc.pty.lock().write(&pty_id, b"\x1b[1;1R");
+                    }
                 }
 
                 let (prev, now) = svc.process_pty_output(&pty_id, &data);

@@ -218,12 +218,12 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
 
   const handleSave = useCallback(async () => {
     // "auto" → omit (no reset path); "off" → 0; else parse ms
-    let jitter_max_ms: number | undefined;
+    let jitterMaxMs: number | undefined;
     if (jitterKey === "off") {
-      jitter_max_ms = 0;
+      jitterMaxMs = 0;
     } else if (jitterKey !== "auto") {
       const n = Number(jitterKey);
-      if (Number.isFinite(n) && n > 0) jitter_max_ms = n;
+      if (Number.isFinite(n) && n > 0) jitterMaxMs = n;
     }
 
     await update(cronId, {
@@ -234,7 +234,7 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
       cwd: cwd.trim() || undefined,
       agent,
       model: model || null,
-      jitter_max_ms,
+      jitterMaxMs,
     });
     setDirty(false);
   }, [cronId, name, description, schedule, task, cwd, agent, model, jitterKey, update]);

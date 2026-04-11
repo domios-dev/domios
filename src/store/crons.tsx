@@ -163,7 +163,7 @@ export function CronProvider({ children }: { children: ReactNode }) {
         enabled?: boolean;
         agent?: string;
         model?: string | null;
-        jitter_max_ms?: number;
+        jitterMaxMs?: number;
       },
     ) => {
       const result = await invoke<CronJob>("cron_update", { id, ...patch });
