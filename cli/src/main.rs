@@ -290,6 +290,11 @@ pub enum MemAction {
     Delete {
         id: String,
     },
+    /// Print the full audit trail for one item (create/update/promote/delete).
+    History {
+        /// Mem item id
+        id: String,
+    },
     /// Partial update of an existing mem item by id. Only the flags you
     /// pass are written; everything else stays as-is.
     Update {
@@ -2341,6 +2346,22 @@ fn handle_mem(json_mode: bool, action: MemAction) {
                 .send().map_err(|e| e.to_string());
             resp.map(|r| serde_json::json!({"deleted": r.status().is_success()}))
         }
+        MemAction::History { id } => {
+            let val = mem_get_request(&http, &format!("{}/api/mem/items/{}/history", base, id));
+            // Pretty-print timeline in human mode; keep raw JSON for --json.
+            if !json_mode {
+                match &val {
+                    Ok(v) => {
+                        if let Some(rows) = v.get("history").and_then(|h| h.as_array()) {
+                            print_history_timeline(rows);
+                            return;
+                        }
+                    }
+                    Err(_) => {}
+                }
+            }
+            val
+        }
         MemAction::Update { id, title, summary, area, tags, body, importance } => {
             let tag_list: Option<Vec<String>> = tags.map(|t|
                 t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
@@ -2612,3 +2633,68 @@ fn print_object(value: &serde_json::Value) {
         }
     }
 }
+
+// ── Phase C: history timeline rendering ─────────────────────────────
+fn print_history_timeline(rows: &[serde_json::Value]) {
+    if rows.is_empty() {
+        println!("(no history)");
+        return;
+    }
+    for row in rows {
+        let changed_at = row.get("changed_at").and_then(|v| v.as_str()).unwrap_or("?");
+        // Drop sub-second precision + tz for compact display.
+        let ts = changed_at
+            .split('.')
+            .next()
+            .unwrap_or(changed_at)
+            .replace('T', " ");
+        let changed_by = row.get("changed_by").and_then(|v| v.as_str()).unwrap_or("?");
+        let change_type = row
+            .get("change_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        println!("* {}  {:<15} {}", ts, changed_by, change_type);
+        let diff_line = |label: &str, old: Option<&serde_json::Value>, new: Option<&serde_json::Value>| {
+            let has_old = old.map(|v| !v.is_null()).unwrap_or(false);
+            let has_new = new.map(|v| !v.is_null()).unwrap_or(false);
+            if !has_old && !has_new {
+                return None;
+            }
+            let fmt = |v: Option<&serde_json::Value>| -> String {
+                match v {
+                    None | Some(serde_json::Value::Null) => "-".into(),
+                    Some(serde_json::Value::String(s)) => {
+                        let truncated: String = s.chars().take(60).collect();
+                        if s.chars().count() > 60 {
+                            format!("{}…", truncated)
+                        } else {
+                            truncated
+                        }
+                    }
+                    Some(other) => other.to_string(),
+                }
+            };
+            if has_old && has_new {
+                Some(format!("    {:<11} {} -> {}", format!("{}:", label), fmt(old), fmt(new)))
+            } else if has_new {
+                Some(format!("    {:<11} {}", format!("{}:", label), fmt(new)))
+            } else {
+                Some(format!("    {:<11} (deleted: {})", format!("{}:", label), fmt(old)))
+            }
+        };
+        for (label, old_k, new_k) in [
+            ("title", "old_title", "new_title"),
+            ("kind", "old_kind", "new_kind"),
+            ("importance", "old_importance", "new_importance"),
+            ("body", "old_body", "new_body"),
+        ] {
+            if let Some(line) = diff_line(label, row.get(old_k), row.get(new_k)) {
+                println!("{}", line);
+            }
+        }
+        if let Some(reason) = row.get("reason").and_then(|v| v.as_str()) {
+            println!("    reason:     {}", reason);
+        }
+    }
+}
+

@@ -113,6 +113,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/search", get(super::mem_routes::mem_search))
         .route("/api/mem/items", post(super::mem_routes::mem_save))
         .route("/api/mem/items/{id}", get(super::mem_routes::mem_get).delete(super::mem_routes::mem_delete).patch(super::mem_routes::mem_update))
+        .route("/api/mem/items/{id}/history", get(super::mem_routes::mem_history))
         .route("/api/mem/forget/{area}", delete(super::mem_routes::mem_forget_area))
         .route("/api/mem/wake-up", get(super::mem_routes::mem_wake_up))
         .route("/api/mem/stats", get(super::mem_routes::mem_stats))

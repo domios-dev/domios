@@ -67,6 +67,29 @@ fn validate_item_fields(
     Ok(())
 }
 
+/// Map incoming HTTP headers to a `changed_by` label for the history log.
+/// - `x-codeterm-worker-id` present and `x-codeterm-worker-intent: extract`
+///   → `worker:extract`
+/// - Any `x-codeterm-worker-id` otherwise → `worker:<intent-or-other>`
+/// - No worker id → `user`
+fn changed_by_from_headers(headers: &HeaderMap) -> String {
+    let worker_id = headers
+        .get("x-codeterm-worker-id")
+        .and_then(|v| v.to_str().ok());
+    if let Some(_wid) = worker_id {
+        let intent = headers
+            .get("x-codeterm-worker-intent")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("other");
+        return format!("worker:{}", intent);
+    }
+    // Agent-spawned requests can override with x-codeterm-actor.
+    if let Some(actor) = headers.get("x-codeterm-actor").and_then(|v| v.to_str().ok()) {
+        return actor.to_string();
+    }
+    "user".to_string()
+}
+
 fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem_ids: Vec<String>) {
     let pane_id = headers
         .get("x-codeterm-pane-id")
@@ -221,11 +244,14 @@ pub async fn mem_save(
     let title_clone = item.title.clone();
     let body_clone = item.body.clone();
     let kind_for_extract = item.kind;
-    let id = if body.replace {
-        state.svc.mem.save_replace(item)
-    } else {
-        state.svc.mem.save(item)
-    }.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let changed_by = changed_by_from_headers(&headers);
+    let id = crate::mem::store::with_changed_by(&changed_by, || {
+        if body.replace {
+            state.svc.mem.save_replace(item)
+        } else {
+            state.svc.mem.save(item)
+        }
+    }).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "write", vec![id.clone()]);
 
     let auto_extract_enabled = crate::config::memory_config().auto_extract;
@@ -252,7 +278,11 @@ pub async fn mem_delete(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let removed = state.svc.mem.delete(&id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let changed_by = changed_by_from_headers(&headers);
+    let removed = crate::mem::store::with_changed_by(&changed_by, || {
+        state.svc.mem.delete(&id)
+    })
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "delete", vec![id.clone()]);
     Ok(Json(serde_json::json!({ "deleted": removed })))
 }
@@ -332,8 +362,11 @@ pub async fn mem_update(
         importance: body.importance,
         bump_recurrence: None,
     };
-    let updated = state.svc.mem.update(&id, patch)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let changed_by = changed_by_from_headers(&headers);
+    let updated = crate::mem::store::with_changed_by(&changed_by, || {
+        state.svc.mem.update(&id, patch)
+    })
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     if !updated {
         return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
     }
@@ -481,7 +514,8 @@ pub async fn mem_promote(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    state.svc.mem.promote_learning(&id)
+    let changed_by = changed_by_from_headers(&headers);
+    crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.promote_learning(&id))
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({ "promoted": id })))
 }
@@ -1093,3 +1127,20 @@ pub async fn workers_log(
 
     Err((StatusCode::NOT_FOUND, "no log available".into()))
 }
+
+// ── Phase C: history ─────────────────────────────────────────────────
+
+pub async fn mem_history(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let history = state
+        .svc
+        .mem
+        .get_item_history(&id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "history": history })))
+}
+
