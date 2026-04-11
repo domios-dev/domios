@@ -4,6 +4,7 @@ import type { ThemeConfig } from "../../lib/types";
 import { HamburgerIcon, CloseXIcon } from "../Icons";
 
 import { isMac } from "../../lib/keybindings";
+import { KeepAwakeTray } from "./KeepAwakeTray";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -76,6 +77,11 @@ export function Titlebar({
 
       {/* Spacer — drag region */}
       <div className="flex-1" data-tauri-drag-region />
+
+      {/* Tray area — right side, before window controls */}
+      <div className="flex items-center gap-0.5 pr-1">
+        <KeepAwakeTray />
+      </div>
 
       {/* Windows/Linux: controls on the right */}
       {!isMac && (
