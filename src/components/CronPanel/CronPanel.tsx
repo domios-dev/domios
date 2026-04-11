@@ -591,7 +591,7 @@ function CronLogModal({
   return (
     <>
       <div className="fixed inset-0 z-[60] bg-black/50" onClick={onClose} />
-      <div className="fixed z-[60] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[720px] max-w-[90vw] max-h-[75vh] flex flex-col overflow-hidden">
+      <div className="fixed z-[60] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[940px] max-w-[92vw] h-[70vh] max-h-[90vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--ct-border)]">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-[12px] font-medium text-[var(--ct-fg)] truncate">{name}</span>
