@@ -40,30 +40,37 @@ Run it in the **background** so you can keep working:
 
 ## Verifying the running binary matches your code
 
-`build.sh dev` bumps `BUILD_NUMBER` on every launch. After a restart, confirm the instance you're hitting is the new one:
+`build.sh dev` bumps `BUILD_NUMBER` on every launch. After a restart, check that number — it's the only thing that matters locally:
 
 ```bash
-curl -s http://127.0.0.1:7686/api/health | jq '{build, build_number}'
-# → {"build":"<commit-hash>","build_number":"123"}
+curl -s http://127.0.0.1:7686/api/health | jq '.build_number'
+# → "123"
 ```
 
-If `build` (git hash) or `build_number` is the old value, the restart didn't take — the old binary is still running. Kill it explicitly and try again.
+Remember the number you saw before the restart; if it didn't go up, the restart didn't take and you're still talking to the old binary. Kill it explicitly and try again.
+
+**Do NOT compare `build` (git commit hash).** Locally you're building from your working tree — the hash only matters when two different machines are building the same commit. Comparing it during iterative development is noise that gives false negatives (your uncommitted edits still show the previous commit's hash).
 
 ## Polling for readiness (after restart)
 
 **Always poll, never `ScheduleWakeup` a fixed delay** — Rust re-link is unpredictable (5–60s depending on how much changed), and polling returns in milliseconds when it's ready. Fixed `sleep 90` or a 90s wakeup wastes time on a 15s rebuild and misses a 120s one.
 
-Copy this exact loop after starting dev in the background:
+Grab the current `build_number` BEFORE the restart, then poll for a higher one:
 
 ```bash
+prev=$(curl -s http://127.0.0.1:7686/api/health 2>/dev/null | jq -r '.build_number // 0')
+./build.sh kill && ./build.sh dev &   # or run_in_background=true via the Bash tool
 for i in $(seq 1 120); do
-  h=$(curl -s http://127.0.0.1:7686/api/health 2>/dev/null)
-  if [ -n "$h" ]; then echo "$h"; break; fi
+  n=$(curl -s http://127.0.0.1:7686/api/health 2>/dev/null | jq -r '.build_number // 0')
+  if [ -n "$n" ] && [ "$n" != "0" ] && [ "$n" -gt "$prev" ] 2>/dev/null; then
+    echo "ready (#$n) after ${i}s"
+    break
+  fi
   sleep 1
 done
 ```
 
-Runs up to 2 minutes at 1s intervals in the foreground. As soon as the health endpoint responds, it prints the JSON (which includes `build` hash and `build_number`) and exits. The Bash tool's default 2-minute timeout matches the 120 iterations so you don't need to bump it.
+Runs up to 2 minutes at 1s intervals in the foreground. Returns as soon as a NEW build_number shows up — strictly greater than what you saw before, so you can't be fooled by the old binary still answering.
 
 **What NOT to do:**
 - Don't `ScheduleWakeup` a blind delay for a rebuild — you don't know how long it'll take.
