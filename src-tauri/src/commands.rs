@@ -1306,6 +1306,7 @@ pub fn cron_create(
     schedule: String,
     task: String,
     agent: Option<String>,
+    model: Option<String>,
     cwd: Option<String>,
     description: Option<String>,
     oneshot: Option<bool>,
@@ -1317,6 +1318,7 @@ pub fn cron_create(
         task,
         description,
         agent,
+        model,
         cwd,
         role: None,
         creator_pane_id: None,
@@ -1341,6 +1343,8 @@ pub fn cron_update(
     cwd: Option<String>,
     description: Option<String>,
     enabled: Option<bool>,
+    agent: Option<String>,
+    model: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let patch = crate::cron::store::CronUpdateParams {
         name,
@@ -1351,6 +1355,8 @@ pub fn cron_update(
         role: None,
         enabled,
         max_history: None,
+        agent,
+        model,
     };
     let job = svc.cron_update(&cron, &wake, &id, patch)?;
     serde_json::to_value(job).map_err(|e| e.to_string())

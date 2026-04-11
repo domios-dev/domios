@@ -883,6 +883,10 @@ pub enum CronAction {
         /// Agent to spawn (default: claude)
         #[arg(long, default_value = "claude")]
         agent: String,
+        /// Model within the agent provider (e.g. "opus", "haiku",
+        /// "gpt-5.4-mini"). Leave unset to use the provider default.
+        #[arg(long)]
+        model: Option<String>,
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,
@@ -910,6 +914,12 @@ pub enum CronAction {
         cwd: Option<String>,
         #[arg(long)]
         description: Option<String>,
+        /// Agent provider override (e.g. "claude", "codex")
+        #[arg(long)]
+        agent: Option<String>,
+        /// Model within the agent provider. Pass empty string to clear.
+        #[arg(long)]
+        model: Option<String>,
     },
     /// Delete a cron job
     Delete {
@@ -1758,7 +1768,7 @@ fn main() {
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
                 }
-                CronAction::Create { name, schedule, task, workspace, agent, cwd, description, creator_pane, once } => {
+                CronAction::Create { name, schedule, task, workspace, agent, model, cwd, description, creator_pane, once } => {
                     let ws_id = workspace.unwrap_or_else(|| {
                         // Prefer CODETERM_WORKSPACE_ID (agent's own workspace), fall back to first
                         std::env::var("CODETERM_WORKSPACE_ID").ok()
@@ -1777,6 +1787,7 @@ fn main() {
                         "workspace_id": ws_id,
                         "agent": agent,
                     });
+                    if let Some(m) = model { params["model"] = serde_json::json!(m); }
                     if let Some(c) = cwd { params["cwd"] = serde_json::json!(c); }
                     if let Some(d) = description { params["description"] = serde_json::json!(d); }
                     if let Some(cp) = creator_pane { params["creator_pane_id"] = serde_json::json!(cp); }
@@ -1796,13 +1807,15 @@ fn main() {
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
                 }
-                CronAction::Edit { id, name, schedule, task, cwd, description } => {
+                CronAction::Edit { id, name, schedule, task, cwd, description, agent, model } => {
                     let mut params = serde_json::json!({"id": id});
                     if let Some(n) = name { params["name"] = serde_json::json!(n); }
                     if let Some(s) = schedule { params["schedule"] = serde_json::json!(s); }
                     if let Some(t) = task { params["task"] = serde_json::json!(t); }
                     if let Some(c) = cwd { params["cwd"] = serde_json::json!(c); }
                     if let Some(d) = description { params["description"] = serde_json::json!(d); }
+                    if let Some(a) = agent { params["agent"] = serde_json::json!(a); }
+                    if let Some(m) = model { params["model"] = serde_json::json!(m); }
                     match client.call("cron.update", Some(params)) {
                         Ok(val) => {
                             if cli.json {
