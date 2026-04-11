@@ -277,14 +277,8 @@ impl ServiceContext {
             (PaneVisibility::Hidden, PaneCommand::Agent(_)) => {
                 self.spawn_hidden_agent_impl(spec)
             }
-            (_, PaneCommand::Shell) => {
-                // Phase 1: shell-only spawns aren't wired yet — no existing
-                // code path produces them through this surface. Phase 3 adds
-                // a direct implementation that calls `mux.create_tab` + sets
-                // `pane.hidden` based on visibility and returns the handle
-                // without touching the agent registry.
-                Err("PaneCommand::Shell not yet implemented in spawn_pane (phase 3)".into())
-            }
+            (PaneVisibility::Visible, PaneCommand::Shell) => self.spawn_visible_shell_impl(spec),
+            (PaneVisibility::Hidden, PaneCommand::Shell) => self.spawn_hidden_shell_impl(spec),
         }
     }
 }
@@ -433,6 +427,158 @@ impl ServiceContext {
             workspace_id: ws_id,
             worker_id: agent.worker_id.clone(),
             warning,
+        })
+    }
+
+    /// Canonical implementation for [`PaneVisibility::Visible`] +
+    /// [`PaneCommand::Shell`]. Creates a tab, sets cwd if provided,
+    /// optionally renames, and returns. PTY creation stays lazy — the
+    /// frontend spawns it after the `state-changed` event. This is what
+    /// "new tab" UI actions should call.
+    pub(crate) fn spawn_visible_shell_impl(
+        &self,
+        spec: SpawnPaneSpec,
+    ) -> Result<PaneHandle, String> {
+        // 1. Resolve workspace (parent → explicit → active → first).
+        let (ws_id, ws_cwd) = {
+            let mux = self.mux.lock();
+            let from_parent = spec
+                .parent_pane_id
+                .as_ref()
+                .and_then(|pid| mux.find_workspace_for_pane(pid));
+            let id = from_parent
+                .or_else(|| spec.workspace_id.clone())
+                .or_else(|| mux.snapshot().active_workspace_id.clone())
+                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
+                .ok_or("No workspace found")?;
+            let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
+            (id, cwd)
+        };
+        let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
+
+        // 2. Create tab, apply cwd + title.
+        let (tab_id, pane_id) = {
+            let mut mux = self.mux.lock();
+            let result = mux.create_tab(&ws_id)?;
+            if let Some(ref dir) = resolved_cwd {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.cwd = Some(dir.clone());
+                }
+            }
+            if let Some(ref title) = spec.title {
+                if let Err(e) = mux.rename_pane(&result.1, title) {
+                    log::warn!("[spawn.shell] rename_pane failed: {}", e);
+                }
+            }
+            result
+        };
+        self.emit_state_changed();
+
+        Ok(PaneHandle {
+            pane_id,
+            tab_id,
+            pty_id: None,
+            workspace_id: ws_id,
+            worker_id: None,
+            warning,
+        })
+    }
+
+    /// Canonical implementation for [`PaneVisibility::Hidden`] +
+    /// [`PaneCommand::Shell`]. Hidden pane + backend PTY + backend reader,
+    /// no agent launched. Useful for background shells that need to run
+    /// standalone commands (dreaming SQL phases, background maintenance)
+    /// without the full agent machinery.
+    pub(crate) fn spawn_hidden_shell_impl(
+        &self,
+        spec: SpawnPaneSpec,
+    ) -> Result<PaneHandle, String> {
+        use std::collections::HashMap;
+
+        // Workspace resolution (same as hidden+agent).
+        let ws_id = {
+            let mux = self.mux.lock();
+            spec.workspace_id
+                .clone()
+                .or_else(|| mux.snapshot().active_workspace_id.clone())
+                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
+                .ok_or("No workspace for hidden shell")?
+        };
+        let ws_cwd = {
+            let mux = self.mux.lock();
+            mux.get_workspace(&ws_id).and_then(|ws| ws.cwd.clone())
+        };
+        let resolved_cwd = spec.cwd.clone().or(ws_cwd);
+
+        // Create hidden pane.
+        let (tab_id, pane_id) = {
+            let mut mux = self.mux.lock();
+            let result = mux.create_tab(&ws_id)?;
+            if let Some(pane) = mux.get_pane_mut(&result.1) {
+                pane.hidden = true;
+                pane.show_in_tabbar = false;
+                if let Some(ref dir) = resolved_cwd {
+                    pane.cwd = Some(dir.clone());
+                }
+            }
+            result
+        };
+
+        // Backend PTY.
+        let mut env_vars: HashMap<String, String> = HashMap::new();
+        env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
+        env_vars.insert(
+            "CODETERM_SOCKET_PATH".into(),
+            crate::socket::server::socket_display_path(),
+        );
+        let api_cfg = crate::config::load_config().api;
+        let host = if api_cfg.host == "0.0.0.0" {
+            "127.0.0.1".to_string()
+        } else {
+            api_cfg.host.clone()
+        };
+        env_vars.insert(
+            "CODETERM_API_URL".into(),
+            format!("http://{}:{}", host, api_cfg.port),
+        );
+        if let Some(ref tok) = api_cfg.token {
+            env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
+        }
+
+        let pty_id = {
+            let mut pty = self.pty.lock();
+            pty.spawn(None, resolved_cwd, 120, 40, env_vars)
+                .map(|(id, _)| id)?
+        };
+        self.mux.lock().link_pty(&pane_id, pty_id.clone());
+        self.emit_state_changed();
+
+        // Backend reader.
+        let svc_reader = std::sync::Arc::new(self.clone());
+        let pty_reader = pty_id.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("backend reader runtime");
+            rt.block_on(async {
+                match crate::service::pty_lifecycle::start_backend_reader(&svc_reader, &pty_reader)
+                {
+                    Ok(handle) => {
+                        let _ = handle.await;
+                    }
+                    Err(e) => log::warn!("[spawn.hidden_shell] backend reader: {}", e),
+                }
+            });
+        });
+
+        Ok(PaneHandle {
+            pane_id,
+            tab_id,
+            pty_id: Some(pty_id),
+            workspace_id: ws_id,
+            worker_id: None,
+            warning: None,
         })
     }
 
@@ -753,6 +899,10 @@ mod tests {
 
     #[test]
     fn to_agent_params_fails_on_shell_spec() {
+        // to_agent_params is a legacy adapter — it's only meaningful for
+        // agent spawns. Shell spawns use the direct implementation paths
+        // in spawn_visible_shell_impl / spawn_hidden_shell_impl and never
+        // hit the SpawnAgentParams conversion.
         let spec = SpawnPaneSpec::default();
         let err = spec.to_agent_params().unwrap_err();
         assert!(err.contains("Shell"));
