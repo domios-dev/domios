@@ -16,6 +16,7 @@ pub mod learnings;
 pub mod dreaming;
 pub mod rerank;
 pub mod embeddings;
+pub mod embed_queue;
 pub mod activity;
 pub mod workers;
 pub mod auto_extract;
@@ -48,6 +49,7 @@ pub struct MemManager {
     conn: Mutex<Connection>,
     db_path: PathBuf,
     blobs_dir: PathBuf,
+    embed_queue: embed_queue::EmbedQueue,
 }
 
 impl MemManager {
@@ -91,10 +93,13 @@ impl MemManager {
             log::warn!("[mem] repair pass: {}", e);
         }
 
+        let embed_queue = embed_queue::EmbedQueue::start(db_path.clone());
+
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             db_path,
             blobs_dir,
+            embed_queue,
         }))
     }
 
@@ -111,6 +116,7 @@ impl MemManager {
             conn: Mutex::new(conn),
             db_path: tmp.join("knowledge.db"),
             blobs_dir: tmp.join("blobs"),
+            embed_queue: embed_queue::EmbedQueue::disabled(),
         }))
     }
 
@@ -283,17 +289,13 @@ impl MemManager {
             store::insert(&conn, &item, &self.blobs_dir)?
         };
 
-        // Auto-index in mem_vectors as a background task. The fastembed
-        // model is ~50MB and downloads from HuggingFace on first use, so
-        // doing this synchronously inside save() would block the caller
-        // for tens of seconds on first save. A spawned thread keeps save()
-        // fast; the embedding lands eventually. SQLite WAL mode handles
-        // the concurrent write safely.
+        // Auto-index in mem_vectors via the shared EmbedQueue. Non-blocking:
+        // save() returns immediately, the worker drains the queue and
+        // writes vectors on its own connection. See mem/embed_queue.rs.
         #[cfg(feature = "embeddings")]
         {
-            let id_clone = id.clone();
-            // For file-backed items, read full content from disk for vectorization.
-            // item.body may be just a short summary.
+            // For file-backed items, read full content from disk — item.body
+            // may be just a short summary for large sources.
             let embed_text = if let Some(ref src) = item.source {
                 if let Some(path) = src.strip_prefix("file:") {
                     std::fs::read_to_string(path).unwrap_or_else(|_| item.body.clone())
@@ -303,20 +305,7 @@ impl MemManager {
             } else {
                 item.body.clone()
             };
-            let db_path = self.db_path.clone();
-            std::thread::spawn(move || {
-                embeddings::ensure_extension_registered();
-                match rusqlite::Connection::open(&db_path) {
-                    Ok(bg_conn) => {
-                        let _ = bg_conn.busy_timeout(std::time::Duration::from_secs(5));
-                        match embeddings::index(&bg_conn, &id_clone, &embed_text) {
-                            Ok(()) => log::info!("[mem] indexed embedding for {}", id_clone),
-                            Err(e) => log::warn!("[mem] bg embedding index failed for {}: {}", id_clone, e),
-                        }
-                    }
-                    Err(e) => log::warn!("[mem] bg conn open failed: {}", e),
-                }
-            });
+            self.embed_queue.enqueue(id.clone(), embed_text);
         }
         // Auto-extract all 5 categories from free-form text (regex, sync, fast)
         if matches!(
@@ -412,14 +401,7 @@ impl MemManager {
         if updated && body_changed {
             #[cfg(feature = "embeddings")]
             if let Some(body) = new_body_for_index {
-                let id_clone = id.to_string();
-                let db_path = self.db_path.clone();
-                std::thread::spawn(move || {
-                    embeddings::ensure_extension_registered();
-                    if let Ok(bg_conn) = rusqlite::Connection::open(&db_path) {
-                        let _ = embeddings::index(&bg_conn, &id_clone, &body);
-                    }
-                });
+                self.embed_queue.enqueue(id.to_string(), body);
             }
         }
         Ok(updated)
