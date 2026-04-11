@@ -287,7 +287,7 @@ Note: `bash build.sh build` runs the production frontend bundle and currently fa
 - After sending message to GA, wait 20-60s for claude to process + extraction workers
 - After spawning agent, wait 30-60s for it to start + execute task
 - `/new` resets claude context but keeps mem — tests recall from fresh context
-- Cross-workspace: agents in Binaura/codeterm can `codeterm mem search` and find GA memories
+- Cross-workspace: agents in any project workspace can `codeterm mem search` and find GA memories
 - If something doesn't work, update this skill with what you learned
 
 ## Self-improvement

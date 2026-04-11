@@ -28,9 +28,9 @@ STEP 1 — CLASSIFY AREA (deterministic table, do NOT invent areas):
   body mentions                                                         -> area
   ----------------------------------------------------------------------------
   codeterm / worker / cron / mem / knowledge / graph / dreaming         -> codeterm
-  soundcalm / binaura / audio engine / healthkit                        -> soundcalm
-  rekap / langgraph / langchain / livekit / whisper                     -> rekap
-  home assistant / mosquitto / mikrotik / tailscale / 4090              -> home
+  auth / jwt / oauth / session / token / login / sso                    -> auth
+  deploy / docker / kubernetes / fly.io / vercel / ci / github actions  -> deploy
+  home assistant / mosquitto / mikrotik / tailscale / homelab           -> home
   (no match)                                                            -> null
 
 Use the FIRST matching area. Do NOT invent new areas. Do NOT guess
@@ -65,7 +65,7 @@ RULES:
 - ONLY create graph entities with ids starting with `person_` or `project_`. Nothing else. Categories (rule/preference/etc) are columns on mem_items, not nodes.
 - Do NOT create technology entities — technologies are searchable via FTS in the body text.
 - Only extract what's clearly stated. Don't infer or guess.
-- IDs: lowercase_underscore. "John Smith" → person_john_smith, "Rekap" → project_rekap.
+- IDs: lowercase_underscore. "John Smith" → person_john_smith, "ProjectName" → project_projectname.
 - Skip generic terms without a specific name.
 
 HALLUCINATION BAN — this is the hard rule, violating it poisons the store:
