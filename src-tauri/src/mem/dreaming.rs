@@ -92,12 +92,34 @@ pub fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
 
         if score >= 0.5 {
             let now = chrono::Utc::now().to_rfc3339();
-            let n = conn
-                .execute(
-                    "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
-                    params![&now, &id],
-                )
-                .map_err(|e| e.to_string())?;
+            let new_imp = importance.max(4.0);
+            let n = super::store::with_changed_by("dreaming:rem", || {
+                let n = conn
+                    .execute(
+                        "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
+                        params![&now, &id],
+                    )
+                    .map_err(|e| e.to_string())?;
+                if n > 0 {
+                    super::store::history_log(
+                        &conn,
+                        id,
+                        "promote",
+                        &super::store::HistorySnapshot {
+                            importance: Some(*importance),
+                            kind: Some("learning".into()),
+                            ..Default::default()
+                        },
+                        &super::store::HistorySnapshot {
+                            importance: Some(new_imp),
+                            kind: Some("fact".into()),
+                            ..Default::default()
+                        },
+                        None,
+                    );
+                }
+                Ok::<usize, String>(n)
+            })?;
             if n > 0 {
                 promoted += 1;
             }
