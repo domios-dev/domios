@@ -103,6 +103,10 @@ impl ServiceContext {
         cron: &CronState,
         id: &str,
     ) -> Result<CronRunInfo, String> {
+        use crate::service::spawn::{
+            AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec,
+        };
+
         let (agent, task, cwd, role, workspace_id, creator_pane_id) = {
             let store = cron.lock();
             let job = store.get(id).ok_or_else(|| format!("Cron job not found: {}", id))?;
@@ -131,47 +135,53 @@ impl ServiceContext {
             tab_id: None,
         };
 
-        // Spawn agent — pass model from dreaming config if this is the dreaming cron
+        // Build task: base + optional CRON_REPORT_HINT + CRON_COMPLETE_SUFFIX.
+        // The suffix goes AFTER the task, not before, so we pre-concatenate
+        // here rather than using AgentSpawnSpec.task_preamble (which prepends).
         let mut task_text = task;
         if creator_pane_id.is_some() {
             task_text.push_str(crate::prompts::CRON_REPORT_HINT);
         }
         task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
 
-        let model_args = {
-            let mem_cfg = crate::config::memory_config();
-            if !mem_cfg.dreaming_model.is_empty() {
-                let args = self.agent_registry
-                    .with_provider(&agent, |p| p.model_launch_args(&mem_cfg.dreaming_model))
-                    .unwrap_or_default();
-                if args.is_empty() { None } else { Some(args) }
-            } else {
-                None
-            }
+        // Phase 5 will move the model from mem_cfg.dreaming_model into the
+        // CronJob schema itself. For now, the dreaming cron pulls its model
+        // from memory_config — stopgap until each job owns its provider/model.
+        let mem_cfg = crate::config::memory_config();
+        let model = if !mem_cfg.dreaming_model.is_empty() {
+            Some(mem_cfg.dreaming_model.clone())
+        } else {
+            None
         };
 
-        let params = super::SpawnAgentParams {
-            agent: Some(agent),
-            agent_name: None,
-            args: model_args,
+        let spec = SpawnPaneSpec {
+            workspace_id: if workspace_id.is_empty() {
+                None
+            } else {
+                Some(workspace_id)
+            },
+            parent_pane_id: None,
             cwd,
             title: None,
-            role,
-            parent_pane_id: None,
-            can_spawn: None,
-            task: Some(task_text),
-            workspace_id: if workspace_id.is_empty() { None } else { Some(workspace_id) },
-            force_tab: Some(true),
-            report_target_pane_id: creator_pane_id,
-            skip_permissions: None,
+            visibility: PaneVisibility::Visible,
+            command: PaneCommand::Agent(AgentSpawnSpec {
+                provider: agent,
+                model,
+                task: Some(task_text),
+                role,
+                auto_approve: true,
+                report_target_pane_id: creator_pane_id,
+                spawned_by: Some(format!("cron:{}", id)),
+                ..Default::default()
+            }),
         };
 
-        match self.spawn_agent_sync(params) {
-            Ok(result) => {
-                run_info.pane_id = Some(result.pane_id.clone());
-                run_info.tab_id = Some(result.tab_id.clone());
+        match self.spawn_pane(spec) {
+            Ok(handle) => {
+                run_info.pane_id = Some(handle.pane_id.clone());
+                run_info.tab_id = Some(handle.tab_id.clone());
                 // Register pane ownership for log capture on exit
-                cron.lock().register_pane(&result.pane_id, id, &run_id);
+                cron.lock().register_pane(&handle.pane_id, id, &run_id);
             }
             Err(e) => {
                 run_info.status = CronRunStatus::Failed;
