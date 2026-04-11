@@ -881,6 +881,52 @@ pub fn stats(conn: &Connection) -> Result<MemStats, String> {
     })
 }
 
+/// Phase D: `{area -> {kind -> count}}`. NULL / empty areas are collapsed
+/// to the literal key `"(none)"`. When `workspace` is Some, only rows with
+/// `scope = "workspace:<id>"` are counted.
+pub fn get_taxonomy(
+    conn: &Connection,
+    workspace: Option<&str>,
+) -> Result<HashMap<String, HashMap<String, u64>>, String> {
+    let (sql, scope_arg): (&str, Option<String>) = match workspace {
+        Some(ws) => (
+            r#"SELECT COALESCE(NULLIF(area, ''), '(none)') AS area_k, kind, COUNT(*)
+               FROM mem_items
+               WHERE scope = ?1
+               GROUP BY area_k, kind"#,
+            Some(format!("workspace:{}", ws)),
+        ),
+        None => (
+            r#"SELECT COALESCE(NULLIF(area, ''), '(none)') AS area_k, kind, COUNT(*)
+               FROM mem_items
+               GROUP BY area_k, kind"#,
+            None,
+        ),
+    };
+    let mut stmt = conn
+        .prepare(sql)
+        .map_err(|e| format!("prepare taxonomy: {}", e))?;
+    let mut out: HashMap<String, HashMap<String, u64>> = HashMap::new();
+    let mapper = |r: &rusqlite::Row<'_>| -> rusqlite::Result<(String, String, i64)> {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    };
+    let collected: Vec<(String, String, i64)> = if let Some(ref s) = scope_arg {
+        stmt.query_map(params![s], mapper)
+            .map_err(|e| format!("query taxonomy: {}", e))?
+            .filter_map(Result::ok)
+            .collect()
+    } else {
+        stmt.query_map([], mapper)
+            .map_err(|e| format!("query taxonomy: {}", e))?
+            .filter_map(Result::ok)
+            .collect()
+    };
+    for (area_k, kind, n) in collected {
+        out.entry(area_k).or_default().insert(kind, n as u64);
+    }
+    Ok(out)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNode {
     pub id: String,
@@ -1529,4 +1575,41 @@ mod tests {
         assert_eq!(history[0].changed_by, "user");
     }
 
+    // ── Phase D: taxonomy ─────────────────────────────────────────────
+
+    #[test]
+    fn taxonomy_groups_by_area_and_kind() {
+        let (conn, blobs) = fresh();
+        let mut mk = |kind: MemKind, title: &str, area: Option<&str>| {
+            insert(
+                &conn,
+                &NewMemItem {
+                    kind,
+                    scope: MemScope::Global,
+                    title: title.into(),
+                    summary: None,
+                    area: area.map(String::from),
+                    tags: vec![],
+                    body: "b".into(),
+                    source: None,
+                    importance: 3.0,
+                },
+                &blobs,
+            )
+            .unwrap()
+        };
+        mk(MemKind::Fact, "f1", Some("rekap"));
+        mk(MemKind::Fact, "f2", Some("rekap"));
+        mk(MemKind::Skill, "s1", Some("rekap"));
+        mk(MemKind::Rule, "r1", None);
+        mk(MemKind::Preference, "p1", None);
+
+        let tax = get_taxonomy(&conn, None).unwrap();
+        let rekap = tax.get("rekap").expect("rekap bucket");
+        assert_eq!(rekap.get("fact"), Some(&2));
+        assert_eq!(rekap.get("skill"), Some(&1));
+        let none_bucket = tax.get("(none)").expect("(none) bucket");
+        assert_eq!(none_bucket.get("rule"), Some(&1));
+        assert_eq!(none_bucket.get("preference"), Some(&1));
+    }
 }

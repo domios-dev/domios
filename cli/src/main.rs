@@ -295,6 +295,12 @@ pub enum MemAction {
         /// Mem item id
         id: String,
     },
+    /// Print {area -> {kind -> count}} for the store (or a single workspace).
+    Taxonomy {
+        /// Restrict to one workspace scope
+        #[arg(long)]
+        workspace: Option<String>,
+    },
     /// Partial update of an existing mem item by id. Only the flags you
     /// pass are written; everything else stays as-is.
     Update {
@@ -2362,6 +2368,20 @@ fn handle_mem(json_mode: bool, action: MemAction) {
             }
             val
         }
+        MemAction::Taxonomy { workspace } => {
+            let mut url = format!("{}/api/mem/taxonomy", base);
+            if let Some(ws) = &workspace {
+                url.push_str(&format!("?workspace={}", urlencoding::encode(ws)));
+            }
+            let val = mem_get_request(&http, &url);
+            if !json_mode {
+                if let Ok(ref v) = val {
+                    print_taxonomy(v);
+                    return;
+                }
+            }
+            val
+        }
         MemAction::Update { id, title, summary, area, tags, body, importance } => {
             let tag_list: Option<Vec<String>> = tags.map(|t|
                 t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
@@ -2694,6 +2714,37 @@ fn print_history_timeline(rows: &[serde_json::Value]) {
         }
         if let Some(reason) = row.get("reason").and_then(|v| v.as_str()) {
             println!("    reason:     {}", reason);
+        }
+    }
+}
+
+// ── Phase D: taxonomy rendering ─────────────────────────────────────
+fn print_taxonomy(value: &serde_json::Value) {
+    let Some(obj) = value.as_object() else {
+        print_human(value);
+        return;
+    };
+    let mut areas: Vec<&String> = obj.keys().collect();
+    // Alphabetical, with "(none)" pushed to the bottom.
+    areas.sort_by(|a, b| match (a.as_str(), b.as_str()) {
+        ("(none)", "(none)") => std::cmp::Ordering::Equal,
+        ("(none)", _) => std::cmp::Ordering::Greater,
+        (_, "(none)") => std::cmp::Ordering::Less,
+        (x, y) => x.cmp(y),
+    });
+    if areas.is_empty() {
+        println!("(empty)");
+        return;
+    }
+    for area in areas {
+        println!("{}", area);
+        if let Some(kinds) = obj.get(area).and_then(|v| v.as_object()) {
+            let mut kind_keys: Vec<&String> = kinds.keys().collect();
+            kind_keys.sort();
+            for k in kind_keys {
+                let n = kinds.get(k).and_then(|v| v.as_u64()).unwrap_or(0);
+                println!("  {:<13} {}", k, n);
+            }
         }
     }
 }
