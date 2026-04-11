@@ -43,13 +43,7 @@ impl AgentProvider for ClaudeProvider {
         let mut parts: Vec<String> = Vec::new();
         parts.push(ShellSyntax::UNSET_CLAUDECODE.to_string());
 
-        // Headless panes (mem workers, cron) deliver the task via stdin pipe
-        // + `-p` print mode. Inline subexpression delivery (`(Get-Content ...)`)
-        // gets re-split by PowerShell on whitespace, which causes prompts
-        // containing `--flag` tokens to leak into claude.exe's argv and crash
-        // with "unknown option '--area'". Visible interactive panes keep the
-        // legacy inline form: their tasks are short, and `-p` would make the
-        // pane exit immediately after responding which breaks the UX.
+        // Headless: stdin-pipe + -p, avoids PowerShell argv splitting on prompt --flags.
         let use_stdin_pipe = params.headless && params.task.is_some();
 
         if use_stdin_pipe {
@@ -60,8 +54,11 @@ impl AgentProvider for ClaudeProvider {
             if params.skip_permissions {
                 parts.push("--dangerously-skip-permissions".to_string());
             }
-            // -p (print) reads the prompt from stdin and exits when done.
+            // -p reads stdin; stream-json+verbose emits NDJSON events for the popup parser.
             parts.push("-p".to_string());
+            parts.push("--output-format".to_string());
+            parts.push("stream-json".to_string());
+            parts.push("--verbose".to_string());
         } else {
             parts.push("claude".to_string());
             if params.skip_permissions {
@@ -609,6 +606,8 @@ mod tests {
         assert!(cmd.contains(".ct-task-"), "task file path expected: {}", cmd);
         assert!(cmd.contains("claude"), "claude bin: {}", cmd);
         assert!(cmd.contains(" -p"), "headless must add -p: {}", cmd);
+        assert!(cmd.contains("--output-format stream-json"), "headless must request stream-json: {}", cmd);
+        assert!(cmd.contains("--verbose"), "stream-json with -p requires --verbose: {}", cmd);
         assert!(cmd.contains("--dangerously-skip-permissions"));
         // Must NOT have inline subexpression — that's the bug we're fixing.
         assert!(
@@ -637,8 +636,9 @@ mod tests {
             headless: true,
         };
         let cmd = p.build_launch_command(&params);
-        // No task → no pipe, no -p, just plain claude.
+        // No task → no pipe, no -p, no stream-json — just plain claude.
         assert!(!cmd.contains(" -p"), "no -p without task: {}", cmd);
+        assert!(!cmd.contains("--output-format"), "no stream-json without task: {}", cmd);
         assert!(!cmd.contains("Get-Content"));
         assert!(!cmd.contains("cat "));
         assert!(cmd.contains("claude"));
@@ -671,6 +671,8 @@ mod tests {
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains(" -p"));
+        assert!(cmd.contains("--output-format stream-json"));
+        assert!(cmd.contains("--verbose"));
         assert!(cmd.contains("--model claude-haiku-4-5-20251001"));
         // Pipe prefix should come BEFORE the claude binary.
         let claude_pos = cmd.find(" claude").expect("claude in cmd");

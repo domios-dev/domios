@@ -25,11 +25,7 @@ pub struct AgentLaunchParams {
     pub task: Option<String>,
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
-    /// True when the agent is being spawned into a hidden, one-shot pane
-    /// (mem worker, cron job). Providers may pick a non-interactive task
-    /// delivery mode for these — e.g. Claude pipes the task via stdin and
-    /// adds `-p` to avoid PowerShell argv-splitting bugs on long prompts.
-    /// Default false (interactive visible pane).
+    // True for one-shot hidden panes; providers pick non-interactive delivery.
     pub headless: bool,
 }
 

@@ -1084,6 +1084,7 @@ pub fn run() {
                     crate::config::memory_config().workers_per_provider,
                 )),
                 prompt_detector,
+                agent_run_pty_map: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 bridge_outbound: bridge_outbound_tx,
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_task: Arc::new(Mutex::new(None)),
