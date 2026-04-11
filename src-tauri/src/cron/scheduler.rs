@@ -170,7 +170,9 @@ fn fire_job(
         parent_pane_id: None,
         cwd: cwd.map(|s| s.to_string()),
         title: None,
-        visibility: PaneVisibility::Visible,
+        // Hidden — user observes cron runs via the cron history log
+        // viewer, not as a live tab. Mirrors the mem worker pattern.
+        visibility: PaneVisibility::Hidden,
         command: PaneCommand::Agent(AgentSpawnSpec {
             provider: agent.to_string(),
             model,

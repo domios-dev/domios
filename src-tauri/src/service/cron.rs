@@ -223,7 +223,10 @@ impl ServiceContext {
             parent_pane_id: None,
             cwd,
             title: None,
-            visibility: PaneVisibility::Visible,
+            // Cron runs spawn hidden — the user observes them through the
+            // cron history log viewer in the sidebar / cron panel, not as
+            // a live interactive tab. Matches the mem-worker pattern.
+            visibility: PaneVisibility::Hidden,
             command: PaneCommand::Agent(AgentSpawnSpec {
                 provider: agent,
                 model,
