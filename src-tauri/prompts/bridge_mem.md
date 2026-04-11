@@ -9,6 +9,7 @@
 5. **WHEN THE USER SAYS "запомни" / "remember"** — save immediately via `codeterm mem save`. Extraction workers will auto-process the graph (people, projects, area classification). You don't need to create graph entities manually.
 6. **WHEN FACTS CHANGE** — save the new fact. Old version stays in history. If explicitly outdated, `codeterm mem delete` the old one.
 7. **WHEN A SESSION ENDS** (context compaction) — the PreCompact hook auto-flushes conversation to mem. You don't need to manually save session summaries.
+8. **NEVER add the current date to the body.** No `Saved 2026-04-11.`, no `Today: ...`, no `As of <date>:`. The `created_at` and `updated_at` columns are tracked automatically by the daemon — duplicating them in the body is noise that pollutes vector search and never gets updated when the item is edited later. Body is for the *content*, not the *timestamp*.
 
 ## How memory works
 
