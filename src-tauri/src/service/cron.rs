@@ -179,6 +179,8 @@ impl ServiceContext {
             let mem_cfg = crate::config::memory_config();
             if !mem_cfg.dreaming_model.is_empty() {
                 Some(mem_cfg.dreaming_model.clone())
+            } else if !mem_cfg.worker_model.is_empty() {
+                Some(mem_cfg.worker_model.clone())
             } else {
                 None
             }

@@ -311,13 +311,17 @@ impl Default for GeneralAgentConfig {
     }
 }
 
+fn default_worker_model() -> String {
+    "claude-haiku-4-5-20251001".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MemoryConfig {
     /// Agent provider for extraction workers (default: same as general_agent)
     pub extraction_agent: String,
     /// Model for extraction workers. "haiku" for claude, "o3-mini" for codex.
-    /// Empty string = use provider default.
+    /// Empty string = fall back to `worker_model`.
     pub extraction_model: String,
     /// Enable auto-extraction workers on save
     pub auto_extract: bool,
@@ -325,8 +329,14 @@ pub struct MemoryConfig {
     pub dreaming_enabled: bool,
     /// Agent provider for dreaming cron (default: same as general_agent)
     pub dreaming_agent: String,
-    /// Model for dreaming agent
+    /// Model for dreaming agent. Empty string = fall back to `worker_model`.
     pub dreaming_model: String,
+    /// Global default model for any mem worker (extraction + dreaming). Used
+    /// when the more specific `extraction_model` / `dreaming_model` is empty.
+    /// Defaults to claude-haiku-4-5-20251001 — the cheapest model that still
+    /// reasons well enough for structured extraction.
+    #[serde(default = "default_worker_model")]
+    pub worker_model: String,
     /// Max concurrent workers per agent provider. Further spawns queue
     /// FIFO until a slot frees up.
     pub workers_per_provider: usize,
@@ -336,11 +346,12 @@ impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
             extraction_agent: String::new(),
-            extraction_model: "haiku".to_string(),
+            extraction_model: String::new(),
             auto_extract: true,
             dreaming_enabled: true,
             dreaming_agent: String::new(),
-            dreaming_model: "haiku".to_string(),
+            dreaming_model: String::new(),
+            worker_model: default_worker_model(),
             workers_per_provider: 3,
         }
     }
