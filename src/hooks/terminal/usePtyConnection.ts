@@ -61,21 +61,18 @@ export function usePtyConnection({
       const predictedId = ptyId || crypto.randomUUID();
       connectedPtyRef.current = predictedId;
 
-      // Restore screen state for existing PTY
+      // Restore visible pane state for existing PTY.
+      // Use formatted=true: preserves colors, cursor position, AND cursor visibility.
+      // Fixes double-cursor: TUI apps like Claude hide xterm cursor via DECTCEM,
+      // plain text restore would lose that state.
       if (ptyId) {
         try {
-          // Use formatted restore — preserves colors, cursor position, AND cursor visibility.
-          // This fixes double-cursor: TUI apps like Claude hide xterm cursor via DECTCEM,
-          // but plain text restore (get_pane_screen) loses that state.
-          const screenBytes = await invoke<number[]>("get_pane_screen_formatted", { paneId });
-          if (screenBytes && screenBytes.length > 0) {
-            term.write(new Uint8Array(screenBytes));
-          }
+          const formatted = await invoke<string>("get_pane_text", { paneId, formatted: true });
+          if (formatted) term.write(formatted);
         } catch {
-          // Fallback to text screen, then full output
           try {
-            const screen = await invoke<string>("get_pane_screen", { paneId });
-            if (screen) term.write(screen);
+            const text = await invoke<string>("get_pane_text", { paneId, formatted: false });
+            if (text) term.write(text);
           } catch {
             try {
               const output = await invoke<string>("get_pane_output", { paneId });

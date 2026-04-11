@@ -37,7 +37,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/rename", post(rename_pane))
         .route("/api/panes/{id}/output", get(get_pane_output))
         .route("/api/panes/{id}/output/stream", get(stream_pane_output))
-        .route("/api/panes/{id}/screen", get(get_pane_screen))
+        .route("/api/panes/{id}/text", get(get_pane_text))
         .route("/api/panes/{id}/exec", post(exec_in_pane))
         .route("/api/panes/{id}/resize", post(resize_pane))
         .route("/api/browser/open", post(open_browser))
@@ -679,17 +679,24 @@ async fn serve_file(
 }
 
 // ---------------------------------------------------------------------------
-// Screen capture (terminal text content)
+// Pane text capture (visible VT100-parsed screen content)
 // ---------------------------------------------------------------------------
 
-async fn get_pane_screen(
+#[derive(Deserialize, Default)]
+struct GetTextQuery {
+    #[serde(default)]
+    formatted: bool,
+}
+
+async fn get_pane_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(raw_pane_id): Path<String>,
+    Query(query): Query<GetTextQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let cmd = crate::dispatch::Command::GetScreen { pane_id: pane_id.clone(), formatted: false };
+    let cmd = crate::dispatch::Command::GetText { pane_id: pane_id.clone(), formatted: query.formatted };
     match crate::dispatch::dispatch(&cmd, &state.svc) {
         Ok(r) => {
             let mut v = r.into_json();

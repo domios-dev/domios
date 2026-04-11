@@ -171,12 +171,10 @@ def test_output_strip_ansi(api: CodeTermAPI, fresh_pane: str):
     assert "RED" in stripped["output"]
 
 
-def test_screen_endpoint(api: CodeTermAPI, fresh_pane: str):
-    """GET /api/panes/{id}/screen returns visible text."""
-    # Note: screen endpoint requires frontend to be running (Tauri event).
-    # In headless dev mode this may time out — mark as expected failure.
+def test_text_endpoint(api: CodeTermAPI, fresh_pane: str):
+    """GET /api/panes/{id}/text returns visible text."""
     try:
-        screen = api.get_screen(fresh_pane)
-        assert isinstance(screen, str)
+        text = api.get_screen(fresh_pane)
+        assert isinstance(text, str)
     except Exception:
-        pytest.skip("Screen endpoint requires GUI frontend (Tauri event bridge)")
+        pytest.skip("Text endpoint requires GUI frontend (Tauri event bridge)")

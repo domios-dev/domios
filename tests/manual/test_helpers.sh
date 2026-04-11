@@ -26,9 +26,9 @@ for p in json.load(sys.stdin):
 
 ct_screen() {
   local pane="${1:-$(ct_first_pane)}"
-  _ct "/api/panes/$pane/screen" | python -c "
+  _ct "/api/panes/$pane/text" | python -c "
 import json,sys
-s=json.load(sys.stdin).get('screen','')
+s=json.load(sys.stdin).get('text','')
 for i,l in enumerate(s.split(chr(10))):
     if l.strip(): print(f'{i:3}: {l.rstrip()[:100]}')
 " 2>/dev/null
