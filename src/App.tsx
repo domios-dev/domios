@@ -5,6 +5,7 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SplitContainer } from "./components/Terminal/SplitContainer";
 import { NotificationToastContainer } from "./components/Notifications/NotificationToast";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
+import { CronPanel } from "./components/CronPanel/CronPanel";
 import { Onboarding } from "./components/Onboarding/Onboarding";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
@@ -55,8 +56,9 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
 
 function AppInner() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory">("workspace");
+  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "cron">("workspace");
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
+  const [cronInitialId, setCronInitialId] = useState<string | undefined>(undefined);
   const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "settings";
@@ -70,6 +72,14 @@ function AppInner() {
       const open = typeof next === "function" ? next(wasOpen) : next;
       return open ? "memory" : "workspace";
     });
+  }, []);
+  const openCronPanel = useCallback((jobId?: string) => {
+    setCronInitialId(jobId);
+    setMainView("cron");
+  }, []);
+  const closeCronPanel = useCallback(() => {
+    setCronInitialId(undefined);
+    setMainView("workspace");
   }, []);
   const [showOnboarding, setShowOnboarding] = useState(false);
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
@@ -486,7 +496,12 @@ function AppInner() {
 
       <div className="flex flex-1 min-h-0">
         {sidebarOpen && (
-          <Sidebar onOpenSettings={() => setSettingsOpen(true)} onOpenMemory={() => setMemoryOpen(true)} onNavigateToTab={() => setMainView("workspace")} />
+          <Sidebar
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenMemory={() => setMemoryOpen(true)}
+            onOpenCron={openCronPanel}
+            onNavigateToTab={() => setMainView("workspace")}
+          />
         )}
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
@@ -507,6 +522,16 @@ function AppInner() {
               }}
               initialState={memoryInitial}
               onFocusPane={handleMemoryFocusPane}
+            />
+          )}
+          {mainView === "cron" && (
+            <CronPanel
+              initialView={
+                cronInitialId
+                  ? { type: "detail", cronId: cronInitialId }
+                  : { type: "dashboard" }
+              }
+              onClose={closeCronPanel}
             />
           )}
           {mainView === "workspace" && state.workspaces.length > 0 ? (

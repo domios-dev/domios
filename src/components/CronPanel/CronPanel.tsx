@@ -1,10 +1,15 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { useCrons } from "../../store/crons";
 import type { CronRunInfo } from "../../lib/types";
 import { ArrowLeftIcon, CloseIcon16 } from "../Icons";
 import { describeSchedule, formatTime, SCHEDULE_PRESETS } from "../../lib/formatters";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
+
+const HISTORY_VISIBLE = 15;
+const LOG_SUMMARY_MARKER = "--- SUMMARY ---";
+const LOG_RAW_MARKER = "--- RAW OUTPUT ---";
 
 
 // ── Types ────────────────────────────────────────────────────────
@@ -19,41 +24,55 @@ interface CronPanelProps {
 export function CronPanel({ initialView, onClose }: CronPanelProps) {
   const [view, setView] = useState<CronView>(initialView);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-xl shadow-2xl w-[640px] max-h-[80vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ct-border)]">
-          <div className="flex items-center gap-2">
-            {view.type === "detail" && (
-              <button
-                onClick={() => setView({ type: "dashboard" })}
-                className="text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors mr-1"
-                title="Back to all tasks"
-              >
-                <ArrowLeftIcon />
-              </button>
-            )}
-            <span className="text-[13px] font-medium text-[var(--ct-fg)]">
-              {view.type === "dashboard" ? "Periodic Tasks" : "Task Settings"}
-            </span>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
-          >
-            <CloseIcon16 />
-          </button>
-        </div>
+  // Keep internal view in sync when the caller navigates to a different
+  // cron from outside (e.g. sidebar click on another entry while the
+  // panel is already open).
+  useEffect(() => {
+    setView(initialView);
+  }, [initialView]);
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto">
-          {view.type === "dashboard" ? (
-            <CronDashboard onSelectCron={(id) => setView({ type: "detail", cronId: id })} />
-          ) : (
-            <CronDetail cronId={view.cronId} onBack={() => setView({ type: "dashboard" })} />
+  return (
+    <div className="absolute inset-0 flex flex-col bg-[var(--ct-sidebar-bg)] overflow-hidden">
+      {/* Subtle dot-grid background, matches Settings/Memory panels */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage: "radial-gradient(var(--ct-border) 1px, transparent 1px)",
+          backgroundSize: "20px 20px",
+          opacity: 0.3,
+        }}
+      />
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ct-border)] relative z-10">
+        <div className="flex items-center gap-2">
+          {view.type === "detail" && (
+            <button
+              onClick={() => setView({ type: "dashboard" })}
+              className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+              title="Back to all tasks"
+            >
+              <ArrowLeftIcon />
+            </button>
           )}
+          <h2 className="text-sm font-medium text-[var(--ct-fg)]">
+            {view.type === "dashboard" ? "Periodic Tasks" : "Task Settings"}
+          </h2>
         </div>
+        <button
+          onClick={onClose}
+          className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
+        >
+          <CloseIcon16 />
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto relative z-10">
+        {view.type === "dashboard" ? (
+          <CronDashboard onSelectCron={(id) => setView({ type: "detail", cronId: id })} />
+        ) : (
+          <CronDetail cronId={view.cronId} onBack={() => setView({ type: "dashboard" })} />
+        )}
       </div>
     </div>
   );
@@ -155,7 +174,12 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
   const [agent, setAgent] = useState(job?.agent ?? "claude");
   const [model, setModel] = useState(job?.model ?? "");
   const [runs, setRuns] = useState<CronRunInfo[]>([]);
+  const [showAllRuns, setShowAllRuns] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [logView, setLogView] = useState<{
+    runId: string;
+    status: CronRunInfo["status"];
+  } | null>(null);
 
   const selectedProvider = useMemo(
     () => providers.find((p) => p.id === agent),
@@ -163,10 +187,24 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
   );
   const availableModels = selectedProvider?.available_models ?? [];
 
-  // Load history on mount
-  useState(() => {
-    history(cronId).then((r) => setRuns(Array.isArray(r) ? r : []));
-  });
+  // Stream the run history: initial load + 2s polling so new runs and
+  // status transitions (Running → Success/Failed) show up without the
+  // user having to reopen the panel.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const r = await history(cronId);
+        if (!cancelled) setRuns(Array.isArray(r) ? r : []);
+      } catch { /* ignore */ }
+    };
+    load();
+    const interval = setInterval(load, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [cronId, history]);
 
   const handleFolderPick = useCallback(async () => {
     const folder = await open({ directory: true, title: "Select working directory" });
@@ -348,27 +386,233 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
         </button>
       </div>
 
-      {/* Run history */}
-      {runs.length > 0 && (
-        <div>
-          <label className="text-[11px] text-[var(--ct-muted)] block mb-2">Recent runs</label>
+      {/* Run history — click any row to open the log popup (live while Running) */}
+      <div>
+        <label className="text-[11px] text-[var(--ct-muted)] block mb-2">
+          Recent runs {runs.length > 0 && `(${runs.length})`}
+        </label>
+        {runs.length === 0 ? (
+          <div className="text-[11px] text-[var(--ct-muted)] px-3 py-2">No runs yet.</div>
+        ) : (
           <div className="flex flex-col gap-1">
-            {[...runs].reverse().map((run) => (
-              <div key={run.run_id} className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-[var(--ct-surface)] text-[11px]">
-                <span className={
-                  run.status === "Running" ? "text-[var(--ct-accent)] animate-pulse" :
-                  run.status === "Success" ? "text-[var(--ct-green)]" : "text-[var(--ct-red)]"
-                }>
-                  {run.status === "Running" ? "\u25CF" : run.status === "Success" ? "\u2713" : "\u2717"}
-                </span>
-                <span className="text-[var(--ct-fg)]">{run.status}</span>
-                <span className="text-[var(--ct-muted)]">{formatTime(run.started_at)}</span>
-                {run.pane_id && <span className="text-[var(--ct-muted)] font-mono text-[10px]">pane:{run.pane_id.slice(0, 8)}</span>}
-              </div>
-            ))}
+            {(() => {
+              const reversed = [...runs].reverse();
+              const visible = showAllRuns ? reversed : reversed.slice(0, HISTORY_VISIBLE);
+              const hidden = reversed.length - visible.length;
+              return (
+                <>
+                  {visible.map((run) => {
+                    const statusColor =
+                      run.status === "Running"
+                        ? "text-[var(--ct-accent)] animate-pulse"
+                        : run.status === "Success"
+                          ? "text-[var(--ct-green)]"
+                          : run.status === "Cancelled"
+                            ? "text-[var(--ct-muted-fg)]"
+                            : "text-[var(--ct-red)]";
+                    const icon =
+                      run.status === "Running"
+                        ? "\u25CF"
+                        : run.status === "Success"
+                          ? "\u2713"
+                          : run.status === "Cancelled"
+                            ? "\u25A0"
+                            : "\u2717";
+                    return (
+                      <div
+                        key={run.run_id}
+                        onClick={() => setLogView({ runId: run.run_id, status: run.status })}
+                        className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-[var(--ct-surface)] hover:bg-[var(--ct-hover)] text-[11px] cursor-pointer transition-colors"
+                      >
+                        <span className={statusColor}>{icon}</span>
+                        <span className="text-[var(--ct-fg)] w-16">{run.status}</span>
+                        <span className="text-[var(--ct-muted)] flex-1">{formatTime(run.started_at)}</span>
+                        <span className="text-[var(--ct-muted-fg)] text-[10px]">view log →</span>
+                      </div>
+                    );
+                  })}
+                  {hidden > 0 && (
+                    <button
+                      onClick={() => setShowAllRuns(true)}
+                      className="text-[10px] text-[var(--ct-muted)] hover:text-[var(--ct-accent)] px-3 py-1 text-left transition-colors"
+                    >
+                      Show {hidden} more…
+                    </button>
+                  )}
+                  {showAllRuns && reversed.length > HISTORY_VISIBLE && (
+                    <button
+                      onClick={() => setShowAllRuns(false)}
+                      className="text-[10px] text-[var(--ct-muted)] hover:text-[var(--ct-accent)] px-3 py-1 text-left transition-colors"
+                    >
+                      Show less
+                    </button>
+                  )}
+                </>
+              );
+            })()}
           </div>
-        </div>
+        )}
+      </div>
+
+      {logView && (
+        <CronLogModal
+          name={job.name}
+          jobId={cronId}
+          runId={logView.runId}
+          initialStatus={logView.status}
+          onClose={() => setLogView(null)}
+        />
       )}
     </div>
+  );
+}
+
+// ── Log popup (live polling while the run is active) ─────────────
+
+function CronLogModal({
+  name,
+  jobId,
+  runId,
+  initialStatus,
+  onClose,
+}: {
+  name: string;
+  jobId: string;
+  runId: string;
+  initialStatus: CronRunInfo["status"];
+  onClose: () => void;
+}) {
+  const [showRaw, setShowRaw] = useState(false);
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState(initialStatus);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const isRunning = status === "Running";
+
+  // Fetch log: saved file for finished runs, falls through to live pane
+  // output via cron_read_log's backend fallback for Running runs.
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const t = await invoke<string>("cron_read_log", { jobId, runId });
+        if (!cancelled) {
+          setText(t);
+          setError(null);
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      }
+    };
+    load();
+    if (!isRunning) return () => { cancelled = true; };
+    const interval = setInterval(load, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [jobId, runId, isRunning]);
+
+  // Watch for the run's status flipping away from Running so we stop
+  // polling the log and flip the badge.
+  useEffect(() => {
+    if (!isRunning) return;
+    const interval = setInterval(async () => {
+      try {
+        const h = await invoke<CronRunInfo[]>("cron_history", { id: jobId });
+        const run = Array.isArray(h) ? h.find((r) => r.run_id === runId) : undefined;
+        if (run && run.status !== "Running") setStatus(run.status);
+      } catch { /* ignore */ }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [jobId, runId, isRunning]);
+
+  // Auto-scroll to bottom as new content arrives.
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [text]);
+
+  // Esc closes the modal.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  // Finished runs have --- SUMMARY --- / --- RAW OUTPUT --- markers;
+  // running runs don't, so show the raw live output as-is.
+  let summary = text ?? "";
+  let raw = "";
+  if (text) {
+    const rawIdx = text.indexOf(LOG_RAW_MARKER);
+    if (rawIdx !== -1) {
+      const sumIdx = text.indexOf(LOG_SUMMARY_MARKER);
+      const sumStart = sumIdx !== -1 ? sumIdx + LOG_SUMMARY_MARKER.length : 0;
+      summary = text.slice(sumStart, rawIdx).trim();
+      raw = text.slice(rawIdx + LOG_RAW_MARKER.length).trim();
+    }
+  }
+
+  const statusColor =
+    status === "Running"
+      ? "var(--ct-accent)"
+      : status === "Success"
+        ? "var(--ct-green)"
+        : status === "Cancelled"
+          ? "var(--ct-muted-fg)"
+          : "var(--ct-red)";
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[60] bg-black/50" onClick={onClose} />
+      <div className="fixed z-[60] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[720px] max-w-[90vw] max-h-[75vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--ct-border)]">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[12px] font-medium text-[var(--ct-fg)] truncate">{name}</span>
+            <span
+              className="text-[9px] px-1.5 py-[1px] rounded-full shrink-0 uppercase"
+              style={{ color: statusColor, border: `1px solid ${statusColor}` }}
+            >
+              {isRunning ? `${status}…` : status}
+            </span>
+          </div>
+          <button onClick={onClose} className="text-[var(--ct-muted)] hover:text-[var(--ct-fg)]">
+            {"\u00D7"}
+          </button>
+        </div>
+        <div ref={scrollRef} className="flex-1 overflow-auto p-4">
+          {text === null && !error && (
+            <span className="text-[11px] text-[var(--ct-muted)]">Loading…</span>
+          )}
+          {error && (
+            <span className="text-[11px] text-[var(--ct-red)]">Error: {error}</span>
+          )}
+          {text !== null && (
+            <pre className="text-[11px] font-mono text-[var(--ct-fg)] whitespace-pre-wrap leading-relaxed m-0">
+              {summary || text}
+            </pre>
+          )}
+          {raw && (
+            <div className="mt-4 border-t border-[var(--ct-border)] pt-3">
+              <button
+                onClick={() => setShowRaw(!showRaw)}
+                className="text-[10px] text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] transition-colors flex items-center gap-1"
+              >
+                <span>{showRaw ? "\u25BC" : "\u25B6"}</span>
+                Raw terminal output
+              </button>
+              {showRaw && (
+                <pre className="mt-2 text-[10px] font-mono text-[var(--ct-muted-fg)] whitespace-pre-wrap leading-relaxed m-0">
+                  {raw}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }

@@ -14,7 +14,6 @@ import type { CronJob, CronRunInfo } from "../lib/types";
 // ── Constants (easy to adjust) ───────────────────────────────────
 
 /** How many runs to show collapsed in the sidebar */
-export const CRON_SIDEBAR_RUNS_VISIBLE = 8;
 /** Max run history stored per cron (backend default, also enforced here for display) */
 export const CRON_MAX_HISTORY = 100;
 
