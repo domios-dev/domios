@@ -38,6 +38,11 @@ pub struct CronJob {
     pub schedule: String,
     pub enabled: bool,
     pub agent: String,
+    /// Optional model id within the agent provider (e.g. "opus", "haiku",
+    /// "gpt-5.4-mini"). `None` → provider default. Per-job override so
+    /// different crons can use different tiers without touching config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     pub task: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
@@ -410,6 +415,7 @@ impl CronStore {
             schedule: params.schedule,
             enabled: params.enabled.unwrap_or(true),
             agent: params.agent.unwrap_or_else(crate::config::default_agent_provider),
+            model: params.model,
             task: params.task,
             cwd: params.cwd,
             role: params.role,
@@ -493,6 +499,13 @@ impl CronStore {
         }
         if let Some(enabled) = patch.enabled {
             job.enabled = enabled;
+        }
+        if let Some(agent) = patch.agent {
+            job.agent = agent;
+        }
+        if let Some(model) = patch.model {
+            // Empty string = clear the override (fall back to provider default)
+            job.model = if model.is_empty() { None } else { Some(model) };
         }
 
         // Recompute next_run
@@ -653,6 +666,8 @@ pub struct CronCreateParams {
     #[serde(default)]
     pub agent: Option<String>,
     #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
     pub cwd: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
@@ -689,6 +704,10 @@ pub struct CronUpdateParams {
     pub enabled: Option<bool>,
     #[serde(default)]
     pub max_history: Option<usize>,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -820,6 +839,7 @@ mod tests {
             task: "test task".to_string(),
             description: None,
             agent: Some("claude".to_string()),
+            model: None,
             cwd: None,
             role: None,
             creator_pane_id: None,
@@ -858,6 +878,8 @@ mod tests {
                     role: None,
                     enabled: None,
                     max_history: None,
+                    agent: None,
+                    model: None,
                 },
             )
             .unwrap();

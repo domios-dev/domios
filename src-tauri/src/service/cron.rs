@@ -162,11 +162,12 @@ impl ServiceContext {
             AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec,
         };
 
-        let (agent, task, cwd, role, workspace_id, creator_pane_id) = {
+        let (agent, model, task, cwd, role, workspace_id, creator_pane_id) = {
             let store = cron.lock();
             let job = store.get(id).ok_or_else(|| format!("Cron job not found: {}", id))?;
             (
                 job.agent.clone(),
+                job.model.clone(),
                 job.task.clone(),
                 job.cwd.clone(),
                 job.role.clone(),
@@ -199,15 +200,19 @@ impl ServiceContext {
         }
         task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
 
-        // Phase 5 will move the model from mem_cfg.dreaming_model into the
-        // CronJob schema itself. For now, the dreaming cron pulls its model
-        // from memory_config — stopgap until each job owns its provider/model.
-        let mem_cfg = crate::config::memory_config();
-        let model = if !mem_cfg.dreaming_model.is_empty() {
-            Some(mem_cfg.dreaming_model.clone())
-        } else {
-            None
-        };
+        // Model priority:
+        //   1. CronJob.model (per-job override from phase 5 schema)
+        //   2. mem_cfg.dreaming_model (legacy fallback for the auto-installed
+        //      dreaming cron that predates the schema extension)
+        //   3. provider default (model = None → provider picks)
+        let model = model.or_else(|| {
+            let mem_cfg = crate::config::memory_config();
+            if !mem_cfg.dreaming_model.is_empty() {
+                Some(mem_cfg.dreaming_model.clone())
+            } else {
+                None
+            }
+        });
 
         let spec = SpawnPaneSpec {
             workspace_id: if workspace_id.is_empty() {

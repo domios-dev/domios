@@ -204,8 +204,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         },
         Commands::Cron { action } => match action {
             super::CronAction::List { .. } => ("GET".into(), "/api/crons".into(), None),
-            super::CronAction::Create { name, schedule, task, workspace, agent, cwd, description, .. } => {
+            super::CronAction::Create { name, schedule, task, workspace, agent, model, cwd, description, .. } => {
                 let mut body = serde_json::json!({"name": name, "schedule": schedule, "task": task, "agent": agent});
+                if let Some(m) = model { body["model"] = serde_json::json!(m); }
                 if let Some(w) = workspace { body["workspace_id"] = serde_json::json!(w); }
                 if let Some(c) = cwd { body["cwd"] = serde_json::json!(c); }
                 if let Some(d) = description { body["description"] = serde_json::json!(d); }

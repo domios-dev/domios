@@ -39,7 +39,17 @@ pub fn start(
 fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
     let now_ms = now();
     let mut next_fire: Option<u64> = None;
-    let mut to_fire: Vec<(String, String, String, Option<String>, Option<String>, String, Option<String>)> = Vec::new();
+    // (job_id, agent, model, task, cwd, role, workspace_id, creator_pane_id)
+    let mut to_fire: Vec<(
+        String,
+        String,
+        Option<String>,
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+    )> = Vec::new();
 
     // Collect jobs that need firing
     {
@@ -50,6 +60,7 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
                     to_fire.push((
                         job.id.clone(),
                         job.agent.clone(),
+                        job.model.clone(),
                         job.task.clone(),
                         job.cwd.clone(),
                         job.role.clone(),
@@ -68,8 +79,8 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
 
     // Fire jobs
     let fired_any = !to_fire.is_empty();
-    for (job_id, agent, task, cwd, role, workspace_id, creator_pane_id) in to_fire {
-        fire_job(cron_state, service, &job_id, &agent, &task, cwd.as_deref(), role.as_deref(), &workspace_id, creator_pane_id.as_deref());
+    for (job_id, agent, model, task, cwd, role, workspace_id, creator_pane_id) in to_fire {
+        fire_job(cron_state, service, &job_id, &agent, model.as_deref(), &task, cwd.as_deref(), role.as_deref(), &workspace_id, creator_pane_id.as_deref());
     }
 
     // Recalculate next fire after firing
@@ -104,6 +115,7 @@ fn fire_job(
     service: &ServiceState,
     job_id: &str,
     agent: &str,
+    model: Option<&str>,
     task: &str,
     cwd: Option<&str>,
     role: Option<&str>,
@@ -138,12 +150,16 @@ fn fire_job(
     }
     task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
 
-    let mem_cfg = crate::config::memory_config();
-    let model = if !mem_cfg.dreaming_model.is_empty() {
-        Some(mem_cfg.dreaming_model.clone())
-    } else {
-        None
-    };
+    // Model priority: per-job override → mem_cfg.dreaming_model (legacy
+    // fallback for the auto-installed dreaming cron) → provider default.
+    let model = model.map(|s| s.to_string()).or_else(|| {
+        let mem_cfg = crate::config::memory_config();
+        if !mem_cfg.dreaming_model.is_empty() {
+            Some(mem_cfg.dreaming_model.clone())
+        } else {
+            None
+        }
+    });
 
     let spec = SpawnPaneSpec {
         workspace_id: if workspace_id.is_empty() {
@@ -263,6 +279,7 @@ mod tests {
             task: "test".into(),
             description: None,
             agent: None,
+            model: None,
             cwd: None,
             role: None,
             creator_pane_id: None,
@@ -279,6 +296,7 @@ mod tests {
             task: "test".into(),
             description: None,
             agent: None,
+            model: None,
             cwd: None,
             role: None,
             creator_pane_id: None,
