@@ -274,44 +274,8 @@ impl ServiceContext {
             (PaneVisibility::Visible, PaneCommand::Agent(_)) => {
                 self.spawn_visible_agent_impl(spec)
             }
-            (PaneVisibility::Hidden, PaneCommand::Agent(agent)) => {
-                // Phase 1: delegate to spawn_headless which already handles
-                // hidden pane + backend PTY + reader + launch. Phase 3
-                // step 3 inverts this: spawn_headless becomes a thin
-                // wrapper around a direct hidden-pane impl in this module.
-                let intent = agent
-                    .worker_id
-                    .clone()
-                    .map(|w| format!("spawn_pane:{}", w))
-                    .unwrap_or_else(|| "spawn_pane:hidden".into());
-                let task_prompt = agent.task.clone().unwrap_or_default();
-                let model = agent.model.clone().unwrap_or_default();
-                let spawned_by = agent
-                    .spawned_by
-                    .clone()
-                    .unwrap_or_else(|| "spawn_pane".into());
-                let worker_id = crate::mem::workers::spawn_headless(
-                    &std::sync::Arc::new(self.clone()),
-                    intent,
-                    task_prompt,
-                    spawned_by,
-                    agent.provider.clone(),
-                    model,
-                )?;
-                // spawn_headless doesn't return the pane_id, look it up
-                // via the worker registry.
-                let info = self
-                    .workers
-                    .get(&worker_id)
-                    .ok_or_else(|| "worker not found after spawn".to_string())?;
-                Ok(PaneHandle {
-                    pane_id: info.pane_id.clone(),
-                    tab_id: String::new(),
-                    pty_id: None,
-                    workspace_id: spec.workspace_id.clone().unwrap_or_default(),
-                    worker_id: Some(worker_id),
-                    warning: None,
-                })
+            (PaneVisibility::Hidden, PaneCommand::Agent(_)) => {
+                self.spawn_hidden_agent_impl(spec)
             }
             (_, PaneCommand::Shell) => {
                 // Phase 1: shell-only spawns aren't wired yet — no existing
@@ -469,6 +433,198 @@ impl ServiceContext {
             workspace_id: ws_id,
             worker_id: agent.worker_id.clone(),
             warning,
+        })
+    }
+
+    /// Canonical implementation for [`PaneVisibility::Hidden`] +
+    /// [`PaneCommand::Agent`]. Hidden pane from birth, backend PTY spawn,
+    /// backend reader, agent launch — all synchronous so the PaneHandle
+    /// returns with a real pty_id. Used by mem extraction/dreaming workers.
+    pub(crate) fn spawn_hidden_agent_impl(
+        &self,
+        spec: SpawnPaneSpec,
+    ) -> Result<PaneHandle, String> {
+        use std::collections::HashMap;
+
+        let agent = match &spec.command {
+            PaneCommand::Agent(a) => a.clone(),
+            _ => return Err("spawn_hidden_agent_impl called without Agent command".into()),
+        };
+
+        if agent.provider.is_empty() {
+            return Err("AgentSpawnSpec.provider is required for hidden spawns".into());
+        }
+        if self
+            .agent_registry
+            .with_provider(&agent.provider, |_| ())
+            .is_none()
+        {
+            let available = self.agent_registry.provider_ids().join(", ");
+            return Err(format!(
+                "Unknown agent provider: '{}'. Available: [{}]",
+                agent.provider, available
+            ));
+        }
+
+        // 1. Resolve workspace — explicit id → active → first.
+        let ws_id = {
+            let mux = self.mux.lock();
+            spec.workspace_id
+                .clone()
+                .or_else(|| mux.snapshot().active_workspace_id.clone())
+                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
+                .ok_or("No workspace for hidden spawn")?
+        };
+        let ws_cwd = {
+            let mux = self.mux.lock();
+            mux.get_workspace(&ws_id).and_then(|ws| ws.cwd.clone())
+        };
+        let resolved_cwd = spec.cwd.clone().or(ws_cwd);
+
+        // 2. Create hidden pane in a single mux lock.
+        let (tab_id, pane_id) = {
+            let mut mux = self.mux.lock();
+            let result = mux.create_tab(&ws_id)?;
+            if let Some(pane) = mux.get_pane_mut(&result.1) {
+                pane.hidden = true;
+                pane.show_in_tabbar = false;
+                if let Some(ref wid) = agent.worker_id {
+                    pane.worker_id = Some(wid.clone());
+                }
+                if agent.auto_approve {
+                    pane.auto_approve = true;
+                }
+                if let Some(ref dir) = resolved_cwd {
+                    pane.cwd = Some(dir.clone());
+                }
+                if let Some(ref rtid) = agent.report_target_pane_id {
+                    pane.report_target_pane_id = Some(rtid.clone());
+                }
+            }
+            result
+        };
+
+        // 3. Spawn PTY from backend (no frontend involvement for hidden panes).
+        let mut env_vars: HashMap<String, String> = HashMap::new();
+        env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
+        if let Some(ref wid) = agent.worker_id {
+            env_vars.insert("CODETERM_WORKER_ID".into(), wid.clone());
+        }
+        env_vars.insert(
+            "CODETERM_SOCKET_PATH".into(),
+            crate::socket::server::socket_display_path(),
+        );
+        let api_cfg = crate::config::load_config().api;
+        let host = if api_cfg.host == "0.0.0.0" {
+            "127.0.0.1".to_string()
+        } else {
+            api_cfg.host.clone()
+        };
+        env_vars.insert(
+            "CODETERM_API_URL".into(),
+            format!("http://{}:{}", host, api_cfg.port),
+        );
+        if let Some(ref tok) = api_cfg.token {
+            env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
+        }
+        for (k, v) in &agent.extra_env {
+            env_vars.insert(k.clone(), v.clone());
+        }
+
+        let pty_id = {
+            let mut pty = self.pty.lock();
+            pty.spawn(None, resolved_cwd, 120, 40, env_vars)
+                .map(|(id, _)| id)?
+        };
+
+        self.mux.lock().link_pty(&pane_id, pty_id.clone());
+        self.emit_state_changed();
+
+        // 4. Resolve model launch args via the provider's catalog.
+        let model_args: Vec<String> = agent
+            .model
+            .as_ref()
+            .and_then(|m| {
+                self.agent_registry
+                    .with_provider(&agent.provider, |p| p.model_launch_args(m))
+            })
+            .unwrap_or_default();
+
+        // 5. Build the task, optionally wrapped in a preamble.
+        let wrapped_task = agent.task.as_ref().map(|t| {
+            if let Some(ref preamble) = agent.task_preamble {
+                format!("{}{}", preamble, t)
+            } else {
+                t.clone()
+            }
+        });
+
+        // 6. Background thread: reader + launch agent.
+        let svc_outer = std::sync::Arc::new(self.clone());
+        let pane_id_outer = pane_id.clone();
+        let pty_id_outer = pty_id.clone();
+        let provider = agent.provider.clone();
+        let task_for_thread = wrapped_task.clone();
+        std::thread::spawn(move || {
+            // Reader runtime
+            let svc_reader = svc_outer.clone();
+            let pty_reader = pty_id_outer.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("backend reader runtime");
+                rt.block_on(async {
+                    match crate::service::pty_lifecycle::start_backend_reader(
+                        &svc_reader,
+                        &pty_reader,
+                    ) {
+                        Ok(handle) => {
+                            let _ = handle.await;
+                        }
+                        Err(e) => log::warn!("[spawn.hidden] backend reader: {}", e),
+                    }
+                });
+            });
+
+            crate::service::pty_io::poll_shell_prompt(
+                &svc_outer.screen_state,
+                &pty_id_outer,
+                std::time::Duration::from_secs(10),
+            );
+
+            let launch_params = crate::agent::provider::AgentLaunchParams {
+                agent_name: None,
+                task: task_for_thread,
+                args: if model_args.is_empty() {
+                    None
+                } else {
+                    Some(model_args)
+                },
+                skip_permissions: true,
+            };
+            let launch_cmd = svc_outer
+                .agent_registry
+                .with_provider(&provider, |p| p.build_launch_command(&launch_params))
+                .unwrap_or_else(|| format!("{} --dangerously-skip-permissions", provider));
+
+            if let Err(e) = svc_outer.send_text(&pane_id_outer, &launch_cmd, true) {
+                log::error!("[spawn.hidden] send launch cmd: {}", e);
+            }
+            log::debug!(
+                "[spawn.hidden] agent launched pane={} provider={}",
+                pane_id_outer,
+                provider
+            );
+        });
+
+        Ok(PaneHandle {
+            pane_id,
+            tab_id,
+            pty_id: Some(pty_id),
+            workspace_id: ws_id,
+            worker_id: agent.worker_id.clone(),
+            warning: None,
         })
     }
 }
