@@ -2,15 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useMultiplexer } from "../../store/multiplexer";
-import { useCrons, CRON_SIDEBAR_RUNS_VISIBLE } from "../../store/crons";
+import { useCrons } from "../../store/crons";
 import { CronEditor } from "../CronEditor/CronEditor";
 import { getAgentProvider, getAllProviders } from "../../lib/agentProviders";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TitleLevel } from "../../lib/types";
-import type { Workspace, Tab, SplitNode, PaneStatus, Pane, AgentRole, CronJob, CronRunInfo } from "../../lib/types";
+import type { Workspace, Tab, SplitNode, PaneStatus, Pane, AgentRole, CronJob } from "../../lib/types";
 import { X, Pencil, UserMinus, Ban, CircleCheck, TerminalSquare, Plus, FolderOpen } from "lucide-react";
 import { TelegramIcon, TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ShieldCheckIcon } from "../Icons";
-import { timeAgo } from "../../lib/formatters";
 import { isMac } from "../../lib/keybindings";
 
 function collectPaneIdsRaw(node: SplitNode): string[] {
@@ -50,10 +49,11 @@ function aggregateStatus(
 interface SidebarProps {
   onOpenSettings?: () => void;
   onOpenMemory?: () => void;
+  onOpenCron?: (jobId?: string) => void;
   onNavigateToTab?: () => void;
 }
 
-export function Sidebar({ onOpenSettings, onOpenMemory, onNavigateToTab }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateToTab }: SidebarProps) {
   const {
     state,
     createWorkspace,
@@ -462,7 +462,7 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onNavigateToTab }: Sideb
                       <span className="text-[11px]">New session</span>
                     </button>
                     {/* Cron jobs section */}
-                    <CronSection workspaceId={ws.id} onNavigateToTab={onNavigateToTab} />
+                    <CronSection workspaceId={ws.id} onOpenCron={onOpenCron} />
                   </>
                   </div>
                 </div>
@@ -1126,9 +1126,8 @@ function TabItem({
 
 
 
-function CronSection({ workspaceId, onNavigateToTab }: { workspaceId: string; onNavigateToTab?: () => void }) {
-  const { crons, runHistory, update, remove } = useCrons();
-  const { setActiveWorkspace, setActiveTab, state } = useMultiplexer();
+function CronSection({ workspaceId, onOpenCron }: { workspaceId: string; onOpenCron?: (jobId?: string) => void }) {
+  const { crons, update, remove } = useCrons();
   const [expanded, setExpanded] = useState(true);
   const [editingCron, setEditingCron] = useState<CronJob | null>(null);
 
@@ -1153,21 +1152,7 @@ function CronSection({ workspaceId, onNavigateToTab }: { workspaceId: string; on
           <CronItem
             key={job.id}
             job={job}
-            runs={runHistory[job.id] ?? []}
-            onSettings={() => setEditingCron(job)}
-            onFocusPane={(paneId) => {
-              for (const ws of state.workspaces) {
-                for (const tab of ws.tabs) {
-                  const pids = collectPaneIds(tab.split_tree, state.panes);
-                  if (pids.includes(paneId)) {
-                    setActiveWorkspace(ws.id);
-                    setActiveTab(ws.id, tab.id);
-                    onNavigateToTab?.();
-                    return;
-                  }
-                }
-              }
-            }}
+            onOpen={() => onOpenCron?.(job.id)}
           />
         ))}
 
@@ -1196,179 +1181,41 @@ function CronSection({ workspaceId, onNavigateToTab }: { workspaceId: string; on
 
 function CronItem({
   job,
-  runs,
-  onSettings,
-  onFocusPane,
+  onOpen,
 }: {
   job: CronJob;
-  runs: CronRunInfo[];
-  onSettings: () => void;
-  onFocusPane: (paneId: string) => void;
+  onOpen: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [showAll, setShowAll] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const [logView, setLogView] = useState<{ jobId: string; runId: string; text: string } | null>(null);
-
-
-  const reversedRuns = [...runs].reverse();
-  const visibleRuns = showAll ? reversedRuns : reversedRuns.slice(0, CRON_SIDEBAR_RUNS_VISIBLE);
-  const hasMore = reversedRuns.length > CRON_SIDEBAR_RUNS_VISIBLE;
+  // Status dot reflects the most recent run:
+  //   running → pulsing accent
+  //   enabled + idle → green
+  //   disabled → muted
+  const running = job.last_run?.status === "Running";
+  const dotColor = running
+    ? "bg-[var(--ct-accent)] animate-pulse"
+    : job.enabled
+      ? "bg-[var(--ct-green)]"
+      : "bg-[var(--ct-muted)]";
 
   return (
-    <div className="mx-2">
-      <div
-        className={`group flex items-center gap-1.5 px-3 py-1 rounded-md transition-colors cursor-pointer ${
-          job.enabled
-            ? "text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
-            : "text-[var(--ct-muted-fg)] opacity-80 hover:bg-[var(--ct-hover)]"
-        }`}
-        onClick={() => setExpanded(!expanded)}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        style={{ paddingLeft: 20 }}
-      >
-        <span className="text-[9px]">{expanded ? "\u25BC" : "\u25B6"}</span>
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${job.enabled ? "bg-[var(--ct-green)] animate-pulse" : "bg-[var(--ct-muted)]"}`} />
-        <span className="text-[11px] truncate flex-1">{job.name}</span>
-
-        <button
-          onClick={(e) => { e.stopPropagation(); onSettings(); }}
-          className={`shrink-0 p-0.5 flex items-center justify-center text-[18px] leading-none rounded hover:bg-[var(--ct-active)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-all ${hovered ? "opacity-100" : "opacity-0"}`}
-          title="Settings"
-        >
-          {"\u2699"}
-        </button>
-      </div>
-
-      {/* Next run + history */}
-      {expanded && (
-        <div>
-          {/* Scheduled next run */}
-          {job.enabled && job.next_run && (
-            <div
-              className="flex items-center gap-1.5 px-3 py-0.5 text-[10px] rounded-md text-[var(--ct-muted-fg)]"
-              style={{ paddingLeft: 36 }}
-            >
-              <span>next: {new Date(job.next_run).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-            </div>
-          )}
-          {visibleRuns.map((run) => (
-            <div
-              key={run.run_id}
-              className="flex items-center gap-1.5 px-3 py-0.5 text-[10px] cursor-pointer hover:bg-[var(--ct-hover)] rounded-md"
-              style={{ paddingLeft: 36 }}
-              onClick={async () => {
-                if (run.status === "Running" && run.pane_id) {
-                  onFocusPane(run.pane_id);
-                } else {
-                  // Show saved log
-                  try {
-                    const text = await invoke<string>("cron_read_log", { jobId: job.id, runId: run.run_id });
-                    setLogView({ jobId: job.id, runId: run.run_id, text });
-                  } catch {
-                    setLogView({ jobId: job.id, runId: run.run_id, text: "(log not available)" });
-                  }
-                }
-              }}
-            >
-              <span
-                className={
-                  run.status === "Running"
-                    ? "text-[var(--ct-accent)] animate-pulse"
-                    : run.status === "Success"
-                      ? "text-[var(--ct-green)]"
-                      : "text-[var(--ct-red)]"
-                }
-              >
-                {run.status === "Running" ? "\u25CF" : run.status === "Success" ? "\u2713" : "\u2717"}
-              </span>
-              <span className="text-[var(--ct-muted-fg)]">
-                {run.status === "Running" ? "running" : `run: ${timeAgo(run.started_at)}`}
-              </span>
-            </div>
-          ))}
-          {hasMore && !showAll && (
-            <button
-              onClick={() => setShowAll(true)}
-              className="text-[10px] text-[var(--ct-muted)] hover:text-[var(--ct-accent)] px-3 py-0.5 transition-colors"
-              style={{ paddingLeft: 36 }}
-            >
-              +{reversedRuns.length - CRON_SIDEBAR_RUNS_VISIBLE} more...
-            </button>
-          )}
-          {showAll && hasMore && (
-            <button
-              onClick={() => setShowAll(false)}
-              className="text-[10px] text-[var(--ct-muted)] hover:text-[var(--ct-accent)] px-3 py-0.5 transition-colors"
-              style={{ paddingLeft: 36 }}
-            >
-              Show less
-            </button>
-          )}
-        </div>
+    <div
+      className={`group flex items-center gap-1.5 mx-2 px-3 py-1 rounded-md transition-colors cursor-pointer ${
+        job.enabled
+          ? "text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
+          : "text-[var(--ct-muted-fg)] opacity-80 hover:bg-[var(--ct-hover)]"
+      }`}
+      onClick={onOpen}
+      style={{ paddingLeft: 20 }}
+      title={running ? "Running — click to view live log" : "Click to open task settings"}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
+      <span className="text-[11px] truncate flex-1">{job.name}</span>
+      {job.enabled && job.next_run && !running && (
+        <span className="text-[9px] text-[var(--ct-muted)] shrink-0">
+          {new Date(job.next_run).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        </span>
       )}
-
-      {/* Log viewer modal */}
-      {logView && <CronLogModal name={job.name} text={logView.text} onClose={() => setLogView(null)} />}
     </div>
   );
 }
 
-const LOG_SUMMARY_MARKER = "--- SUMMARY ---";
-const LOG_RAW_MARKER = "--- RAW OUTPUT ---";
-
-function CronLogModal({ name, text, onClose }: { name: string; text: string; onClose: () => void }) {
-  const [showRaw, setShowRaw] = useState(false);
-
-  // Split log into summary and raw parts
-  let summary = text;
-  let raw = "";
-  const rawIdx = text.indexOf(LOG_RAW_MARKER);
-  if (rawIdx !== -1) {
-    const sumIdx = text.indexOf(LOG_SUMMARY_MARKER);
-    const sumStart = sumIdx !== -1 ? sumIdx + LOG_SUMMARY_MARKER.length : 0;
-    summary = text.slice(sumStart, rawIdx).trim();
-    raw = text.slice(rawIdx + LOG_RAW_MARKER.length).trim();
-  }
-
-  return (
-    <>
-      <div className="fixed inset-0 z-50 bg-black/50" onClick={onClose} />
-      <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[600px] max-h-[70vh] flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--ct-border)]">
-          <span className="text-[12px] font-medium text-[var(--ct-fg)]">
-            {name} — run log
-          </span>
-          <button onClick={onClose} className="text-[var(--ct-muted)] hover:text-[var(--ct-fg)]">
-            {"\u00D7"}
-          </button>
-        </div>
-        <div className="flex-1 overflow-auto p-4">
-          {/* Summary */}
-          <pre className="text-[11px] font-mono text-[var(--ct-fg)] whitespace-pre-wrap leading-relaxed">
-            {summary}
-          </pre>
-
-          {/* Raw output — collapsed by default */}
-          {raw && (
-            <div className="mt-4 border-t border-[var(--ct-border)] pt-3">
-              <button
-                onClick={() => setShowRaw(!showRaw)}
-                className="text-[10px] text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] transition-colors flex items-center gap-1"
-              >
-                <span>{showRaw ? "\u25BC" : "\u25B6"}</span>
-                Raw terminal output
-              </button>
-              {showRaw && (
-                <pre className="mt-2 text-[10px] font-mono text-[var(--ct-muted-fg)] whitespace-pre-wrap leading-relaxed">
-                  {raw}
-                </pre>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </>
-  );
-}
