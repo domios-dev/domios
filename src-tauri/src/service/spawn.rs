@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use super::ServiceContext;
-use super::orchestrator::{SpawnAgentParams, SpawnResult};
+use super::orchestrator::{build_agent_command, launch_agent_in_background, SpawnAgentParams};
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -189,18 +189,40 @@ pub struct PaneHandle {
     pub warning: Option<String>,
 }
 
-// ── Spec → SpawnAgentParams adapter ─────────────────────────────────────
+// ── SpawnAgentParams ↔ SpawnPaneSpec adapters ──────────────────────────
 
 impl SpawnPaneSpec {
-    /// Convert to the legacy `SpawnAgentParams` used by the current
-    /// `spawn_agent_sync` path. Only meaningful when `command` is
-    /// [`PaneCommand::Agent`]. Shell spawns take a different code path.
-    ///
-    /// This adapter is phase 1 glue — it bridges the new type surface to
-    /// the existing battle-tested implementation without duplicating the
-    /// PTY and agent-launch plumbing. Phase 3 inverts the relationship:
-    /// `spawn_agent_sync` will become a thin wrapper that constructs a
-    /// spec and calls `spawn_pane`, and this adapter goes away.
+    /// Build a spec from the legacy `SpawnAgentParams` used by CLI, REST,
+    /// batch, and cron callers. Always produces a Visible + Agent spec
+    /// (the only thing SpawnAgentParams can represent).
+    pub fn from_agent_params(params: SpawnAgentParams) -> Self {
+        Self {
+            workspace_id: params.workspace_id.clone(),
+            parent_pane_id: params.parent_pane_id.clone(),
+            cwd: params.cwd.clone(),
+            title: params.title.clone(),
+            visibility: PaneVisibility::Visible,
+            command: PaneCommand::Agent(AgentSpawnSpec {
+                provider: params.agent.clone().unwrap_or_default(),
+                model: None,
+                task: params.task.clone(),
+                agent_name: params.agent_name.clone(),
+                extra_args: params.args.clone().unwrap_or_default(),
+                role: params.role.clone(),
+                can_spawn: params.can_spawn.unwrap_or(false),
+                auto_approve: params.skip_permissions.unwrap_or(true),
+                report_target_pane_id: params.report_target_pane_id.clone(),
+                worker_id: None,
+                extra_env: Default::default(),
+                task_preamble: None,
+                spawned_by: None,
+            }),
+        }
+    }
+
+    /// Convert to the legacy `SpawnAgentParams`. Used by
+    /// `spawn_visible_agent_impl` internally when it needs to call
+    /// `build_agent_command` (which still takes the legacy struct).
     pub(crate) fn to_agent_params(&self) -> Result<SpawnAgentParams, String> {
         let agent = match &self.command {
             PaneCommand::Agent(a) => a,
@@ -247,16 +269,10 @@ impl ServiceContext {
     /// **Errors**: unknown agent provider, missing workspace, or PTY spawn
     /// failure (hidden panes only; visible panes fail async inside the
     /// launch thread).
-    ///
-    /// Phase 1 note: internally delegates to `spawn_agent_sync` for agent
-    /// spawns. `Shell` spawns and `Hidden` agent spawns will get their own
-    /// implementation paths in phase 3.
     pub fn spawn_pane(&self, spec: SpawnPaneSpec) -> Result<PaneHandle, String> {
         match (&spec.visibility, &spec.command) {
             (PaneVisibility::Visible, PaneCommand::Agent(_)) => {
-                let params = spec.to_agent_params()?;
-                let result = self.spawn_agent_sync(params)?;
-                Ok(spawn_result_to_handle(result, spec.workspace_id.clone()))
+                self.spawn_visible_agent_impl(spec)
             }
             (PaneVisibility::Hidden, PaneCommand::Agent(agent)) => {
                 // Phase 1: delegate to spawn_headless which already handles
@@ -309,18 +325,151 @@ impl ServiceContext {
     }
 }
 
-fn spawn_result_to_handle(result: SpawnResult, workspace_id: Option<String>) -> PaneHandle {
-    PaneHandle {
-        pane_id: result.pane_id,
-        tab_id: result.tab_id,
-        pty_id: if result.pty_id.is_empty() {
-            None
+// ── Canonical visible-agent implementation ─────────────────────────────
+// Moved here from orchestrator::spawn_agent_sync. This is now the single
+// source of truth for visible-tab agent spawns; orchestrator::spawn_agent_sync
+// is a thin wrapper that builds a spec and calls spawn_pane.
+
+impl ServiceContext {
+    /// Canonical implementation for [`PaneVisibility::Visible`] +
+    /// [`PaneCommand::Agent`]. Creates a tab, sets role/parent/cwd/auto_approve,
+    /// renames, emits state-changed, and kicks off the background launch
+    /// thread that waits for PTY + readiness then sends the launch command.
+    pub(crate) fn spawn_visible_agent_impl(
+        &self,
+        spec: SpawnPaneSpec,
+    ) -> Result<PaneHandle, String> {
+        let agent = match &spec.command {
+            PaneCommand::Agent(a) => a.clone(),
+            _ => return Err("spawn_visible_agent_impl called without Agent command".into()),
+        };
+
+        let default_provider = crate::config::default_agent_provider();
+        let agent_cmd = if agent.provider.is_empty() {
+            default_provider
         } else {
-            Some(result.pty_id)
-        },
-        workspace_id: workspace_id.unwrap_or_default(),
-        worker_id: None,
-        warning: result.warning,
+            agent.provider.clone()
+        };
+
+        // Validate provider early — before we touch workspaces, PTYs, or the filesystem.
+        if self.agent_registry.with_provider(&agent_cmd, |_| ()).is_none() {
+            let available = self.agent_registry.provider_ids().join(", ");
+            return Err(format!(
+                "Unknown agent provider: '{}'. Available: [{}]",
+                agent_cmd, available
+            ));
+        }
+
+        let title = spec
+            .title
+            .clone()
+            .or_else(|| agent.agent_name.clone())
+            .unwrap_or_else(|| agent_cmd.clone());
+
+        // 1. Resolve workspace (parent → explicit → active → first)
+        let (ws_id, ws_cwd) = {
+            let mux = self.mux.lock();
+            let from_parent = spec
+                .parent_pane_id
+                .as_ref()
+                .and_then(|pid| mux.find_workspace_for_pane(pid));
+            let id = from_parent
+                .or_else(|| spec.workspace_id.clone())
+                .or_else(|| mux.snapshot().active_workspace_id.clone())
+                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
+                .ok_or("No workspace found")?;
+            let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
+            (id, cwd)
+        };
+
+        // 2. Resolve cwd — inherit from workspace or warn on mismatch.
+        let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
+
+        // 3. Create tab + apply metadata, all under one mux lock so the
+        //    frontend sees a fully configured pane as soon as state_changed fires.
+        let (tab_id, pane_id) = {
+            let mut mux = self.mux.lock();
+            let result = mux.create_tab(&ws_id)?;
+            if let Some(ref dir) = resolved_cwd {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.cwd = Some(dir.clone());
+                }
+            }
+            // Role + parent + can_spawn — only when role is set
+            if let Some(ref role_str) = agent.role {
+                let role = Self::parse_role(role_str)?;
+                mux.set_pane_role(&result.1, role, spec.parent_pane_id.as_deref())?;
+                if let Err(e) = mux.set_can_spawn(&result.1, agent.can_spawn) {
+                    log::warn!("[spawn] set_can_spawn failed: {}", e);
+                }
+            }
+            // Report target for cron / background agents
+            if let Some(ref rtid) = agent.report_target_pane_id {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.report_target_pane_id = Some(rtid.clone());
+                }
+            }
+            // worker_id (e.g. set by mem extraction when going through this path)
+            if let Some(ref wid) = agent.worker_id {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.worker_id = Some(wid.clone());
+                }
+            }
+            if agent.auto_approve {
+                if let Some(pane) = mux.get_pane_mut(&result.1) {
+                    pane.auto_approve = true;
+                }
+            }
+            if let Err(e) = mux.rename_pane(&result.1, &title) {
+                log::warn!("[spawn] rename_pane failed: {}", e);
+            }
+            result
+        };
+        self.emit_state_changed();
+
+        // 4. Build the task, optionally wrapped in a preamble (cron suffix,
+        //    worker_task preamble, role-based suffix).
+        let role_suffixed_task = agent.task.as_ref().map(|t| {
+            let preamble_wrapped = if let Some(ref preamble) = agent.task_preamble {
+                format!("{}{}", preamble, t)
+            } else {
+                t.clone()
+            };
+            match agent.role.as_deref() {
+                Some("Worker") => format!("{}{}", preamble_wrapped, crate::prompts::WORKER_SUFFIX),
+                Some("Lead") => format!("{}{}", preamble_wrapped, crate::prompts::LEAD_SUFFIX),
+                Some("Orchestrator") => {
+                    format!("{}{}", preamble_wrapped, crate::prompts::ORCHESTRATOR_SUFFIX)
+                }
+                _ => preamble_wrapped,
+            }
+        });
+
+        // 5. Background launch — build command via registry, spawn thread.
+        // build_agent_command takes legacy SpawnAgentParams; convert via adapter.
+        let legacy_params = spec.to_agent_params()?;
+        let launch_cmd = build_agent_command(
+            &agent_cmd,
+            &legacy_params,
+            role_suffixed_task.as_deref(),
+            &self.agent_registry,
+        );
+        launch_agent_in_background(
+            self.clone(),
+            pane_id.clone(),
+            launch_cmd,
+            agent_cmd.clone(),
+            role_suffixed_task,
+        );
+
+        Ok(PaneHandle {
+            pane_id,
+            tab_id,
+            pty_id: None,
+            workspace_id: ws_id,
+            worker_id: agent.worker_id.clone(),
+            warning,
+        })
     }
 }
 

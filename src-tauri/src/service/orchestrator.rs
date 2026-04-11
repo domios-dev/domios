@@ -195,7 +195,7 @@ impl ServiceContext {
     /// Resolve agent cwd against workspace cwd:
     /// - If no cwd specified → inherit from workspace
     /// - If cwd differs from workspace → return warning
-    fn resolve_agent_cwd(
+    pub(crate) fn resolve_agent_cwd(
         agent_cwd: &Option<String>,
         workspace_cwd: &Option<String>,
     ) -> (Option<String>, Option<String>) {
@@ -223,7 +223,7 @@ impl ServiceContext {
     }
 
     /// Compare paths ignoring trailing slashes and case on Windows
-    fn paths_equal(a: &str, b: &str) -> bool {
+    pub(crate) fn paths_equal(a: &str, b: &str) -> bool {
         let norm = |s: &str| {
             let s = s.replace('\\', "/");
             s.trim_end_matches('/').to_string()
@@ -236,104 +236,29 @@ impl ServiceContext {
 
     /// One-call agent spawn: create tab → wait PTY → set role → launch agent.
     ///
-    /// Two modes:
-    /// - **Interactive** (default): launches agent, waits for readiness, sends task.
-    ///   The agent stays alive for follow-up messages.
-    /// - **One-shot** (`oneshot: true`): uses `-p` flag to pass task inline.
-    ///   Agent exits after responding.
-    /// Synchronous spawn — for socket API. No tokio runtime needed.
-    pub fn spawn_agent_sync(&self, mut params: SpawnAgentParams) -> Result<SpawnResult, String> {
-        let default_provider = crate::config::default_agent_provider();
-        let agent_cmd = params.agent.as_deref().unwrap_or(&default_provider).to_string();
-        // Validate against the registry — reject unknown provider ids before
-        // we touch workspaces, PTYs, or the filesystem.
-        if self
-            .agent_registry
-            .with_provider(&agent_cmd, |_| ())
-            .is_none()
-        {
-            let available = self.agent_registry.provider_ids().join(", ");
-            return Err(format!(
-                "Unknown agent provider: '{}'. Available: [{}]",
-                agent_cmd, available
-            ));
-        }
-        let title = params.title.as_deref()
-            .or(params.agent_name.as_deref())
-            .unwrap_or(&agent_cmd).to_string();
-
-        // 1. Find workspace — lock once, resolve everything
-        let (ws_id, ws_cwd) = {
-            let mux = self.mux.lock();
-            let from_parent = params.parent_pane_id.as_ref()
-                .and_then(|pid| mux.find_workspace_for_pane(pid));
-            let id = from_parent
-                .or_else(|| params.workspace_id.clone())
-                .or_else(|| mux.snapshot().active_workspace_id.clone())
-                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                .ok_or("No workspace found")?;
-            let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
-            (id, cwd)
-        };
-
-        // Resolve cwd: inherit from workspace if not specified, warn if different
-        let (resolved_cwd, warning) = Self::resolve_agent_cwd(&params.cwd, &ws_cwd);
-        params.cwd = resolved_cwd;
-
-        // 2. Create tab + set role + rename — all before emitting state change
-        //    so frontend sees role/parent when spawning PTY (env vars)
-        let (tab_id, pane_id) = {
-            let mut mux = self.mux.lock();
-            let result = mux.create_tab(&ws_id)?;
-            if let Some(ref dir) = params.cwd {
-                if let Some(pane) = mux.get_pane_mut(&result.1) {
-                    pane.cwd = Some(dir.clone());
-                }
-            }
-            // Never auto-switch to agent/cron spawned tabs — only user clicks switch focus
-            // Set role inside same lock — before frontend sees the pane
-            if let Some(ref role_str) = params.role {
-                let role = Self::parse_role(role_str)?;
-                mux.set_pane_role(&result.1, role, params.parent_pane_id.as_deref())?;
-                if let Some(cs) = params.can_spawn {
-                    if let Err(e) = mux.set_can_spawn(&result.1, cs) {
-                        log::warn!("[spawn] set_can_spawn failed: {}", e);
-                    }
-                }
-            }
-            // Set report target for cron agents
-            if let Some(ref rtid) = params.report_target_pane_id {
-                if let Some(pane) = mux.get_pane_mut(&result.1) {
-                    pane.report_target_pane_id = Some(rtid.clone());
-                }
-            }
-            // Auto-approve prompts for bypass-permissions panes
-            if params.skip_permissions.unwrap_or(true) {
-                if let Some(pane) = mux.get_pane_mut(&result.1) {
-                    pane.auto_approve = true;
-                }
-            }
-            // Rename
-            if let Err(e) = mux.rename_pane(&result.1, &title) {
-                log::warn!("[spawn] rename_pane failed: {}", e);
-            }
-            result
-        };
-        self.emit_state_changed();
-
-        // 5. Background launch — task is passed as CLI arg to claude (no paste needed)
-        let bg_task = params.task.as_ref().map(|t| {
-            match params.role.as_deref() {
-                Some("Worker") => format!("{}{}", t, crate::prompts::WORKER_SUFFIX),
-                Some("Lead") => format!("{}{}", t, crate::prompts::LEAD_SUFFIX),
-                Some("Orchestrator") => format!("{}{}", t, crate::prompts::ORCHESTRATOR_SUFFIX),
-                _ => t.clone(),
-            }
-        });
-        let launch_cmd = build_agent_command(&agent_cmd, &params, bg_task.as_deref(), &self.agent_registry);
-        launch_agent_in_background(self.clone(), pane_id.clone(), launch_cmd, agent_cmd.clone(), bg_task);
-
-        Ok(SpawnResult { pane_id, tab_id, pty_id: String::new(), agent: agent_cmd, title, role: params.role, warning })
+    /// Thin wrapper over [`ServiceContext::spawn_pane`] for callers that
+    /// still use the legacy [`SpawnAgentParams`] struct (CLI, REST, batch,
+    /// cron, socket, workspace init). New call sites should build a
+    /// `SpawnPaneSpec` and call `spawn_pane` directly.
+    pub fn spawn_agent_sync(&self, params: SpawnAgentParams) -> Result<SpawnResult, String> {
+        let role = params.role.clone();
+        let agent = params.agent.clone().unwrap_or_else(crate::config::default_agent_provider);
+        let title = params
+            .title
+            .clone()
+            .or_else(|| params.agent_name.clone())
+            .unwrap_or_else(|| agent.clone());
+        let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params(params);
+        let handle = self.spawn_pane(spec)?;
+        Ok(SpawnResult {
+            pane_id: handle.pane_id,
+            tab_id: handle.tab_id,
+            pty_id: handle.pty_id.unwrap_or_default(),
+            agent,
+            title,
+            role,
+            warning: handle.warning,
+        })
     }
 
     pub async fn spawn_agent(&self, mut params: SpawnAgentParams) -> Result<SpawnResult, String> {
@@ -443,12 +368,12 @@ impl ServiceContext {
     }
 }
 
-use crate::agent::provider::{AgentLaunchParams, ReadinessStrategy, TaskDelivery};
-use crate::agent::registry::AgentRegistry;
+pub(crate) use crate::agent::provider::{AgentLaunchParams, ReadinessStrategy, TaskDelivery};
+pub(crate) use crate::agent::registry::AgentRegistry;
 
 /// Shared background thread logic for launching agents in a PTY.
 /// Uses the AgentRegistry to determine readiness strategy and task delivery.
-fn launch_agent_in_background(
+pub(crate) fn launch_agent_in_background(
     svc: ServiceContext,
     pane_id: String,
     launch_cmd: String,
@@ -547,7 +472,7 @@ fn launch_agent_in_background(
 
 /// Build a single shell command that launches the agent.
 /// Uses the AgentRegistry for known providers; falls back to simple command for unknown agents.
-fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<&str>, registry: &AgentRegistry) -> String {
+pub(crate) fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<&str>, registry: &AgentRegistry) -> String {
     let launch_params = AgentLaunchParams {
         agent_name: params.agent_name.clone(),
         task: task.map(|t| t.to_string()),
