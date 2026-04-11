@@ -1,5 +1,4 @@
-//! SQLite schema, mem_items CRUD, blob storage. WAL mode for concurrent reads.
-//! Schema is created on `init_schema` (idempotent — uses CREATE TABLE IF NOT EXISTS).
+//! mem_items SQLite schema + CRUD + blob store.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -119,7 +118,6 @@ pub struct MemItem {
     pub accessed_at: Option<String>,
     #[serde(default)]
     pub access_count: i64,
-    /// How many times a similar topic recurred (set by dreaming consolidation)
     #[serde(default)]
     pub recurrence_count: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -253,17 +251,8 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// One-shot consistency repair. Run on startup. Logs what it fixed.
-///
-/// Fixes:
-/// - Bogus graph entities (ids not starting with person_/project_/area_)
-/// - Relations with valid_to < valid_from (impossible time windows)
-/// - Orphan entities with no incoming/outgoing relations
-/// - Empty-titled mem_items → "Untitled <uid>"
+/// Startup repair pass: drops bogus entities, bad time windows, orphans.
 pub fn repair_inconsistencies(conn: &Connection) -> Result<(), String> {
-    // 1. Delete bogus entities (category/tech/kind/area hub nodes).
-    // Only `person_*` and `project_*` are allowed — kind is already a column
-    // on every mem_item, and area stars were hub-patterning the graph.
     let bogus_entities = conn.execute(
         r#"DELETE FROM entities
            WHERE id NOT LIKE 'person_%'
@@ -271,8 +260,6 @@ pub fn repair_inconsistencies(conn: &Connection) -> Result<(), String> {
         [],
     ).map_err(|e| format!("repair entities: {}", e))? as u64;
 
-    // Cascade: kill relations that point to now-deleted entities, plus
-    // any category-ish relation types that should never have existed.
     let bogus_relations = conn.execute(
         r#"DELETE FROM relations
            WHERE (from_id NOT LIKE 'person_%' AND from_id NOT LIKE 'project_%' AND from_id NOT IN (SELECT id FROM mem_items))
@@ -284,19 +271,16 @@ pub fn repair_inconsistencies(conn: &Connection) -> Result<(), String> {
         [],
     ).map_err(|e| format!("repair relations: {}", e))? as u64;
 
-    // 2. Delete impossible temporal windows
     let bad_temporal = conn.execute(
         "DELETE FROM relations WHERE valid_to IS NOT NULL AND valid_to < valid_from",
         [],
     ).map_err(|e| format!("repair temporal: {}", e))? as u64;
 
-    // 3. Fix empty titles
     let empty_titles = conn.execute(
         "UPDATE mem_items SET title = 'Untitled ' || substr(uid, 1, 8) WHERE title = '' OR title IS NULL",
         [],
     ).map_err(|e| format!("repair titles: {}", e))? as u64;
 
-    // 4. Delete orphan entities (no relations reference them)
     let orphans = conn.execute(
         r#"DELETE FROM entities
            WHERE id NOT IN (SELECT DISTINCT from_id FROM relations)
@@ -313,9 +297,7 @@ pub fn repair_inconsistencies(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
-/// Insert a new mem_item, returning its slug id.
-/// Body >2KB goes to a content-addressed blob; smaller bodies live inline.
-/// Auto-resolves slug collisions by appending a hash suffix.
+/// >2KB bodies go to content-addressed blob.
 pub fn insert(
     conn: &Connection,
     item: &NewMemItem,
@@ -324,10 +306,6 @@ pub fn insert(
     insert_with_options(conn, item, blobs_dir, false)
 }
 
-/// Insert with replace=true — UPDATE existing row with the same id instead
-/// of generating a hash-suffixed alternative. Used by `mem save --replace`
-/// for explicit upsert (e.g. when the user wants to overwrite the bundled
-/// identity placeholder with their actual identity).
 pub fn upsert(
     conn: &Connection,
     item: &NewMemItem,
@@ -346,13 +324,8 @@ fn insert_with_options(
     let slug = ids::slugify(&item.title);
     let candidate = ids::compose(kind_str, &slug);
 
-    // Three modes:
-    // - replace=true + exists → DELETE old + INSERT new with the same id (preserves id stability)
-    // - replace=false + exists → switch to body-hashed suffix (collision-safe)
-    // - new id → INSERT
     let collision = exists(conn, &candidate).map_err(|e| e.to_string())?;
     let id = if collision && replace {
-        // Drop the existing row + its FTS mirror; we re-insert below.
         conn.execute("DELETE FROM mem_items WHERE id = ?1", params![&candidate])
             .map_err(|e| format!("delete on replace: {}", e))?;
         let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&candidate]);
@@ -402,7 +375,6 @@ fn insert_with_options(
     )
     .map_err(|e| format!("insert mem_item: {}", e))?;
 
-    // Mirror into FTS5 (full body for search regardless of inline/blob)
     let tags_text = item.tags.join(" ");
     conn.execute(
         r#"INSERT INTO mem_fts (mem_id, title, summary, body, tags)
@@ -467,8 +439,6 @@ pub fn get(
         String::new()
     };
 
-    // For file-backed items (source starts with "file:"), read full body from disk.
-    // The inline body is just a short summary for FTS; the real content lives on disk.
     if let Some(ref src) = source {
         if let Some(path) = src.strip_prefix("file:") {
             if let Ok(disk_content) = std::fs::read_to_string(path) {
@@ -482,7 +452,6 @@ pub fn get(
 
     let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
-    // Bump access tracking (best-effort, ignore errors)
     let now = chrono::Utc::now().to_rfc3339();
     let _ = conn.execute(
         "UPDATE mem_items SET accessed_at = ?1, access_count = access_count + 1 WHERE id = ?2",
@@ -495,8 +464,6 @@ pub fn get(
     }))
 }
 
-/// Partial update — only the fields explicitly Some(_) are written.
-/// Returns true if the row existed and was updated.
 pub struct MemUpdate {
     pub title: Option<String>,
     pub summary: Option<String>,
@@ -504,7 +471,6 @@ pub struct MemUpdate {
     pub tags: Option<Vec<String>>,
     pub body: Option<String>,
     pub importance: Option<f64>,
-    /// Increment recurrence_count by this amount (dreaming consolidation)
     pub bump_recurrence: Option<i64>,
 }
 
@@ -514,8 +480,6 @@ pub fn update(
     patch: &MemUpdate,
     blobs_dir: &Path,
 ) -> Result<bool, String> {
-    // Need the existing row to know whether body landed inline or in a blob
-    // (so we can update FTS body even when only metadata changed).
     let existing = get(conn, id, blobs_dir)?;
     let Some(prev) = existing else {
         return Ok(false);
@@ -553,7 +517,6 @@ pub fn update(
         ],
     ).map_err(|e| format!("update mem_item: {}", e))?;
 
-    // Refresh FTS row
     let tags_text = new_tags.join(" ");
     let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&id]);
     conn.execute(
@@ -572,12 +535,10 @@ pub fn delete(conn: &Connection, id: &str) -> Result<bool, String> {
         .execute("DELETE FROM mem_items WHERE id = ?1", params![id])
         .map_err(|e| format!("delete mem_item: {}", e))?;
     let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![id]);
-    // Clean up vectors (exact id + chunk suffixes)
     let _ = conn.execute(
         "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
         params![id, format!("{}_chunk_%", id)],
     );
-    // Clean up relations referencing this item
     let _ = conn.execute(
         "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
         params![id],
@@ -620,8 +581,6 @@ pub fn stats(conn: &Connection) -> Result<MemStats, String> {
         total_vectors: total_vectors as u64,
     })
 }
-
-// ── Graph visualization (nodes + edges dump, position writes) ──────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNode {
@@ -723,7 +682,6 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
         });
     }
 
-    // Include entities as synthetic graph nodes (person_, project_, tech_, kind_, area_)
     let node_ids: std::collections::HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
     if let Ok(mut entity_stmt) = conn.prepare(
         "SELECT id, entity_type, properties_json FROM entities"
@@ -776,7 +734,6 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
             })
         })
         .map_err(|e| format!("query graph edges: {}", e))?;
-    // Collect all node IDs for edge filtering (only include edges where both ends exist)
     let all_node_ids: std::collections::HashSet<String> =
         nodes.iter().map(|n| n.id.clone()).collect();
     let mut edges: Vec<GraphEdge> = Vec::new();
@@ -811,8 +768,6 @@ pub fn set_positions(
     tx.commit().map_err(|e| format!("commit tx: {}", e))?;
     Ok(updated)
 }
-
-// ── Blob storage (content-addressed) ────────────────────────────────────
 
 fn write_blob(blobs_dir: &Path, body: &str) -> Result<String, String> {
     let mut hasher = Sha256::new();

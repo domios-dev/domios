@@ -1,5 +1,3 @@
-//! Cron job management — ServiceContext methods for CRUD + trigger.
-
 use crate::cron::store::{CronCreateParams, CronJob, CronRunInfo, CronRunStatus, CronUpdateParams};
 use crate::CronState;
 use crate::CronWake;
@@ -52,69 +50,45 @@ impl ServiceContext {
         wake: &CronWake,
         id: &str,
     ) -> Result<(), String> {
-        // Cascade: kill all running panes, close their tabs, delete logs
         let mut store = cron.lock();
-
-        // Collect all pane_ids owned by this cron
         let owned_panes: Vec<String> = store.pane_owners_for_job(id);
-        // Also collect from history
         let history_panes: Vec<String> = store.get_history(id)
             .iter()
             .filter_map(|r| r.pane_id.clone())
             .collect();
-
-        // Kill PTYs and close panes
         let all_panes: std::collections::HashSet<String> = owned_panes.into_iter()
             .chain(history_panes)
             .collect();
         for pane_id in &all_panes {
             store.unregister_pane(pane_id);
-            // Close pane (kills PTY + removes from mux)
             let _ = self.close_pane(pane_id);
         }
 
-        // Delete logs directory
         let logs_dir = store.logs_dir().join(id);
-        drop(store); // release lock before fs ops
+        drop(store);
         let _ = std::fs::remove_dir_all(&logs_dir);
 
-        // Delete cron from store
         cron.lock().delete(id)?;
         wake.notify_all();
         self.emit_cron_changed();
         Ok(())
     }
 
-    /// Stop all currently-running executions of a cron job without
-    /// deleting the job definition. Future scheduled fires continue to
-    /// run normally. Returns the number of runs cancelled.
-    ///
-    /// Mechanism: `pane_owners_for_job` lists every pane registered as
-    /// "currently running" for this job id. For each such pane we flip
-    /// its history status to `Cancelled`, unregister ownership, and call
-    /// `close_pane` (which kills the PTY and sends SIGHUP to the agent).
     pub fn cron_cancel_running(
         &self,
         cron: &CronState,
         id: &str,
     ) -> Result<usize, String> {
-        // Collect the currently-running pane ids AND flip history status
-        // under the same lock, then drop the lock before closing panes
-        // (close_pane touches mux/pty locks — different order).
+        // drop cron lock before close_pane — different lock order
         let to_close: Vec<String> = {
             let mut store = cron.lock();
             if store.get(id).is_none() {
                 return Err(format!("Cron job not found: {}", id));
             }
             let panes = store.pane_owners_for_job(id);
-            // Flip history status for each still-running entry that points
-            // at one of these panes. This also handles the case where the
-            // agent finished but register_pane wasn't cleared yet — the
-            // pane_owners_for_job already filters to live ones.
             for pane_id in &panes {
                 store.unregister_pane(pane_id);
             }
-            // Update history entries that are still Running for this job.
             if let Some(history) = store.get_history_mut(id) {
                 for run in history.iter_mut() {
                     if matches!(run.status, super::super::cron::store::CronRunStatus::Running) {
@@ -191,20 +165,13 @@ impl ServiceContext {
             tab_id: None,
         };
 
-        // Build task: base + optional CRON_REPORT_HINT + CRON_COMPLETE_SUFFIX.
-        // The suffix goes AFTER the task, not before, so we pre-concatenate
-        // here rather than using AgentSpawnSpec.task_preamble (which prepends).
+        // suffix must come after task; task_preamble prepends
         let mut task_text = task;
         if creator_pane_id.is_some() {
             task_text.push_str(crate::prompts::CRON_REPORT_HINT);
         }
         task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
 
-        // Model priority:
-        //   1. CronJob.model (per-job override from phase 5 schema)
-        //   2. mem_cfg.dreaming_model (legacy fallback for the auto-installed
-        //      dreaming cron that predates the schema extension)
-        //   3. provider default (model = None → provider picks)
         let model = model.or_else(|| {
             let mem_cfg = crate::config::memory_config();
             if !mem_cfg.dreaming_model.is_empty() {
@@ -223,9 +190,6 @@ impl ServiceContext {
             parent_pane_id: None,
             cwd,
             title: None,
-            // Cron runs spawn hidden — the user observes them through the
-            // cron history log viewer in the sidebar / cron panel, not as
-            // a live interactive tab. Matches the mem-worker pattern.
             visibility: PaneVisibility::Hidden,
             command: PaneCommand::Agent(AgentSpawnSpec {
                 provider: agent,
@@ -243,7 +207,6 @@ impl ServiceContext {
             Ok(handle) => {
                 run_info.pane_id = Some(handle.pane_id.clone());
                 run_info.tab_id = Some(handle.tab_id.clone());
-                // Register pane ownership for log capture on exit
                 cron.lock().register_pane(&handle.pane_id, id, &run_id);
             }
             Err(e) => {
@@ -261,8 +224,6 @@ impl ServiceContext {
         Ok(run_info)
     }
 
-    /// Called by the agent when cron task is complete. Saves summary as log and updates status.
-    /// Oneshot jobs are automatically deleted after completion.
     pub fn cron_complete(
         &self,
         cron: &CronState,
@@ -273,7 +234,6 @@ impl ServiceContext {
         let mut store = cron.lock();
         let owner = store.get_pane_owner_by_run(run_id).map(|(j, p)| (j.to_string(), p.to_string()));
         if let Some((job_id, pane_id)) = owner {
-            // Always grab raw terminal output
             let pty_id = {
                 let mux = self.mux.lock();
                 mux.get_pane(&pane_id).and_then(|p| p.pty_id.clone())
@@ -285,7 +245,6 @@ impl ServiceContext {
             };
             let raw_clean = crate::pty::ansi::clean_terminal_output(&raw);
 
-            // Build log: summary section + raw section separated by marker
             let summary_text = summary.unwrap_or("(no summary provided)");
             let log_text = format!(
                 "--- SUMMARY ---\n{}\n\n--- RAW OUTPUT ---\n{}",
@@ -302,10 +261,8 @@ impl ServiceContext {
             log::info!("Cron run completed: job={}, run={}, oneshot={}, summary_len={}", job_id, run_id, is_oneshot, log_text.len());
             drop(store);
 
-            // Close the pane — it's now a log entry, not a live terminal
             let _ = self.close_pane(&pane_id);
 
-            // Oneshot: auto-delete the job after completion
             if is_oneshot {
                 log::info!("Oneshot cron auto-deleting: job={}", job_id);
                 if let Err(e) = self.cron_delete(cron, wake, &job_id) {

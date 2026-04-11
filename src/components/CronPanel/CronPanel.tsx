@@ -13,39 +13,27 @@ const LOG_SUMMARY_MARKER = "--- SUMMARY ---";
 const LOG_RAW_MARKER = "--- RAW OUTPUT ---";
 
 
-// ── Types ────────────────────────────────────────────────────────
-
 type CronView = { type: "dashboard" } | { type: "detail"; cronId: string };
 
 interface CronPanelProps {
   initialView: CronView;
   onClose: () => void;
-  /** Called whenever the panel's internal view changes — fires with the
-   *  cron id when the detail view is active, or undefined when the panel
-   *  is showing the dashboard. Lets the App-level sidebar highlight the
-   *  matching row. */
   onActiveCronChange?: (cronId: string | undefined) => void;
 }
 
 export function CronPanel({ initialView, onClose, onActiveCronChange }: CronPanelProps) {
   const [view, setView] = useState<CronView>(initialView);
 
-  // Keep internal view in sync when the caller navigates to a different
-  // cron from outside (e.g. sidebar click on another entry while the
-  // panel is already open).
   useEffect(() => {
     setView(initialView);
   }, [initialView]);
 
-  // Broadcast view changes upward so the sidebar can track which cron
-  // (if any) is currently open.
   useEffect(() => {
     onActiveCronChange?.(view.type === "detail" ? view.cronId : undefined);
   }, [view, onActiveCronChange]);
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-sidebar-bg)] overflow-hidden">
-      {/* Subtle dot-grid background, matches Settings/Memory panels */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
@@ -54,7 +42,6 @@ export function CronPanel({ initialView, onClose, onActiveCronChange }: CronPane
           opacity: 0.3,
         }}
       />
-      {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ct-border)] relative z-10">
         <div className="flex items-center gap-2">
           {view.type === "detail" && (
@@ -78,7 +65,6 @@ export function CronPanel({ initialView, onClose, onActiveCronChange }: CronPane
         </button>
       </div>
 
-      {/* Content */}
       <div className="flex-1 overflow-y-auto relative z-10">
         {view.type === "dashboard" ? (
           <CronDashboard onSelectCron={(id) => setView({ type: "detail", cronId: id })} />
@@ -89,8 +75,6 @@ export function CronPanel({ initialView, onClose, onActiveCronChange }: CronPane
     </div>
   );
 }
-
-// ── Dashboard (tile grid) ────────────────────────────────────────
 
 function CronDashboard({ onSelectCron }: { onSelectCron: (id: string) => void }) {
   const { crons, toggle, trigger, remove } = useCrons();
@@ -117,7 +101,6 @@ function CronDashboard({ onSelectCron }: { onSelectCron: (id: string) => void })
               : "border-[var(--ct-border)] bg-[var(--ct-surface)] opacity-50"
           }`}
         >
-          {/* Top row: icon + name + status */}
           <div className="flex items-center gap-2">
             <span className="text-[16px]">{"\u23F1"}</span>
             <span className="text-[12px] font-medium text-[var(--ct-fg)] truncate flex-1">{job.name}</span>
@@ -128,19 +111,15 @@ function CronDashboard({ onSelectCron }: { onSelectCron: (id: string) => void })
             }`} />
           </div>
 
-          {/* Schedule */}
           <div className="text-[11px] text-[var(--ct-muted)] font-mono">{describeSchedule(job.schedule)}</div>
 
-          {/* Task preview */}
           <div className="text-[10px] text-[var(--ct-muted-fg)] line-clamp-2 leading-relaxed">{job.task}</div>
 
-          {/* Footer: next run + actions */}
           <div className="flex items-center justify-between mt-1">
             <span className="text-[10px] text-[var(--ct-muted)]">
               {!job.enabled ? "disabled" : job.next_run ? `next ${formatTime(job.next_run)}` : "scheduled"}
             </span>
 
-            {/* Hover actions */}
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
               <button
                 onClick={() => trigger(job.id)}
@@ -171,8 +150,6 @@ function CronDashboard({ onSelectCron }: { onSelectCron: (id: string) => void })
   );
 }
 
-// ── Detail (cron settings) ───────────────────────────────────────
-
 function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) {
   const { crons, update, toggle, trigger, remove, history } = useCrons();
   const { providers } = useAgentProviders();
@@ -181,9 +158,6 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
   const workspace = job
     ? muxState.workspaces.find((w) => w.id === job.workspace_id)
     : undefined;
-  // Resolved working directory shown in the placeholder when the user
-  // hasn't set an explicit cwd on the job — falls back to the workspace's
-  // own cwd (that's what spawn_pane inherits).
   const resolvedDefaultCwd = workspace?.cwd ?? "";
 
   const [name, setName] = useState(job?.name ?? "");
@@ -193,9 +167,7 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
   const [cwd, setCwd] = useState(job?.cwd ?? "");
   const [agent, setAgent] = useState(job?.agent ?? "claude");
   const [model, setModel] = useState(job?.model ?? "");
-  // Jitter — encoded as an opaque string so the select can distinguish
-  // "auto" (null, provider default) from "off" (Some(0)) from explicit
-  // millisecond caps without an extra ms input field.
+  // opaque string key: "auto" | "off" | "<ms>"
   const initialJitterKey =
     job?.jitter_max_ms == null
       ? "auto"
@@ -217,9 +189,6 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
   );
   const availableModels = selectedProvider?.available_models ?? [];
 
-  // Stream the run history: initial load + 2s polling so new runs and
-  // status transitions (Running → Success/Failed) show up without the
-  // user having to reopen the panel.
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -248,10 +217,7 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
   }, []);
 
   const handleSave = useCallback(async () => {
-    // Translate the opaque jitter key back into the u64 the backend wants.
-    // "auto" → skip the field so the cron store leaves its current value
-    // alone (the backend has no "reset to None" path over the update API).
-    // "off" → 0, anything else → parsed ms.
+    // "auto" → omit (no reset path); "off" → 0; else parse ms
     let jitter_max_ms: number | undefined;
     if (jitterKey === "off") {
       jitter_max_ms = 0;
@@ -288,7 +254,6 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
 
   return (
     <div className="p-5 flex flex-col gap-4">
-      {/* Status bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded-full border ${
@@ -317,7 +282,6 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
         </div>
       </div>
 
-      {/* Fields */}
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="text-[11px] text-[var(--ct-muted)] block mb-1.5">Name</label>
@@ -326,7 +290,6 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-[11px] text-[var(--ct-muted)]">Schedule</label>
-            {/* Compact inline presets — click to fill the input. */}
             <div className="flex gap-1">
               {SCHEDULE_PRESETS.map((p) => (
                 <button
@@ -384,7 +347,6 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
         </div>
       </div>
 
-      {/* Agent provider + model */}
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="text-[11px] text-[var(--ct-muted)] block mb-1.5">Agent</label>
@@ -426,8 +388,6 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
         </div>
       </div>
 
-      {/* Schedule jitter — random offset added to each fire so back-to-back
-          runs don't land at clockwork-predictable timestamps. */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
           <label className="text-[11px] text-[var(--ct-muted)]">Schedule jitter</label>
@@ -455,7 +415,6 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
         </select>
       </div>
 
-      {/* Save / Delete */}
       <div className="flex items-center justify-between pt-2 border-t border-[var(--ct-border)]">
         <button
           onClick={handleDelete}
@@ -472,7 +431,6 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
         </button>
       </div>
 
-      {/* Run history — click any row to open the log popup (live while Running) */}
       <div>
         <label className="text-[11px] text-[var(--ct-muted)] block mb-2">
           Recent runs {runs.length > 0 && `(${runs.length})`}
@@ -553,8 +511,6 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
   );
 }
 
-// ── Log popup (live polling while the run is active) ─────────────
-
 function CronLogModal({
   name,
   jobId,
@@ -576,8 +532,6 @@ function CronLogModal({
 
   const isRunning = status === "Running";
 
-  // Fetch log: saved file for finished runs, falls through to live pane
-  // output via cron_read_log's backend fallback for Running runs.
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -600,8 +554,6 @@ function CronLogModal({
     };
   }, [jobId, runId, isRunning]);
 
-  // Watch for the run's status flipping away from Running so we stop
-  // polling the log and flip the badge.
   useEffect(() => {
     if (!isRunning) return;
     const interval = setInterval(async () => {
@@ -614,22 +566,18 @@ function CronLogModal({
     return () => clearInterval(interval);
   }, [jobId, runId, isRunning]);
 
-  // Auto-scroll to bottom as new content arrives.
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [text]);
 
-  // Esc closes the modal.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // Finished runs have --- SUMMARY --- / --- RAW OUTPUT --- markers;
-  // running runs don't, so show the raw live output as-is.
   let summary = text ?? "";
   let raw = "";
   if (text) {

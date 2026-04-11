@@ -1229,10 +1229,6 @@ function CronItem({
   onOpen: () => void;
   isActive: boolean;
 }) {
-  // Status dot reflects the most recent run:
-  //   running → pulsing accent
-  //   enabled + idle → green
-  //   disabled → muted
   const running = job.last_run?.status === "Running";
   const dotColor = running
     ? "bg-[var(--ct-accent)] animate-pulse"

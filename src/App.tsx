@@ -59,9 +59,6 @@ function AppInner() {
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "cron">("workspace");
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   const [cronInitialId, setCronInitialId] = useState<string | undefined>(undefined);
-  // Tracks which cron is currently shown in the panel's detail view (or
-  // undefined when the panel is on the dashboard). Synced from CronPanel
-  // via onActiveCronChange so the sidebar can highlight the matching row.
   const [activeCronId, setActiveCronId] = useState<string | undefined>(undefined);
   const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
@@ -585,11 +582,9 @@ function AppInner() {
             </div>
           ) : null}
         </main>
-        {/* Status bar removed — git info not needed */}
         </div>
       </div>
 
-      {/* Onboarding wizard */}
       {showOnboarding && config && (
         <Onboarding
           config={config}
@@ -598,21 +593,15 @@ function AppInner() {
         />
       )}
 
-      {/* Toast notifications */}
       <NotificationToastContainer
         toasts={state.toasts}
         onDismiss={dismissToast}
         onNavigate={setFocusedPane}
       />
 
-      {/* Command palette (Cmd+K / Ctrl+K) */}
       <CommandPalette commands={paletteCommands} />
 
-      {/* Navigation back bar (visible only when navigationStore has a return target) */}
       <NavigationBackBar onBack={handleBackToMemory} />
-
-      {/* TODO: Agent swarm visualization — future feature */}
-      {/* <SwarmOverlay visible={swarmVisible} onClose={() => setSwarmVisible(false)} /> */}
     </div>
   );
 }
