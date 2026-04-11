@@ -226,6 +226,26 @@ fn fire_job(
                 let _ = store.save();
             }
 
+            // Register with the auto-complete watcher (cron flavor).
+            if let Some(pty_id) = service
+                .agent_run_pty_map
+                .lock()
+                .get(&handle.pane_id)
+                .cloned()
+            {
+                let timeout = crate::config::memory_config().worker_timeout_seconds;
+                service.run_watcher.register(
+                    (**service).clone(),
+                    pty_id,
+                    handle.pane_id.clone(),
+                    crate::agent::run_watcher::AgentRunKind::Cron {
+                        job_id: job_id.to_string(),
+                        run_id: run_id.clone(),
+                    },
+                    timeout,
+                );
+            }
+
             // Emit event
             let _ = service.app_handle.emit(
                 "cron-fired",

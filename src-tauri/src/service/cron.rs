@@ -213,6 +213,25 @@ impl ServiceContext {
                 run_info.pane_id = Some(handle.pane_id.clone());
                 run_info.tab_id = Some(handle.tab_id.clone());
                 cron.lock().register_pane(&handle.pane_id, id, &run_id);
+                // Register with the auto-complete watcher (cron flavor).
+                if let Some(pty_id) = self
+                    .agent_run_pty_map
+                    .lock()
+                    .get(&handle.pane_id)
+                    .cloned()
+                {
+                    let timeout = crate::config::memory_config().worker_timeout_seconds;
+                    self.run_watcher.register(
+                        self.clone(),
+                        pty_id,
+                        handle.pane_id.clone(),
+                        crate::agent::run_watcher::AgentRunKind::Cron {
+                            job_id: id.to_string(),
+                            run_id: run_id.clone(),
+                        },
+                        timeout,
+                    );
+                }
             }
             Err(e) => {
                 run_info.status = CronRunStatus::Failed;

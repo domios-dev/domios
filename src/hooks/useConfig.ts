@@ -96,6 +96,7 @@ const DEFAULT_CONFIG: AppConfig = {
     dreaming_agent: "",
     dreaming_model: "haiku",
     worker_model: "claude-haiku-4-5-20251001",
+    worker_timeout_seconds: 150,
   },
   integrations: {
     telegram_enabled: false,

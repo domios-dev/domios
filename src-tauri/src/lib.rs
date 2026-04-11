@@ -1085,6 +1085,7 @@ pub fn run() {
                 )),
                 prompt_detector,
                 agent_run_pty_map: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+                run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
                 bridge_outbound: bridge_outbound_tx,
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_task: Arc::new(Mutex::new(None)),

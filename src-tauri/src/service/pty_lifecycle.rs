@@ -66,6 +66,7 @@ async fn backend_read_loop(
     loop {
         let ob = svc.output_buf.clone();
         let ss = svc.screen_state.clone();
+        let svc_for_watcher = svc.clone();
         let pid = pty_id.clone();
 
         // Blocking read in a dedicated thread — same pattern as read_pty.
@@ -80,6 +81,10 @@ async fn backend_read_loop(
             // Feed data into shared buffers (same as read_pty).
             ob.lock().append(&pid, &buf);
             ss.lock().process(&pid, &buf);
+            // Auto-complete watcher: detects {"type":"result"} events, idle, or timeout.
+            svc_for_watcher
+                .run_watcher
+                .feed(&*svc_for_watcher, &pid, &buf);
 
             Ok((buf, reader))
         })

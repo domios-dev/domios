@@ -378,9 +378,8 @@ export interface MemoryConfig {
   dreaming_enabled: boolean;
   dreaming_agent: string;
   dreaming_model: string;
-  /** Shared fallback model for mem workers when the more specific
-   *  extraction_model / dreaming_model is empty. */
   worker_model: string;
+  worker_timeout_seconds: number;
 }
 
 export interface AppConfig {
