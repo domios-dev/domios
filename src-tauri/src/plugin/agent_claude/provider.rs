@@ -57,11 +57,16 @@ impl AgentProvider for ClaudeProvider {
             // -p reads stdin; stream-json+verbose+partial-messages emits NDJSON
             // continuously (text deltas as generated) so the watcher's idle
             // counter never trips during normal claude generation.
+            // --allowedTools Bash is REQUIRED for -p mode to allow tool use;
+            // without it the worker can't call the codeterm CLI and the whole
+            // extraction pipeline silently does nothing.
             parts.push("-p".to_string());
             parts.push("--output-format".to_string());
             parts.push("stream-json".to_string());
             parts.push("--verbose".to_string());
             parts.push("--include-partial-messages".to_string());
+            parts.push("--allowedTools".to_string());
+            parts.push("Bash".to_string());
         } else {
             parts.push("claude".to_string());
             if params.skip_permissions {
@@ -610,6 +615,7 @@ mod tests {
         assert!(cmd.contains(" -p"), "headless must add -p: {}", cmd);
         assert!(cmd.contains("--output-format stream-json"), "headless must request stream-json: {}", cmd);
         assert!(cmd.contains("--verbose"), "stream-json with -p requires --verbose: {}", cmd);
+        assert!(cmd.contains("--allowedTools Bash"), "headless must allow Bash tool for multi-turn: {}", cmd);
         assert!(cmd.contains("--dangerously-skip-permissions"));
         // Must NOT have inline subexpression — that's the bug we're fixing.
         assert!(

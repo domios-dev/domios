@@ -15,12 +15,47 @@ fn should_extract(kind: MemKind) -> bool {
 
 const MIN_BODY_LEN: usize = 80;
 
-fn build_extraction_prompt(mem_item_id: &str, title: &str, body: &str) -> String {
+fn build_extraction_prompt(
+    svc: &ServiceContext,
+    mem_item_id: &str,
+    title: &str,
+    body: &str,
+) -> String {
     let truncated = if body.len() > 4000 { &body[..4000] } else { body };
+    let areas_block = format_existing_areas(svc);
     crate::prompts::MEM_EXTRACTION
         .replace("{id}", mem_item_id)
         .replace("{title}", title)
         .replace("{body}", truncated)
+        .replace("{existing_areas}", &areas_block)
+}
+
+// Injects the live taxonomy so the worker picks from areas that actually
+// exist in mem (ordered by usage) instead of from a hardcoded table that
+// drifts from reality. Worker is read-only on areas: pick one of these or
+// leave empty. Only the main agent creates new areas.
+fn format_existing_areas(svc: &ServiceContext) -> String {
+    let tax = match svc.mem.get_taxonomy(None) {
+        Ok(t) => t,
+        Err(_) => return "(none yet — use \"\" if unsure)".to_string(),
+    };
+    let mut rows: Vec<(String, u64)> = tax
+        .into_iter()
+        .filter(|(area, _)| area != "(none)" && !area.is_empty())
+        .map(|(area, by_kind)| {
+            let total: u64 = by_kind.values().sum();
+            (area, total)
+        })
+        .collect();
+    if rows.is_empty() {
+        return "(none yet — use \"\" if unsure)".to_string();
+    }
+    rows.sort_by(|a, b| b.1.cmp(&a.1));
+    rows.truncate(12);
+    rows.into_iter()
+        .map(|(a, n)| format!("- {} ({} items)", a, n))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn spawn_extraction_worker(
@@ -34,7 +69,7 @@ pub fn spawn_extraction_worker(
         return None;
     }
 
-    let prompt = build_extraction_prompt(&mem_item_id, &title, &body);
+    let prompt = build_extraction_prompt(svc, &mem_item_id, &title, &body);
 
     let mem_cfg = crate::config::memory_config();
     let agent_provider = if mem_cfg.extraction_agent.is_empty() {
