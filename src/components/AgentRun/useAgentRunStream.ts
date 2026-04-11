@@ -49,12 +49,44 @@ export function useAgentRunStream({
     setRawLines([]);
     setError(null);
 
+    let cancelled = false;
+
+    // Throttle setState: claude with --include-partial-messages streams
+    // hundreds of deltas per second; without batching, React rerenders the
+    // event tree on each one and the Webview2 IPC chokes hard enough to
+    // freeze the entire Tauri window. Accumulate and flush every ~120ms.
+    let pendingEvents: ClaudeStreamEvent[] = [];
+    let pendingRawLines: RawLine[] = [];
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      flushTimer = null;
+      if (cancelled) return;
+      if (pendingEvents.length > 0) {
+        const batch = pendingEvents;
+        pendingEvents = [];
+        setEvents((prev) => mergeAssistantMessages([...prev, ...batch]));
+      }
+      if (pendingRawLines.length > 0) {
+        const batch = pendingRawLines;
+        pendingRawLines = [];
+        setRawLines((prev) => [...prev, ...batch]);
+      }
+    };
+    const scheduleFlush = () => {
+      if (flushTimer !== null || cancelled) return;
+      flushTimer = setTimeout(flush, 120);
+    };
+    const pushParseResult = (events: ClaudeStreamEvent[], rawLines: RawLine[]) => {
+      if (events.length === 0 && rawLines.length === 0) return;
+      pendingEvents.push(...events);
+      pendingRawLines.push(...rawLines);
+      scheduleFlush();
+    };
+
     const url = `${baseUrl(api)}/api/panes/${encodeURIComponent(paneId)}/output/stream?from=0`;
     const headers: HeadersInit = api.token
       ? { Authorization: `Bearer ${api.token}` }
       : {};
-
-    let cancelled = false;
 
     const fallbackToHistorical = async () => {
       // After daemon restart the live stream is gone but the on-disk log file
@@ -70,12 +102,7 @@ export function useAgentRunStream({
         const text = await r.text();
         if (cancelled) return;
         const result = parser.feed(text);
-        if (result.events.length > 0) {
-          setEvents((prev) => mergeAssistantMessages([...prev, ...result.events]));
-        }
-        if (result.rawLines.length > 0) {
-          setRawLines((prev) => [...prev, ...result.rawLines]);
-        }
+        pushParseResult(result.events, result.rawLines);
         setError(null);
       } catch {
         setError("(failed to load historical log)");
@@ -127,12 +154,7 @@ export function useAgentRunStream({
 
           if (chunkText) {
             const result = parser.feed(chunkText);
-            if (result.events.length > 0) {
-              setEvents((prev) => mergeAssistantMessages([...prev, ...result.events]));
-            }
-            if (result.rawLines.length > 0) {
-              setRawLines((prev) => [...prev, ...result.rawLines]);
-            }
+            pushParseResult(result.events, result.rawLines);
           }
         }
       } catch (e) {
@@ -145,6 +167,10 @@ export function useAgentRunStream({
 
     return () => {
       cancelled = true;
+      if (flushTimer !== null) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
       ctrl.abort();
       abortRef.current = null;
       parserRef.current = null;
