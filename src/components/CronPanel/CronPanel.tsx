@@ -6,6 +6,7 @@ import type { CronRunInfo } from "../../lib/types";
 import { ArrowLeftIcon, CloseIcon16 } from "../Icons";
 import { describeSchedule, formatTime, SCHEDULE_PRESETS } from "../../lib/formatters";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
+import { useMultiplexer } from "../../store/multiplexer";
 
 const HISTORY_VISIBLE = 15;
 const LOG_SUMMARY_MARKER = "--- SUMMARY ---";
@@ -164,7 +165,15 @@ function CronDashboard({ onSelectCron }: { onSelectCron: (id: string) => void })
 function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) {
   const { crons, update, toggle, trigger, remove, history } = useCrons();
   const { providers } = useAgentProviders();
+  const { state: muxState } = useMultiplexer();
   const job = crons.find((c) => c.id === cronId);
+  const workspace = job
+    ? muxState.workspaces.find((w) => w.id === job.workspace_id)
+    : undefined;
+  // Resolved working directory shown in the placeholder when the user
+  // hasn't set an explicit cwd on the job — falls back to the workspace's
+  // own cwd (that's what spawn_pane inherits).
+  const resolvedDefaultCwd = workspace?.cwd ?? "";
 
   const [name, setName] = useState(job?.name ?? "");
   const [description, setDescription] = useState(job?.description ?? "");
@@ -281,29 +290,28 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
           <input value={name} onChange={(e) => { setName(e.target.value); setDirty(true); }} className={inputClass} />
         </div>
         <div>
-          <label className="text-[11px] text-[var(--ct-muted)] block mb-1.5">Schedule</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-[11px] text-[var(--ct-muted)]">Schedule</label>
+            {/* Compact inline presets — click to fill the input. */}
+            <div className="flex gap-1">
+              {SCHEDULE_PRESETS.map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => { setSchedule(p.value); setDirty(true); }}
+                  className={`px-1.5 py-0.5 text-[9px] rounded border transition-colors ${
+                    schedule === p.value
+                      ? "border-[var(--ct-accent)] bg-[var(--ct-accent)]/10 text-[var(--ct-accent)]"
+                      : "border-[var(--ct-border)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)]"
+                  }`}
+                  title={p.label}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <input value={schedule} onChange={(e) => { setSchedule(e.target.value); setDirty(true); }} className={`${inputClass} font-mono`} placeholder="*/30 * * * *" />
           <div className="text-[10px] text-[var(--ct-muted)] mt-1">{describeSchedule(schedule)}</div>
-        </div>
-      </div>
-
-      {/* Presets */}
-      <div>
-        <label className="text-[11px] text-[var(--ct-muted)] block mb-1.5">Quick presets</label>
-        <div className="flex gap-1.5 flex-wrap">
-          {SCHEDULE_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => { setSchedule(p.value); setDirty(true); }}
-              className={`px-2 py-1 text-[10px] rounded border transition-colors ${
-                schedule === p.value
-                  ? "border-[var(--ct-accent)] bg-[var(--ct-accent)]/10 text-[var(--ct-accent)]"
-                  : "border-[var(--ct-border)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)]"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -318,10 +326,25 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
       </div>
 
       <div>
-        <label className="text-[11px] text-[var(--ct-muted)] block mb-1.5">Working directory</label>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="text-[11px] text-[var(--ct-muted)]">Working directory</label>
+          {resolvedDefaultCwd && !cwd && (
+            <span className="text-[10px] text-[var(--ct-muted)]">
+              inherits from workspace
+            </span>
+          )}
+        </div>
         <div className="flex gap-2">
-          <input value={cwd} onChange={(e) => { setCwd(e.target.value); setDirty(true); }} className={`${inputClass} flex-1`} placeholder="Default" />
-          <button onClick={handleFolderPick} className="px-3 py-2 text-[11px] border border-[var(--ct-border)] rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors shrink-0">
+          <input
+            value={cwd}
+            onChange={(e) => { setCwd(e.target.value); setDirty(true); }}
+            className={`${inputClass} flex-1 font-mono text-[11px]`}
+            placeholder={resolvedDefaultCwd || "e.g. C:/Developer/codeterm"}
+          />
+          <button
+            onClick={handleFolderPick}
+            className="px-3 py-2 text-[11px] border border-[var(--ct-border)] rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors shrink-0"
+          >
             Browse
           </button>
         </div>
