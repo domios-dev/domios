@@ -6,6 +6,19 @@ import { CloseXIcon, CheckIcon, CopyIcon } from "../Icons";
 import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
+import {
+  Sliders,
+  Database,
+  Bot,
+  Bell,
+  Plug,
+  Network,
+  Info,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  type LucideIcon,
+} from "lucide-react";
 
 interface SettingsPanelProps {
   config: AppConfig;
@@ -13,42 +26,56 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
-enum SettingsTab {
-  General = "general",
-  Memory = "memory",
-  Mesh = "mesh",
-  Notifications = "notifications",
-  Agents = "agents",
-  Integrations = "integrations",
-  About = "about",
-}
+type SectionId =
+  | "general"
+  | "memory"
+  | "agents"
+  | "notifications"
+  | "integrations"
+  | "mesh"
+  | "about";
 
-const TAB_ICONS: Record<SettingsTab, string> = {
-  [SettingsTab.General]: "M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16ZM7 6.5C7 5.672 7.448 5 8 5s1 .672 1 1.5S8.552 8 8 8s-1-.672-1-1.5ZM4.255 9.515a.75.75 0 0 1 .98.058 3.997 3.997 0 0 0 5.53 0 .75.75 0 0 1 1.037 1.085 5.497 5.497 0 0 1-7.607 0 .75.75 0 0 1 .058-.98Z",
-  [SettingsTab.Memory]: "M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM4.5 7.5a.5.5 0 0 0 0 1h2.793l-2.147 2.146a.5.5 0 0 0 .708.708L8 9.207l2.146 2.147a.5.5 0 0 0 .708-.708L8.707 8.5H11.5a.5.5 0 0 0 0-1H8.707l2.147-2.146a.5.5 0 0 0-.708-.708L8 6.793 5.854 4.646a.5.5 0 1 0-.708.708L7.293 7.5Z",
-  [SettingsTab.Mesh]: "M8 1a1 1 0 0 1 1 1v1.07A5.5 5.5 0 0 1 12.93 7H14a1 1 0 1 1 0 2h-1.07A5.5 5.5 0 0 1 9 12.93V14a1 1 0 1 1-2 0v-1.07A5.5 5.5 0 0 1 3.07 9H2a1 1 0 0 1 0-2h1.07A5.5 5.5 0 0 1 7 3.07V2a1 1 0 0 1 1-1Zm0 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z",
-  [SettingsTab.Notifications]: "M8 16a2 2 0 0 0 1.985-1.75c.017-.137-.097-.25-.235-.25h-3.5c-.138 0-.252.113-.235.25A2 2 0 0 0 8 16ZM3 5a5 5 0 0 1 10 0c0 1.862.818 2.726 1.49 3.434.233.246.46.485.653.752.19.262.357.571.357.974 0 .593-.477 1.09-1.107 1.168C13.477 11.44 12.025 11.5 8 11.5c-4.025 0-5.477-.06-6.393-.172C.977 11.24.5 10.743.5 10.16c0-.403.167-.712.356-.974a6.96 6.96 0 0 0 .653-.752C2.182 7.726 3 6.862 3 5Z",
-  [SettingsTab.Agents]: "M5.75 7.5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75Zm5.25.75a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0ZM6 1h4a4 4 0 0 1 4 4v6a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V5a4 4 0 0 1 4-4Zm-.25 1.5A2.75 2.75 0 0 0 3 5.25v5.5A2.75 2.75 0 0 0 5.75 13.5h4.5a2.75 2.75 0 0 0 2.75-2.75v-5.5A2.75 2.75 0 0 0 10.25 2.5Z",
-  [SettingsTab.Integrations]: "M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5ZM8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16Zm0-1.5a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z",
-  [SettingsTab.About]: "M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z",
+type Route =
+  | { kind: "root" }
+  | { kind: "section"; id: SectionId }
+  | { kind: "agent-provider"; providerId: string };
+
+const SECTION_ICONS: Record<SectionId, LucideIcon> = {
+  general: Sliders,
+  memory: Database,
+  agents: Bot,
+  notifications: Bell,
+  integrations: Plug,
+  mesh: Network,
+  about: Info,
 };
 
-const TABS: { id: SettingsTab; label: string }[] = [
-  { id: SettingsTab.General, label: "General" },
-  { id: SettingsTab.Memory, label: "Memory" },
-  { id: SettingsTab.Mesh, label: "Mesh" },
-  { id: SettingsTab.Notifications, label: "Notifications" },
-  { id: SettingsTab.Agents, label: "Agents" },
-  { id: SettingsTab.Integrations, label: "Integrations" },
-  { id: SettingsTab.About, label: "About" },
+const SECTIONS: { id: SectionId; label: string; desc: string }[] = [
+  { id: "general", label: "General", desc: "Theme, fonts, cursor, keybindings" },
+  { id: "memory", label: "Memory", desc: "Extraction workers and nightly dreaming" },
+  { id: "agents", label: "Agents", desc: "General Agent and per-provider config" },
+  { id: "notifications", label: "Notifications", desc: "Desktop, sound, in-app toasts" },
+  { id: "integrations", label: "Integrations", desc: "Telegram, Discord, external bridges" },
+  { id: "mesh", label: "Mesh", desc: "Peer discovery, network API reference" },
+  { id: "about", label: "About", desc: "Version, updates, creator" },
 ];
+
+function sectionTitle(id: SectionId): string {
+  return SECTIONS.find((s) => s.id === id)?.label ?? id;
+}
 
 export function SettingsPanel({
   config,
   onUpdateConfig,
   onClose,
 }: SettingsPanelProps) {
-  const [activeTab, setActiveTab] = useState(SettingsTab.General);
+  const [stack, setStack] = useState<Route[]>([{ kind: "root" }]);
+  const top = stack[stack.length - 1];
+  const push = useCallback((r: Route) => setStack((s) => [...s, r]), []);
+  const pop = useCallback(
+    () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)),
+    [],
+  );
   const [localConfig, setLocalConfig] = useState<AppConfig>(config);
   const [themes, setThemes] = useState<string[]>([]);
   const [configPath, setConfigPath] = useState<string>("");
@@ -81,9 +108,16 @@ export function SettingsPanel({
     [onUpdateConfig],
   );
 
+  const headerTitle =
+    top.kind === "root"
+      ? "Settings"
+      : top.kind === "section"
+      ? sectionTitle(top.id)
+      : "Provider";
+
   return (
-    <div className="absolute inset-0 flex flex-col bg-[var(--ct-sidebar-bg)]">
-      <div className="absolute inset-0 flex flex-col overflow-hidden relative">
+    <div className="absolute inset-0 flex flex-col overflow-hidden bg-[var(--ct-sidebar-bg)]">
+      <div className="absolute inset-0 flex flex-col">
         {/* Subtle dot grid background */}
         <div
           className="absolute inset-0 pointer-events-none"
@@ -95,7 +129,25 @@ export function SettingsPanel({
         />
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--ct-border)] relative z-10">
-          <h2 className="text-sm font-medium text-[var(--ct-fg)]">Settings</h2>
+          <div className="flex items-center gap-2 min-w-0">
+            {top.kind !== "root" && (
+              <button
+                onClick={pop}
+                className="flex items-center gap-1 px-2 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors text-[11px]"
+                title="Back"
+              >
+                <ChevronLeft size={14} className="shrink-0" />
+                <span>
+                  {stack.length >= 2 && stack[stack.length - 2].kind === "root"
+                    ? "Settings"
+                    : stack.length >= 2 && stack[stack.length - 2].kind === "section"
+                    ? sectionTitle((stack[stack.length - 2] as { kind: "section"; id: SectionId }).id)
+                    : "Back"}
+                </span>
+              </button>
+            )}
+            <h2 className="text-sm font-medium text-[var(--ct-fg)] truncate">{headerTitle}</h2>
+          </div>
           <button
             onClick={onClose}
             className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors"
@@ -104,32 +156,37 @@ export function SettingsPanel({
           </button>
         </div>
 
-        {/* Body: sidebar tabs + content */}
+        {/* Body */}
         <div className="flex flex-1 min-h-0 relative z-10">
-          {/* Tab sidebar */}
-          <div className="w-[170px] shrink-0 border-r border-[var(--ct-border)] py-3 px-2 flex flex-col gap-0.5">
-            {TABS.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2.5 px-3 py-1.5 text-[11px] rounded-md transition-colors ${
-                  activeTab === tab.id
-                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                }`}
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className={`shrink-0 ${activeTab === tab.id ? "opacity-90" : "opacity-50"}`}>
-                  <path d={TAB_ICONS[tab.id]} />
-                </svg>
-                <span>{tab.label}</span>
-              </button>
-            ))}
-          </div>
+          <div className="flex-1 overflow-y-auto px-5 py-5">
+            {top.kind === "root" && (
+              <div className="max-w-3xl mx-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {SECTIONS.map((s) => {
+                    const Icon = SECTION_ICONS[s.id];
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => push({ kind: "section", id: s.id })}
+                        className="flex items-start gap-3 p-4 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-left"
+                      >
+                        <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] shrink-0">
+                          <Icon size={18} strokeWidth={2} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13px] font-medium text-[var(--ct-fg)]">{s.label}</div>
+                          <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5 line-clamp-2">{s.desc}</div>
+                        </div>
+                        <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)] mt-1" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
-          {/* Content area */}
-          <div className="flex-1 overflow-y-auto px-5 py-4">
-            {activeTab === SettingsTab.General && (
-              <div className="space-y-6">
+            {top.kind === "section" && top.id === "general" && (
+              <div className="max-w-2xl mx-auto space-y-6">
                 <Group title="Color Theme">
                   <Label text="Theme">
                     <select
@@ -289,8 +346,8 @@ export function SettingsPanel({
               </div>
             )}
 
-            {activeTab === SettingsTab.Notifications && (
-              <div className="space-y-6">
+            {top.kind === "section" && top.id === "notifications" && (
+              <div className="max-w-2xl mx-auto space-y-6">
                 <Group title="System Notifications">
                   <div className="text-xs text-[var(--ct-muted-fg)] mb-1">
                     Native OS notifications when CodeTerm window is not focused.
@@ -328,36 +385,53 @@ export function SettingsPanel({
               </div>
             )}
 
-            {activeTab === SettingsTab.Memory && (
-              <MemoryTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
+            {top.kind === "section" && top.id === "memory" && (
+              <div className="max-w-2xl mx-auto">
+                <MemoryTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
+              </div>
             )}
 
-            {activeTab === SettingsTab.Agents && (
-              <AgentsTab
-                config={localConfig}
-                onUpdate={(section, patch) => update(section, patch)}
-                fullConfig={localConfig}
-                onUpdateFullConfig={(next) => {
-                  setLocalConfig(next);
-                  onUpdateConfig(next).catch(() => {});
-                }}
-              />
+            {top.kind === "section" && top.id === "agents" && (
+              <div className="max-w-2xl mx-auto">
+                <AgentsOverview
+                  config={localConfig}
+                  onUpdate={(section, patch) => update(section, patch)}
+                  onOpenProvider={(providerId) => push({ kind: "agent-provider", providerId })}
+                />
+              </div>
             )}
 
-            {activeTab === SettingsTab.Integrations && (
-              <IntegrationsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
+            {top.kind === "agent-provider" && (
+              <div className="max-w-2xl mx-auto">
+                <AgentProviderScreen
+                  providerId={top.providerId}
+                  fullConfig={localConfig}
+                  onUpdateFullConfig={(next) => {
+                    setLocalConfig(next);
+                    onUpdateConfig(next).catch(() => {});
+                  }}
+                  onProviderGone={pop}
+                />
+              </div>
             )}
 
-            {activeTab === SettingsTab.Mesh && (
-              <NetworkTab
-                config={localConfig}
-                onUpdate={(section, patch) => update(section, patch)}
-              />
+            {top.kind === "section" && top.id === "integrations" && (
+              <div className="max-w-2xl mx-auto">
+                <IntegrationsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
+              </div>
             )}
 
+            {top.kind === "section" && top.id === "mesh" && (
+              <div className="max-w-2xl mx-auto">
+                <NetworkTab
+                  config={localConfig}
+                  onUpdate={(section, patch) => update(section, patch)}
+                />
+              </div>
+            )}
 
-            {activeTab === SettingsTab.About && (
-              <div className="space-y-6">
+            {top.kind === "section" && top.id === "about" && (
+              <div className="max-w-2xl mx-auto space-y-6">
                 {/* Logo + tagline */}
                 <div className="text-center py-4">
                   <img src="/assets/logo.png" alt="CodeTerm" width="64" height="64" className="rounded-xl mb-3 mx-auto" />
@@ -376,9 +450,9 @@ export function SettingsPanel({
                 <Group title="Created by">
                   <div className="text-sm text-[var(--ct-fg)]">Andrey Kovalev</div>
                   <div className="flex flex-wrap gap-3 mt-2">
-                    <AboutLink href="https://github.com/rollacode" label="GitHub" icon="M8 0c4.42 0 8 3.58 8 8a8.01 8.01 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z" />
-                    <AboutLink href="https://rollacode.org" label="Website" icon="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" />
-                    <AboutLink href="https://www.linkedin.com/in/rollacode" label="LinkedIn" icon="M12.225 12.225h-1.778V9.44c0-.664-.012-1.519-.925-1.519-.926 0-1.068.724-1.068 1.47v2.834H6.676V6.498h1.707v.783h.024c.348-.594.996-.95 1.684-.925 1.802 0 2.135 1.185 2.135 2.728ZM3.56 5.715a1.03 1.03 0 1 1 0-2.06 1.03 1.03 0 0 1 0 2.06Zm.889 6.51H2.67V6.498h1.779ZM13.11 2H2.885A.88.88 0 0 0 2 2.866v10.268a.88.88 0 0 0 .885.866h10.226a.882.882 0 0 0 .889-.866V2.865A.88.88 0 0 0 13.111 2Z" />
+                    <AboutLink href="https://github.com/rollacode" label="GitHub" Icon={ExternalLink} />
+                    <AboutLink href="https://rollacode.org" label="Website" Icon={ExternalLink} />
+                    <AboutLink href="https://www.linkedin.com/in/rollacode" label="LinkedIn" Icon={ExternalLink} />
                   </div>
                 </Group>
 
@@ -569,7 +643,7 @@ export function InfoRow({ label, value, mono }: { label: string; value: string; 
   );
 }
 
-function AboutLink({ href, label, icon }: { href: string; label: string; icon: string }) {
+function AboutLink({ href, label, Icon }: { href: string; label: string; Icon: LucideIcon }) {
   return (
     <a
       href={href}
@@ -577,9 +651,7 @@ function AboutLink({ href, label, icon }: { href: string; label: string; icon: s
       rel="noopener noreferrer"
       className="inline-flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors"
     >
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className="shrink-0">
-        <path d={icon} />
-      </svg>
+      <Icon size={14} className="shrink-0" />
       <span>{label}</span>
     </a>
   );
@@ -753,46 +825,21 @@ function NetworkTab({
   );
 }
 
-function AgentsTab({
+function AgentsOverview({
   config,
   onUpdate,
-  fullConfig,
-  onUpdateFullConfig,
+  onOpenProvider,
 }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
-  fullConfig: AppConfig;
-  onUpdateFullConfig: (next: AppConfig) => void;
+  onOpenProvider: (providerId: string) => void;
 }) {
   const { providers, loading, error } = useAgentProviders();
-  const [activeProviderId, setActiveProviderId] = useState<string | null>(null);
-
-  // Lock the active tab once providers load. Don't reset on subsequent
-  // refetches — that would jump the user back to tab 0 on plugin events.
-  useEffect(() => {
-    if (!activeProviderId && providers.length > 0) {
-      setActiveProviderId(providers[0].id);
-    }
-  }, [providers, activeProviderId]);
-
-  const activeProvider = providers.find((p) => p.id === activeProviderId) ?? null;
-
-  // Per-provider config writer: merges into `agents.<id>` and emits
-  // through the parent's update channel.
-  const onProviderConfigChange = useCallback(
-    (providerId: string, patch: Partial<ProviderConfig>) => {
-      const prev = fullConfig.agents?.[providerId] ?? {};
-      const nextProvider: ProviderConfig = { ...prev, ...patch };
-      const nextAgents = { ...(fullConfig.agents ?? {}), [providerId]: nextProvider };
-      onUpdateFullConfig({ ...fullConfig, agents: nextAgents });
-    },
-    [fullConfig, onUpdateFullConfig],
-  );
 
   return (
-    <div className="space-y-0">
+    <div className="space-y-5">
       {/* General Agent — shared across all providers */}
-      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3 mb-5">
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
         <div className="text-sm font-medium text-[var(--ct-fg)]">General Agent</div>
         <div className="text-xs text-[var(--ct-muted-fg)]">
           Always-on AI assistant in a protected workspace. Starts automatically with CodeTerm.
@@ -839,11 +886,8 @@ function AgentsTab({
       </div>
 
       {/* Skills — CodeTerm-wide source of truth, NOT a provider contribution.
-          Hardcoded here on purpose: skills are a CodeTerm feature that
-          syncs to all providers, not something Claude or Codex own. The
-          Phase 3 broker will replace the auto-mirror with on-demand CLI
-          access (see docs/plans/memory-architecture.md). */}
-      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3 mb-5">
+          Skills are a CodeTerm feature that syncs to all providers. */}
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="text-sm font-medium text-[var(--ct-fg)]">Skills</div>
           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">
@@ -852,9 +896,7 @@ function AgentsTab({
         </div>
         <div className="text-xs text-[var(--ct-muted-fg)]">
           Drop skill folders into <code className="text-[10px]">~/.codeterm/skills/</code> — they're
-          available to every agent provider automatically. Source of truth lives in CodeTerm; providers
-          read on demand. The dedicated <code className="text-[10px]">codeterm skill</code> CLI broker
-          arrives with the memory plugin (Phase 3).
+          available to every agent provider automatically.
         </div>
         <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]">
           <span className="font-mono">~/.codeterm/skills/</span>
@@ -867,49 +909,98 @@ function AgentsTab({
         </div>
       </div>
 
-      {error && (
-        <div className="text-[10px] text-[var(--ct-red)] mb-3">
-          Failed to load agent providers: {error}
-        </div>
-      )}
-      {loading && providers.length === 0 && (
-        <div className="text-[10px] text-[var(--ct-muted-fg)]">Loading providers…</div>
-      )}
-
-      {/* Provider sub-tabs (data-driven, no hardcode) */}
-      {providers.length > 0 && (
-        <div className="flex gap-[2px] -mx-5 px-2 pt-2 pb-0 border-b border-[var(--ct-border)] bg-[var(--ct-sidebar-bg)]">
+      {/* Providers — tile list, click to open detail screen */}
+      <div>
+        <div className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)] mb-2.5">Providers</div>
+        {error && (
+          <div className="text-[10px] text-[var(--ct-red)] mb-3">
+            Failed to load agent providers: {error}
+          </div>
+        )}
+        {loading && providers.length === 0 && (
+          <div className="text-[10px] text-[var(--ct-muted-fg)]">Loading providers…</div>
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {providers.map((p) => (
             <button
               key={p.id}
-              onClick={() => setActiveProviderId(p.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-medium rounded-t-lg border border-transparent border-b-0 relative transition-colors select-none ${
-                activeProviderId === p.id
-                  ? "text-[var(--ct-fg)] bg-[var(--ct-sidebar-bg)] border-[var(--ct-border)] -mb-px z-[1]"
-                  : "text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-bg)]/50"
-              }`}
+              onClick={() => onOpenProvider(p.id)}
+              className="flex items-center gap-3 p-3.5 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-left"
             >
-              {p.icon_hint && <span className="text-sm leading-none">{p.icon_hint}</span>}
-              {p.display_name}
-              <span className={`w-1.5 h-1.5 rounded-full bg-[var(--ct-green)] transition-opacity ${
-                activeProviderId === p.id ? "opacity-100" : "opacity-0"
-              }`} />
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-base shrink-0">
+                {p.icon_hint || p.display_name.slice(0, 1).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-medium text-[var(--ct-fg)]">{p.display_name}</div>
+                <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">{p.id}</div>
+              </div>
+              <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)]" />
             </button>
           ))}
         </div>
-      )}
+      </div>
+    </div>
+  );
+}
 
-      {/* Provider content — fully data-driven from settings_schema */}
-      {activeProvider && (
-        <div className="pt-5">
-          <SchemaRenderer
-            schema={activeProvider.settings_schema}
-            providerId={activeProvider.id}
-            config={fullConfig}
-            onChange={onProviderConfigChange}
-          />
+function AgentProviderScreen({
+  providerId,
+  fullConfig,
+  onUpdateFullConfig,
+  onProviderGone,
+}: {
+  providerId: string;
+  fullConfig: AppConfig;
+  onUpdateFullConfig: (next: AppConfig) => void;
+  onProviderGone: () => void;
+}) {
+  const { providers, loading, error } = useAgentProviders();
+  const provider = providers.find((p) => p.id === providerId) ?? null;
+
+  // If a plugin was deactivated mid-navigation, pop back to the Agents
+  // overview so the user isn't stuck on a dead provider detail.
+  useEffect(() => {
+    if (!loading && !provider) onProviderGone();
+  }, [loading, provider, onProviderGone]);
+
+  const onProviderConfigChange = useCallback(
+    (pid: string, patch: Partial<ProviderConfig>) => {
+      const prev = fullConfig.agents?.[pid] ?? {};
+      const nextProvider: ProviderConfig = { ...prev, ...patch };
+      const nextAgents = { ...(fullConfig.agents ?? {}), [pid]: nextProvider };
+      onUpdateFullConfig({ ...fullConfig, agents: nextAgents });
+    },
+    [fullConfig, onUpdateFullConfig],
+  );
+
+  if (error) {
+    return <div className="text-[10px] text-[var(--ct-red)]">Failed to load agent providers: {error}</div>;
+  }
+  if (loading && !provider) {
+    return <div className="text-[10px] text-[var(--ct-muted-fg)]">Loading provider…</div>;
+  }
+  if (!provider) {
+    // Transient: the pop effect above will unmount us on the next tick.
+    return null;
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-3 pb-2">
+        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-lg shrink-0">
+          {provider.icon_hint || provider.display_name.slice(0, 1).toUpperCase()}
         </div>
-      )}
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-[var(--ct-fg)]">{provider.display_name}</div>
+          <div className="text-[11px] text-[var(--ct-muted-fg)]">{provider.id}</div>
+        </div>
+      </div>
+      <SchemaRenderer
+        schema={provider.settings_schema}
+        providerId={provider.id}
+        config={fullConfig}
+        onChange={onProviderConfigChange}
+      />
     </div>
   );
 }

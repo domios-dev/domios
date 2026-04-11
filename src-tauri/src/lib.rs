@@ -603,6 +603,7 @@ fn start_servers(
                 update_state: states.update.clone(),
                 config: states.config.clone(),
                 mesh: states.mesh.clone(),
+                keepawake: states.keepawake.clone(),
             };
             let router = api::routes::create_router(api_state);
             let host = api_config.host.clone();
@@ -985,6 +986,11 @@ pub fn run() {
 
             // Create unified service context (available to both API and Tauri commands)
             let app_handle = app.handle().clone();
+
+            // Resume any keep-awake session that was active when CodeTerm last
+            // shut down. Indefinite → resume; timed + remaining → resume with
+            // the remainder; timed + already expired → drop the snapshot.
+            keepawake::resume_from_disk(&states.keepawake, &app_handle);
 
             // Bootstrap plugin system — agent-claude is a bundled native plugin
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());

@@ -123,3 +123,12 @@ codeterm mem wake-up
 ## If mem is empty
 
 On a brand-new install, `codeterm mem search` returns nothing. That's expected. Capture things as you go via `codeterm mem save`, and the store grows from use. Bundled starter items (a few baseline rules, preferences, and the `codeterm` skill itself) ship with every install and are always present.
+
+## System power (keepawake)
+
+When the user asks to prevent sleep, keep the machine awake, or "don't sleep for N hours", use `codeterm keepawake` — never `caffeinate`, `powercfg /requests`, or `systemd-inhibit` directly. CodeTerm tracks the session cross-platform and exposes it to the UI tray.
+
+- `codeterm keepawake start --duration-secs 7200` — keep system awake for 2 hours (add `--display` to also prevent display sleep)
+- `codeterm keepawake start` — indefinite (until explicit stop)
+- `codeterm keepawake stop` — release
+- `codeterm keepawake status` — current session (active, display, expires_at)

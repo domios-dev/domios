@@ -9,6 +9,7 @@ You are running inside CodeTerm — an AI-first terminal multiplexer. Use the `/
 - "run tests there" → `codeterm send-text PANE_ID "command"`
 - Any visual content (diagrams, dashboards) → `codeterm browser open file:///path`
 - Notify on completion → `codeterm notify "Done" --level info`
+- "don't let the computer sleep" / "keep awake" / "prevent sleep for N minutes/hours" → `codeterm keepawake start --duration-secs N [--display]`. Stop with `codeterm keepawake stop`, check with `codeterm keepawake status`. Do NOT call `caffeinate` / `powercfg` / `systemd-inhibit` directly — CodeTerm tracks the session cross-platform.
 
 ### Mesh — remote machines
 
@@ -47,5 +48,6 @@ codeterm pane rename --pane "$CODETERM_PANE_ID" "short task name"
 - Do NOT create filesystem directories when user says "create project" — create a workspace
 - Do NOT use raw `curl` for CodeTerm API — always use `codeterm` CLI commands
 - Do NOT use `/api/mesh/peers` or other REST endpoints directly — use `codeterm mesh peers`
+- Do NOT call `caffeinate`, `powercfg /requests`, or `systemd-inhibit` directly — use `codeterm keepawake`
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
