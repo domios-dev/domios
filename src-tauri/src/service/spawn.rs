@@ -514,6 +514,9 @@ impl ServiceContext {
         };
 
         self.mux.lock().link_pty(&pane_id, pty_id.clone());
+        self.agent_run_pty_map
+            .lock()
+            .insert(pane_id.clone(), pty_id.clone());
         self.emit_state_changed();
 
         let model_args: Vec<String> = agent
@@ -574,8 +577,6 @@ impl ServiceContext {
                     Some(model_args)
                 },
                 skip_permissions: true,
-                // Hidden panes are one-shot — providers may pick a stdin-pipe
-                // delivery to avoid the PowerShell argv-splitting bug.
                 headless: true,
             };
             let launch_cmd = svc_outer

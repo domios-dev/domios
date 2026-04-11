@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useCrons } from "../../store/crons";
@@ -6,7 +6,9 @@ import type { CronRunInfo } from "../../lib/types";
 import { ArrowLeftIcon, CloseIcon16 } from "../Icons";
 import { describeSchedule, formatTime, SCHEDULE_PRESETS } from "../../lib/formatters";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
+import { useConfig } from "../../hooks/useConfig";
 import { useMultiplexer } from "../../store/multiplexer";
+import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 
 const HISTORY_VISIBLE = 15;
 const LOG_SUMMARY_MARKER = "--- SUMMARY ---";
@@ -181,6 +183,7 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
   const [logView, setLogView] = useState<{
     runId: string;
     status: CronRunInfo["status"];
+    paneId: string | null;
   } | null>(null);
 
   const selectedProvider = useMemo(
@@ -218,12 +221,12 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
 
   const handleSave = useCallback(async () => {
     // "auto" → omit (no reset path); "off" → 0; else parse ms
-    let jitterMaxMs: number | undefined;
+    let jitter_max_ms: number | undefined;
     if (jitterKey === "off") {
-      jitterMaxMs = 0;
+      jitter_max_ms = 0;
     } else if (jitterKey !== "auto") {
       const n = Number(jitterKey);
-      if (Number.isFinite(n) && n > 0) jitterMaxMs = n;
+      if (Number.isFinite(n) && n > 0) jitter_max_ms = n;
     }
 
     await update(cronId, {
@@ -234,7 +237,7 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
       cwd: cwd.trim() || undefined,
       agent,
       model: model || null,
-      jitterMaxMs,
+      jitter_max_ms,
     });
     setDirty(false);
   }, [cronId, name, description, schedule, task, cwd, agent, model, jitterKey, update]);
@@ -465,7 +468,7 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
                     return (
                       <div
                         key={run.run_id}
-                        onClick={() => setLogView({ runId: run.run_id, status: run.status })}
+                        onClick={() => setLogView({ runId: run.run_id, status: run.status, paneId: run.pane_id })}
                         className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-[var(--ct-surface)] hover:bg-[var(--ct-hover)] text-[11px] cursor-pointer transition-colors"
                       >
                         <span className={statusColor}>{icon}</span>
@@ -504,6 +507,7 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
           jobId={cronId}
           runId={logView.runId}
           initialStatus={logView.status}
+          paneId={logView.paneId}
           onClose={() => setLogView(null)}
         />
       )}
@@ -516,43 +520,20 @@ function CronLogModal({
   jobId,
   runId,
   initialStatus,
+  paneId,
   onClose,
 }: {
   name: string;
   jobId: string;
   runId: string;
   initialStatus: CronRunInfo["status"];
+  paneId: string | null;
   onClose: () => void;
 }) {
-  const [showRaw, setShowRaw] = useState(false);
-  const [text, setText] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { config } = useConfig();
   const [status, setStatus] = useState(initialStatus);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
+  const [fallback, setFallback] = useState<string | null>(null);
   const isRunning = status === "Running";
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const t = await invoke<string>("cron_read_log", { jobId, runId });
-        if (!cancelled) {
-          setText(t);
-          setError(null);
-        }
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      }
-    };
-    load();
-    if (!isRunning) return () => { cancelled = true; };
-    const interval = setInterval(load, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [jobId, runId, isRunning]);
 
   useEffect(() => {
     if (!isRunning) return;
@@ -567,86 +548,39 @@ function CronLogModal({
   }, [jobId, runId, isRunning]);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [text]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  let summary = text ?? "";
-  let raw = "";
-  if (text) {
-    const rawIdx = text.indexOf(LOG_RAW_MARKER);
-    if (rawIdx !== -1) {
-      const sumIdx = text.indexOf(LOG_SUMMARY_MARKER);
-      const sumStart = sumIdx !== -1 ? sumIdx + LOG_SUMMARY_MARKER.length : 0;
-      summary = text.slice(sumStart, rawIdx).trim();
-      raw = text.slice(rawIdx + LOG_RAW_MARKER.length).trim();
-    }
-  }
-
-  const statusColor =
-    status === "Running"
-      ? "var(--ct-accent)"
-      : status === "Success"
-        ? "var(--ct-green)"
-        : status === "Cancelled"
-          ? "var(--ct-muted-fg)"
-          : "var(--ct-red)";
+    if (paneId) return;
+    if (status === "Running") return;
+    let cancelled = false;
+    invoke<string>("cron_read_log", { jobId, runId })
+      .then((t) => {
+        if (cancelled) return;
+        const rawIdx = t.indexOf(LOG_RAW_MARKER);
+        if (rawIdx !== -1) {
+          const sumIdx = t.indexOf(LOG_SUMMARY_MARKER);
+          const sumStart = sumIdx !== -1 ? sumIdx + LOG_SUMMARY_MARKER.length : 0;
+          const summary = t.slice(sumStart, rawIdx).trim();
+          const raw = t.slice(rawIdx + LOG_RAW_MARKER.length).trim();
+          setFallback(`${summary}\n\n${raw}`);
+        } else {
+          setFallback(t);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFallback("(no historical log available)");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [paneId, jobId, runId, status]);
 
   return (
-    <>
-      <div className="fixed inset-0 z-[60] bg-black/50" onClick={onClose} />
-      <div className="fixed z-[60] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[940px] max-w-[92vw] h-[70vh] max-h-[90vh] flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--ct-border)]">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[12px] font-medium text-[var(--ct-fg)] truncate">{name}</span>
-            <span
-              className="text-[9px] px-1.5 py-[1px] rounded-full shrink-0 uppercase"
-              style={{ color: statusColor, border: `1px solid ${statusColor}` }}
-            >
-              {isRunning ? `${status}…` : status}
-            </span>
-          </div>
-          <button onClick={onClose} className="text-[var(--ct-muted)] hover:text-[var(--ct-fg)]">
-            {"\u00D7"}
-          </button>
-        </div>
-        <div ref={scrollRef} className="flex-1 overflow-auto p-4">
-          {text === null && !error && (
-            <span className="text-[11px] text-[var(--ct-muted)]">Loading…</span>
-          )}
-          {error && (
-            <span className="text-[11px] text-[var(--ct-red)]">Error: {error}</span>
-          )}
-          {text !== null && (
-            <pre className="text-[11px] font-mono text-[var(--ct-fg)] whitespace-pre-wrap leading-relaxed m-0">
-              {summary || text}
-            </pre>
-          )}
-          {raw && (
-            <div className="mt-4 border-t border-[var(--ct-border)] pt-3">
-              <button
-                onClick={() => setShowRaw(!showRaw)}
-                className="text-[10px] text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] transition-colors flex items-center gap-1"
-              >
-                <span>{showRaw ? "\u25BC" : "\u25B6"}</span>
-                Raw terminal output
-              </button>
-              {showRaw && (
-                <pre className="mt-2 text-[10px] font-mono text-[var(--ct-muted-fg)] whitespace-pre-wrap leading-relaxed m-0">
-                  {raw}
-                </pre>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </>
+    <AgentRunLogPopup
+      api={config.api}
+      paneId={paneId}
+      title={name}
+      status={status}
+      fallbackText={fallback}
+      onClose={onClose}
+    />
   );
 }

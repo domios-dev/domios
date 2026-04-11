@@ -29,18 +29,7 @@ impl ShellSyntax {
         }
     }
 
-    /// Write `task` to a temp file and return a shell prefix that pipes the
-    /// file contents into the *next* command via stdin, plus the path.
-    ///
-    /// Used for headless agent panes (mem workers, cron) where the task can
-    /// contain `--flag` tokens. The classic `task_file_expr` inline subexpression
-    /// gets re-split by PowerShell when passed to a native command, so tokens
-    /// like `--area` get lifted into the child's argv. The pipe form sidesteps
-    /// argv splitting entirely — the child reads stdin instead.
-    ///
-    /// The returned prefix ends with a trailing space and `|` so the caller
-    /// can directly concatenate the binary name + flags after it. Example:
-    /// `"Get-Content 'C:\\...\\.ct-task-abcd' -Raw -Encoding UTF8 |"`.
+    // Returns (`Get-Content '<path>' -Raw -Encoding UTF8 |` or `cat '<path>' |`, path).
     pub fn task_file_stdin_pipe(task: &str) -> (String, String) {
         let (path, _) = Self::write_task_temp(task);
         let prefix = if Self::IS_WINDOWS {
@@ -51,8 +40,6 @@ impl ShellSyntax {
         (prefix, path)
     }
 
-    /// Write task content to a temp file, returning (path, short_id).
-    /// On Windows, prepends a UTF-8 BOM so PowerShell reads it as UTF-8.
     fn write_task_temp(task: &str) -> (String, String) {
         let short_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
         let path = Self::temp_path(&format!(".ct-task-{}", short_id));

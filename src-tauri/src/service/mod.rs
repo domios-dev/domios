@@ -61,6 +61,9 @@ pub struct ServiceContext {
     pub workers: Arc<crate::mem::workers::GraphWorkerRegistry>,
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
+    // Stable pane→pty map for hidden agent runs; survives close_pane so the
+    // unified AgentRun log endpoints can read closed-worker output.
+    pub agent_run_pty_map: Arc<parking_lot::Mutex<std::collections::HashMap<String, String>>>,
     /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
     /// Receiver half — taken when bridge starts. Replaced on restart with a new channel.

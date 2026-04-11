@@ -38,6 +38,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/rename", post(rename_pane))
         .route("/api/panes/{id}/output", get(get_pane_output))
         .route("/api/panes/{id}/output/stream", get(stream_pane_output))
+        .route("/api/agent-runs/{pane_id}/log", get(agent_run_log))
         .route("/api/panes/{id}/text", get(get_pane_text))
         .route("/api/panes/{id}/exec", post(exec_in_pane))
         .route("/api/panes/{id}/resize", post(resize_pane))
@@ -568,20 +569,28 @@ async fn resize_pane(
     Ok(Json(result.into_json()))
 }
 
-/// SSE stream of pane output — real-time output streaming for external agents.
+#[derive(Deserialize)]
+struct StreamQuery {
+    // ?from=0 replays the full PTY buffer then continues live; default = live only.
+    from: Option<usize>,
+}
+
 async fn stream_pane_output(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(raw_pane_id): Path<String>,
+    Query(query): Query<StreamQuery>,
 ) -> Result<axum::response::Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let pty_id = state.svc.resolve_pty_id(&pane_id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    let pty_id = resolve_pty_id_with_fallback(&state, &raw_pane_id)?;
 
     let buf = state.svc.output_buf.clone();
     let pid = pty_id.clone();
-    let mut offset = buf.lock().get_text(&pid).map(|t| t.len()).unwrap_or(0);
+    let initial_len = buf.lock().get_text(&pid).map(|t| t.len()).unwrap_or(0);
+    let mut offset = match query.from {
+        Some(n) => n.min(initial_len),
+        None => initial_len,
+    };
 
     let stream = async_stream::stream! {
         loop {
@@ -598,6 +607,41 @@ async fn stream_pane_output(
 
     Ok(axum::response::Sse::new(stream)
         .keep_alive(axum::response::sse::KeepAlive::default()))
+}
+
+async fn agent_run_log(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+) -> Result<(StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String), (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let pty_id = resolve_pty_id_with_fallback(&state, &raw_pane_id)?;
+    let text = state.svc.output_buf.lock().get_full_text(&pty_id).unwrap_or_default();
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        text,
+    ))
+}
+
+// Mux drops pane→pty on close_pane, but output_buf[pty_id] survives — fall
+// back to the stable spawn-time map so closed worker/cron logs stay readable.
+fn resolve_pty_id_with_fallback(
+    state: &AppState,
+    raw_pane_id: &str,
+) -> Result<String, (StatusCode, &'static str)> {
+    if let Ok(pane_id) = resolve_pane(state, raw_pane_id) {
+        if let Ok(pty_id) = state.svc.resolve_pty_id(&pane_id) {
+            return Ok(pty_id);
+        }
+        if let Some(pty_id) = state.svc.agent_run_pty_map.lock().get(&pane_id).cloned() {
+            return Ok(pty_id);
+        }
+    }
+    if let Some(pty_id) = state.svc.agent_run_pty_map.lock().get(raw_pane_id).cloned() {
+        return Ok(pty_id);
+    }
+    Err((StatusCode::NOT_FOUND, "Pane not found or has no PTY"))
 }
 
 #[derive(Deserialize)]
