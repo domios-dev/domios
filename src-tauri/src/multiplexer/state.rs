@@ -146,6 +146,40 @@ impl MultiplexerState {
         self.workspaces.iter().find(|w| w.id == id)
     }
 
+    /// Find a workspace whose `cwd` refers to the same folder as `query`.
+    /// Uses `paths::normalize_cwd` on both sides so trailing slashes, case
+    /// differences on Windows, and symlink variants all collapse to a match.
+    pub fn find_workspace_by_cwd(&self, query: &str) -> Option<&Workspace> {
+        let normalized = crate::paths::normalize_cwd(query);
+        self.workspaces.iter().find(|w| {
+            w.cwd
+                .as_deref()
+                .map(crate::paths::normalize_cwd)
+                .map(|stored| stored == normalized)
+                .unwrap_or(false)
+        })
+    }
+
+    /// Same as `find_workspace_by_cwd` but returns an owned `WorkspaceInfo`
+    /// so callers can drop the mux lock before acting on the result.
+    pub fn find_workspace_info_by_cwd(&self, query: &str) -> Option<WorkspaceInfo> {
+        let ws = self.find_workspace_by_cwd(query)?;
+        let pane_ids: Vec<String> = ws
+            .tabs
+            .iter()
+            .flat_map(|t| t.split_tree.collect_pane_ids())
+            .collect();
+        Some(WorkspaceInfo {
+            id: ws.id.clone(),
+            name: ws.name.clone(),
+            tab_count: ws.tabs.len(),
+            is_active: self.active_workspace_id.as_deref() == Some(&ws.id),
+            cwd: ws.cwd.clone(),
+            protected: ws.protected,
+            pane_ids,
+        })
+    }
+
     pub fn get_active_workspace(&self) -> Option<&Workspace> {
         self.active_workspace_id
             .as_ref()

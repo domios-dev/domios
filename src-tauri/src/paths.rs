@@ -36,3 +36,34 @@ pub fn config_path() -> Result<PathBuf, String> {
         .ok_or_else(|| "Could not determine home directory".to_string())?;
     Ok(dir.join(DIR_NAME).join("config.toml"))
 }
+
+/// Normalize a workspace `cwd` for comparison purposes. Two inputs that refer
+/// to the same folder should produce equal outputs regardless of trailing
+/// slashes, symlinks, or Windows case/separator differences.
+///
+/// - Runs `std::fs::canonicalize` when the path exists (resolves symlinks,
+///   converts to absolute, normalizes separators).
+/// - Falls back to manual trimming of trailing separators if canonicalize
+///   fails (path doesn't exist, permission denied, etc.) so dedup still
+///   works best-effort.
+/// - Lowercases the whole string on Windows — NTFS is case-insensitive by
+///   default and `C:\Users\X` == `c:\users\x`.
+pub fn normalize_cwd(raw: &str) -> String {
+    let canonical = std::fs::canonicalize(raw)
+        .ok()
+        .and_then(|p| p.to_str().map(|s| s.to_string()));
+
+    let base = canonical.unwrap_or_else(|| {
+        raw.trim_end_matches(|c: char| c == '/' || c == '\\')
+            .to_string()
+    });
+
+    if cfg!(windows) {
+        // Strip the Windows verbatim prefix that canonicalize adds on Windows
+        // (`\\?\C:\foo`) so user-supplied and canonicalized paths still match.
+        let stripped = base.strip_prefix(r"\\?\").unwrap_or(&base);
+        stripped.to_lowercase()
+    } else {
+        base
+    }
+}

@@ -31,6 +31,9 @@ Then: `Authorization: Bearer your-secret-token`
 | GET | `/api/health` | — | Health check. Returns `version`, `build` (git hash), `build_number` (incremented by `build.sh dev`), `name`. |
 | GET | `/api/identify` | — | Version, platform, features |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
+| GET | `/api/keepawake` | — | Get keep-awake status (see below) |
+| POST | `/api/keepawake/start` | `{duration_secs?, display?}` | Start / restart keep-awake session |
+| POST | `/api/keepawake/stop` | — | Stop keep-awake session |
 
 
 #### Workspaces
@@ -277,6 +280,67 @@ Cron runs spawn Claude agents on schedule. When done, the agent calls `codeterm 
 **Tauri events:**
 - `cron-state-changed` — emitted on any cron CRUD operation
 - `cron-fired` — emitted when a cron fires, payload: `{cron_id, run_id, pane_id, tab_id}`
+
+### Keep-Awake (GET/POST /api/keepawake*)
+
+Prevents the machine from sleeping (and optionally from dimming the display) while long-running agents are working. Global machine state, not pane- or workspace-scoped. All three endpoints require the standard Bearer token.
+
+**Status shape (`KeepAwakeStatus`):**
+```json
+{
+  "active": true,
+  "display": false,
+  "expires_at": 1744387200000
+}
+```
+- `active` — whether a keep-awake session is currently running.
+- `display` — whether the display is also being kept on (not just the system).
+- `expires_at` — unix milliseconds when the session auto-expires, or `null` for an indefinite session.
+
+**GET /api/keepawake** — returns the current `KeepAwakeStatus`. When no session is active, `active=false`, `display=false`, `expires_at=null`.
+
+**POST /api/keepawake/start** — request body (all fields optional):
+```json
+{"duration_secs": 3600, "display": false}
+```
+- `duration_secs` — session length in seconds. Omit or `null` for an indefinite session.
+- `display` — `true` to also prevent display sleep/dimming. Default `false`.
+
+Any existing session is stopped first, then the new one is started. Returns the fresh `KeepAwakeStatus`.
+
+**POST /api/keepawake/stop** — no body. Stops any active session. Returns `{"ok": true}`.
+
+**Tauri event `keepawake-changed`** — emitted on every state transition: explicit start, explicit stop, natural expiry (when `duration_secs` elapses), and `caffeinate` spawn failure on macOS. Payload matches `KeepAwakeStatus`. Frontends subscribe with `listen("keepawake-changed", (ev) => ...)`.
+
+**Persistence:** state is written to `~/.codeterm/keepawake.json` (or `~/.codeterm-dev/keepawake.json` on dev) and restored on startup — indefinite sessions resume as-is, timed sessions resume with the remaining duration, already-expired sessions are discarded.
+
+**Platform support:**
+- **macOS** — spawns `caffeinate -i -s` (plus `-d` when `display=true`).
+- **Windows** — calls `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)`, OR-ing in `ES_DISPLAY_REQUIRED` when `display=true`.
+- **Linux** — currently a no-op; logs a warning and still returns a status object so clients work unchanged.
+
+**Example:**
+```bash
+# Start an indefinite session that also keeps the display on
+curl -X POST http://host:7685/api/keepawake/start \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"display": true}'
+
+# Start a 1-hour session (system only)
+curl -X POST http://host:7685/api/keepawake/start \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"duration_secs": 3600}'
+
+# Check status
+curl http://host:7685/api/keepawake -H "Authorization: Bearer $TOKEN"
+# {"active":true,"display":false,"expires_at":1744387200000}
+
+# Stop
+curl -X POST http://host:7685/api/keepawake/stop -H "Authorization: Bearer $TOKEN"
+# {"ok":true}
+```
 
 ### Agent Spawn (POST /api/agents/spawn)
 
@@ -672,4 +736,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

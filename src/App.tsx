@@ -501,6 +501,7 @@ function AppInner() {
             onOpenMemory={() => setMemoryOpen(true)}
             onOpenCron={openCronPanel}
             onNavigateToTab={() => setMainView("workspace")}
+            mainView={mainView}
           />
         )}
 

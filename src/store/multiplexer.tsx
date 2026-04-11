@@ -798,8 +798,50 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     [state.workspaces],
   );
 
+  const refreshFromBackend = useCallback(() => {
+    invoke<MultiplexerState>("mux_get_state")
+      .then((s) => {
+        if (s && s.workspaces.length > 0) {
+          dispatch({ type: "SET_STATE", state: s });
+        }
+      })
+      .catch((e) => console.warn("Failed to refresh state:", e));
+  }, []);
+
+  const createTab = useCallback(async (workspaceId: string, cwd?: string) => {
+    try {
+      // 1. Switch to workspace (user action — navigate to where tab is created)
+      invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
+      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
+      // 2. Create tab + pane in backend (pane has no PTY — TerminalPane will spawn it)
+      const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId });
+      // 3. Set cwd on pane — inherit workspace cwd if no explicit cwd given
+      const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
+      const effectiveCwd = cwd || ws?.cwd || undefined;
+      if (effectiveCwd) {
+        setPendingCwd(tabInfo.pane_id, effectiveCwd);
+        await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd: effectiveCwd });
+      }
+      // 4. Set active tab in backend
+      await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
+      // 5. Optimistically switch to the new tab before refresh
+      dispatch({
+        type: "SET_ACTIVE_TAB",
+        workspaceId,
+        tabId: tabInfo.id,
+      });
+      // 6. Refresh frontend — TerminalPane will see ptyId=null and spawn PTY itself
+      refreshFromBackend();
+    } catch (e) {
+      console.error("Failed to create tab:", e);
+    }
+  }, [refreshFromBackend]);
+
   const createWorkspace = useCallback(async (name: string, cwd?: string) => {
     try {
+      // Backend `service::create_workspace` normalizes the cwd and reuses an
+      // existing workspace with the same folder (spawning a new tab there
+      // instead of duplicating). Frontend just fires the invoke.
       await invoke("mux_create_workspace", { name, cwd: cwd ?? null });
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s && s.workspaces.length > 0) dispatch({ type: "SET_STATE", state: s });
@@ -840,45 +882,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     invoke("mux_move_tab", { tabId, fromWorkspaceId, toWorkspaceId }).catch(() => {});
     dispatch({ type: "MOVE_TAB", tabId, fromWorkspaceId, toWorkspaceId });
   }, []);
-
-  const refreshFromBackend = useCallback(() => {
-    invoke<MultiplexerState>("mux_get_state")
-      .then((s) => {
-        if (s && s.workspaces.length > 0) {
-          dispatch({ type: "SET_STATE", state: s });
-        }
-      })
-      .catch((e) => console.warn("Failed to refresh state:", e));
-  }, []);
-
-  const createTab = useCallback(async (workspaceId: string, cwd?: string) => {
-    try {
-      // 1. Switch to workspace (user action — navigate to where tab is created)
-      invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
-      dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-      // 2. Create tab + pane in backend (pane has no PTY — TerminalPane will spawn it)
-      const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId });
-      // 3. Set cwd on pane — inherit workspace cwd if no explicit cwd given
-      const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
-      const effectiveCwd = cwd || ws?.cwd || undefined;
-      if (effectiveCwd) {
-        setPendingCwd(tabInfo.pane_id, effectiveCwd);
-        await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd: effectiveCwd });
-      }
-      // 4. Set active tab in backend
-      await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });
-      // 5. Optimistically switch to the new tab before refresh
-      dispatch({
-        type: "SET_ACTIVE_TAB",
-        workspaceId,
-        tabId: tabInfo.id,
-      });
-      // 6. Refresh frontend — TerminalPane will see ptyId=null and spawn PTY itself
-      refreshFromBackend();
-    } catch (e) {
-      console.error("Failed to create tab:", e);
-    }
-  }, [refreshFromBackend]);
 
   const spawnAgentTab = useCallback(async (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => {
     try {

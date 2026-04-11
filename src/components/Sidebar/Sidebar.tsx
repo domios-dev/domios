@@ -51,9 +51,10 @@ interface SidebarProps {
   onOpenMemory?: () => void;
   onOpenCron?: (jobId?: string) => void;
   onNavigateToTab?: () => void;
+  mainView?: "workspace" | "settings" | "memory" | "cron";
 }
 
-export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateToTab }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateToTab, mainView = "workspace" }: SidebarProps) {
   const {
     state,
     createWorkspace,
@@ -69,6 +70,12 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateTo
     spawnAgentTab,
   } = useMultiplexer();
   const { cronPaneIds } = useCrons();
+
+  // When mainView leaves the workspace (Memory / Settings open), suppress the
+  // "active" highlight on the current workspace + tab so the sidebar clearly
+  // shows where the user actually is in the hierarchy. Backend focus state
+  // is unchanged — returning to workspace restores the visual highlight.
+  const isWorkspaceMode = mainView === "workspace";
 
   // Agent spawn modal state
   const [agentSpawnModal, setAgentSpawnModal] = useState<{ folder: string; agentId: string } | null>(null);
@@ -272,13 +279,14 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateTo
             <div className="flex flex-col items-center py-1">
               {state.workspaces.map((ws) => {
                 const isActive = ws.id === state.active_workspace_id;
+                const isActiveVisual = isActive && isWorkspaceMode;
                 const isExpanded = expandedWorkspaces.has(ws.id);
                 return (
                   <div key={ws.id} className="w-full flex flex-col items-center">
                     <button
-                      onClick={() => { setActiveWorkspace(ws.id); toggleExpanded(ws.id); }}
+                      onClick={() => { setActiveWorkspace(ws.id); toggleExpanded(ws.id); onNavigateToTab?.(); }}
                       className={`w-full py-1.5 flex items-center justify-center transition-colors ${
-                        isActive ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)]"
+                        isActiveVisual ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)]"
                       }`}
                       title={ws.name}
                     >
@@ -286,7 +294,7 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateTo
                     </button>
                     {isExpanded && ws.tabs.map((tab) => {
                       const tabPaneIds = collectPaneIds(tab.split_tree, state.panes);
-                      const isTabActive = isActive && tab.id === ws.active_tab_id;
+                      const isTabActive = isActiveVisual && tab.id === ws.active_tab_id;
                       return (
                         <button
                           key={tab.id}
@@ -322,6 +330,7 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateTo
               (pid) => state.paneStatuses[pid] === "Waiting",
             );
             const isActive = ws.id === state.active_workspace_id;
+            const isActiveVisual = isActive && isWorkspaceMode;
             const isExpanded = expandedWorkspaces.has(ws.id);
             // Orchestrators available for linking (across all workspaces)
             const wsOrchestrators = Object.values(state.panes).filter(
@@ -332,9 +341,9 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateTo
               <div key={ws.id}>
                 <WorkspaceItem
                   workspace={ws}
-                  isActive={isActive}
+                  isActive={isActiveVisual}
                   isExpanded={isExpanded}
-                  onClick={() => setActiveWorkspace(ws.id)}
+                  onClick={() => { setActiveWorkspace(ws.id); onNavigateToTab?.(); }}
                   onToggleExpand={() => toggleExpanded(ws.id)}
                   onClose={() => closeWorkspace(ws.id)}
                   onRename={(name) => renameWorkspace(ws.id, name)}
@@ -401,7 +410,7 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateTo
                             <TabItem
                               tab={tab}
                               index={index}
-                              isActive={isActive && tab.id === ws.active_tab_id}
+                              isActive={isActiveVisual && tab.id === ws.active_tab_id}
                               onClick={() => {
                                 setActiveWorkspace(ws.id);
                                 setActiveTab(ws.id, tab.id);
@@ -466,7 +475,7 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateTo
                   </>
                   </div>
                 </div>
-                {!isExpanded && isActive && ws.active_tab_id ? (
+                {!isExpanded && isActiveVisual && ws.active_tab_id ? (
                   /* Collapsed but active — show selected tab */
                   (() => {
                     const activeTab = ws.tabs.find((t) => t.id === ws.active_tab_id);
@@ -477,7 +486,7 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateTo
                       <TabItem
                         tab={activeTab}
                         index={0}
-                        isActive={true}
+                        isActive={isActiveVisual}
                         onClick={() => { setActiveTab(ws.id, activeTab.id); onNavigateToTab?.(); }}
                         onClose={() => animatedCloseTab(ws.id, activeTab.id)}
                         canClose={true}
@@ -508,7 +517,11 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateTo
         <div className={`border-t border-[var(--ct-border)] ${isCompact ? "px-1 py-2 flex flex-col items-center gap-1" : "px-3 py-2 flex flex-col gap-1"}`}>
           <button
             onClick={onOpenMemory}
-            className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] transition-colors`}
+            className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
+              mainView === "memory"
+                ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+            }`}
             title="Memory Graph (Ctrl+Shift+M)"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
@@ -524,7 +537,11 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateTo
           </button>
           <button
             onClick={onOpenSettings}
-            className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)] transition-colors`}
+            className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
+              mainView === "settings"
+                ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+            }`}
             title="Settings (Ctrl+,)"
           >
             <GearIcon className="shrink-0" />
