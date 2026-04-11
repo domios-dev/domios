@@ -798,49 +798,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     [state.workspaces],
   );
 
-  const createWorkspace = useCallback(async (name: string, cwd?: string) => {
-    try {
-      await invoke("mux_create_workspace", { name, cwd: cwd ?? null });
-      const s = await invoke<MultiplexerState>("mux_get_state");
-      if (s && s.workspaces.length > 0) dispatch({ type: "SET_STATE", state: s });
-    } catch (e) {
-      console.error("Failed to create workspace:", e);
-    }
-  }, []);
-
-  const setActiveWorkspace = useCallback((id: string) => {
-    invoke("mux_set_active_workspace", { workspaceId: id }).catch(() => {});
-    dispatch({ type: "SET_ACTIVE_WORKSPACE", id });
-  }, []);
-
-  const closeWorkspace = useCallback(
-    (id: string) => {
-      const ws = state.workspaces.find((w) => w.id === id);
-      if (ws) {
-        const paneIds = ws.tabs.flatMap((t) => collectPaneIds(t.split_tree));
-        for (const pid of paneIds) {
-          const pane = state.panes[pid];
-          if (pane?.pty_id) {
-            invoke("kill_pty", { ptyId: pane.pty_id }).catch(() => {});
-          }
-        }
-      }
-      invoke("mux_close_workspace", { workspaceId: id }).catch(() => {});
-      dispatch({ type: "CLOSE_WORKSPACE", id });
-    },
-    [state],
-  );
-
-  const renameWorkspace = useCallback((id: string, name: string) => {
-    invoke("mux_rename_workspace", { workspaceId: id, name }).catch(() => {});
-    dispatch({ type: "RENAME_WORKSPACE", id, name });
-  }, []);
-
-  const moveTab = useCallback((tabId: string, fromWorkspaceId: string, toWorkspaceId: string) => {
-    invoke("mux_move_tab", { tabId, fromWorkspaceId, toWorkspaceId }).catch(() => {});
-    dispatch({ type: "MOVE_TAB", tabId, fromWorkspaceId, toWorkspaceId });
-  }, []);
-
   const refreshFromBackend = useCallback(() => {
     invoke<MultiplexerState>("mux_get_state")
       .then((s) => {
@@ -879,6 +836,58 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       console.error("Failed to create tab:", e);
     }
   }, [refreshFromBackend]);
+
+  const createWorkspace = useCallback(async (name: string, cwd?: string) => {
+    try {
+      // If a workspace with this cwd already exists, reuse it and spawn a new tab
+      // instead of creating a duplicate — mimics pressing "New Session".
+      if (cwd) {
+        const existing = stateRef.current.workspaces.find((w) => w.cwd === cwd);
+        if (existing) {
+          await createTab(existing.id, cwd);
+          return;
+        }
+      }
+      await invoke("mux_create_workspace", { name, cwd: cwd ?? null });
+      const s = await invoke<MultiplexerState>("mux_get_state");
+      if (s && s.workspaces.length > 0) dispatch({ type: "SET_STATE", state: s });
+    } catch (e) {
+      console.error("Failed to create workspace:", e);
+    }
+  }, [createTab]);
+
+  const setActiveWorkspace = useCallback((id: string) => {
+    invoke("mux_set_active_workspace", { workspaceId: id }).catch(() => {});
+    dispatch({ type: "SET_ACTIVE_WORKSPACE", id });
+  }, []);
+
+  const closeWorkspace = useCallback(
+    (id: string) => {
+      const ws = state.workspaces.find((w) => w.id === id);
+      if (ws) {
+        const paneIds = ws.tabs.flatMap((t) => collectPaneIds(t.split_tree));
+        for (const pid of paneIds) {
+          const pane = state.panes[pid];
+          if (pane?.pty_id) {
+            invoke("kill_pty", { ptyId: pane.pty_id }).catch(() => {});
+          }
+        }
+      }
+      invoke("mux_close_workspace", { workspaceId: id }).catch(() => {});
+      dispatch({ type: "CLOSE_WORKSPACE", id });
+    },
+    [state],
+  );
+
+  const renameWorkspace = useCallback((id: string, name: string) => {
+    invoke("mux_rename_workspace", { workspaceId: id, name }).catch(() => {});
+    dispatch({ type: "RENAME_WORKSPACE", id, name });
+  }, []);
+
+  const moveTab = useCallback((tabId: string, fromWorkspaceId: string, toWorkspaceId: string) => {
+    invoke("mux_move_tab", { tabId, fromWorkspaceId, toWorkspaceId }).catch(() => {});
+    dispatch({ type: "MOVE_TAB", tabId, fromWorkspaceId, toWorkspaceId });
+  }, []);
 
   const spawnAgentTab = useCallback(async (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => {
     try {
