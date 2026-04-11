@@ -199,6 +199,11 @@ pub struct SaveBody {
     /// in place. If false (default), collision falls through to hash suffix.
     #[serde(default)]
     pub replace: bool,
+    /// If true, do NOT spawn an auto-extraction worker for this item. Used
+    /// by the seed loader to bulk-insert 100+ items without fanning out a
+    /// graph-worker per save. Default false — normal saves still extract.
+    #[serde(default)]
+    pub skip_extract: bool,
 }
 
 pub async fn mem_save(
@@ -235,22 +240,37 @@ pub async fn mem_save(
     }.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "write", vec![id.clone()]);
 
-    // Auto-extraction: spawn a headless graph-worker to extract entities/relations
-    // via claude --model haiku. Fire-and-forget, non-blocking.
-    // SKIP for items that are themselves auto-extracted (prevents cascade)
-    // or if auto-extraction is disabled in config.
+    // Auto-extraction: spawn a headless graph-worker to extract entities/relations.
+    // Fire-and-forget, non-blocking. Skip cases:
+    //   - the item is itself auto-extracted (prevents cascade)
+    //   - auto-extraction disabled in config
+    //   - explicit skip_extract=true (seed loaders, bulk imports)
     let auto_extract_enabled = crate::config::memory_config().auto_extract;
-    if !is_auto_extracted && auto_extract_enabled {
+    if !body.skip_extract && !is_auto_extracted && auto_extract_enabled {
         let svc = state.svc.clone();
         let id_for_extract = id.clone();
-        std::thread::spawn(move || {
-            crate::mem::auto_extract::spawn_extraction_worker(
-                &svc,
-                id_for_extract,
-                title_clone,
-                body_clone,
-                kind_for_extract,
-            );
+        tokio::spawn(async move {
+            // Grab a permit from the shared semaphore. Caps in-flight
+            // extraction WORKERS (not just the spawn burst) at
+            // svc.extract_semaphore's capacity — spawn_extraction_worker
+            // holds the permit until the worker reaches a terminal state.
+            let sem = svc.extract_semaphore.clone();
+            let Ok(permit) = sem.acquire_owned().await else {
+                log::warn!("[mem] extract semaphore closed, dropping {}", id_for_extract);
+                return;
+            };
+            // Run spawn on a blocking thread — it grabs mux/pty locks.
+            let _ = tokio::task::spawn_blocking(move || {
+                crate::mem::auto_extract::spawn_extraction_worker(
+                    &svc,
+                    id_for_extract,
+                    title_clone,
+                    body_clone,
+                    kind_for_extract,
+                    Some(permit),
+                );
+            })
+            .await;
         });
     }
 

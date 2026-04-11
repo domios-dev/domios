@@ -1074,6 +1074,10 @@ pub fn run() {
                 workers: crate::mem::workers::GraphWorkerRegistry::load(
                     crate::paths::data_dir().join("mem").join("workers.json"),
                 ),
+                // Cap concurrent extraction agents. 4 is enough to keep the
+                // graph-worker pipeline busy without overwhelming the host
+                // when a bulk seed load fires hundreds of saves.
+                extract_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
                 prompt_detector,
                 bridge_outbound: bridge_outbound_tx,
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
