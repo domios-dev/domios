@@ -17,6 +17,7 @@ mod pane;
 pub mod pty_io;
 mod hierarchy;
 mod orchestrator;
+pub mod spawn;
 mod notification;
 mod output;
 pub mod cron;
