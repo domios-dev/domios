@@ -453,14 +453,21 @@ pub fn get(
     let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
 
     let now = chrono::Utc::now().to_rfc3339();
-    let _ = conn.execute(
+    let touched = conn.execute(
         "UPDATE mem_items SET accessed_at = ?1, access_count = access_count + 1 WHERE id = ?2",
         params![&now, &id],
     );
+    let (new_accessed_at, new_access_count) = match touched {
+        Ok(n) if n > 0 => (Some(now.clone()), access_count + 1),
+        _ => (accessed_at, access_count),
+    };
 
     Ok(Some(MemItem {
         id, uid, kind, scope, title, summary, area, tags, body, source,
-        importance, created_at, updated_at, accessed_at, access_count, recurrence_count, graph_x, graph_y,
+        importance, created_at, updated_at,
+        accessed_at: new_accessed_at,
+        access_count: new_access_count,
+        recurrence_count, graph_x, graph_y,
     }))
 }
 
@@ -828,6 +835,47 @@ mod tests {
         let got = get(&conn, &id, &blobs).unwrap().unwrap();
         assert_eq!(got.body, "short body");
         assert_eq!(got.tags, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn get_updates_accessed_at_and_access_count() {
+        let (conn, blobs) = fresh();
+        let id = insert(
+            &conn,
+            &NewMemItem {
+                kind: MemKind::Fact,
+                scope: MemScope::Global,
+                title: "touch me".into(),
+                summary: None,
+                area: None,
+                tags: vec![],
+                body: "body".into(),
+                source: None,
+                importance: 3.0,
+            },
+            &blobs,
+        )
+        .unwrap();
+
+        // Sleep 1 ms so rfc3339 timestamps differ even on fast CI hardware.
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        let got = get(&conn, &id, &blobs).unwrap().unwrap();
+        let created = got.created_at.clone();
+        let accessed = got.accessed_at.clone().expect("accessed_at should be set after get");
+        assert!(
+            accessed > created,
+            "accessed_at ({}) must be newer than created_at ({})",
+            accessed,
+            created
+        );
+        assert_eq!(got.access_count, 1, "first get bumps access_count to 1");
+
+        // Second get bumps again.
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let got2 = get(&conn, &id, &blobs).unwrap().unwrap();
+        assert_eq!(got2.access_count, 2);
+        assert!(got2.accessed_at.unwrap() > accessed);
     }
 
     #[test]
