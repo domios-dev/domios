@@ -197,6 +197,13 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_id);
         CREATE INDEX IF NOT EXISTS idx_relations_type ON relations(relation_type);
         CREATE INDEX IF NOT EXISTS idx_relations_valid ON relations(valid_from, valid_to);
+
+        CREATE TABLE IF NOT EXISTS entity_aliases (
+            alias_id     TEXT PRIMARY KEY,
+            canonical_id TEXT NOT NULL,
+            created_at   TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_aliases_canonical ON entity_aliases(canonical_id);
         "#,
     )?;
 
@@ -243,6 +250,63 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
 
+    Ok(())
+}
+
+/// One-shot consistency repair. Run on startup. Logs what it fixed.
+///
+/// Fixes:
+/// - Bogus graph entities (ids not starting with person_/project_/area_)
+/// - Relations with valid_to < valid_from (impossible time windows)
+/// - Orphan entities with no incoming/outgoing relations
+/// - Empty-titled mem_items → "Untitled <uid>"
+pub fn repair_inconsistencies(conn: &Connection) -> Result<(), String> {
+    // 1. Delete bogus entities (category/tech/kind nodes)
+    let bogus_entities = conn.execute(
+        r#"DELETE FROM entities
+           WHERE id NOT LIKE 'person_%'
+             AND id NOT LIKE 'project_%'
+             AND id NOT LIKE 'area_%'"#,
+        [],
+    ).map_err(|e| format!("repair entities: {}", e))? as u64;
+
+    // Cascade: kill relations that point to now-deleted entities
+    let bogus_relations = conn.execute(
+        r#"DELETE FROM relations
+           WHERE (from_id NOT LIKE 'person_%' AND from_id NOT LIKE 'project_%' AND from_id NOT LIKE 'area_%' AND from_id NOT IN (SELECT id FROM mem_items))
+              OR (to_id NOT LIKE 'person_%' AND to_id NOT LIKE 'project_%' AND to_id NOT LIKE 'area_%' AND to_id NOT IN (SELECT id FROM mem_items))
+              OR relation_type = 'kind_of'
+              OR relation_type = 'belongs_to_category'
+              OR relation_type = 'is_a'"#,
+        [],
+    ).map_err(|e| format!("repair relations: {}", e))? as u64;
+
+    // 2. Delete impossible temporal windows
+    let bad_temporal = conn.execute(
+        "DELETE FROM relations WHERE valid_to IS NOT NULL AND valid_to < valid_from",
+        [],
+    ).map_err(|e| format!("repair temporal: {}", e))? as u64;
+
+    // 3. Fix empty titles
+    let empty_titles = conn.execute(
+        "UPDATE mem_items SET title = 'Untitled ' || substr(uid, 1, 8) WHERE title = '' OR title IS NULL",
+        [],
+    ).map_err(|e| format!("repair titles: {}", e))? as u64;
+
+    // 4. Delete orphan entities (no relations reference them)
+    let orphans = conn.execute(
+        r#"DELETE FROM entities
+           WHERE id NOT IN (SELECT DISTINCT from_id FROM relations)
+             AND id NOT IN (SELECT DISTINCT to_id FROM relations)"#,
+        [],
+    ).map_err(|e| format!("repair orphans: {}", e))? as u64;
+
+    if bogus_entities + bogus_relations + bad_temporal + empty_titles + orphans > 0 {
+        log::info!(
+            "[mem] repair: {} bogus entities, {} bogus relations, {} impossible windows, {} empty titles, {} orphans",
+            bogus_entities, bogus_relations, bad_temporal, empty_titles, orphans
+        );
+    }
     Ok(())
 }
 
@@ -571,6 +635,10 @@ pub struct GraphNode {
     pub has_body: bool,
     pub graph_x: Option<f64>,
     pub graph_y: Option<f64>,
+    #[serde(default)]
+    pub access_count: i64,
+    #[serde(default)]
+    pub recurrence_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -612,7 +680,8 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
     let mut stmt = conn
         .prepare(
             r#"SELECT id, kind, title, summary, area, tags_json, importance,
-                      body_inline, body_blob_path, graph_x, graph_y
+                      body_inline, body_blob_path, graph_x, graph_y,
+                      access_count, recurrence_count
                FROM mem_items"#,
         )
         .map_err(|e| format!("prepare graph nodes: {}", e))?;
@@ -630,6 +699,8 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
                 r.get::<_, Option<String>>(8)?,
                 r.get::<_, Option<f64>>(9)?,
                 r.get::<_, Option<f64>>(10)?,
+                r.get::<_, i64>(11)?,
+                r.get::<_, i64>(12)?,
             ))
         })
         .map_err(|e| format!("query graph nodes: {}", e))?;
@@ -637,7 +708,7 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
     let mut nodes: Vec<GraphNode> = Vec::new();
     for row in rows {
         let (id, kind, title, summary, area, tags_json, importance,
-             body_inline, body_blob_path, graph_x, graph_y) =
+             body_inline, body_blob_path, graph_x, graph_y, access_count, recurrence_count) =
             row.map_err(|e| format!("row graph nodes: {}", e))?;
         let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
         let has_body = body_inline.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
@@ -645,7 +716,7 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
         let has_vector = vector_ids.contains(&id);
         nodes.push(GraphNode {
             id, kind, title, summary, area, importance, tags,
-            has_vector, has_body, graph_x, graph_y,
+            has_vector, has_body, graph_x, graph_y, access_count, recurrence_count,
         });
     }
 
@@ -676,6 +747,8 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
                     has_body: false,
                     graph_x: None,
                     graph_y: None,
+                    access_count: 0,
+                    recurrence_count: 0,
                 });
             }
         }

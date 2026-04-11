@@ -67,16 +67,14 @@ function MemoryDreamsTabImpl({ api }: Props) {
     return () => { mountedRef.current = false; };
   }, []);
 
-  const fetchCronData = useCallback(async () => {
-    setCronLoading(true);
+  const fetchCronData = useCallback(async (showLoading = false) => {
+    if (showLoading) setCronLoading(true);
     try {
-      // Fetch cron info (next run, enabled status)
       const res = await fetch(`${baseUrl(api)}/api/crons`, { headers: authHeaders(api) });
       if (res.ok && mountedRef.current) {
         const jobs = (await res.json()) as CronJob[];
         setDreamCron(jobs.find(j => j.name === "mem-dreaming-auto") ?? null);
       }
-      // Fetch dream workers (run history)
       const wRes = await fetch(`${baseUrl(api)}/api/mem/workers`, { headers: authHeaders(api) });
       if (wRes.ok && mountedRef.current) {
         const workers = (await wRes.json()) as GraphWorkerInfo[];
@@ -88,12 +86,12 @@ function MemoryDreamsTabImpl({ api }: Props) {
     } catch {
       // network error
     } finally {
-      if (mountedRef.current) setCronLoading(false);
+      if (mountedRef.current && showLoading) setCronLoading(false);
     }
   }, [api]);
 
-  const fetchDiary = useCallback(async () => {
-    setDiaryLoading(true);
+  const fetchDiary = useCallback(async (showLoading = false) => {
+    if (showLoading) setDiaryLoading(true);
     try {
       const params = new URLSearchParams({
         q: "dream",
@@ -111,20 +109,30 @@ function MemoryDreamsTabImpl({ api }: Props) {
     } catch {
       // network error
     } finally {
-      if (mountedRef.current) setDiaryLoading(false);
+      if (mountedRef.current && showLoading) setDiaryLoading(false);
     }
   }, [api]);
 
-  useEffect(() => { fetchCronData(); }, [fetchCronData]);
-  useEffect(() => { fetchDiary(); }, [fetchDiary]);
+  useEffect(() => { fetchCronData(true); }, [fetchCronData]);
+  useEffect(() => { fetchDiary(true); }, [fetchDiary]);
 
-  // Live updates: re-fetch on worker events and mem activity
+  // Live updates: debounced re-fetch on worker events and mem activity
   useEffect(() => {
     if (!isTauriEnv()) return;
     let active = true;
     const unlisteners: Array<() => void> = [];
-    const refreshWorkers = () => { if (active) fetchCronData(); };
-    const refreshDiary = () => { if (active) fetchDiary(); };
+    let workerTimer: ReturnType<typeof setTimeout> | null = null;
+    let diaryTimer: ReturnType<typeof setTimeout> | null = null;
+    const refreshWorkers = () => {
+      if (!active) return;
+      if (workerTimer) clearTimeout(workerTimer);
+      workerTimer = setTimeout(() => { if (active) fetchCronData(false); }, 500);
+    };
+    const refreshDiary = () => {
+      if (!active) return;
+      if (diaryTimer) clearTimeout(diaryTimer);
+      diaryTimer = setTimeout(() => { if (active) fetchDiary(false); }, 500);
+    };
     (async () => {
       try {
         for (const name of ["graph-worker-spawned", "graph-worker-progress", "graph-worker-reported", "graph-worker-done"]) {
@@ -132,12 +140,21 @@ function MemoryDreamsTabImpl({ api }: Props) {
           if (!active) { fn(); return; }
           unlisteners.push(fn);
         }
-        const memFn = await listen("mem-activity", refreshDiary);
+        // Only refetch on writes, not reads (safety net)
+        const memFn = await listen<{ op: string }>("mem-activity", (ev) => {
+          if (ev.payload?.op === "read") return;
+          refreshDiary();
+        });
         if (!active) { memFn(); return; }
         unlisteners.push(memFn);
       } catch { /* not in tauri */ }
     })();
-    return () => { active = false; unlisteners.forEach(fn => fn()); };
+    return () => {
+      active = false;
+      if (workerTimer) clearTimeout(workerTimer);
+      if (diaryTimer) clearTimeout(diaryTimer);
+      unlisteners.forEach(fn => fn());
+    };
   }, [fetchCronData, fetchDiary]);
 
   return (

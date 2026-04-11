@@ -8,9 +8,10 @@ import { getAgentProvider, getAllProviders } from "../../lib/agentProviders";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TitleLevel } from "../../lib/types";
 import type { Workspace, Tab, SplitNode, PaneStatus, Pane, AgentRole, CronJob, CronRunInfo } from "../../lib/types";
-import { X, Pencil, UserMinus, Ban, CircleCheck, TerminalSquare, Plus } from "lucide-react";
+import { X, Pencil, UserMinus, Ban, CircleCheck, TerminalSquare, Plus, FolderOpen } from "lucide-react";
 import { TelegramIcon, TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ShieldCheckIcon } from "../Icons";
 import { timeAgo } from "../../lib/formatters";
+import { isMac } from "../../lib/keybindings";
 
 function collectPaneIdsRaw(node: SplitNode): string[] {
   if (node.type === "Leaf") return [node.pane_id];
@@ -787,6 +788,15 @@ function WorkspaceItem({
         onClick: () => onNewAgent(provider.id),
       });
     }
+    if (workspace.cwd) {
+      items.push({
+        label: isMac ? "Show in Finder" : "Show in Explorer",
+        icon: <FolderOpen size={11} strokeWidth={1.5} />,
+        onClick: () => {
+          invoke("open_folder", { path: workspace.cwd }).catch(() => {});
+        },
+      });
+    }
     if (!workspace.protected) {
       items.push({
         label: "Delete Workspace",
@@ -796,7 +806,7 @@ function WorkspaceItem({
       });
     }
     return items;
-  }, [onNewTerminal, onNewAgent, onClose, workspace.protected]);
+  }, [onNewTerminal, onNewAgent, onClose, workspace.protected, workspace.cwd]);
 
   return (
     <div

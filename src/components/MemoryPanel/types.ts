@@ -27,6 +27,8 @@ export interface MemNode {
   body?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  access_count?: number;
+  recurrence_count?: number;
 }
 
 export interface MemEdge {

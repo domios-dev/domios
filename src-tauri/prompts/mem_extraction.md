@@ -33,11 +33,22 @@ STEP 6 — Report:
   codeterm mem worker report "N people, M projects, K decisions, area=<area>"
 
 RULES:
+- ONLY create graph entities with ids starting with `person_` or `project_`. Nothing else. Categories (rule/preference/etc) are columns on mem_items, not nodes.
 - Do NOT create technology entities — technologies are searchable via FTS in the body text.
 - Only extract what's clearly stated. Don't infer or guess.
 - IDs: lowercase_underscore. "John Smith" → person_john_smith, "Rekap" → project_rekap.
 - Skip generic terms without a specific name.
+
+Person detection — require TWO different signal types before creating a person entity:
+- Dialogue: "Tima said X", quoted speech
+- Action verb: "Tima built/fixed/shipped X"
+- Pronoun reference: "Tima... he/his" nearby
+- Direct address: "Tima, can you..."
+Only when you see 2+ distinct signal types, create a person. Otherwise skip — may be a common word.
+
 - Use canonical names: "Tima" and "Timofey" → person_tima (pick the short form).
+- If both variants appear in the text, alias them:
+    curl -s -X POST "$CODETERM_API_URL/api/mem/graph/alias" -H "Authorization: Bearer $CODETERM_API_TOKEN" -H "Content-Type: application/json" -d '{"alias":"person_timofey","canonical":"person_tima"}'
 - `graph create` is idempotent — safe to call even if entity already exists.
 - Decisions must be specific: "use PostgreSQL" is too vague. "Use PgBouncer transaction mode with max_client_conn=400" is good.
 - If nothing to extract, report "nothing to extract" and exit.
