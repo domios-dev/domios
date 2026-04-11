@@ -8,14 +8,15 @@
 //!
 //! Phase 3 step 2 of the spawn unification: this module no longer owns
 //! any pane/PTY/reader plumbing. It builds the extraction prompt and
-//! delegates the whole spawn through `ServiceContext::spawn_pane`.
+//! delegates the whole spawn through `workers::spawn_headless`, which
+//! internally calls `ServiceContext::spawn_pane` AND registers the
+//! worker with `GraphWorkerRegistry` so it shows up in the Memory Panel
+//! Workers tab with a live log.
 
 use std::sync::Arc;
 
 use crate::mem::store::MemKind;
-use crate::service::spawn::{
-    AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec,
-};
+use crate::mem::workers;
 use crate::service::ServiceContext;
 
 /// Kinds that trigger auto-extraction on save.
@@ -62,39 +63,28 @@ pub fn spawn_extraction_worker(
     let prompt = build_extraction_prompt(&mem_item_id, &title, &body);
 
     let mem_cfg = crate::config::memory_config();
-    let provider = if mem_cfg.extraction_agent.is_empty() {
+    let agent_provider = if mem_cfg.extraction_agent.is_empty() {
         crate::config::default_agent_provider()
     } else {
         mem_cfg.extraction_agent.clone()
     };
-    let model = if mem_cfg.extraction_model.is_empty() {
-        None
-    } else {
-        Some(mem_cfg.extraction_model.clone())
-    };
+    let model = mem_cfg.extraction_model.clone();
 
-    let spec = SpawnPaneSpec {
-        visibility: PaneVisibility::Hidden,
-        command: PaneCommand::Agent(AgentSpawnSpec {
-            provider,
-            model,
-            task: Some(prompt),
-            auto_approve: true,
-            spawned_by: Some("auto:save".into()),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-
-    match svc.spawn_pane(spec) {
-        Ok(handle) => {
+    let intent = format!("extract:{}", mem_item_id);
+    match workers::spawn_headless(
+        svc,
+        intent,
+        prompt,
+        "auto:save".into(),
+        agent_provider,
+        model,
+    ) {
+        Ok(worker_id) => {
             log::info!(
-                "[auto-extract] headless worker {} pane={} for {}",
-                handle.worker_id.as_deref().unwrap_or("?"),
-                handle.pane_id,
-                mem_item_id
+                "[auto-extract] headless worker {} for {}",
+                worker_id, mem_item_id
             );
-            handle.worker_id
+            Some(worker_id)
         }
         Err(e) => {
             log::warn!("[auto-extract] spawn failed for {}: {}", mem_item_id, e);
