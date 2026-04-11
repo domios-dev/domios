@@ -1676,10 +1676,18 @@ async fn cron_trigger(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let run = state.svc.cron_trigger(&state.cron, &id)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to trigger cron job"))?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let run = state.svc.cron_trigger(&state.cron, &id).map_err(|e| {
+        let code = if e.contains("already running") {
+            StatusCode::CONFLICT
+        } else if e.contains("not found") {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        };
+        (code, e)
+    })?;
     Ok(Json(serde_json::to_value(run).unwrap()))
 }
 
