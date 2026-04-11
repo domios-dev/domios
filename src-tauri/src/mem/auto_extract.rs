@@ -31,60 +31,12 @@ fn should_extract(kind: MemKind) -> bool {
 /// Minimum body length to justify spawning a worker.
 const MIN_BODY_LEN: usize = 80;
 
-/// Build the extraction prompt for haiku.
 fn build_extraction_prompt(mem_item_id: &str, title: &str, body: &str) -> String {
     let truncated = if body.len() > 4000 { &body[..4000] } else { body };
-
-    format!(
-        r#"Extract people, projects, decisions, and area from this text. Execute the CLI commands below.
-
-SOURCE: id="{id}", title="{title}"
-
-TEXT:
----
-{body}
----
-
-STEP 1 — CLASSIFY AREA first (needed for steps below):
-Determine the primary project or topic. Use a short lowercase name (rekap, soundcalm, deploy, auth, infra, home).
-Run: codeterm mem update {id} --area <area>
-
-STEP 2 — PEOPLE (only named individuals, not roles):
-For each person mentioned by name:
-  codeterm mem graph create --id person_<name> --entity-type Person --scope global
-  codeterm mem graph relate --from {id} --rel mentions --to person_<name>
-
-STEP 3 — PROJECTS (only named projects/repos/products):
-For each project mentioned by name:
-  codeterm mem graph create --id project_<name> --entity-type Project --scope global
-  codeterm mem graph relate --from {id} --rel mentions --to project_<name>
-
-STEP 4 — DECISIONS (explicit "we decided", "let's use", "better to"):
-For each clear decision:
-  codeterm mem save --kind fact --title "decision: <short>" --tags auto-extracted,decision --area <area> --importance 2 "<what was decided and why>"
-
-STEP 5 — PROBLEMS (explicit "bug in", "doesn't work", "the issue was"):
-For each clear problem:
-  codeterm mem save --kind learning --title "problem: <short>" --tags auto-extracted,problem --area <area> --importance 2 "<problem and fix if mentioned>"
-
-STEP 6 — Report:
-  codeterm mem worker report "N people, M projects, K decisions, area=<area>"
-
-RULES:
-- Do NOT create technology entities — technologies are searchable via FTS in the body text.
-- Only extract what's clearly stated. Don't infer or guess.
-- IDs: lowercase_underscore. "John Smith" → person_john_smith, "Rekap" → project_rekap.
-- Skip generic terms without a specific name.
-- Use canonical names: "Tima" and "Timofey" → person_tima (pick the short form).
-- `graph create` is idempotent — safe to call even if entity already exists.
-- Decisions must be specific: "use PostgreSQL" is too vague. "Use PgBouncer transaction mode with max_client_conn=400" is good.
-- If nothing to extract, report "nothing to extract" and exit.
-
-Execute now."#,
-        id = mem_item_id,
-        title = title,
-        body = truncated,
-    )
+    crate::prompts::MEM_EXTRACTION
+        .replace("{id}", mem_item_id)
+        .replace("{title}", title)
+        .replace("{body}", truncated)
 }
 
 /// Spawn a fully headless extraction worker. Uses the same pattern as

@@ -5,20 +5,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const WORKER_TASK_PREAMBLE: &str = r#"You are a Graph Worker for the CodeTerm memory system.
-Your intent: {intent}
-Your worker id: {worker_id}
-
-You are NOT visible as a regular tab — you exist in the memory panel only.
-Report progress via `codeterm mem worker progress "<status>"`.
-When finished, run `codeterm mem worker report "<summary>"` and exit.
-
-TASK:
-{task}
-"#;
-
 pub fn build_worker_task(intent: &str, worker_id: &str, task: &str) -> String {
-    WORKER_TASK_PREAMBLE
+    crate::prompts::WORKER_TASK_PREAMBLE
         .replace("{intent}", intent)
         .replace("{worker_id}", worker_id)
         .replace("{task}", task)

@@ -250,19 +250,10 @@ pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
     };
     let model = mem_cfg.dreaming_model.clone();
 
-    let rem_prompt = concat!(
-        "Optimize the memory store. Steps:\n",
-        "1. codeterm mem search \"\" --limit 50  (scan items, note areas and titles)\n",
-        "2. For items without area: codeterm mem get <id>, determine area, codeterm mem update <id> --area <area>\n",
-        "3. For items with very similar titles and same kind: read both (codeterm mem get), delete lower importance one\n",
-        "4. If 2+ items about same topic: codeterm mem save --kind fact --title \"insight: <pattern>\" --tags dream-insight --area <area> \"<meaning>\"\n",
-        "5. codeterm mem save --kind daily --title \"dream: YYYY-MM-DD\" --tags dream-diary --area _dreams \"<80-150 word reflection on what was optimized>\"\n",
-    );
-
     match super::workers::spawn_headless(
         svc,
         "dreaming:rem".into(),
-        rem_prompt.into(),
+        crate::prompts::DREAMING_REM.to_string(),
         "system:dreaming".into(),
         agent,
         model,
