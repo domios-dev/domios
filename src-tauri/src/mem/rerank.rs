@@ -204,25 +204,19 @@ impl Reranker for AnthropicReranker {
     }
 }
 
-/// Provider-aware rerank prompt builder. Both Anthropic and OpenAI variants
-/// use the same input format — the prompt itself can be tuned per-provider
-/// later if we hit specific failure modes. For now: short, instruction-only,
-/// no chain-of-thought (Haiku and gpt-4o-mini are both fast at this task).
 fn build_rerank_prompt(query: &str, hits: &[SearchHit]) -> String {
-    let mut prompt = format!(
-        "You are reranking memory items for an agent's query. Return ONLY a JSON array of item ids in best-to-worst relevance order. No prose, no markdown, just the array.\n\nQuery: {}\n\nItems:\n",
-        query
-    );
+    let mut items = String::new();
     for h in hits {
         let summary = h.item.summary.as_deref().unwrap_or("");
         let snip: String = h.item.body.chars().take(200).collect();
-        prompt.push_str(&format!(
+        items.push_str(&format!(
             "- id={} kind={} title={}\n  summary={}\n  body={}\n\n",
             h.item.id, h.item.kind, h.item.title, summary, snip
         ));
     }
-    prompt.push_str("\nReturn the JSON array only, e.g. [\"id1\", \"id2\", \"id3\"].");
-    prompt
+    crate::prompts::MEM_RERANK
+        .replace("{query}", query)
+        .replace("{items}", items.trim_end())
 }
 
 fn parse_id_array(text: &str) -> Result<Vec<String>, String> {

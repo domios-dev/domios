@@ -29,3 +29,15 @@ pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.
 
 /// Bootstrap instructions template — becomes the agent's personal config file after first run.
 pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str = include_str!("../prompts/bootstrap_instructions.md");
+
+/// Wrapper applied to every headless memory worker task. Placeholders: `{intent}`, `{worker_id}`, `{task}`.
+pub const WORKER_TASK_PREAMBLE: &str = include_str!("../prompts/worker_task_preamble.md");
+
+/// Auto-extraction prompt for the haiku graph worker. Placeholders: `{id}`, `{title}`, `{body}`.
+pub const MEM_EXTRACTION: &str = include_str!("../prompts/mem_extraction.md");
+
+/// Search-result reranking prompt sent directly to the model API. Placeholders: `{query}`, `{items}`.
+pub const MEM_RERANK: &str = include_str!("../prompts/mem_rerank.md");
+
+/// REM-phase dreaming prompt — optimization steps for the headless dream worker. No placeholders.
+pub const DREAMING_REM: &str = include_str!("../prompts/dreaming_rem.md");
