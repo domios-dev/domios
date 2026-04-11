@@ -153,7 +153,7 @@ export interface SpawnWorkerReq {
 
 // Cron types
 
-export type CronRunStatus = "Running" | "Success" | "Failed";
+export type CronRunStatus = "Running" | "Success" | "Failed" | "Cancelled";
 
 export interface CronRunInfo {
   run_id: string;

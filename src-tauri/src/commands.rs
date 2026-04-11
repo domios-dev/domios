@@ -1407,12 +1407,44 @@ pub fn cron_history(
 #[tauri::command]
 pub fn cron_read_log(
     cron: tauri::State<'_, crate::CronState>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
     job_id: String,
     run_id: String,
 ) -> Result<String, String> {
-    cron.lock()
-        .read_log(&job_id, &run_id)
-        .ok_or_else(|| "Log not found".to_string())
+    // Finished runs have a saved log file. Running runs don't — so fall
+    // through to the pane's live output buffer instead. This lets the
+    // frontend poll one endpoint for both states and show a live log
+    // popup while the agent is still working.
+    if let Some(text) = cron.lock().read_log(&job_id, &run_id) {
+        return Ok(text);
+    }
+
+    let pane_id = cron
+        .lock()
+        .get_history(&job_id)
+        .iter()
+        .find(|r| r.run_id == run_id)
+        .and_then(|r| r.pane_id.clone());
+
+    if let Some(pane_id) = pane_id {
+        let cmd = crate::dispatch::Command::GetOutput {
+            pane_id,
+            offset: None,
+            max_bytes: None,
+            strip_ansi: true,
+            full: true,
+        };
+        let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
+        let text = result
+            .into_json()
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        return Ok(text);
+    }
+
+    Err("Log not found".to_string())
 }
 
 // ---------------------------------------------------------------------------
