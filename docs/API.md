@@ -71,6 +71,7 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/can-spawn` | `{can_spawn: bool}` | Toggle whether pane can spawn children |
 | GET | `/api/agents` | — | List all panes that have roles |
 | GET | `/api/agents/hierarchy` | — | Full hierarchy tree |
+| GET | `/api/agents/providers` | — | List registered agent providers as `Vec<ProviderDescriptor>`. Each descriptor carries `id`, `display_name`, `available_models`, `default_model`, `settings_schema`, etc. Single source of truth for "what agents and models does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
 | POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?}` | One-call agent spawn (see below) |
 
 #### Batch
