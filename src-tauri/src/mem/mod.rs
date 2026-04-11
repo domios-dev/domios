@@ -95,6 +95,50 @@ impl MemManager {
         }))
     }
 
+    /// Offline / deterministic constructor for benches, evals, and tests
+    /// outside the main test harness.
+    ///
+    /// Differences from [`MemManager::open`]:
+    /// - No background embed queue worker thread is spawned. Any body that
+    ///   would normally be enqueued for indexing is silently dropped.
+    /// - No sqlite-vec extension warning if init fails (bench mode falls
+    ///   back to FTS5-only recall by design).
+    /// - `data_dir` is the final directory; the caller is responsible for
+    ///   picking a tempdir path. `knowledge.db` + `blobs/` are created
+    ///   inside it exactly like `open`.
+    ///
+    /// This constructor exists so the mem-recall bench runner can exercise
+    /// the real insert / FTS search path without spinning up tokio tasks,
+    /// calling any LLM, or requiring API keys / model weights.
+    pub fn open_offline(data_dir: &std::path::Path) -> Result<Arc<Self>, String> {
+        std::fs::create_dir_all(data_dir)
+            .map_err(|e| format!("create data dir: {}", e))?;
+        let blobs_dir = data_dir.join("blobs");
+        std::fs::create_dir_all(&blobs_dir)
+            .map_err(|e| format!("create blobs dir: {}", e))?;
+
+        embeddings::ensure_extension_registered();
+
+        let db_path = data_dir.join("knowledge.db");
+        let conn = Connection::open(&db_path)
+            .map_err(|e| format!("open knowledge.db: {}", e))?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| format!("set busy_timeout: {}", e))?;
+
+        store::init_schema(&conn)
+            .map_err(|e| format!("init schema: {}", e))?;
+
+        // Non-fatal: offline mode is allowed to run FTS5-only without vectors.
+        let _ = embeddings::init_extension(&conn);
+
+        Ok(Arc::new(Self {
+            conn: Mutex::new(conn),
+            db_path,
+            blobs_dir,
+            embed_queue: embed_queue::EmbedQueue::disabled(),
+        }))
+    }
+
     pub fn db_path(&self) -> &std::path::Path { &self.db_path }
     pub fn blobs_dir(&self) -> &std::path::Path { &self.blobs_dir }
 
@@ -210,6 +254,15 @@ impl MemManager {
 
     pub fn save(&self, item: NewMemItem) -> Result<String, String> {
         self.save_inner(item, false)
+    }
+
+    /// Raw insert that skips dedup, auto-extraction of child items, and
+    /// the embed queue. Intended for bench/eval seeding where we want to
+    /// control exactly which items end up in the store. Returns the
+    /// generated id (same format as [`save`]).
+    pub fn insert_raw(&self, item: &NewMemItem) -> Result<String, String> {
+        let conn = self.conn.lock();
+        store::insert(&conn, item, &self.blobs_dir)
     }
 
     pub fn save_replace(&self, item: NewMemItem) -> Result<String, String> {
