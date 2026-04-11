@@ -1,0 +1,252 @@
+{
+  "commit": "bfa5b2ae64a6d7ade8165609aa08e98740b4ecbd",
+  "timestamp": "20260411-132920",
+  "fixture_path": "evals/mem-recall/benchmark.json",
+  "fixture_description": "Memory recall quality benchmark. Tests store→recall pipeline across typos, languages, semantics, cross-references.",
+  "top_k": 10,
+  "metrics": {
+    "num_queries": 15,
+    "recall_at_1": 0.4,
+    "recall_at_5": 0.7333333333333333,
+    "recall_at_10": 0.7333333333333333,
+    "mrr": 0.5266666666666667,
+    "p50_latency_ms": 4.7911,
+    "p95_latency_ms": 6.5495,
+    "total_wall_ms": 1271.6451
+  },
+  "per_query": [
+    {
+      "test_id": "T01",
+      "name": "exact_keyword",
+      "category": "keyword",
+      "query": "PgBouncer connection pooling",
+      "expected": [
+        "seed_2"
+      ],
+      "got_top_k": [
+        "seed_2"
+      ],
+      "hit_rank": 1,
+      "hit": true,
+      "latency_ms": 1204.4556
+    },
+    {
+      "test_id": "T02",
+      "name": "typo_english",
+      "category": "typo",
+      "query": "postgress poolling",
+      "expected": [
+        "seed_2"
+      ],
+      "got_top_k": [],
+      "hit_rank": null,
+      "hit": false,
+      "latency_ms": 4.7585
+    },
+    {
+      "test_id": "T03",
+      "name": "typo_russian",
+      "category": "typo",
+      "query": "саундкалм архитектура",
+      "expected": [
+        "seed_1"
+      ],
+      "got_top_k": [],
+      "hit_rank": null,
+      "hit": false,
+      "latency_ms": 4.7911
+    },
+    {
+      "test_id": "T04",
+      "name": "semantic_no_keyword",
+      "category": "semantic",
+      "query": "database connection issues",
+      "expected": [
+        "seed_2"
+      ],
+      "got_top_k": [
+        "seed_2"
+      ],
+      "hit_rank": 1,
+      "hit": true,
+      "latency_ms": 4.0504
+    },
+    {
+      "test_id": "T05",
+      "name": "russian_query_english_content",
+      "category": "crosslang",
+      "query": "какую базу данных мы используем",
+      "expected": [
+        "seed_2",
+        "seed_6"
+      ],
+      "got_top_k": [],
+      "hit_rank": null,
+      "hit": false,
+      "latency_ms": 4.9879
+    },
+    {
+      "test_id": "T06",
+      "name": "person_recall",
+      "category": "person",
+      "query": "what does Tima work on",
+      "expected": [
+        "seed_1",
+        "seed_4"
+      ],
+      "got_top_k": [
+        "seed_5",
+        "seed_4"
+      ],
+      "hit_rank": 2,
+      "hit": true,
+      "latency_ms": 5.3004999999999995
+    },
+    {
+      "test_id": "T07",
+      "name": "person_recall_russian",
+      "category": "person",
+      "query": "чем занимается Жека",
+      "expected": [
+        "seed_1",
+        "seed_4"
+      ],
+      "got_top_k": [
+        "seed_1"
+      ],
+      "hit_rank": 1,
+      "hit": true,
+      "latency_ms": 4.1637
+    },
+    {
+      "test_id": "T08",
+      "name": "problem_recall",
+      "category": "problem",
+      "query": "auth token problem",
+      "expected": [
+        "seed_3"
+      ],
+      "got_top_k": [
+        "seed_3"
+      ],
+      "hit_rank": 1,
+      "hit": true,
+      "latency_ms": 4.5584
+    },
+    {
+      "test_id": "T09",
+      "name": "preference_recall",
+      "category": "preference",
+      "query": "what database do I prefer",
+      "expected": [
+        "seed_6",
+        "seed_2"
+      ],
+      "got_top_k": [
+        "seed_1",
+        "seed_6"
+      ],
+      "hit_rank": 2,
+      "hit": true,
+      "latency_ms": 4.4391
+    },
+    {
+      "test_id": "T10",
+      "name": "tech_stack_recall",
+      "category": "tech",
+      "query": "what AI tools does Rekap use",
+      "expected": [
+        "seed_7"
+      ],
+      "got_top_k": [
+        "seed_2",
+        "seed_6",
+        "seed_8",
+        "seed_5",
+        "seed_7"
+      ],
+      "hit_rank": 5,
+      "hit": true,
+      "latency_ms": 5.1894
+    },
+    {
+      "test_id": "T11",
+      "name": "infrastructure_recall",
+      "category": "infra",
+      "query": "home automation setup",
+      "expected": [
+        "seed_5"
+      ],
+      "got_top_k": [
+        "seed_5"
+      ],
+      "hit_rank": 1,
+      "hit": true,
+      "latency_ms": 4.15
+    },
+    {
+      "test_id": "T12",
+      "name": "identity_recall",
+      "category": "identity",
+      "query": "who am I",
+      "expected": [
+        "seed_8"
+      ],
+      "got_top_k": [],
+      "hit_rank": null,
+      "hit": false,
+      "latency_ms": 3.509
+    },
+    {
+      "test_id": "T13",
+      "name": "cross_fact_indirect",
+      "category": "cross",
+      "query": "which project uses LiveKit",
+      "expected": [
+        "seed_7"
+      ],
+      "got_top_k": [
+        "seed_7"
+      ],
+      "hit_rank": 1,
+      "hit": true,
+      "latency_ms": 5.0758
+    },
+    {
+      "test_id": "T14",
+      "name": "negation_recall",
+      "category": "negation",
+      "query": "why did we not use AVAudioEngine",
+      "expected": [
+        "seed_1"
+      ],
+      "got_top_k": [
+        "seed_6",
+        "seed_1",
+        "seed_2"
+      ],
+      "hit_rank": 2,
+      "hit": true,
+      "latency_ms": 5.613499999999999
+    },
+    {
+      "test_id": "T15",
+      "name": "temporal_recall",
+      "category": "temporal",
+      "query": "what bug did we fix recently with JWT",
+      "expected": [
+        "seed_3"
+      ],
+      "got_top_k": [
+        "seed_5",
+        "seed_6",
+        "seed_4",
+        "seed_2",
+        "seed_3"
+      ],
+      "hit_rank": 5,
+      "hit": true,
+      "latency_ms": 6.5495
+    }
+  ]
+}
