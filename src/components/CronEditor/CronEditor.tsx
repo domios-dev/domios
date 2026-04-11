@@ -1,7 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { CronJob } from "../../lib/types";
 import { describeSchedule, SCHEDULE_PRESETS } from "../../lib/formatters";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
 
 interface CronEditorProps {
   workspaceId: string;
@@ -11,6 +12,7 @@ interface CronEditorProps {
     schedule: string;
     task: string;
     agent: string;
+    model: string | null;
     cwd: string | null;
     description: string | null;
     enabled?: boolean;
@@ -29,9 +31,18 @@ export function CronEditor({ workspaceId: _workspaceId, existing, onSave, onClos
   const [customSchedule, setCustomSchedule] = useState(existing?.schedule ?? "0 9 * * *");
   const [enabled, setEnabled] = useState(existing?.enabled ?? true);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [agent] = useState(existing?.agent ?? "claude");
+  const { providers } = useAgentProviders();
+  const [agent, setAgent] = useState(existing?.agent ?? "claude");
+  // Empty string = use provider's default_model.
+  const [model, setModel] = useState(existing?.model ?? "");
   const [task, setTask] = useState(existing?.task ?? "");
   const [cwd, setCwd] = useState(existing?.cwd ?? "");
+
+  const selectedProvider = useMemo(
+    () => providers.find((p) => p.id === agent),
+    [providers, agent],
+  );
+  const availableModels = selectedProvider?.available_models ?? [];
 
   const schedule = scheduleMode === "preset" ? SCHEDULE_PRESETS[presetIndex].value : customSchedule;
 
@@ -47,11 +58,18 @@ export function CronEditor({ workspaceId: _workspaceId, existing, onSave, onClos
       schedule,
       task: task.trim(),
       agent,
+      model: model || null,
       cwd: cwd || null,
       description: description || null,
       enabled,
     });
-  }, [name, schedule, task, agent, cwd, description, enabled, onSave]);
+  }, [name, schedule, task, agent, model, cwd, description, enabled, onSave]);
+
+  const handleAgentChange = useCallback((newAgent: string) => {
+    setAgent(newAgent);
+    // Reset model when provider changes — old model id is unlikely to match.
+    setModel("");
+  }, []);
 
   return (
     <>
@@ -150,11 +168,45 @@ export function CronEditor({ workspaceId: _workspaceId, existing, onSave, onClos
             />
           </div>
 
-          {/* Agent */}
-          <div>
-            <label className="text-[11px] text-[var(--ct-muted)] block mb-1">Agent</label>
-            <div className="px-2.5 py-1.5 text-[12px] bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded text-[var(--ct-muted)]">
-              Claude
+          {/* Agent provider + model */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] text-[var(--ct-muted)] block mb-1">Agent</label>
+              <select
+                value={agent}
+                onChange={(e) => handleAgentChange(e.target.value)}
+                className="w-full px-2.5 py-1.5 text-[12px] bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded text-[var(--ct-fg)] outline-none focus:border-[var(--ct-accent)]"
+              >
+                {providers.length === 0 ? (
+                  <option value={agent}>{agent}</option>
+                ) : (
+                  providers.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.display_name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] text-[var(--ct-muted)] block mb-1">Model</label>
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                disabled={availableModels.length === 0}
+                className="w-full px-2.5 py-1.5 text-[12px] bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded text-[var(--ct-fg)] outline-none focus:border-[var(--ct-accent)] disabled:opacity-50"
+              >
+                <option value="">
+                  {selectedProvider?.default_model
+                    ? `Default (${selectedProvider.default_model})`
+                    : "Default"}
+                </option>
+                {availableModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

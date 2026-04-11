@@ -1,9 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useCrons } from "../../store/crons";
 import type { CronRunInfo } from "../../lib/types";
 import { ArrowLeftIcon, CloseIcon16 } from "../Icons";
 import { describeSchedule, formatTime, SCHEDULE_PRESETS } from "../../lib/formatters";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
 
 
 // ── Types ────────────────────────────────────────────────────────
@@ -143,6 +144,7 @@ function CronDashboard({ onSelectCron }: { onSelectCron: (id: string) => void })
 
 function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) {
   const { crons, update, toggle, trigger, remove, history } = useCrons();
+  const { providers } = useAgentProviders();
   const job = crons.find((c) => c.id === cronId);
 
   const [name, setName] = useState(job?.name ?? "");
@@ -150,8 +152,16 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
   const [schedule, setSchedule] = useState(job?.schedule ?? "");
   const [task, setTask] = useState(job?.task ?? "");
   const [cwd, setCwd] = useState(job?.cwd ?? "");
+  const [agent, setAgent] = useState(job?.agent ?? "claude");
+  const [model, setModel] = useState(job?.model ?? "");
   const [runs, setRuns] = useState<CronRunInfo[]>([]);
   const [dirty, setDirty] = useState(false);
+
+  const selectedProvider = useMemo(
+    () => providers.find((p) => p.id === agent),
+    [providers, agent],
+  );
+  const availableModels = selectedProvider?.available_models ?? [];
 
   // Load history on mount
   useState(() => {
@@ -163,6 +173,12 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
     if (folder) { setCwd(folder as string); setDirty(true); }
   }, []);
 
+  const handleAgentChange = useCallback((value: string) => {
+    setAgent(value);
+    setModel("");
+    setDirty(true);
+  }, []);
+
   const handleSave = useCallback(async () => {
     await update(cronId, {
       name: name.trim() || undefined,
@@ -170,9 +186,11 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
       schedule: schedule.trim() || undefined,
       task: task.trim() || undefined,
       cwd: cwd.trim() || undefined,
+      agent,
+      model: model || null,
     });
     setDirty(false);
-  }, [cronId, name, description, schedule, task, cwd, update]);
+  }, [cronId, name, description, schedule, task, cwd, agent, model, update]);
 
   const handleDelete = useCallback(async () => {
     await remove(cronId);
@@ -268,6 +286,48 @@ function CronDetail({ cronId, onBack }: { cronId: string; onBack: () => void }) 
           <button onClick={handleFolderPick} className="px-3 py-2 text-[11px] border border-[var(--ct-border)] rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors shrink-0">
             Browse
           </button>
+        </div>
+      </div>
+
+      {/* Agent provider + model */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="text-[11px] text-[var(--ct-muted)] block mb-1.5">Agent</label>
+          <select
+            value={agent}
+            onChange={(e) => handleAgentChange(e.target.value)}
+            className={inputClass}
+          >
+            {providers.length === 0 ? (
+              <option value={agent}>{agent}</option>
+            ) : (
+              providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.display_name}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+        <div>
+          <label className="text-[11px] text-[var(--ct-muted)] block mb-1.5">Model</label>
+          <select
+            value={model}
+            onChange={(e) => { setModel(e.target.value); setDirty(true); }}
+            disabled={availableModels.length === 0}
+            className={`${inputClass} disabled:opacity-50`}
+          >
+            <option value="">
+              {selectedProvider?.default_model
+                ? `Default (${selectedProvider.default_model})`
+                : "Default"}
+            </option>
+            {availableModels.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.display_name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
