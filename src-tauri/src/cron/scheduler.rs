@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 use tauri::Emitter;
 
 use super::store::{CronRunInfo, CronRunStatus, CronStore};
-use crate::service::{SpawnAgentParams, ServiceState};
+use crate::service::ServiceState;
 
 pub type CronState = Arc<Mutex<CronStore>>;
 
@@ -129,64 +129,67 @@ fn fire_job(
         }
     }
 
-    // Spawn agent
+    // Spawn agent via the unified spawn_pane surface.
+    use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
+
     let mut task_text = task.to_string();
     if creator_pane_id.is_some() {
         task_text.push_str(crate::prompts::CRON_REPORT_HINT);
     }
     task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
-    // Pass dreaming model from config
-    let model_args = {
-        let mem_cfg = crate::config::memory_config();
-        if !mem_cfg.dreaming_model.is_empty() {
-            let args = service.agent_registry
-                .with_provider(agent, |p| p.model_launch_args(&mem_cfg.dreaming_model))
-                .unwrap_or_default();
-            if args.is_empty() { None } else { Some(args) }
-        } else {
-            None
-        }
+
+    let mem_cfg = crate::config::memory_config();
+    let model = if !mem_cfg.dreaming_model.is_empty() {
+        Some(mem_cfg.dreaming_model.clone())
+    } else {
+        None
     };
 
-    let params = SpawnAgentParams {
-        agent: Some(agent.to_string()),
-        agent_name: None,
-        args: model_args,
+    let spec = SpawnPaneSpec {
+        workspace_id: if workspace_id.is_empty() {
+            None
+        } else {
+            Some(workspace_id.to_string())
+        },
+        parent_pane_id: None,
         cwd: cwd.map(|s| s.to_string()),
         title: None,
-        role: role.map(|s| s.to_string()),
-        parent_pane_id: None,
-        can_spawn: None,
-        task: Some(task_text),
-        workspace_id: if workspace_id.is_empty() { None } else { Some(workspace_id.to_string()) },
-        force_tab: Some(true),
-        report_target_pane_id: creator_pane_id.map(|s| s.to_string()),
-        skip_permissions: None,
+        visibility: PaneVisibility::Visible,
+        command: PaneCommand::Agent(AgentSpawnSpec {
+            provider: agent.to_string(),
+            model,
+            task: Some(task_text),
+            role: role.map(|s| s.to_string()),
+            auto_approve: true,
+            report_target_pane_id: creator_pane_id.map(|s| s.to_string()),
+            spawned_by: Some(format!("cron:{}", job_id)),
+            ..Default::default()
+        }),
     };
 
-    match service.spawn_agent_sync(params) {
-        Ok(result) => {
+    match service.spawn_pane(spec) {
+        Ok(handle) => {
             log::info!(
                 "Cron agent spawned: job={}, pane={}, tab={}",
-                job_id, result.pane_id, result.tab_id
+                job_id, handle.pane_id, handle.tab_id
             );
 
             // Update run with pane/tab info + register ownership
             {
                 let mut store = cron_state.lock();
-                store.register_pane(&result.pane_id, job_id, &run_id);
+                store.register_pane(&handle.pane_id, job_id, &run_id);
                 if let Some(history) = store.get_history_mut(job_id) {
                     if let Some(run) = history.iter_mut().find(|r| r.run_id == run_id) {
-                        run.pane_id = Some(result.pane_id.clone());
-                        run.tab_id = Some(result.tab_id.clone());
+                        run.pane_id = Some(handle.pane_id.clone());
+                        run.tab_id = Some(handle.tab_id.clone());
                     }
                 }
                 // Also update last_run
                 if let Some(job) = store.get_mut(job_id) {
                     if let Some(ref mut lr) = job.last_run {
                         if lr.run_id == run_id {
-                            lr.pane_id = Some(result.pane_id.clone());
-                            lr.tab_id = Some(result.tab_id.clone());
+                            lr.pane_id = Some(handle.pane_id.clone());
+                            lr.tab_id = Some(handle.tab_id.clone());
                         }
                     }
                 }
@@ -199,8 +202,8 @@ fn fire_job(
                 serde_json::json!({
                     "cron_id": job_id,
                     "run_id": run_id,
-                    "pane_id": result.pane_id,
-                    "tab_id": result.tab_id,
+                    "pane_id": handle.pane_id,
+                    "tab_id": handle.tab_id,
                 }),
             );
 
