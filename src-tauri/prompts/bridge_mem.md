@@ -12,13 +12,43 @@
 
 ## How memory works
 
-You save items → extraction workers (hidden agents) auto-process them in the background:
-- Extract **people** and **projects** as graph entities
-- Create **relations** (who mentioned whom, which project)
-- Classify **area** (rekap, soundcalm, deploy, auth...)
-- Extract **decisions** and **problems** as separate facts
+There are two save paths:
 
-You only need to `save`. Workers handle the rest. Don't create graph entities yourself unless specifically asked.
+### Inline structured save (preferred — you have context)
+
+When YOU save something and you already know who/what/where it relates to, pass the structure inline. The save then skips the background extraction worker entirely — faster, no hallucinations, no race conditions:
+
+```bash
+codeterm mem save --kind fact \
+  --area codeterm \
+  --people andrey,tima \
+  --projects codeterm \
+  --tags worker_pool,fifo \
+  --importance 3 \
+  --title "worker pool FIFO cap at 3" \
+  "Per-provider semaphore caps concurrent extraction workers at 3, queued FIFO."
+```
+
+`--people` and `--projects` accept comma-separated slugs ("andrey") or full ids ("person_owner"). They become `person_*` / `project_*` graph entities + `mentions` relations from the new item. Idempotent — re-using a name just links to the existing entity.
+
+**Threshold for "structured":** any of `--area`, `--tags`, `--people`, `--projects` set. If you provide ANY of them, the extraction worker is skipped.
+
+### Unstructured save (fallback)
+
+If you don't pass structure (raw `codeterm mem save --kind X "body"`), an extraction worker spawns in the background, reads only the body, and tries to infer area/people/projects/decisions itself. **Slower, hallucination-prone path** — use only when you genuinely don't have context (scripts piping logs, raw user dictation, etc).
+
+### Area decision table
+
+Pick `--area` from the strongest signal in the body. If no signal matches, omit `--area`.
+
+| Keywords in body | --area |
+|---|---|
+| codeterm, worker, cron, mem, knowledge, graph, dreaming | codeterm |
+| soundcalm, binaura, audio engine, healthkit, sleep | soundcalm |
+| rekap, langgraph, langchain, livekit, whisper | rekap |
+| home assistant, mosquitto, router, tailscale, 4090, blackstar | home |
+| auth, jwt, oauth, session, token, login | auth |
+| deploy, docker, fly.io, vercel, ci, github actions | deploy |
 
 ## Graph rules — CRITICAL
 

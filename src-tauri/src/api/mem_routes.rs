@@ -215,6 +215,14 @@ pub struct SaveBody {
     pub replace: bool,
     #[serde(default)]
     pub skip_extract: bool,
+    // Inline graph hints from a context-aware caller (Hybrid C). Each entry is
+    // either a slug ("andrey") or a full id ("person_owner"). Presence of any
+    // structural hint flips the save into "structured" mode and skips the
+    // extraction worker entirely.
+    #[serde(default)]
+    pub people: Vec<String>,
+    #[serde(default)]
+    pub projects: Vec<String>,
 }
 
 pub async fn mem_save(
@@ -230,6 +238,18 @@ pub async fn mem_save(
     // Check BEFORE moving fields — prevents extraction cascade
     let is_auto_extracted = body.tags.iter().any(|t| t == "auto-extracted")
         || body.source.as_deref().map_or(false, |s| s.starts_with("extracted_from:"));
+
+    // Hybrid C: caller provided enough structure to skip the extraction worker.
+    // The signal is "any structural field set" — area, non-empty tags, people,
+    // or projects. Mem-save then trusts the caller and only spawns the worker
+    // as a fallback for unstructured saves (old agents, raw scripts).
+    let people = body.people.clone();
+    let projects = body.projects.clone();
+    let provided_structure = body.area.is_some()
+        || !body.tags.is_empty()
+        || !people.is_empty()
+        || !projects.is_empty();
+
     let item = NewMemItem {
         kind,
         scope,
@@ -244,6 +264,7 @@ pub async fn mem_save(
     let title_clone = item.title.clone();
     let body_clone = item.body.clone();
     let kind_for_extract = item.kind;
+    let item_scope = item.scope.clone();
     let changed_by = changed_by_from_headers(&headers);
     let id = crate::mem::store::with_changed_by(&changed_by, || {
         if body.replace {
@@ -254,8 +275,20 @@ pub async fn mem_save(
     }).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "write", vec![id.clone()]);
 
+    // Materialize inline graph hints — create person_/project_ entities and
+    // mention relations from the new item. Idempotent: existing entities are
+    // preserved (INSERT OR REPLACE on entities, INSERT OR IGNORE on relations).
+    let linked = link_graph_entities(&state, &id, &people, &projects, item_scope);
+    if linked > 0 {
+        log::info!("[mem-save] linked {} graph entities for {}", linked, id);
+    }
+
     let auto_extract_enabled = crate::config::memory_config().auto_extract;
-    if !body.skip_extract && !is_auto_extracted && auto_extract_enabled {
+    let should_extract = !body.skip_extract
+        && !is_auto_extracted
+        && !provided_structure
+        && auto_extract_enabled;
+    if should_extract {
         let svc = state.svc.clone();
         let id_for_extract = id.clone();
         tokio::task::spawn_blocking(move || {
@@ -269,7 +302,83 @@ pub async fn mem_save(
         });
     }
 
-    Ok(Json(serde_json::json!({ "id": id })))
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "structured": provided_structure,
+        "linked_entities": linked,
+    })))
+}
+
+// Slugify a person/project name into a stable graph entity id.
+// Accepts either a bare name ("andrey") or a full id ("person_owner") —
+// the prefix is stripped if present so the same input always lands on the
+// same canonical id.
+fn slug_id(prefix: &str, raw: &str) -> Option<String> {
+    let stripped = raw
+        .strip_prefix(prefix)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| raw.to_string());
+    let slug: String = stripped
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    let slug = slug.trim_matches('_').to_string();
+    if slug.is_empty() {
+        None
+    } else {
+        Some(format!("{}{}", prefix, slug))
+    }
+}
+
+fn link_graph_entities(
+    state: &AppState,
+    item_id: &str,
+    people: &[String],
+    projects: &[String],
+    scope: MemScope,
+) -> usize {
+    use crate::mem::graph::{Entity, Relation};
+    let scope_str = scope.as_str();
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut count = 0usize;
+
+    let mut link = |entity_id: String, entity_type: &str, label: &str| {
+        let entity = Entity {
+            id: entity_id.clone(),
+            entity_type: entity_type.to_string(),
+            scope: scope_str.clone(),
+            properties: serde_json::json!({ "label": label }),
+        };
+        if state.svc.mem.graph_create_entity(&entity).is_err() {
+            return;
+        }
+        let relation = Relation {
+            from_id: item_id.to_string(),
+            relation_type: "mentions".to_string(),
+            to_id: entity_id,
+            scope: scope_str.clone(),
+            valid_from: now.clone(),
+            valid_to: None,
+            confidence: 1.0,
+            properties: serde_json::json!({}),
+        };
+        if state.svc.mem.graph_relate(&relation).is_ok() {
+            count += 1;
+        }
+    };
+
+    for raw in people {
+        if let Some(id) = slug_id("person_", raw) {
+            link(id, "Person", raw);
+        }
+    }
+    for raw in projects {
+        if let Some(id) = slug_id("project_", raw) {
+            link(id, "Project", raw);
+        }
+    }
+    count
 }
 
 pub async fn mem_delete(

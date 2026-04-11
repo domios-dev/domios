@@ -350,6 +350,13 @@ pub enum MemAction {
         /// Area tag (auth | deploy | home | ...)
         #[arg(long)]
         area: Option<String>,
+        /// Comma-separated people slugs/ids ("andrey,tima" or "person_owner,person_tima").
+        /// Providing this skips the auto-extraction worker — caller takes responsibility for tagging.
+        #[arg(long)]
+        people: Option<String>,
+        /// Comma-separated project slugs/ids ("codeterm,binaura"). Skips auto-extraction.
+        #[arg(long)]
+        projects: Option<String>,
         /// Importance 1-5 (default 3.0). Higher = more likely in L1 wake-up.
         #[arg(long, default_value = "3.0")]
         importance: f64,
@@ -2415,7 +2422,7 @@ fn handle_mem(json_mode: bool, action: MemAction) {
                 Err(e) => Err(e),
             }
         }
-        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, replace } => {
+        MemAction::Save { kind, title, body, summary, tags, area, people, projects, importance, scope, replace } => {
             // Body: positional arg, else read stdin if piped
             let resolved_body = match body {
                 Some(b) => b,
@@ -2431,15 +2438,21 @@ fn handle_mem(json_mode: bool, action: MemAction) {
             let resolved_title = title.unwrap_or_else(|| {
                 resolved_body.lines().next().unwrap_or("untitled").chars().take(80).collect()
             });
-            let tag_list: Vec<String> = tags
-                .map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
-                .unwrap_or_default();
+            let split_csv = |raw: Option<String>| -> Vec<String> {
+                raw.map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+                    .unwrap_or_default()
+            };
+            let tag_list = split_csv(tags);
+            let people_list = split_csv(people);
+            let projects_list = split_csv(projects);
             let payload = serde_json::json!({
                 "kind": kind,
                 "title": resolved_title,
                 "summary": summary,
                 "area": area,
                 "tags": tag_list,
+                "people": people_list,
+                "projects": projects_list,
                 "body": resolved_body,
                 "importance": importance,
                 "scope": scope,
