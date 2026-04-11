@@ -56,10 +56,40 @@ export function useAgentRunStream({
 
     let cancelled = false;
 
+    const fallbackToHistorical = async () => {
+      // After daemon restart the live stream is gone but the on-disk log file
+      // is still there — fetch it once and feed through the parser.
+      try {
+        const histUrl = `${baseUrl(api)}/api/agent-runs/${encodeURIComponent(paneId)}/log`;
+        const r = await fetch(histUrl, { headers, signal: ctrl.signal });
+        if (cancelled) return;
+        if (!r.ok) {
+          setError("(no historical log available)");
+          return;
+        }
+        const text = await r.text();
+        if (cancelled) return;
+        const result = parser.feed(text);
+        if (result.events.length > 0) {
+          setEvents((prev) => mergeAssistantMessages([...prev, ...result.events]));
+        }
+        if (result.rawLines.length > 0) {
+          setRawLines((prev) => [...prev, ...result.rawLines]);
+        }
+        setError(null);
+      } catch {
+        setError("(failed to load historical log)");
+      }
+    };
+
     (async () => {
       try {
         const res = await fetch(url, { headers, signal: ctrl.signal });
         if (!res.ok || !res.body) {
+          if (res.status === 404) {
+            await fallbackToHistorical();
+            return;
+          }
           throw new Error(`stream open failed: ${res.status}`);
         }
         setConnected(true);
