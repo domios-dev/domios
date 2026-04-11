@@ -139,6 +139,9 @@ impl ServiceContext {
         let (agent, model, task, cwd, role, workspace_id, creator_pane_id) = {
             let store = cron.lock();
             let job = store.get(id).ok_or_else(|| format!("Cron job not found: {}", id))?;
+            if store.is_job_running(id) {
+                return Err(format!("Cron job '{}' is already running", job.name));
+            }
             (
                 job.agent.clone(),
                 job.model.clone(),

@@ -190,6 +190,14 @@ impl GraphWorkerRegistry {
         self.inner.read().get(worker_id).cloned()
     }
 
+    pub fn active_by_intent(&self, intent: &str) -> Option<String> {
+        self.inner
+            .read()
+            .values()
+            .find(|w| w.intent == intent && !w.status.is_terminal())
+            .map(|w| w.worker_id.clone())
+    }
+
     pub fn update_status(&self, worker_id: &str, status: WorkerStatus) -> Result<(), String> {
         {
             let mut map = self.inner.write();
@@ -323,6 +331,11 @@ pub fn spawn_headless(
     model: String,
 ) -> Result<String, String> {
     use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
+
+    if let Some(existing) = svc.workers.active_by_intent(&intent) {
+        log::info!("[worker] skip spawn for intent '{}': {} already running", intent, existing);
+        return Ok(existing);
+    }
 
     let worker_id = new_worker_id();
     let task = build_worker_task(&intent, &worker_id, &task_prompt);

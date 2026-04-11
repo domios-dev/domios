@@ -294,6 +294,10 @@ impl CronStore {
             .collect()
     }
 
+    pub fn is_job_running(&self, job_id: &str) -> bool {
+        self.pane_owners.values().any(|(jid, _)| jid == job_id)
+    }
+
     pub fn get_pane_owner_by_run(&self, run_id: &str) -> Option<(&str, &str)> {
         for (pane_id, (job_id, rid)) in &self.pane_owners {
             if rid == run_id {
