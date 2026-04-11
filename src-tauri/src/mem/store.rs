@@ -927,6 +927,78 @@ pub fn get_taxonomy(
     Ok(out)
 }
 
+/// One row returned by [`tail_recent`]. Uses `mem_item_history.changed_by`
+/// when a history row exists for the item; otherwise falls back to
+/// `"user"` for items that predate the Phase C migration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TailEntry {
+    pub id: String,
+    pub kind: String,
+    pub title: String,
+    pub area: Option<String>,
+    pub updated_at: String,
+    pub changed_by: String,
+}
+
+/// Return recent mem writes for the `mem tail` observability command.
+/// - `since`: optional ISO 8601 cutoff (items with `updated_at > since`).
+/// - `limit`: max rows to return (always enforced, even without `since`).
+pub fn tail_recent(
+    conn: &Connection,
+    since: Option<&str>,
+    limit: usize,
+) -> Result<Vec<TailEntry>, String> {
+    // Left-join the most recent history row per item (via a correlated
+    // subquery) to surface `changed_by`. Items without history default to
+    // "user" — this preserves observability for pre-Phase-C rows.
+    let base_sql = r#"
+        SELECT m.id, m.kind, m.title, m.area, m.updated_at,
+               COALESCE(
+                 (SELECT h.changed_by
+                    FROM mem_item_history h
+                   WHERE h.item_id = m.id
+                   ORDER BY h.changed_at DESC, h.id DESC
+                   LIMIT 1),
+                 'user'
+               ) AS changed_by
+        FROM mem_items m
+    "#;
+    let sql = match since {
+        Some(_) => format!(
+            "{} WHERE m.updated_at > ?1 ORDER BY m.updated_at DESC LIMIT ?2",
+            base_sql
+        ),
+        None => format!("{} ORDER BY m.updated_at DESC LIMIT ?1", base_sql),
+    };
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("prepare tail: {}", e))?;
+
+    let mapper = |r: &rusqlite::Row<'_>| -> rusqlite::Result<TailEntry> {
+        Ok(TailEntry {
+            id: r.get(0)?,
+            kind: r.get(1)?,
+            title: r.get(2)?,
+            area: r.get(3)?,
+            updated_at: r.get(4)?,
+            changed_by: r.get(5)?,
+        })
+    };
+    let collected: Vec<TailEntry> = match since {
+        Some(s) => stmt
+            .query_map(params![s, limit as i64], mapper)
+            .map_err(|e| format!("query tail: {}", e))?
+            .filter_map(Result::ok)
+            .collect(),
+        None => stmt
+            .query_map(params![limit as i64], mapper)
+            .map_err(|e| format!("query tail: {}", e))?
+            .filter_map(Result::ok)
+            .collect(),
+    };
+    Ok(collected)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNode {
     pub id: String,
@@ -1611,5 +1683,27 @@ mod tests {
         let none_bucket = tax.get("(none)").expect("(none) bucket");
         assert_eq!(none_bucket.get("rule"), Some(&1));
         assert_eq!(none_bucket.get("preference"), Some(&1));
+    }
+
+    // ── mem tail ─────────────────────────────────────────────────────
+
+    #[test]
+    fn tail_recent_returns_items_newest_first() {
+        let (conn, blobs) = fresh();
+        let a = with_changed_by("user", || {
+            insert(&conn, &mk_item("tail a", "a"), &blobs).unwrap()
+        });
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let b = with_changed_by("dreaming:rem", || {
+            insert(&conn, &mk_item("tail b", "b"), &blobs).unwrap()
+        });
+
+        let rows = tail_recent(&conn, None, 10).unwrap();
+        assert_eq!(rows.len(), 2);
+        // newest-first
+        assert_eq!(rows[0].id, b);
+        assert_eq!(rows[1].id, a);
+        assert_eq!(rows[0].changed_by, "dreaming:rem");
+        assert_eq!(rows[1].changed_by, "user");
     }
 }

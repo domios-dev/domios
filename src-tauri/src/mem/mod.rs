@@ -581,6 +581,18 @@ impl MemManager {
         let conn = self.conn.lock();
         store::get_taxonomy(&conn, workspace)
     }
+
+    /// Recent mem writes (feeds `mem tail`). When `since` is Some, returns
+    /// rows with `updated_at > since`. When None, returns the `limit` most
+    /// recent rows.
+    pub fn tail_recent(
+        &self,
+        since: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<store::TailEntry>, String> {
+        let conn = self.conn.lock();
+        store::tail_recent(&conn, since, limit)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
