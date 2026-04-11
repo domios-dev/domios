@@ -52,9 +52,20 @@ interface SidebarProps {
   onOpenCron?: (jobId?: string) => void;
   onNavigateToTab?: () => void;
   mainView?: "workspace" | "settings" | "memory" | "cron";
+  /** Cron job currently shown in the detail view of CronPanel — used to
+   *  highlight the matching sidebar row with the same bg-[var(--ct-active)]
+   *  treatment as Settings/Memory get. */
+  activeCronId?: string;
 }
 
-export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateToTab, mainView = "workspace" }: SidebarProps) {
+export function Sidebar({
+  onOpenSettings,
+  onOpenMemory,
+  onOpenCron,
+  onNavigateToTab,
+  mainView = "workspace",
+  activeCronId,
+}: SidebarProps) {
   const {
     state,
     createWorkspace,
@@ -471,7 +482,11 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onOpenCron, onNavigateTo
                       <span className="text-[11px]">New session</span>
                     </button>
                     {/* Cron jobs section */}
-                    <CronSection workspaceId={ws.id} onOpenCron={onOpenCron} />
+                    <CronSection
+                      workspaceId={ws.id}
+                      onOpenCron={onOpenCron}
+                      activeCronId={mainView === "cron" ? activeCronId : undefined}
+                    />
                   </>
                   </div>
                 </div>
@@ -1143,7 +1158,15 @@ function TabItem({
 
 
 
-function CronSection({ workspaceId, onOpenCron }: { workspaceId: string; onOpenCron?: (jobId?: string) => void }) {
+function CronSection({
+  workspaceId,
+  onOpenCron,
+  activeCronId,
+}: {
+  workspaceId: string;
+  onOpenCron?: (jobId?: string) => void;
+  activeCronId?: string;
+}) {
   const { crons, update, remove } = useCrons();
   const [expanded, setExpanded] = useState(true);
   const [editingCron, setEditingCron] = useState<CronJob | null>(null);
@@ -1170,6 +1193,7 @@ function CronSection({ workspaceId, onOpenCron }: { workspaceId: string; onOpenC
             key={job.id}
             job={job}
             onOpen={() => onOpenCron?.(job.id)}
+            isActive={activeCronId === job.id}
           />
         ))}
 
@@ -1199,9 +1223,11 @@ function CronSection({ workspaceId, onOpenCron }: { workspaceId: string; onOpenC
 function CronItem({
   job,
   onOpen,
+  isActive,
 }: {
   job: CronJob;
   onOpen: () => void;
+  isActive: boolean;
 }) {
   // Status dot reflects the most recent run:
   //   running → pulsing accent
@@ -1217,7 +1243,9 @@ function CronItem({
   return (
     <div
       className={`group flex items-center gap-1.5 mx-2 px-3 py-1 rounded-md transition-colors cursor-pointer ${
-        job.enabled
+        isActive
+          ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+          : job.enabled
           ? "text-[var(--ct-fg)] hover:bg-[var(--ct-hover)]"
           : "text-[var(--ct-muted-fg)] opacity-80 hover:bg-[var(--ct-hover)]"
       }`}
