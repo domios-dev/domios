@@ -7,6 +7,7 @@ mod clipboard_files;
 mod commands;
 pub mod dispatch;
 mod commands_mesh;
+mod keepawake;
 mod config;
 pub mod cron;
 pub mod mem;
@@ -48,6 +49,7 @@ pub type PromptDetectorState = Arc<Mutex<agent::prompt::PromptDetector>>;
 pub use cron::scheduler::{CronState, CronWake};
 pub type UpdateStateHandle = Arc<Mutex<update::UpdateState>>;
 pub type MeshStateHandle = mesh::MeshState;
+pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 
 /// All shared application states, grouped for easier passing between init functions.
 struct AppStates {
@@ -63,6 +65,7 @@ struct AppStates {
     event_broadcaster: api::events::EventBroadcasterState,
     update: UpdateStateHandle,
     mesh: MeshStateHandle,
+    keepawake: KeepAwakeStateHandle,
 }
 
 /// Create and initialize all application states.
@@ -149,6 +152,7 @@ fn init_states() -> AppStates {
         event_broadcaster,
         update: update_state,
         mesh: mesh_state,
+        keepawake: keepawake::new_state(),
     }
 }
 
@@ -862,6 +866,7 @@ pub fn run() {
         .manage(states.event_broadcaster.clone())
         .manage(states.update.clone())
         .manage(states.mesh.clone())
+        .manage(states.keepawake.clone())
         // ServiceState is added in .setup() after AppHandle is available
         .invoke_handler(tauri::generate_handler![
             // PTY commands
@@ -969,6 +974,10 @@ pub fn run() {
             commands_mesh::mesh_add_manual,
             commands_mesh::mesh_start_discovery,
             commands_mesh::mesh_set_access,
+            // Keep-awake commands
+            keepawake::keepawake_start,
+            keepawake::keepawake_stop,
+            keepawake::keepawake_status,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
