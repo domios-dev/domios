@@ -79,6 +79,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/crons/{id}/enable", post(cron_enable))
         .route("/api/crons/{id}/disable", post(cron_disable))
         .route("/api/crons/{id}/trigger", post(cron_trigger))
+        .route("/api/crons/{id}/cancel", post(cron_cancel))
         .route("/api/crons/{id}/history", get(cron_history))
         // Update
         .route("/api/config", get(get_config_api).patch(patch_config_api))
@@ -1632,6 +1633,22 @@ async fn cron_trigger(
     let run = state.svc.cron_trigger(&state.cron, &id)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to trigger cron job"))?;
     Ok(Json(serde_json::to_value(run).unwrap()))
+}
+
+/// Stop any currently-running executions of a cron job without deleting
+/// the job definition. Future scheduled fires continue normally.
+/// Returns `{cancelled: N}` where N is the number of runs stopped.
+async fn cron_cancel(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let cancelled = state
+        .svc
+        .cron_cancel_running(&state.cron, &id)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
+    Ok(Json(serde_json::json!({"cancelled": cancelled})))
 }
 
 async fn cron_history(

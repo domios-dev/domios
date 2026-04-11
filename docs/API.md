@@ -239,6 +239,7 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 | POST | `/api/crons/:id/enable` | — | Enable cron job |
 | POST | `/api/crons/:id/disable` | — | Disable cron job |
 | POST | `/api/crons/:id/trigger` | — | Manually trigger cron job |
+| POST | `/api/crons/:id/cancel` | — | Stop any currently-running executions of this cron job. Returns `{cancelled: N}` — number of panes closed. Does NOT delete the job; future scheduled fires continue normally. Running history entries flip status to `Cancelled`. |
 | GET | `/api/crons/:id/history` | — | Get run history for cron job |
 
 #### Configuration

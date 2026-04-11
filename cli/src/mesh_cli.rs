@@ -215,6 +215,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             super::CronAction::Enable { id } => ("POST".into(), format!("/api/crons/{}/enable", id), None),
             super::CronAction::Disable { id } => ("POST".into(), format!("/api/crons/{}/disable", id), None),
             super::CronAction::Trigger { id } => ("POST".into(), format!("/api/crons/{}/trigger", id), None),
+            super::CronAction::Cancel { id } => ("POST".into(), format!("/api/crons/{}/cancel", id), None),
             super::CronAction::History { id } => ("GET".into(), format!("/api/crons/{}/history", id), None),
             _ => ("GET".into(), "/api/crons".into(), None),
         },

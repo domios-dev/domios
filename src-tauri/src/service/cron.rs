@@ -85,6 +85,61 @@ impl ServiceContext {
         Ok(())
     }
 
+    /// Stop all currently-running executions of a cron job without
+    /// deleting the job definition. Future scheduled fires continue to
+    /// run normally. Returns the number of runs cancelled.
+    ///
+    /// Mechanism: `pane_owners_for_job` lists every pane registered as
+    /// "currently running" for this job id. For each such pane we flip
+    /// its history status to `Cancelled`, unregister ownership, and call
+    /// `close_pane` (which kills the PTY and sends SIGHUP to the agent).
+    pub fn cron_cancel_running(
+        &self,
+        cron: &CronState,
+        id: &str,
+    ) -> Result<usize, String> {
+        // Collect the currently-running pane ids AND flip history status
+        // under the same lock, then drop the lock before closing panes
+        // (close_pane touches mux/pty locks — different order).
+        let to_close: Vec<String> = {
+            let mut store = cron.lock();
+            if store.get(id).is_none() {
+                return Err(format!("Cron job not found: {}", id));
+            }
+            let panes = store.pane_owners_for_job(id);
+            // Flip history status for each still-running entry that points
+            // at one of these panes. This also handles the case where the
+            // agent finished but register_pane wasn't cleared yet — the
+            // pane_owners_for_job already filters to live ones.
+            for pane_id in &panes {
+                store.unregister_pane(pane_id);
+            }
+            // Update history entries that are still Running for this job.
+            if let Some(history) = store.get_history_mut(id) {
+                for run in history.iter_mut() {
+                    if matches!(run.status, super::super::cron::store::CronRunStatus::Running) {
+                        run.status = super::super::cron::store::CronRunStatus::Cancelled;
+                        run.finished_at = Some(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64,
+                        );
+                    }
+                }
+            }
+            let _ = store.save();
+            panes
+        };
+
+        let count = to_close.len();
+        for pane_id in &to_close {
+            let _ = self.close_pane(pane_id);
+        }
+        self.emit_cron_changed();
+        Ok(count)
+    }
+
     pub fn cron_enable(
         &self,
         cron: &CronState,

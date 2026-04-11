@@ -330,6 +330,7 @@ fn dispatch(
                     "cron.enable",
                     "cron.disable",
                     "cron.trigger",
+                    "cron.cancel",
                     "cron.history",
                     "cron.complete",
                     "bridge.send",
@@ -775,6 +776,15 @@ fn dispatch(
             let run = svc.cron_trigger(&cron_state, &id)
                 .map_err(|e| JsonRpcError { code: -32603, message: e })?;
             serde_json::to_value(&run).map_err(|e| JsonRpcError { code: -32603, message: e.to_string() })
+        }
+
+        "cron.cancel" => {
+            let id = get_string_param(&params, "id")?;
+            let cron_state = app.try_state::<crate::CronState>()
+                .ok_or_else(|| JsonRpcError { code: -32603, message: "Cron not initialized".into() })?;
+            let cancelled = svc.cron_cancel_running(&cron_state, &id)
+                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            Ok(serde_json::json!({"cancelled": cancelled}))
         }
 
         "cron.history" => {
