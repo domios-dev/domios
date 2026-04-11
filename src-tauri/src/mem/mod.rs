@@ -685,8 +685,8 @@ mod tests {
     fn taxonomy_manager_aggregates_by_area_and_kind() {
         let mem = MemManager::open_in_memory().unwrap();
         for (title, kind, area) in [
-            ("t1", MemKind::Fact, Some("rekap")),
-            ("t2", MemKind::Note, Some("rekap")),
+            ("t1", MemKind::Fact, Some("deploy")),
+            ("t2", MemKind::Note, Some("deploy")),
             ("t3", MemKind::Rule, None),
         ] {
             mem.save(NewMemItem {
@@ -703,7 +703,7 @@ mod tests {
             .unwrap();
         }
         let tax = mem.get_taxonomy(None).unwrap();
-        assert!(tax.get("rekap").and_then(|m| m.get("fact")).is_some());
+        assert!(tax.get("deploy").and_then(|m| m.get("fact")).is_some());
         assert!(tax.get("(none)").and_then(|m| m.get("rule")).is_some());
     }
 

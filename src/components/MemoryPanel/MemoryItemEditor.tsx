@@ -174,7 +174,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
                   className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                   value={draftArea}
                   onChange={e => setDraftArea(e.target.value)}
-                  placeholder="rekap, soundcalm, home..."
+                  placeholder="auth, deploy, home..."
                 />
               </div>
               <div className="flex-1">

@@ -354,7 +354,7 @@ pub enum MemAction {
         /// Providing this skips the auto-extraction worker — caller takes responsibility for tagging.
         #[arg(long)]
         people: Option<String>,
-        /// Comma-separated project slugs/ids ("codeterm,binaura"). Skips auto-extraction.
+        /// Comma-separated project slugs/ids ("codeterm,api-service"). Skips auto-extraction.
         #[arg(long)]
         projects: Option<String>,
         /// Importance 1-5 (default 3.0). Higher = more likely in L1 wake-up.

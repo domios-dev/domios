@@ -44,11 +44,9 @@ Pick `--area` from the strongest signal in the body. If no signal matches, omit 
 | Keywords in body | --area |
 |---|---|
 | codeterm, worker, cron, mem, knowledge, graph, dreaming | codeterm |
-| soundcalm, binaura, audio engine, healthkit, sleep | soundcalm |
-| rekap, langgraph, langchain, livekit, whisper | rekap |
-| home assistant, mosquitto, router, tailscale, 4090, blackstar | home |
-| auth, jwt, oauth, session, token, login | auth |
-| deploy, docker, fly.io, vercel, ci, github actions | deploy |
+| auth, jwt, oauth, session, token, login, sso | auth |
+| deploy, docker, kubernetes, fly.io, vercel, ci, github actions | deploy |
+| home assistant, mosquitto, router, tailscale, homelab | home |
 
 ## Graph rules — CRITICAL
 
@@ -71,7 +69,7 @@ Allowed entity ID prefixes: `person_*`, `project_*`. That's it. If an extraction
 - `codeterm mem save --kind <kind> --title "<short title>" "<detailed content>"` — capture something new. Use `--kind fact` for validated decisions, `--kind learning` for pending insights to promote later, `--kind note` for short context that might be useful again. **Always provide a descriptive --title and body** — the body (positional arg) is what gets vectorized for semantic search, so include enough detail. Area is auto-detected from content by extraction workers, but you can set `--area <project>` explicitly if you know it.
 - `codeterm mem update <id> --area "..." --body "..."` — update an existing item. Use for corrections, not for new facts.
 - `codeterm mem delete <id>` — remove a specific item (also cleans vectors and relations).
-- `codeterm mem forget <area>` — batch delete everything in an area (e.g. "forget binaura" removes all binaura memories).
+- `codeterm mem forget <area>` — batch delete everything in an area (e.g. "forget deploy" removes all deploy-area memories).
 - `codeterm mem wake-up` — prints the critical L0+L1 context (identity + top-N important items). The General Agent runs this on init; regular tabs can run it too if they need a fresh overview.
 
 ## What to save as what

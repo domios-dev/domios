@@ -1670,16 +1670,16 @@ mod tests {
             )
             .unwrap()
         };
-        mk(MemKind::Fact, "f1", Some("rekap"));
-        mk(MemKind::Fact, "f2", Some("rekap"));
-        mk(MemKind::Skill, "s1", Some("rekap"));
+        mk(MemKind::Fact, "f1", Some("deploy"));
+        mk(MemKind::Fact, "f2", Some("deploy"));
+        mk(MemKind::Skill, "s1", Some("deploy"));
         mk(MemKind::Rule, "r1", None);
         mk(MemKind::Preference, "p1", None);
 
         let tax = get_taxonomy(&conn, None).unwrap();
-        let rekap = tax.get("rekap").expect("rekap bucket");
-        assert_eq!(rekap.get("fact"), Some(&2));
-        assert_eq!(rekap.get("skill"), Some(&1));
+        let deploy = tax.get("deploy").expect("deploy bucket");
+        assert_eq!(deploy.get("fact"), Some(&2));
+        assert_eq!(deploy.get("skill"), Some(&1));
         let none_bucket = tax.get("(none)").expect("(none) bucket");
         assert_eq!(none_bucket.get("rule"), Some(&1));
         assert_eq!(none_bucket.get("preference"), Some(&1));
