@@ -839,22 +839,16 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
   const createWorkspace = useCallback(async (name: string, cwd?: string) => {
     try {
-      // If a workspace with this cwd already exists, reuse it and spawn a new tab
-      // instead of creating a duplicate — mimics pressing "New Session".
-      if (cwd) {
-        const existing = stateRef.current.workspaces.find((w) => w.cwd === cwd);
-        if (existing) {
-          await createTab(existing.id, cwd);
-          return;
-        }
-      }
+      // Backend `service::create_workspace` normalizes the cwd and reuses an
+      // existing workspace with the same folder (spawning a new tab there
+      // instead of duplicating). Frontend just fires the invoke.
       await invoke("mux_create_workspace", { name, cwd: cwd ?? null });
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s && s.workspaces.length > 0) dispatch({ type: "SET_STATE", state: s });
     } catch (e) {
       console.error("Failed to create workspace:", e);
     }
-  }, [createTab]);
+  }, []);
 
   const setActiveWorkspace = useCallback((id: string) => {
     invoke("mux_set_active_workspace", { workspaceId: id }).catch(() => {});
