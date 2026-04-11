@@ -8,6 +8,9 @@ use sha2::{Digest, Sha256};
 const MAX_SLUG: usize = 60;
 
 /// Normalize a free-form title to a slug body (no kind prefix).
+/// If the title has no ASCII alphanumerics (e.g. pure Cyrillic / CJK),
+/// falls back to a short hash of the title bytes so distinct non-ASCII
+/// titles still get unique ids instead of all collapsing to `item`.
 pub fn slugify(title: &str) -> String {
     let mut out = String::with_capacity(title.len());
     let mut last_us = false;
@@ -25,7 +28,10 @@ pub fn slugify(title: &str) -> String {
         out.pop();
     }
     if out.is_empty() {
-        out.push_str("item");
+        let mut hasher = Sha256::new();
+        hasher.update(title.as_bytes());
+        let hash = hasher.finalize();
+        out.push_str(&format!("u{}", &format!("{:x}", hash)[..8]));
     }
     if out.len() > MAX_SLUG {
         out.truncate(MAX_SLUG);
@@ -59,12 +65,23 @@ mod tests {
         assert_eq!(slugify("Home Assistant"), "home_assistant");
         assert_eq!(slugify("API Timeout Fix!"), "api_timeout_fix");
         assert_eq!(slugify("  spaces  "), "spaces");
-        assert_eq!(slugify("---"), "item");
+        assert!(slugify("---").starts_with('u'));
     }
 
     #[test]
     fn slugify_unicode_strips() {
         assert_eq!(slugify("Привет world"), "world");
+    }
+
+    #[test]
+    fn slugify_pure_non_ascii_uses_hash_not_item() {
+        let a = slugify("Андрей проставил очко");
+        let b = slugify("Совершенно другая запись");
+        assert!(a.starts_with('u') && a.len() == 9, "got {}", a);
+        assert!(b.starts_with('u') && b.len() == 9, "got {}", b);
+        assert_ne!(a, b, "different titles must produce different slugs");
+        // Same title — same slug (deterministic).
+        assert_eq!(a, slugify("Андрей проставил очко"));
     }
 
     #[test]
