@@ -2,6 +2,7 @@
 name = "codeterm"
 version = "0.9.0"
 edition = "2021"
+default-run = "codeterm"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
