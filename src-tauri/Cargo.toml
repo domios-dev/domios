@@ -73,3 +73,10 @@ tauri-build = { version = "2", features = [] }
 [lib]
 name = "codeterm_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Deterministic mem-recall bench runner. Reuses the `mem` module from the
+# lib crate directly (no tokio background tasks, no LLM, no embeddings
+# required) so evals compile fast and run offline.
+[[bin]]
+name = "mem-bench"
+path = "src/bin/mem_bench.rs"
