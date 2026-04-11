@@ -8,6 +8,10 @@ import type {
 import { baseUrl, authHeaders, jsonHeaders, isTauriEnv } from "./memoryApi";
 
 const POLL_INTERVAL_MS = 3000;
+// Safety-net poll even in Tauri env: events can be missed (daemon restart
+// orphan cleanup, browser refresh races, listener setup failures). 10s is
+// slow enough to be cheap, fast enough to unstick a phantom worker row.
+const SAFETY_POLL_INTERVAL_MS = 10000;
 
 export interface UseGraphWorkersResult {
   workers: GraphWorkerInfo[];
@@ -80,6 +84,9 @@ export function useGraphWorkers(api: ApiConfig): UseGraphWorkersResult {
             }
             unlisteners.push(fn);
           }
+          // Run safety-net poll even when events are wired — daemon restart
+          // orphan cleanup doesn't emit events, missed events happen, etc.
+          startSafetyPolling();
         } catch {
           startPolling();
         }
@@ -94,6 +101,14 @@ export function useGraphWorkers(api: ApiConfig): UseGraphWorkersResult {
         if (!activeRef.current) return;
         refresh();
       }, POLL_INTERVAL_MS);
+    };
+
+    const startSafetyPolling = () => {
+      if (pollTimer != null) return;
+      pollTimer = setInterval(() => {
+        if (!activeRef.current) return;
+        refresh();
+      }, SAFETY_POLL_INTERVAL_MS);
     };
 
     setup();

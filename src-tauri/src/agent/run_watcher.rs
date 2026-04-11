@@ -38,17 +38,6 @@ struct ResultEvent {
     result: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct StreamEventWrapper {
-    #[serde(default)]
-    event: Option<StreamEventInner>,
-}
-
-#[derive(Debug, Deserialize)]
-struct StreamEventInner {
-    #[serde(rename = "type", default)]
-    inner_type: Option<String>,
-}
 
 struct RunState {
     pty_id: String,
@@ -216,14 +205,16 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
     }
 }
 
-// Detects either a top-level result event (no --include-partial-messages mode)
-// or a stream_event wrapper containing message_stop (partial-messages mode).
+// Detects only the TOP-LEVEL {"type":"result"} event that claude CLI emits
+// once per run, at the very end of the multi-turn flow. Do NOT match nested
+// message_stop events — those fire after every assistant turn in a tool-use
+// loop and would complete the run mid-flight, killing the pane before claude
+// can process the tool result.
 struct ResultEventScanner {
     buffer: String,
 }
 
 const RESULT_NEEDLE: &str = "{\"type\":\"result\"";
-const STREAM_EVENT_NEEDLE: &str = "{\"type\":\"stream_event\"";
 
 impl ResultEventScanner {
     fn new() -> Self {
@@ -239,55 +230,22 @@ impl ResultEventScanner {
         let mut consumed = 0;
 
         loop {
-            let result_pos = self.buffer[search_from..].find(RESULT_NEEDLE);
-            let stream_pos = self.buffer[search_from..].find(STREAM_EVENT_NEEDLE);
-
-            let next = match (result_pos, stream_pos) {
-                (None, None) => None,
-                (Some(r), None) => Some((search_from + r, true)),
-                (None, Some(s)) => Some((search_from + s, false)),
-                (Some(r), Some(s)) => {
-                    if r <= s {
-                        Some((search_from + r, true))
-                    } else {
-                        Some((search_from + s, false))
-                    }
-                }
-            };
-
-            let Some((start, is_result)) = next else {
+            let Some(start_rel) = self.buffer[search_from..].find(RESULT_NEEDLE) else {
                 consumed = self.buffer.len();
                 break;
             };
-
+            let start = search_from + start_rel;
             match find_balanced_end(&self.buffer, start) {
                 Some(end) => {
                     let candidate = &self.buffer[start..=end];
-                    if is_result {
-                        if let Ok(parsed) = serde_json::from_str::<ResultEvent>(candidate) {
-                            found = Some(CompletionSignal {
-                                is_error: parsed.is_error,
-                                subtype: parsed.subtype,
-                                result: parsed.result,
-                            });
-                            consumed = end + 1;
-                            break;
-                        } else {
-                            search_from = start + 1;
-                        }
-                    } else if let Ok(wrapper) = serde_json::from_str::<StreamEventWrapper>(candidate) {
-                        if let Some(inner) = wrapper.event {
-                            if inner.inner_type.as_deref() == Some("message_stop") {
-                                found = Some(CompletionSignal {
-                                    is_error: false,
-                                    subtype: Some("message_stop".into()),
-                                    result: None,
-                                });
-                                consumed = end + 1;
-                                break;
-                            }
-                        }
-                        search_from = end + 1;
+                    if let Ok(parsed) = serde_json::from_str::<ResultEvent>(candidate) {
+                        found = Some(CompletionSignal {
+                            is_error: parsed.is_error,
+                            subtype: parsed.subtype,
+                            result: parsed.result,
+                        });
+                        consumed = end + 1;
+                        break;
                     } else {
                         search_from = start + 1;
                     }
@@ -362,13 +320,14 @@ mod tests {
     }
 
     #[test]
-    fn scanner_finds_message_stop_in_stream_event() {
+    fn scanner_ignores_mid_stream_message_stop() {
+        // message_stop inside stream_event fires after every assistant turn
+        // in a tool-use loop — must NOT be treated as completion or the
+        // watcher kills the pane before claude can process tool results.
         let mut s = ResultEventScanner::new();
-        let chunk = r#"{"type":"stream_event","event":{"type":"message_start","message":{"id":"x"}},"session_id":"a"}
+        let chunk = r#"{"type":"stream_event","event":{"type":"message_start","message":{"id":"x"}}}
 {"type":"stream_event","event":{"type":"message_stop"},"session_id":"a","uuid":"b"}"#;
-        let r = s.feed(chunk).expect("completion via message_stop");
-        assert_eq!(r.subtype.as_deref(), Some("message_stop"));
-        assert_eq!(r.is_error, false);
+        assert!(s.feed(chunk).is_none(), "must not complete on nested message_stop");
     }
 
     #[test]
