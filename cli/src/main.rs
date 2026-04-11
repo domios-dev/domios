@@ -479,6 +479,52 @@ pub enum MemGraphAction {
         #[arg(long)]
         as_of: Option<String>,
     },
+    /// Invalidate a relation (set valid_to, preserve history)
+    Invalidate {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        rel: String,
+        #[arg(long)]
+        to: String,
+        /// When it ended (ISO 8601, default now)
+        #[arg(long)]
+        ended: Option<String>,
+    },
+    /// Full temporal timeline for an entity
+    Timeline {
+        #[arg(long)]
+        entity: String,
+    },
+    /// BFS traversal from an entity (max_hops cap)
+    Traverse {
+        #[arg(long)]
+        from: String,
+        #[arg(long, default_value = "2")]
+        hops: usize,
+        #[arg(long, default_value = "100")]
+        max_nodes: usize,
+        #[arg(long)]
+        as_of: Option<String>,
+    },
+    /// Shortest path between two entities
+    Path {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        #[arg(long, default_value = "4")]
+        max_hops: usize,
+    },
+    /// List entities bridging 2+ areas (cross-project connections)
+    Tunnels,
+    /// Merge one entity into another (alias → canonical)
+    Alias {
+        #[arg(long)]
+        alias: String,
+        #[arg(long)]
+        canonical: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2214,6 +2260,34 @@ fn handle_mem(json_mode: bool, action: MemAction) {
                 if let Some(r) = &rel { url.push_str(&format!("&rel={}", r)); }
                 if let Some(d) = &as_of { url.push_str(&format!("&as_of={}", urlencoding::encode(d))); }
                 mem_get_request(&http, &url)
+            }
+            MemGraphAction::Invalidate { from, rel, to, ended } => {
+                let payload = serde_json::json!({
+                    "from": from, "rel": rel, "to": to, "ended": ended,
+                });
+                mem_post_request(&http, &format!("{}/api/mem/graph/invalidate", base), &payload)
+            }
+            MemGraphAction::Timeline { entity } => {
+                let url = format!("{}/api/mem/graph/timeline?entity={}", base, urlencoding::encode(&entity));
+                mem_get_request(&http, &url)
+            }
+            MemGraphAction::Traverse { from, hops, max_nodes, as_of } => {
+                let mut url = format!("{}/api/mem/graph/traverse?from={}&hops={}&max_nodes={}",
+                    base, urlencoding::encode(&from), hops, max_nodes);
+                if let Some(d) = &as_of { url.push_str(&format!("&as_of={}", urlencoding::encode(d))); }
+                mem_get_request(&http, &url)
+            }
+            MemGraphAction::Path { from, to, max_hops } => {
+                let url = format!("{}/api/mem/graph/path?from={}&to={}&max_hops={}",
+                    base, urlencoding::encode(&from), urlencoding::encode(&to), max_hops);
+                mem_get_request(&http, &url)
+            }
+            MemGraphAction::Tunnels => {
+                mem_get_request(&http, &format!("{}/api/mem/graph/tunnels", base))
+            }
+            MemGraphAction::Alias { alias, canonical } => {
+                let payload = serde_json::json!({ "alias": alias, "canonical": canonical });
+                mem_post_request(&http, &format!("{}/api/mem/graph/alias", base), &payload)
             }
         }
         MemAction::Worker { action } => match action {

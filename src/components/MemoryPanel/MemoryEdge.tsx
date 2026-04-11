@@ -15,7 +15,10 @@ function MemoryEdgeImpl({ edge, fromNode, toNode, showLabel = true }: Props) {
   ) {
     return null;
   }
-  const alpha = Math.max(0.15, Math.min(1, edge.confidence ?? 0.5));
+  // Expired relations (valid_to set) render as dashed + half opacity
+  const isExpired = edge.valid_to != null && edge.valid_to !== "";
+  const baseAlpha = Math.max(0.15, Math.min(1, edge.confidence ?? 0.5));
+  const alpha = isExpired ? baseAlpha * 0.4 : baseAlpha;
   const x1 = fromNode.graph_x;
   const y1 = fromNode.graph_y;
   const x2 = toNode.graph_x;
@@ -45,6 +48,7 @@ function MemoryEdgeImpl({ edge, fromNode, toNode, showLabel = true }: Props) {
         stroke={`rgba(180,180,220,${alpha})`}
         strokeWidth={1.2}
         strokeLinecap="round"
+        strokeDasharray={isExpired ? "3 3" : undefined}
       />
       {showLabel && len > 100 && (
         <text

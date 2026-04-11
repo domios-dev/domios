@@ -227,6 +227,8 @@ This project IS CodeTerm. You're running inside CodeTerm. Every spawn via `codet
 - `docs/SKILLS.md` — Claude Code skill for CodeTerm control
 - `docs/BUILD.md` — Build instructions
 - `docs/MESH.md` — Mesh networking spec (flat peer model, no crown)
+- `docs/MEMORY.md` — Memory system architecture (storage, search, workers, dreaming)
+- `docs/PROMPTS.md` — Prompt system: where .md prompts live, how they compile, inject, and get evaluated
 
 Each doc has a `<!-- revision: N -->` tag at the bottom. When you change API endpoints, config options, CLI commands, or skills — bump the revision in affected docs. This lets users detect when to update their local skill/config copies.
 

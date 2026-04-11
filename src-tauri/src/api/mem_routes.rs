@@ -24,6 +24,54 @@ use crate::mem::{
 };
 use crate::service::SpawnAgentParams;
 
+/// Validate new/updated mem_item fields. Returns user-friendly error on failure.
+fn validate_item_fields(
+    title: &str,
+    body: &str,
+    area: &Option<String>,
+    tags: &[String],
+    importance: Option<f64>,
+) -> Result<(), (StatusCode, String)> {
+    let t = title.trim();
+    if t.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "title must not be empty".into()));
+    }
+    if t.len() < 3 {
+        return Err((StatusCode::BAD_REQUEST, "title must be >= 3 chars".into()));
+    }
+    if t.len() > 200 {
+        return Err((StatusCode::BAD_REQUEST, "title must be <= 200 chars".into()));
+    }
+    // body: soft floor 1 char, hard ceiling 1 MB (1_048_576 bytes)
+    if body.len() > 1_048_576 {
+        return Err((StatusCode::BAD_REQUEST, format!("body too large: {} bytes (max 1 MB)", body.len())));
+    }
+    if let Some(a) = area.as_deref() {
+        if !a.is_empty() {
+            if a.len() > 64 {
+                return Err((StatusCode::BAD_REQUEST, "area must be <= 64 chars".into()));
+            }
+            if !a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+                return Err((StatusCode::BAD_REQUEST, format!("area must match [a-zA-Z0-9_-]+: `{}`", a)));
+            }
+        }
+    }
+    if tags.len() > 20 {
+        return Err((StatusCode::BAD_REQUEST, "too many tags (max 20)".into()));
+    }
+    for tag in tags {
+        if tag.len() > 50 {
+            return Err((StatusCode::BAD_REQUEST, format!("tag too long (max 50): `{}`", tag)));
+        }
+    }
+    if let Some(i) = importance {
+        if !(0.0..=5.0).contains(&i) {
+            return Err((StatusCode::BAD_REQUEST, format!("importance must be 0.0..=5.0, got {}", i)));
+        }
+    }
+    Ok(())
+}
+
 fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem_ids: Vec<String>) {
     let pane_id = headers
         .get("x-codeterm-pane-id")
@@ -111,8 +159,6 @@ pub async fn mem_search(
         state.svc.mem.recall(&q)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
     };
-    let ids: Vec<String> = hits.iter().map(|h| h.item.id.clone()).collect();
-    emit_activity(&state, &headers, "search", ids);
     Ok(Json(serde_json::json!({ "hits": hits })))
 }
 
@@ -161,6 +207,7 @@ pub async fn mem_save(
     Json(body): Json<SaveBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    validate_item_fields(&body.title, &body.body, &body.area, &body.tags, body.importance)?;
     let kind = MemKind::from_str(&body.kind)
         .ok_or((StatusCode::BAD_REQUEST, format!("unknown kind: {}", body.kind)))?;
     let scope = body.scope.map(|s| MemScope::from_str(&s)).unwrap_or(MemScope::Global);
@@ -256,6 +303,38 @@ pub async fn mem_update(
     Json(body): Json<UpdateBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    // Validate only provided fields
+    if let Some(ref t) = body.title {
+        let tt = t.trim();
+        if tt.is_empty() || tt.len() < 3 || tt.len() > 200 {
+            return Err((StatusCode::BAD_REQUEST, "title must be 3..200 chars".into()));
+        }
+    }
+    if let Some(ref b) = body.body {
+        if b.len() > 1_048_576 {
+            return Err((StatusCode::BAD_REQUEST, "body too large (max 1 MB)".into()));
+        }
+    }
+    if let Some(ref a) = body.area {
+        if !a.is_empty() && (a.len() > 64 || !a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+            return Err((StatusCode::BAD_REQUEST, format!("invalid area: `{}`", a)));
+        }
+    }
+    if let Some(ref ts) = body.tags {
+        if ts.len() > 20 {
+            return Err((StatusCode::BAD_REQUEST, "too many tags (max 20)".into()));
+        }
+        for t in ts {
+            if t.len() > 50 {
+                return Err((StatusCode::BAD_REQUEST, format!("tag too long: `{}`", t)));
+            }
+        }
+    }
+    if let Some(i) = body.importance {
+        if !(0.0..=5.0).contains(&i) {
+            return Err((StatusCode::BAD_REQUEST, format!("importance must be 0..5, got {}", i)));
+        }
+    }
     let patch = MemUpdate {
         title: body.title,
         summary: body.summary,
@@ -478,8 +557,6 @@ pub async fn mem_recall(
         limit: p.limit,
     };
     let hits = state.svc.mem.recall(&q).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    let ids: Vec<String> = hits.iter().map(|h| h.item.id.clone()).collect();
-    emit_activity(&state, &headers, "search", ids);
     Ok(Json(serde_json::json!({ "hits": hits })))
 }
 
@@ -575,12 +652,194 @@ pub async fn mem_positions(
     Ok(Json(serde_json::json!({ "updated": updated })))
 }
 
+#[derive(Deserialize)]
+pub struct GraphTraverseParams {
+    pub from: String,
+    #[serde(default)]
+    pub hops: Option<usize>,
+    #[serde(default)]
+    pub max_nodes: Option<usize>,
+    #[serde(default)]
+    pub as_of: Option<String>,
+}
+
+pub async fn mem_graph_traverse(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<GraphTraverseParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let hops = p.hops.unwrap_or(2).min(5);
+    let max_nodes = p.max_nodes.unwrap_or(100).min(500);
+    let result = state.svc.mem.graph_traverse(&p.from, hops, max_nodes, p.as_of.as_deref())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!(result)))
+}
+
+#[derive(Deserialize)]
+pub struct GraphPathParams {
+    pub from: String,
+    pub to: String,
+    #[serde(default)]
+    pub max_hops: Option<usize>,
+}
+
+pub async fn mem_graph_path(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<GraphPathParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let max_hops = p.max_hops.unwrap_or(4).min(8);
+    let path = state.svc.mem.graph_shortest_path(&p.from, &p.to, max_hops)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "from": p.from, "to": p.to, "path": path })))
+}
+
+#[derive(Deserialize)]
+pub struct GraphAliasBody {
+    pub alias: String,
+    pub canonical: String,
+}
+
+pub async fn mem_graph_alias(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<GraphAliasBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    if !b.canonical.starts_with("person_") && !b.canonical.starts_with("project_") {
+        return Err((StatusCode::BAD_REQUEST, "canonical must be person_* or project_*".into()));
+    }
+    state.svc.mem.graph_alias(&b.alias, &b.canonical)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "ok": true, "alias": b.alias, "canonical": b.canonical })))
+}
+
+pub async fn mem_graph_tunnels(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let tunnels = state.svc.mem.graph_tunnels()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "tunnels": tunnels })))
+}
+
+#[derive(Deserialize)]
+pub struct GraphInvalidateBody {
+    pub from: String,
+    pub rel: String,
+    pub to: String,
+    #[serde(default)]
+    pub ended: Option<String>,
+}
+
+pub async fn mem_graph_invalidate(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<GraphInvalidateBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let found = state.svc.mem.graph_invalidate(&b.from, &b.rel, &b.to, b.ended.as_deref())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "invalidated": found })))
+}
+
+#[derive(Deserialize)]
+pub struct GraphTimelineParams {
+    pub entity: String,
+}
+
+pub async fn mem_graph_timeline(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<GraphTimelineParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let relations = state.svc.mem.graph_timeline(&p.entity)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "entity": p.entity, "relations": relations })))
+}
+
+#[derive(Deserialize)]
+pub struct CheckDuplicateBody {
+    pub body: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub area: Option<String>,
+    #[serde(default)]
+    pub threshold: Option<f64>,
+}
+
+/// Soft-warning duplicate detection. Embed the candidate body, find top-5
+/// nearest neighbors via sqlite-vec, return matches above threshold.
+/// Agent decides whether to save / merge / skip.
+pub async fn mem_check_duplicate(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<CheckDuplicateBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    if b.body.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "body required".into()));
+    }
+    let threshold = b.threshold.unwrap_or(0.85).clamp(0.0, 1.0);
+
+    let q = SearchQuery {
+        query: b.body.clone(),
+        kind: b.kind.clone(),
+        area: b.area.clone(),
+        scope: None,
+        limit: Some(5),
+    };
+    let hits = state.svc.mem.recall(&q)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    // recall score is distance (lower = closer); convert to similarity
+    let matches: Vec<serde_json::Value> = hits.iter()
+        .map(|h| {
+            let similarity = (1.0 + h.score).clamp(0.0, 1.0);
+            serde_json::json!({
+                "id": h.item.id,
+                "title": h.item.title,
+                "kind": h.item.kind,
+                "area": h.item.area,
+                "similarity": similarity,
+                "snippet": h.item.body.chars().take(200).collect::<String>(),
+            })
+        })
+        .filter(|m| m.get("similarity").and_then(|v| v.as_f64()).unwrap_or(0.0) >= threshold)
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "is_duplicate": !matches.is_empty(),
+        "threshold": threshold,
+        "matches": matches,
+    })))
+}
+
 pub async fn mem_graph_create(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(b): Json<GraphCreateEntityBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+
+    // Validation: only person_*, project_*, or area_* entities allowed.
+    // Prevents category-node star patterns (kind_*, tech_*, etc.).
+    if !b.id.starts_with("person_") && !b.id.starts_with("project_") && !b.id.starts_with("area_") {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "Entity id must start with `person_`, `project_`, or `area_`. Got `{}`. \
+                 Kind/category is already a column on mem_items — use `--kind <k>` filter, not graph nodes.",
+                b.id
+            ),
+        ));
+    }
+
     let e = Entity {
         id: b.id,
         entity_type: b.entity_type,

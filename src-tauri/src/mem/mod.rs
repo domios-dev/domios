@@ -85,6 +85,12 @@ impl MemManager {
             log::warn!("[mem] sqlite-vec init failed: {} — semantic recall disabled", e);
         }
 
+        // One-shot repair pass on startup. Fixes: orphan entities (no refs),
+        // bogus category/tech nodes, invalid temporal windows, empty titles.
+        if let Err(e) = store::repair_inconsistencies(&conn) {
+            log::warn!("[mem] repair pass: {}", e);
+        }
+
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             db_path,
@@ -485,7 +491,7 @@ impl MemManager {
 
     pub fn graph_relate(&self, r: &Relation) -> Result<(), String> {
         let conn = self.conn.lock();
-        graph::insert_relation(&conn, r)
+        graph::upsert_relation(&conn, r)
     }
 
     pub fn graph_related(
@@ -496,6 +502,71 @@ impl MemManager {
     ) -> Result<Vec<Relation>, String> {
         let conn = self.conn.lock();
         graph::related(&conn, id, rel, as_of)
+    }
+
+    /// Invalidate an open relation — set valid_to without deleting.
+    pub fn graph_invalidate(
+        &self,
+        from_id: &str,
+        relation_type: &str,
+        to_id: &str,
+        ended: Option<&str>,
+    ) -> Result<bool, String> {
+        let conn = self.conn.lock();
+        graph::invalidate_relation(&conn, from_id, relation_type, to_id, ended)
+    }
+
+    /// Full temporal timeline for an entity (both directions, all relations).
+    pub fn graph_timeline(&self, entity_id: &str) -> Result<Vec<Relation>, String> {
+        let conn = self.conn.lock();
+        graph::timeline(&conn, entity_id)
+    }
+
+    /// BFS traversal from an entity up to max_hops. Caps nodes to prevent explosion.
+    pub fn graph_traverse(
+        &self,
+        start: &str,
+        max_hops: usize,
+        max_nodes: usize,
+        as_of: Option<&str>,
+    ) -> Result<graph::TraversalResult, String> {
+        let conn = self.conn.lock();
+        graph::traverse(&conn, start, max_hops, max_nodes, as_of)
+    }
+
+    /// Shortest path between two entities (BFS).
+    pub fn graph_shortest_path(
+        &self,
+        from: &str,
+        to: &str,
+        max_hops: usize,
+    ) -> Result<Option<Vec<Relation>>, String> {
+        let conn = self.conn.lock();
+        graph::shortest_path(&conn, from, to, max_hops)
+    }
+
+    /// Tunnels: entities bridging 2+ areas (cross-project connections).
+    pub fn graph_tunnels(&self) -> Result<Vec<serde_json::Value>, String> {
+        let conn = self.conn.lock();
+        graph::tunnels(&conn)
+    }
+
+    /// Create an alias (merges the alias entity into canonical).
+    pub fn graph_alias(&self, alias_id: &str, canonical_id: &str) -> Result<(), String> {
+        let conn = self.conn.lock();
+        graph::add_alias(&conn, alias_id, canonical_id)
+    }
+
+    /// Resolve an entity id through the aliases table.
+    pub fn graph_resolve(&self, id: &str) -> Result<String, String> {
+        let conn = self.conn.lock();
+        graph::resolve_canonical(&conn, id)
+    }
+
+    /// List aliases for a canonical entity.
+    pub fn graph_aliases(&self, canonical_id: &str) -> Result<Vec<String>, String> {
+        let conn = self.conn.lock();
+        graph::list_aliases(&conn, canonical_id)
     }
 
     /// Run bundled starter mem_items seeding once. Idempotent via marker file.

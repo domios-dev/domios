@@ -100,6 +100,9 @@ pub fn run(
         };
         let overlap = keyword_overlap(&keywords, &item);
         let importance_boost = ((item.importance - 3.0) / 5.0).max(0.0) * 0.20;
+        // Recurrence boost: items seen 5+ times get up to 25% score reduction (better).
+        // Formula: min(recurrence_count * 0.05, 0.25)
+        let recurrence_boost = ((item.recurrence_count as f64) * 0.05).min(0.25);
         let temporal_boost = match &temporal {
             Some(days_ago) => temporal_boost_for(&item, *days_ago, now),
             None => 0.0,
@@ -107,7 +110,7 @@ pub fn run(
         // Lower fused = better. bm25 is already negative-ish; we work with absolute.
         let abs_bm = bm25.abs();
         let fused =
-            abs_bm * (1.0 - 0.30 * overlap) * (1.0 - temporal_boost) * (1.0 - importance_boost);
+            abs_bm * (1.0 - 0.30 * overlap) * (1.0 - temporal_boost) * (1.0 - importance_boost) * (1.0 - recurrence_boost);
         hits.push(SearchHit { item, score: fused });
     }
 

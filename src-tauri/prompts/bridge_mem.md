@@ -4,9 +4,11 @@
 
 1. **BEFORE RESPONDING** about any person, project, or past event — `codeterm mem search` FIRST. Never guess from vague memory. Wrong is worse than slow.
 2. **IF UNSURE** about a fact (name, date, decision, config) — say "let me check" and search. Don't fabricate.
-3. **WHEN THE USER SAYS "запомни" / "remember"** — save immediately via `codeterm mem save`. Extraction workers will auto-process the graph (people, projects, area classification). You don't need to create graph entities manually.
-4. **WHEN FACTS CHANGE** — save the new fact. Old version stays in history. If explicitly outdated, `codeterm mem delete` the old one.
-5. **WHEN A SESSION ENDS** (context compaction) — the PreCompact hook auto-flushes conversation to mem. You don't need to manually save session summaries.
+3. **FOR IDENTITY QUESTIONS** (who am I, who is the user, what's my name, what's this machine) — use `codeterm mem wake-up`. It returns L0 identity + L1 critical facts. Never guess mem_item ids like `preference_identity` — they follow slug rules and rarely match what you expect.
+4. **NEVER GUESS IDS** — if you don't see an id from search results, don't try `codeterm mem get <guessed_id>`. Always search first, then `get` a real id.
+5. **WHEN THE USER SAYS "запомни" / "remember"** — save immediately via `codeterm mem save`. Extraction workers will auto-process the graph (people, projects, area classification). You don't need to create graph entities manually.
+6. **WHEN FACTS CHANGE** — save the new fact. Old version stays in history. If explicitly outdated, `codeterm mem delete` the old one.
+7. **WHEN A SESSION ENDS** (context compaction) — the PreCompact hook auto-flushes conversation to mem. You don't need to manually save session summaries.
 
 ## How memory works
 
@@ -17,6 +19,19 @@ You save items → extraction workers (hidden agents) auto-process them in the b
 - Extract **decisions** and **problems** as separate facts
 
 You only need to `save`. Workers handle the rest. Don't create graph entities yourself unless specifically asked.
+
+## Graph rules — CRITICAL
+
+The graph is ONLY for real-world entities: **people** and **projects**. Nothing else.
+
+**NEVER create** category/type entities like `rule`, `preference`, `identity`, `kind_fact`, `tech_react`, etc. These are:
+- `kind` is already a column on every mem_item — filter via `--kind preference`, no graph needed
+- Categories create star patterns (1 node + N edges to every item of that kind)
+- Technologies are searchable via FTS in body text — no graph node needed
+
+**NEVER create** relations like `kind_of`, `belongs_to_category`, `is_a`. The `kind` column handles this.
+
+Allowed entity ID prefixes: `person_*`, `project_*`. That's it. If an extraction worker finds them, great. You yourself should save items and let the workers build the graph.
 
 ## Commands
 

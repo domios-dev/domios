@@ -200,6 +200,22 @@ function MemoryListTabImpl({ api, nodes, onSelectItem, removeNode }: Props) {
                   <div className="flex items-center gap-2 pl-[18px] mt-0.5 flex-wrap">
                     <span className="px-1.5 py-px rounded-[3px] text-[10px] font-semibold" style={{ background: `${color}22`, color }}>{n.kind}</span>
                     {n.area && <><span className="text-[10px] text-[var(--ct-muted-fg)]">&middot;</span><span className="px-1.5 py-px rounded-[3px] text-[10px] bg-[var(--ct-hover-bg)] text-[var(--ct-muted-fg)]">{n.area}</span></>}
+                    {(n.recurrence_count ?? 0) > 0 && (
+                      <>
+                        <span className="text-[10px] text-[var(--ct-muted-fg)]">&middot;</span>
+                        <span className="text-[10px] px-1 py-px rounded bg-[var(--ct-accent)]/20 text-[var(--ct-accent)]" title="Times this topic has recurred">
+                          {n.recurrence_count}x seen
+                        </span>
+                      </>
+                    )}
+                    {(n.access_count ?? 0) >= 3 && (
+                      <>
+                        <span className="text-[10px] text-[var(--ct-muted-fg)]">&middot;</span>
+                        <span className="text-[10px] text-[var(--ct-muted-fg)]" title="Access count">
+                          ↗ {n.access_count}
+                        </span>
+                      </>
+                    )}
                     {(n.tags?.length ?? 0) > 0 && (
                       <>
                         <span className="text-[10px] text-[var(--ct-muted-fg)]">&middot;</span>
