@@ -59,16 +59,27 @@ export function KeepAwakeTray() {
     if (s.active) setDisplaySleep(s.display);
   }, []);
 
-  // Mount: fetch current status + subscribe to backend-emitted state changes.
-  // The backend emits "keepawake-changed" on start, stop, and natural expiry
-  // (from the platform thread), so the tray never needs to poll.
+  // Mount: subscribe first, THEN fetch current status — this order guarantees
+  // no backend state change slips through the gap between snapshot and
+  // subscription. Guarded with `cancelled` so StrictMode double-mount and
+  // async-race teardowns both unlisten cleanly.
   useEffect(() => {
+    let cancelled = false;
     let unlisten: (() => void) | null = null;
-    invoke<KeepAwakeStatus>("keepawake_status").then(applyStatus).catch(() => {});
-    listen<KeepAwakeStatus>("keepawake-changed", (e) => applyStatus(e.payload))
-      .then((u) => { unlisten = u; })
-      .catch(() => {});
-    return () => { if (unlisten) unlisten(); };
+    (async () => {
+      try {
+        const u = await listen<KeepAwakeStatus>("keepawake-changed", (e) => {
+          if (!cancelled) applyStatus(e.payload);
+        });
+        if (cancelled) { u(); return; }
+        unlisten = u;
+        const snap = await invoke<KeepAwakeStatus>("keepawake_status");
+        if (!cancelled) applyStatus(snap);
+      } catch {
+        /* backend restarting — next mount will retry */
+      }
+    })();
+    return () => { cancelled = true; if (unlisten) unlisten(); };
   }, [applyStatus]);
 
   // Heartbeat: 500ms tick drives blinking colon + minute countdown when timed
@@ -78,14 +89,16 @@ export function KeepAwakeTray() {
     return () => clearInterval(id);
   }, [status.active, status.expires_at]);
 
+  // Start/stop/toggle do NOT mutate local state optimistically. The backend
+  // emits "keepawake-changed" on every transition and our listener applies
+  // the authoritative payload — a single source of truth avoids flicker and
+  // out-of-sync races.
   const start = useCallback(async (secs: number | null) => {
     try {
-      const s = await invoke<KeepAwakeStatus>("keepawake_start", {
+      await invoke<KeepAwakeStatus>("keepawake_start", {
         durationSecs: secs ?? undefined,
         display: displaySleep,
       });
-      setStatus(s);
-      setDisplaySleep(s.display);
     } catch (e) {
       console.error("[keepawake]", e);
     }
@@ -93,21 +106,25 @@ export function KeepAwakeTray() {
 
   const stop = useCallback(async () => {
     await invoke("keepawake_stop").catch(() => {});
-    setStatus({ active: false, display: false, expires_at: null });
   }, []);
 
   const toggleDisplay = useCallback(() => {
     const next = !displaySleep;
     setDisplaySleep(next);
     saveDisplay(next);
-    if (status.active) {
-      const durSecs = status.expires_at
-        ? Math.max(0, Math.round((status.expires_at - Date.now()) / 1000))
-        : undefined;
-      invoke<KeepAwakeStatus>("keepawake_start", { durationSecs: durSecs, display: next })
-        .then((s) => { setStatus(s); setDisplaySleep(s.display); })
-        .catch(() => {});
+    if (!status.active) return;
+    // Preserve the remaining duration when flipping the flag on an active
+    // timed session. Math.ceil keeps sub-second remainders on the positive
+    // side; clamp to ≥ 1s so a near-expiry toggle doesn't collapse into
+    // `Duration::from_secs(0)` which the backend would treat as instant
+    // expiry. Indefinite sessions stay indefinite.
+    let durSecs: number | undefined;
+    if (status.expires_at !== null) {
+      const remaining = Math.ceil((status.expires_at - Date.now()) / 1000);
+      durSecs = Math.max(1, remaining);
     }
+    invoke<KeepAwakeStatus>("keepawake_start", { durationSecs: durSecs, display: next })
+      .catch(() => {});
   }, [displaySleep, status.active, status.expires_at]);
 
   // Outside click + Escape close

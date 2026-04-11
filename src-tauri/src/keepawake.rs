@@ -1,9 +1,16 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
+
+/// Monotonic session counter — every `start()` bumps this and stores the id
+/// on the ActiveSession. The platform thread captures the id on spawn and
+/// only clears shared state on exit if the stored session still matches —
+/// otherwise a racing new session would be clobbered by an expiring thread.
+static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Event emitted whenever the keep-awake session changes (started, stopped,
 /// expired naturally). Frontend subscribes via `listen("keepawake-changed")`.
@@ -24,6 +31,7 @@ pub struct ActiveSession {
     stop_tx: std::sync::mpsc::Sender<()>,
     display: bool,
     expires_at: Option<i64>,
+    session_id: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -38,21 +46,30 @@ fn persist_path() -> PathBuf {
     crate::paths::data_dir().join(PERSIST_FILE)
 }
 
-/// Snapshot a status to disk so the next launch can resume it.
-/// Inactive status clears the file.
+/// Snapshot a status to disk so the next launch can resume it. Inactive
+/// status clears the file. Writes go through a `.tmp` + `rename` so a crash
+/// mid-write can never leave a partial file.
 fn save_snapshot(status: &KeepAwakeStatus) {
     let path = persist_path();
     if !status.active {
         let _ = std::fs::remove_file(&path);
         return;
     }
-    match serde_json::to_vec(status) {
-        Ok(bytes) => {
-            if let Err(e) = std::fs::write(&path, bytes) {
-                log::warn!("[keepawake] failed to persist session: {}", e);
-            }
+    let bytes = match serde_json::to_vec(status) {
+        Ok(b) => b,
+        Err(e) => {
+            log::warn!("[keepawake] failed to serialize session: {}", e);
+            return;
         }
-        Err(e) => log::warn!("[keepawake] failed to serialize session: {}", e),
+    };
+    let tmp = path.with_extension("json.tmp");
+    if let Err(e) = std::fs::write(&tmp, bytes) {
+        log::warn!("[keepawake] failed to write snapshot tmp: {}", e);
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp, &path) {
+        log::warn!("[keepawake] failed to rename snapshot: {}", e);
+        let _ = std::fs::remove_file(&tmp);
     }
 }
 
@@ -64,8 +81,28 @@ fn load_snapshot() -> Option<KeepAwakeStatus> {
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis() as i64
+}
+
+/// Clear shared state from a platform expiry thread, but only if the stored
+/// session still belongs to this thread. Prevents a just-expired thread from
+/// clobbering a fresh session started in the tiny window between
+/// `recv_timeout` returning Err and this thread acquiring the state lock.
+fn clear_if_owner(state: &KeepAwakeState, my_id: u64, app: &AppHandle) {
+    let mut guard = state.lock();
+    match guard.as_ref() {
+        Some(s) if s.session_id == my_id => {
+            *guard = None;
+            drop(guard);
+            let off = KeepAwakeStatus { active: false, display: false, expires_at: None };
+            save_snapshot(&off);
+            let _ = app.emit(EVENT_CHANGED, &off);
+        }
+        _ => {
+            // Another session took over — it owns the state now, don't touch.
+        }
+    }
 }
 
 pub fn start(
@@ -80,18 +117,26 @@ pub fn start(
 
     let display = display.unwrap_or(false);
     let expires_at = duration_secs.map(|d| now_ms() + (d as i64) * 1000);
+    let session_id = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
     let (stop_tx, stop_rx) = std::sync::mpsc::channel();
 
-    let state_arc = Arc::clone(state);
-    let app_for_expiry = app.clone();
-    platform::start(display, duration_secs, stop_rx, state_arc, app_for_expiry);
+    // Spawn the platform thread FIRST so we don't record a session we can't back.
+    platform::start(
+        display,
+        duration_secs,
+        stop_rx,
+        Arc::clone(state),
+        app.clone(),
+        session_id,
+    )?;
 
-    let session = ActiveSession { stop_tx, display, expires_at };
+    let session = ActiveSession { stop_tx, display, expires_at, session_id };
     let status = KeepAwakeStatus { active: true, display, expires_at };
     *state.lock() = Some(session);
 
     log::info!(
-        "[keepawake] started: display={}, duration={:?}",
+        "[keepawake] started: id={}, display={}, duration={:?}",
+        session_id,
         display,
         duration_secs
     );
@@ -134,10 +179,6 @@ pub fn resume_from_disk(state: &KeepAwakeState, app: &AppHandle) {
                     -remaining_ms
                 );
                 let _ = std::fs::remove_file(persist_path());
-                let _ = app.emit(
-                    EVENT_CHANGED,
-                    &KeepAwakeStatus { active: false, display: false, expires_at: None },
-                );
                 return;
             }
             let remaining_secs = ((remaining_ms + 999) / 1000) as u64;
@@ -215,7 +256,8 @@ mod platform {
         stop_rx: std::sync::mpsc::Receiver<()>,
         state: KeepAwakeState,
         app: AppHandle,
-    ) {
+        session_id: u64,
+    ) -> Result<(), String> {
         std::thread::Builder::new()
             .name("keepawake".into())
             .spawn(move || {
@@ -237,15 +279,14 @@ mod platform {
                 SetThreadExecutionState(ES_CONTINUOUS);
 
                 // If timer expired naturally (not stopped early), clear shared
-                // state and notify the frontend so the tray updates in real time.
+                // state — but only if we still own it. A fresh start() could
+                // have replaced us in the tiny window after recv_timeout.
                 if !stopped_early {
-                    *state.lock() = None;
-                    let off = KeepAwakeStatus { active: false, display: false, expires_at: None };
-                    save_snapshot(&off);
-                    let _ = app.emit(EVENT_CHANGED, &off);
+                    clear_if_owner(&state, session_id, &app);
                 }
             })
-            .expect("failed to spawn keepawake thread");
+            .map(|_| ())
+            .map_err(|e| format!("failed to spawn keepawake thread: {}", e))
     }
 }
 
@@ -259,28 +300,27 @@ mod platform {
         stop_rx: std::sync::mpsc::Receiver<()>,
         state: KeepAwakeState,
         app: AppHandle,
-    ) {
+        session_id: u64,
+    ) -> Result<(), String> {
+        // Spawn caffeinate eagerly so failure surfaces as an Err before we
+        // record any session state.
+        let mut cmd = std::process::Command::new("caffeinate");
+        cmd.arg("-i").arg("-s"); // idle + system sleep prevention
+        if display {
+            cmd.arg("-d"); // display sleep prevention
+        }
+        let child = cmd
+            .spawn()
+            .map_err(|e| format!("caffeinate spawn failed: {}", e))?;
+
+        // Share the Child between the worker thread and the error cleanup
+        // path. Whichever gets there first takes it and reaps it.
+        let child_slot = Arc::new(Mutex::new(Some(child)));
+        let child_for_thread = Arc::clone(&child_slot);
+
         std::thread::Builder::new()
             .name("keepawake".into())
             .spawn(move || {
-                let mut cmd = std::process::Command::new("caffeinate");
-                cmd.arg("-i").arg("-s"); // idle + system sleep prevention
-                if display {
-                    cmd.arg("-d"); // display sleep prevention
-                }
-
-                let mut child = match cmd.spawn() {
-                    Ok(c) => c,
-                    Err(e) => {
-                        log::error!("[keepawake] caffeinate spawn failed: {}", e);
-                        *state.lock() = None;
-                        let off = KeepAwakeStatus { active: false, display: false, expires_at: None };
-                        save_snapshot(&off);
-                        let _ = app.emit(EVENT_CHANGED, &off);
-                        return;
-                    }
-                };
-
                 let stopped_early = match duration_secs {
                     Some(secs) => stop_rx
                         .recv_timeout(std::time::Duration::from_secs(secs))
@@ -288,17 +328,25 @@ mod platform {
                     None => stop_rx.recv().is_ok(),
                 };
 
-                let _ = child.kill();
-                let _ = child.wait();
+                if let Some(mut c) = child_for_thread.lock().take() {
+                    let _ = c.kill();
+                    let _ = c.wait();
+                }
 
                 if !stopped_early {
-                    *state.lock() = None;
-                    let off = KeepAwakeStatus { active: false, display: false, expires_at: None };
-                    save_snapshot(&off);
-                    let _ = app.emit(EVENT_CHANGED, &off);
+                    clear_if_owner(&state, session_id, &app);
                 }
             })
-            .expect("failed to spawn keepawake thread");
+            .map(|_| ())
+            .map_err(|e| {
+                // Thread spawn failed after caffeinate was already running —
+                // reap it here so we don't orphan the child process.
+                if let Some(mut c) = child_slot.lock().take() {
+                    let _ = c.kill();
+                    let _ = c.wait();
+                }
+                format!("failed to spawn keepawake thread: {}", e)
+            })
     }
 }
 
@@ -313,7 +361,9 @@ mod platform {
         _stop_rx: std::sync::mpsc::Receiver<()>,
         _state: KeepAwakeState,
         _app: AppHandle,
-    ) {
+        _session_id: u64,
+    ) -> Result<(), String> {
         log::warn!("[keepawake] not supported on this platform");
+        Ok(())
     }
 }
