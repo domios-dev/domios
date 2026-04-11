@@ -204,6 +204,12 @@ pub enum Commands {
         unread: bool,
     },
 
+    /// Prevent the system from sleeping while an agent is running
+    Keepawake {
+        #[command(subcommand)]
+        action: Option<KeepAwakeAction>,
+    },
+
     /// Theme management
     Theme {
         #[command(subcommand)]
@@ -639,6 +645,23 @@ pub enum BrowserAction {
 pub enum NotificationAction {
     /// Clear all notifications
     Clear,
+}
+
+#[derive(Subcommand)]
+pub enum KeepAwakeAction {
+    /// Show current keep-awake status (default)
+    Status,
+    /// Start keeping the system awake
+    Start {
+        /// Duration in seconds (omit for indefinite)
+        #[arg(long, alias = "duration")]
+        duration_secs: Option<u64>,
+        /// Also prevent display sleep
+        #[arg(long)]
+        display: bool,
+    },
+    /// Stop the current keep-awake session
+    Stop,
 }
 
 #[derive(Subcommand)]
@@ -1320,6 +1343,46 @@ fn main() {
                 Some(serde_json::json!({ "unread_only": unread })),
             ),
         },
+
+        Commands::Keepawake { action } => {
+            let (base, token) = read_api_config();
+            let http = build_http(&token);
+            let result: Result<serde_json::Value, String> = match action.unwrap_or(KeepAwakeAction::Status) {
+                KeepAwakeAction::Status => http
+                    .get(format!("{}/api/keepawake", base))
+                    .send()
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r.json::<serde_json::Value>().map_err(|e| e.to_string())),
+                KeepAwakeAction::Start { duration_secs, display } => http
+                    .post(format!("{}/api/keepawake/start", base))
+                    .json(&serde_json::json!({
+                        "duration_secs": duration_secs,
+                        "display": display,
+                    }))
+                    .send()
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r.json::<serde_json::Value>().map_err(|e| e.to_string())),
+                KeepAwakeAction::Stop => http
+                    .post(format!("{}/api/keepawake/stop", base))
+                    .send()
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r.json::<serde_json::Value>().map_err(|e| e.to_string())),
+            };
+            match result {
+                Ok(val) => {
+                    if cli.json {
+                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                    } else {
+                        print_object(&val);
+                    }
+                    return;
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
 
         Commands::Agent { action } => {
             let (base, token) = read_api_config();

@@ -252,6 +252,18 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         // mem operations isn't routed through mesh in 3.1; users should run
         // `codeterm mem ...` on the local pane (mem is per-machine state).
         Commands::Mem { .. } => ("GET".into(), "/api/mem/stats".into(), None),
+        Commands::Keepawake { action } => match action {
+            Some(super::KeepAwakeAction::Stop) => ("POST".into(), "/api/keepawake/stop".into(), None),
+            Some(super::KeepAwakeAction::Start { duration_secs, display }) => (
+                "POST".into(),
+                "/api/keepawake/start".into(),
+                Some(serde_json::json!({
+                    "duration_secs": duration_secs,
+                    "display": display,
+                }).to_string()),
+            ),
+            _ => ("GET".into(), "/api/keepawake".into(), None),
+        },
     }
 }
 
