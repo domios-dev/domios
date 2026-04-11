@@ -113,13 +113,11 @@ export function SettingsPanel({
       ? "Settings"
       : top.kind === "section"
       ? sectionTitle(top.id)
-      : top.kind === "agent-provider"
-      ? "Provider"
-      : "Settings";
+      : "Provider";
 
   return (
-    <div className="absolute inset-0 flex flex-col bg-[var(--ct-sidebar-bg)]">
-      <div className="absolute inset-0 flex flex-col overflow-hidden relative">
+    <div className="absolute inset-0 flex flex-col overflow-hidden bg-[var(--ct-sidebar-bg)]">
+      <div className="absolute inset-0 flex flex-col">
         {/* Subtle dot grid background */}
         <div
           className="absolute inset-0 pointer-events-none"
@@ -412,6 +410,7 @@ export function SettingsPanel({
                     setLocalConfig(next);
                     onUpdateConfig(next).catch(() => {});
                   }}
+                  onProviderGone={pop}
                 />
               </div>
             )}
@@ -948,13 +947,21 @@ function AgentProviderScreen({
   providerId,
   fullConfig,
   onUpdateFullConfig,
+  onProviderGone,
 }: {
   providerId: string;
   fullConfig: AppConfig;
   onUpdateFullConfig: (next: AppConfig) => void;
+  onProviderGone: () => void;
 }) {
   const { providers, loading, error } = useAgentProviders();
   const provider = providers.find((p) => p.id === providerId) ?? null;
+
+  // If a plugin was deactivated mid-navigation, pop back to the Agents
+  // overview so the user isn't stuck on a dead provider detail.
+  useEffect(() => {
+    if (!loading && !provider) onProviderGone();
+  }, [loading, provider, onProviderGone]);
 
   const onProviderConfigChange = useCallback(
     (pid: string, patch: Partial<ProviderConfig>) => {
@@ -973,7 +980,8 @@ function AgentProviderScreen({
     return <div className="text-[10px] text-[var(--ct-muted-fg)]">Loading provider…</div>;
   }
   if (!provider) {
-    return <div className="text-[10px] text-[var(--ct-muted-fg)]">Provider not found: {providerId}</div>;
+    // Transient: the pop effect above will unmount us on the next tick.
+    return null;
   }
 
   return (

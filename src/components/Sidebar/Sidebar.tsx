@@ -475,7 +475,7 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onNavigateToTab, mainVie
                   </>
                   </div>
                 </div>
-                {!isExpanded && isActive && ws.active_tab_id ? (
+                {!isExpanded && isActiveVisual && ws.active_tab_id ? (
                   /* Collapsed but active — show selected tab */
                   (() => {
                     const activeTab = ws.tabs.find((t) => t.id === ws.active_tab_id);
@@ -486,7 +486,7 @@ export function Sidebar({ onOpenSettings, onOpenMemory, onNavigateToTab, mainVie
                       <TabItem
                         tab={activeTab}
                         index={0}
-                        isActive={true}
+                        isActive={isActiveVisual}
                         onClick={() => { setActiveTab(ws.id, activeTab.id); onNavigateToTab?.(); }}
                         onClose={() => animatedCloseTab(ws.id, activeTab.id)}
                         canClose={true}
