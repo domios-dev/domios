@@ -823,6 +823,25 @@ mod tests {
     }
 
     #[test]
+    fn is_job_running_tracks_registered_panes() {
+        let mut store = temp_store();
+        let job = store.create(make_params("Runner", "ws-1", "0 * * * *")).unwrap();
+        assert!(!store.is_job_running(&job.id));
+
+        store.register_pane("pane-A", &job.id, "run-1");
+        assert!(store.is_job_running(&job.id));
+
+        store.register_pane("pane-B", &job.id, "run-2");
+        assert!(store.is_job_running(&job.id));
+
+        store.unregister_pane("pane-A");
+        assert!(store.is_job_running(&job.id));
+
+        store.unregister_pane("pane-B");
+        assert!(!store.is_job_running(&job.id));
+    }
+
+    #[test]
     fn test_list_for_workspace() {
         let mut store = temp_store();
         store.create(make_params("Job A", "ws-1", "0 * * * *")).unwrap();

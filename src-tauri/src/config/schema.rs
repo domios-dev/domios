@@ -327,6 +327,9 @@ pub struct MemoryConfig {
     pub dreaming_agent: String,
     /// Model for dreaming agent
     pub dreaming_model: String,
+    /// Max concurrent workers per agent provider. Further spawns queue
+    /// FIFO until a slot frees up.
+    pub workers_per_provider: usize,
 }
 
 impl Default for MemoryConfig {
@@ -338,6 +341,7 @@ impl Default for MemoryConfig {
             dreaming_enabled: true,
             dreaming_agent: String::new(),
             dreaming_model: "haiku".to_string(),
+            workers_per_provider: 3,
         }
     }
 }

@@ -232,52 +232,14 @@ pub async fn mem_save(
     if !body.skip_extract && !is_auto_extracted && auto_extract_enabled {
         let svc = state.svc.clone();
         let id_for_extract = id.clone();
-        tokio::spawn(async move {
-            let sem = svc.extract_semaphore.clone();
-            let Ok(permit) = sem.acquire_owned().await else {
-                log::warn!("[mem] extract semaphore closed, dropping {}", id_for_extract);
-                return;
-            };
-
-            // Run spawn on a blocking thread — it grabs mux/pty locks.
-            let svc_for_spawn = svc.clone();
-            let worker_id = tokio::task::spawn_blocking(move || {
-                crate::mem::auto_extract::spawn_extraction_worker(
-                    &svc_for_spawn,
-                    id_for_extract,
-                    title_clone,
-                    body_clone,
-                    kind_for_extract,
-                )
-            })
-            .await
-            .ok()
-            .flatten();
-
-            let Some(worker_id) = worker_id else {
-                drop(permit);
-                return;
-            };
-
-            let deadline =
-                tokio::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                let Some(info) = svc.workers.get(&worker_id) else {
-                    break;
-                };
-                if info.status.is_terminal() {
-                    break;
-                }
-                if tokio::time::Instant::now() > deadline {
-                    log::warn!(
-                        "[mem] extract worker {} exceeded 30min, releasing permit",
-                        worker_id
-                    );
-                    break;
-                }
-            }
-            drop(permit);
+        tokio::task::spawn_blocking(move || {
+            crate::mem::auto_extract::spawn_extraction_worker(
+                &svc,
+                id_for_extract,
+                title_clone,
+                body_clone,
+                kind_for_extract,
+            );
         });
     }
 

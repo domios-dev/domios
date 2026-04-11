@@ -12,6 +12,7 @@ pub mod dreaming;
 pub mod rerank;
 pub mod embeddings;
 pub mod embed_queue;
+pub mod worker_pool;
 pub mod activity;
 pub mod workers;
 pub mod auto_extract;

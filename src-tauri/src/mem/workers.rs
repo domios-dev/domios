@@ -30,6 +30,7 @@ const COLOR_PALETTE: [&str; 12] = [
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkerStatus {
+    Queued,
     Starting,
     Reading,
     Analyzing,
@@ -42,6 +43,7 @@ pub enum WorkerStatus {
 impl WorkerStatus {
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
+            "queued" => Some(Self::Queued),
             "starting" => Some(Self::Starting),
             "reading" => Some(Self::Reading),
             "analyzing" => Some(Self::Analyzing),
@@ -231,6 +233,15 @@ impl GraphWorkerRegistry {
         self.persist();
     }
 
+    pub fn set_pane_id(&self, worker_id: &str, pane_id: String) {
+        let mut map = self.inner.write();
+        if let Some(w) = map.get_mut(worker_id) {
+            w.pane_id = pane_id;
+        }
+        drop(map);
+        self.persist();
+    }
+
     pub fn set_log_path(&self, worker_id: &str, path: String) {
         let mut map = self.inner.write();
         if let Some(w) = map.get_mut(worker_id) {
@@ -330,58 +341,125 @@ pub fn spawn_headless(
     agent_provider: String,
     model: String,
 ) -> Result<String, String> {
-    use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
-
     if let Some(existing) = svc.workers.active_by_intent(&intent) {
         log::info!("[worker] skip spawn for intent '{}': {} already running", intent, existing);
         return Ok(existing);
     }
 
     let worker_id = new_worker_id();
-    let task = build_worker_task(&intent, &worker_id, &task_prompt);
-
-    let spec = SpawnPaneSpec {
-        visibility: PaneVisibility::Hidden,
-        command: PaneCommand::Agent(AgentSpawnSpec {
-            provider: agent_provider.clone(),
-            model: if model.is_empty() {
-                None
-            } else {
-                Some(model.clone())
-            },
-            task: Some(task),
-            worker_id: Some(worker_id.clone()),
-            auto_approve: true,
-            spawned_by: Some(spawned_by.clone()),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-
-    let handle = svc.spawn_pane(spec)?;
-
-    // Register with the GraphWorkerRegistry so mem UIs can track this worker.
     let color = svc.workers.pick_color();
     let mut info = make_info(
         worker_id.clone(),
-        handle.pane_id.clone(),
-        intent,
-        spawned_by,
+        String::new(),
+        intent.clone(),
+        spawned_by.clone(),
         color,
     );
-    info.agent_provider = Some(agent_provider);
+    info.status = WorkerStatus::Queued;
+    info.agent_provider = Some(agent_provider.clone());
     if !model.is_empty() {
-        info.model = Some(model);
+        info.model = Some(model.clone());
     }
     svc.workers.register(info.clone());
     let _ = tauri::Emitter::emit(&svc.app_handle, "graph-worker-spawned", &info);
 
-    log::info!(
-        "[worker] headless {} pane={} pty={}",
-        worker_id,
-        handle.pane_id,
-        handle.pty_id.as_deref().unwrap_or("?")
-    );
+    let svc_task = svc.clone();
+    let worker_id_task = worker_id.clone();
+    tauri::async_runtime::spawn(async move {
+        let permit = svc_task.worker_pool.acquire(&agent_provider).await;
+        if svc_task.workers.get(&worker_id_task).map(|w| w.status.is_terminal()).unwrap_or(true) {
+            drop(permit);
+            return;
+        }
+        let _ = svc_task
+            .workers
+            .update_status(&worker_id_task, WorkerStatus::Starting);
+
+        let task = build_worker_task(&intent, &worker_id_task, &task_prompt);
+        let svc_blocking = svc_task.clone();
+        let worker_id_blocking = worker_id_task.clone();
+        let agent_for_spawn = agent_provider.clone();
+        let model_for_spawn = model.clone();
+        let spawned_by_for_spawn = spawned_by.clone();
+        let intent_for_spawn = intent.clone();
+        let spawn_result = tokio::task::spawn_blocking(move || {
+            use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
+            let spec = SpawnPaneSpec {
+                visibility: PaneVisibility::Hidden,
+                command: PaneCommand::Agent(AgentSpawnSpec {
+                    provider: agent_for_spawn,
+                    model: if model_for_spawn.is_empty() {
+                        None
+                    } else {
+                        Some(model_for_spawn)
+                    },
+                    task: Some(task),
+                    worker_id: Some(worker_id_blocking.clone()),
+                    auto_approve: true,
+                    spawned_by: Some(spawned_by_for_spawn),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            svc_blocking.spawn_pane(spec)
+        })
+        .await;
+
+        let handle = match spawn_result {
+            Ok(Ok(h)) => h,
+            Ok(Err(e)) => {
+                log::error!("[worker] {}/{} spawn_pane failed: {}", intent_for_spawn, worker_id_task, e);
+                let _ = svc_task
+                    .workers
+                    .update_status(&worker_id_task, WorkerStatus::Error);
+                drop(permit);
+                return;
+            }
+            Err(e) => {
+                log::error!("[worker] {}/{} spawn_blocking panicked: {}", intent_for_spawn, worker_id_task, e);
+                let _ = svc_task
+                    .workers
+                    .update_status(&worker_id_task, WorkerStatus::Error);
+                drop(permit);
+                return;
+            }
+        };
+
+        svc_task
+            .workers
+            .set_pane_id(&worker_id_task, handle.pane_id.clone());
+        log::info!(
+            "[worker] headless {} pane={} pty={}",
+            worker_id_task,
+            handle.pane_id,
+            handle.pty_id.as_deref().unwrap_or("?")
+        );
+
+        let deadline =
+            tokio::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let Some(current) = svc_task.workers.get(&worker_id_task) else {
+                break;
+            };
+            if current.status.is_terminal() {
+                break;
+            }
+            if tokio::time::Instant::now() > deadline {
+                log::warn!(
+                    "[worker] {}/{} exceeded 30min watchdog, forcing Orphaned + closing pane",
+                    intent_for_spawn,
+                    worker_id_task
+                );
+                let _ = svc_task
+                    .workers
+                    .update_status(&worker_id_task, WorkerStatus::Orphaned);
+                let _ = svc_task.close_pane(&handle.pane_id);
+                break;
+            }
+        }
+        drop(permit);
+    });
 
     Ok(worker_id)
 }
@@ -464,5 +542,27 @@ mod tests {
         let id = new_worker_id();
         assert!(id.starts_with("gw_"));
         assert_eq!(id.len(), 3 + 8);
+    }
+
+    #[test]
+    fn active_by_intent_skips_terminal_workers() {
+        let reg = GraphWorkerRegistry::load(tmp_path("intent"));
+
+        let mut w1 = fresh_info("gw_run1");
+        w1.intent = "dreaming:rem".into();
+        w1.status = WorkerStatus::Reading;
+        reg.register(w1);
+
+        assert_eq!(reg.active_by_intent("dreaming:rem").as_deref(), Some("gw_run1"));
+        assert!(reg.active_by_intent("extract:note_a").is_none());
+
+        let _ = reg.complete("gw_run1", "done".into());
+        assert!(reg.active_by_intent("dreaming:rem").is_none());
+
+        let mut w2 = fresh_info("gw_run2");
+        w2.intent = "extract:note_a".into();
+        w2.status = WorkerStatus::Analyzing;
+        reg.register(w2);
+        assert_eq!(reg.active_by_intent("extract:note_a").as_deref(), Some("gw_run2"));
     }
 }

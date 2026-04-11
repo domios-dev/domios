@@ -59,10 +59,7 @@ pub struct ServiceContext {
     pub mem: Arc<crate::mem::MemManager>,
     pub activity: Arc<crate::mem::activity::ActivityRing>,
     pub workers: Arc<crate::mem::workers::GraphWorkerRegistry>,
-    /// Bounded concurrency guard for mem auto-extraction workers. Capped so
-    /// a bulk seed load can't fan out hundreds of agents at once. See
-    /// [`crate::mem::auto_extract::spawn_extraction_worker`].
-    pub extract_semaphore: Arc<tokio::sync::Semaphore>,
+    pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
     /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
