@@ -225,6 +225,13 @@ impl MemManager {
         search::hybrid_rrf(&conn, q, &self.blobs_dir)
     }
 
+    /// Pure vector recall — returns (id, L2 distance) pairs, sorted nearest-first.
+    /// Used for duplicate detection where actual semantic distance matters.
+    pub fn vector_recall(&self, query: &str, k: usize) -> Result<Vec<(String, f64)>, String> {
+        let conn = self.conn.lock();
+        embeddings::recall(&conn, query, k)
+    }
+
     /// Index a mem_item's body in mem_vectors. No-op without embeddings feature.
     pub fn index_embedding(&self, id: &str, body: &str) -> Result<(), String> {
         let conn = self.conn.lock();
@@ -257,7 +264,15 @@ impl MemManager {
                 )
                 .ok();
             if let Some(dup_id) = existing {
-                log::info!("[mem] dedup: skipping save, existing item {} has same kind+title", dup_id);
+                log::info!("[mem] dedup: bumping recurrence on existing {} (same kind+title)", dup_id);
+                // Bump recurrence_count — signals this topic has been seen again.
+                // Boosts search ranking for recurring concerns.
+                let _ = conn.execute(
+                    "UPDATE mem_items SET recurrence_count = recurrence_count + 1,
+                                         accessed_at = ?1
+                     WHERE id = ?2",
+                    rusqlite::params![chrono::Utc::now().to_rfc3339(), &dup_id],
+                );
                 return Ok(dup_id);
             }
         }

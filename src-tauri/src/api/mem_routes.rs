@@ -787,30 +787,30 @@ pub async fn mem_check_duplicate(
     }
     let threshold = b.threshold.unwrap_or(0.85).clamp(0.0, 1.0);
 
-    let q = SearchQuery {
-        query: b.body.clone(),
-        kind: b.kind.clone(),
-        area: b.area.clone(),
-        scope: None,
-        limit: Some(5),
-    };
-    let hits = state.svc.mem.recall(&q)
+    // Pure vector distance — duplicate detection needs actual semantic similarity,
+    // not RRF rank (which compresses all top hits near the same score).
+    let raw = state.svc.mem.vector_recall(&b.body, 20)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    // recall score is distance (lower = closer); convert to similarity
-    let matches: Vec<serde_json::Value> = hits.iter()
-        .map(|h| {
-            let similarity = (1.0 + h.score).clamp(0.0, 1.0);
-            serde_json::json!({
-                "id": h.item.id,
-                "title": h.item.title,
-                "kind": h.item.kind,
-                "area": h.item.area,
+    let matches: Vec<serde_json::Value> = raw.into_iter()
+        .filter_map(|(id, dist)| {
+            let item = state.svc.mem.get(&id).ok()??;
+            if let Some(ref k) = b.kind { if item.kind.as_str() != k.as_str() { return None; } }
+            if let Some(ref a) = b.area { if item.area.as_deref() != Some(a) { return None; } }
+            // sqlite-vec returns L2 distance on normalized vectors (range 0..2).
+            // Cosine similarity ≈ 1 - dist²/2.
+            let similarity = (1.0 - (dist * dist) / 2.0).clamp(0.0, 1.0);
+            if similarity < threshold { return None; }
+            Some(serde_json::json!({
+                "id": item.id,
+                "title": item.title,
+                "kind": item.kind.as_str(),
+                "area": item.area,
                 "similarity": similarity,
-                "snippet": h.item.body.chars().take(200).collect::<String>(),
-            })
+                "snippet": item.body.chars().take(200).collect::<String>(),
+            }))
         })
-        .filter(|m| m.get("similarity").and_then(|v| v.as_f64()).unwrap_or(0.0) >= threshold)
+        .take(5)
         .collect();
 
     Ok(Json(serde_json::json!({

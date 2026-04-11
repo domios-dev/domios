@@ -1,0 +1,7 @@
+# Snapshot artifacts — rebuilt via build.sh
+*.db
+*.db-shm
+*.db-wal
+*.blobs/
+__pycache__/
+*.pyc

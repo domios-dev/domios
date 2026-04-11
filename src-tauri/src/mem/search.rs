@@ -278,14 +278,16 @@ pub fn hybrid_rrf(
             .or_insert((rrf, hit.item.clone()));
     }
 
-    // Higher RRF = better. Apply penalty to auto-extracted items so originals
-    // rank above their derivatives. Without this, the sheer count of extracted
-    // items pushes originals out of top-5.
+    // Higher RRF = better. Apply adjustments:
+    //  - auto-extracted penalty (×0.5): originals outrank derivatives.
+    //  - recurrence boost (×(1 + min(count*0.05, 0.25))): recurring topics rank higher.
     let mut merged: Vec<SearchHit> = rrf_scores
         .into_values()
         .map(|(rrf, item)| {
             let is_auto = item.tags.iter().any(|t| t == "auto-extracted");
-            let adjusted = if is_auto { rrf * 0.5 } else { rrf };
+            let auto_mul = if is_auto { 0.5 } else { 1.0 };
+            let rec_mul = 1.0 + ((item.recurrence_count as f64) * 0.05).min(0.25);
+            let adjusted = rrf * auto_mul * rec_mul;
             SearchHit { item, score: -adjusted }
         })
         .collect();
