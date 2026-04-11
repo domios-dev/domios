@@ -315,6 +315,10 @@ fn default_worker_model() -> String {
     "claude-haiku-4-5-20251001".to_string()
 }
 
+fn default_worker_timeout_seconds() -> u64 {
+    150
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MemoryConfig {
@@ -340,6 +344,11 @@ pub struct MemoryConfig {
     /// Max concurrent workers per agent provider. Further spawns queue
     /// FIFO until a slot frees up.
     pub workers_per_provider: usize,
+    /// Hard timeout for any hidden agent run (mem worker / cron). The auto-
+    /// complete watcher marks the run Failed if claude hasn't emitted a
+    /// stream-json result event within this many seconds. Default 150.
+    #[serde(default = "default_worker_timeout_seconds")]
+    pub worker_timeout_seconds: u64,
 }
 
 impl Default for MemoryConfig {
@@ -353,6 +362,7 @@ impl Default for MemoryConfig {
             dreaming_model: String::new(),
             worker_model: default_worker_model(),
             workers_per_provider: 3,
+            worker_timeout_seconds: default_worker_timeout_seconds(),
         }
     }
 }

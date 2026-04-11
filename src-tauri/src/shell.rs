@@ -9,9 +9,10 @@ pub struct ShellSyntax;
 impl ShellSyntax {
     pub const IS_WINDOWS: bool = cfg!(target_os = "windows");
 
-    /// Statement to unset the CLAUDECODE env var.
+    // Pre-launch shell setup: unset CLAUDECODE + force UTF-8 on Windows so
+    // non-ASCII text round-trips through the PowerShell pipe to claude.
     pub const UNSET_CLAUDECODE: &str = if Self::IS_WINDOWS {
-        "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue;"
+        "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8;"
     } else {
         "unset CLAUDECODE &&"
     };

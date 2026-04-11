@@ -42,7 +42,7 @@ export type ClaudeStreamEvent =
 
 export type ClaudeContentBlock =
   | { type: "text"; text: string }
-  | { type: "thinking"; thinking: string; signature?: string }
+  | { type: "thinking"; thinking: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | {
       type: "tool_result";
@@ -61,9 +61,10 @@ export interface ParseResult {
   rawLines: RawLine[];
 }
 
-// Strip CSI (`ESC [ ... letter`), OSC (`ESC ] ... BEL` or `ESC ] ... ESC \`),
-// and standalone control bytes (BEL, BS, etc) that PowerShell + claude PTY
-// rendering interleave with the stream-json stdout.
+// Strip CSI, OSC, and most control bytes that PowerShell + ConPTY interleave
+// with the stream-json stdout. Critical: ConPTY wraps long lines at column 120
+// with cursor-positioning escapes that fall MID-JSON, so we cannot rely on
+// newline splitting — we must do brace-balanced JSON extraction instead.
 const ANSI_PATTERN =
   /\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|[\x00-\x08\x0b-\x1f\x7f]/g;
 
@@ -71,44 +72,88 @@ export class ClaudeStreamParser {
   private buffer = "";
 
   feed(chunk: string): ParseResult {
-    this.buffer += chunk;
+    this.buffer += chunk.replace(ANSI_PATTERN, "");
     const events: ClaudeStreamEvent[] = [];
     const rawLines: RawLine[] = [];
 
-    const cleaned = this.buffer.replace(ANSI_PATTERN, "");
-    const lines = cleaned.split(/\r?\n/);
-    this.buffer = lines.pop() ?? "";
+    let pos = 0;
+    let unparsedStart = 0;
 
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) continue;
+    while (pos < this.buffer.length) {
+      const objStart = this.buffer.indexOf("{", pos);
+      if (objStart < 0) {
+        pos = this.buffer.length;
+        break;
+      }
 
-      // Find the first JSON object on the line — claude stream-json sometimes
-      // has prompt echo or trailing text on the same line as the event.
-      const start = line.indexOf("{");
-      const end = line.lastIndexOf("}");
-      if (start !== -1 && end > start) {
-        const candidate = line.slice(start, end + 1);
-        try {
-          const parsed = JSON.parse(candidate);
-          const ev = mapEvent(parsed);
-          if (ev) {
-            events.push(ev);
-            continue;
-          }
-        } catch {
-          // Fall through to raw.
+      // Garbage between previous JSON and this `{` — surface as raw lines.
+      if (objStart > unparsedStart) {
+        const gap = this.buffer.slice(unparsedStart, objStart);
+        for (const ln of gap.split(/\r?\n/)) {
+          const t = ln.trim();
+          if (t) rawLines.push({ text: ln });
         }
       }
-      rawLines.push({ text: rawLine });
+
+      const objEnd = findBalancedEnd(this.buffer, objStart);
+      if (objEnd < 0) {
+        // Incomplete object — wait for more input.
+        break;
+      }
+
+      const candidate = this.buffer.slice(objStart, objEnd + 1);
+      try {
+        const parsed = JSON.parse(candidate);
+        const ev = mapEvent(parsed);
+        if (ev) {
+          events.push(ev);
+        }
+      } catch {
+        // Looked balanced but invalid JSON — preserve as raw single line.
+        rawLines.push({ text: candidate.slice(0, 300) });
+      }
+      pos = objEnd + 1;
+      unparsedStart = pos;
     }
 
+    this.buffer = this.buffer.slice(unparsedStart);
     return { events, rawLines };
   }
 
   reset() {
     this.buffer = "";
   }
+}
+
+function findBalancedEnd(s: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (inString) {
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
 }
 
 function mapEvent(obj: unknown): ClaudeStreamEvent | null {
@@ -166,6 +211,12 @@ function mapEvent(obj: unknown): ClaudeStreamEvent | null {
     return { type: "rate_limit", raw: obj };
   }
 
+  // Drop SDK-internal partial-message deltas — the high-level assistant/user
+  // events already carry the full accumulated content.
+  if (t === "stream_event" || t === "message" || t === "direct") {
+    return null;
+  }
+
   return { type: "unknown", kind: t, raw: obj };
 }
 
@@ -179,11 +230,12 @@ function extractContent(input: unknown): ClaudeContentBlock[] {
       return { type: "text", text: i.text };
     }
     if (k === "thinking" && typeof i.thinking === "string") {
-      return {
-        type: "thinking",
-        thinking: i.thinking,
-        signature: typeof i.signature === "string" ? i.signature : undefined,
-      };
+      // Drop signature — opaque base64 (~700-1500 chars per block) only used
+      // for chaining multi-turn API requests; one-shot workers don't need it.
+      return { type: "thinking", thinking: i.thinking };
+    }
+    if (k === "redacted_thinking") {
+      return { type: "thinking", thinking: "[redacted thinking]" };
     }
     if (k === "tool_use" && typeof i.id === "string" && typeof i.name === "string") {
       return { type: "tool_use", id: i.id, name: i.name, input: i.input };

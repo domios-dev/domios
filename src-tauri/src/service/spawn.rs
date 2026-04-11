@@ -507,9 +507,10 @@ impl ServiceContext {
             env_vars.insert(k.clone(), v.clone());
         }
 
+        // Wide PTY: ConPTY wrapping at col 120 corrupts claude stream-json mid-line.
         let pty_id = {
             let mut pty = self.pty.lock();
-            pty.spawn(None, resolved_cwd, 120, 40, env_vars)
+            pty.spawn(None, resolved_cwd, 9999, 40, env_vars)
                 .map(|(id, _)| id)?
         };
 
@@ -517,6 +518,20 @@ impl ServiceContext {
         self.agent_run_pty_map
             .lock()
             .insert(pane_id.clone(), pty_id.clone());
+        // Register run for auto-complete via stream-json result event / idle / timeout.
+        // Cron kind is resolved later (after the cron registry links pane→run).
+        if let Some(ref worker_id) = agent.worker_id {
+            let timeout = crate::config::memory_config().worker_timeout_seconds;
+            self.run_watcher.register(
+                self.clone(),
+                pty_id.clone(),
+                pane_id.clone(),
+                crate::agent::run_watcher::AgentRunKind::MemWorker {
+                    worker_id: worker_id.clone(),
+                },
+                timeout,
+            );
+        }
         self.emit_state_changed();
 
         let model_args: Vec<String> = agent

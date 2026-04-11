@@ -54,11 +54,14 @@ impl AgentProvider for ClaudeProvider {
             if params.skip_permissions {
                 parts.push("--dangerously-skip-permissions".to_string());
             }
-            // -p reads stdin; stream-json+verbose emits NDJSON events for the popup parser.
+            // -p reads stdin; stream-json+verbose+partial-messages emits NDJSON
+            // continuously (text deltas as generated) so the watcher's idle
+            // counter never trips during normal claude generation.
             parts.push("-p".to_string());
             parts.push("--output-format".to_string());
             parts.push("stream-json".to_string());
             parts.push("--verbose".to_string());
+            parts.push("--include-partial-messages".to_string());
         } else {
             parts.push("claude".to_string());
             if params.skip_permissions {
@@ -540,10 +543,9 @@ mod tests {
         };
         let cmd = p.build_launch_command(&params);
         if cfg!(target_os = "windows") {
-            assert_eq!(
-                cmd,
-                "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; claude --dangerously-skip-permissions"
-            );
+            assert!(cmd.starts_with("Remove-Item Env:CLAUDECODE"));
+            assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
+            assert!(cmd.ends_with(" claude --dangerously-skip-permissions"));
         } else {
             assert_eq!(
                 cmd,

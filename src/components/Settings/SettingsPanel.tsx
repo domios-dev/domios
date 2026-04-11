@@ -1006,7 +1006,7 @@ function AgentProviderScreen({
 }
 
 function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
-  const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_enabled: true, dreaming_agent: "", dreaming_model: "haiku" };
+  const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_enabled: true, dreaming_agent: "", dreaming_model: "haiku", worker_model: "claude-haiku-4-5-20251001", worker_timeout_seconds: 150 };
   const mem = { ...defaultMem, ...(config.memory ?? {}) };
   const { providers } = useAgentProviders();
   const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
@@ -1073,6 +1073,24 @@ function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K exten
           )}
           <p className="text-[10px] text-[var(--ct-muted)] mt-1">
             Smaller models (haiku, o3-mini) are faster and cheaper for extraction. On Claude Max, model may be overridden by subscription.
+          </p>
+        </Label>
+        <Label text="Run timeout (seconds)">
+          <input
+            type="number"
+            min={10}
+            max={3600}
+            value={mem.worker_timeout_seconds}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isFinite(n) && n > 0) {
+                onUpdate("memory", { ...mem, worker_timeout_seconds: n });
+              }
+            }}
+            className={inputClass}
+          />
+          <p className="text-[10px] text-[var(--ct-muted)] mt-1">
+            Auto-completes a worker or cron run if claude doesn&apos;t emit a result event within this many seconds. Idle of 10s also triggers completion. Default 150.
           </p>
         </Label>
       </Group>

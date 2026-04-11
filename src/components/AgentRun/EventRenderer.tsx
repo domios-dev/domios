@@ -19,13 +19,11 @@ export function EventRow({ event }: Props) {
     case "result":
       return <ResultRow event={event} />;
     case "rate_limit":
-      return null; // Hide rate limit chatter from the timeline
     case "unknown":
-      return (
-        <div className="text-[10px] text-[var(--ct-muted-fg)] opacity-60">
-          · unknown event: {event.kind}
-        </div>
-      );
+      // Drop SDK-internal deltas (stream_event, content_block_delta, etc) and
+      // rate limit chatter — the high-level assistant/user/result events
+      // already carry the full content, no need to clutter the timeline.
+      return null;
   }
 }
 

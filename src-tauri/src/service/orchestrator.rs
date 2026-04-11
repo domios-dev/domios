@@ -542,7 +542,9 @@ mod tests {
         let params = make_params("claude", None);
         let cmd = build_agent_command("claude", &params, None, &reg);
         if cfg!(target_os = "windows") {
-            assert_eq!(cmd, "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; claude --dangerously-skip-permissions");
+            assert!(cmd.starts_with("Remove-Item Env:CLAUDECODE"));
+            assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
+            assert!(cmd.ends_with(" claude --dangerously-skip-permissions"));
         } else {
             assert_eq!(cmd, "unset CLAUDECODE && claude --dangerously-skip-permissions");
         }
