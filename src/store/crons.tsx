@@ -34,8 +34,11 @@ interface CronContextValue {
     schedule: string;
     task: string;
     agent?: string;
+    /** Model id within the agent provider. `null` = use provider default. */
+    model?: string | null;
     cwd?: string;
     description?: string;
+    oneshot?: boolean;
   }) => Promise<CronJob>;
   update: (
     id: string,
@@ -46,6 +49,8 @@ interface CronContextValue {
       cwd?: string;
       description?: string;
       enabled?: boolean;
+      agent?: string;
+      model?: string | null;
     },
   ) => Promise<CronJob>;
   remove: (id: string) => Promise<void>;
@@ -121,6 +126,7 @@ export function CronProvider({ children }: { children: ReactNode }) {
       schedule: string;
       task: string;
       agent?: string;
+      model?: string | null;
       cwd?: string;
       description?: string;
       oneshot?: boolean;
@@ -131,6 +137,7 @@ export function CronProvider({ children }: { children: ReactNode }) {
         schedule: params.schedule,
         task: params.task,
         agent: params.agent,
+        model: params.model ?? null,
         cwd: params.cwd,
         description: params.description,
         oneshot: params.oneshot,
@@ -151,6 +158,8 @@ export function CronProvider({ children }: { children: ReactNode }) {
         cwd?: string;
         description?: string;
         enabled?: boolean;
+        agent?: string;
+        model?: string | null;
       },
     ) => {
       const result = await invoke<CronJob>("cron_update", { id, ...patch });
