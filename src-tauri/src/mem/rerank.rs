@@ -148,12 +148,47 @@ fn build_codex_cli(config: &RerankConfig) -> Option<Box<dyn Reranker>> {
 }
 
 /// Resolve a binary name on PATH. Avoids relying on the `which` crate.
+///
+/// On Windows, also probes `PATHEXT` (typically `.EXE;.CMD;.BAT;...`) so
+/// callers can pass a bare name like `"claude"` and still find
+/// `claude.exe`. Matches `cmd.exe`'s resolution rules.
 fn which_on_path(name: &str) -> Option<std::path::PathBuf> {
     let path = std::env::var_os("PATH")?;
+
+    #[cfg(windows)]
+    let extensions: Vec<String> = {
+        // If the caller already supplied an extension, just use it as-is;
+        // otherwise iterate over PATHEXT plus a blank entry so `dir.join(name)`
+        // also gets a shot (rare, but avoids a regression for bare names
+        // that were resolvable before).
+        let has_dot = std::path::Path::new(name).extension().is_some();
+        if has_dot {
+            vec![String::new()]
+        } else {
+            let pathext = std::env::var("PATHEXT")
+                .unwrap_or_else(|_| ".EXE;.CMD;.BAT;.COM".into());
+            let mut exts: Vec<String> = pathext
+                .split(';')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            exts.insert(0, String::new());
+            exts
+        }
+    };
+    #[cfg(not(windows))]
+    let extensions: Vec<String> = vec![String::new()];
+
     for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
+        for ext in &extensions {
+            let candidate = if ext.is_empty() {
+                dir.join(name)
+            } else {
+                dir.join(format!("{}{}", name, ext))
+            };
+            if candidate.is_file() {
+                return Some(candidate);
+            }
         }
     }
     None
@@ -639,8 +674,16 @@ mod tests {
 
     #[test]
     fn which_on_path_finds_known_binary() {
-        // `sh` exists on every unix machine
-        assert!(which_on_path("sh").is_some());
+        // Every Rust test runs inside a process where `rustc` is reachable
+        // via the same PATH we're about to query — use it as the "known
+        // binary" so this test is deterministic on every CI host and every
+        // developer machine regardless of how PATH is shaped. MSYS-style
+        // forward-slash PATH, Windows backslash PATH, and plain Unix PATH
+        // all land here.
+        assert!(
+            which_on_path("rustc").is_some(),
+            "expected rustc to be resolvable on PATH (running test implies it is)"
+        );
         assert!(which_on_path("definitely_not_a_real_binary_xyz").is_none());
     }
 
