@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Pill } from "lucide-react";
+import { Power } from "lucide-react";
 import { createPortal } from "react-dom";
 
 interface KeepAwakeStatus {
@@ -9,49 +9,56 @@ interface KeepAwakeStatus {
   expires_at: number | null;
 }
 
-const PRESETS: { label: string; secs: number | null }[] = [
-  { label: "Indefinitely", secs: null },
-  { label: "1 hour", secs: 3600 },
-  { label: "2 hours", secs: 7200 },
-  { label: "4 hours", secs: 14400 },
-  { label: "8 hours", secs: 28800 },
-  { label: "12 hours", secs: 43200 },
+const PRESETS: { label: string; title: string; secs: number | null }[] = [
+  { label: "∞", title: "Indefinitely", secs: null },
+  { label: "1h", title: "1 hour", secs: 3600 },
+  { label: "2h", title: "2 hours", secs: 7200 },
+  { label: "4h", title: "4 hours", secs: 14400 },
+  { label: "8h", title: "8 hours", secs: 28800 },
+  { label: "12h", title: "12 hours", secs: 43200 },
 ];
 
-function formatRemaining(expiresAt: number): string {
+const DISPLAY_KEY = "keepawake.displaySleep";
+
+function loadDisplay(): boolean {
+  try { return localStorage.getItem(DISPLAY_KEY) === "1"; } catch { return false; }
+}
+
+function saveDisplay(v: boolean) {
+  try { localStorage.setItem(DISPLAY_KEY, v ? "1" : "0"); } catch {}
+}
+
+function clockParts(expiresAt: number): { h: number; m: number } | null {
   const diff = expiresAt - Date.now();
-  if (diff <= 0) return "expiring…";
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m left`;
-  const hrs = Math.floor(mins / 60);
-  const rm = mins % 60;
-  return rm > 0 ? `${hrs}h ${rm}m left` : `${hrs}h left`;
+  if (diff <= 0) return null;
+  const totalMins = Math.ceil(diff / 60000);
+  return { h: Math.floor(totalMins / 60), m: totalMins % 60 };
 }
 
 export function KeepAwakeTray() {
   const [status, setStatus] = useState<KeepAwakeStatus>({ active: false, display: false, expires_at: null });
   const [open, setOpen] = useState(false);
-  const [displaySleep, setDisplaySleep] = useState(false);
-  const [remaining, setRemaining] = useState("");
+  const [displaySleep, setDisplaySleep] = useState<boolean>(loadDisplay);
+  const [tick, setTick] = useState(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Fetch status on mount
+  // Mount: fetch backend status, sync display flag if a session is active
   useEffect(() => {
-    invoke<KeepAwakeStatus>("keepawake_status").then(setStatus).catch(() => {});
+    invoke<KeepAwakeStatus>("keepawake_status").then((s) => {
+      setStatus(s);
+      if (s.active) setDisplaySleep(s.display);
+    }).catch(() => {});
   }, []);
 
-  // Tick remaining timer every 30s when active
+  // Heartbeat: 500ms tick drives blinking colon + minute countdown when timed
   useEffect(() => {
-    if (!status.active) { setRemaining(""); return; }
-    if (!status.expires_at) { setRemaining("Indefinitely"); return; }
-    const update = () => setRemaining(formatRemaining(status.expires_at!));
-    update();
-    const id = setInterval(update, 30000);
+    if (!status.active || status.expires_at === null) return;
+    const id = setInterval(() => setTick((t) => t + 1), 500);
     return () => clearInterval(id);
   }, [status.active, status.expires_at]);
 
-  // Check for natural expiry (timer thread cleared state)
+  // Natural expiry watcher
   useEffect(() => {
     if (!status.active) return;
     const id = setInterval(() => {
@@ -69,39 +76,47 @@ export function KeepAwakeTray() {
         display: displaySleep,
       });
       setStatus(s);
+      setDisplaySleep(s.display);
     } catch (e) {
       console.error("[keepawake]", e);
     }
-    setOpen(false);
   }, [displaySleep]);
 
   const stop = useCallback(async () => {
     await invoke("keepawake_stop").catch(() => {});
     setStatus({ active: false, display: false, expires_at: null });
-    setOpen(false);
   }, []);
 
-  // Close on click outside
+  const toggleDisplay = useCallback(() => {
+    const next = !displaySleep;
+    setDisplaySleep(next);
+    saveDisplay(next);
+    if (status.active) {
+      const durSecs = status.expires_at
+        ? Math.max(0, Math.round((status.expires_at - Date.now()) / 1000))
+        : undefined;
+      invoke<KeepAwakeStatus>("keepawake_start", { durationSecs: durSecs, display: next })
+        .then((s) => { setStatus(s); setDisplaySleep(s.display); })
+        .catch(() => {});
+    }
+  }, [displaySleep, status.active, status.expires_at]);
+
+  // Outside click + Escape close
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
+    const click = (e: MouseEvent) => {
       if (
         menuRef.current && !menuRef.current.contains(e.target as Node) &&
         triggerRef.current && !triggerRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-      }
+      ) setOpen(false);
     };
-    document.addEventListener("mousedown", handler, true);
-    return () => document.removeEventListener("mousedown", handler, true);
-  }, [open]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", click, true);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", click, true);
+      document.removeEventListener("keydown", key);
+    };
   }, [open]);
 
   const pos = (() => {
@@ -110,90 +125,109 @@ export function KeepAwakeTray() {
     return { top: rect.bottom + 4, right: window.innerWidth - rect.right };
   })();
 
+  const timed = status.active && status.expires_at !== null;
+  const time = timed ? clockParts(status.expires_at!) : null;
+  const colonOn = tick % 2 === 0;
+  const titleText = status.active
+    ? status.expires_at === null
+      ? "Keep Awake: Indefinitely"
+      : time
+        ? `Keep Awake: ${time.h}:${String(time.m).padStart(2, "0")}`
+        : "Keep Awake: expiring…"
+    : "Keep Awake";
+
   return (
     <>
       <button
         ref={triggerRef}
         onClick={() => setOpen((v) => !v)}
+        title={titleText}
         className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
           status.active
             ? "text-[var(--ct-accent)] hover:bg-[rgba(255,255,255,0.08)]"
             : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
         }`}
-        title={status.active ? `Keep Awake: ${remaining}` : "Keep Awake"}
       >
-        <Pill size={14} />
+        <Power size={14} />
       </button>
 
       {open && pos && createPortal(
         <div
           ref={menuRef}
-          className="fixed z-50 min-w-[180px] border border-[rgba(255,255,255,0.12)] rounded-md shadow-lg py-1 backdrop-blur-xl"
+          className="fixed z-50 w-[260px] border border-[rgba(255,255,255,0.12)] rounded-lg shadow-2xl backdrop-blur-xl overflow-hidden"
           style={{ top: pos.top, right: pos.right, background: "var(--ct-surface, #1e1e2e)" }}
         >
-          {/* Status line */}
-          <div className="px-3 py-1.5 text-[10px] text-[var(--ct-muted)] uppercase tracking-wider">
-            {status.active ? remaining : "Keep Awake"}
+          {/* Header row */}
+          <div className="flex items-center h-10 px-3">
+            <div className="flex-1 flex items-baseline gap-1.5 min-w-0">
+              <span className={`text-[11px] font-medium ${status.active ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted)]"}`}>
+                Keep Awake
+              </span>
+              {status.active && (
+                <>
+                  <span className="text-[11px] text-[var(--ct-muted)]">—</span>
+                  <span className="font-mono text-[13px] font-semibold tabular-nums leading-none text-[var(--ct-accent)]">
+                    {status.expires_at === null ? "∞" : time ? (
+                      <>
+                        {time.h}
+                        <span style={{ opacity: colonOn ? 1 : 0.25, transition: "opacity 120ms" }}>:</span>
+                        {String(time.m).padStart(2, "0")}
+                      </>
+                    ) : "0:00"}
+                  </span>
+                </>
+              )}
+            </div>
+            {status.active && (
+              <button
+                onClick={(e) => { e.stopPropagation(); stop(); }}
+                title="End session"
+                className="ml-2 px-2 py-0.5 text-[10px] rounded-full border border-[rgba(255,255,255,0.18)] text-[var(--ct-muted)] hover:border-[var(--ct-red,#ef4444)] hover:text-[var(--ct-red,#ef4444)] hover:bg-[rgba(239,68,68,0.12)] transition-colors"
+              >
+                End
+              </button>
+            )}
           </div>
 
-          <div className="h-px bg-[rgba(255,255,255,0.08)] mx-2 my-0.5" />
+          <div className="h-px bg-[rgba(255,255,255,0.08)]" />
 
-          {/* Presets */}
-          {PRESETS.map((p) => (
-            <button
-              key={p.label}
-              onClick={() => start(p.secs)}
-              className={`flex items-center w-full px-3 py-1.5 text-[11px] transition-colors ${
-                status.active && (
-                  (p.secs === null && status.expires_at === null) ||
-                  (p.secs !== null && status.expires_at !== null)
-                )
-                  ? "text-[var(--ct-accent)]"
-                  : "text-[var(--ct-fg)]"
-              } hover:bg-[rgba(255,255,255,0.08)]`}
-            >
-              {p.label}
-            </button>
-          ))}
+          {/* Preset chips row */}
+          <div className="flex items-center gap-1 px-3 py-2">
+            {PRESETS.map((p) => (
+              <button
+                key={p.label}
+                onClick={() => start(p.secs)}
+                title={p.title}
+                className="flex-1 px-1 py-1 text-[11px] rounded-md text-[var(--ct-fg)] border border-[rgba(255,255,255,0.10)] hover:border-[var(--ct-accent)] hover:text-[var(--ct-accent)] hover:bg-[rgba(125,200,255,0.08)] transition-colors"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
 
-          <div className="h-px bg-[rgba(255,255,255,0.08)] mx-2 my-0.5" />
+          <div className="h-px bg-[rgba(255,255,255,0.08)]" />
 
           {/* Display sleep toggle */}
           <button
-            onClick={() => {
-              const next = !displaySleep;
-              setDisplaySleep(next);
-              // If already active, re-start with new display setting
-              if (status.active) {
-                const durSecs = status.expires_at
-                  ? Math.max(0, Math.round((status.expires_at - Date.now()) / 1000))
-                  : undefined;
-                invoke<KeepAwakeStatus>("keepawake_start", {
-                  durationSecs: durSecs,
-                  display: next,
-                }).then(setStatus).catch(() => {});
-              }
-            }}
-            className="flex items-center justify-between w-full px-3 py-1.5 text-[11px] text-[var(--ct-fg)] hover:bg-[rgba(255,255,255,0.08)]"
+            onClick={toggleDisplay}
+            className="flex items-center justify-between w-full px-3 py-2 text-[11px] text-[var(--ct-fg)] hover:bg-[rgba(255,255,255,0.06)] transition-colors"
           >
-            <span>Prevent display sleep</span>
-            <span className={`text-[10px] ${displaySleep ? "text-[var(--ct-accent)]" : "text-[var(--ct-muted)]"}`}>
-              {displaySleep ? "ON" : "OFF"}
+            <span className="flex flex-col items-start">
+              <span>Keep display awake</span>
+              <span className="text-[9.5px] text-[var(--ct-muted)] mt-0.5">
+                {displaySleep ? "Display stays on" : "Display can sleep"}
+              </span>
+            </span>
+            <span
+              className="relative inline-block w-7 h-4 rounded-full transition-colors flex-shrink-0"
+              style={{ background: displaySleep ? "var(--ct-accent, #7dc8ff)" : "rgba(255,255,255,0.16)" }}
+            >
+              <span
+                className="absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all"
+                style={{ left: displaySleep ? "calc(100% - 14px)" : "2px" }}
+              />
             </span>
           </button>
-
-          {/* Turn off */}
-          {status.active && (
-            <>
-              <div className="h-px bg-[rgba(255,255,255,0.08)] mx-2 my-0.5" />
-              <button
-                onClick={stop}
-                className="flex items-center w-full px-3 py-1.5 text-[11px] text-[var(--ct-muted-fg)] hover:bg-[rgba(239,68,68,0.15)] hover:text-[var(--ct-red)]"
-              >
-                Turn off
-              </button>
-            </>
-          )}
         </div>,
         document.body
       )}
