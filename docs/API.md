@@ -51,7 +51,7 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/send` | `{text?, enter?, batch?: [{text, enter?, delay_ms?}]}` | Send text to PTY (fire & forget) |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
 | GET | `/api/panes/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
-| GET | `/api/panes/{id}/screen` | — | Get visible terminal text (alternate buffer included). Served from the backend VT100 screen — no frontend roundtrip, no 3s timeout, works even if no frontend is attached. |
+| GET | `/api/panes/{id}/text` | `?formatted=false` | Get visible terminal text (alternate buffer included). Served from the backend VT100 parser — no frontend roundtrip, no 3s timeout, works even if no frontend is attached. Response: `{"text": "..."}`. With `?formatted=true` the string contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility — used for pane remount to restore TUI apps like Claude that hide the cursor via DECTCEM. |
 | GET | `/api/panes/{id}/output/stream` | — | SSE real-time output stream |
 | POST | `/api/panes/{id}/focus` | — | Focus pane |
 | POST | `/api/panes/{id}/close` | — | Close pane + kill PTY |
@@ -610,7 +610,7 @@ These are Tauri IPC commands (invoked from frontend via `invoke()`), not REST en
 | `set_autostart_enabled` | `enabled: bool` | Enable/disable OS autostart. Windows: HKCU registry. macOS: LaunchAgent plist. Linux: .desktop file. |
 | `save_clipboard_file` | `bytes: Vec<u8>, filename: String` | Saves arbitrary clipboard file bytes to a managed temp bucket (`files`) under the OS temp dir and returns the absolute path. Used by clipboard paste / drag-drop to materialize attachments before sending to an agent. Eviction is handled by the shared `attachments` module. |
 | `read_clipboard_files` | — | Reads native OS clipboard file references and returns absolute paths. **Windows:** `CF_HDROP` via `clipboard-win`. **macOS:** `NSPasteboardTypeFileURL`. **Linux:** stub (returns empty). |
-| `get_pane_screen_formatted` | `pane_id: String` | Returns the pane's screen state as escape-coded bytes preserving colors, cursor position, and cursor visibility (uses `contents_formatted()` + `cursor_state_formatted()`). Used on pane restore to avoid the ConPTY double-cursor issue. |
+| `get_pane_text` | `pane_id: String, formatted: Option<bool>` | Returns the pane's visible VT100-parsed text. With `formatted=true` the string contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility — used on pane remount to avoid the ConPTY double-cursor issue when TUI apps hide the cursor via DECTCEM. Default `formatted=false` returns plain text. |
 
 ## Environment Variables
 

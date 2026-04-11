@@ -30,7 +30,7 @@ async function spawnClaude(opts = {}) {
 async function waitForClaude(paneId, timeoutS = 60) {
   for (let i = 0; i < timeoutS; i += 2) {
     await browser.pause(2000);
-    const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
+    const screen = (await api('GET', `/panes/${paneId}/text`)).text || '';
     if (screen.includes('? for shortcuts') || screen.includes('esc to interrupt') || screen.includes('bypass permissions')) {
       return screen;
     }
@@ -248,7 +248,7 @@ describe('Chat: messages render correctly', () => {
   });
 
   it('no phantom input in terminal', async () => {
-    const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
+    const screen = (await api('GET', `/panes/${paneId}/text`)).text || '';
     const phantoms = (screen.match(/❯ 3\n/g) || []).length;
     expect(phantoms).toBeLessThan(2);
   });

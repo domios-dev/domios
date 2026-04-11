@@ -162,13 +162,13 @@ export async function countTabs() {
   );
 }
 
-/** Wait for screen to contain text (via API). */
+/** Wait for pane text to contain pattern (via API). */
 export async function waitForScreen(paneId, pattern, timeout = 30000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
-    const screen = (await api('GET', `/panes/${paneId}/screen`)).screen || '';
-    if (screen.includes(pattern)) return screen;
+    const text = (await api('GET', `/panes/${paneId}/text`)).text || '';
+    if (text.includes(pattern)) return text;
     await browser.pause(2000);
   }
-  throw new Error(`Pattern "${pattern}" not on screen within ${timeout}ms`);
+  throw new Error(`Pattern "${pattern}" not in pane text within ${timeout}ms`);
 }

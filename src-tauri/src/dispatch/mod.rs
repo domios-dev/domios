@@ -37,10 +37,12 @@ pub enum Command {
         full: bool,
     },
 
-    /// Get pane screen state (VT100 parsed)
-    GetScreen {
+    /// Get visible pane text (VT100-parsed terminal screen).
+    /// When `formatted` is true, the string contains ANSI escape codes
+    /// preserving colors, cursor position, and cursor visibility — used
+    /// for full state restore on pane remount. Default returns plain text.
+    GetText {
         pane_id: String,
-        /// If true, return escape-coded bytes preserving colors/cursor
         #[serde(default)]
         formatted: bool,
     },
@@ -128,8 +130,8 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
         Command::GetOutput { pane_id, offset, max_bytes, strip_ansi, full } => {
             cmd_get_output(ctx, pane_id, *offset, *max_bytes, *strip_ansi, *full)
         }
-        Command::GetScreen { pane_id, formatted } => {
-            cmd_get_screen(ctx, pane_id, *formatted)
+        Command::GetText { pane_id, formatted } => {
+            cmd_get_text(ctx, pane_id, *formatted)
         }
         Command::PaneClose { pane_id } => cmd_pane_close(ctx, pane_id),
         Command::PaneFocus { pane_id } => cmd_pane_focus(ctx, pane_id),
@@ -221,7 +223,7 @@ fn cmd_get_output(
     })))
 }
 
-fn cmd_get_screen(
+fn cmd_get_text(
     ctx: &ServiceContext,
     pane_id: &str,
     formatted: bool,
@@ -229,19 +231,17 @@ fn cmd_get_screen(
     let pty_id = ctx.resolve_pty_id(pane_id)?;
     let ss = ctx.screen_state.lock();
 
-    if formatted {
+    let text = if formatted {
         let bytes = ss.get_screen_formatted(&pty_id)
-            .ok_or_else(|| "No screen state".to_string())?;
-        Ok(CommandResult::Json(serde_json::json!({
-            "screen": bytes,
-            "formatted": true,
-        })))
+            .ok_or_else(|| "No pane text".to_string())?;
+        String::from_utf8_lossy(&bytes).into_owned()
     } else {
-        let text = ss.get_screen_text(&pty_id).unwrap_or_default();
-        Ok(CommandResult::Json(serde_json::json!({
-            "screen": text.replace('\n', "\r\n"),
-        })))
-    }
+        ss.get_screen_text(&pty_id).unwrap_or_default().replace('\n', "\r\n")
+    };
+    Ok(CommandResult::Json(serde_json::json!({
+        "text": text,
+        "formatted": formatted,
+    })))
 }
 
 fn cmd_pane_close(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, String> {
@@ -384,11 +384,11 @@ mod tests {
     }
 
     #[test]
-    fn test_command_deserialize_get_screen() {
-        let json = r#"{"cmd": "get_screen", "pane_id": "abc", "formatted": true}"#;
+    fn test_command_deserialize_get_text() {
+        let json = r#"{"cmd": "get_text", "pane_id": "abc", "formatted": true}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
         match cmd {
-            Command::GetScreen { pane_id, formatted } => {
+            Command::GetText { pane_id, formatted } => {
                 assert_eq!(pane_id, "abc");
                 assert!(formatted);
             }
@@ -468,7 +468,7 @@ mod tests {
                 strip_ansi: false,
                 full: false,
             },
-            Command::GetScreen { pane_id: "p".into(), formatted: false },
+            Command::GetText { pane_id: "p".into(), formatted: false },
             Command::PaneClose { pane_id: "p".into() },
             Command::PaneFocus { pane_id: "p".into() },
             Command::PaneRename { pane_id: "p".into(), title: "t".into() },

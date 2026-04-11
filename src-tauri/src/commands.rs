@@ -406,39 +406,32 @@ pub async fn get_pane_output(
         .to_string())
 }
 
-/// Get current screen state (what's visible on the terminal right now).
-/// Uses the VT100 screen parser — handles cursor positioning, overwrites, etc.
-/// Better than get_pane_output for restoring TUI apps after remount.
+/// Get visible terminal text from a pane (VT100-parsed screen state).
+///
+/// When `formatted=false` (default): plain text, no ANSI escapes — good for
+/// agents and tests that need readable content.
+///
+/// When `formatted=true`: raw string with ANSI escape codes preserving colors,
+/// cursor position, and cursor visibility. Used by pane remount to restore
+/// TUI apps like Claude that hide xterm cursor via DECTCEM — plain text would
+/// lose that state and produce a double cursor.
 #[tauri::command]
-pub async fn get_pane_screen(
+pub async fn get_pane_text(
     svc: tauri::State<'_, ServiceState>,
     pane_id: String,
+    formatted: Option<bool>,
 ) -> Result<String, String> {
-    let cmd = crate::dispatch::Command::GetScreen { pane_id, formatted: false };
+    let cmd = crate::dispatch::Command::GetText {
+        pane_id,
+        formatted: formatted.unwrap_or(false),
+    };
     let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
     Ok(result
         .into_json()
-        .get("screen")
+        .get("text")
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string())
-}
-
-/// Get screen state as escape-coded bytes — preserves colors, cursor position, cursor visibility.
-/// Fixes double-cursor bug: TUI apps like Claude hide xterm cursor via DECTCEM,
-/// but `get_pane_screen` (text-only) loses that state on remount.
-#[tauri::command]
-pub async fn get_pane_screen_formatted(
-    svc: tauri::State<'_, ServiceState>,
-    pane_id: String,
-) -> Result<Vec<u8>, String> {
-    let cmd = crate::dispatch::Command::GetScreen { pane_id, formatted: true };
-    let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
-    let json = result.into_json();
-    json.get("screen")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|n| n.as_u64().map(|x| x as u8)).collect())
-        .ok_or_else(|| "No screen state".to_string())
 }
 
 /// List all registered agent providers as `ProviderDescriptor`s.

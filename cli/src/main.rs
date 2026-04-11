@@ -597,11 +597,15 @@ pub enum PaneAction {
         #[arg(long, alias = "id")]
         pane: Option<String>,
     },
-    /// Get visible screen content of a pane (what the user sees)
-    Screen {
+    /// Get visible terminal text of a pane (what the user sees)
+    #[command(alias = "get_text", alias = "screen")]
+    GetText {
         /// Pane ID (default: current focused pane)
         #[arg(long, alias = "id")]
         pane: Option<String>,
+        /// Include raw ANSI escape codes (colors, cursor state) instead of plain text
+        #[arg(long)]
+        formatted: bool,
     },
     /// Execute a command in a pane and return output
     Exec {
@@ -1144,26 +1148,31 @@ fn main() {
                     Some(serde_json::json!({ "pane_id": pane_id, "title": title })),
                 )
             }
-            PaneAction::Screen { pane } => {
+            PaneAction::GetText { pane, formatted } => {
                 let pane_id = resolve_pane(&mut client, pane);
                 let (api_url, api_token) = read_api_config();
                 let http = build_http(&api_token);
-                match http.get(format!("{}/api/panes/{}/screen", api_url, pane_id)).send() {
+                let url = format!("{}/api/panes/{}/text?formatted={}", api_url, pane_id, formatted);
+                match http.get(url).send() {
                     Ok(resp) => {
                         if let Ok(val) = resp.json::<serde_json::Value>() {
-                            if let Some(screen) = val.get("screen").and_then(|v| v.as_str()) {
-                                for line in screen.lines() {
-                                    if !line.trim().is_empty() {
-                                        println!("{}", line);
+                            if let Some(text) = val.get("text").and_then(|v| v.as_str()) {
+                                if formatted {
+                                    print!("{}", text);
+                                } else {
+                                    for line in text.lines() {
+                                        if !line.trim().is_empty() {
+                                            println!("{}", line);
+                                        }
                                     }
                                 }
                                 return;
                             }
                         }
-                        eprintln!("No screen data");
+                        eprintln!("No pane text");
                         std::process::exit(1);
                     }
-                    Err(e) => { eprintln!("Screen request failed: {}", e); std::process::exit(1); }
+                    Err(e) => { eprintln!("Get-text request failed: {}", e); std::process::exit(1); }
                 }
             }
             PaneAction::Exec { pane, command, timeout } => {

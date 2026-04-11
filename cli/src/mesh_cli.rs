@@ -148,6 +148,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         },
         Commands::Pane { action } => match action {
             super::PaneAction::List => ("GET".into(), "/api/panes".into(), None),
+            super::PaneAction::Current { .. } => ("GET".into(), "/api/panes".into(), None),
             super::PaneAction::Focus { id } => ("POST".into(), format!("/api/panes/{}/focus", id), None),
             super::PaneAction::Close { id } => ("POST".into(), format!("/api/panes/{}/close", id), None),
             super::PaneAction::Rename { title, pane } => {
@@ -155,7 +156,23 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("POST".into(), format!("/api/panes/{}/rename", p),
                     Some(serde_json::json!({"title": title}).to_string()))
             }
-            _ => ("GET".into(), "/api/panes".into(), None),
+            super::PaneAction::GetText { pane, formatted } => {
+                let p = pane.as_deref().unwrap_or("general");
+                ("GET".into(), format!("/api/panes/{}/text?formatted={}", p, formatted), None)
+            }
+            super::PaneAction::Exec { command, pane, timeout } => {
+                let p = pane.as_deref().unwrap_or("general");
+                ("POST".into(), format!("/api/panes/{}/exec", p),
+                    Some(serde_json::json!({
+                        "command": command,
+                        "timeout_ms": timeout,
+                        "strip_ansi": true,
+                    }).to_string()))
+            }
+            super::PaneAction::Status { pane } => {
+                let p = pane.as_deref().unwrap_or("general");
+                ("GET".into(), format!("/api/panes/{}/status", p), None)
+            }
         },
         Commands::Agent { action } => match action {
             super::AgentAction::List => ("GET".into(), "/api/agents".into(), None),
@@ -241,8 +258,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
 /// Shortcut relay — maps old-style actions to new generic relay format.
 pub fn mesh_relay_cmd(http: &reqwest::blocking::Client, base: &str, token: &Option<String>, target: &str, action: &str, payload: &str, pane: &str, json_mode: bool) {
     let (method, path, body) = match action {
-        "exec" | "send" => ("POST", format!("/api/panes/{}/send", if pane.is_empty() { "general" } else { pane }),
-            serde_json::json!({"text": payload, "enter": true})),
+        "exec" | "send" => {
+            let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
+            ("POST", format!("/api/panes/{}/send", if pane.is_empty() { "general" } else { pane }),
+                serde_json::json!({"text": payload, "enter": true, "source_pane": source}))
+        }
         "output" => ("GET", format!("/api/panes/{}/output", if pane.is_empty() { "general" } else { pane }),
             serde_json::json!(null)),
         "panes" => ("GET", "/api/panes".to_string(), serde_json::json!(null)),
@@ -293,6 +313,12 @@ pub fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &
             } else if let Some(data) = val.get("data") {
                 if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
                     print!("{}", text); // raw output for output command
+                } else if let Some(pane_text) = data.get("text").and_then(|v| v.as_str()) {
+                    for line in pane_text.lines() {
+                        if !line.trim().is_empty() {
+                            println!("{}", line);
+                        }
+                    }
                 } else {
                     println!("{}", serde_json::to_string_pretty(data).unwrap());
                 }

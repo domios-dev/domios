@@ -195,9 +195,9 @@ class CodeTermAPI:
         )
 
     def get_screen(self, pane_id: str) -> str:
-        """GET /api/panes/{id}/screen — visible terminal text."""
-        data = self.get(f"/api/panes/{pane_id}/screen")
-        return data.get("screen", "")
+        """GET /api/panes/{id}/text — visible terminal text."""
+        data = self.get(f"/api/panes/{pane_id}/text")
+        return data.get("text", "")
 
     # -- Workspace / Pane CRUD shortcuts ------------------------------------
 
@@ -250,7 +250,7 @@ class CodeTermAPI:
         pattern: str,
         timeout: float = 30,
     ) -> str:
-        """Poll GET /api/panes/{id}/screen until pattern appears. Returns screen text."""
+        """Poll GET /api/panes/{id}/text until pattern appears. Returns pane text."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
