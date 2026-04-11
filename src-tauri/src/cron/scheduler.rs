@@ -51,12 +51,21 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
         Option<String>,
     )> = Vec::new();
 
-    // Collect jobs that need firing
     {
         let store = cron_state.lock();
         for job in store.list_enabled() {
             if let Some(nr) = job.next_run {
                 if nr <= now_ms {
+                    if store.is_job_running(&job.id) {
+                        log::info!("[cron] skip {}: previous run still active", job.id);
+                        // recheck in 30s instead of busy-looping on an overdue next_run
+                        let recheck = now_ms + 30_000;
+                        next_fire = Some(match next_fire {
+                            Some(current) => current.min(recheck),
+                            None => recheck,
+                        });
+                        continue;
+                    }
                     to_fire.push((
                         job.id.clone(),
                         job.agent.clone(),

@@ -626,6 +626,14 @@ fn call_openai(
 mod tests {
     use super::*;
     use crate::mem::store::MemItem;
+    use std::sync::{Mutex, OnceLock};
+
+    // Tests that mutate process-wide PATH must run serialized or they race
+    // with which_on_path_finds_known_binary reading PATH on a sibling thread.
+    fn path_env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     fn hit(id: &str) -> SearchHit {
         SearchHit {
@@ -674,12 +682,7 @@ mod tests {
 
     #[test]
     fn which_on_path_finds_known_binary() {
-        // Every Rust test runs inside a process where `rustc` is reachable
-        // via the same PATH we're about to query — use it as the "known
-        // binary" so this test is deterministic on every CI host and every
-        // developer machine regardless of how PATH is shaped. MSYS-style
-        // forward-slash PATH, Windows backslash PATH, and plain Unix PATH
-        // all land here.
+        let _g = path_env_lock().lock().unwrap();
         assert!(
             which_on_path("rustc").is_some(),
             "expected rustc to be resolvable on PATH (running test implies it is)"
@@ -689,9 +692,8 @@ mod tests {
 
     #[test]
     fn build_claude_cli_falls_back_when_missing() {
-        // Force PATH to a directory that has no claude
+        let _g = path_env_lock().lock().unwrap();
         let cfg = RerankConfig { enabled: true, provider: "claude-cli".into(), api_key_env: None, model: None };
-        // Save and clear PATH so the test is deterministic
         let prev = std::env::var_os("PATH");
         std::env::set_var("PATH", "");
         let r = build(&cfg);
@@ -702,9 +704,8 @@ mod tests {
 
     #[test]
     fn auto_default_when_provider_empty() {
+        let _g = path_env_lock().lock().unwrap();
         let cfg = RerankConfig { enabled: true, provider: "".into(), api_key_env: Some("DEFINITELY_UNSET_KEY".into()), model: None };
-        // Empty provider should fall through auto path. With no claude/codex
-        // on PATH and no keys, lands on Noop. Just verify no panic.
         let prev = std::env::var_os("PATH");
         std::env::set_var("PATH", "");
         let r = build(&cfg);
