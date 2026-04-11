@@ -569,6 +569,18 @@ impl MemManager {
         let conn = self.conn.lock();
         store::get_item_history(&conn, id)
     }
+
+    /// `{area -> {kind -> count}}` grouped by area (NULL -> "(none)") and
+    /// kind. When `workspace` is Some, filter to rows whose scope matches
+    /// `workspace:<id>`. When None, aggregate across all scopes.
+    pub fn get_taxonomy(
+        &self,
+        workspace: Option<&str>,
+    ) -> Result<std::collections::HashMap<String, std::collections::HashMap<String, u64>>, String>
+    {
+        let conn = self.conn.lock();
+        store::get_taxonomy(&conn, workspace)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -655,6 +667,32 @@ mod tests {
         let promote = history.iter().find(|h| h.change_type == "promote").unwrap();
         assert_eq!(promote.old_kind.as_deref(), Some("learning"));
         assert_eq!(promote.new_kind.as_deref(), Some("fact"));
+    }
+
+    #[test]
+    fn taxonomy_manager_aggregates_by_area_and_kind() {
+        let mem = MemManager::open_in_memory().unwrap();
+        for (title, kind, area) in [
+            ("t1", MemKind::Fact, Some("rekap")),
+            ("t2", MemKind::Note, Some("rekap")),
+            ("t3", MemKind::Rule, None),
+        ] {
+            mem.save(NewMemItem {
+                kind,
+                scope: MemScope::Global,
+                title: title.into(),
+                summary: None,
+                area: area.map(String::from),
+                tags: vec![],
+                body: "b".into(),
+                source: None,
+                importance: 3.0,
+            })
+            .unwrap();
+        }
+        let tax = mem.get_taxonomy(None).unwrap();
+        assert!(tax.get("rekap").and_then(|m| m.get("fact")).is_some());
+        assert!(tax.get("(none)").and_then(|m| m.get("rule")).is_some());
     }
 
     #[test]

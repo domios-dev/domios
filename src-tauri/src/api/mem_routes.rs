@@ -1144,3 +1144,25 @@ pub async fn mem_history(
     Ok(Json(serde_json::json!({ "history": history })))
 }
 
+// ── Phase D: taxonomy ────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct TaxonomyParams {
+    #[serde(default)]
+    pub workspace: Option<String>,
+}
+
+pub async fn mem_taxonomy(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<TaxonomyParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let tax = state
+        .svc
+        .mem
+        .get_taxonomy(p.workspace.as_deref())
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::to_value(tax).unwrap_or_default()))
+}
+
