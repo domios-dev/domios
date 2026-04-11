@@ -1,21 +1,22 @@
-//! Auto-extraction: on save, spawn a hidden graph-worker that uses
-//! `claude --model haiku` to extract entities and relations from text,
-//! then writes them back via `codeterm mem` CLI commands.
+//! Auto-extraction: on save, spawn a hidden graph-worker that uses the
+//! configured agent provider + model to extract entities and relations
+//! from text, then writes them back via `codeterm mem` CLI commands.
 //!
-//! Completely free (OAuth, no API key). Worker is visible in the Memory
-//! Panel workers tab as a log of what was extracted.
+//! Free when the default provider is Claude Max (OAuth, no API key).
+//! Workers show up in the Memory Panel "Workers" tab as a log of what
+//! was extracted. The pane is hidden from birth — zero tab flash.
 //!
-//! The worker pane is created headless — PTY spawned from backend with a
-//! backend reader, hidden from the start. Never flashes in the main tab bar.
+//! Phase 3 step 2 of the spawn unification: this module no longer owns
+//! any pane/PTY/reader plumbing. It builds the extraction prompt and
+//! delegates the whole spawn through `ServiceContext::spawn_pane`.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use tauri::Emitter;
-
-use crate::service::ServiceContext;
-use crate::mem::workers;
 use crate::mem::store::MemKind;
+use crate::service::spawn::{
+    AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec,
+};
+use crate::service::ServiceContext;
 
 /// Kinds that trigger auto-extraction on save.
 /// Facts and notes contain rich content worth extracting entities from.
@@ -39,204 +40,65 @@ fn build_extraction_prompt(mem_item_id: &str, title: &str, body: &str) -> String
         .replace("{body}", truncated)
 }
 
-/// Spawn a fully headless extraction worker. Uses the same pattern as
-/// General Agent: backend PTY spawn + backend reader + send launch command.
-/// The pane is hidden from birth — zero tab flash.
+/// Spawn a hidden extraction worker for a freshly-saved mem_item.
+/// Returns the worker id on success (so callers can track completion via
+/// `svc.workers.get(worker_id)`), or `None` if the item doesn't qualify
+/// (short body, non-extractable kind) or the spawn failed.
 ///
-/// `concurrency_permit`, when passed, is held for the entire lifetime of
-/// the worker — the polling loop at the end of the inner thread drops it
-/// only after the worker reaches a terminal state (Done/Error/Orphaned).
-/// This gives the caller a real concurrency cap: holding N permits in
-/// `svc.extract_semaphore` means at most N live extraction workers.
+/// The concurrency cap lives in the caller: `mem_save` in mem_routes.rs
+/// holds an `extract_semaphore` permit across this call + a polling loop
+/// that waits for the worker to reach a terminal state.
 pub fn spawn_extraction_worker(
     svc: &Arc<ServiceContext>,
     mem_item_id: String,
     title: String,
     body: String,
     kind: MemKind,
-    concurrency_permit: Option<tokio::sync::OwnedSemaphorePermit>,
-) {
+) -> Option<String> {
     if !should_extract(kind) || body.len() < MIN_BODY_LEN {
-        // permit (if any) drops at scope exit — caller gets another slot.
-        return;
+        return None;
     }
 
-    let worker_id = workers::new_worker_id();
-    let intent = format!("extract:{}", &mem_item_id);
     let prompt = build_extraction_prompt(&mem_item_id, &title, &body);
-    let task = workers::build_worker_task(&intent, &worker_id, &prompt);
 
-    // 1. Find workspace
-    let ws_id = {
-        let mux = svc.mux.lock();
-        mux.list_workspaces().first().map(|w| w.id.clone())
-    };
-    let Some(ws_id) = ws_id else {
-        log::warn!("[auto-extract] no workspace, skipping {}", mem_item_id);
-        return;
-    };
-
-    let ws_cwd = {
-        let mux = svc.mux.lock();
-        mux.get_workspace(&ws_id).and_then(|ws| ws.cwd.clone())
-    };
-
-    // 2. Create tab + pane, immediately hidden
-    let (_tab_id, pane_id) = {
-        let mut mux = svc.mux.lock();
-        match mux.create_tab(&ws_id) {
-            Ok(result) => {
-                if let Some(pane) = mux.get_pane_mut(&result.1) {
-                    pane.hidden = true;
-                    pane.show_in_tabbar = false;
-                    pane.worker_id = Some(worker_id.clone());
-                    pane.auto_approve = true;
-                }
-                result
-            }
-            Err(e) => {
-                log::warn!("[auto-extract] create_tab: {}", e);
-                return;
-            }
-        }
-    };
-
-    // 3. Spawn PTY headless
-    let mut env_vars: HashMap<String, String> = HashMap::new();
-    env_vars.insert("CODETERM_PANE_ID".to_string(), pane_id.clone());
-    env_vars.insert("CODETERM_WORKER_ID".to_string(), worker_id.clone());
-    env_vars.insert(
-        "CODETERM_SOCKET_PATH".to_string(),
-        crate::socket::server::socket_display_path(),
-    );
-
-    let pty_id = {
-        let mut pty = svc.pty.lock();
-        match pty.spawn(None, ws_cwd, 120, 40, env_vars) {
-            Ok((id, _)) => id,
-            Err(e) => {
-                log::warn!("[auto-extract] PTY spawn: {}", e);
-                return;
-            }
-        }
-    };
-
-    // 4. Link PTY to pane
-    {
-        let mut mux = svc.mux.lock();
-        mux.link_pty(&pane_id, pty_id.clone());
-    }
-    svc.emit_state_changed();
-
-    // 5. Resolve extraction config before registering worker (so we can record provider/model)
     let mem_cfg = crate::config::memory_config();
-    let agent_provider = if mem_cfg.extraction_agent.is_empty() {
+    let provider = if mem_cfg.extraction_agent.is_empty() {
         crate::config::default_agent_provider()
     } else {
         mem_cfg.extraction_agent.clone()
     };
-    let extraction_model = mem_cfg.extraction_model.clone();
-    let agent_registry = svc.agent_registry.clone();
-    let model_args: Vec<String> = agent_registry
-        .with_provider(&agent_provider, |p| p.model_launch_args(&extraction_model))
-        .unwrap_or_default();
+    let model = if mem_cfg.extraction_model.is_empty() {
+        None
+    } else {
+        Some(mem_cfg.extraction_model.clone())
+    };
 
-    // Register worker with provider/model metadata
-    let color = svc.workers.pick_color();
-    let mut info = workers::make_info(
-        worker_id.clone(),
-        pane_id.clone(),
-        intent,
-        "auto:save".into(),
-        color,
-    );
-    info.agent_provider = Some(agent_provider.clone());
-    if !extraction_model.is_empty() {
-        info.model = Some(extraction_model);
+    let spec = SpawnPaneSpec {
+        visibility: PaneVisibility::Hidden,
+        command: PaneCommand::Agent(AgentSpawnSpec {
+            provider,
+            model,
+            task: Some(prompt),
+            auto_approve: true,
+            spawned_by: Some("auto:save".into()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    match svc.spawn_pane(spec) {
+        Ok(handle) => {
+            log::info!(
+                "[auto-extract] headless worker {} pane={} for {}",
+                handle.worker_id.as_deref().unwrap_or("?"),
+                handle.pane_id,
+                mem_item_id
+            );
+            handle.worker_id
+        }
+        Err(e) => {
+            log::warn!("[auto-extract] spawn failed for {}: {}", mem_item_id, e);
+            None
+        }
     }
-    svc.workers.register(info.clone());
-    let _ = svc.app_handle.emit("graph-worker-spawned", &info);
-
-    log::info!(
-        "[auto-extract] headless worker {} pane={} pty={} for {}",
-        worker_id, pane_id, pty_id, mem_item_id
-    );
-
-    // 6. Backend reader + launch agent + permit polling — all in one
-    //    background thread. The permit is moved into this closure and
-    //    lives until the closure ends, which happens when the worker
-    //    reaches a terminal state (Done/Error/Orphaned) or the registry
-    //    forgets about it.
-
-    let svc2 = svc.clone();
-    let pane_id2 = pane_id.clone();
-    let pty_id2 = pty_id.clone();
-    let worker_id_for_wait = worker_id.clone();
-    std::thread::spawn(move || {
-        let _permit = concurrency_permit; // held for the whole lifetime
-
-        // Start backend reader (needs its own tokio runtime)
-        let svc3 = svc2.clone();
-        let pty_id3 = pty_id2.clone();
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("backend reader runtime");
-            rt.block_on(async {
-                match crate::service::pty_lifecycle::start_backend_reader(&svc3, &pty_id3) {
-                    Ok(handle) => { let _ = handle.await; }
-                    Err(e) => log::warn!("[auto-extract] backend reader: {}", e),
-                }
-            });
-        });
-
-        // Wait for shell prompt
-        crate::service::pty_io::poll_shell_prompt(
-            &svc2.screen_state,
-            &pty_id2,
-            std::time::Duration::from_secs(10),
-        );
-
-        // Build launch command using the configured agent provider
-        let launch_params = crate::agent::provider::AgentLaunchParams {
-            agent_name: None,
-            task: Some(task),
-            args: if model_args.is_empty() { None } else { Some(model_args) },
-            skip_permissions: true,
-        };
-        let launch_cmd = agent_registry
-            .with_provider(&agent_provider, |p| p.build_launch_command(&launch_params))
-            .unwrap_or_else(|| format!("{} --dangerously-skip-permissions", agent_provider));
-
-        if let Err(e) = svc2.send_text(&pane_id2, &launch_cmd, true) {
-            log::error!("[auto-extract] send launch cmd: {}", e);
-        }
-        log::debug!(
-            "[auto-extract] agent launched in pane {} provider={}",
-            pane_id2, agent_provider
-        );
-
-        // Hold the permit until the worker finishes. Polls the registry
-        // every 3s; exits when the worker hits a terminal state or is
-        // removed. Cap at 30 minutes so a runaway worker can't hoard a
-        // permit indefinitely. _permit drops at scope exit.
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
-        loop {
-            std::thread::sleep(std::time::Duration::from_secs(3));
-            let Some(info) = svc2.workers.get(&worker_id_for_wait) else {
-                break; // registry forgot about it — release permit
-            };
-            if info.status.is_terminal() {
-                break;
-            }
-            if std::time::Instant::now() > deadline {
-                log::warn!(
-                    "[auto-extract] worker {} exceeded 30min, releasing permit",
-                    worker_id_for_wait
-                );
-                break;
-            }
-        }
-    });
 }

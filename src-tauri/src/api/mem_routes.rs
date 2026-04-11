@@ -240,7 +240,7 @@ pub async fn mem_save(
     }.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "write", vec![id.clone()]);
 
-    // Auto-extraction: spawn a headless graph-worker to extract entities/relations.
+    // Auto-extraction: spawn a hidden graph-worker to extract entities/relations.
     // Fire-and-forget, non-blocking. Skip cases:
     //   - the item is itself auto-extracted (prevents cascade)
     //   - auto-extraction disabled in config
@@ -250,27 +250,58 @@ pub async fn mem_save(
         let svc = state.svc.clone();
         let id_for_extract = id.clone();
         tokio::spawn(async move {
-            // Grab a permit from the shared semaphore. Caps in-flight
-            // extraction WORKERS (not just the spawn burst) at
-            // svc.extract_semaphore's capacity — spawn_extraction_worker
-            // holds the permit until the worker reaches a terminal state.
+            // Acquire a permit from the shared semaphore. Caps in-flight
+            // extraction workers at svc.extract_semaphore's capacity. The
+            // permit is held across the spawn AND the registry polling
+            // loop below, so it only releases when the worker reaches a
+            // terminal state — real concurrency cap, not just burst.
             let sem = svc.extract_semaphore.clone();
             let Ok(permit) = sem.acquire_owned().await else {
                 log::warn!("[mem] extract semaphore closed, dropping {}", id_for_extract);
                 return;
             };
+
             // Run spawn on a blocking thread — it grabs mux/pty locks.
-            let _ = tokio::task::spawn_blocking(move || {
+            let svc_for_spawn = svc.clone();
+            let worker_id = tokio::task::spawn_blocking(move || {
                 crate::mem::auto_extract::spawn_extraction_worker(
-                    &svc,
+                    &svc_for_spawn,
                     id_for_extract,
                     title_clone,
                     body_clone,
                     kind_for_extract,
-                    Some(permit),
-                );
+                )
             })
-            .await;
+            .await
+            .ok()
+            .flatten();
+
+            let Some(worker_id) = worker_id else {
+                drop(permit);
+                return;
+            };
+
+            // Poll the registry until the worker reaches a terminal state.
+            // Cap at 30 minutes so a runaway worker can't hoard a permit.
+            let deadline =
+                tokio::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                let Some(info) = svc.workers.get(&worker_id) else {
+                    break; // forgotten — release permit
+                };
+                if info.status.is_terminal() {
+                    break;
+                }
+                if tokio::time::Instant::now() > deadline {
+                    log::warn!(
+                        "[mem] extract worker {} exceeded 30min, releasing permit",
+                        worker_id
+                    );
+                    break;
+                }
+            }
+            drop(permit);
         });
     }
 

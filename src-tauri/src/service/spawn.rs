@@ -139,8 +139,16 @@ pub struct AgentSpawnSpec {
 
     /// Opaque worker id (set by `GraphWorkerRegistry` / mem workers).
     /// Populates `pane.worker_id` so the worker tracker can find its pane.
+    /// Hidden spawns without a worker_id get one generated for them.
     #[serde(default)]
     pub worker_id: Option<String>,
+
+    /// Origin tag recorded in `GraphWorkerInfo.spawned_by` for hidden
+    /// spawns — e.g. `"auto:save"`, `"dreaming"`, `"cron:nightly"`. Used
+    /// by the worker panel to group related workers. `None` records as
+    /// `"spawn_pane"`.
+    #[serde(default)]
+    pub spawned_by: Option<String>,
 
     /// Extra environment variables merged into the PTY env (e.g.
     /// `CODETERM_WORKER_ID`, `CODETERM_JOB_ID`). `CODETERM_PANE_ID`,
@@ -170,6 +178,11 @@ pub struct PaneHandle {
     /// they need it.
     pub pty_id: Option<String>,
     pub workspace_id: String,
+    /// Worker id for hidden agent spawns. Callers can look up the
+    /// `GraphWorkerInfo` via `svc.workers.get(worker_id)` for status
+    /// tracking and cancellation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_id: Option<String>,
     /// Non-fatal warning. Currently populated when `spec.cwd` differs from
     /// the workspace cwd.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -246,10 +259,10 @@ impl ServiceContext {
                 Ok(spawn_result_to_handle(result, spec.workspace_id.clone()))
             }
             (PaneVisibility::Hidden, PaneCommand::Agent(agent)) => {
-                // Phase 1: mem workers still call spawn_headless directly;
-                // callers that want hidden-agent through the new surface
-                // land here. We forward to spawn_headless which already
-                // handles hidden pane + backend PTY + reader + launch.
+                // Phase 1: delegate to spawn_headless which already handles
+                // hidden pane + backend PTY + reader + launch. Phase 3
+                // step 3 inverts this: spawn_headless becomes a thin
+                // wrapper around a direct hidden-pane impl in this module.
                 let intent = agent
                     .worker_id
                     .clone()
@@ -257,11 +270,15 @@ impl ServiceContext {
                     .unwrap_or_else(|| "spawn_pane:hidden".into());
                 let task_prompt = agent.task.clone().unwrap_or_default();
                 let model = agent.model.clone().unwrap_or_default();
+                let spawned_by = agent
+                    .spawned_by
+                    .clone()
+                    .unwrap_or_else(|| "spawn_pane".into());
                 let worker_id = crate::mem::workers::spawn_headless(
                     &std::sync::Arc::new(self.clone()),
                     intent,
                     task_prompt,
-                    "spawn_pane".into(),
+                    spawned_by,
                     agent.provider.clone(),
                     model,
                 )?;
@@ -276,6 +293,7 @@ impl ServiceContext {
                     tab_id: String::new(),
                     pty_id: None,
                     workspace_id: spec.workspace_id.clone().unwrap_or_default(),
+                    worker_id: Some(worker_id),
                     warning: None,
                 })
             }
@@ -301,6 +319,7 @@ fn spawn_result_to_handle(result: SpawnResult, workspace_id: Option<String>) -> 
             Some(result.pty_id)
         },
         workspace_id: workspace_id.unwrap_or_default(),
+        worker_id: None,
         warning: result.warning,
     }
 }
