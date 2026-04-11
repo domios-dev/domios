@@ -615,13 +615,58 @@ async fn agent_run_log(
     Path(raw_pane_id): Path<String>,
 ) -> Result<(StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String), (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let pty_id = resolve_pty_id_with_fallback(&state, &raw_pane_id)?;
-    let text = state.svc.output_buf.lock().get_full_text(&pty_id).unwrap_or_default();
-    Ok((
-        StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
-        text,
-    ))
+
+    // Live path: pane→pty→output_buf (works while daemon is up).
+    if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_pane_id) {
+        let text = state.svc.output_buf.lock().get_full_text(&pty_id).unwrap_or_default();
+        if !text.is_empty() {
+            return Ok((
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+                text,
+            ));
+        }
+    }
+
+    // Disk fallback: after daemon restart, output_buf is empty. Look up the
+    // pane in the persisted worker / cron stores and read their log file.
+    if let Some(text) = read_log_from_disk_by_pane(&state, &raw_pane_id) {
+        return Ok((
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            text,
+        ));
+    }
+
+    Err((StatusCode::NOT_FOUND, "Pane not found or has no PTY"))
+}
+
+// Resolves a pane_id to a historical log file via worker or cron persisted state.
+fn read_log_from_disk_by_pane(state: &AppState, raw_pane_id: &str) -> Option<String> {
+    // Mem worker: scan registry for matching pane_id, read its log_path file.
+    for worker in state.svc.workers.list() {
+        if worker.pane_id == raw_pane_id {
+            if let Some(ref path) = worker.log_path {
+                if let Ok(text) = std::fs::read_to_string(path) {
+                    return Some(text);
+                }
+            }
+            break;
+        }
+    }
+    // Cron run: scan all jobs' histories for the pane_id, read the run log file.
+    let store = state.cron.lock();
+    let jobs: Vec<String> = store.list().iter().map(|j| j.id.clone()).collect();
+    for job_id in jobs {
+        for run in store.get_history(&job_id) {
+            if run.pane_id.as_deref() == Some(raw_pane_id) {
+                if let Some(text) = store.read_log(&job_id, &run.run_id) {
+                    return Some(text);
+                }
+            }
+        }
+    }
+    None
 }
 
 // Mux drops pane→pty on close_pane, but output_buf[pty_id] survives — fall
