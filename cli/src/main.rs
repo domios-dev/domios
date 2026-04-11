@@ -749,6 +749,14 @@ pub enum AgentAction {
         #[arg(long)]
         pane: Option<String>,
     },
+    /// List available agent providers (claude, codex, ...) with their
+    /// display names, default models, and capability flags.
+    Providers,
+    /// List available models for a specific provider.
+    Models {
+        /// Provider id (e.g. "claude"). Required.
+        provider: String,
+    },
     /// Spawn a new agent (creates tab in workspace, linked in hierarchy)
     Spawn {
         /// Agent to run: claude, aider, goose, or any command
@@ -1334,6 +1342,93 @@ fn main() {
                             } else if let Some(arr) = val.as_array() {
                                 if arr.is_empty() { println!("No agents found."); }
                                 for a in arr { print_object(a); println!(); }
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Providers => {
+                    match http.get(format!("{}/api/agents/providers", base)).send() {
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                                return;
+                            }
+                            let Some(arr) = val.as_array() else {
+                                if status == 404 {
+                                    eprintln!(
+                                        "Server doesn't know /api/agents/providers — update the running CodeTerm instance."
+                                    );
+                                } else {
+                                    eprintln!("Unexpected response shape (HTTP {})", status);
+                                }
+                                std::process::exit(1);
+                            };
+                            if arr.is_empty() {
+                                println!("No agent providers registered.");
+                                return;
+                            }
+                            for p in arr {
+                                let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                                let name = p.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
+                                let default_model = p.get("default_model").and_then(|v| v.as_str()).unwrap_or("-");
+                                let models_count = p
+                                    .get("available_models")
+                                    .and_then(|v| v.as_array())
+                                    .map(|a| a.len())
+                                    .unwrap_or(0);
+                                println!("{:<12} {:<20} default={}  models={}", id, name, default_model, models_count);
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Models { provider } => {
+                    match http.get(format!("{}/api/agents/providers", base)).send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            let Some(arr) = val.as_array() else {
+                                eprintln!("Unexpected response shape");
+                                std::process::exit(1);
+                            };
+                            let target = arr.iter().find(|p| {
+                                p.get("id").and_then(|v| v.as_str()) == Some(provider.as_str())
+                            });
+                            let Some(target) = target else {
+                                let known: Vec<&str> = arr.iter()
+                                    .filter_map(|p| p.get("id").and_then(|v| v.as_str()))
+                                    .collect();
+                                eprintln!(
+                                    "Unknown provider: '{}'. Known: [{}]",
+                                    provider,
+                                    known.join(", ")
+                                );
+                                std::process::exit(1);
+                            };
+                            let models = target.get("available_models").and_then(|v| v.as_array());
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&models).unwrap());
+                                return;
+                            }
+                            let Some(models) = models else {
+                                println!("No models advertised for provider '{}'.", provider);
+                                return;
+                            };
+                            let default_model = target.get("default_model").and_then(|v| v.as_str());
+                            for m in models {
+                                let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                                let name = m.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
+                                let marker = if default_model == Some(id) { " (default)" } else { "" };
+                                let description = m.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                                if description.is_empty() {
+                                    println!("{:<10} {}{}", id, name, marker);
+                                } else {
+                                    println!("{:<10} {}{}\n             {}", id, name, marker, description);
+                                }
                             }
                             return;
                         }
