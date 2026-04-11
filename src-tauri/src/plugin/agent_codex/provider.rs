@@ -386,6 +386,7 @@ mod tests {
             task: None,
             args: None,
             skip_permissions: false,
+            headless: false,
         });
         assert_eq!(cmd, "codex");
     }
@@ -398,6 +399,7 @@ mod tests {
             task: None,
             args: None,
             skip_permissions: true,
+            headless: false,
         });
         assert_eq!(cmd, "codex --full-auto");
     }
@@ -410,6 +412,7 @@ mod tests {
             task: Some("fix the bug".to_string()),
             args: None,
             skip_permissions: true,
+            headless: false,
         });
         assert!(cmd.contains("codex exec --dangerously-bypass-approvals-and-sandbox"));
         assert!(cmd.contains("shell_environment_policy.inherit=all"));

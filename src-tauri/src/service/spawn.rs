@@ -574,6 +574,9 @@ impl ServiceContext {
                     Some(model_args)
                 },
                 skip_permissions: true,
+                // Hidden panes are one-shot — providers may pick a stdin-pipe
+                // delivery to avoid the PowerShell argv-splitting bug.
+                headless: true,
             };
             let launch_cmd = svc_outer
                 .agent_registry

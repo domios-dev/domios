@@ -473,11 +473,15 @@ pub(crate) fn launch_agent_in_background(
 /// Build a single shell command that launches the agent.
 /// Uses the AgentRegistry for known providers; falls back to simple command for unknown agents.
 pub(crate) fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<&str>, registry: &AgentRegistry) -> String {
+    // Visible interactive panes always reach this path. Headless panes
+    // (mem workers, cron) bypass it and construct AgentLaunchParams directly
+    // in `spawn_hidden_agent_impl` with `headless: true`.
     let launch_params = AgentLaunchParams {
         agent_name: params.agent_name.clone(),
         task: task.map(|t| t.to_string()),
         args: params.args.clone(),
         skip_permissions: params.skip_permissions.unwrap_or(true),
+        headless: false,
     };
     registry.with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
         .unwrap_or_else(|| {

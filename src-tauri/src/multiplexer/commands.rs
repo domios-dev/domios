@@ -243,6 +243,7 @@ pub fn build_agent_launch_command(
         task: None,
         args: None,
         skip_permissions,
+        headless: false,
     };
     svc.agent_registry
         .with_provider(&agent_id, |p| p.build_launch_command(&params))

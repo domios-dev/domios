@@ -25,6 +25,12 @@ pub struct AgentLaunchParams {
     pub task: Option<String>,
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
+    /// True when the agent is being spawned into a hidden, one-shot pane
+    /// (mem worker, cron job). Providers may pick a non-interactive task
+    /// delivery mode for these — e.g. Claude pipes the task via stdin and
+    /// adds `-p` to avoid PowerShell argv-splitting bugs on long prompts.
+    /// Default false (interactive visible pane).
+    pub headless: bool,
 }
 
 // ── Plugin self-presentation types (Chunk B.1) ─────────────────────

@@ -442,6 +442,7 @@ pub fn start_general_agent(
             task: None,
             args: None,
             skip_permissions: true,
+            headless: false,
         };
         match svc.agent_registry.with_provider(provider_name, |p| p.build_launch_command(&params)) {
             Some(cmd) => cmd,
