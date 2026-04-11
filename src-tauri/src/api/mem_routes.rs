@@ -1166,3 +1166,28 @@ pub async fn mem_taxonomy(
     Ok(Json(serde_json::to_value(tax).unwrap_or_default()))
 }
 
+// ── mem tail ─────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct TailParams {
+    #[serde(default)]
+    pub since: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+pub async fn mem_tail(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<TailParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let limit = p.limit.unwrap_or(20).min(500);
+    let rows = state
+        .svc
+        .mem
+        .tail_recent(p.since.as_deref(), limit)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "rows": rows })))
+}
+

@@ -301,6 +301,15 @@ pub enum MemAction {
         #[arg(long)]
         workspace: Option<String>,
     },
+    /// Show recent mem writes (newest first). With --follow, poll for new rows.
+    Tail {
+        /// Follow mode: poll every 500ms and print new rows as they appear.
+        #[arg(long, short = 'f')]
+        follow: bool,
+        /// Max rows per fetch (default 20)
+        #[arg(long, default_value = "20")]
+        limit: usize,
+    },
     /// Partial update of an existing mem item by id. Only the flags you
     /// pass are written; everything else stays as-is.
     Update {
@@ -2382,6 +2391,9 @@ fn handle_mem(json_mode: bool, action: MemAction) {
             }
             val
         }
+        MemAction::Tail { follow, limit } => {
+            return run_mem_tail(&http, &base, json_mode, follow, limit);
+        }
         MemAction::Update { id, title, summary, area, tags, body, importance } => {
             let tag_list: Option<Vec<String>> = tags.map(|t|
                 t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
@@ -2714,6 +2726,104 @@ fn print_history_timeline(rows: &[serde_json::Value]) {
         }
         if let Some(reason) = row.get("reason").and_then(|v| v.as_str()) {
             println!("    reason:     {}", reason);
+        }
+    }
+}
+
+// ── mem tail ────────────────────────────────────────────────────────
+fn run_mem_tail(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    json_mode: bool,
+    follow: bool,
+    limit: usize,
+) {
+    let fetch = |since: Option<&str>| -> Result<Vec<serde_json::Value>, String> {
+        let mut url = format!("{}/api/mem/tail?limit={}", base, limit);
+        if let Some(s) = since {
+            url.push_str(&format!("&since={}", urlencoding::encode(s)));
+        }
+        let val = mem_get_request(http, &url)?;
+        Ok(val
+            .get("rows")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default())
+    };
+    let print_row = |row: &serde_json::Value| {
+        let ts = row
+            .get("updated_at")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .split('.')
+            .next()
+            .unwrap_or("?")
+            .replace('T', " ");
+        let kind = row.get("kind").and_then(|v| v.as_str()).unwrap_or("?");
+        let who = row.get("changed_by").and_then(|v| v.as_str()).unwrap_or("?");
+        let title = row.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+        let area = row
+            .get("area")
+            .and_then(|v| v.as_str())
+            .unwrap_or("(none)");
+        println!(
+            "{} | {:<12} | {:<15} | {:<60} | {}",
+            ts,
+            kind,
+            who,
+            title.chars().take(60).collect::<String>(),
+            area
+        );
+    };
+
+    match fetch(None) {
+        Ok(rows) => {
+            if json_mode {
+                println!("{}", serde_json::to_string_pretty(&rows).unwrap());
+            } else if rows.is_empty() {
+                println!("(no recent writes)");
+            } else {
+                // Oldest first so that follow-mode output streams naturally.
+                for row in rows.iter().rev() {
+                    print_row(row);
+                }
+            }
+            if !follow {
+                return;
+            }
+            // In follow mode we remember the newest updated_at we've printed
+            // and poll with `since` every 500ms.
+            let mut last_seen: Option<String> = rows
+                .iter()
+                .filter_map(|r| r.get("updated_at").and_then(|v| v.as_str()).map(String::from))
+                .max();
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let next = match fetch(last_seen.as_deref()) {
+                    Ok(rows) => rows,
+                    Err(e) => {
+                        eprintln!("tail fetch: {}", e);
+                        std::thread::sleep(std::time::Duration::from_secs(2));
+                        continue;
+                    }
+                };
+                if !next.is_empty() {
+                    for row in next.iter().rev() {
+                        print_row(row);
+                    }
+                    if let Some(newest) = next
+                        .iter()
+                        .filter_map(|r| r.get("updated_at").and_then(|v| v.as_str()).map(String::from))
+                        .max()
+                    {
+                        last_seen = Some(newest);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
         }
     }
 }
