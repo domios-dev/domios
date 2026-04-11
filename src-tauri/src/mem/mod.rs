@@ -283,48 +283,6 @@ impl MemManager {
             store::insert(&conn, &item, &self.blobs_dir)?
         };
 
-        // Auto-connect: every item gets a `kind_of` relation to its kind group entity.
-        // This prevents orphan nodes in the graph — every node has at least one edge.
-        {
-            let kind_entity_id = format!("kind_{}", item.kind.as_str());
-            let _ = graph::insert_entity(&conn, &Entity {
-                id: kind_entity_id.clone(),
-                entity_type: "Kind".into(),
-                scope: "global".into(),
-                properties: serde_json::json!({"label": item.kind.as_str()}),
-            });
-            let _ = graph::insert_relation(&conn, &Relation {
-                from_id: id.clone(),
-                relation_type: "kind_of".into(),
-                to_id: kind_entity_id,
-                scope: "global".into(),
-                valid_from: chrono::Utc::now().to_rfc3339(),
-                valid_to: None,
-                confidence: 1.0,
-                properties: serde_json::json!({}),
-            });
-            // Also connect to area group if specified
-            if let Some(ref area) = item.area {
-                let area_entity_id = format!("area_{}", area);
-                let _ = graph::insert_entity(&conn, &Entity {
-                    id: area_entity_id.clone(),
-                    entity_type: "Area".into(),
-                    scope: "global".into(),
-                    properties: serde_json::json!({"label": area}),
-                });
-                let _ = graph::insert_relation(&conn, &Relation {
-                    from_id: id.clone(),
-                    relation_type: "belongs_to".into(),
-                    to_id: area_entity_id,
-                    scope: "global".into(),
-                    valid_from: chrono::Utc::now().to_rfc3339(),
-                    valid_to: None,
-                    confidence: 1.0,
-                    properties: serde_json::json!({}),
-                });
-            }
-        }
-
         // Auto-index in mem_vectors as a background task. The fastembed
         // model is ~50MB and downloads from HuggingFace on first use, so
         // doing this synchronously inside save() would block the caller
@@ -438,11 +396,6 @@ impl MemManager {
                 count += 1;
             }
         }
-        // Also remove the area entity
-        let _ = conn.execute(
-            "DELETE FROM entities WHERE id = ?1",
-            rusqlite::params![format!("area_{}", area)],
-        );
         Ok(count)
     }
 

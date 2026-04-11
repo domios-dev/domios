@@ -261,21 +261,24 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
 /// - Orphan entities with no incoming/outgoing relations
 /// - Empty-titled mem_items → "Untitled <uid>"
 pub fn repair_inconsistencies(conn: &Connection) -> Result<(), String> {
-    // 1. Delete bogus entities (category/tech/kind nodes)
+    // 1. Delete bogus entities (category/tech/kind/area hub nodes).
+    // Only `person_*` and `project_*` are allowed — kind is already a column
+    // on every mem_item, and area stars were hub-patterning the graph.
     let bogus_entities = conn.execute(
         r#"DELETE FROM entities
            WHERE id NOT LIKE 'person_%'
-             AND id NOT LIKE 'project_%'
-             AND id NOT LIKE 'area_%'"#,
+             AND id NOT LIKE 'project_%'"#,
         [],
     ).map_err(|e| format!("repair entities: {}", e))? as u64;
 
-    // Cascade: kill relations that point to now-deleted entities
+    // Cascade: kill relations that point to now-deleted entities, plus
+    // any category-ish relation types that should never have existed.
     let bogus_relations = conn.execute(
         r#"DELETE FROM relations
-           WHERE (from_id NOT LIKE 'person_%' AND from_id NOT LIKE 'project_%' AND from_id NOT LIKE 'area_%' AND from_id NOT IN (SELECT id FROM mem_items))
-              OR (to_id NOT LIKE 'person_%' AND to_id NOT LIKE 'project_%' AND to_id NOT LIKE 'area_%' AND to_id NOT IN (SELECT id FROM mem_items))
+           WHERE (from_id NOT LIKE 'person_%' AND from_id NOT LIKE 'project_%' AND from_id NOT IN (SELECT id FROM mem_items))
+              OR (to_id NOT LIKE 'person_%' AND to_id NOT LIKE 'project_%' AND to_id NOT IN (SELECT id FROM mem_items))
               OR relation_type = 'kind_of'
+              OR relation_type = 'belongs_to'
               OR relation_type = 'belongs_to_category'
               OR relation_type = 'is_a'"#,
         [],
