@@ -486,7 +486,12 @@ function AppInner() {
 
       <div className="flex flex-1 min-h-0">
         {sidebarOpen && (
-          <Sidebar onOpenSettings={() => setSettingsOpen(true)} onOpenMemory={() => setMemoryOpen(true)} onNavigateToTab={() => setMainView("workspace")} />
+          <Sidebar
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenMemory={() => setMemoryOpen(true)}
+            onNavigateToTab={() => setMainView("workspace")}
+            mainView={mainView}
+          />
         )}
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
