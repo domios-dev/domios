@@ -393,6 +393,8 @@ pub fn tunnels(conn: &Connection) -> Result<Vec<serde_json::Value>, String> {
            JOIN relations r ON (r.to_id = e.id OR r.from_id = e.id)
            JOIN mem_items m ON (m.id = r.from_id OR m.id = r.to_id)
            WHERE m.area IS NOT NULL AND m.area != ''
+             AND e.id NOT LIKE 'kind\_%' ESCAPE '\'
+             AND e.id NOT LIKE 'area\_%' ESCAPE '\'
            GROUP BY e.id
            HAVING area_count >= 2
            ORDER BY area_count DESC
