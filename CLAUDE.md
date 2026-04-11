@@ -283,7 +283,23 @@ Detection code (prompts, task completion, agent identification, output parsing) 
 
 **SOLID + DRY are non-negotiable.** Single responsibility per module, dependencies flow through explicit interfaces, no repeated logic. Duplicated 20-line blocks across three files is a refactor signal, not a copy-paste signal.
 
-**Code is prose — good code reads itself, no comments needed.** Names, types, and structure carry the meaning. Documentation lives in `docs/`, not inline. Write a comment only when there's a real reason the code can't speak for itself: a workaround for a known quirk, a `TODO: rewrite — currently ugly because X`, an external reference (spec/issue URL). Never document *what* the code does — if you feel that urge, the code is unclear; rename or extract instead. This project is mostly written by Claude; future-Claude (and the human) should be able to open any file and understand it without a tour guide.
+**Code is prose — good code reads itself, no comments needed.** This rule is non-negotiable and I (Claude) have been a chronic offender. Read this twice before writing any comment:
+
+- **Default: no comment.** Names, types, and structure carry the meaning. Documentation lives in `docs/`, not inline.
+- **Never document WHAT the code does.** If you feel that urge, the code is unclear — rename a variable, extract a helper, split a function.
+- **Never reference the current task, fix, or caller.** No "Phase 3 adds X", no "used by Y", no "fixes issue Z". That belongs in commit messages and PR descriptions. Comments rot; commit history doesn't.
+- **Never write multi-line comment blocks.** One line is the max for anything that isn't a full external-reference URL. If you need more than one line, you're documenting WHAT (delete it) or you're explaining bad code (fix the code).
+- **Never write `///` field docs for self-describing field names.** `workspace_id: Option<String>` does not need `/// The workspace id.`
+- **Never write module-level `//!` doc blocks that describe the module's purpose.** The module name does that.
+- **Never write JSX label comments** like `{/* Header */}` / `{/* Agent provider + model */}`. The JSX below already names itself.
+- **Never write step-numbered narration** like `// 1. Resolve workspace`. The function body is linear and the code is the comment.
+
+Write a comment only when all of these are true:
+1. The code itself CANNOT be made clearer by renaming or extracting.
+2. The reader would otherwise have to guess WHY a line exists (lock ordering, a specific OS quirk, an SDK bug you're working around, a non-obvious invariant).
+3. One line is enough to capture that WHY.
+
+Everything else gets deleted. If you catch yourself writing a comment and you can't point to a clear WHY in under 15 words, the comment doesn't belong there. Pattern-copy discipline matters too: just because the file around you already has bloat doesn't give you license to add more — fix the surrounding bloat first if it's distracting you into matching the style.
 
 ### Rust specifics
 

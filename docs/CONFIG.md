@@ -239,6 +239,60 @@ Shell integration scripts are stored in the platform data directory:
 
 Scripts are created at startup by `pty::shell_integration::ensure_scripts()`. Users should not need to edit these files.
 
+## Cron Jobs
+
+Cron jobs live in `~/.codeterm/crons.json` (dev: `~/.codeterm-dev/crons.json`), not in `config.toml`. They are managed via the REST/CLI/Socket APIs (see `docs/API.md`), but the schema is documented here.
+
+### `CronJob` schema
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | `string` | — | Stable job id (8-char hex) |
+| `name` | `string` | — | Display name |
+| `description` | `string?` | — | Optional free-text description |
+| `workspace_id` | `string` | — | Owning workspace |
+| `schedule` | `string` | — | 5-field cron (`min hour dom mon dow`) or oneshot expression (`"in 5m"`, ISO 8601, unix ms) |
+| `enabled` | `bool` | `true` | Whether the scheduler fires this job |
+| `agent` | `string` | `"claude"` | Agent provider id (see `codeterm agent providers`) |
+| `model` | `string?` | *(provider default)* | Model override within the provider (e.g. `"opus"`, `"haiku"`). Query valid values via `codeterm agent models <provider>`. |
+| `task` | `string` | — | Prompt sent to the agent via `-p` |
+| `cwd` | `string?` | *(workspace cwd)* | Working directory for the spawned agent |
+| `role` | `string?` | — | Optional hierarchy role to assign on spawn |
+| `creator_pane_id` | `string?` | — | Pane that receives reports from the cron agent |
+| `oneshot` | `bool` | `false` | One-shot job: auto-disabled after first fire, deleted on completion |
+| `jitter_max_ms` | `u64?` | `null` | See jitter semantics below |
+| `max_history` | `usize` | `100` | Per-job run history cap |
+| `consecutive_failures` | `u32` | `0` | Runs failed in a row. Auto-disables at ≥ 5. |
+| `protected` | `bool` | `false` | Protected jobs cannot be deleted, only toggled |
+| `last_run` | `CronRunInfo?` | — | Last run summary (status, pane, timing) |
+| `next_run` | `u64?` | — | Next scheduled fire (unix ms). `null` for disabled / exhausted oneshots. |
+
+### Jitter semantics (`jitter_max_ms`)
+
+- `null` (omitted) → **auto**: 10% of the inter-fire interval, clamped to `[1m, 30m]`. Default.
+- `0` → **disabled**: jobs fire exactly on schedule.
+- positive integer → hard cap in milliseconds of random delay added to each scheduled fire.
+
+Jitter is applied on top of the cron/oneshot fire time. A job with `0 * * * *` and `jitter_max_ms=5000` fires between `:00.000` and `:05.000` each hour. Auto-mode exists so users on `*/5 * * * *` schedules don't all hammer LLM providers at the same minute boundary.
+
+### Hidden spawn
+
+Cron runs spawn agents in **hidden panes** — no visible tab or split. Observe progress via the cron panel in the sidebar, the frontend log viewer, or `codeterm cron history ID`. Use `cron_read_log` (Tauri IPC) / the live pane fallback to tail a running run's output.
+
+## Memory
+
+Mem state lives in `~/.codeterm/mem.sqlite` (dev: `~/.codeterm-dev/mem.sqlite`). Config knobs that affect mem are under `[memory]` in `config.toml`.
+
+### Embedding indexer (`EmbedQueue`)
+
+Vector indexing uses a **single-worker** pattern: one background thread owns the sqlite writer and drains a bounded `sync_channel` (capacity 1024). Every `mem save` that needs embedding enqueues a job and returns immediately — no thread-per-save, no writer contention. Jobs dropped when the queue is full are logged and the item stays searchable via FTS5; it just won't appear in semantic-recall results until re-indexed.
+
+### Auto-extraction concurrency
+
+Saving a mem item triggers an extraction cascade that pulls structured entities and relationships out of the body. Extraction runs in hidden panes spawned through `workers::spawn_headless`, and is capped at **4 concurrent workers** globally via `ServiceContext::extract_semaphore` (a `tokio::sync::Semaphore` created at startup). A fifth concurrent save queues until one of the running extractions releases its permit.
+
+To suppress extraction on a specific save — used by seed loaders to avoid re-extracting bundled items on every boot — pass `skip_extract: true` on the `POST /api/mem/items` body (or via the matching socket method). Items tagged `auto-extracted` or sourced from `extracted_from:*` are also skipped automatically.
+
 ## Dev/Prod Isolation
 
 Dev builds use separate paths and ports to avoid conflicts with production:
@@ -253,4 +307,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

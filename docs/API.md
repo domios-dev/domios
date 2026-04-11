@@ -54,7 +54,7 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/send` | `{text?, enter?, batch?: [{text, enter?, delay_ms?}]}` | Send text to PTY (fire & forget) |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
 | GET | `/api/panes/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
-| GET | `/api/panes/{id}/text` | `?formatted=false` | Get visible terminal text (alternate buffer included). Served from the backend VT100 parser — no frontend roundtrip, no 3s timeout, works even if no frontend is attached. Response: `{"text": "..."}`. With `?formatted=true` the string contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility — used for pane remount to restore TUI apps like Claude that hide the cursor via DECTCEM. |
+| GET | `/api/panes/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, alternate buffer included). Served from the backend — no frontend roundtrip, works for hidden panes. Response: `{"text": "...", "formatted": false, "pane_id": "..."}`. With `?formatted=true` the `text` contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility (used on pane remount to restore TUI apps like Claude that hide the cursor via DECTCEM). |
 | GET | `/api/panes/{id}/output/stream` | — | SSE real-time output stream |
 | POST | `/api/panes/{id}/focus` | — | Focus pane |
 | POST | `/api/panes/{id}/close` | — | Close pane + kill PTY |
@@ -235,15 +235,29 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/crons` | `?workspace_id=ID` | List all cron jobs (optionally filter by workspace) |
-| POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, cwd?, description?, oneshot?}` | Create cron job |
+| POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?}` | Create cron job |
 | GET | `/api/crons/:id` | — | Get cron job by ID |
-| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?}` | Update cron job (prefer over delete+recreate) |
+| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?, agent?, model?, jitter_max_ms?}` | Update cron job (prefer over delete+recreate) |
 | DELETE | `/api/crons/:id` | — | Delete cron job |
 | POST | `/api/crons/:id/enable` | — | Enable cron job |
 | POST | `/api/crons/:id/disable` | — | Disable cron job |
 | POST | `/api/crons/:id/trigger` | — | Manually trigger cron job |
 | POST | `/api/crons/:id/cancel` | — | Stop any currently-running executions of this cron job. Returns `{cancelled: N}` — number of panes closed. Does NOT delete the job; future scheduled fires continue normally. Running history entries flip status to `Cancelled`. |
 | GET | `/api/crons/:id/history` | — | Get run history for cron job |
+
+#### Memory
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/mem/search` | `?q=...&kind=...&area=...&scope=...&limit=N` | FTS5 full-text search across mem_items |
+| GET | `/api/mem/recall` | `?q=...&limit=N` | Semantic-first search (vector + FTS5 fallback) |
+| GET | `/api/mem/items/{id}` | — | Get one item (full body) |
+| POST | `/api/mem/items` | `{kind, title, body, scope?, summary?, area?, tags?, source?, importance?, replace?, skip_extract?}` | Save a mem item. `skip_extract: true` suppresses the auto-extraction cascade (seed loaders use this to avoid re-extracting bundled items on every startup). |
+| PATCH | `/api/mem/items/{id}` | partial | Update an existing item |
+| DELETE | `/api/mem/items/{id}` | — | Delete an item |
+| GET | `/api/mem/wake-up` | — | L0 + L1 critical-context digest (identity + top-N important items) |
+| GET | `/api/mem/stats` | — | Counts per kind, totals, index health |
+
+**Extraction concurrency:** `ServiceContext::extract_semaphore` caps auto-extraction at **4 concurrent workers** across the whole process. Every `mem_save` (except items tagged `auto-extracted`, sourced from `extracted_from:*`, or sent with `skip_extract: true`) schedules an extraction task that acquires a permit from this semaphore before spawning a hidden extraction pane. Additional graph routes (`/api/mem/graph/*`), learnings, dreaming, and worker endpoints exist but are not documented here — read `src-tauri/src/api/mem_routes.rs` for the full surface.
 
 #### Configuration
 | Method | Path | Body / Query | Description |
@@ -269,7 +283,13 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 
 **Oneshot jobs:** Set `oneshot: true` to create a one-time scheduled task. Oneshot jobs accept relative time (`"in 5m"`, `"in 1h30m"`, `"in 2d"`), ISO 8601 (`"2026-04-05T14:30:00Z"`), or unix milliseconds instead of cron expressions. After firing, oneshot jobs are disabled (`next_run=null`) and auto-deleted on completion. The `CronJob` object includes `oneshot: bool` (default `false`, omitted from JSON when `false`).
 
-Cron runs spawn Claude agents on schedule. When done, the agent calls `codeterm cron complete --run-id UUID` (uses the `cron.complete` socket method), which automatically closes the run's tab/pane (ephemeral). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. The sidebar shows a cron tree with runs and next scheduled time. Click a finished run to open the log viewer. Successful spawns do not generate notifications — only errors do.
+**`model`** — optional per-job override of the agent's model (e.g. `"opus"`, `"haiku"`, `"gpt-5.4-mini"`). Valid values depend on the `agent` provider; query `/api/agents/providers` for the list. Unset → use provider default.
+
+**`jitter_max_ms`** — max random delay added to each scheduled fire. `null`/omitted → auto (10% of interval, clamped to `[1m, 30m]`). `0` → disabled (fires exactly on schedule). Positive → cap in milliseconds.
+
+**`CronRunStatus` enum:** `Running`, `Success`, `Failed`, `Cancelled`. `Cancelled` is set by `POST /api/crons/:id/cancel` on any runs currently in `Running` state.
+
+**Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden pane** (no UI surface); observe progress via the cron panel / `cron_read_log`, not as a regular tab. When done, the agent calls `codeterm cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. Successful spawns do not generate notifications — only errors do.
 
 **Workspace resolution:** The CLI `cron create` command uses `$CODETERM_WORKSPACE_ID` by default (the agent's own workspace), falling back to the first workspace if the env var is not set. Override with `--workspace ID`.
 
@@ -535,12 +555,13 @@ Newline-delimited JSON:
 | `agent.reports` | `{pane_id, clear?}` | Read reports from children |
 | `cron.list` | `{workspace_id?}` | List cron jobs |
 | `cron.get` | `{id}` | Get cron job by ID |
-| `cron.create` | `{name, schedule, task, workspace_id, agent?, cwd?, description?, oneshot?}` | Create cron job |
-| `cron.update` | `{id, name?, schedule?, task?, cwd?, description?, enabled?}` | Update cron job |
+| `cron.create` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?}` | Create cron job |
+| `cron.update` | `{id, name?, schedule?, task?, cwd?, description?, enabled?, agent?, model?, jitter_max_ms?}` | Update cron job |
 | `cron.delete` | `{id}` | Delete cron job |
 | `cron.enable` | `{id}` | Enable cron job |
 | `cron.disable` | `{id}` | Disable cron job |
 | `cron.trigger` | `{id}` | Manually trigger cron job |
+| `cron.cancel` | `{id}` | Stop currently-running executions (`{cancelled: N}`) without deleting the job |
 | `cron.history` | `{id}` | Get run history |
 | `cron.complete` | `{run_id, summary?}` | Mark a cron run as complete |
 | `bridge.send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram). `type`: `text`/`photo`/`document`/`voice`/`animation`/`video`/`sticker`. `file`: absolute path for media. `append`: concatenate to previous message. |
@@ -602,6 +623,8 @@ codeterm agent reports [--pane ID] [--clear]   # Read reports from children
 codeterm agent status [--pane ID]              # Get detailed status + role
 codeterm agent compact [--pane ID]             # Send /compact to Claude (compacts context)
 codeterm agent model <sonnet|haiku|opus> [--pane ID]  # Switch Claude model (sends /model <name>)
+codeterm agent providers                       # List registered agent providers (id, display_name, default_model, model count). Backed by GET /api/agents/providers.
+codeterm agent models PROVIDER                 # List available models for one provider (e.g. `codeterm agent models claude`)
 codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS_ID] [--args A1 A2]
                                                # One-call agent spawn (default agent: claude)
                                                # Role: Orchestrator, Lead, Worker (accepts Conductor/SubWorker as aliases)
@@ -614,14 +637,16 @@ codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [-
 
 # Cron Jobs
 codeterm cron list [--workspace ID]            # List all cron jobs
-codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs" [--cwd /path] [--description "desc"] [--once]
+codeterm cron create "name" --schedule "0 9 * * *" --task "Review TODOs" [--agent claude] [--model opus] [--cwd /path] [--description "desc"] [--once]
                                                # Create cron job (5-field cron: min hour dom mon dow)
+                                               # --agent / --model: provider and model override (see `agent providers`/`agent models`)
                                                # --once: oneshot job (schedule accepts "in 5m", "in 1h30m", ISO8601, unix ms)
-codeterm cron edit ID [--name "new name"] [--schedule "..."] [--task "..."]
-                                               # Update cron job fields
+codeterm cron edit ID [--name N] [--schedule S] [--task T] [--cwd D] [--description X] [--agent A] [--model M] [--jitter-max-ms MS]
+                                               # Update cron job fields. --jitter-max-ms: 0 = off, positive = cap in ms.
 codeterm cron delete ID                        # Delete cron job
 codeterm cron enable ID                        # Enable cron job
 codeterm cron disable ID                       # Disable cron job
+codeterm cron cancel ID                        # Stop any currently-running executions (does not delete the job)
 codeterm cron trigger ID                       # Manually trigger cron job
 codeterm cron history ID                       # Show run history
 codeterm cron complete --run-id UUID --summary "result"
@@ -736,4 +761,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->
