@@ -42,7 +42,13 @@ pub fn spawn_extraction_worker(
     } else {
         mem_cfg.extraction_agent.clone()
     };
-    let model = mem_cfg.extraction_model.clone();
+    // Extraction workers use `extraction_model` when set, otherwise fall
+    // back to the shared `worker_model` default (claude-haiku-4-5-*).
+    let model = if mem_cfg.extraction_model.is_empty() {
+        mem_cfg.worker_model.clone()
+    } else {
+        mem_cfg.extraction_model.clone()
+    };
 
     let intent = format!("extract:{}", mem_item_id);
     match workers::spawn_headless(

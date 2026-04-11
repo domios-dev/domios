@@ -877,9 +877,15 @@ pub async fn workers_spawn(
     let parent = b.parent.clone().unwrap_or_else(|| "user:memory-panel".to_string());
     let task = workers::build_worker_task(&b.intent, &worker_id, &b.task);
 
+    // Resolve model: `extraction_model` → `worker_model` → provider default.
+    let effective_model = if mem_cfg.extraction_model.is_empty() {
+        mem_cfg.worker_model.clone()
+    } else {
+        mem_cfg.extraction_model.clone()
+    };
     let model_args: Option<Vec<String>> = {
         let args = state.svc.agent_registry
-            .with_provider(&agent, |p| p.model_launch_args(&mem_cfg.extraction_model))
+            .with_provider(&agent, |p| p.model_launch_args(&effective_model))
             .unwrap_or_default();
         if args.is_empty() { None } else { Some(args) }
     };
@@ -922,8 +928,8 @@ pub async fn workers_spawn(
         color,
     );
     info.agent_provider = Some(agent);
-    if !mem_cfg.extraction_model.is_empty() {
-        info.model = Some(mem_cfg.extraction_model.clone());
+    if !effective_model.is_empty() {
+        info.model = Some(effective_model.clone());
     }
     state.svc.workers.register(info.clone());
 

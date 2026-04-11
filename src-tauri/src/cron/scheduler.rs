@@ -160,11 +160,14 @@ fn fire_job(
     task_text.push_str(&crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", &run_id));
 
     // Model priority: per-job override → mem_cfg.dreaming_model (legacy
-    // fallback for the auto-installed dreaming cron) → provider default.
+    // fallback for the auto-installed dreaming cron) → mem_cfg.worker_model
+    // (shared default, claude-haiku-4-5-*) → provider default.
     let model = model.map(|s| s.to_string()).or_else(|| {
         let mem_cfg = crate::config::memory_config();
         if !mem_cfg.dreaming_model.is_empty() {
             Some(mem_cfg.dreaming_model.clone())
+        } else if !mem_cfg.worker_model.is_empty() {
+            Some(mem_cfg.worker_model.clone())
         } else {
             None
         }
