@@ -41,15 +41,35 @@ impl AgentProvider for ClaudeProvider {
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         let mut parts: Vec<String> = Vec::new();
-
         parts.push(ShellSyntax::UNSET_CLAUDECODE.to_string());
-        parts.push("claude".to_string());
-        if params.skip_permissions {
-            parts.push("--dangerously-skip-permissions".to_string());
-        }
 
-        if let Some(ref task) = params.task {
-            parts.push(ShellSyntax::task_file_expr(task));
+        // Headless panes (mem workers, cron) deliver the task via stdin pipe
+        // + `-p` print mode. Inline subexpression delivery (`(Get-Content ...)`)
+        // gets re-split by PowerShell on whitespace, which causes prompts
+        // containing `--flag` tokens to leak into claude.exe's argv and crash
+        // with "unknown option '--area'". Visible interactive panes keep the
+        // legacy inline form: their tasks are short, and `-p` would make the
+        // pane exit immediately after responding which breaks the UX.
+        let use_stdin_pipe = params.headless && params.task.is_some();
+
+        if use_stdin_pipe {
+            let task = params.task.as_ref().unwrap();
+            let (pipe_prefix, _path) = ShellSyntax::task_file_stdin_pipe(task);
+            parts.push(pipe_prefix);
+            parts.push("claude".to_string());
+            if params.skip_permissions {
+                parts.push("--dangerously-skip-permissions".to_string());
+            }
+            // -p (print) reads the prompt from stdin and exits when done.
+            parts.push("-p".to_string());
+        } else {
+            parts.push("claude".to_string());
+            if params.skip_permissions {
+                parts.push("--dangerously-skip-permissions".to_string());
+            }
+            if let Some(ref task) = params.task {
+                parts.push(ShellSyntax::task_file_expr(task));
+            }
         }
 
         if let Some(ref name) = params.agent_name {
@@ -519,6 +539,7 @@ mod tests {
             task: None,
             args: None,
             skip_permissions: true,
+            headless: false,
         };
         let cmd = p.build_launch_command(&params);
         if cfg!(target_os = "windows") {
@@ -542,10 +563,12 @@ mod tests {
             task: Some("count files".to_string()),
             args: None,
             skip_permissions: true,
+            headless: false,
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains("--dangerously-skip-permissions"));
         assert!(cmd.contains(".ct-task-"), "task via temp file");
+        assert!(!cmd.contains(" -p "), "visible mode must not use -p");
     }
 
     #[test]
@@ -556,10 +579,108 @@ mod tests {
             task: None,
             args: None,
             skip_permissions: true,
+            headless: false,
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains("--agent"));
         assert!(cmd.contains("'architect'"));
+    }
+
+    #[test]
+    fn test_build_launch_headless_uses_stdin_pipe_and_print_mode() {
+        let p = ClaudeProvider::new();
+        let task = "codeterm mem save --kind fact --area codeterm \"body --flag value\"";
+        let params = AgentLaunchParams {
+            agent_name: None,
+            task: Some(task.to_string()),
+            args: None,
+            skip_permissions: true,
+            headless: true,
+        };
+        let cmd = p.build_launch_command(&params);
+        // Must include the pipe prefix, then claude binary, then -p flag.
+        if cfg!(target_os = "windows") {
+            assert!(cmd.contains("Get-Content "), "headless must use Get-Content pipe: {}", cmd);
+            assert!(cmd.contains("-Raw -Encoding UTF8 |"), "missing pipe: {}", cmd);
+        } else {
+            assert!(cmd.contains("cat "), "headless must use cat pipe: {}", cmd);
+            assert!(cmd.contains(" |"), "missing pipe: {}", cmd);
+        }
+        assert!(cmd.contains(".ct-task-"), "task file path expected: {}", cmd);
+        assert!(cmd.contains("claude"), "claude bin: {}", cmd);
+        assert!(cmd.contains(" -p"), "headless must add -p: {}", cmd);
+        assert!(cmd.contains("--dangerously-skip-permissions"));
+        // Must NOT have inline subexpression — that's the bug we're fixing.
+        assert!(
+            !cmd.contains("(Get-Content"),
+            "headless must NOT use inline subexpression: {}",
+            cmd
+        );
+        // The raw --area / --flag tokens from the task body must NOT appear
+        // as standalone argv tokens in the generated command line.
+        let after_p = cmd.split(" -p").nth(1).unwrap_or("");
+        assert!(
+            !after_p.contains(" --area "),
+            "task body --area must not leak into argv: {}",
+            cmd
+        );
+    }
+
+    #[test]
+    fn test_build_launch_headless_no_task_falls_back_to_legacy() {
+        let p = ClaudeProvider::new();
+        let params = AgentLaunchParams {
+            agent_name: None,
+            task: None,
+            args: None,
+            skip_permissions: true,
+            headless: true,
+        };
+        let cmd = p.build_launch_command(&params);
+        // No task → no pipe, no -p, just plain claude.
+        assert!(!cmd.contains(" -p"), "no -p without task: {}", cmd);
+        assert!(!cmd.contains("Get-Content"));
+        assert!(!cmd.contains("cat "));
+        assert!(cmd.contains("claude"));
+    }
+
+    #[test]
+    fn test_build_launch_visible_with_args_after_task() {
+        let p = ClaudeProvider::new();
+        let params = AgentLaunchParams {
+            agent_name: None,
+            task: Some("hello".to_string()),
+            args: Some(vec!["--model".into(), "claude-haiku-4-5-20251001".into()]),
+            skip_permissions: true,
+            headless: false,
+        };
+        let cmd = p.build_launch_command(&params);
+        assert!(cmd.contains(".ct-task-"));
+        assert!(cmd.contains("--model claude-haiku-4-5-20251001"));
+    }
+
+    #[test]
+    fn test_build_launch_headless_with_extra_args() {
+        let p = ClaudeProvider::new();
+        let params = AgentLaunchParams {
+            agent_name: None,
+            task: Some("do thing --kind fact".to_string()),
+            args: Some(vec!["--model".into(), "claude-haiku-4-5-20251001".into()]),
+            skip_permissions: true,
+            headless: true,
+        };
+        let cmd = p.build_launch_command(&params);
+        assert!(cmd.contains(" -p"));
+        assert!(cmd.contains("--model claude-haiku-4-5-20251001"));
+        // Pipe prefix should come BEFORE the claude binary.
+        let claude_pos = cmd.find(" claude").expect("claude in cmd");
+        if cfg!(target_os = "windows") {
+            let pipe_pos = cmd.find("Get-Content").expect("pipe in cmd");
+            assert!(pipe_pos < claude_pos);
+        } else {
+            let pipe_pos = cmd.find("cat ").expect("pipe in cmd");
+            assert!(pipe_pos < claude_pos);
+        }
     }
 
     #[test]
