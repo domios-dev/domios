@@ -12,6 +12,10 @@ pub enum CronRunStatus {
     Running,
     Success,
     Failed,
+    /// The run was stopped by an explicit cancel — user-initiated, not a
+    /// spawn failure. Distinct from Failed so the history UI can show
+    /// "cancelled by user" vs "agent crashed" separately.
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

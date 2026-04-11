@@ -926,6 +926,12 @@ pub enum CronAction {
         /// Cron job ID
         id: String,
     },
+    /// Stop any currently-running executions of a cron job without
+    /// deleting the job definition. Future scheduled fires still run.
+    Cancel {
+        /// Cron job ID
+        id: String,
+    },
     /// Manually trigger a cron job now
     Trigger {
         /// Cron job ID
@@ -1835,6 +1841,24 @@ fn main() {
                             } else {
                                 println!("Triggered: pane={}",
                                     val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?"));
+                            }
+                            return;
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                CronAction::Cancel { id } => {
+                    match client.call("cron.cancel", Some(serde_json::json!({"id": id}))) {
+                        Ok(val) => {
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                let n = val.get("cancelled").and_then(|v| v.as_u64()).unwrap_or(0);
+                                if n == 0 {
+                                    println!("No running executions for {}.", id);
+                                } else {
+                                    println!("Cancelled {} running execution(s) of {}.", n, id);
+                                }
                             }
                             return;
                         }
