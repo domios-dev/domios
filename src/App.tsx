@@ -59,6 +59,10 @@ function AppInner() {
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "cron">("workspace");
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   const [cronInitialId, setCronInitialId] = useState<string | undefined>(undefined);
+  // Tracks which cron is currently shown in the panel's detail view (or
+  // undefined when the panel is on the dashboard). Synced from CronPanel
+  // via onActiveCronChange so the sidebar can highlight the matching row.
+  const [activeCronId, setActiveCronId] = useState<string | undefined>(undefined);
   const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "settings";
@@ -75,10 +79,12 @@ function AppInner() {
   }, []);
   const openCronPanel = useCallback((jobId?: string) => {
     setCronInitialId(jobId);
+    setActiveCronId(jobId);
     setMainView("cron");
   }, []);
   const closeCronPanel = useCallback(() => {
     setCronInitialId(undefined);
+    setActiveCronId(undefined);
     setMainView("workspace");
   }, []);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -502,6 +508,7 @@ function AppInner() {
             onOpenCron={openCronPanel}
             onNavigateToTab={() => setMainView("workspace")}
             mainView={mainView}
+            activeCronId={activeCronId}
           />
         )}
 
@@ -533,6 +540,7 @@ function AppInner() {
                   : { type: "dashboard" }
               }
               onClose={closeCronPanel}
+              onActiveCronChange={setActiveCronId}
             />
           )}
           {mainView === "workspace" && state.workspaces.length > 0 ? (

@@ -20,9 +20,14 @@ type CronView = { type: "dashboard" } | { type: "detail"; cronId: string };
 interface CronPanelProps {
   initialView: CronView;
   onClose: () => void;
+  /** Called whenever the panel's internal view changes — fires with the
+   *  cron id when the detail view is active, or undefined when the panel
+   *  is showing the dashboard. Lets the App-level sidebar highlight the
+   *  matching row. */
+  onActiveCronChange?: (cronId: string | undefined) => void;
 }
 
-export function CronPanel({ initialView, onClose }: CronPanelProps) {
+export function CronPanel({ initialView, onClose, onActiveCronChange }: CronPanelProps) {
   const [view, setView] = useState<CronView>(initialView);
 
   // Keep internal view in sync when the caller navigates to a different
@@ -31,6 +36,12 @@ export function CronPanel({ initialView, onClose }: CronPanelProps) {
   useEffect(() => {
     setView(initialView);
   }, [initialView]);
+
+  // Broadcast view changes upward so the sidebar can track which cron
+  // (if any) is currently open.
+  useEffect(() => {
+    onActiveCronChange?.(view.type === "detail" ? view.cronId : undefined);
+  }, [view, onActiveCronChange]);
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-sidebar-bg)] overflow-hidden">
