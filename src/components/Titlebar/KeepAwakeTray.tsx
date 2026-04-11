@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { Power } from "lucide-react";
 import { createPortal } from "react-dom";
 
@@ -43,13 +44,32 @@ export function KeepAwakeTray() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Mount: fetch backend status, sync display flag if a session is active
-  useEffect(() => {
-    invoke<KeepAwakeStatus>("keepawake_status").then((s) => {
-      setStatus(s);
-      if (s.active) setDisplaySleep(s.display);
-    }).catch(() => {});
+  // Apply a status update from any source (event, invoke response, menu open).
+  const applyStatus = useCallback((s: KeepAwakeStatus) => {
+    setStatus((prev) => {
+      if (
+        prev.active === s.active &&
+        prev.display === s.display &&
+        prev.expires_at === s.expires_at
+      ) {
+        return prev;
+      }
+      return s;
+    });
+    if (s.active) setDisplaySleep(s.display);
   }, []);
+
+  // Mount: fetch current status + subscribe to backend-emitted state changes.
+  // The backend emits "keepawake-changed" on start, stop, and natural expiry
+  // (from the platform thread), so the tray never needs to poll.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    invoke<KeepAwakeStatus>("keepawake_status").then(applyStatus).catch(() => {});
+    listen<KeepAwakeStatus>("keepawake-changed", (e) => applyStatus(e.payload))
+      .then((u) => { unlisten = u; })
+      .catch(() => {});
+    return () => { if (unlisten) unlisten(); };
+  }, [applyStatus]);
 
   // Heartbeat: 500ms tick drives blinking colon + minute countdown when timed
   useEffect(() => {
@@ -57,17 +77,6 @@ export function KeepAwakeTray() {
     const id = setInterval(() => setTick((t) => t + 1), 500);
     return () => clearInterval(id);
   }, [status.active, status.expires_at]);
-
-  // Natural expiry watcher
-  useEffect(() => {
-    if (!status.active) return;
-    const id = setInterval(() => {
-      invoke<KeepAwakeStatus>("keepawake_status").then((s) => {
-        if (!s.active) setStatus(s);
-      }).catch(() => {});
-    }, 60000);
-    return () => clearInterval(id);
-  }, [status.active]);
 
   const start = useCallback(async (secs: number | null) => {
     try {

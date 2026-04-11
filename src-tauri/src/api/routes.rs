@@ -18,6 +18,7 @@ pub struct AppState {
     pub update_state: crate::UpdateStateHandle,
     pub config: crate::config::ConfigState,
     pub mesh: crate::MeshStateHandle,
+    pub keepawake: crate::KeepAwakeStateHandle,
 }
 
 pub fn create_router(state: AppState) -> Router {
@@ -47,6 +48,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/webhooks", get(list_webhooks).post(register_webhook))
         .route("/api/webhooks/{id}", axum::routing::delete(unregister_webhook))
         .route("/api/network", get(network_info))
+        .route("/api/keepawake", get(keepawake_status_handler))
+        .route("/api/keepawake/start", post(keepawake_start_handler))
+        .route("/api/keepawake/stop", post(keepawake_stop_handler))
         .route("/api/themes", get(list_themes_api).post(save_theme_api))
         .route("/api/themes/{id}", axum::routing::delete(delete_theme_api))
         .route("/api/themes/apply", post(apply_theme_api))
@@ -783,6 +787,50 @@ async fn network_info(
         "api_url": format!("http://{}:{}", local_ip, port),
         "tailscale_url": tailscale_ip.as_ref().map(|ip| format!("http://{}:{}", ip, port)),
     }))
+}
+
+// ── Keep-awake ──────────────────────────────────────────────────────
+
+#[derive(Deserialize, Default)]
+struct KeepAwakeStartBody {
+    duration_secs: Option<u64>,
+    display: Option<bool>,
+}
+
+async fn keepawake_status_handler(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let st = crate::keepawake::status(&state.keepawake);
+    Ok(Json(serde_json::to_value(st).unwrap_or(serde_json::Value::Null)))
+}
+
+async fn keepawake_start_handler(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    body: Option<Json<KeepAwakeStartBody>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let st = crate::keepawake::start(
+        &state.keepawake,
+        &state.svc.app_handle,
+        body.duration_secs,
+        body.display,
+    )
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::to_value(st).unwrap_or(serde_json::Value::Null)))
+}
+
+async fn keepawake_stop_handler(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    crate::keepawake::stop(&state.keepawake, &state.svc.app_handle)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 pub fn local_ip_address() -> Option<String> {
