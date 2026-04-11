@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
-import { baseUrl, authHeaders } from "./memoryApi";
+import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
 import { WorkerLogPopup } from "./WorkerLogPopup";
 
 interface Props {
@@ -51,16 +52,6 @@ function formatDateTime(ms: number): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function parseDreamStats(body: string): { promoted: number; expired: number } {
-  let promoted = 0;
-  let expired = 0;
-  const promMatch = body.match(/promot\w*[:\s]+(\d+)/i);
-  if (promMatch) promoted = parseInt(promMatch[1], 10);
-  const expMatch = body.match(/expir\w*[:\s]+(\d+)/i);
-  if (expMatch) expired = parseInt(expMatch[1], 10);
-  return { promoted, expired };
 }
 
 function MemoryDreamsTabImpl({ api }: Props) {
@@ -127,13 +118,27 @@ function MemoryDreamsTabImpl({ api }: Props) {
   useEffect(() => { fetchCronData(); }, [fetchCronData]);
   useEffect(() => { fetchDiary(); }, [fetchDiary]);
 
-  const aggregateStats = diaryEntries.reduce(
-    (acc, e) => {
-      const s = parseDreamStats(e.body);
-      return { promoted: acc.promoted + s.promoted, expired: acc.expired + s.expired };
-    },
-    { promoted: 0, expired: 0 },
-  );
+  // Live updates: re-fetch on worker events and mem activity
+  useEffect(() => {
+    if (!isTauriEnv()) return;
+    let active = true;
+    const unlisteners: Array<() => void> = [];
+    const refreshWorkers = () => { if (active) fetchCronData(); };
+    const refreshDiary = () => { if (active) fetchDiary(); };
+    (async () => {
+      try {
+        for (const name of ["graph-worker-spawned", "graph-worker-progress", "graph-worker-reported", "graph-worker-done"]) {
+          const fn = await listen(name, refreshWorkers);
+          if (!active) { fn(); return; }
+          unlisteners.push(fn);
+        }
+        const memFn = await listen("mem-activity", refreshDiary);
+        if (!active) { memFn(); return; }
+        unlisteners.push(memFn);
+      } catch { /* not in tauri */ }
+    })();
+    return () => { active = false; unlisteners.forEach(fn => fn()); };
+  }, [fetchCronData, fetchDiary]);
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-y-auto">
@@ -182,28 +187,6 @@ function MemoryDreamsTabImpl({ api }: Props) {
           )}
         </section>
 
-        {/* Stats summary */}
-        {diaryEntries.length > 0 && (
-          <section>
-            <h3 className="text-xs font-semibold text-[var(--ct-muted-fg)] uppercase tracking-wider mb-2">
-              Lifetime Stats
-            </h3>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="px-3 py-2 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)] text-center">
-                <div className="text-lg font-mono text-[var(--ct-fg)]">{diaryEntries.length}</div>
-                <div className="text-[10px] text-[var(--ct-muted-fg)]">dream runs</div>
-              </div>
-              <div className="px-3 py-2 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)] text-center">
-                <div className="text-lg font-mono text-[#10b981]">{aggregateStats.promoted}</div>
-                <div className="text-[10px] text-[var(--ct-muted-fg)]">promoted</div>
-              </div>
-              <div className="px-3 py-2 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)] text-center">
-                <div className="text-lg font-mono text-[#ef4444]">{aggregateStats.expired}</div>
-                <div className="text-[10px] text-[var(--ct-muted-fg)]">expired</div>
-              </div>
-            </div>
-          </section>
-        )}
 
         {/* Run history (from workers) */}
         <section>
@@ -274,10 +257,12 @@ function MemoryDreamsTabImpl({ api }: Props) {
                       {entry.title}
                     </span>
                     <span className="text-[10px] text-[var(--ct-muted-fg)] ml-auto tabular-nums">
-                      {new Date(entry.created_at).toLocaleDateString("en-US", {
+                      {new Date(entry.created_at).toLocaleString("en-US", {
                         month: "short",
                         day: "numeric",
                         year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
                       })}
                     </span>
                   </div>
