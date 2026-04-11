@@ -47,6 +47,7 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 18. **Read config**: `codeterm config get integrations.telegram_enabled` (dot-notation)
 19. **Write config**: `codeterm config set integrations.telegram_enabled true` (JSON values)
 20. **Send to Telegram**: `codeterm bridge send --to USER_ID --service telegram "text"` (auto-edits within 60s, `--append` to concatenate)
+21. **Keep system awake**: `codeterm keepawake start --duration-secs 3600 [--display]` (cross-platform: caffeinate on macOS, SetThreadExecutionState on Windows). Stop: `codeterm keepawake stop`. Status: `codeterm keepawake status`. Use this instead of calling `caffeinate` / `powercfg` / `systemd-inhibit` directly.
 
 ## CLI Flags
 
@@ -208,4 +209,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`, so context is preserved across restarts.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
