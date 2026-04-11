@@ -42,14 +42,22 @@ fn build_extraction_prompt(mem_item_id: &str, title: &str, body: &str) -> String
 /// Spawn a fully headless extraction worker. Uses the same pattern as
 /// General Agent: backend PTY spawn + backend reader + send launch command.
 /// The pane is hidden from birth — zero tab flash.
+///
+/// `concurrency_permit`, when passed, is held for the entire lifetime of
+/// the worker — the polling loop at the end of the inner thread drops it
+/// only after the worker reaches a terminal state (Done/Error/Orphaned).
+/// This gives the caller a real concurrency cap: holding N permits in
+/// `svc.extract_semaphore` means at most N live extraction workers.
 pub fn spawn_extraction_worker(
     svc: &Arc<ServiceContext>,
     mem_item_id: String,
     title: String,
     body: String,
     kind: MemKind,
+    concurrency_permit: Option<tokio::sync::OwnedSemaphorePermit>,
 ) {
     if !should_extract(kind) || body.len() < MIN_BODY_LEN {
+        // permit (if any) drops at scope exit — caller gets another slot.
         return;
     }
 
@@ -154,12 +162,19 @@ pub fn spawn_extraction_worker(
         worker_id, pane_id, pty_id, mem_item_id
     );
 
-    // 6. Backend reader + launch agent — all in a background thread
+    // 6. Backend reader + launch agent + permit polling — all in one
+    //    background thread. The permit is moved into this closure and
+    //    lives until the closure ends, which happens when the worker
+    //    reaches a terminal state (Done/Error/Orphaned) or the registry
+    //    forgets about it.
 
     let svc2 = svc.clone();
     let pane_id2 = pane_id.clone();
     let pty_id2 = pty_id.clone();
+    let worker_id_for_wait = worker_id.clone();
     std::thread::spawn(move || {
+        let _permit = concurrency_permit; // held for the whole lifetime
+
         // Start backend reader (needs its own tokio runtime)
         let svc3 = svc2.clone();
         let pty_id3 = pty_id2.clone();
@@ -201,5 +216,27 @@ pub fn spawn_extraction_worker(
             "[auto-extract] agent launched in pane {} provider={}",
             pane_id2, agent_provider
         );
+
+        // Hold the permit until the worker finishes. Polls the registry
+        // every 3s; exits when the worker hits a terminal state or is
+        // removed. Cap at 30 minutes so a runaway worker can't hoard a
+        // permit indefinitely. _permit drops at scope exit.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            let Some(info) = svc2.workers.get(&worker_id_for_wait) else {
+                break; // registry forgot about it — release permit
+            };
+            if info.status.is_terminal() {
+                break;
+            }
+            if std::time::Instant::now() > deadline {
+                log::warn!(
+                    "[auto-extract] worker {} exceeded 30min, releasing permit",
+                    worker_id_for_wait
+                );
+                break;
+            }
+        }
     });
 }
