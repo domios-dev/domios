@@ -5,16 +5,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-// ── Types ──────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum CronRunStatus {
     Running,
     Success,
     Failed,
-    /// The run was stopped by an explicit cancel — user-initiated, not a
-    /// spawn failure. Distinct from Failed so the history UI can show
-    /// "cancelled by user" vs "agent crashed" separately.
     Cancelled,
 }
 
@@ -38,9 +33,6 @@ pub struct CronJob {
     pub schedule: String,
     pub enabled: bool,
     pub agent: String,
-    /// Optional model id within the agent provider (e.g. "opus", "haiku",
-    /// "gpt-5.4-mini"). `None` → provider default. Per-job override so
-    /// different crons can use different tiers without touching config.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     pub task: String,
@@ -48,10 +40,8 @@ pub struct CronJob {
     pub cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
-    /// Pane ID of whoever created this cron — spawned agents report back here.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub creator_pane_id: Option<String>,
-    /// If true, the job fires once at `next_run` and is auto-deleted on completion.
     #[serde(default, skip_serializing_if = "is_false")]
     pub oneshot: bool,
     #[serde(default = "default_max_history")]
@@ -61,18 +51,13 @@ pub struct CronJob {
     pub last_run: Option<CronRunInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_run: Option<u64>,
-    /// Maximum jitter applied to next_run (anti-anti-cheat / organic fire
-    /// pattern). When None, defaults to 10% of the cron interval, clamped
-    /// to [60_000, 1_800_000] (1 min to 30 min). Set to Some(0) to disable.
-    /// See `docs/plans/mem-architecture.md` "Cron Hardening".
+    /// None → 10% of interval clamped to [1m, 30m]. Some(0) → off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jitter_max_ms: Option<u64>,
-    /// Count of back-to-back failures. Drives exponential backoff. Reset
-    /// to 0 on successful completion. Job auto-disables at >= 5.
+    /// Auto-disables at >= 5.
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub consecutive_failures: u32,
-    /// Protected crons cannot be deleted via API/CLI. Only toggled on/off.
-    /// Used for system crons like dreaming optimizer.
+    /// Protected crons cannot be deleted, only toggled.
     #[serde(default, skip_serializing_if = "is_false")]
     pub protected: bool,
 }
@@ -86,8 +71,6 @@ fn default_max_history() -> usize {
 fn is_false(v: &bool) -> bool {
     !v
 }
-
-// ── Persistence envelope ───────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CronFile {
@@ -106,10 +89,6 @@ impl Default for CronFile {
     }
 }
 
-// ── Cron expression helpers ────────────────────────────────────────
-
-/// Convert 5-field cron ("*/30 * * * *") to 6-field ("0 */30 * * * *")
-/// that the `cron` crate expects (sec min hour dom mon dow).
 pub fn to_6field(expr: &str) -> String {
     let fields: Vec<&str> = expr.trim().split_whitespace().collect();
     if fields.len() == 5 {
@@ -119,7 +98,6 @@ pub fn to_6field(expr: &str) -> String {
     }
 }
 
-/// Parse a cron expression and compute the next fire time (unix ms).
 pub fn compute_next_run(schedule: &str) -> Result<Option<u64>, String> {
     use std::str::FromStr;
     let expr = to_6field(schedule);
@@ -127,14 +105,6 @@ pub fn compute_next_run(schedule: &str) -> Result<Option<u64>, String> {
     Ok(sched.upcoming(chrono::Utc).next().map(|dt| dt.timestamp_millis() as u64))
 }
 
-/// Like `compute_next_run` but applies a randomized jitter so back-to-back
-/// runs of the same agent-spawning cron don't fire at exactly the same
-/// wall-clock instant every period. Spreads load and looks more organic.
-///
-/// `jitter_max_ms = None` → defaults to 10% of the interval between the
-///   next two scheduled fires, clamped to [60_000, 1_800_000].
-/// `jitter_max_ms = Some(0)` → no jitter (use plain compute_next_run).
-/// `jitter_max_ms = Some(n)` → uniform random in [0, n].
 pub fn compute_next_run_jittered(
     schedule: &str,
     jitter_max_ms: Option<u64>,
@@ -152,7 +122,6 @@ pub fn compute_next_run_jittered(
         Some(0) => return Ok(Some(next)),
         Some(n) => n,
         None => {
-            // 10% of the interval between this fire and the next, clamped.
             let interval_ms = upcoming
                 .next()
                 .map(|dt2| (dt2.timestamp_millis() as u64).saturating_sub(next))
@@ -164,27 +133,22 @@ pub fn compute_next_run_jittered(
     if max == 0 {
         return Ok(Some(next));
     }
-    // Uniform [0, max] inclusive — anti-bias by using full u64 range modulo
     use rand::Rng;
     let offset = rand::thread_rng().gen_range(0..=max);
     Ok(Some(next + offset))
 }
 
-/// Compute the next run after a failure, applying exponential backoff with
-/// 25% jitter. Capped at 1 hour. base_ms is typically the previous interval.
 pub fn compute_backoff(consecutive_failures: u32, base_ms: u64) -> u64 {
     let factor = 1u64.checked_shl(consecutive_failures.min(10)).unwrap_or(1024);
     let raw = base_ms.saturating_mul(factor);
-    let capped = raw.min(3_600_000); // 1 hour
+    let capped = raw.min(3_600_000);
     use rand::Rng;
     let jitter = (capped as f64 * 0.25 * rand::thread_rng().gen::<f64>()) as u64;
     capped + jitter
 }
 
-/// Threshold at which a recurring cron auto-disables.
 pub const MAX_CONSECUTIVE_FAILURES: u32 = 5;
 
-/// Validate a cron expression without computing next run.
 pub fn validate_schedule(schedule: &str) -> Result<(), String> {
     use std::str::FromStr;
     let expr = to_6field(schedule);
@@ -201,7 +165,6 @@ pub fn validate_schedule(schedule: &str) -> Result<(), String> {
 pub fn parse_oneshot_schedule(schedule: &str) -> Result<u64, String> {
     let s = schedule.trim();
 
-    // Relative: "in 5m", "in 1h30m", "in 2d12h"
     if let Some(rest) = s.strip_prefix("in ") {
         let duration_ms = parse_relative_duration(rest.trim())?;
         if duration_ms == 0 {
@@ -214,7 +177,6 @@ pub fn parse_oneshot_schedule(schedule: &str) -> Result<u64, String> {
         return Ok(now + duration_ms);
     }
 
-    // Unix timestamp (13+ digit number = ms)
     if s.len() >= 13 && s.chars().all(|c| c.is_ascii_digit()) {
         let ts: u64 = s.parse().map_err(|_| "Invalid timestamp".to_string())?;
         let now = SystemTime::now()
@@ -227,7 +189,6 @@ pub fn parse_oneshot_schedule(schedule: &str) -> Result<u64, String> {
         return Ok(ts);
     }
 
-    // ISO 8601
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
         let ts = dt.timestamp_millis() as u64;
         let now = SystemTime::now()
@@ -246,7 +207,6 @@ pub fn parse_oneshot_schedule(schedule: &str) -> Result<u64, String> {
     ))
 }
 
-/// Parse a relative duration string like "5m", "1h30m", "2d", "90s" into milliseconds.
 fn parse_relative_duration(s: &str) -> Result<u64, String> {
     let mut total_ms: u64 = 0;
     let mut num_buf = String::new();
@@ -268,7 +228,7 @@ fn parse_relative_duration(s: &str) -> Result<u64, String> {
     }
 
     if !num_buf.is_empty() {
-        // Bare number without unit — treat as minutes (most intuitive default)
+        // bare number = minutes
         let n: u64 = num_buf.parse().map_err(|_| format!("Invalid number in duration: '{}'", s))?;
         total_ms += n * 60_000;
     }
@@ -280,12 +240,9 @@ fn parse_relative_duration(s: &str) -> Result<u64, String> {
     Ok(total_ms)
 }
 
-// ── Store ──────────────────────────────────────────────────────────
-
 pub struct CronStore {
     file: CronFile,
     file_path: PathBuf,
-    /// Runtime mapping: pane_id → (job_id, run_id). Not persisted.
     pane_owners: HashMap<String, (String, String)>,
 }
 
@@ -317,8 +274,6 @@ impl CronStore {
         Self { file, file_path: path, pane_owners: HashMap::new() }
     }
 
-    // ── Pane ownership tracking ─────────────────────────────────
-
     pub fn register_pane(&mut self, pane_id: &str, job_id: &str, run_id: &str) {
         self.pane_owners.insert(pane_id.to_string(), (job_id.to_string(), run_id.to_string()));
     }
@@ -331,7 +286,6 @@ impl CronStore {
         self.pane_owners.remove(pane_id);
     }
 
-    /// Get all pane_ids owned by a specific job.
     pub fn pane_owners_for_job(&self, job_id: &str) -> Vec<String> {
         self.pane_owners
             .iter()
@@ -340,7 +294,6 @@ impl CronStore {
             .collect()
     }
 
-    /// Find (job_id, pane_id) by run_id — reverse lookup through pane_owners.
     pub fn get_pane_owner_by_run(&self, run_id: &str) -> Option<(&str, &str)> {
         for (pane_id, (job_id, rid)) in &self.pane_owners {
             if rid == run_id {
@@ -350,7 +303,6 @@ impl CronStore {
         None
     }
 
-    /// Get the cron logs directory, creating if needed.
     pub fn logs_dir(&self) -> PathBuf {
         let dir = self.file_path.parent()
             .unwrap_or_else(|| std::path::Path::new("."))
@@ -359,7 +311,6 @@ impl CronStore {
         dir
     }
 
-    /// Save a cron run log to disk.
     pub fn save_log(&self, job_id: &str, run_id: &str, text: &str) -> Result<PathBuf, String> {
         let job_dir = self.logs_dir().join(job_id);
         let _ = fs::create_dir_all(&job_dir);
@@ -368,7 +319,6 @@ impl CronStore {
         Ok(path)
     }
 
-    /// Read a cron run log from disk.
     pub fn read_log(&self, job_id: &str, run_id: &str) -> Option<String> {
         let path = self.logs_dir().join(job_id).join(format!("{}.log", run_id));
         fs::read_to_string(path).ok()
@@ -386,15 +336,12 @@ impl CronStore {
             .as_millis() as u64
     }
 
-    // ── CRUD ────────────────────────────────────────────────────
-
     pub fn create(&mut self, params: CronCreateParams) -> Result<CronJob, String> {
         let oneshot = params.oneshot.unwrap_or(false);
         let jitter = params.jitter_max_ms;
 
         let next_run = if !params.enabled.unwrap_or(true) {
             if oneshot {
-                // Validate oneshot schedule even when disabled
                 parse_oneshot_schedule(&params.schedule)?;
             } else {
                 validate_schedule(&params.schedule)?;
@@ -504,14 +451,12 @@ impl CronStore {
             job.agent = agent;
         }
         if let Some(model) = patch.model {
-            // Empty string = clear the override (fall back to provider default)
             job.model = if model.is_empty() { None } else { Some(model) };
         }
         if let Some(jitter) = patch.jitter_max_ms {
             job.jitter_max_ms = Some(jitter);
         }
 
-        // Recompute next_run
         job.next_run = if !job.enabled {
             None
         } else if job.oneshot {
@@ -526,7 +471,6 @@ impl CronStore {
     }
 
     pub fn delete(&mut self, id: &str) -> Result<(), String> {
-        // Protected crons cannot be deleted
         if let Some(job) = self.file.jobs.iter().find(|j| j.id == id) {
             if job.protected {
                 return Err(format!("Cron job '{}' is protected and cannot be deleted. Use disable instead.", job.name));
@@ -566,16 +510,12 @@ impl CronStore {
         Ok(updated)
     }
 
-    // ── Run history ─────────────────────────────────────────────
-
     pub fn record_run(&mut self, job_id: &str, run: CronRunInfo) -> Result<(), String> {
-        // Update last_run on job
         if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == job_id) {
             let was_failure = matches!(run.status, CronRunStatus::Failed);
             let was_success = matches!(run.status, CronRunStatus::Success);
             job.last_run = Some(run.clone());
 
-            // Failure tracking + auto-disable + exponential backoff
             if was_failure {
                 job.consecutive_failures = job.consecutive_failures.saturating_add(1);
                 if job.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
@@ -586,7 +526,6 @@ impl CronStore {
                         job_id, job.consecutive_failures
                     );
                 } else if !job.oneshot && job.enabled {
-                    // Schedule retry with exponential backoff
                     let now_ms = Self::now_ms();
                     let base_ms = compute_next_run_jittered(&job.schedule, Some(0))?
                         .map(|t| t.saturating_sub(now_ms))
@@ -656,8 +595,6 @@ impl CronStore {
     }
 }
 
-// ── Params ─────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct CronCreateParams {
     pub name: String,
@@ -680,11 +617,8 @@ pub struct CronCreateParams {
     pub enabled: Option<bool>,
     #[serde(default)]
     pub max_history: Option<usize>,
-    /// If true, fires once at the scheduled time and auto-deletes on completion.
     #[serde(default)]
     pub oneshot: Option<bool>,
-    /// Anti-anti-cheat jitter — random offset added to next_run on each
-    /// schedule. None = 10% of interval clamped to [1m, 30m]. Some(0) = off.
     #[serde(default)]
     pub jitter_max_ms: Option<u64>,
 }
@@ -711,17 +645,9 @@ pub struct CronUpdateParams {
     pub agent: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
-    /// Jitter override on update.
-    ///   absent / null → don't touch the current value
-    ///   0             → disable jitter
-    ///   positive n    → use n ms as the cap
-    /// Resetting back to "auto" (provider default ~10% of interval) is
-    /// not exposed on the update surface — use DELETE + CREATE if needed.
     #[serde(default)]
     pub jitter_max_ms: Option<u64>,
 }
-
-// ── Tests ──────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -730,7 +656,6 @@ mod tests {
     fn temp_store() -> CronStore {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("crons.json");
-        // Leak the tempdir so it doesn't get deleted while store is alive
         let path_clone = path.clone();
         std::mem::forget(dir);
         CronStore::new_with_path(path_clone)
@@ -738,7 +663,6 @@ mod tests {
 
     #[test]
     fn jitter_default_is_within_clamp() {
-        // 1-hour interval → 10% = 360_000 ms = 6 min, well inside [60_000, 1_800_000]
         let plain = compute_next_run("0 * * * *").unwrap().unwrap();
         let jittered = compute_next_run_jittered("0 * * * *", None).unwrap().unwrap();
         assert!(jittered >= plain, "jitter never goes backwards");
@@ -763,11 +687,10 @@ mod tests {
 
     #[test]
     fn backoff_grows_exponentially_capped_at_hour() {
-        let base = 60_000u64; // 1 minute base
+        let base = 60_000u64;
         let b1 = compute_backoff(1, base);
         let b2 = compute_backoff(2, base);
         let b5 = compute_backoff(5, base);
-        // Exponential within reason, all under 1h*1.25 (jitter)
         assert!(b1 < b2);
         assert!(b5 <= 3_600_000 + (3_600_000 / 4));
     }
@@ -778,7 +701,6 @@ mod tests {
         let job = store.create(make_params("Test", "ws", "0 * * * *")).unwrap();
         let initial_next = job.next_run.unwrap();
 
-        // Record a failure
         store.record_run(&job.id, CronRunInfo {
             run_id: "r1".into(),
             started_at: 0,
@@ -790,9 +712,6 @@ mod tests {
 
         let after = store.get(&job.id).unwrap();
         assert_eq!(after.consecutive_failures, 1);
-        // Backoff pushes next_run forward, but it should still be in the future
-        // (could be sooner or later than the original schedule depending on
-        // when "now" is relative to the next cron fire — we just check counter)
         let _ = initial_next;
     }
 
@@ -857,7 +776,7 @@ mod tests {
             enabled: None,
             max_history: None,
             oneshot: None,
-            jitter_max_ms: Some(0), // tests deterministic — no jitter
+            jitter_max_ms: Some(0),
         }
     }
 
@@ -865,18 +784,15 @@ mod tests {
     fn test_cron_crud() {
         let mut store = temp_store();
 
-        // Create
         let job = store.create(make_params("Test Cron", "ws-1", "*/30 * * * *")).unwrap();
         assert_eq!(job.name, "Test Cron");
         assert_eq!(job.agent, "claude");
         assert!(job.enabled);
         assert!(job.next_run.is_some());
 
-        // Get
         let fetched = store.get(&job.id).unwrap();
         assert_eq!(fetched.name, "Test Cron");
 
-        // Update
         let updated = store
             .update(
                 &job.id,

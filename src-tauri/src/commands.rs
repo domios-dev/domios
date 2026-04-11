@@ -43,8 +43,6 @@ pub async fn install_app_update(app: AppHandle) -> Result<(), String> {
     }
 }
 
-/// Spawn a new PTY. Returns the PTY ID.
-/// NO background thread — frontend polls via read_pty command.
 #[tauri::command]
 pub fn get_windows_build_number() -> u32 {
     #[cfg(target_os = "windows")]
@@ -185,8 +183,6 @@ pub async fn spawn_pty(
     Ok(pty_id)
 }
 
-/// Read available data from PTY. Called by frontend in requestAnimationFrame loop.
-/// Uses spawn_blocking to avoid blocking the async thread pool.
 #[tauri::command]
 pub async fn read_pty(
     state: tauri::State<'_, PtyState>,
@@ -320,7 +316,6 @@ pub async fn read_pty(
     }
 }
 
-/// Write string to PTY.
 #[tauri::command]
 pub async fn write_pty_string(
     state: tauri::State<'_, PtyState>,
@@ -336,7 +331,6 @@ pub async fn write_pty_string(
     session.write_queue.send(data.into_bytes())
 }
 
-/// Write raw bytes to PTY.
 #[tauri::command]
 pub async fn write_pty(
     state: tauri::State<'_, PtyState>,
@@ -351,7 +345,6 @@ pub async fn write_pty(
     session.write_queue.send(data)
 }
 
-/// Resize PTY.
 #[tauri::command]
 pub async fn resize_pty(
     state: tauri::State<'_, PtyState>,
@@ -372,7 +365,6 @@ pub async fn resize_pty(
     Ok(())
 }
 
-/// Kill PTY.
 #[tauri::command]
 pub async fn kill_pty(
     state: tauri::State<'_, PtyState>,
@@ -383,8 +375,6 @@ pub async fn kill_pty(
     Ok(())
 }
 
-/// Get captured PTY output — full untruncated history, ANSI stripped.
-/// Used by ChatView to parse Claude output.
 #[tauri::command]
 pub async fn get_pane_output(
     svc: tauri::State<'_, ServiceState>,
@@ -406,15 +396,7 @@ pub async fn get_pane_output(
         .to_string())
 }
 
-/// Get visible terminal text from a pane (VT100-parsed screen state).
-///
-/// When `formatted=false` (default): plain text, no ANSI escapes — good for
-/// agents and tests that need readable content.
-///
-/// When `formatted=true`: raw string with ANSI escape codes preserving colors,
-/// cursor position, and cursor visibility. Used by pane remount to restore
-/// TUI apps like Claude that hide xterm cursor via DECTCEM — plain text would
-/// lose that state and produce a double cursor.
+/// formatted=true preserves ANSI + cursor state (needed for TUI remount).
 #[tauri::command]
 pub async fn get_pane_text(
     svc: tauri::State<'_, ServiceState>,
@@ -434,9 +416,6 @@ pub async fn get_pane_text(
         .to_string())
 }
 
-/// List all registered agent providers as `ProviderDescriptor`s.
-/// Frontend reads this once on mount and refetches on `contributions-changed` events.
-/// Mirrors `GET /api/agents/providers` and Socket `agents.list_providers`.
 #[tauri::command]
 pub async fn list_agent_providers(
     svc: tauri::State<'_, ServiceState>,
@@ -471,10 +450,6 @@ pub async fn wait_shell_ready(
     Ok(result)
 }
 
-/// Read agent session file for a pane.
-/// Returns the raw JSONL text. The frontend parses it into chat messages.
-/// Supports incremental reads via `offset` — skips that many bytes and returns only new data.
-/// Uses AgentRegistry to resolve session file path for the agent type.
 #[tauri::command]
 pub fn read_session_jsonl(
     mux: tauri::State<'_, MuxState>,
@@ -495,12 +470,9 @@ pub fn read_session_jsonl(
         (sid, cwd, at)
     };
 
-    // Self-healing: only re-detect if session_id is missing or file doesn't exist.
-    // Don't aggressively switch to newest — that causes all panes with same CWD to share one session.
     let needs_detect = if session_id.is_none() {
         true
     } else if let Some(ref sid) = session_id {
-        // Check if current session file still exists
         svc.agent_registry.with_provider(&agent_type, |p| p.session_file_path(&cwd, sid))
             .flatten()
             .map(|path| !path.exists())
@@ -524,7 +496,6 @@ pub fn read_session_jsonl(
     let session_id = session_id
         .ok_or_else(|| "No agent session linked to this pane".to_string())?;
 
-    // 2. Build path using agent provider
     let jsonl_path = svc.agent_registry.with_provider(&agent_type, |p| p.session_file_path(&cwd, &session_id))
         .flatten()
         .ok_or_else(|| format!("No session file path for agent type: {}", agent_type))?;
@@ -533,7 +504,6 @@ pub fn read_session_jsonl(
         return Err(format!("JSONL not found: {}", jsonl_path.display()));
     }
 
-    // 3. Read from offset (incremental) or tail (initial fast load)
     use std::io::{Read as IoRead, Seek, SeekFrom};
     let mut file = std::fs::File::open(&jsonl_path).map_err(|e| e.to_string())?;
     let file_len = file.metadata().map_err(|e| e.to_string())?.len();
@@ -548,19 +518,15 @@ pub fn read_session_jsonl(
         file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
         Ok(buf)
     } else if let Some(tail) = tail_bytes {
-        // Read only the last N bytes for fast initial load
-        // Prepend file_len as first line so frontend knows the offset for subsequent reads
         let start = if file_len > tail { file_len - tail } else { 0 };
         file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
         let mut buf = String::new();
         file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
-        // Skip first partial line (we likely landed mid-line)
         if start > 0 {
             if let Some(pos) = buf.find('\n') {
                 buf = buf[pos + 1..].to_string();
             }
         }
-        // Prepend offset marker so frontend can track position
         Ok(format!("__offset:{}\n{}", file_len, buf))
     } else {
         let mut buf = String::new();
@@ -569,15 +535,6 @@ pub fn read_session_jsonl(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Skills — bundled skills are copied to ~/.codeterm/skills/ on startup.
-// The sync watcher mirrors that directory to provider-specific locations
-// (~/.claude/skills/, ~/.agents/skills/) reactively on any file change.
-// No install/uninstall commands needed — just drop files in the directory.
-// ---------------------------------------------------------------------------
-
-/// Extract revision number from file content.
-/// Looks for `<!-- revision: N -->` pattern.
 fn extract_revision(content: &str) -> u32 {
     content.lines()
         .find_map(|l| {
@@ -595,9 +552,6 @@ fn extract_revision(content: &str) -> u32 {
         .unwrap_or(0)
 }
 
-/// Resolve bundled skills source directory. Checks (in order):
-/// 1. Adjacent to exe (production build)
-/// 2. Project root /skills (dev mode — exe in target/debug)
 fn find_bundled_skills_dir() -> std::path::PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         let exe_dir = exe.parent().unwrap_or(std::path::Path::new("."));
@@ -620,9 +574,6 @@ fn find_bundled_skills_dir() -> std::path::PathBuf {
     std::path::PathBuf::from("skills")
 }
 
-/// Copy bundled skills to `~/.codeterm/skills/` if missing or outdated.
-/// Called once at startup. Agents reach these via `codeterm mem search`
-/// once Phase 3.1 lands; until then the files are read directly.
 pub fn seed_bundled_skills() {
     let bundled = find_bundled_skills_dir();
     let canonical = crate::paths::data_dir().join("skills");
@@ -636,7 +587,6 @@ pub fn seed_bundled_skills() {
         let dst_dir = canonical.join(&id);
         let dst_skill = dst_dir.join("SKILL.md");
 
-        // Skip if installed version is up to date
         if dst_skill.exists() {
             let src_rev = std::fs::read_to_string(&src_skill).map(|c| extract_revision(&c)).unwrap_or(0);
             let dst_rev = std::fs::read_to_string(&dst_skill).map(|c| extract_revision(&c)).unwrap_or(0);
@@ -666,7 +616,6 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
     Ok(())
 }
 
-/// Restart the General Agent (e.g. after switching provider).
 #[tauri::command]
 pub fn restart_general_agent(
     svc: State<'_, ServiceState>,
@@ -686,10 +635,8 @@ pub fn restart_general_agent(
     Ok(())
 }
 
-/// Embedded CodeTerm rule for Claude Code
 use crate::prompts::CODETERM_RULE;
 
-/// Install CodeTerm rule to ~/.claude/rules/codeterm.md
 #[tauri::command]
 pub fn install_project_rules() -> Result<(), String> {
     let dest = dirs::home_dir()
@@ -701,8 +648,6 @@ pub fn install_project_rules() -> Result<(), String> {
     Ok(())
 }
 
-/// Check if codeterm rule is installed and up to date.
-/// Returns: { installed: bool, update_available: bool, revision: u32, installed_revision: u32 }
 #[tauri::command]
 pub fn check_rule_installed() -> Result<RuleStatus, String> {
     let path = dirs::home_dir()
@@ -738,7 +683,6 @@ pub struct RuleStatus {
     pub installed_revision: u32,
 }
 
-/// Open a folder in the system file explorer.
 #[tauri::command]
 pub fn open_folder(path: String) -> Result<(), String> {
     let resolved = if path.starts_with("~/") || path.starts_with("~\\") {
@@ -759,10 +703,8 @@ pub fn open_folder(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Send a test notification via native OS notifications.
 #[tauri::command]
 pub fn test_notification(_app: tauri::AppHandle) {
-    // Use osascript on macOS — works reliably in both dev and production
     #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("osascript")
@@ -779,7 +721,6 @@ pub fn test_notification(_app: tauri::AppHandle) {
     }
 }
 
-/// Open a URL in the default browser.
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
@@ -801,12 +742,6 @@ pub fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
     if enabled { crate::autostart::enable() } else { crate::autostart::disable() }
 }
 
-// ---------------------------------------------------------------------------
-// Directory completion for cd
-// ---------------------------------------------------------------------------
-
-/// List directories matching a fuzzy prefix in the given path.
-/// Returns directory names sorted by match quality.
 #[tauri::command]
 pub fn list_dir_completions(cwd: String, prefix: String) -> Result<Vec<DirCompletion>, String> {
     let dir = std::path::Path::new(&cwd);
@@ -821,12 +756,10 @@ pub fn list_dir_completions(cwd: String, prefix: String) -> Result<Vec<DirComple
         if !ft.is_dir() { continue; }
 
         let name = entry.file_name().to_string_lossy().to_string();
-        // Skip hidden dirs
         if name.starts_with('.') { continue; }
 
         let name_lower = name.to_lowercase();
 
-        // Score: 0 = exact prefix, 1 = contains, 2 = subsequence, -1 = no match
         let score = if name_lower.starts_with(&prefix_lower) {
             0
         } else if name_lower.contains(&prefix_lower) {
@@ -834,14 +767,13 @@ pub fn list_dir_completions(cwd: String, prefix: String) -> Result<Vec<DirComple
         } else if subsequence_match(&name_lower, &prefix_lower) {
             2
         } else {
-            continue; // no match
+            continue;
         };
 
         results.push(DirCompletion { name, score });
     }
 
     results.sort_by(|a, b| a.score.cmp(&b.score).then(a.name.len().cmp(&b.name.len())));
-    // Limit to top 20
     results.truncate(20);
     Ok(results)
 }
@@ -852,7 +784,6 @@ pub struct DirCompletion {
     pub score: i32,
 }
 
-/// Check if `query` is a subsequence of `text`.
 fn subsequence_match(text: &str, query: &str) -> bool {
     let mut qi = query.chars().peekable();
     for tc in text.chars() {
@@ -864,10 +795,6 @@ fn subsequence_match(text: &str, query: &str) -> bool {
     qi.peek().is_none()
 }
 
-// ---------------------------------------------------------------------------
-// Claude Code hooks management
-// ---------------------------------------------------------------------------
-
 fn claude_settings_path() -> Result<std::path::PathBuf, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
     Ok(home.join(".claude").join("settings.json"))
@@ -875,11 +802,9 @@ fn claude_settings_path() -> Result<std::path::PathBuf, String> {
 
 const CODETERM_HOOK_MARKER: &str = "codeterm-hook";
 
-/// Check if a hook entry belongs to CodeTerm — either by `_source` marker or by command content.
 fn is_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
     hook_entry.get("hooks").and_then(|hs| hs.as_array())
         .map(|hs| hs.iter().any(|h| {
-            // Check _source marker (current or legacy)
             if let Some(source) = h.get("_source").and_then(|s| s.as_str()) {
                 if source == CODETERM_HOOK_MARKER || source == "codeterm" {
                     return true;
@@ -939,9 +864,6 @@ pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
     })
 }
 
-/// Idempotent — install hooks if not already present. Called from startup
-/// after MemManager init so the PreCompact flush hook is always available.
-/// Never errors out the boot path: failure logs and returns Ok.
 pub fn ensure_claude_hooks_installed() {
     match check_claude_hooks() {
         Ok(status) if status.hooks_installed => {
@@ -965,7 +887,6 @@ pub struct ClaudeHooksStatus {
     pub stop_hook: bool,
 }
 
-/// Install Claude Code hooks that notify CodeTerm on permission requests and task completion.
 #[tauri::command]
 pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
     let path = claude_settings_path()?;
@@ -976,12 +897,10 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
         { 7685 }
     });
 
-    // Ensure ~/.claude/ directory exists
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    // Read existing settings or create empty
     let mut json: serde_json::Value = if path.exists() {
         let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
         serde_json::from_str(&content)
@@ -990,31 +909,22 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
         serde_json::json!({})
     };
 
-    // Build hook commands — cross-platform null device and error handling.
-    // Use single quotes around the JSON body (works in sh/bash/zsh/powershell).
     let null_dev = crate::shell::ShellSyntax::NULL_DEV;
-    // Use $CODETERM_API_PORT env var (set by PTY shell integration) with compiled-in fallback.
-    // This way hooks work regardless of which CodeTerm instance (prod/dev) spawned Claude.
     let notify_cmd = format!(
         "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
     );
     let stop_cmd = format!(
         "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
     );
-    // PreCompact: flush PTY scrollback to mem as a kind=conversation row
-    // BEFORE Claude summarizes the context (and destroys it). The hook
-    // hits /api/mem/flush which reads the pane's full output buffer and
-    // stores it via MemManager.
+    // flush PTY scrollback before summarization destroys it
     let precompact_cmd = format!(
         "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/mem/flush -H 'Content-Type: application/json' -d '{{\"pane\":\"'\"$CODETERM_PANE_ID\"'\",\"title\":\"pre-compact\"}}' > {null_dev} 2>&1 || true"
     );
 
-    // Ensure hooks object exists
     if json.get("hooks").is_none() {
         json["hooks"] = serde_json::json!({});
     }
 
-    // Notification hook (permission_prompt)
     let notif_hook = serde_json::json!({
         "matcher": "permission_prompt",
         "hooks": [{
@@ -1025,7 +935,6 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
         }]
     });
 
-    // Stop hook (task complete)
     let stop_hook = serde_json::json!({
         "matcher": "",
         "hooks": [{
@@ -1036,7 +945,6 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
         }]
     });
 
-    // PreCompact hook (flush context to mem before summarization)
     let precompact_hook = serde_json::json!({
         "matcher": "",
         "hooks": [{
@@ -1047,18 +955,15 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
         }]
     });
 
-    // Add to existing hooks arrays (don't overwrite user's hooks)
     let hooks = json["hooks"].as_object_mut()
         .ok_or("hooks is not an object")?;
 
-    // Remove old codeterm hooks first (by _source marker or legacy command detection)
     for key in &["Notification", "Stop", "PreCompact"] {
         if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
             arr.retain(|h| !is_codeterm_hook(h));
         }
     }
 
-    // Add new hooks
     if !hooks.contains_key("Notification") {
         hooks.insert("Notification".into(), serde_json::json!([]));
     }
@@ -1074,14 +979,12 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
     }
     hooks["PreCompact"].as_array_mut().unwrap().push(precompact_hook);
 
-    // Write back
     let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
     std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
     log::info!("Claude Code hooks installed at {:?}", path);
     Ok(())
 }
 
-/// Remove CodeTerm hooks from Claude Code settings.
 #[tauri::command]
 pub fn uninstall_claude_hooks() -> Result<(), String> {
     let path = claude_settings_path()?;
@@ -1105,8 +1008,6 @@ pub fn uninstall_claude_hooks() -> Result<(), String> {
     Ok(())
 }
 
-/// Save clipboard image bytes to a temp file, return the path.
-/// Shared attachments module handles eviction (keep last 20 images).
 #[tauri::command]
 pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String, String> {
     let path = crate::attachments::save_with_uuid(
@@ -1118,7 +1019,6 @@ pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String,
     Ok(path.to_string_lossy().to_string())
 }
 
-/// Save an arbitrary clipboard/paste file (non-image) to temp, return the path.
 #[tauri::command]
 pub async fn save_clipboard_file(
     bytes: Vec<u8>,
@@ -1133,7 +1033,6 @@ pub async fn save_clipboard_file(
     Ok(path.to_string_lossy().to_string())
 }
 
-/// Save base64 data to a temp file. Used by ChatView to stage pasted images.
 #[tauri::command]
 pub fn save_temp_file(data: String, extension: String, name: Option<String>) -> Result<String, String> {
     let bytes = base64::engine::general_purpose::STANDARD
@@ -1150,13 +1049,10 @@ pub fn save_temp_file(data: String, extension: String, name: Option<String>) -> 
     Ok(path.to_string_lossy().to_string())
 }
 
-/// Copy image file to system clipboard so Claude Code can read it via paste.
 #[tauri::command]
 pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        // PowerShell single-quoted strings are literal — only ' needs escaping
-        // (as ''), backslashes are NOT escape chars in PS single quotes.
         let escaped_path = path.replace("'", "''");
         let ps_script = format!(
             r#"
@@ -1188,7 +1084,6 @@ pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
-        // Use osascript to copy image to clipboard
         let script = format!(
             "set the clipboard to (read (POSIX file \"{}\") as «class PNGf»)",
             path.replace("\"", "\\\"")
@@ -1198,7 +1093,6 @@ pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
             .output()
             .map_err(|e| e.to_string())?;
         if !output.status.success() {
-            // Try TIFF fallback
             let script2 = format!(
                 "set the clipboard to (read (POSIX file \"{}\") as TIFF picture)",
                 path.replace("\"", "\\\"")
@@ -1228,7 +1122,6 @@ pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Generate a new API token, save it to config, and return it.
 #[tauri::command]
 pub fn generate_api_token(
     state: tauri::State<'_, crate::config::ConfigState>,
@@ -1243,7 +1136,6 @@ pub fn generate_api_token(
     Ok(token)
 }
 
-/// Get network info (local IP, Tailscale IP, API URL).
 #[tauri::command]
 pub fn get_network_info(state: tauri::State<'_, crate::config::ConfigState>) -> Result<serde_json::Value, String> {
     let local_ip = crate::api::routes::local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
@@ -1258,7 +1150,6 @@ pub fn get_network_info(state: tauri::State<'_, crate::config::ConfigState>) -> 
     }))
 }
 
-/// Get git info for pane CWD.
 #[tauri::command]
 pub fn get_pane_git_info(
     mux: tauri::State<'_, MuxState>,
@@ -1271,10 +1162,6 @@ pub fn get_pane_git_info(
         None => Ok(None),
     }
 }
-
-// ---------------------------------------------------------------------------
-// Cron commands
-// ---------------------------------------------------------------------------
 
 #[tauri::command]
 pub fn cron_list(
@@ -1413,10 +1300,6 @@ pub fn cron_read_log(
     job_id: String,
     run_id: String,
 ) -> Result<String, String> {
-    // Finished runs have a saved log file. Running runs don't — so fall
-    // through to the pane's live output buffer instead. This lets the
-    // frontend poll one endpoint for both states and show a live log
-    // popup while the agent is still working.
     if let Some(text) = cron.lock().read_log(&job_id, &run_id) {
         return Ok(text);
     }
@@ -1437,9 +1320,7 @@ pub fn cron_read_log(
             full: true,
         };
         let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
-        // dispatch::cmd_get_output returns the payload under the "output"
-        // key, not "text". Don't confuse it with /api/panes/{id}/text which
-        // is a totally different endpoint backed by GetText, not GetOutput.
+        // GetOutput response uses "output", not "text"
         let text = result
             .into_json()
             .get("output")
@@ -1451,10 +1332,6 @@ pub fn cron_read_log(
 
     Err("Log not found".to_string())
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -1544,4 +1421,3 @@ mod tests {
     }
 }
 
-// Mesh commands moved to commands_mesh.rs

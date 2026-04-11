@@ -1,6 +1,3 @@
-//! REST handlers for `/api/mem/*`. Thin shell over `MemManager`.
-//! CLI hits these endpoints via the bundled `codeterm` binary.
-
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
@@ -24,7 +21,6 @@ use crate::mem::{
 };
 use crate::service::SpawnAgentParams;
 
-/// Validate new/updated mem_item fields. Returns user-friendly error on failure.
 fn validate_item_fields(
     title: &str,
     body: &str,
@@ -42,7 +38,6 @@ fn validate_item_fields(
     if t.len() > 200 {
         return Err((StatusCode::BAD_REQUEST, "title must be <= 200 chars".into()));
     }
-    // body: soft floor 1 char, hard ceiling 1 MB (1_048_576 bytes)
     if body.len() > 1_048_576 {
         return Err((StatusCode::BAD_REQUEST, format!("body too large: {} bytes (max 1 MB)", body.len())));
     }
@@ -144,8 +139,6 @@ pub async fn mem_search(
         area: p.area,
         limit: p.limit,
     };
-    // Always use RRF hybrid (FTS5 + vector fusion) for best recall.
-    // Falls back gracefully when one backend has no results.
     let hits = if p.rerank.unwrap_or(false) {
         let cfg = RerankConfig {
             enabled: true,
@@ -195,13 +188,8 @@ pub struct SaveBody {
     pub source: Option<String>,
     #[serde(default)]
     pub importance: Option<f64>,
-    /// If true and a row with the same slug-derived id exists, overwrite it
-    /// in place. If false (default), collision falls through to hash suffix.
     #[serde(default)]
     pub replace: bool,
-    /// If true, do NOT spawn an auto-extraction worker for this item. Used
-    /// by the seed loader to bulk-insert 100+ items without fanning out a
-    /// graph-worker per save. Default false — normal saves still extract.
     #[serde(default)]
     pub skip_extract: bool,
 }
@@ -240,21 +228,11 @@ pub async fn mem_save(
     }.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "write", vec![id.clone()]);
 
-    // Auto-extraction: spawn a hidden graph-worker to extract entities/relations.
-    // Fire-and-forget, non-blocking. Skip cases:
-    //   - the item is itself auto-extracted (prevents cascade)
-    //   - auto-extraction disabled in config
-    //   - explicit skip_extract=true (seed loaders, bulk imports)
     let auto_extract_enabled = crate::config::memory_config().auto_extract;
     if !body.skip_extract && !is_auto_extracted && auto_extract_enabled {
         let svc = state.svc.clone();
         let id_for_extract = id.clone();
         tokio::spawn(async move {
-            // Acquire a permit from the shared semaphore. Caps in-flight
-            // extraction workers at svc.extract_semaphore's capacity. The
-            // permit is held across the spawn AND the registry polling
-            // loop below, so it only releases when the worker reaches a
-            // terminal state — real concurrency cap, not just burst.
             let sem = svc.extract_semaphore.clone();
             let Ok(permit) = sem.acquire_owned().await else {
                 log::warn!("[mem] extract semaphore closed, dropping {}", id_for_extract);
@@ -281,14 +259,12 @@ pub async fn mem_save(
                 return;
             };
 
-            // Poll the registry until the worker reaches a terminal state.
-            // Cap at 30 minutes so a runaway worker can't hoard a permit.
             let deadline =
                 tokio::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                 let Some(info) = svc.workers.get(&worker_id) else {
-                    break; // forgotten — release permit
+                    break;
                 };
                 if info.status.is_terminal() {
                     break;
@@ -354,7 +330,6 @@ pub async fn mem_update(
     Json(body): Json<UpdateBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    // Validate only provided fields
     if let Some(ref t) = body.title {
         let tt = t.trim();
         if tt.is_empty() || tt.len() < 3 || tt.len() > 200 {
@@ -516,7 +491,6 @@ pub struct GraphCreateEntityBody {
 #[derive(Deserialize)]
 pub struct LearnBody {
     pub text: String,
-    /// "insight" (default) | "error" | "feature"
     #[serde(default)]
     pub kind: Option<String>,
     #[serde(default)]
@@ -563,7 +537,6 @@ pub async fn mem_flush(
     Json(b): Json<FlushBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    // Resolve pane id (supports aliases like "general" / "current")
     let pty_id = {
         let mux = state.svc.mux.lock();
         mux.resolve_pane_id(&b.pane)
@@ -619,7 +592,6 @@ pub async fn mem_dream(
     let reports = dreaming::run_all(&state.svc.mem)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    // Spawn headless REM worker for dedup/classify/insights/diary
     let svc = state.svc.clone();
     std::thread::spawn(move || dreaming::spawn_rem_worker(&svc));
 
@@ -824,9 +796,6 @@ pub struct CheckDuplicateBody {
     pub threshold: Option<f64>,
 }
 
-/// Soft-warning duplicate detection. Embed the candidate body, find top-5
-/// nearest neighbors via sqlite-vec, return matches above threshold.
-/// Agent decides whether to save / merge / skip.
 pub async fn mem_check_duplicate(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -838,8 +807,6 @@ pub async fn mem_check_duplicate(
     }
     let threshold = b.threshold.unwrap_or(0.85).clamp(0.0, 1.0);
 
-    // Pure vector distance — duplicate detection needs actual semantic similarity,
-    // not RRF rank (which compresses all top hits near the same score).
     let raw = state.svc.mem.vector_recall(&b.body, 20)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
@@ -848,8 +815,6 @@ pub async fn mem_check_duplicate(
             let item = state.svc.mem.get(&id).ok()??;
             if let Some(ref k) = b.kind { if item.kind.as_str() != k.as_str() { return None; } }
             if let Some(ref a) = b.area { if item.area.as_deref() != Some(a) { return None; } }
-            // sqlite-vec returns L2 distance on normalized vectors (range 0..2).
-            // Cosine similarity ≈ 1 - dist²/2.
             let similarity = (1.0 - (dist * dist) / 2.0).clamp(0.0, 1.0);
             if similarity < threshold { return None; }
             Some(serde_json::json!({
@@ -878,8 +843,6 @@ pub async fn mem_graph_create(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
 
-    // Validation: only person_*, project_*, or area_* entities allowed.
-    // Prevents category-node star patterns (kind_*, tech_*, etc.).
     if !b.id.starts_with("person_") && !b.id.starts_with("project_") && !b.id.starts_with("area_") {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -900,8 +863,6 @@ pub async fn mem_graph_create(
     state.svc.mem.graph_create_entity(&e).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
-
-// ── Graph workers ───────────────────────────────────────────────────
 
 pub async fn workers_list(
     AxumState(state): AxumState<AppState>,
@@ -954,7 +915,6 @@ pub async fn workers_spawn(
     let parent = b.parent.clone().unwrap_or_else(|| "user:memory-panel".to_string());
     let task = workers::build_worker_task(&b.intent, &worker_id, &b.task);
 
-    // Ask the provider how to pass the model — no provider-specific branches here
     let model_args: Option<Vec<String>> = {
         let args = state.svc.agent_registry
             .with_provider(&agent, |p| p.model_launch_args(&mem_cfg.extraction_model))
@@ -984,8 +944,6 @@ pub async fn workers_spawn(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
-    // Set worker_id immediately but defer hidden until PTY is ready.
-    // Frontend must see the pane to create xterm and spawn PTY.
     {
         let mut mux = state.svc.mux.lock();
         if let Some(pane) = mux.get_pane_mut(&result.pane_id) {
@@ -1009,7 +967,6 @@ pub async fn workers_spawn(
 
     let _ = state.svc.app_handle.emit("graph-worker-spawned", &info);
 
-    // Hide pane after PTY is ready (background task)
     let svc = state.svc.clone();
     let pane_id = result.pane_id.clone();
     tokio::spawn(async move {
@@ -1083,7 +1040,6 @@ pub async fn workers_report(
     Json(b): Json<WorkerReportBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    // Capture full PTY output before completing (pane will be closed soon)
     let worker_pane_id = state.svc.workers.get(&id).map(|w| w.pane_id.clone());
     let pty_id = worker_pane_id.as_ref().and_then(|pid| {
         state.svc.mux.lock().get_pane(pid).and_then(|p| p.pty_id.clone())
@@ -1108,7 +1064,6 @@ pub async fn workers_report(
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     let _ = state.svc.app_handle.emit("graph-worker-reported", &info);
 
-    // Auto-close the pane after a short delay to let output flush.
     let svc = state.svc.clone();
     let pane_id = info.pane_id.clone();
     tokio::spawn(async move {
@@ -1149,7 +1104,6 @@ pub async fn workers_log(
     let worker = state.svc.workers.get(&id)
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("worker not found: {}", id)))?;
 
-    // If still running, return live PTY output via VT100 parser
     if !worker.status.is_terminal() {
         let pty_id = state.svc.mux.lock()
             .get_pane(&worker.pane_id)
@@ -1163,7 +1117,6 @@ pub async fn workers_log(
         }
     }
 
-    // Done — read from saved log file
     if let Some(ref path) = worker.log_path {
         let content = std::fs::read_to_string(path)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("read log: {}", e)))?;

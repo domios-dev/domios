@@ -89,20 +89,13 @@ async fn backend_read_loop(
             Ok(Ok((data, reader_back))) => {
                 reader = reader_back;
 
-                // Auto-respond to Device Status Report queries. Headless/hidden
-                // PTYs have no xterm.js attached, so shells like PowerShell
-                // hang forever waiting for `\x1b[6n` → `\x1b[row;colR`. We
-                // match the query byte sequence and write a fake "cursor at
-                // row 1 col 1" response back into the PTY so the shell can
-                // continue starting up.
+                // headless PTY: answer CSI 6n so PowerShell doesn't hang
                 if data.windows(4).any(|w| w == b"\x1b[6n") {
                     let _ = svc.pty.lock().write(&pty_id, b"\x1b[1;1R");
                 }
 
-                // Status tracking + agent detection (same as read_pty).
                 let (prev, now) = svc.process_pty_output(&pty_id, &data);
 
-                // Forward raw bytes to frontend read_pty channel (ignore send errors — frontend may not be connected).
                 let _ = frontend_tx.send(data.clone());
 
                 if now != prev {

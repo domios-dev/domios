@@ -1,17 +1,4 @@
-//! Auto-extraction: on save, spawn a hidden graph-worker that uses the
-//! configured agent provider + model to extract entities and relations
-//! from text, then writes them back via `codeterm mem` CLI commands.
-//!
-//! Free when the default provider is Claude Max (OAuth, no API key).
-//! Workers show up in the Memory Panel "Workers" tab as a log of what
-//! was extracted. The pane is hidden from birth — zero tab flash.
-//!
-//! Phase 3 step 2 of the spawn unification: this module no longer owns
-//! any pane/PTY/reader plumbing. It builds the extraction prompt and
-//! delegates the whole spawn through `workers::spawn_headless`, which
-//! internally calls `ServiceContext::spawn_pane` AND registers the
-//! worker with `GraphWorkerRegistry` so it shows up in the Memory Panel
-//! Workers tab with a live log.
+//! Hidden graph-worker that extracts entities/relations from mem_items.
 
 use std::sync::Arc;
 
@@ -19,10 +6,6 @@ use crate::mem::store::MemKind;
 use crate::mem::workers;
 use crate::service::ServiceContext;
 
-/// Kinds that trigger auto-extraction on save.
-/// Facts and notes contain rich content worth extracting entities from.
-/// Preferences and rules are short, structured — skip extraction.
-/// Skills have their own indexing path.
 fn should_extract(kind: MemKind) -> bool {
     matches!(
         kind,
@@ -30,7 +13,6 @@ fn should_extract(kind: MemKind) -> bool {
     )
 }
 
-/// Minimum body length to justify spawning a worker.
 const MIN_BODY_LEN: usize = 80;
 
 fn build_extraction_prompt(mem_item_id: &str, title: &str, body: &str) -> String {
@@ -41,14 +23,6 @@ fn build_extraction_prompt(mem_item_id: &str, title: &str, body: &str) -> String
         .replace("{body}", truncated)
 }
 
-/// Spawn a hidden extraction worker for a freshly-saved mem_item.
-/// Returns the worker id on success (so callers can track completion via
-/// `svc.workers.get(worker_id)`), or `None` if the item doesn't qualify
-/// (short body, non-extractable kind) or the spawn failed.
-///
-/// The concurrency cap lives in the caller: `mem_save` in mem_routes.rs
-/// holds an `extract_semaphore` permit across this call + a polling loop
-/// that waits for the worker to reach a terminal state.
 pub fn spawn_extraction_worker(
     svc: &Arc<ServiceContext>,
     mem_item_id: String,

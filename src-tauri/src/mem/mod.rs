@@ -1,9 +1,4 @@
-//! Unified memory system: skills, facts, notes, conversations, scripts, peers,
-//! preferences, daily, learnings, rules, summaries — one SQLite store, one CLI
-//! surface, one query path. See `docs/plans/mem-architecture.md`.
-//!
-//! All writes flow through `MemManager` so transactions are serialized and
-//! plugins / dispatch / REST / Tauri / CLI share one source of truth.
+//! Unified mem store — one SQLite, one CLI, one query path. See docs/plans/mem-architecture.md.
 
 pub mod store;
 pub mod search;
@@ -21,16 +16,7 @@ pub mod activity;
 pub mod workers;
 pub mod auto_extract;
 
-// TODO(mesh-sync): Cross-machine mem replication anchor.
-// Not implemented in 3.x — left intentionally as a hole for the
-// scale phase. When we add it, the entry point will live here as a
-// `pub mod sync;` with a selective replication policy:
-//   - Replicate kinds: rule, preference, skill, fact (curated only)
-//   - Never replicate: workspace-scoped items, raw conversations,
-//     daily notes, .learnings/ noise, secrets
-//   - Modes: manual / scheduled / eventual (per
-//     `docs/plans/mem-architecture.md` "Mesh replication policy")
-// Until then, mem is per-machine. Each peer keeps its own knowledge.db.
+// TODO(mesh-sync): cross-machine replication — see docs/plans/mem-architecture.md "Mesh replication policy".
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -44,7 +30,6 @@ pub use graph::{Entity, Relation};
 pub use search::{SearchHit, SearchQuery};
 pub use layers::WakeUpOptions;
 
-/// Top-level facade. Owns the SQLite connection behind a mutex.
 pub struct MemManager {
     conn: Mutex<Connection>,
     db_path: PathBuf,
@@ -53,11 +38,6 @@ pub struct MemManager {
 }
 
 impl MemManager {
-    /// Open (or create) the mem database at `data_dir/mem/knowledge.db`.
-    /// Runs migrations on first call. Idempotent. When the `embeddings`
-    /// feature is on (default), also initializes the sqlite-vec extension
-    /// and the mem_vectors virtual table so semantic recall works out of
-    /// the box without a config flip.
     pub fn open(data_dir: &std::path::Path) -> Result<Arc<Self>, String> {
         let mem_dir = data_dir.join("mem");
         std::fs::create_dir_all(&mem_dir)
@@ -66,29 +46,24 @@ impl MemManager {
         std::fs::create_dir_all(&blobs_dir)
             .map_err(|e| format!("create blobs dir: {}", e))?;
 
-        // Register sqlite-vec as a global auto-extension BEFORE opening the
-        // connection so the vec0 virtual-table module is available. No-op
-        // when the embeddings feature is off.
+        // sqlite-vec must register BEFORE Connection::open
         embeddings::ensure_extension_registered();
 
         let db_path = mem_dir.join("knowledge.db");
         let conn = Connection::open(&db_path)
             .map_err(|e| format!("open knowledge.db: {}", e))?;
-        // Allow concurrent writers to wait up to 5s instead of failing immediately
+        // concurrent writers wait up to 5s instead of failing
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| format!("set busy_timeout: {}", e))?;
 
         store::init_schema(&conn)
             .map_err(|e| format!("init schema: {}", e))?;
 
-        // Create the mem_vectors virtual table now that the extension is loaded.
-        // Failure here is non-fatal — FTS5 hybrid recall still works.
+        // non-fatal — FTS5 hybrid still works without vectors
         if let Err(e) = embeddings::init_extension(&conn) {
             log::warn!("[mem] sqlite-vec init failed: {} — semantic recall disabled", e);
         }
 
-        // One-shot repair pass on startup. Fixes: orphan entities (no refs),
-        // bogus category/tech nodes, invalid temporal windows, empty titles.
         if let Err(e) = store::repair_inconsistencies(&conn) {
             log::warn!("[mem] repair pass: {}", e);
         }
@@ -103,7 +78,6 @@ impl MemManager {
         }))
     }
 
-    /// In-memory instance for tests.
     #[cfg(test)]
     pub fn open_in_memory() -> Result<Arc<Self>, String> {
         let conn = Connection::open_in_memory()
@@ -125,7 +99,6 @@ impl MemManager {
 
 }
 
-/// Query mem_items without corresponding vectors (free function for use in threads).
 #[cfg(feature = "embeddings")]
 fn query_missing_vectors(conn: &rusqlite::Connection) -> Vec<(String, String)> {
     let sql = r#"SELECT m.id, COALESCE(m.body_inline, '')
@@ -146,11 +119,6 @@ fn query_missing_vectors(conn: &rusqlite::Connection) -> Vec<(String, String)> {
 }
 
 impl MemManager {
-    /// Re-index items that have no vector in mem_vectors. Runs in a background
-    /// thread. On first call (startup), indexes all missing items then starts
-    /// a periodic loop that checks every 30s for new unindexed items.
-    /// Catches: failed bg indexing, model download timeouts, items created by
-    /// workers or other processes. Idempotent — skips already indexed.
     #[cfg(feature = "embeddings")]
     pub fn reindex_missing(self: &Arc<Self>) {
         let db_path = self.db_path.clone();
@@ -164,9 +132,7 @@ impl MemManager {
                 }
                 Err(e) => { log::warn!("[mem] reindex: open failed: {}", e); return; }
             };
-            // Find mem_items that have no row in mem_vectors
             let mut missing: Vec<(String, String)> = query_missing_vectors(&conn);
-            // Initial pass + periodic loop
             loop {
                 if missing.is_empty() {
                     log::debug!("[mem] reindex: all items indexed");
@@ -231,27 +197,20 @@ impl MemManager {
         search::hybrid_rrf(&conn, q, &self.blobs_dir)
     }
 
-    /// Pure vector recall — returns (id, L2 distance) pairs, sorted nearest-first.
-    /// Used for duplicate detection where actual semantic distance matters.
     pub fn vector_recall(&self, query: &str, k: usize) -> Result<Vec<(String, f64)>, String> {
         let conn = self.conn.lock();
         embeddings::recall(&conn, query, k)
     }
 
-    /// Index a mem_item's body in mem_vectors. No-op without embeddings feature.
     pub fn index_embedding(&self, id: &str, body: &str) -> Result<(), String> {
         let conn = self.conn.lock();
         embeddings::index(&conn, id, body)
     }
 
-    /// Save a new mem_item. Returns the assigned slug id.
-    /// Runs preference extraction if kind is conversation/note/daily.
     pub fn save(&self, item: NewMemItem) -> Result<String, String> {
         self.save_inner(item, false)
     }
 
-    /// Upsert: if a row with the slug-derived id already exists, replace it
-    /// in place (preserves id stability). Otherwise behaves like `save`.
     pub fn save_replace(&self, item: NewMemItem) -> Result<String, String> {
         self.save_inner(item, true)
     }
@@ -259,8 +218,6 @@ impl MemManager {
     fn save_inner(&self, item: NewMemItem, replace: bool) -> Result<String, String> {
         let conn = self.conn.lock();
 
-        // Dedup check: skip if an item with same kind+title already exists
-        // (unless replace mode, which is intentional overwrite).
         if !replace && !item.title.is_empty() {
             let existing: Option<String> = conn
                 .query_row(
@@ -271,8 +228,6 @@ impl MemManager {
                 .ok();
             if let Some(dup_id) = existing {
                 log::info!("[mem] dedup: bumping recurrence on existing {} (same kind+title)", dup_id);
-                // Bump recurrence_count — signals this topic has been seen again.
-                // Boosts search ranking for recurring concerns.
                 let _ = conn.execute(
                     "UPDATE mem_items SET recurrence_count = recurrence_count + 1,
                                          accessed_at = ?1
@@ -289,13 +244,8 @@ impl MemManager {
             store::insert(&conn, &item, &self.blobs_dir)?
         };
 
-        // Auto-index in mem_vectors via the shared EmbedQueue. Non-blocking:
-        // save() returns immediately, the worker drains the queue and
-        // writes vectors on its own connection. See mem/embed_queue.rs.
         #[cfg(feature = "embeddings")]
         {
-            // For file-backed items, read full content from disk — item.body
-            // may be just a short summary for large sources.
             let embed_text = if let Some(ref src) = item.source {
                 if let Some(path) = src.strip_prefix("file:") {
                     std::fs::read_to_string(path).unwrap_or_else(|_| item.body.clone())
@@ -307,7 +257,6 @@ impl MemManager {
             };
             self.embed_queue.enqueue(id.clone(), embed_text);
         }
-        // Auto-extract all 5 categories from free-form text (regex, sync, fast)
         if matches!(
             item.kind,
             MemKind::Conversation | MemKind::Note | MemKind::Daily | MemKind::Learning | MemKind::Fact
@@ -332,7 +281,7 @@ impl MemManager {
                     tags,
                     body,
                     source: Some(format!("extracted_from:{}", id)),
-                    importance: 2.0, // low importance so originals rank above auto-extracted
+                    importance: 2.0,
                 };
                 if let Ok(child_id) = store::insert(&conn, &child, &self.blobs_dir) {
                     let _ = graph::insert_relation(
@@ -364,8 +313,6 @@ impl MemManager {
         store::delete(&conn, id)
     }
 
-    /// Batch delete all items matching an area. Returns count of deleted items.
-    /// Cleans up vectors, relations, and FTS entries for each.
     pub fn delete_by_area(&self, area: &str) -> Result<usize, String> {
         let conn = self.conn.lock();
         let ids: Vec<String> = {
@@ -388,9 +335,6 @@ impl MemManager {
         Ok(count)
     }
 
-    /// Partial update of an existing mem_item. Only fields that are Some(_)
-    /// are touched; the rest stay as they were. If `body` is updated, the
-    /// new content is also re-indexed in mem_vectors (background).
     pub fn update(&self, id: &str, patch: store::MemUpdate) -> Result<bool, String> {
         let body_changed = patch.body.is_some();
         let new_body_for_index = patch.body.clone();
@@ -412,8 +356,6 @@ impl MemManager {
         search::run(&conn, q, &self.blobs_dir)
     }
 
-    /// Search with optional LLM rerank pass on the top candidates.
-    /// Falls back to plain search if rerank is disabled or unavailable.
     pub fn search_with_rerank(
         &self,
         q: &SearchQuery,
@@ -454,7 +396,6 @@ impl MemManager {
         graph::related(&conn, id, rel, as_of)
     }
 
-    /// Invalidate an open relation — set valid_to without deleting.
     pub fn graph_invalidate(
         &self,
         from_id: &str,
@@ -466,13 +407,11 @@ impl MemManager {
         graph::invalidate_relation(&conn, from_id, relation_type, to_id, ended)
     }
 
-    /// Full temporal timeline for an entity (both directions, all relations).
     pub fn graph_timeline(&self, entity_id: &str) -> Result<Vec<Relation>, String> {
         let conn = self.conn.lock();
         graph::timeline(&conn, entity_id)
     }
 
-    /// BFS traversal from an entity up to max_hops. Caps nodes to prevent explosion.
     pub fn graph_traverse(
         &self,
         start: &str,
@@ -495,37 +434,30 @@ impl MemManager {
         graph::shortest_path(&conn, from, to, max_hops)
     }
 
-    /// Tunnels: entities bridging 2+ areas (cross-project connections).
     pub fn graph_tunnels(&self) -> Result<Vec<serde_json::Value>, String> {
         let conn = self.conn.lock();
         graph::tunnels(&conn)
     }
 
-    /// Create an alias (merges the alias entity into canonical).
     pub fn graph_alias(&self, alias_id: &str, canonical_id: &str) -> Result<(), String> {
         let conn = self.conn.lock();
         graph::add_alias(&conn, alias_id, canonical_id)
     }
 
-    /// Resolve an entity id through the aliases table.
     pub fn graph_resolve(&self, id: &str) -> Result<String, String> {
         let conn = self.conn.lock();
         graph::resolve_canonical(&conn, id)
     }
 
-    /// List aliases for a canonical entity.
     pub fn graph_aliases(&self, canonical_id: &str) -> Result<Vec<String>, String> {
         let conn = self.conn.lock();
         graph::list_aliases(&conn, canonical_id)
     }
 
-    /// Run bundled starter mem_items seeding once. Idempotent via marker file.
     pub fn seed_bundled_if_needed(&self) -> Result<usize, String> {
         seed::seed_bundled(self)
     }
 
-    /// Promote a `kind=learning` row to `kind=fact` (preserves id, body,
-    /// relations). Bumps importance to ≥4.0 so dreaming may pull it into L1.
     pub fn promote_learning(&self, id: &str) -> Result<(), String> {
         let item = self.get(id)?.ok_or_else(|| format!("not found: {}", id))?;
         if item.kind != "learning" {
@@ -539,13 +471,11 @@ impl MemManager {
         Ok(())
     }
 
-    /// Full graph dump for visualization frontend.
     pub fn graph_full(&self) -> Result<store::GraphDump, String> {
         let conn = self.conn.lock();
         store::graph_full(&conn)
     }
 
-    /// Batch write force-layout positions. Returns number of rows updated.
     pub fn set_positions(
         &self,
         positions: &[(String, f64, f64)],
@@ -554,7 +484,6 @@ impl MemManager {
         store::set_positions(&mut conn, positions)
     }
 
-    /// Stats for diagnostic / wake-up footer.
     pub fn stats(&self) -> Result<MemStats, String> {
         let conn = self.conn.lock();
         store::stats(&conn)
@@ -567,8 +496,6 @@ pub struct MemStats {
     pub by_kind: std::collections::HashMap<String, u64>,
     pub total_relations: u64,
     pub total_entities: u64,
-    /// Number of rows in mem_vectors. Zero when sqlite-vec extension is
-    /// not loaded or background indexing hasn't caught up yet.
     #[serde(default)]
     pub total_vectors: u64,
 }
@@ -622,7 +549,6 @@ mod tests {
         })
         .unwrap();
         let stats = mem.stats().unwrap();
-        // Original note + at least 1 extracted preference
         assert!(stats.total_items >= 2, "expected ≥2 items, got {}", stats.total_items);
         let pref_count = stats.by_kind.get("preference").copied().unwrap_or(0);
         assert!(pref_count >= 1, "expected ≥1 preference, got {}", pref_count);
