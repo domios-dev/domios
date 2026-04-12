@@ -447,6 +447,48 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
     Ok(true)
 }
 
+pub const LIBRARIAN_CRON_NAME: &str = "mem-librarian-auto";
+
+const LIBRARIAN_TASK: &str = "codeterm mem sync && codeterm agent report \"librarian sync complete\"\n";
+
+pub fn ensure_librarian_cron(cron_store: &mut crate::cron::store::CronStore) -> Result<bool, String> {
+    if cron_store.list().iter().any(|j| j.name == LIBRARIAN_CRON_NAME) {
+        return Ok(false);
+    }
+
+    let mem_cfg = crate::config::memory_config();
+    let agent = if mem_cfg.dreaming_agent.is_empty() {
+        None
+    } else {
+        Some(mem_cfg.dreaming_agent.clone())
+    };
+
+    let _ = cron_store.create(crate::cron::store::CronCreateParams {
+        name: LIBRARIAN_CRON_NAME.into(),
+        workspace_id: String::new(),
+        schedule: "0 * * * *".into(),
+        task: LIBRARIAN_TASK.into(),
+        description: Some("File sync worker. Checks source-tracked memory items for changes on disk every hour. Re-indexes modified files, flags deleted ones.".into()),
+        agent,
+        model: None,
+        cwd: None,
+        role: None,
+        creator_pane_id: None,
+        enabled: Some(true),
+        max_history: Some(50),
+        oneshot: Some(false),
+        jitter_max_ms: Some(600_000),
+    })?;
+    if let Some(job) = cron_store.list().iter().find(|j| j.name == LIBRARIAN_CRON_NAME) {
+        let job_id = job.id.clone();
+        if let Some(j) = cron_store.get_mut(&job_id) {
+            j.protected = true;
+        }
+        let _ = cron_store.save();
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

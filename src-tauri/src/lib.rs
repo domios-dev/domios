@@ -585,6 +585,11 @@ fn start_servers(
             Ok(false) => log::debug!("[mem] dreaming cron already present"),
             Err(e) => log::warn!("[mem] failed to install dreaming cron: {}", e),
         }
+        match mem::dreaming::ensure_librarian_cron(&mut cs) {
+            Ok(true) => log::info!("[mem] auto-installed librarian cron"),
+            Ok(false) => log::debug!("[mem] librarian cron already present"),
+            Err(e) => log::warn!("[mem] failed to install librarian cron: {}", e),
+        }
     }
 
     app.manage(cron_state.clone());
