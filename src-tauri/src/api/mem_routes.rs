@@ -19,7 +19,6 @@ use crate::mem::{
     store::{MemKind, MemScope, MemUpdate, NewMemItem},
     workers::{self, GraphWorkerInfo, WorkerStatus},
 };
-use crate::service::SpawnAgentParams;
 
 fn validate_item_fields(
     title: &str,
@@ -905,7 +904,6 @@ pub async fn workers_spawn(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
 
-    let worker_id = workers::new_worker_id();
     let mem_cfg = crate::config::memory_config();
     let agent = b.agent.clone().unwrap_or_else(|| {
         if mem_cfg.extraction_agent.is_empty() {
@@ -915,91 +913,27 @@ pub async fn workers_spawn(
         }
     });
     let parent = b.parent.clone().unwrap_or_else(|| "user:memory-panel".to_string());
-    let task = workers::build_worker_task(&b.intent, &worker_id, &b.task);
 
-    // Resolve model: `extraction_model` → `worker_model` → provider default.
-    let effective_model = if mem_cfg.extraction_model.is_empty() {
+    let model = if mem_cfg.extraction_model.is_empty() {
         mem_cfg.worker_model.clone()
     } else {
         mem_cfg.extraction_model.clone()
     };
-    let model_args: Option<Vec<String>> = {
-        let args = state.svc.agent_registry
-            .with_provider(&agent, |p| p.model_launch_args(&effective_model))
-            .unwrap_or_default();
-        if args.is_empty() { None } else { Some(args) }
-    };
-
-    let params = SpawnAgentParams {
-        agent: Some(agent.clone()),
-        agent_name: Some(format!("worker:{}", b.intent)),
-        args: model_args,
-        cwd: None,
-        title: Some(format!("worker:{}", b.intent)),
-        role: None,
-        parent_pane_id: None,
-        can_spawn: None,
-        task: Some(task),
-        workspace_id: None,
-        force_tab: Some(true),
-        report_target_pane_id: None,
-        skip_permissions: Some(true),
-    };
-
-    let result = state
-        .svc
-        .spawn_agent(params)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-
-    {
-        let mut mux = state.svc.mux.lock();
-        if let Some(pane) = mux.get_pane_mut(&result.pane_id) {
-            pane.worker_id = Some(worker_id.clone());
-        }
-    }
-
-    let color = state.svc.workers.pick_color();
-    let mut info = workers::make_info(
-        worker_id.clone(),
-        result.pane_id.clone(),
-        b.intent.clone(),
-        parent,
-        color,
-    );
-    info.agent_provider = Some(agent);
-    if !effective_model.is_empty() {
-        info.model = Some(effective_model.clone());
-    }
-    state.svc.workers.register(info.clone());
-
-    let _ = state.svc.app_handle.emit("graph-worker-spawned", &info);
 
     let svc = state.svc.clone();
-    let pane_id = result.pane_id.clone();
-    tokio::spawn(async move {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-        loop {
-            if std::time::Instant::now() > deadline { break; }
-            let has_pty = svc.mux.lock()
-                .get_pane(&pane_id)
-                .and_then(|p| p.pty_id.clone())
-                .is_some();
-            if has_pty {
-                let mut mux = svc.mux.lock();
-                if let Some(pane) = mux.get_pane_mut(&pane_id) {
-                    pane.hidden = true;
-                    pane.show_in_tabbar = false;
-                }
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        }
-    });
+    let intent = b.intent.clone();
+    let task = b.task.clone();
+    let worker_id = tokio::task::spawn_blocking(move || {
+        workers::spawn_headless(&svc, intent, task, parent, agent, model)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {}", e)))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
+    let info = state.svc.workers.get(&worker_id);
     Ok(Json(serde_json::json!({
         "worker_id": worker_id,
-        "pane_id": result.pane_id,
+        "pane_id": info.as_ref().map(|i| &i.pane_id),
         "info": info,
     })))
 }
