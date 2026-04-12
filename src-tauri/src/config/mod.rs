@@ -111,12 +111,14 @@ pub fn provider_config(provider_id: &str) -> schema::ProviderConfig {
 }
 
 /// Load config from disk, or create default if missing.
+/// Auto-generates an API token when none is configured — the internal
+/// webview and the CLI both need it to authenticate against the REST API.
 pub fn load_config() -> AppConfig {
     let path = match config_path() {
         Ok(p) => p,
         Err(e) => {
             log::warn!("Cannot determine config path: {}. Using defaults.", e);
-            return AppConfig::default();
+            return ensure_api_token(AppConfig::default(), None);
         }
     };
 
@@ -124,11 +126,9 @@ pub fn load_config() -> AppConfig {
         match std::fs::read_to_string(&path) {
             Ok(contents) => match toml::from_str::<AppConfig>(&contents) {
                 Ok(mut config) => {
-                    // If a named theme is specified, apply its colors as base,
-                    // then overlay any user overrides.
                     resolve_theme(&mut config);
                     log::info!("Config loaded from {}", path.display());
-                    config
+                    ensure_api_token(config, Some(&path))
                 }
                 Err(e) => {
                     log::error!("Failed to parse config at {}: {}. Using defaults.", path.display(), e);
@@ -141,21 +141,34 @@ pub fn load_config() -> AppConfig {
             }
         }
     } else {
-        // Create default config file
         if let Some(parent) = path.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
                 log::warn!("Failed to create config directory: {}", e);
-                return AppConfig::default();
+                return ensure_api_token(AppConfig::default(), None);
             }
         }
-        let default_toml = default_config_toml();
-        if let Err(e) = std::fs::write(&path, &default_toml) {
+        let config = ensure_api_token(AppConfig::default(), None);
+        let toml_str = toml::to_string_pretty(&config).unwrap_or_else(|_| default_config_toml());
+        if let Err(e) = std::fs::write(&path, &toml_str) {
             log::warn!("Failed to write default config: {}", e);
         } else {
             log::info!("Default config created at {}", path.display());
         }
-        AppConfig::default()
+        config
     }
+}
+
+fn ensure_api_token(mut config: AppConfig, path: Option<&std::path::Path>) -> AppConfig {
+    if config.api.token.as_ref().map_or(true, |t| t.is_empty()) {
+        let token = uuid::Uuid::new_v4().to_string().replace("-", "");
+        log::info!("[config] auto-generated API token (none was configured)");
+        config.api.token = Some(token);
+        if let Some(p) = path {
+            let toml_str = toml::to_string_pretty(&config).unwrap_or_default();
+            let _ = std::fs::write(p, toml_str);
+        }
+    }
+    config
 }
 
 /// Resolve theme: if config has a named theme, load its colors as a base,
