@@ -593,26 +593,19 @@ fn start_servers(
 
     {
         let svc = service_state.clone();
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_time()
-                .build()
-                .expect("file-sync tokio rt");
-            rt.block_on(async {
-                loop {
-                    let cfg = crate::config::memory_config();
-                    if !cfg.file_sync_enabled {
-                        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
-                        continue;
-                    }
-                    let interval = cfg.file_sync_interval_minutes.max(5);
-                    tokio::time::sleep(std::time::Duration::from_secs(interval * 60)).await;
-                    let svc = svc.clone();
-                    let _ = tokio::task::spawn_blocking(move || {
-                        mem::file_sync::sync_all(&svc.mem)
-                    }).await;
+        std::thread::spawn(move || loop {
+            let cfg = crate::config::memory_config();
+            let sleep_secs = if cfg.file_sync_enabled {
+                cfg.file_sync_interval_minutes.max(5) * 60
+            } else {
+                300
+            };
+            std::thread::sleep(std::time::Duration::from_secs(sleep_secs));
+            if crate::config::memory_config().file_sync_enabled {
+                if let Err(e) = mem::file_sync::sync_all(&svc.mem) {
+                    log::warn!("[file-sync] {}", e);
                 }
-            });
+            }
         });
     }
 

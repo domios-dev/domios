@@ -16,7 +16,13 @@ fn build_extraction_prompt(
     title: &str,
     body: &str,
 ) -> String {
-    let truncated = if body.len() > 50_000 { &body[..50_000] } else { body };
+    let truncated = if body.len() > 50_000 {
+        let mut end = 50_000;
+        while !body.is_char_boundary(end) { end -= 1; }
+        &body[..end]
+    } else {
+        body
+    };
     let areas_block = format_existing_areas(svc);
     let graph_types_block = format_existing_graph_types(svc);
     let dedup_threshold = crate::config::memory_config().dedup_threshold;
@@ -58,23 +64,25 @@ fn format_existing_areas(svc: &ServiceContext) -> String {
 }
 
 fn format_existing_graph_types(svc: &ServiceContext) -> String {
-    let conn = svc.mem.conn().lock();
+    let entity_types: Vec<(String, u64)> = {
+        let conn = svc.mem.conn().lock();
+        conn.prepare("SELECT entity_type, COUNT(*) FROM entities GROUP BY entity_type ORDER BY COUNT(*) DESC LIMIT 20")
+            .and_then(|mut stmt| {
+                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
+                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+            })
+            .unwrap_or_default()
+    };
 
-    let entity_types: Vec<(String, u64)> = conn
-        .prepare("SELECT entity_type, COUNT(*) FROM entities GROUP BY entity_type ORDER BY COUNT(*) DESC LIMIT 20")
-        .and_then(|mut stmt| {
-            stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
-                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-        })
-        .unwrap_or_default();
-
-    let relation_types: Vec<(String, u64)> = conn
-        .prepare("SELECT relation_type, COUNT(*) FROM relations GROUP BY relation_type ORDER BY COUNT(*) DESC LIMIT 30")
-        .and_then(|mut stmt| {
-            stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
-                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-        })
-        .unwrap_or_default();
+    let relation_types: Vec<(String, u64)> = {
+        let conn = svc.mem.conn().lock();
+        conn.prepare("SELECT relation_type, COUNT(*) FROM relations GROUP BY relation_type ORDER BY COUNT(*) DESC LIMIT 30")
+            .and_then(|mut stmt| {
+                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
+                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+            })
+            .unwrap_or_default()
+    };
 
     let mut out = String::new();
 
