@@ -54,7 +54,19 @@ function formatDateTime(ms: number): string {
   });
 }
 
-function MemoryDreamsTabImpl({ api }: Props) {
+interface MemoryConfig {
+  dreaming_enabled: boolean;
+  dreaming_agent: string;
+  dreaming_model: string;
+}
+
+interface ProviderInfo {
+  id: string;
+  display_name: string;
+  available_models?: Array<{ id: string; display_name: string }>;
+}
+
+function MemoryScheduledTabImpl({ api }: Props) {
   const [dreamCron, setDreamCron] = useState<CronJob | null>(null);
   const [cronLoading, setCronLoading] = useState(true);
   const [dreamWorkers, setDreamWorkers] = useState<GraphWorkerInfo[]>([]);
@@ -62,6 +74,31 @@ function MemoryDreamsTabImpl({ api }: Props) {
   const [diaryEntries, setDiaryEntries] = useState<DreamDiaryEntry[]>([]);
   const [diaryLoading, setDiaryLoading] = useState(true);
   const mountedRef = useRef(true);
+
+  const [memCfg, setMemCfg] = useState<MemoryConfig | null>(null);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+
+  useEffect(() => {
+    fetch(`${baseUrl(api)}/api/config?key=memory`, { headers: authHeaders(api) })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.value && mountedRef.current) setMemCfg(d.value); })
+      .catch(() => {});
+    fetch(`${baseUrl(api)}/api/agents/providers`, { headers: authHeaders(api) })
+      .then((r) => r.ok ? r.json() : [])
+      .then((p) => { if (mountedRef.current) setProviders(p); })
+      .catch(() => {});
+  }, [api]);
+
+  const patchMemConfig = useCallback((patch: Partial<MemoryConfig>) => {
+    if (!memCfg) return;
+    const next = { ...memCfg, ...patch };
+    setMemCfg(next);
+    fetch(`${baseUrl(api)}/api/config`, {
+      method: "PATCH",
+      headers: { ...authHeaders(api), "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "memory", value: next }),
+    }).catch(() => {});
+  }, [api, memCfg]);
 
   useEffect(() => {
     return () => { mountedRef.current = false; };
@@ -160,10 +197,73 @@ function MemoryDreamsTabImpl({ api }: Props) {
   return (
     <div className="absolute inset-0 flex flex-col overflow-y-auto">
       <div className="p-3 space-y-4">
-        {/* Next dream countdown */}
+        {/* Dreaming (REM) settings */}
+        {memCfg && (
+          <section>
+            <h3 className="text-xs font-semibold text-[var(--ct-muted-fg)] uppercase tracking-wider mb-2">
+              Dreaming (REM)
+            </h3>
+            <div className="flex flex-wrap items-center gap-3 px-3 py-2 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)]">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={memCfg.dreaming_enabled}
+                  onChange={(e) => patchMemConfig({ dreaming_enabled: e.target.checked })}
+                  className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
+                />
+                <span className="text-xs text-[var(--ct-fg)]">Enabled</span>
+              </label>
+              <select
+                value={memCfg.dreaming_agent || ""}
+                onChange={(e) => patchMemConfig({ dreaming_agent: e.target.value })}
+                className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-[11px] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+              >
+                <option value="">Default provider</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>{p.display_name}</option>
+                ))}
+              </select>
+              {(() => {
+                const prov = providers.find((p) => p.id === (memCfg.dreaming_agent || providers[0]?.id));
+                const models = prov?.available_models ?? [];
+                return models.length > 0 ? (
+                  <select
+                    value={memCfg.dreaming_model || ""}
+                    onChange={(e) => patchMemConfig({ dreaming_model: e.target.value })}
+                    className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-[11px] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                  >
+                    <option value="">Default model</option>
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>{m.display_name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={memCfg.dreaming_model || ""}
+                    onChange={(e) => patchMemConfig({ dreaming_model: e.target.value })}
+                    placeholder="Model (haiku, sonnet...)"
+                    className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-[11px] text-[var(--ct-fg)] w-36 focus:border-[var(--ct-accent)] focus:outline-none"
+                  />
+                );
+              })()}
+            </div>
+          </section>
+        )}
+
+        {/* Librarian (file sync) — placeholder */}
         <section>
           <h3 className="text-xs font-semibold text-[var(--ct-muted-fg)] uppercase tracking-wider mb-2">
-            Next Dream
+            Librarian
+          </h3>
+          <div className="px-3 py-2 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)] text-xs text-[var(--ct-muted-fg)]">
+            File sync worker — watches source-tracked memory items for changes on disk and re-indexes automatically. Coming soon.
+          </div>
+        </section>
+
+        {/* Next scheduled run countdown */}
+        <section>
+          <h3 className="text-xs font-semibold text-[var(--ct-muted-fg)] uppercase tracking-wider mb-2">
+            Next Run
           </h3>
           {cronLoading ? (
             <div className="text-xs text-[var(--ct-muted-fg)]">Loading...</div>
@@ -299,4 +399,4 @@ function MemoryDreamsTabImpl({ api }: Props) {
   );
 }
 
-export const MemoryDreamsTab = memo(MemoryDreamsTabImpl);
+export const MemoryScheduledTab = memo(MemoryScheduledTabImpl);
