@@ -30,6 +30,7 @@ pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
             body: IDENTITY_BODY.trim().into(),
             source: Some("bundled:v1".into()),
             importance: 5.0,
+            source_path: None,
         },
         NewMemItem {
             kind: MemKind::Rule,
@@ -41,6 +42,7 @@ pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
             body: RULE_NEVER_EDIT_AUTOGEN.trim().into(),
             source: Some("bundled:v1".into()),
             importance: 5.0,
+            source_path: None,
         },
         NewMemItem {
             kind: MemKind::Rule,
@@ -52,6 +54,7 @@ pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
             body: RULE_SAVE_TO_MEM.trim().into(),
             source: Some("bundled:v1".into()),
             importance: 5.0,
+            source_path: None,
         },
         NewMemItem {
             kind: MemKind::Rule,
@@ -63,6 +66,7 @@ pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
             body: RULE_SEARCH_BEFORE_ASKING.trim().into(),
             source: Some("bundled:v1".into()),
             importance: 5.0,
+            source_path: None,
         },
         NewMemItem {
             kind: MemKind::Skill,
@@ -74,6 +78,7 @@ pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
             body: SKILL_CODETERM.trim().into(),
             source: Some("bundled:v1".into()),
             importance: 4.0,
+            source_path: None,
         },
     ];
 

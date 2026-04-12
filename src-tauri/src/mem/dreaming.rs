@@ -34,7 +34,7 @@ pub struct DreamReport {
 ///
 /// Items with score >= 0.5 AND access_count >= 3 get promoted.
 pub fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
-    let conn = mem.conn_for_dream();
+    let conn = mem.conn();
     let conn = conn.lock();
 
     let mut considered = 0u64;
@@ -134,32 +134,44 @@ pub fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
     })
 }
 
-/// Deep phase: expire stale conversations (>30 days, never accessed, low importance).
-/// Sets importance to 0 instead of deleting — items remain searchable but won't
-/// appear in L1 wake-up. Keeps history intact for future reference.
+/// Deep phase: archive stale items that nobody reads.
+/// Sets importance to 0 — items stay searchable but won't appear in L1 wake-up.
+///
+/// Targets by age threshold:
+/// - conversation, daily: >30 days, never accessed
+/// - note, script: >60 days, never accessed
+/// - learning: >90 days, never accessed (hasn't earned promotion → stale)
+///
+/// All require importance < 4.0 (user-pinned items are untouched).
 pub fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
-    let conn = mem.conn_for_dream();
+    let conn = mem.conn();
     let conn = conn.lock();
-
-    let one_month_ago = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
     let now = chrono::Utc::now().to_rfc3339();
-    let expired = conn
-        .execute(
-            r#"UPDATE mem_items
-               SET importance = 0.0, updated_at = ?1
-               WHERE kind = 'conversation'
-                 AND access_count = 0
-                 AND created_at < ?2
-                 AND importance > 0.0
-                 AND importance < 4.0"#,
-            params![&now, &one_month_ago],
-        )
-        .map_err(|e| e.to_string())? as u64;
+    let mut total_expired = 0u64;
+
+    let tiers: &[(&str, i64)] = &[
+        ("conversation", 30),
+        ("daily", 30),
+        ("note", 60),
+        ("script", 60),
+        ("learning", 90),
+    ];
+
+    for (kind, days) in tiers {
+        let cutoff = (chrono::Utc::now() - chrono::Duration::days(*days)).to_rfc3339();
+        let expired = conn.execute(
+            "UPDATE mem_items SET importance = 0.0, updated_at = ?1 \
+             WHERE kind = ?2 AND access_count = 0 AND created_at < ?3 \
+             AND importance > 0.0 AND importance < 4.0",
+            params![&now, kind, &cutoff],
+        ).map_err(|e| e.to_string())? as u64;
+        total_expired += expired;
+    }
 
     Ok(DreamReport {
-        considered: expired,
+        considered: total_expired,
         promoted: 0,
-        dropped: expired,
+        dropped: total_expired,
         phase: "deep".into(),
     })
 }
@@ -167,7 +179,7 @@ pub fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
 /// Prepare data for the REM agent — returns a text summary of candidates.
 /// Called by `codeterm mem dream --report` so the agent gets concrete data.
 pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
-    let conn = mem.conn_for_dream();
+    let conn = mem.conn();
     let conn = conn.lock();
     let mut lines = Vec::new();
 
@@ -244,6 +256,70 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
     lines.push("\nAREA DISTRIBUTION:".into());
     for (area, count) in &areas {
         lines.push(format!("  {}: {} items", area, count));
+    }
+
+    // 5. Recurring items (recurrence_count > 0 — system flagged as saved multiple times)
+    let mut stmt = conn.prepare(
+        r#"SELECT id, kind, title, area, recurrence_count, importance
+           FROM mem_items
+           WHERE recurrence_count > 0
+           ORDER BY recurrence_count DESC
+           LIMIT 15"#
+    ).map_err(|e| e.to_string())?;
+    let recurring: Vec<(String, String, String, Option<String>, i64, f64)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !recurring.is_empty() {
+        lines.push(format!("\nRECURRING ITEMS ({}):", recurring.len()));
+        for (id, kind, title, area, rc, imp) in &recurring {
+            lines.push(format!("  {} [{}] area={} recur={} imp={} {}", id, kind, area.as_deref().unwrap_or("?"), rc, imp, title));
+        }
+    }
+
+    // 6. Stale learnings (>30 days, low access — candidates for promotion or archival)
+    let month_ago = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
+    let mut stmt = conn.prepare(
+        r#"SELECT id, title, access_count, importance, created_at
+           FROM mem_items
+           WHERE kind = 'learning' AND created_at < ?1
+           ORDER BY access_count DESC, importance DESC
+           LIMIT 20"#
+    ).map_err(|e| e.to_string())?;
+    let stale_learnings: Vec<(String, String, i64, f64, String)> = stmt
+        .query_map(params![&month_ago], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    if !stale_learnings.is_empty() {
+        lines.push(format!("\nLEARNINGS >30d ({}) — promote or archive?:", stale_learnings.len()));
+        for (id, title, ac, imp, created) in &stale_learnings {
+            lines.push(format!("  {} access={} imp={} created={} {}", id, ac, imp, &created[..10], title));
+        }
+    }
+
+    // 7. Graph stats
+    let entity_count: i64 = conn.query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0)).unwrap_or(0);
+    let relation_count: i64 = conn.query_row("SELECT COUNT(*) FROM relations WHERE valid_to IS NULL", [], |r| r.get(0)).unwrap_or(0);
+    let orphan_entities: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM entities WHERE id NOT IN (SELECT from_id FROM relations) AND id NOT IN (SELECT to_id FROM relations)",
+        [], |r| r.get(0),
+    ).unwrap_or(0);
+    lines.push(format!("\nGRAPH: {} entities, {} active relations, {} orphan entities", entity_count, relation_count, orphan_entities));
+
+    // 8. Kind distribution
+    let mut stmt = conn.prepare(
+        "SELECT kind, COUNT(*) FROM mem_items GROUP BY kind ORDER BY COUNT(*) DESC"
+    ).map_err(|e| e.to_string())?;
+    let kinds: Vec<(String, i64)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    lines.push("\nKIND DISTRIBUTION:".into());
+    for (kind, count) in &kinds {
+        lines.push(format!("  {}: {}", kind, count));
     }
 
     if lines.is_empty() {
@@ -390,12 +466,13 @@ mod tests {
                 body: "x".into(),
                 source: None,
                 importance: 3.0,
+                source_path: None,
             })
             .unwrap();
 
         // Backdate creation + simulate 3 accesses (meets threshold)
         {
-            let conn = mem.conn_for_dream();
+            let conn = mem.conn();
             let conn = conn.lock();
             let two_days_ago = (chrono::Utc::now() - chrono::Duration::days(2)).to_rfc3339();
             conn.execute(
@@ -428,12 +505,13 @@ mod tests {
                 body: "lorem ipsum".into(),
                 source: None,
                 importance: 2.0,
+                source_path: None,
             })
             .unwrap();
 
         // Backdate to 60 days ago, never accessed
         {
-            let conn = mem.conn_for_dream();
+            let conn = mem.conn();
             let conn = conn.lock();
             let sixty_days_ago = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
             conn.execute(
@@ -488,10 +566,11 @@ mod tests {
                 body: "x".into(),
                 source: None,
                 importance: 4.5,
+                source_path: None,
             })
             .unwrap();
         {
-            let conn = mem.conn_for_dream();
+            let conn = mem.conn();
             let conn = conn.lock();
             let sixty_days_ago = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
             conn.execute(

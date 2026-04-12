@@ -350,23 +350,22 @@ pub enum MemAction {
         /// Area tag (auth | deploy | home | ...)
         #[arg(long)]
         area: Option<String>,
-        /// Comma-separated people slugs/ids ("andrey,tima" or "person_owner,person_tima").
-        /// Providing this skips the auto-extraction worker — caller takes responsibility for tagging.
-        #[arg(long)]
-        people: Option<String>,
-        /// Comma-separated project slugs/ids ("codeterm,api-service"). Skips auto-extraction.
-        #[arg(long)]
-        projects: Option<String>,
         /// Importance 1-5 (default 3.0). Higher = more likely in L1 wake-up.
         #[arg(long, default_value = "3.0")]
         importance: f64,
         /// Scope: global (default) or workspace
         #[arg(long)]
         scope: Option<String>,
+        /// Path to source file on disk. Enables Librarian auto-sync.
+        #[arg(long)]
+        source_path: Option<String>,
         /// Overwrite an existing row with the same id (upsert). Use this to
         /// update the bundled identity placeholder or any pinned record.
         #[arg(long)]
         replace: bool,
+        /// Skip auto-extraction worker for this save.
+        #[arg(long)]
+        skip_extract: bool,
     },
     /// Semantic-first search (vectors when enabled, FTS fallback)
     Recall {
@@ -425,6 +424,12 @@ pub enum MemAction {
     },
     /// Run dreaming consolidation (light + deep phases)
     Dream,
+    /// Trigger file sync for source-tracked items (Librarian)
+    Sync {
+        /// Sync one file by path
+        #[arg(long)]
+        path: Option<String>,
+    },
     /// Graph operations
     Graph {
         #[command(subcommand)]
@@ -2422,7 +2427,7 @@ fn handle_mem(json_mode: bool, action: MemAction) {
                 Err(e) => Err(e),
             }
         }
-        MemAction::Save { kind, title, body, summary, tags, area, people, projects, importance, scope, replace } => {
+        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, source_path, replace, skip_extract } => {
             // Body: positional arg, else read stdin if piped
             let resolved_body = match body {
                 Some(b) => b,
@@ -2443,20 +2448,18 @@ fn handle_mem(json_mode: bool, action: MemAction) {
                     .unwrap_or_default()
             };
             let tag_list = split_csv(tags);
-            let people_list = split_csv(people);
-            let projects_list = split_csv(projects);
             let payload = serde_json::json!({
                 "kind": kind,
                 "title": resolved_title,
                 "summary": summary,
                 "area": area,
                 "tags": tag_list,
-                "people": people_list,
-                "projects": projects_list,
                 "body": resolved_body,
                 "importance": importance,
                 "scope": scope,
+                "source_path": source_path,
                 "replace": replace,
+                "skip_extract": skip_extract,
             });
             mem_post_request(&http, &format!("{}/api/mem/items", base), &payload)
         }
@@ -2512,6 +2515,13 @@ fn handle_mem(json_mode: bool, action: MemAction) {
         }
         MemAction::Dream => {
             mem_post_request(&http, &format!("{}/api/mem/dream", base), &serde_json::json!({}))
+        }
+        MemAction::Sync { path } => {
+            let mut url = format!("{}/api/mem/sync", base);
+            if let Some(p) = path {
+                url.push_str(&format!("?path={}", urlencoding::encode(&p)));
+            }
+            mem_post_request(&http, &url, &serde_json::json!({}))
         }
         MemAction::Graph { action } => match action {
             MemGraphAction::Create { id, entity_type, props, scope } => {

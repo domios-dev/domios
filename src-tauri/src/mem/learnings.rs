@@ -45,6 +45,7 @@ pub fn learn(
         body: text.to_string(),
         source: Some("cli:learn".into()),
         importance: 3.5,
+        source_path: None,
     })
 }
 
@@ -74,6 +75,7 @@ pub fn flush_pane(
         body,
         source: Some(format!("pane:{}", pane_id)),
         importance: 2.5,
+        source_path: None,
     })
 }
 
@@ -114,6 +116,7 @@ mod tests {
                 body: "y".into(),
                 source: None,
                 importance: 3.0,
+                source_path: None,
             })
             .unwrap();
         let r = promote(&mem, &id);

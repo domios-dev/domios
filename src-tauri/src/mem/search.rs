@@ -318,13 +318,13 @@ mod tests {
             kind: MemKind::Skill, scope: MemScope::Global,
             title: "home assistant".into(), summary: None, area: Some("home".into()),
             tags: vec!["automation".into()], body: "control HA entities, scenes, automations".into(),
-            source: None, importance: 3.0,
+            source: None, importance: 3.0, source_path: None,
         }, &blobs).unwrap();
         insert(&conn, &NewMemItem {
             kind: MemKind::Fact, scope: MemScope::Global,
             title: "deploy pipeline".into(), summary: None, area: Some("deploy".into()),
             tags: vec![], body: "uses ./build.sh build for production".into(),
-            source: None, importance: 3.0,
+            source: None, importance: 3.0, source_path: None,
         }, &blobs).unwrap();
 
         let r = run(&conn, &SearchQuery {
@@ -341,13 +341,13 @@ mod tests {
             kind: MemKind::Skill, scope: MemScope::Global,
             title: "auth skill".into(), summary: None, area: None,
             tags: vec![], body: "authentication helpers".into(),
-            source: None, importance: 3.0,
+            source: None, importance: 3.0, source_path: None,
         }, &blobs).unwrap();
         insert(&conn, &NewMemItem {
             kind: MemKind::Fact, scope: MemScope::Global,
             title: "auth fact".into(), summary: None, area: None,
             tags: vec![], body: "authentication broken on staging".into(),
-            source: None, importance: 3.0,
+            source: None, importance: 3.0, source_path: None,
         }, &blobs).unwrap();
 
         let r = run(&conn, &SearchQuery {

@@ -7,13 +7,8 @@ use crate::mem::workers;
 use crate::service::ServiceContext;
 
 fn should_extract(kind: MemKind) -> bool {
-    matches!(
-        kind,
-        MemKind::Conversation | MemKind::Note | MemKind::Daily | MemKind::Learning | MemKind::Fact
-    )
+    !matches!(kind, MemKind::Summary)
 }
-
-const MIN_BODY_LEN: usize = 80;
 
 fn build_extraction_prompt(
     svc: &ServiceContext,
@@ -21,13 +16,17 @@ fn build_extraction_prompt(
     title: &str,
     body: &str,
 ) -> String {
-    let truncated = if body.len() > 4000 { &body[..4000] } else { body };
+    let truncated = if body.len() > 50_000 { &body[..50_000] } else { body };
     let areas_block = format_existing_areas(svc);
+    let graph_types_block = format_existing_graph_types(svc);
+    let dedup_threshold = crate::config::memory_config().dedup_threshold;
     crate::prompts::MEM_EXTRACTION
         .replace("{id}", mem_item_id)
         .replace("{title}", title)
         .replace("{body}", truncated)
         .replace("{existing_areas}", &areas_block)
+        .replace("{existing_graph_types}", &graph_types_block)
+        .replace("{dedup_threshold}", &format!("{:.2}", dedup_threshold))
 }
 
 // Injects the live taxonomy so the worker picks from areas that actually
@@ -58,6 +57,48 @@ fn format_existing_areas(svc: &ServiceContext) -> String {
         .join("\n")
 }
 
+fn format_existing_graph_types(svc: &ServiceContext) -> String {
+    let conn = svc.mem.conn().lock();
+
+    let entity_types: Vec<(String, u64)> = conn
+        .prepare("SELECT entity_type, COUNT(*) FROM entities GROUP BY entity_type ORDER BY COUNT(*) DESC LIMIT 20")
+        .and_then(|mut stmt| {
+            stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        })
+        .unwrap_or_default();
+
+    let relation_types: Vec<(String, u64)> = conn
+        .prepare("SELECT relation_type, COUNT(*) FROM relations GROUP BY relation_type ORDER BY COUNT(*) DESC LIMIT 30")
+        .and_then(|mut stmt| {
+            stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        })
+        .unwrap_or_default();
+
+    let mut out = String::new();
+
+    if entity_types.is_empty() {
+        out.push_str("Entity types: (none yet — common types: Person, Project, Tech, Machine)\n");
+    } else {
+        out.push_str("Entity types in use:\n");
+        for (t, n) in &entity_types {
+            out.push_str(&format!("- {} ({} entities)\n", t, n));
+        }
+    }
+
+    if relation_types.is_empty() {
+        out.push_str("Relation types: (none yet — use verb-based: works_on, uses, shipped, runs_on, mentions)");
+    } else {
+        out.push_str("Relation types in use:\n");
+        for (t, n) in &relation_types {
+            out.push_str(&format!("- {} ({} relations)\n", t, n));
+        }
+    }
+
+    out
+}
+
 pub fn spawn_extraction_worker(
     svc: &Arc<ServiceContext>,
     mem_item_id: String,
@@ -65,7 +106,7 @@ pub fn spawn_extraction_worker(
     body: String,
     kind: MemKind,
 ) -> Option<String> {
-    if !should_extract(kind) || body.len() < MIN_BODY_LEN {
+    if !should_extract(kind) {
         return None;
     }
 

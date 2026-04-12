@@ -591,6 +591,31 @@ fn start_servers(
     app.manage(cron_wake.clone());
     cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
 
+    {
+        let svc = service_state.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .expect("file-sync tokio rt");
+            rt.block_on(async {
+                loop {
+                    let cfg = crate::config::memory_config();
+                    if !cfg.file_sync_enabled {
+                        tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+                        continue;
+                    }
+                    let interval = cfg.file_sync_interval_minutes.max(5);
+                    tokio::time::sleep(std::time::Duration::from_secs(interval * 60)).await;
+                    let svc = svc.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        mem::file_sync::sync_all(&svc.mem)
+                    }).await;
+                }
+            });
+        });
+    }
+
     // Start REST API server in its own thread with Tokio runtime
     {
         let api_config = states.config.lock().api.clone();
