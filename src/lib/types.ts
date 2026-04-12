@@ -380,6 +380,9 @@ export interface MemoryConfig {
   dreaming_model: string;
   worker_model: string;
   worker_timeout_seconds: number;
+  dedup_threshold: number;
+  file_sync_enabled: boolean;
+  file_sync_interval_minutes: number;
 }
 
 export interface AppConfig {

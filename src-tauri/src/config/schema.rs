@@ -319,6 +319,14 @@ fn default_worker_timeout_seconds() -> u64 {
     150
 }
 
+fn default_dedup_threshold() -> f64 {
+    0.15
+}
+
+fn default_file_sync_interval() -> u64 {
+    60
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MemoryConfig {
@@ -349,6 +357,11 @@ pub struct MemoryConfig {
     /// stream-json result event within this many seconds. Default 150.
     #[serde(default = "default_worker_timeout_seconds")]
     pub worker_timeout_seconds: u64,
+    #[serde(default = "default_dedup_threshold")]
+    pub dedup_threshold: f64,
+    pub file_sync_enabled: bool,
+    #[serde(default = "default_file_sync_interval")]
+    pub file_sync_interval_minutes: u64,
 }
 
 impl Default for MemoryConfig {
@@ -363,6 +376,9 @@ impl Default for MemoryConfig {
             worker_model: default_worker_model(),
             workers_per_provider: 3,
             worker_timeout_seconds: default_worker_timeout_seconds(),
+            dedup_threshold: default_dedup_threshold(),
+            file_sync_enabled: true,
+            file_sync_interval_minutes: default_file_sync_interval(),
         }
     }
 }

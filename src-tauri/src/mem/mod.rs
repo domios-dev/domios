@@ -16,6 +16,7 @@ pub mod worker_pool;
 pub mod activity;
 pub mod workers;
 pub mod auto_extract;
+pub mod file_sync;
 
 // TODO(mesh-sync): cross-machine replication — see docs/plans/mem-architecture.md "Mesh replication policy".
 
@@ -63,10 +64,6 @@ impl MemManager {
         // non-fatal — FTS5 hybrid still works without vectors
         if let Err(e) = embeddings::init_extension(&conn) {
             log::warn!("[mem] sqlite-vec init failed: {} — semantic recall disabled", e);
-        }
-
-        if let Err(e) = store::repair_inconsistencies(&conn) {
-            log::warn!("[mem] repair pass: {}", e);
         }
 
         let embed_queue = embed_queue::EmbedQueue::start(db_path.clone());
@@ -221,9 +218,12 @@ impl MemManager {
     #[cfg(not(feature = "embeddings"))]
     pub fn reindex_missing(self: &Arc<Self>) {}
 
-    /// Internal: lock-free borrow of the connection mutex for dreaming + tests.
-    pub(crate) fn conn_for_dream(&self) -> &parking_lot::Mutex<rusqlite::Connection> {
+    pub(crate) fn conn(&self) -> &parking_lot::Mutex<rusqlite::Connection> {
         &self.conn
+    }
+
+    pub(crate) fn queue_embed(&self, id: &str, body: &str) {
+        self.embed_queue.enqueue(id.to_string(), body.to_string());
     }
 
     /// Initialize the sqlite-vec extension and mem_vectors table.
@@ -336,6 +336,7 @@ impl MemManager {
                     body,
                     source: Some(format!("extracted_from:{}", id)),
                     importance: 2.0,
+                    source_path: None,
                 };
                 if let Ok(child_id) = store::insert(&conn, &child, &self.blobs_dir) {
                     let _ = graph::insert_relation(
@@ -630,6 +631,7 @@ mod tests {
                 body: "the body of the fact".into(),
                 source: None,
                 importance: 3.0,
+                source_path: None,
             })
             .unwrap();
         assert!(id.starts_with("fact_"));
@@ -652,6 +654,7 @@ mod tests {
                 body: "first cut".into(),
                 source: None,
                 importance: 2.0,
+                source_path: None,
             })
             .unwrap();
 
@@ -699,6 +702,7 @@ mod tests {
                 body: "b".into(),
                 source: None,
                 importance: 3.0,
+                source_path: None,
             })
             .unwrap();
         }
@@ -720,6 +724,7 @@ mod tests {
             body: "I usually prefer PostgreSQL over MySQL for new projects".into(),
             source: None,
             importance: 3.0,
+            source_path: None,
         })
         .unwrap();
         let stats = mem.stats().unwrap();

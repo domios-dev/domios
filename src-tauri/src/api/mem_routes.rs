@@ -215,14 +215,8 @@ pub struct SaveBody {
     pub replace: bool,
     #[serde(default)]
     pub skip_extract: bool,
-    // Inline graph hints from a context-aware caller (Hybrid C). Each entry is
-    // either a slug ("andrey") or a full id ("person_andrey"). Presence of any
-    // structural hint flips the save into "structured" mode and skips the
-    // extraction worker entirely.
     #[serde(default)]
-    pub people: Vec<String>,
-    #[serde(default)]
-    pub projects: Vec<String>,
+    pub source_path: Option<String>,
 }
 
 pub async fn mem_save(
@@ -239,17 +233,6 @@ pub async fn mem_save(
     let is_auto_extracted = body.tags.iter().any(|t| t == "auto-extracted")
         || body.source.as_deref().map_or(false, |s| s.starts_with("extracted_from:"));
 
-    // Hybrid C: caller provided enough structure to skip the extraction worker.
-    // The signal is "any structural field set" — area, non-empty tags, people,
-    // or projects. Mem-save then trusts the caller and only spawns the worker
-    // as a fallback for unstructured saves (old agents, raw scripts).
-    let people = body.people.clone();
-    let projects = body.projects.clone();
-    let provided_structure = body.area.is_some()
-        || !body.tags.is_empty()
-        || !people.is_empty()
-        || !projects.is_empty();
-
     let item = NewMemItem {
         kind,
         scope,
@@ -260,11 +243,11 @@ pub async fn mem_save(
         body: body.body,
         source: body.source,
         importance: body.importance.unwrap_or(3.0),
+        source_path: body.source_path,
     };
     let title_clone = item.title.clone();
     let body_clone = item.body.clone();
     let kind_for_extract = item.kind;
-    let item_scope = item.scope.clone();
     let changed_by = changed_by_from_headers(&headers);
     let id = crate::mem::store::with_changed_by(&changed_by, || {
         if body.replace {
@@ -275,18 +258,9 @@ pub async fn mem_save(
     }).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_activity(&state, &headers, "write", vec![id.clone()]);
 
-    // Materialize inline graph hints — create person_/project_ entities and
-    // mention relations from the new item. Idempotent: existing entities are
-    // preserved (INSERT OR REPLACE on entities, INSERT OR IGNORE on relations).
-    let linked = link_graph_entities(&state, &id, &people, &projects, item_scope);
-    if linked > 0 {
-        log::info!("[mem-save] linked {} graph entities for {}", linked, id);
-    }
-
     let auto_extract_enabled = crate::config::memory_config().auto_extract;
     let should_extract = !body.skip_extract
         && !is_auto_extracted
-        && !provided_structure
         && auto_extract_enabled;
     if should_extract {
         let svc = state.svc.clone();
@@ -302,83 +276,7 @@ pub async fn mem_save(
         });
     }
 
-    Ok(Json(serde_json::json!({
-        "id": id,
-        "structured": provided_structure,
-        "linked_entities": linked,
-    })))
-}
-
-// Slugify a person/project name into a stable graph entity id.
-// Accepts either a bare name ("andrey") or a full id ("person_andrey") —
-// the prefix is stripped if present so the same input always lands on the
-// same canonical id.
-fn slug_id(prefix: &str, raw: &str) -> Option<String> {
-    let stripped = raw
-        .strip_prefix(prefix)
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| raw.to_string());
-    let slug: String = stripped
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
-    let slug = slug.trim_matches('_').to_string();
-    if slug.is_empty() {
-        None
-    } else {
-        Some(format!("{}{}", prefix, slug))
-    }
-}
-
-fn link_graph_entities(
-    state: &AppState,
-    item_id: &str,
-    people: &[String],
-    projects: &[String],
-    scope: MemScope,
-) -> usize {
-    use crate::mem::graph::{Entity, Relation};
-    let scope_str = scope.as_str();
-    let now = chrono::Utc::now().to_rfc3339();
-    let mut count = 0usize;
-
-    let mut link = |entity_id: String, entity_type: &str, label: &str| {
-        let entity = Entity {
-            id: entity_id.clone(),
-            entity_type: entity_type.to_string(),
-            scope: scope_str.clone(),
-            properties: serde_json::json!({ "label": label }),
-        };
-        if state.svc.mem.graph_create_entity(&entity).is_err() {
-            return;
-        }
-        let relation = Relation {
-            from_id: item_id.to_string(),
-            relation_type: "mentions".to_string(),
-            to_id: entity_id,
-            scope: scope_str.clone(),
-            valid_from: now.clone(),
-            valid_to: None,
-            confidence: 1.0,
-            properties: serde_json::json!({}),
-        };
-        if state.svc.mem.graph_relate(&relation).is_ok() {
-            count += 1;
-        }
-    };
-
-    for raw in people {
-        if let Some(id) = slug_id("person_", raw) {
-            link(id, "Person", raw);
-        }
-    }
-    for raw in projects {
-        if let Some(id) = slug_id("project_", raw) {
-            link(id, "Project", raw);
-        }
-    }
-    count
+    Ok(Json(serde_json::json!({ "id": id })))
 }
 
 pub async fn mem_delete(
@@ -1300,3 +1198,53 @@ pub async fn mem_tail(
     Ok(Json(serde_json::json!({ "rows": rows })))
 }
 
+#[derive(Deserialize)]
+pub struct SyncParams {
+    pub path: Option<String>,
+}
+
+pub async fn mem_sync(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<SyncParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let svc = state.svc.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        if let Some(path) = p.path {
+            crate::mem::file_sync::sync_path(&svc.mem, &path)
+        } else {
+            crate::mem::file_sync::sync_all(&svc.mem)
+        }
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {}", e)))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::to_value(&result).unwrap_or_default()))
+}
+
+pub async fn mem_sync_status(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let conn = state.svc.mem.conn().lock();
+    let total: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM mem_items WHERE source_path IS NOT NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    let stale: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM mem_items WHERE source_path IS NOT NULL AND tags_json LIKE '%source-missing%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    Ok(Json(serde_json::json!({
+        "tracked_files": total,
+        "stale_files": stale,
+    })))
+}

@@ -143,7 +143,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/workers/{id}", get(super::mem_routes::workers_get).delete(super::mem_routes::workers_kill))
         .route("/api/mem/workers/{id}/progress", post(super::mem_routes::workers_progress))
         .route("/api/mem/workers/{id}/report", post(super::mem_routes::workers_report))
-        .route("/api/mem/workers/{id}/log", get(super::mem_routes::workers_log));
+        .route("/api/mem/workers/{id}/log", get(super::mem_routes::workers_log))
+        .route("/api/mem/sync", post(super::mem_routes::mem_sync))
+        .route("/api/mem/sync/status", get(super::mem_routes::mem_sync_status));
 
 
     router

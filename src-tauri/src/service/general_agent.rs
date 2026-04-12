@@ -65,7 +65,8 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
             if trimmed.is_empty() { continue; }
             // Build a short summary (first 200 chars) for FTS, not the full body
             let short: String = trimmed.chars().take(200).collect();
-            let source_path = format!("file:{}", path.to_string_lossy());
+            let file_path = path.to_string_lossy().to_string();
+            let source = format!("file:{}", &file_path);
             let _ = mem.save_replace(crate::mem::store::NewMemItem {
                 kind: crate::mem::store::MemKind::Preference,
                 scope: crate::mem::store::MemScope::Global,
@@ -73,9 +74,10 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
                 summary: Some(summary.to_string()),
                 area: None,
                 tags: tags.iter().map(|t| t.to_string()).collect(),
-                body: short, // short summary for FTS, full content on disk
-                source: Some(source_path),
+                body: short,
+                source: Some(source),
                 importance: 5.0,
+                source_path: Some(file_path),
             });
         }
     }

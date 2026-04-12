@@ -236,19 +236,19 @@ mod tests {
             kind: MemKind::Preference, scope: MemScope::Global,
             title: "identity".into(), summary: None, area: None, tags: vec![],
             body: "I am Rollo, the GA on this machine.".into(),
-            source: None, importance: 5.0,
+            source: None, importance: 5.0, source_path: None,
         }, &blobs).unwrap();
         insert(&conn, &NewMemItem {
             kind: MemKind::Rule, scope: MemScope::Global,
             title: "never edit autogen".into(), summary: None, area: None, tags: vec![],
             body: "Never edit CLAUDE.md or AGENTS.md".into(),
-            source: None, importance: 5.0,
+            source: None, importance: 5.0, source_path: None,
         }, &blobs).unwrap();
         insert(&conn, &NewMemItem {
             kind: MemKind::Peer, scope: MemScope::Global,
             title: "ainyiva-bot".into(), summary: Some("mac mini, paired".into()), area: None,
             tags: vec![], body: "ainyiva-bot is the Mac mini peer".into(),
-            source: None, importance: 4.0,
+            source: None, importance: 4.0, source_path: None,
         }, &blobs).unwrap();
 
         let out = generate(&conn, &WakeUpOptions::default(), &blobs).unwrap();
@@ -275,13 +275,13 @@ mod tests {
             insert(&conn, &NewMemItem {
                 kind: MemKind::Summary, scope: MemScope::Global,
                 title: format!("summary {}", i), summary: None, area: None, tags: vec![],
-                body: "x".repeat(200), source: None, importance: 4.5,
+                body: "x".repeat(200), source: None, importance: 4.5, source_path: None,
             }, &blobs).unwrap();
         }
         insert(&conn, &NewMemItem {
             kind: MemKind::Rule, scope: MemScope::Global,
             title: "important rule".into(), summary: None, area: None, tags: vec![],
-            body: "this rule must always survive".into(), source: None, importance: 5.0,
+            body: "this rule must always survive".into(), source: None, importance: 5.0, source_path: None,
         }, &blobs).unwrap();
 
         let out = generate(&conn, &WakeUpOptions {

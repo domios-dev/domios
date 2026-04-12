@@ -97,6 +97,9 @@ const DEFAULT_CONFIG: AppConfig = {
     dreaming_model: "haiku",
     worker_model: "claude-haiku-4-5-20251001",
     worker_timeout_seconds: 150,
+    dedup_threshold: 0.15,
+    file_sync_enabled: true,
+    file_sync_interval_minutes: 60,
   },
   integrations: {
     telegram_enabled: false,

@@ -271,6 +271,7 @@ fn run() -> Result<(), String> {
             body: seed.body.clone(),
             source: None,
             importance: seed.importance.unwrap_or(3.0),
+            source_path: None,
         };
         // insert_raw skips auto-extract + embed queue so bench recall
         // isn't polluted by extracted child items.

@@ -178,6 +178,7 @@ pub enum MemKind {
     Learning,
     Rule,
     Summary,
+    Document,
 }
 
 impl MemKind {
@@ -194,6 +195,7 @@ impl MemKind {
             Self::Learning => "learning",
             Self::Rule => "rule",
             Self::Summary => "summary",
+            Self::Document => "document",
         }
     }
 
@@ -210,6 +212,7 @@ impl MemKind {
             "learning" => Self::Learning,
             "rule" => Self::Rule,
             "summary" => Self::Summary,
+            "document" => Self::Document,
             _ => return None,
         })
     }
@@ -250,6 +253,8 @@ pub struct NewMemItem {
     pub body: String,
     pub source: Option<String>,
     pub importance: f64,
+    #[serde(default)]
+    pub source_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -422,52 +427,22 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
 
-    Ok(())
-}
-
-/// Startup repair pass: drops bogus entities, bad time windows, orphans.
-pub fn repair_inconsistencies(conn: &Connection) -> Result<(), String> {
-    let bogus_entities = conn.execute(
-        r#"DELETE FROM entities
-           WHERE id NOT LIKE 'person_%'
-             AND id NOT LIKE 'project_%'"#,
-        [],
-    ).map_err(|e| format!("repair entities: {}", e))? as u64;
-
-    let bogus_relations = conn.execute(
-        r#"DELETE FROM relations
-           WHERE (from_id NOT LIKE 'person_%' AND from_id NOT LIKE 'project_%' AND from_id NOT IN (SELECT id FROM mem_items))
-              OR (to_id NOT LIKE 'person_%' AND to_id NOT LIKE 'project_%' AND to_id NOT IN (SELECT id FROM mem_items))
-              OR relation_type = 'kind_of'
-              OR relation_type = 'belongs_to'
-              OR relation_type = 'belongs_to_category'
-              OR relation_type = 'is_a'"#,
-        [],
-    ).map_err(|e| format!("repair relations: {}", e))? as u64;
-
-    let bad_temporal = conn.execute(
-        "DELETE FROM relations WHERE valid_to IS NOT NULL AND valid_to < valid_from",
-        [],
-    ).map_err(|e| format!("repair temporal: {}", e))? as u64;
-
-    let empty_titles = conn.execute(
-        "UPDATE mem_items SET title = 'Untitled ' || substr(uid, 1, 8) WHERE title = '' OR title IS NULL",
-        [],
-    ).map_err(|e| format!("repair titles: {}", e))? as u64;
-
-    let orphans = conn.execute(
-        r#"DELETE FROM entities
-           WHERE id NOT IN (SELECT DISTINCT from_id FROM relations)
-             AND id NOT IN (SELECT DISTINCT to_id FROM relations)"#,
-        [],
-    ).map_err(|e| format!("repair orphans: {}", e))? as u64;
-
-    if bogus_entities + bogus_relations + bad_temporal + empty_titles + orphans > 0 {
-        log::info!(
-            "[mem] repair: {} bogus entities, {} bogus relations, {} impossible windows, {} empty titles, {} orphans",
-            bogus_entities, bogus_relations, bad_temporal, empty_titles, orphans
-        );
+    let has_source_path = {
+        let mut stmt = conn.prepare("PRAGMA table_info(mem_items)")?;
+        let cols: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))?
+            .filter_map(Result::ok)
+            .collect();
+        cols.iter().any(|c| c == "source_path")
+    };
+    if !has_source_path {
+        conn.execute_batch(
+            "ALTER TABLE mem_items ADD COLUMN source_path TEXT;\n\
+             ALTER TABLE mem_items ADD COLUMN source_size INTEGER;\n\
+             ALTER TABLE mem_items ADD COLUMN source_mtime TEXT;",
+        )?;
     }
+
     Ok(())
 }
 
@@ -549,12 +524,27 @@ fn insert_with_options(
             (Some(item.body.clone()), None)
         };
 
+    let (source_size, source_mtime) = item
+        .source_path
+        .as_ref()
+        .and_then(|p| std::fs::metadata(p).ok())
+        .map(|m| {
+            let size = m.len() as i64;
+            let mtime = m
+                .modified()
+                .ok()
+                .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
+            (Some(size), mtime)
+        })
+        .unwrap_or((None, None));
+
     conn.execute(
         r#"INSERT INTO mem_items
            (id, uid, kind, scope, title, summary, area, tags_json,
             body_inline, body_blob_path, source, importance,
-            created_at, updated_at, accessed_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL)"#,
+            created_at, updated_at, accessed_at,
+            source_path, source_size, source_mtime)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17)"#,
         params![
             &id,
             &uid,
@@ -570,6 +560,9 @@ fn insert_with_options(
             item.importance,
             &now,
             &now,
+            &item.source_path,
+            source_size,
+            &source_mtime,
         ],
     )
     .map_err(|e| format!("insert mem_item: {}", e))?;
@@ -1237,6 +1230,7 @@ mod tests {
                 body: "short body".into(),
                 source: None,
                 importance: 3.0,
+                source_path: None,
             },
             &blobs,
         )
@@ -1262,6 +1256,7 @@ mod tests {
                 body: "body".into(),
                 source: None,
                 importance: 3.0,
+                source_path: None,
             },
             &blobs,
         )
@@ -1304,6 +1299,7 @@ mod tests {
                 body: big.clone(),
                 source: None,
                 importance: 3.0,
+                source_path: None,
             },
             &blobs,
         )
@@ -1325,6 +1321,7 @@ mod tests {
             body: "original body".into(),
             source: None,
             importance: 3.0,
+            source_path: None,
         }, &blobs).unwrap();
 
         // Update only tags + importance
@@ -1369,6 +1366,7 @@ mod tests {
             body: "the quick brown fox".into(),
             source: None,
             importance: 3.0,
+            source_path: None,
         }, &blobs).unwrap();
         update(&conn, &id, &MemUpdate {
             title: None, summary: None, area: None, tags: None,
@@ -1395,6 +1393,7 @@ mod tests {
             body: body.into(),
             source: None,
             importance: 5.0,
+            source_path: None,
         };
         let id1 = insert(&conn, &mk("placeholder"), &blobs).unwrap();
         assert_eq!(id1, "preference_identity");
@@ -1421,6 +1420,7 @@ mod tests {
             body: body.into(),
             source: None,
             importance: 3.0,
+            source_path: None,
         };
         let a = insert(&conn, &mk("body a"), &blobs).unwrap();
         let b = insert(&conn, &mk("body b"), &blobs).unwrap();
@@ -1444,6 +1444,7 @@ mod tests {
                 body: "x".into(),
                 source: None,
                 importance: 3.0,
+                source_path: None,
             },
             &blobs,
         )
@@ -1483,12 +1484,12 @@ mod tests {
             kind: MemKind::Skill, scope: MemScope::Global,
             title: "alpha".into(), summary: Some("first".into()),
             area: Some("core".into()), tags: vec!["t1".into()],
-            body: "body alpha".into(), source: None, importance: 4.0,
+            body: "body alpha".into(), source: None, importance: 4.0, source_path: None,
         }, &blobs).unwrap();
         let b = insert(&conn, &NewMemItem {
             kind: MemKind::Script, scope: MemScope::Global,
             title: "beta".into(), summary: None, area: None, tags: vec![],
-            body: "body beta".into(), source: None, importance: 3.0,
+            body: "body beta".into(), source: None, importance: 3.0, source_path: None,
         }, &blobs).unwrap();
         super::super::graph::insert_relation(&conn, &super::super::graph::Relation {
             from_id: a.clone(), relation_type: "has_script".into(), to_id: b.clone(),
@@ -1537,6 +1538,7 @@ mod tests {
                     body: "b".into(),
                     source: None,
                     importance: 3.0,
+                    source_path: None,
                 },
                 &blobs,
             )
@@ -1561,6 +1563,7 @@ mod tests {
             body: body.into(),
             source: None,
             importance: 2.0,
+            source_path: None,
         }
     }
 
@@ -1665,6 +1668,7 @@ mod tests {
                     body: "b".into(),
                     source: None,
                     importance: 3.0,
+                    source_path: None,
                 },
                 &blobs,
             )
