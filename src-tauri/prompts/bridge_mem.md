@@ -45,6 +45,7 @@ cat /path/to/doc.md | codeterm mem save --kind document \
 - `codeterm mem forget <area>` — batch delete everything in an area.
 - `codeterm mem sync` — trigger file sync for all source-tracked items.
 - `codeterm mem wake-up` — prints L0+L1 context (identity + top-N important items).
+- `codeterm mem worker spawn --intent "<name>" --task "<prompt>"` — spawn a headless graph worker for custom enrichment tasks (entity extraction, relation building, dedup). Worker runs in the Memory Panel's Workers section. Use when the user asks to "enrich", "process", or "analyze" a memory item more deeply than auto-extraction did.
 
 ## What to save as what
 
