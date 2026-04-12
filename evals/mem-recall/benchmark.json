@@ -5,7 +5,7 @@
       "id": "seed_1",
       "kind": "conversation",
       "title": "SoundCalm architecture discussion",
-      "body": "Обсуждали с Тимой архитектуру аудио движка для SoundCalm. Решили использовать Core Audio вместо AVAudioEngine. Anya сделала дизайн нового онбординга. Жека задеплоил бэкенд на fly.io. Проблема с HealthKit — не получается синхронизировать данные сна в фоне. I prefer using async/await over Combine for the networking layer.",
+      "body": "Discussed SoundCalm audio engine architecture with Tima. Decided to use Core Audio instead of AVAudioEngine. Anya designed the new onboarding flow. Zheka deployed the backend on fly.io. Problem with HealthKit — can't sync sleep data in the background. I prefer using async/await over Combine for the networking layer.",
       "area": "soundcalm",
       "tags": ["binaura", "soundcalm", "ios"]
     },
@@ -64,7 +64,7 @@
       "id": "seed_8",
       "kind": "preference",
       "title": "identity",
-      "body": "Andrey Kovalev (Дюша), Riga Latvia. 10+ years experience. iOS/Swift main. AI/LLM agents. Backend Python FastAPI. Communication: Russian/English mix, casual, direct.",
+      "body": "Andrey Kovalev (Dyusha), Riga Latvia. 10+ years experience. iOS/Swift main. AI/LLM agents. Backend Python FastAPI. Communication: Russian/English mix, casual, direct.",
       "tags": ["identity"],
       "importance": 5.0
     }
