@@ -106,9 +106,16 @@ fn list_tracked(mem: &Arc<MemManager>) -> Result<Vec<TrackedItem>, String> {
         .map_err(|e| format!("collect: {}", e))
 }
 
+fn has_tag(tags_json: &str, tag: &str) -> bool {
+    serde_json::from_str::<Vec<String>>(tags_json)
+        .unwrap_or_default()
+        .iter()
+        .any(|t| t == tag)
+}
+
 fn sync_one(mem: &Arc<MemManager>, item: &TrackedItem) -> Result<SyncAction, String> {
     let path = Path::new(&item.source_path);
-    let has_missing_tag = item.tags_json.contains("source-missing");
+    let has_missing_tag = has_tag(&item.tags_json, "source-missing");
 
     let meta = match std::fs::metadata(path) {
         Ok(m) => m,
