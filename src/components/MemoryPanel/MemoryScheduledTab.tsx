@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
+import type { ApiConfig, CronJob, CronRunInfo, GraphWorkerInfo } from "../../lib/types";
 import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
 import { WorkerLogPopup } from "./WorkerLogPopup";
+import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 
 interface Props {
   api: ApiConfig;
@@ -66,11 +67,59 @@ interface ProviderInfo {
   available_models?: Array<{ id: string; display_name: string }>;
 }
 
+type RunHistoryItem =
+  | { type: "dream"; worker: GraphWorkerInfo }
+  | { type: "librarian"; run: CronRunInfo };
+
+function statusColor(status: string): string {
+  switch (status) {
+    case "done":
+    case "Success":
+      return "#10b981";
+    case "error":
+    case "Failed":
+      return "#ef4444";
+    case "Cancelled":
+    case "orphaned":
+      return "#9ca3af";
+    default:
+      return "#eab308";
+  }
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case "Success":
+      return "done";
+    case "Failed":
+      return "error";
+    case "Running":
+      return "running";
+    case "Cancelled":
+      return "cancelled";
+    default:
+      return status;
+  }
+}
+
+function scheduleLabel(schedule: string): string {
+  if (schedule.includes("0 3 * * *") || schedule.includes("0 2 * * *") || schedule.includes("0 4 * * *")) {
+    return "Every night ~3 AM";
+  }
+  if (schedule.includes("0 * * * *")) {
+    return "Every hour";
+  }
+  return schedule;
+}
+
 function MemoryScheduledTabImpl({ api }: Props) {
   const [dreamCron, setDreamCron] = useState<CronJob | null>(null);
+  const [librarianCron, setLibrarianCron] = useState<CronJob | null>(null);
   const [cronLoading, setCronLoading] = useState(true);
   const [dreamWorkers, setDreamWorkers] = useState<GraphWorkerInfo[]>([]);
+  const [librarianHistory, setLibrarianHistory] = useState<CronRunInfo[]>([]);
   const [logWorker, setLogWorker] = useState<GraphWorkerInfo | null>(null);
+  const [logCronRun, setLogCronRun] = useState<CronRunInfo | null>(null);
   const [diaryEntries, setDiaryEntries] = useState<DreamDiaryEntry[]>([]);
   const [diaryLoading, setDiaryLoading] = useState(true);
   const mountedRef = useRef(true);
@@ -100,6 +149,21 @@ function MemoryScheduledTabImpl({ api }: Props) {
     }).catch(() => {});
   }, [api, memCfg]);
 
+  const toggleCronEnabled = useCallback(async (cronId: string, enable: boolean) => {
+    const endpoint = enable ? "enable" : "disable";
+    try {
+      const res = await fetch(`${baseUrl(api)}/api/crons/${encodeURIComponent(cronId)}/${endpoint}`, {
+        method: "POST",
+        headers: authHeaders(api),
+      });
+      if (res.ok && mountedRef.current) {
+        const updated = (await res.json()) as CronJob;
+        if (updated.name === "mem-dreaming-auto") setDreamCron(updated);
+        else if (updated.name === "mem-librarian-auto") setLibrarianCron(updated);
+      }
+    } catch { /* network error */ }
+  }, [api]);
+
   useEffect(() => {
     return () => { mountedRef.current = false; };
   }, []);
@@ -110,7 +174,20 @@ function MemoryScheduledTabImpl({ api }: Props) {
       const res = await fetch(`${baseUrl(api)}/api/crons`, { headers: authHeaders(api) });
       if (res.ok && mountedRef.current) {
         const jobs = (await res.json()) as CronJob[];
-        setDreamCron(jobs.find(j => j.name === "mem-dreaming-auto") ?? null);
+        const dream = jobs.find(j => j.name === "mem-dreaming-auto") ?? null;
+        const lib = jobs.find(j => j.name === "mem-librarian-auto") ?? null;
+        setDreamCron(dream);
+        setLibrarianCron(lib);
+
+        if (lib) {
+          const hRes = await fetch(`${baseUrl(api)}/api/crons/${encodeURIComponent(lib.id)}/history`, {
+            headers: authHeaders(api),
+          });
+          if (hRes.ok && mountedRef.current) {
+            const runs = (await hRes.json()) as CronRunInfo[];
+            setLibrarianHistory(runs.sort((a, b) => b.started_at - a.started_at));
+          }
+        }
       }
       const wRes = await fetch(`${baseUrl(api)}/api/mem/workers`, { headers: authHeaders(api) });
       if (wRes.ok && mountedRef.current) {
@@ -153,7 +230,6 @@ function MemoryScheduledTabImpl({ api }: Props) {
   useEffect(() => { fetchCronData(true); }, [fetchCronData]);
   useEffect(() => { fetchDiary(true); }, [fetchDiary]);
 
-  // Live updates: debounced re-fetch on worker events and mem activity
   useEffect(() => {
     if (!isTauriEnv()) return;
     let active = true;
@@ -177,13 +253,16 @@ function MemoryScheduledTabImpl({ api }: Props) {
           if (!active) { fn(); return; }
           unlisteners.push(fn);
         }
-        // Only refetch on writes, not reads (safety net)
         const memFn = await listen<{ op: string }>("mem-activity", (ev) => {
           if (ev.payload?.op === "read") return;
           refreshDiary();
         });
         if (!active) { memFn(); return; }
         unlisteners.push(memFn);
+        // Also listen for cron events to refresh librarian runs
+        const cronFn = await listen("cron-run-finished", refreshWorkers);
+        if (!active) { cronFn(); return; }
+        unlisteners.push(cronFn);
       } catch { /* not in tauri */ }
     })();
     return () => {
@@ -194,152 +273,261 @@ function MemoryScheduledTabImpl({ api }: Props) {
     };
   }, [fetchCronData, fetchDiary]);
 
+  const mergedHistory: RunHistoryItem[] = [
+    ...dreamWorkers.map((w): RunHistoryItem => ({ type: "dream", worker: w })),
+    ...librarianHistory.map((r): RunHistoryItem => ({ type: "librarian", run: r })),
+  ].sort((a, b) => {
+    const timeA = a.type === "dream" ? a.worker.spawned_at : a.run.started_at;
+    const timeB = b.type === "dream" ? b.worker.spawned_at : b.run.started_at;
+    return timeB - timeA;
+  });
+
+  const lastDreamRun = dreamWorkers[0] ?? null;
+  const lastLibrarianRun = librarianHistory[0] ?? null;
+
   return (
     <div className="absolute inset-0 flex flex-col overflow-y-auto">
       <div className="p-3 space-y-4">
-        {/* Dreaming (REM) settings */}
-        {memCfg && (
-          <section>
-            <h3 className="text-xs font-semibold text-[var(--ct-muted-fg)] uppercase tracking-wider mb-2">
-              Dreaming (REM)
-            </h3>
-            <div className="flex flex-wrap items-center gap-3 px-3 py-2 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)]">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={memCfg.dreaming_enabled}
-                  onChange={(e) => patchMemConfig({ dreaming_enabled: e.target.checked })}
-                  className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
-                />
-                <span className="text-xs text-[var(--ct-fg)]">Enabled</span>
-              </label>
-              <select
-                value={memCfg.dreaming_agent || ""}
-                onChange={(e) => patchMemConfig({ dreaming_agent: e.target.value })}
-                className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-[11px] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
-              >
-                <option value="">Default provider</option>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>{p.display_name}</option>
-                ))}
-              </select>
-              {(() => {
-                const prov = providers.find((p) => p.id === (memCfg.dreaming_agent || providers[0]?.id));
-                const models = prov?.available_models ?? [];
-                return models.length > 0 ? (
+        {/* Operation cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Dreaming (REM) card */}
+          <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--ct-border)]">
+              <span className="text-xs font-semibold text-[var(--ct-fg)]">Dreaming (REM)</span>
+              {dreamCron && (
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <span className="text-[10px] text-[var(--ct-muted-fg)]">
+                    {dreamCron.enabled ? "On" : "Off"}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={dreamCron.enabled}
+                    onChange={(e) => toggleCronEnabled(dreamCron.id, e.target.checked)}
+                    className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
+                  />
+                </label>
+              )}
+            </div>
+            <div className="px-3 py-2 space-y-2">
+              {/* Provider / model row */}
+              {memCfg && (
+                <div className="flex flex-wrap items-center gap-2">
                   <select
-                    value={memCfg.dreaming_model || ""}
-                    onChange={(e) => patchMemConfig({ dreaming_model: e.target.value })}
-                    className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-[11px] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                    value={memCfg.dreaming_agent || ""}
+                    onChange={(e) => patchMemConfig({ dreaming_agent: e.target.value })}
+                    className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-1.5 py-0.5 text-[10px] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                   >
-                    <option value="">Default model</option>
-                    {models.map((m) => (
-                      <option key={m.id} value={m.id}>{m.display_name}</option>
+                    <option value="">Default provider</option>
+                    {providers.map((p) => (
+                      <option key={p.id} value={p.id}>{p.display_name}</option>
                     ))}
                   </select>
-                ) : (
-                  <input
-                    value={memCfg.dreaming_model || ""}
-                    onChange={(e) => patchMemConfig({ dreaming_model: e.target.value })}
-                    placeholder="Model (haiku, sonnet...)"
-                    className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-[11px] text-[var(--ct-fg)] w-36 focus:border-[var(--ct-accent)] focus:outline-none"
-                  />
-                );
-              })()}
-            </div>
-          </section>
-        )}
-
-        {/* Librarian (file sync) — placeholder */}
-        <section>
-          <h3 className="text-xs font-semibold text-[var(--ct-muted-fg)] uppercase tracking-wider mb-2">
-            Librarian
-          </h3>
-          <div className="px-3 py-2 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)] text-xs text-[var(--ct-muted-fg)]">
-            File sync worker — watches source-tracked memory items for changes on disk and re-indexes automatically. Coming soon.
-          </div>
-        </section>
-
-        {/* Next scheduled run countdown */}
-        <section>
-          <h3 className="text-xs font-semibold text-[var(--ct-muted-fg)] uppercase tracking-wider mb-2">
-            Next Run
-          </h3>
-          {cronLoading ? (
-            <div className="text-xs text-[var(--ct-muted-fg)]">Loading...</div>
-          ) : !dreamCron ? (
-            <div className="text-xs text-[var(--ct-muted-fg)]">
-              No dreaming cron found. Memory dreaming is not configured.
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 px-3 py-2 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)]">
-              <div className="flex-1">
-                <div className="text-sm text-[var(--ct-fg)] font-mono">
-                  {dreamCron.next_run
-                    ? relativeTime(dreamCron.next_run)
-                    : "Not scheduled"}
+                  {(() => {
+                    const prov = providers.find((p) => p.id === (memCfg.dreaming_agent || providers[0]?.id));
+                    const models = prov?.available_models ?? [];
+                    return models.length > 0 ? (
+                      <select
+                        value={memCfg.dreaming_model || ""}
+                        onChange={(e) => patchMemConfig({ dreaming_model: e.target.value })}
+                        className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-1.5 py-0.5 text-[10px] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                      >
+                        <option value="">Default model</option>
+                        {models.map((m) => (
+                          <option key={m.id} value={m.id}>{m.display_name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        value={memCfg.dreaming_model || ""}
+                        onChange={(e) => patchMemConfig({ dreaming_model: e.target.value })}
+                        placeholder="Model"
+                        className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-1.5 py-0.5 text-[10px] text-[var(--ct-fg)] w-28 focus:border-[var(--ct-accent)] focus:outline-none"
+                      />
+                    );
+                  })()}
                 </div>
-                {dreamCron.next_run && (
-                  <div className="text-[10px] text-[var(--ct-muted-fg)] mt-0.5">
-                    {new Date(dreamCron.next_run).toLocaleString("en-US", {
-                      weekday: "short",
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </div>
-                )}
+              )}
+              {/* Schedule + next run + last run */}
+              <div className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)]">
+                <span>{dreamCron ? scheduleLabel(dreamCron.schedule) : "Not configured"}</span>
+                <span className="opacity-40">|</span>
+                <span className="font-mono tabular-nums">
+                  {dreamCron?.next_run ? relativeTime(dreamCron.next_run) : "---"}
+                </span>
               </div>
-              <span
-                className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase"
-                style={{
-                  background: dreamCron.enabled ? "#10b98122" : "#ef444422",
-                  color: dreamCron.enabled ? "#10b981" : "#ef4444",
-                }}
-              >
-                {dreamCron.enabled ? "enabled" : "disabled"}
-              </span>
+              {/* Last run status */}
+              {lastDreamRun && (
+                <div className="flex items-center gap-2">
+                  <span
+                    className="px-1.5 py-px rounded-[3px] text-[9px] font-semibold uppercase"
+                    style={{
+                      background: `${statusColor(lastDreamRun.status)}22`,
+                      color: statusColor(lastDreamRun.status),
+                    }}
+                  >
+                    {lastDreamRun.status}
+                  </span>
+                  <span className="text-[10px] text-[var(--ct-muted-fg)] tabular-nums">
+                    {formatDateTime(lastDreamRun.spawned_at)}
+                  </span>
+                  {lastDreamRun.done_at && (
+                    <span className="text-[10px] text-[var(--ct-muted-fg)] tabular-nums">
+                      {formatDuration(lastDreamRun.spawned_at, lastDreamRun.done_at)}
+                    </span>
+                  )}
+                </div>
+              )}
+              {!lastDreamRun && !cronLoading && (
+                <div className="text-[10px] text-[var(--ct-muted-fg)]">No runs yet</div>
+              )}
             </div>
-          )}
-        </section>
+          </div>
 
+          {/* Librarian (File Sync) card */}
+          <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--ct-border)]">
+              <span className="text-xs font-semibold text-[var(--ct-fg)]">Librarian (File Sync)</span>
+              {librarianCron && (
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <span className="text-[10px] text-[var(--ct-muted-fg)]">
+                    {librarianCron.enabled ? "On" : "Off"}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={librarianCron.enabled}
+                    onChange={(e) => toggleCronEnabled(librarianCron.id, e.target.checked)}
+                    className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
+                  />
+                </label>
+              )}
+            </div>
+            <div className="px-3 py-2 space-y-2">
+              {/* No model selector for librarian — just provider info */}
+              <div className="text-[10px] text-[var(--ct-muted-fg)]">
+                Watches source-tracked memory items and re-indexes on change
+              </div>
+              {/* Schedule + next run */}
+              <div className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)]">
+                <span>{librarianCron ? scheduleLabel(librarianCron.schedule) : "Not configured"}</span>
+                <span className="opacity-40">|</span>
+                <span className="font-mono tabular-nums">
+                  {librarianCron?.next_run ? relativeTime(librarianCron.next_run) : "---"}
+                </span>
+              </div>
+              {/* Last run status */}
+              {lastLibrarianRun && (
+                <div className="flex items-center gap-2">
+                  <span
+                    className="px-1.5 py-px rounded-[3px] text-[9px] font-semibold uppercase"
+                    style={{
+                      background: `${statusColor(lastLibrarianRun.status)}22`,
+                      color: statusColor(lastLibrarianRun.status),
+                    }}
+                  >
+                    {statusLabel(lastLibrarianRun.status)}
+                  </span>
+                  <span className="text-[10px] text-[var(--ct-muted-fg)] tabular-nums">
+                    {formatDateTime(lastLibrarianRun.started_at)}
+                  </span>
+                  {lastLibrarianRun.finished_at && (
+                    <span className="text-[10px] text-[var(--ct-muted-fg)] tabular-nums">
+                      {formatDuration(lastLibrarianRun.started_at, lastLibrarianRun.finished_at)}
+                    </span>
+                  )}
+                </div>
+              )}
+              {!lastLibrarianRun && !cronLoading && (
+                <div className="text-[10px] text-[var(--ct-muted-fg)]">No runs yet</div>
+              )}
+              {!librarianCron && !cronLoading && (
+                <div className="text-[10px] text-[var(--ct-muted-fg)] italic">
+                  No librarian cron found
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
 
-        {/* Run history (from workers) */}
+        {/* Unified run history */}
         <section>
           <h3 className="text-xs font-semibold text-[var(--ct-muted-fg)] uppercase tracking-wider mb-2">
             Run History
           </h3>
-          {dreamWorkers.length === 0 && !cronLoading && (
-            <div className="text-xs text-[var(--ct-muted-fg)]">No dream runs yet</div>
+          {mergedHistory.length === 0 && !cronLoading && (
+            <div className="text-xs text-[var(--ct-muted-fg)]">No runs yet</div>
           )}
           <div className="space-y-1">
-            {dreamWorkers.map(w => {
-              const isDone = w.status === "done" || w.status === "error" || w.status === "orphaned";
-              const color = w.status === "done" ? "#10b981" : w.status === "error" ? "#ef4444" : "#eab308";
-              const dur = isDone && w.done_at ? formatDuration(w.spawned_at, w.done_at) : "";
+            {mergedHistory.map(item => {
+              if (item.type === "dream") {
+                const w = item.worker;
+                const isDone = w.status === "done" || w.status === "error" || w.status === "orphaned";
+                const color = statusColor(w.status);
+                const dur = isDone && w.done_at ? formatDuration(w.spawned_at, w.done_at) : "";
+                return (
+                  <div
+                    key={`dream-${w.worker_id}`}
+                    className="flex items-center gap-2.5 px-3 py-1.5 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)] cursor-pointer hover:border-[var(--ct-accent)]"
+                    onClick={() => setLogWorker(w)}
+                  >
+                    <span
+                      className="px-1.5 py-px rounded-[3px] text-[9px] font-semibold uppercase shrink-0"
+                      style={{ background: "#8b5cf622", color: "#8b5cf6" }}
+                    >
+                      REM
+                    </span>
+                    <span
+                      className="px-1.5 py-px rounded-[3px] text-[10px] font-semibold uppercase w-[52px] text-center shrink-0"
+                      style={{ background: `${color}22`, color }}
+                    >
+                      {w.status}
+                    </span>
+                    <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
+                      {formatDateTime(w.spawned_at)}
+                    </span>
+                    {w.model && (
+                      <span className="text-[9px] text-[var(--ct-muted-fg)]">{w.model}</span>
+                    )}
+                    {dur && (
+                      <span className="text-[10px] text-[var(--ct-muted-fg)] ml-auto tabular-nums">{dur}</span>
+                    )}
+                    {!isDone && (
+                      <span className="text-[10px] ml-auto flex items-center gap-1" style={{ color }}>
+                        <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: color }} />
+                        running
+                      </span>
+                    )}
+                  </div>
+                );
+              }
+              const r = item.run;
+              const color = statusColor(r.status);
+              const isTerminal = r.status !== "Running";
+              const dur = isTerminal && r.finished_at ? formatDuration(r.started_at, r.finished_at) : "";
               return (
                 <div
-                  key={w.worker_id}
+                  key={`lib-${r.run_id}`}
                   className="flex items-center gap-2.5 px-3 py-1.5 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)] cursor-pointer hover:border-[var(--ct-accent)]"
-                  onClick={() => setLogWorker(w)}
+                  onClick={() => r.pane_id ? setLogCronRun(r) : undefined}
                 >
                   <span
-                    className="px-1.5 py-px rounded-[3px] text-[10px] font-semibold uppercase w-[58px] text-center shrink-0"
+                    className="px-1.5 py-px rounded-[3px] text-[9px] font-semibold uppercase shrink-0"
+                    style={{ background: "#06b6d422", color: "#06b6d4" }}
+                  >
+                    Sync
+                  </span>
+                  <span
+                    className="px-1.5 py-px rounded-[3px] text-[10px] font-semibold uppercase w-[52px] text-center shrink-0"
                     style={{ background: `${color}22`, color }}
                   >
-                    {w.status}
+                    {statusLabel(r.status)}
                   </span>
                   <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
-                    {formatDateTime(w.spawned_at)}
+                    {formatDateTime(r.started_at)}
                   </span>
-                  {w.model && (
-                    <span className="text-[9px] text-[var(--ct-muted-fg)]">{w.model}</span>
-                  )}
                   {dur && (
                     <span className="text-[10px] text-[var(--ct-muted-fg)] ml-auto tabular-nums">{dur}</span>
                   )}
-                  {!isDone && (
+                  {!isTerminal && (
                     <span className="text-[10px] ml-auto flex items-center gap-1" style={{ color }}>
                       <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: color }} />
                       running
@@ -394,6 +582,15 @@ function MemoryScheduledTabImpl({ api }: Props) {
       </div>
       {logWorker && (
         <WorkerLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
+      )}
+      {logCronRun && (
+        <AgentRunLogPopup
+          api={api}
+          paneId={logCronRun.pane_id}
+          title="Librarian Sync"
+          status={logCronRun.status}
+          onClose={() => setLogCronRun(null)}
+        />
       )}
     </div>
   );
