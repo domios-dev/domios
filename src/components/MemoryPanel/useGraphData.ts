@@ -35,9 +35,6 @@ export function useGraphData(api: ApiConfig) {
         const map = new Map<string, MemNode>();
         resp.nodes.forEach((n) => map.set(n.id, n));
 
-        // Scatter any nodes missing positions — prevents center clump.
-        // If ALL nodes lack positions, run full force layout.
-        // If only SOME lack positions, scatter them near existing nodes.
         const unpositioned = resp.nodes.filter(
           (n) => n.graph_x == null || n.graph_y == null,
         );

@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { MemEdge, MemNode } from "./types";
 
+const REPULSION = 18000;
+const SPRING_LENGTH = 250;
+const SPRING_K = 0.015;
+const CENTER_PULL = 0.0003;
+const DAMPING = 0.78;
+const MAX_VEL = 35;
+const ENERGY_SLEEP = 0.05;
+
 interface PhysicsOpts {
   enabled: boolean;
   nodes: Map<string, MemNode>;
@@ -13,14 +21,6 @@ interface Vec {
   vx: number;
   vy: number;
 }
-
-const REPULSION = 18000;
-const SPRING_LENGTH = 250;
-const SPRING_K = 0.015;
-const CENTER_PULL = 0.0003;
-const DAMPING = 0.78;
-const MAX_VEL = 35;
-const ENERGY_SLEEP = 0.05;
 
 export function usePhysics({ enabled, nodes, edges, pinnedRef, onTick }: PhysicsOpts) {
   const velRef = useRef<Map<string, Vec>>(new Map());

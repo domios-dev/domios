@@ -79,19 +79,35 @@ TASK — execute each step as Bash tool calls, in order:
    Entity ID format: <type>_<slug> where slug is lowercase ascii, underscores for spaces.
    Skip generic references ("the user", "the team", "someone").
 
-4. DECISIONS + PROBLEMS
+4. ENSURE CONNECTIVITY (mandatory)
+   After step 3, check: does {id} have at least one outgoing relation?
+   Run: `codeterm mem graph related --id {id}`
+   If the result is empty (no relations created in step 3):
+   - If area was set in step 2 → find or create the matching project entity and link:
+       codeterm mem graph create --id project_<area> --entity-type Project --scope global
+       codeterm mem graph relate --from {id} --rel applies_to --to project_<area>
+   - If area is empty or _system/_dreams/_patterns → link to scope_global:
+       codeterm mem graph create --id scope_global --entity-type Scope --scope global
+       codeterm mem graph relate --from {id} --rel belongs_to --to scope_global
+   Every node MUST have at least one edge. Orphan nodes are useless in a graph.
+
+5. DECISIONS + PROBLEMS
    Only if TEXT contains explicit patterns:
 
    Decisions ("we decided", "let's use", "better to", "going with"):
      codeterm mem save --kind fact --title "decision: <short>" --tags auto-extracted,decision --area <area> --importance 2 --skip-extract "<what was decided and why>"
+     Then link the new item: codeterm mem graph relate --from <new_id> --rel extracted_from --to {id}
 
    Problems ("bug in", "doesn't work", "the issue was", "broke because"):
      codeterm mem save --kind learning --title "problem: <short>" --tags auto-extracted,problem --area <area> --importance 2 --skip-extract "<problem and fix if mentioned>"
+     Then link the new item: codeterm mem graph relate --from <new_id> --rel extracted_from --to {id}
 
-   Before saving either: search first to avoid duplicates.
-   Use --skip-extract on sub-saves to prevent infinite worker loops.
+   The new item's id follows the pattern <kind>_<slug_from_title>.
+   Before saving: search first to avoid duplicates.
+   Use --skip-extract to prevent infinite worker loops.
+   ALWAYS link sub-saves back to the source — orphan nodes are never acceptable.
 
-5. REPORT (MANDATORY FINAL STEP)
+6. REPORT (MANDATORY FINAL STEP)
      codeterm mem worker report "<N entities, M relations, K decisions, U merges, area=<area>>"
 
 ──────────────────────────────────────────────────────────────────────

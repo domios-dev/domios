@@ -58,7 +58,7 @@ export function useViewport(initial: Viewport = { panX: 0, panY: 0, scale: 1 }) 
       const pad = 120;
       const w = Math.max(1, maxX - minX) + pad * 2;
       const h = Math.max(1, maxY - minY) + pad * 2;
-      const scale = Math.max(0.1, Math.min(5, Math.min(viewWidth / w, viewHeight / h)));
+      const scale = Math.max(0.02, Math.min(5, Math.min(viewWidth / w, viewHeight / h)));
       const cx = (minX + maxX) / 2;
       const cy = (minY + maxY) / 2;
       setViewport({

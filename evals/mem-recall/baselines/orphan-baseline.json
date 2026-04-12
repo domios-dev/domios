@@ -1,0 +1,11 @@
+{
+  "total": 18,
+  "orphans": 0,
+  "orphan_pct": 0,
+  "connected": 18,
+  "entities": 34,
+  "relations": 44,
+  "workers_done": 15,
+  "workers_err": 0,
+  "commit": "962bffe"
+}

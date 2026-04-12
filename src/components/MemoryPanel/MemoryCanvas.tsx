@@ -106,16 +106,18 @@ export function MemoryCanvas({
     registerRecenter(recenter);
   }, [registerFit, registerRecenter, doFit, recenter]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (autoFittedRef.current) return;
     if (nodes.size === 0) return;
     const hasPositions = [...nodes.values()].some(
       (n) => n.graph_x != null && n.graph_y != null,
     );
     if (!hasPositions) return;
+    const el = containerRef.current;
+    if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
     autoFittedRef.current = true;
-    doFit();
-  }, [nodes, doFit]);
+    requestAnimationFrame(() => doFit());
+  }, [nodes, doFit, canvasSize]);
 
   const onDragStart = useCallback(
     (id: string, e: React.MouseEvent) => {

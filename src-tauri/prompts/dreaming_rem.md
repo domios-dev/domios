@@ -59,7 +59,11 @@ Check entities for stale relations. If a relation is no longer true → invalida
     -H "Content-Type: application/json" \
     -d '{"from": "<entity>", "rel": "<rel>", "to": "<target>"}'
 
-Find orphan entities (no relations) and consider if they're useful.
+Find orphan nodes (mem_items with zero relations). Every node MUST have
+at least one edge — orphans are dead weight in a graph. For each orphan:
+- If it has an area → link to the matching project entity (applies_to)
+- If generic → link to scope_global (belongs_to)
+- If truly useless (empty body, test data, stale) → delete it
 
 ### 6. Dream diary
 Save a brief reflection (80-150 words) on what you found and did:

@@ -846,12 +846,11 @@ pub async fn mem_graph_create(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
 
-    if !b.id.starts_with("person_") && !b.id.starts_with("project_") && !b.id.starts_with("area_") {
+    if !b.id.contains('_') {
         return Err((
             StatusCode::BAD_REQUEST,
             format!(
-                "Entity id must start with `person_`, `project_`, or `area_`. Got `{}`. \
-                 Kind/category is already a column on mem_items — use `--kind <k>` filter, not graph nodes.",
+                "Entity id must follow `<type>_<slug>` format (e.g. person_tima, tech_redis). Got `{}`.",
                 b.id
             ),
         ));
