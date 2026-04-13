@@ -27,6 +27,30 @@ pub async fn mesh_debug_sign(
     }
 }
 
+// ── Broadcast control ──────────────────────────────────────────────
+
+pub async fn mesh_start_broadcast(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let duration = state.config.lock().mesh.broadcast_duration_secs;
+    crate::mesh::discovery::start_broadcast(state.mesh.clone(), duration)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to start broadcast"))?;
+    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    Ok(Json(serde_json::json!({"ok": true, "duration_secs": duration})))
+}
+
+pub async fn mesh_stop_broadcast(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    crate::mesh::discovery::stop_broadcast(&state.mesh);
+    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 // ── Status & discovery ──────────────────────────────────────────────
 
 pub async fn mesh_status(

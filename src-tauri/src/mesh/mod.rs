@@ -24,22 +24,21 @@ pub type MeshState = Arc<Mutex<MeshManager>>;
 /// Central mesh state — composes identity with peer/discovery state.
 /// Single Mutex — no lock ordering concerns.
 pub struct MeshManager {
-    /// Identity and request signing.
     pub ident: identity::IdentityManager,
-    /// Paired peers (keyed by instance_id).
     pub paired_peers: HashMap<String, PairedPeer>,
-    /// Discovered (unpaired) peers.
     pub discovered_peers: HashMap<String, DiscoveredPeer>,
-    /// Incoming pairing requests.
     pub pending_requests: HashMap<String, PairingRequest>,
-    /// Blocked/revoked peers.
     pub revocation_list: RevocationList,
     pub discovery_active: bool,
+    pub broadcast_active: bool,
+    pub broadcast_expires_at: Option<u64>,
     pub tailscale_ip: Option<String>,
     pub local_ip: Option<String>,
     pub api_port: u16,
-    /// Outgoing pairing target info (request_id → (address, port, instance_id)).
     pub pairing_targets: HashMap<String, (String, u16, String)>,
+    pub mdns_daemon: Option<mdns_sd::ServiceDaemon>,
+    pub mdns_service_fullname: Option<String>,
+    pub udp_started: bool,
 }
 
 impl MeshManager {
@@ -62,10 +61,15 @@ impl MeshManager {
             pending_requests: HashMap::new(),
             revocation_list,
             discovery_active: false,
+            broadcast_active: false,
+            broadcast_expires_at: None,
             tailscale_ip: None,
             local_ip: None,
             api_port,
             pairing_targets: HashMap::new(),
+            mdns_daemon: None,
+            mdns_service_fullname: None,
+            udp_started: false,
         }
     }
 
@@ -95,6 +99,8 @@ impl MeshManager {
             instance_name: self.ident.instance_name.clone(),
             build: env!("BUILD_HASH").to_string(),
             discovery_active: self.discovery_active,
+            broadcast_active: self.broadcast_active,
+            broadcast_expires_at: self.broadcast_expires_at,
             tailscale_ip: self.tailscale_ip.clone(),
             local_ip: self.local_ip.clone(),
             api_port: self.api_port,

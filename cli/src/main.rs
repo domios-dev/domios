@@ -2302,6 +2302,40 @@ fn main() {
                     }
                     return;
                 }
+                MeshAction::Broadcast => {
+                    match http.post(format!("{}/api/mesh/broadcast/start", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else if let Some(dur) = val.get("duration_secs").and_then(|v| v.as_u64()) {
+                                println!("Broadcasting for {}s", dur);
+                            } else {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::StopBroadcast => {
+                    match http.post(format!("{}/api/mesh/broadcast/stop", base))
+                        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+                        .send() {
+                        Ok(resp) => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                println!("Broadcast stopped");
+                            }
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
             }
         }
         Commands::Mem { action } => {

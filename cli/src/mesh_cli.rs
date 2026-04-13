@@ -63,6 +63,11 @@ pub enum MeshAction {
     },
     /// Trigger mesh discovery scan (list discovered peers)
     Discover,
+    /// Start broadcasting for the configured duration
+    Broadcast,
+    /// Stop broadcasting immediately
+    #[clap(name = "stop-broadcast")]
+    StopBroadcast,
 }
 
 /// Sign a mesh request with Ed25519 (same as server-side peer auth).
@@ -100,8 +105,8 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         match action {
             MeshAction::Connect { .. } | MeshAction::Approve { .. } |
             MeshAction::Reject { .. } | MeshAction::Disconnect { .. } |
-            MeshAction::Discover => {
-                eprintln!("Error: mesh management commands (connect/approve/reject/disconnect/discover) are local-only and cannot be relayed via --mesh");
+            MeshAction::Discover | MeshAction::Broadcast | MeshAction::StopBroadcast => {
+                eprintln!("Error: mesh management commands are local-only and cannot be relayed via --mesh");
                 std::process::exit(1);
             }
             _ => {} // Status, Peers, Exec, Send, Output, Panes — relayable
@@ -241,6 +246,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 Some(serde_json::json!({"request_id": request_id}).to_string())),
             MeshAction::Disconnect { instance_id } => ("POST".into(), "/api/mesh/disconnect".into(),
                 Some(serde_json::json!({"instance_id": instance_id}).to_string())),
+            MeshAction::Broadcast => ("POST".into(), "/api/mesh/broadcast/start".into(), None),
+            MeshAction::StopBroadcast => ("POST".into(), "/api/mesh/broadcast/stop".into(), None),
             // Remote relay commands — these map to generic API calls
             _ => ("GET".into(), "/api/mesh/status".into(), None),
         },

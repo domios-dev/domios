@@ -299,8 +299,7 @@ export interface IntegrationsConfig {
 export interface MeshConfig {
   enabled: boolean;
   instance_name: string;
-  auto_discover: boolean;
-  stealth: boolean;
+  broadcast_duration_secs: number;
 }
 
 export interface MeshStatus {
@@ -308,6 +307,8 @@ export interface MeshStatus {
   instance_id: string;
   instance_name: string;
   discovery_active: boolean;
+  broadcast_active: boolean;
+  broadcast_expires_at: number | null;
   tailscale_ip: string | null;
   local_ip: string | null;
   api_port: number;

@@ -16,7 +16,9 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
   const [exiting, setExiting] = useState(false);
   const [approving, setApproving] = useState<string | null>(null);
   const [approveError, setApproveError] = useState<string | null>(null);
+  const [broadcastRemaining, setBroadcastRemaining] = useState<number | null>(null);
   const pendingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const broadcastTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchData = useCallback(() => {
     invoke<MeshStatus>("mesh_get_status").then(setStatus).catch(() => {});
@@ -51,6 +53,35 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
     }, 1000);
     return () => { if (pendingTimerRef.current) clearInterval(pendingTimerRef.current); };
   }, [connecting]);
+
+  // Broadcast countdown timer
+  useEffect(() => {
+    if (broadcastTimerRef.current) { clearInterval(broadcastTimerRef.current); broadcastTimerRef.current = null; }
+    if (!status?.broadcast_active || !status.broadcast_expires_at) {
+      setBroadcastRemaining(null);
+      return;
+    }
+    const tick = () => {
+      const remaining = Math.max(0, status.broadcast_expires_at! - Math.floor(Date.now() / 1000));
+      setBroadcastRemaining(remaining);
+      if (remaining <= 0) {
+        setBroadcastRemaining(null);
+        fetchData();
+      }
+    };
+    tick();
+    broadcastTimerRef.current = setInterval(tick, 1000);
+    return () => { if (broadcastTimerRef.current) clearInterval(broadcastTimerRef.current); };
+  }, [status?.broadcast_active, status?.broadcast_expires_at, fetchData]);
+
+  const handleBroadcast = useCallback(async () => {
+    if (status?.broadcast_active) {
+      await invoke("mesh_stop_broadcast").catch(console.error);
+    } else {
+      await invoke("mesh_start_broadcast").catch(console.error);
+    }
+    fetchData();
+  }, [status?.broadcast_active, fetchData]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -169,18 +200,22 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
           }}
         />
         {config.mesh?.enabled && (
-          <>
-            <Toggle
-              label="Auto-discover peers"
-              checked={config.mesh?.auto_discover ?? true}
-              onChange={(v) => onUpdate("mesh", { auto_discover: v })}
-            />
-            <Toggle
-              label="Stealth mode (don't broadcast, listen only)"
-              checked={config.mesh?.stealth ?? false}
-              onChange={(v) => onUpdate("mesh", { stealth: v })}
-            />
-          </>
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-[var(--ct-muted-fg)]">Broadcast</span>
+              {broadcastRemaining !== null && (
+                <span className="text-[10px] font-mono text-[var(--ct-accent)]">{formatSeconds(broadcastRemaining)}</span>
+              )}
+            </div>
+            <button onClick={handleBroadcast}
+              className={`text-[10px] px-3 py-1 rounded transition-all ${
+                status?.broadcast_active
+                  ? "bg-[var(--ct-red)]/20 text-[var(--ct-red)] hover:bg-[var(--ct-red)]/30"
+                  : "bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] hover:bg-[var(--ct-accent)]/30"
+              }`}>
+              {status?.broadcast_active ? "Stop" : "Start"}
+            </button>
+          </div>
         )}
       </div>
 

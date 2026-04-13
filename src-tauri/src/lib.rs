@@ -691,26 +691,15 @@ fn start_servers(
         }
     }
 
-    // Start mesh discovery if enabled
+    // Start mesh listeners if enabled (no broadcasting — user triggers that manually)
     {
         let mesh_config = states.config.lock().mesh.clone();
         if mesh_config.enabled {
             let mesh = states.mesh.clone();
             mesh::discovery::detect_tailscale(&mesh);
             mesh::discovery::detect_local_ip(&mesh);
-            if mesh_config.auto_discover {
-                // UDP broadcast first — mdns_sd can interfere with IPv4 multicast on some machines
-                if let Err(e) = mesh::discovery::start_udp_broadcast(mesh.clone()) {
-                    log::error!("[mesh] UDP broadcast start failed: {}", e);
-                }
-                // mDNS
-                match mesh::discovery::start_mdns(mesh.clone(), mesh_config.stealth) {
-                    Ok(_handle) => {
-                        log::info!("[mesh] mDNS discovery started");
-                        std::mem::forget(_handle);
-                    }
-                    Err(e) => log::error!("[mesh] mDNS start failed: {}", e),
-                }
+            if let Err(e) = mesh::discovery::start_listeners(mesh) {
+                log::error!("[mesh] Listener start failed: {}", e);
             }
         }
     }
@@ -996,6 +985,8 @@ pub fn run() {
             commands_mesh::mesh_exit,
             commands_mesh::mesh_add_manual,
             commands_mesh::mesh_start_discovery,
+            commands_mesh::mesh_start_broadcast,
+            commands_mesh::mesh_stop_broadcast,
             commands_mesh::mesh_set_access,
             // Keep-awake commands
             keepawake::keepawake_start,

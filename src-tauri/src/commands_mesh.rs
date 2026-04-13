@@ -328,7 +328,7 @@ pub fn mesh_add_manual(
     Ok(())
 }
 
-/// Start mesh discovery dynamically (called when user enables mesh in settings).
+/// Start mesh listeners (called when user enables mesh in settings).
 #[tauri::command]
 pub fn mesh_start_discovery(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
@@ -339,29 +339,33 @@ pub fn mesh_start_discovery(
         return Err("Mesh is not enabled".to_string());
     }
 
-    // Detect network addresses
     crate::mesh::discovery::detect_tailscale(&mesh);
     crate::mesh::discovery::detect_local_ip(&mesh);
+    crate::mesh::discovery::start_listeners(mesh.inner().clone())
+}
 
-    // Start mDNS if auto-discover is on
-    if mesh_config.auto_discover {
-        if mesh.lock().discovery_active {
-            log::info!("[mesh] Discovery already active");
-            return Ok(());
-        }
-        match crate::mesh::discovery::start_mdns(mesh.inner().clone(), mesh_config.stealth) {
-            Ok(handle) => {
-                log::info!("[mesh] mDNS discovery started dynamically");
-                std::mem::forget(handle);
-            }
-            Err(e) => log::error!("[mesh] mDNS start failed: {}", e),
-        }
-        // UDP broadcast fallback
-        if let Err(e) = crate::mesh::discovery::start_udp_broadcast(mesh.inner().clone()) {
-            log::error!("[mesh] UDP broadcast start failed: {}", e);
-        }
+/// Start broadcasting for the configured duration.
+#[tauri::command]
+pub fn mesh_start_broadcast(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    config: tauri::State<'_, crate::config::ConfigState>,
+) -> Result<(), String> {
+    let mesh_config = config.lock().mesh.clone();
+    if !mesh_config.enabled {
+        return Err("Mesh is not enabled".to_string());
     }
+    crate::mesh::discovery::start_broadcast(
+        mesh.inner().clone(),
+        mesh_config.broadcast_duration_secs,
+    )
+}
 
+/// Stop broadcasting immediately.
+#[tauri::command]
+pub fn mesh_stop_broadcast(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+) -> Result<(), String> {
+    crate::mesh::discovery::stop_broadcast(&mesh);
     Ok(())
 }
 

@@ -239,6 +239,8 @@ pub struct MeshStatus {
     pub instance_name: String,
     pub build: String,
     pub discovery_active: bool,
+    pub broadcast_active: bool,
+    pub broadcast_expires_at: Option<u64>,
     pub tailscale_ip: Option<String>,
     pub local_ip: Option<String>,
     pub api_port: u16,

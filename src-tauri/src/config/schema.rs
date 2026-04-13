@@ -412,8 +412,7 @@ impl Default for IntegrationsConfig {
 pub struct MeshConfig {
     pub enabled: bool,
     pub instance_name: String,
-    pub auto_discover: bool,
-    pub stealth: bool,
+    pub broadcast_duration_secs: u64,
 }
 
 impl Default for MeshConfig {
@@ -427,8 +426,7 @@ impl Default for MeshConfig {
                     name.trim_end_matches(".local").to_string()
                 })
                 .unwrap_or_else(|_| "CodeTerm".to_string()),
-            auto_discover: true,
-            stealth: false,
+            broadcast_duration_secs: 180,
         }
     }
 }
