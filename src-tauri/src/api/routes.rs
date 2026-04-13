@@ -1,6 +1,7 @@
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
+    middleware,
     routing::{get, post, delete},
     Json, Router,
 };
@@ -108,6 +109,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/pair/reject", post(super::mesh_routes::mesh_pair_reject))
         .route("/api/mesh/introduce", post(super::mesh_routes::mesh_introduce))
         .route("/api/mesh/sync", post(super::mesh_routes::mesh_sync))
+        .route("/api/mesh/broadcast/start", post(super::mesh_routes::mesh_start_broadcast))
+        .route("/api/mesh/broadcast/stop", post(super::mesh_routes::mesh_stop_broadcast))
         .route("/api/mesh/relay", post(super::mesh_routes::mesh_relay))
         .route("/api/mesh/peers/{id}", axum::routing::delete(super::mesh_routes::mesh_unpair))
         // Mem — unified memory store
@@ -149,6 +152,7 @@ pub fn create_router(state: AppState) -> Router {
 
 
     router
+        .layer(middleware::from_fn_with_state(state.clone(), super::auth::auth_middleware))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -160,39 +164,10 @@ fn resolve_pane(state: &AppState, raw_id: &str) -> Result<String, (StatusCode, &
         .ok_or((StatusCode::NOT_FOUND, "Pane not found"))
 }
 
-/// Unified auth: Ed25519 signed JWT only.
-/// - Local instance's own signature → full access
-/// - Paired peer's signature → mesh access
-pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, &'static str)> {
-    let auth = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let token = auth.strip_prefix("Bearer ").unwrap_or("");
-    if token.is_empty() {
-        return Err((StatusCode::UNAUTHORIZED, "Missing authorization"));
-    }
-
-    // Check simple API token from config first
-    if let Some(ref api_token) = state.config.lock().api.token {
-        if !api_token.is_empty() && token == api_token {
-            return Ok(());
-        }
-    }
-
-    // Check mesh signed request
-    let mesh = state.mesh.lock();
-    let mut known_keys = mesh.known_public_keys();
-    if let Some(ref pk) = mesh.ident.identity.public_key {
-        known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
-    }
-    drop(mesh);
-
-    if crate::mesh::crown::verify_signed_request(token, &known_keys).is_ok() {
-        return Ok(());
-    }
-
-    Err((StatusCode::UNAUTHORIZED, "Invalid or missing token"))
+/// Auth + access check handled by auth_middleware layer.
+/// Kept as no-op for backwards compatibility with existing handlers.
+pub(crate) fn check_auth(_state: &AppState, _headers: &HeaderMap) -> Result<(), (StatusCode, &'static str)> {
+    Ok(())
 }
 
 async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {

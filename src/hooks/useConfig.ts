@@ -112,8 +112,7 @@ const DEFAULT_CONFIG: AppConfig = {
   mesh: {
     enabled: false,
     instance_name: "",
-    auto_discover: true,
-    stealth: false,
+    broadcast_duration_secs: 180,
   },
   onboarding_completed: false,
 };
