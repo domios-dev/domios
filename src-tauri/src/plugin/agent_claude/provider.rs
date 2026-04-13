@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::agent::provider::{
     self, ActionStyle, AgentLaunchParams, AgentProvider, BadgeStyle, BadgeVariant, ModelInfo,
-    NoteLevel, PathOpenKind, ReadinessStrategy, SettingField, TaskDelivery,
+    PathOpenKind, ReadinessStrategy, SettingField, TaskDelivery,
 };
 use crate::shell::ShellSyntax;
 

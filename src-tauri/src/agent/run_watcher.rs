@@ -227,7 +227,7 @@ impl ResultEventScanner {
 
         let mut search_from = 0;
         let mut found: Option<CompletionSignal> = None;
-        let mut consumed = 0;
+        let consumed;
 
         loop {
             let Some(start_rel) = self.buffer[search_from..].find(RESULT_NEEDLE) else {
