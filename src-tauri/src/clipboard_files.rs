@@ -44,8 +44,8 @@ fn read_windows() -> Vec<String> {
 fn read_macos() -> Vec<String> {
     use objc2_app_kit::{NSPasteboard, NSPasteboardTypeFileURL};
 
-    let pb = unsafe { NSPasteboard::generalPasteboard() };
-    let items = match unsafe { pb.pasteboardItems() } {
+    let pb = NSPasteboard::generalPasteboard();
+    let items = match pb.pasteboardItems() {
         Some(i) => i,
         None => return Vec::new(),
     };
