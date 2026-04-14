@@ -118,9 +118,12 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
     {
         let shell_lower = shell.to_lowercase();
         if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
-            // Define OSC 7 prompt function via -NoExit -Command at spawn time.
-            // This executes before the interactive session starts, invisible to terminal.
-            // No visible text is written to the PTY, so it won't leak into agent input.
+            // Inline `function prompt {...}` as a constant `-Command` string.
+            // AMSI caches its scan by content hash, so after the first spawn
+            // subsequent spawns skip re-scanning. A file-based dot-source
+            // (`-Command ". 'path.ps1'"`) regressed this: the outer command
+            // string still gets scanned, and dot-source triggers extra
+            // ExecutionPolicy + ScriptBlock logging evaluation on every spawn.
             cmd.arg("-NoExit");
             cmd.arg("-Command");
             cmd.arg(

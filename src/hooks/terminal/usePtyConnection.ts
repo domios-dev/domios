@@ -167,7 +167,6 @@ export function usePtyConnection({
           invoke("kill_pty", { ptyId: spawnedId }).catch(() => {});
           return;
         }
-        await invoke("mux_link_pty", { paneId, ptyId: spawnedId });
         onPtySpawned?.(paneId, spawnedId);
 
         if (!paneData?.cwd) {
