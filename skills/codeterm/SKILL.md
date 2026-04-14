@@ -144,15 +144,26 @@ codeterm workspace create "CI" --mesh PEER
 
 **Flow:** `mesh peers` → find paired peer → `pane list --mesh PEER` → interact. Only paired peers accept commands.
 
-**Incoming mesh messages:**
-```
-[Mesh: workstation pane=a3f1b2c7] can you run the tests?
-```
-Reply to the source pane on the source peer:
-```bash
-codeterm send-text "tests pass" --pane a3f1b2c7 --mesh workstation
-```
-To message a peer's General Agent directly: `--pane general --mesh PEER`. Say "report back" if you need a response — the remote agent won't auto-reply.
+### Message routing — the prefix is the return address
+
+Messages you receive may arrive with a bracketed prefix telling you WHERE they came from. That prefix tells you where to reply. If there's no prefix, the user is typing into your pane directly — reply normally.
+
+| Incoming prefix | Reply with | Pane output? |
+|-----------------|------------|--------------|
+| `[Telegram: USER_ID msg_id=N] text` | `codeterm bridge send --to USER_ID --service telegram "..."` | No |
+| `[Mesh: PEER pane=ID] text` | `codeterm send-text "..." --pane ID --mesh PEER` | No |
+| `[Report from PANE_ID] text` | Act on it or ignore; never reply | No |
+| *(no prefix)* | Normal pane chat | Yes |
+
+**Core rule:** don't double-answer. If the message came via Telegram, the user is on Telegram, not at the keyboard — reply via Telegram only, don't also dump the text in the pane. Same for mesh and inter-agent traffic.
+
+**Examples:**
+
+- `[Telegram: 123456789] are you working right now?` → `codeterm bridge send --to 123456789 --service telegram "yep, online"`. Nothing in the pane.
+- `[Mesh: workstation pane=a3f1b2c7] can you run the tests?` → `codeterm send-text "running now" --pane a3f1b2c7 --mesh workstation`, do the work, then `codeterm send-text "tests pass" --pane a3f1b2c7 --mesh workstation`.
+- `run the tests` (no prefix) → reply in the pane, you're talking to a local user.
+
+To message a peer's General Agent directly: `--pane general --mesh PEER`. Add "report back" to the text if you need a response — remote agents don't auto-reply.
 
 ## Periodic tasks (cron)
 
@@ -209,4 +220,4 @@ Dot-notation for nested keys. Values are JSON (`true`, `false`, `42`, `"string"`
 
 `Cmd+K` / `Ctrl+K` opens the palette for quick tab/workspace/theme access.
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->
