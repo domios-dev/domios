@@ -560,6 +560,23 @@ pub async fn mem_flush(
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
+pub async fn mem_extract_pending(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<ExtractPendingParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let limit = p.limit.unwrap_or(200).clamp(1, 1000);
+    let count = crate::mem::auto_extract::run_extract_pending(state.svc.clone(), limit);
+    Ok(Json(serde_json::json!({ "queued": count })))
+}
+
+#[derive(Deserialize)]
+pub struct ExtractPendingParams {
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
 pub async fn mem_dream(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

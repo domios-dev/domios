@@ -379,6 +379,15 @@ pub enum MemAction {
         #[arg(long)]
         no_l0: bool,
     },
+    /// Re-run extraction workers for items that haven't been extracted yet.
+    /// Useful after LLM API failures, quota resets, or bulk imports with
+    /// skip_extract. Workers fire sequentially with a short delay.
+    #[clap(name = "extract-pending")]
+    ExtractPending {
+        /// Maximum number of items to queue (default 200).
+        #[arg(long, default_value = "200")]
+        limit: usize,
+    },
     /// Show mem store stats (counts by kind, blob sizes)
     Stats,
     /// Capture a quick learning (insight, error, feature request)
@@ -2479,6 +2488,13 @@ fn handle_mem(json_mode: bool, action: MemAction) {
                 "skip_extract": skip_extract,
             });
             mem_post_request(&http, &format!("{}/api/mem/items", base), &payload)
+        }
+        MemAction::ExtractPending { limit } => {
+            mem_post_request(
+                &http,
+                &format!("{}/api/mem/extract-pending?limit={}", base, limit),
+                &serde_json::json!({}),
+            )
         }
         MemAction::WakeUp { budget, l0_only, no_l0 } => {
             let mut url = format!("{}/api/mem/wake-up", base);

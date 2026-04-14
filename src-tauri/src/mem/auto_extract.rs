@@ -156,3 +156,75 @@ pub fn spawn_extraction_worker(
         }
     }
 }
+
+/// Find mem_items that are eligible for extraction but have no child items
+/// linked back via `extracted_from`. These are either (a) never extracted,
+/// or (b) extractions that produced zero child items. Caller decides.
+pub fn find_pending_items(
+    svc: &Arc<ServiceContext>,
+    limit: usize,
+) -> Result<Vec<(String, String, String, MemKind)>, String> {
+    use crate::mem::store::MemKind::*;
+    svc.mem.with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            r#"SELECT m.id, m.kind, m.title, COALESCE(m.body_inline, '')
+               FROM mem_items m
+               WHERE m.kind IN ('conversation','note','daily','learning','fact')
+                 AND m.tags_json NOT LIKE '%auto-extracted%'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM relations r
+                   WHERE r.to_id = m.id AND r.relation_type = 'extracted_from'
+                 )
+               ORDER BY m.created_at DESC
+               LIMIT ?1"#,
+        ).map_err(|e| e.to_string())?;
+
+        let rows = stmt.query_map([limit as i64], |r| {
+            let id: String = r.get(0)?;
+            let kind_str: String = r.get(1)?;
+            let title: String = r.get(2)?;
+            let body: String = r.get(3)?;
+            let kind = match kind_str.as_str() {
+                "conversation" => Conversation,
+                "note" => Note,
+                "daily" => Daily,
+                "learning" => Learning,
+                "fact" => Fact,
+                _ => Note,
+            };
+            Ok((id, title, body, kind))
+        }).map_err(|e| e.to_string())?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    })
+}
+
+/// Run extraction for pending items, sequentially spawning workers with
+/// a short delay between each to avoid flooding the LLM provider. Returns
+/// the number of workers queued. Runs in a background thread — returns immediately.
+pub fn run_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
+    let pending = match find_pending_items(&svc, limit) {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("[auto-extract] find_pending_items failed: {}", e);
+            return 0;
+        }
+    };
+
+    let count = pending.len();
+    log::info!("[auto-extract] queued {} pending items for extraction", count);
+
+    std::thread::spawn(move || {
+        for (id, title, body, kind) in pending {
+            spawn_extraction_worker(&svc, id, title, body, kind);
+            // Small delay so we don't fork a dozen claude processes at once.
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    });
+
+    count
+}

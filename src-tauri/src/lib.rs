@@ -1107,6 +1107,21 @@ pub fn run() {
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
 
+            // Resume extraction for items that were saved but never finished
+            // (e.g. previous run crashed mid-extraction, or LLM API errored).
+            // Idempotent: items already extracted are skipped by the SQL query.
+            // Delayed so the rest of the app finishes booting first.
+            {
+                let svc_for_extract = service_state.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                    let queued = crate::mem::auto_extract::run_extract_pending(svc_for_extract, 50);
+                    if queued > 0 {
+                        log::info!("[mem] startup: resuming extraction for {} pending item(s)", queued);
+                    }
+                });
+            }
+
             install_bundled_cli(app);
             start_servers(app, &states, &service_state);
             build_system_tray(app)?;
