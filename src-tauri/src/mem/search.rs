@@ -89,9 +89,11 @@ impl Default for SearchConfig {
             // A/B proven: +10pp Recall@1 on 30-query bench (30 EN queries).
             // RU stop words added too but not yet bench-validated on RU queries.
             fts_drop_stopwords: true,
-            // A/B: 0.6 combined with keyword_overlap=0.5 hits 60% Recall@1.
-            // 1.0 pushes to 83% but collapses BM25 tie-breaking; keep 0.6 safe.
-            title_match_bonus: 0.6,
+            // A/B on 251-item fixture: 1.0 hits 86.7% Recall@1, 96.7% Recall@5.
+            // The formula is cliff-shaped (0.8-0.95 all ≈60%, jumps at 1.0)
+            // because (1.0 - bonus) × bm25 is non-zero until bonus=1.0.
+            // 1.0 guarantees title-matchers rank first, which is what we want.
+            title_match_bonus: 1.0,
         }
     }
 }

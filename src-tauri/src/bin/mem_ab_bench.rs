@@ -167,6 +167,9 @@ fn main() {
         ("H: title match bonus 0.4", SearchConfig { title_match_bonus: 0.4, ..Default::default() }),
         ("I: title match bonus 0.6", SearchConfig { title_match_bonus: 0.6, ..Default::default() }),
         ("I2: title match bonus 0.8", SearchConfig { title_match_bonus: 0.8, ..Default::default() }),
+        ("I2b: title match bonus 0.85", SearchConfig { title_match_bonus: 0.85, ..Default::default() }),
+        ("I2c: title match bonus 0.9", SearchConfig { title_match_bonus: 0.9, ..Default::default() }),
+        ("I2d: title match bonus 0.95", SearchConfig { title_match_bonus: 0.95, ..Default::default() }),
         ("I3: title match bonus 1.0", SearchConfig { title_match_bonus: 1.0, ..Default::default() }),
         ("J: k=20 + title bonus 0.6", SearchConfig { rrf_k: 20.0, title_match_bonus: 0.6, ..Default::default() }),
     ];
