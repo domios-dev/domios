@@ -290,7 +290,6 @@ pub mod inner {
 
         while start < total_chars {
             let end = (start + chunk_chars).min(total_chars);
-            // Find best break point: paragraph > sentence > space
             let actual_end = if end < total_chars {
                 let window: String = chars[start..end].iter().collect();
                 if let Some(pos) = window.rfind("\n\n") {
@@ -311,11 +310,20 @@ pub mod inner {
             if trimmed.len() >= MIN_CHUNK_LEN {
                 chunks.push(trimmed.to_string());
             }
-            start = if actual_end > overlap_chars {
+            // End of input — last chunk pushed, stop.
+            if actual_end >= total_chars {
+                break;
+            }
+            let next_start = if actual_end > overlap_chars {
                 actual_end - overlap_chars
             } else {
                 actual_end
             };
+            // Guard against zero-advance loops: require strict progress.
+            if next_start <= start {
+                break;
+            }
+            start = next_start;
         }
         if chunks.is_empty() {
             chunks.push(preprocessed);
@@ -328,27 +336,32 @@ pub mod inner {
     /// Uses DELETE + INSERT because vec0 virtual tables don't support
     /// `INSERT OR REPLACE` semantics.
     pub fn index(conn: &Connection, mem_id: &str, body: &str) -> Result<(), String> {
-        // Delete existing vectors: exact ID + chunk suffixes only.
-        // Must NOT use bare LIKE prefix (fact_a% would delete fact_abc).
-        let _ = conn.execute(
-            "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
-            params![mem_id, format!("{}_chunk_%", mem_id)],
-        );
+        let deleted = conn
+            .execute(
+                "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
+                params![mem_id, format!("{}_chunk_%", mem_id)],
+            )
+            .unwrap_or(0);
+        log::info!("[mem.index] {} DELETE affected {} rows", mem_id, deleted);
 
         let chunks = chunk_text(body);
+        log::info!("[mem.index] {} chunks={}", mem_id, chunks.len());
         for (i, chunk) in chunks.iter().enumerate() {
+            let t0 = std::time::Instant::now();
             let vec = embed(chunk)?;
+            log::info!("[mem.index] {} chunk {} embed={}ms", mem_id, i, t0.elapsed().as_millis());
             let bytes: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
-            // chunk 0 uses plain mem_id, others get _chunk_N suffix
             let chunk_id = if i == 0 {
                 mem_id.to_string()
             } else {
                 format!("{}_chunk_{}", mem_id, i)
             };
+            let t1 = std::time::Instant::now();
             conn.execute(
                 "INSERT INTO mem_vectors (mem_id, embedding) VALUES (?1, ?2)",
                 params![chunk_id, bytes],
             ).map_err(|e| format!("insert vector chunk {}: {}", i, e))?;
+            log::info!("[mem.index] {} chunk {} insert={}ms", mem_id, i, t1.elapsed().as_millis());
         }
         Ok(())
     }

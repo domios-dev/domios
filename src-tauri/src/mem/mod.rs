@@ -165,14 +165,81 @@ const REINDEX_PASS_DELAY_SECS: u64 = 60;
 const REINDEX_MAX_FAILURES_PER_ITEM: usize = 2;
 
 impl MemManager {
+    /// Catch-up: direct index() call (bypass embed_queue) — isolates whether
+    /// leak is in the embed_queue worker/channel or in index() itself.
     #[cfg(feature = "embeddings")]
     pub fn reindex_missing(self: &Arc<Self>) {
-        // Disabled. Re-enabling triggered a ~100 MB/sec parent-process leak
-        // even when embed() was isolated to a child process — root cause
-        // appears to be in the index() path (vec0 INSERT or DELETE) on this
-        // Windows host. Investigation pending; for now items without vectors
-        // fall back to FTS5 recall (high-quality on its own).
-        log::info!("[mem] reindex_missing disabled (unresolved leak in index path)");
+        let db_path = self.db_path.clone();
+        let blobs_dir = self.blobs_dir.clone();
+        std::thread::spawn(move || {
+            embeddings::ensure_extension_registered();
+            let conn = match rusqlite::Connection::open(&db_path) {
+                Ok(c) => { let _ = c.busy_timeout(std::time::Duration::from_secs(5)); c }
+                Err(e) => { log::warn!("[mem] reindex catch-up: conn: {}", e); return; }
+            };
+            let missing = query_missing_vectors(&conn);
+            if missing.is_empty() {
+                log::info!("[mem] reindex catch-up: nothing missing");
+                return;
+            }
+            log::info!("[mem] reindex catch-up: DIRECT index for {} item(s)", missing.len());
+            for (id, body) in missing {
+                let actual_body = if body.is_empty() {
+                    let blob_path: Option<String> = conn
+                        .query_row(
+                            "SELECT body_blob_path FROM mem_items WHERE id = ?1",
+                            rusqlite::params![&id], |r| r.get(0),
+                        ).ok().flatten();
+                    let Some(rel) = blob_path else { continue };
+                    std::fs::read_to_string(blobs_dir.join(rel)).unwrap_or_default()
+                } else { body };
+                match embeddings::index(&conn, &id, &actual_body) {
+                    Ok(()) => log::info!("[mem] reindex direct: indexed {}", id),
+                    Err(e) => log::warn!("[mem] reindex direct {}: {}", id, e),
+                }
+            }
+        });
+        return;
+        let db_path = self.db_path.clone();
+        let blobs_dir = self.blobs_dir.clone();
+        let queue = self.embed_queue.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            embeddings::ensure_extension_registered();
+            let conn = match rusqlite::Connection::open(&db_path) {
+                Ok(c) => {
+                    let _ = c.busy_timeout(std::time::Duration::from_secs(5));
+                    c
+                }
+                Err(e) => {
+                    log::warn!("[mem] reindex catch-up: open conn failed: {}", e);
+                    return;
+                }
+            };
+            let missing = query_missing_vectors(&conn);
+            if missing.is_empty() {
+                log::info!("[mem] reindex catch-up: nothing missing");
+                return;
+            }
+            log::info!("[mem] reindex catch-up: enqueueing {} item(s) after startup quiet period", missing.len());
+            for (id, body) in missing {
+                let actual_body = if body.is_empty() {
+                    let blob_path: Option<String> = conn
+                        .query_row(
+                            "SELECT body_blob_path FROM mem_items WHERE id = ?1",
+                            rusqlite::params![&id],
+                            |r| r.get(0),
+                        )
+                        .ok()
+                        .flatten();
+                    let Some(rel) = blob_path else { continue };
+                    std::fs::read_to_string(blobs_dir.join(rel)).unwrap_or_default()
+                } else {
+                    body
+                };
+                queue.enqueue(id, actual_body);
+            }
+        });
         return;
         let db_path = self.db_path.clone();
         let blobs_dir = self.blobs_dir.clone();
