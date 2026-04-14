@@ -61,7 +61,7 @@ async fn backend_read_loop(
     mut reader: Box<dyn Read + Send>,
     svc: ServiceState,
     pty_id: String,
-    frontend_tx: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+    frontend_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
 ) {
     loop {
         let ob = svc.output_buf.clone();
@@ -111,7 +111,7 @@ async fn backend_read_loop(
 
                 let (prev, now) = svc.process_pty_output(&pty_id, &data);
 
-                let _ = frontend_tx.send(data.clone());
+                let _ = frontend_tx.try_send(data.clone());
 
                 if now != prev {
                     let pane_id = svc.mux.lock().pane_id_for_pty(&pty_id);

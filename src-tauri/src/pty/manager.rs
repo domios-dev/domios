@@ -11,10 +11,11 @@ pub struct PtySession {
     pub reader: StdMutex<Option<Box<dyn Read + Send>>>,
     pub write_queue: WriteQueue,
     pub child: StdMutex<Box<dyn portable_pty::Child + Send + Sync>>,
-    /// Backend reader channel. When Some, a backend reader is active and sending bytes here.
+    /// Backend reader channel (bounded). When Some, a backend reader is active and sending bytes here.
     /// read_pty reads from this instead of the raw PTY reader to avoid competing reads.
-    pub backend_reader_tx: StdMutex<Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>>,
-    pub backend_reader_rx: StdMutex<Option<tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>>>,
+    /// Bounded to prevent memory leaks when frontend isn't consuming (hidden tabs).
+    pub backend_reader_tx: StdMutex<Option<tokio::sync::mpsc::Sender<Vec<u8>>>>,
+    pub backend_reader_rx: StdMutex<Option<tokio::sync::mpsc::Receiver<Vec<u8>>>>,
 }
 
 /// Ring buffer storing last N bytes of PTY output per pane.
@@ -230,12 +231,16 @@ impl PtyManager {
         log::info!("Removed PTY {}", pty_id);
     }
 
+    /// Max buffered chunks in the backend→frontend channel.
+    /// 1024 × 8KB max chunk = 8MB ceiling per PTY for hidden tabs.
+    const BACKEND_CHANNEL_CAPACITY: usize = 1024;
+
     /// Set up the backend reader channel for a PTY.
     /// Returns the sender for the backend reader to use.
     /// After this call, read_pty will read from the channel instead of the raw PTY.
-    pub fn setup_backend_channel(&self, pty_id: &str) -> Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>> {
+    pub fn setup_backend_channel(&self, pty_id: &str) -> Option<tokio::sync::mpsc::Sender<Vec<u8>>> {
         let session = self.sessions.get(pty_id)?;
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+        let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(Self::BACKEND_CHANNEL_CAPACITY);
         *session.backend_reader_tx.lock().unwrap() = Some(tx.clone());
         *session.backend_reader_rx.lock().unwrap() = Some(rx);
         Some(tx)

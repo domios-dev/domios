@@ -160,9 +160,18 @@ fn query_missing_vectors(conn: &rusqlite::Connection) -> Vec<(String, String)> {
     out
 }
 
+const REINDEX_MAX_PASSES: usize = 5;
+const REINDEX_PASS_DELAY_SECS: u64 = 60;
+const REINDEX_MAX_FAILURES_PER_ITEM: usize = 2;
+
 impl MemManager {
     #[cfg(feature = "embeddings")]
     pub fn reindex_missing(self: &Arc<Self>) {
+        // Disabled: fastembed/ort runtime leaks ~100 MB per inference on
+        // Windows. New items still get vectors via embed_queue (subprocess
+        // isolation planned). Old items without vectors fall back to FTS5.
+        log::info!("[mem] reindex_missing disabled (ort leak on Windows)");
+        return;
         let db_path = self.db_path.clone();
         let blobs_dir = self.blobs_dir.clone();
         std::thread::spawn(move || {
@@ -174,44 +183,56 @@ impl MemManager {
                 }
                 Err(e) => { log::warn!("[mem] reindex: open failed: {}", e); return; }
             };
-            let mut missing: Vec<(String, String)> = query_missing_vectors(&conn);
-            loop {
+            let mut failed_ids: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+
+            for pass in 0..REINDEX_MAX_PASSES {
+                let missing = query_missing_vectors(&conn);
                 if missing.is_empty() {
-                    log::debug!("[mem] reindex: all items indexed");
-                } else {
-                    log::info!("[mem] reindex: {} items missing vectors, indexing...", missing.len());
-                    let mut indexed = 0;
-                    for (id, body) in &missing {
-                        let actual_body = if body.is_empty() {
-                            let blob_path: Option<String> = conn.query_row(
-                                "SELECT body_blob_path FROM mem_items WHERE id = ?1",
-                                rusqlite::params![id],
-                                |r| r.get(0),
-                            ).ok().flatten();
-                            if let Some(rel) = blob_path {
-                                std::fs::read_to_string(blobs_dir.join(rel)).unwrap_or_default()
-                            } else {
-                                continue;
-                            }
+                    log::info!("[mem] reindex: all items indexed (pass {})", pass);
+                    break;
+                }
+                log::info!("[mem] reindex pass {}: {} items missing vectors", pass, missing.len());
+                let mut indexed = 0;
+                for (id, body) in &missing {
+                    if *failed_ids.get(id.as_str()).unwrap_or(&0) >= REINDEX_MAX_FAILURES_PER_ITEM {
+                        continue;
+                    }
+                    let actual_body = if body.is_empty() {
+                        let blob_path: Option<String> = conn.query_row(
+                            "SELECT body_blob_path FROM mem_items WHERE id = ?1",
+                            rusqlite::params![id],
+                            |r| r.get(0),
+                        ).ok().flatten();
+                        if let Some(rel) = blob_path {
+                            std::fs::read_to_string(blobs_dir.join(rel)).unwrap_or_default()
                         } else {
-                            body.clone()
-                        };
-                        match embeddings::index(&conn, id, &actual_body) {
-                            Ok(()) => { indexed += 1; }
-                            Err(e) => { log::warn!("[mem] reindex {}: {}", id, e); }
+                            continue;
+                        }
+                    } else {
+                        body.clone()
+                    };
+                    match embeddings::index(&conn, id, &actual_body) {
+                        Ok(()) => { indexed += 1; }
+                        Err(e) => {
+                            let count = failed_ids.entry(id.clone()).or_insert(0);
+                            *count += 1;
+                            log::warn!("[mem] reindex {}: {} (attempt {})", id, e, count);
                         }
                     }
-                    if indexed > 0 {
-                        log::info!("[mem] reindex: indexed {} items", indexed);
-                    }
                 }
-
-                // Sleep 30s, then re-check for new unindexed items
-                std::thread::sleep(std::time::Duration::from_secs(30));
-
-                // Re-query missing items for next iteration
-                missing = query_missing_vectors(&conn);
+                if indexed > 0 {
+                    log::info!("[mem] reindex pass {}: indexed {} items", pass, indexed);
+                }
+                if pass + 1 < REINDEX_MAX_PASSES {
+                    std::thread::sleep(std::time::Duration::from_secs(REINDEX_PASS_DELAY_SECS));
+                }
             }
+            if !failed_ids.is_empty() {
+                log::warn!("[mem] reindex finished with {} permanently failed items: {:?}",
+                    failed_ids.len(), failed_ids.keys().collect::<Vec<_>>());
+            }
+            log::info!("[mem] reindex thread exiting");
         });
     }
 

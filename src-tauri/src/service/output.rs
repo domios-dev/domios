@@ -191,10 +191,6 @@ impl ServiceContext {
             }
         }
 
-        let _ = self.app_handle.emit("pane-output-changed", serde_json::json!({
-            "pty_id": pty_id,
-        }));
-
         (prev_status, current_status)
     }
 
