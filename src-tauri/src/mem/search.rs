@@ -74,6 +74,15 @@ pub struct SearchConfig {
     /// Score reduction applied when any non-stop query keyword appears in the item's title.
     /// 0.0 = no bonus, 0.4 = 40% distance reduction (stronger than general keyword_overlap).
     pub title_match_bonus: f64,
+    /// RRF multiplier boost for items connected via graph relations to an entity
+    /// whose id (lowercased) contains any of the query keywords. 1.0 = no effect,
+    /// 1.5 = +50% post-RRF score. Operates on the fused hybrid rank, not FTS.
+    pub graph_entity_boost: f64,
+    /// If true, treat graph-related items as a third RRF source alongside
+    /// FTS and vector hits. Each graph-matched item contributes 1/(rrf_k+rank)
+    /// to the fused score, just like FTS/vector — so graph rank survives even
+    /// when title_match_bonus collapses FTS scores to 0.
+    pub graph_as_rrf_source: bool,
 }
 
 impl Default for SearchConfig {
@@ -94,6 +103,8 @@ impl Default for SearchConfig {
             // because (1.0 - bonus) × bm25 is non-zero until bonus=1.0.
             // 1.0 guarantees title-matchers rank first, which is what we want.
             title_match_bonus: 1.0,
+            graph_entity_boost: 1.0,
+            graph_as_rrf_source: false,
         }
     }
 }
@@ -219,6 +230,60 @@ fn extract_keywords(q: &str) -> HashSet<String> {
         .map(|w| w.to_lowercase())
         .filter(|w| !stops.contains(w.as_str()))
         .collect()
+}
+
+/// Find mem_items connected via graph relations to entities whose id contains
+/// any of the query keywords (case-insensitive substring on the entity id).
+/// Used to boost search results for items linked to relevant people/projects/tech.
+fn find_graph_boosted_items(
+    conn: &Connection,
+    keywords: &HashSet<String>,
+) -> Result<HashSet<String>, String> {
+    if keywords.is_empty() {
+        return Ok(HashSet::new());
+    }
+
+    // 1. Find entity ids matching any keyword (e.g. "alex" → person_alex).
+    let mut entity_ids: HashSet<String> = HashSet::new();
+    {
+        let mut stmt = conn
+            .prepare("SELECT id FROM entities WHERE lower(id) LIKE ?1")
+            .map_err(|e| e.to_string())?;
+        for kw in keywords {
+            let pattern = format!("%{}%", kw.to_lowercase());
+            let rows = stmt
+                .query_map([pattern], |r| r.get::<_, String>(0))
+                .map_err(|e| e.to_string())?;
+            for row in rows.flatten() {
+                entity_ids.insert(row);
+            }
+        }
+    }
+
+    if entity_ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+
+    // 2. Find items related to those entities (both directions).
+    let placeholders: Vec<String> = (1..=entity_ids.len()).map(|i| format!("?{}", i)).collect();
+    let in_clause = placeholders.join(",");
+    let sql = format!(
+        "SELECT DISTINCT from_id FROM relations WHERE to_id IN ({in_clause})
+         UNION
+         SELECT DISTINCT to_id FROM relations WHERE from_id IN ({in_clause})"
+    );
+    let bind_vec: Vec<String> = entity_ids.iter().cloned().collect();
+    let bind_refs: Vec<&dyn ToSql> = bind_vec.iter().map(|s| s as &dyn ToSql).collect();
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(params_from_iter(bind_refs), |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?;
+
+    let mut out = HashSet::new();
+    for row in rows.flatten() {
+        out.insert(row);
+    }
+    Ok(out)
 }
 
 fn title_has_keyword(keywords: &HashSet<String>, title: &str) -> bool {
@@ -373,13 +438,41 @@ pub fn hybrid_rrf_with_config(
             .or_insert((rrf, hit.item.clone()));
     }
 
+    // Graph-aware: items linked to entities whose id matches query keywords.
+    let keywords = extract_keywords(&q.query);
+    let graph_boosted: HashSet<String> = if cfg.graph_entity_boost > 1.0 || cfg.graph_as_rrf_source {
+        find_graph_boosted_items(conn, &keywords).unwrap_or_default()
+    } else {
+        HashSet::new()
+    };
+
+    // Optional: feed graph hits as a third RRF source. This survives the
+    // title_match_bonus=1.0 score-collapse trick because RRF works on rank,
+    // not on bm25 score.
+    if cfg.graph_as_rrf_source && !graph_boosted.is_empty() {
+        let mut graph_ids: Vec<&String> = graph_boosted.iter().collect();
+        graph_ids.sort();
+        for (rank, gid) in graph_ids.iter().enumerate() {
+            let rrf = 1.0 / (cfg.rrf_k + rank as f64);
+            if let Some(entry) = rrf_scores.get_mut(*gid) {
+                entry.0 += rrf;
+            } else if let Ok(Some(item)) = super::store::get(conn, gid, blobs_dir) {
+                if let Some(ref k) = q.kind { if item.kind != *k { continue; } }
+                if let Some(ref s) = q.scope { if item.scope != *s { continue; } }
+                if let Some(ref a) = q.area { if item.area.as_deref() != Some(a) { continue; } }
+                rrf_scores.insert((*gid).clone(), (rrf, item));
+            }
+        }
+    }
+
     let mut merged: Vec<SearchHit> = rrf_scores
         .into_values()
         .map(|(rrf, item)| {
             let is_auto = item.tags.iter().any(|t| t == "auto-extracted");
             let auto_mul = if is_auto { cfg.auto_extracted_penalty } else { 1.0 };
             let rec_mul = 1.0 + ((item.recurrence_count as f64) * cfg.recurrence_step).min(cfg.recurrence_cap);
-            let adjusted = rrf * auto_mul * rec_mul;
+            let graph_mul = if graph_boosted.contains(&item.id) { cfg.graph_entity_boost } else { 1.0 };
+            let adjusted = rrf * auto_mul * rec_mul * graph_mul;
             SearchHit { item, score: -adjusted }
         })
         .collect();

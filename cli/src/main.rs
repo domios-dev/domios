@@ -37,12 +37,19 @@ pub use mesh_cli::MeshAction;
 
 /// Determine the CodeTerm data directory.
 /// Dev instances use `~/.codeterm-dev/`, prod uses `~/.codeterm/`.
-/// Detection: if CODETERM_SOCKET_PATH contains "codeterm-dev", use dev dir.
+/// Detection priority:
+///   1. CODETERM_SOCKET_PATH containing "codeterm-dev" (set by dev PTYs)
+///   2. CODETERM_API_PORT == 7686 (dev's port — useful when calling CLI from
+///      outside a dev pane, e.g. tests)
+///   3. Default: prod
 fn data_dir_name() -> &'static str {
     if let Ok(sp) = std::env::var("CODETERM_SOCKET_PATH") {
         if sp.contains("codeterm-dev") {
             return ".codeterm-dev";
         }
+    }
+    if std::env::var("CODETERM_API_PORT").as_deref() == Ok("7686") {
+        return ".codeterm-dev";
     }
     ".codeterm"
 }
@@ -83,13 +90,18 @@ pub fn read_api_config() -> (String, Option<String>) {
             mesh_cli::sign_request(pk, iid).ok()
         });
 
-    let token = signed_token.or_else(|| {
-        // Fall back to simple API token from config.toml
-        let config_path = config_dir.join("config.toml");
-        std::fs::read_to_string(&config_path).ok()
-            .and_then(|content| content.parse::<toml::Table>().ok())
-            .and_then(|val| val.get("api")?.as_table()?.get("token")?.as_str().map(String::from))
-    });
+    // Highest priority: explicit CODETERM_API_TOKEN env override.
+    // Useful for hitting dev (port 7686) from outside its PTY without the
+    // matching mesh identity, or for tests with a manually scoped token.
+    let token = std::env::var("CODETERM_API_TOKEN").ok()
+        .filter(|s| !s.is_empty())
+        .or(signed_token)
+        .or_else(|| {
+            let config_path = config_dir.join("config.toml");
+            std::fs::read_to_string(&config_path).ok()
+                .and_then(|content| content.parse::<toml::Table>().ok())
+                .and_then(|val| val.get("api")?.as_table()?.get("token")?.as_str().map(String::from))
+        });
 
     (format!("http://{}:{}", host, port), token)
 }
@@ -388,6 +400,13 @@ pub enum MemAction {
         #[arg(long, default_value = "200")]
         limit: usize,
     },
+    /// Skill management — folder-on-disk skills with mem index.
+    /// Skills live as ~/.codeterm/skills/<name>/SKILL.md (+ optional support files).
+    /// `add` registers the folder; Librarian re-vectorizes if SKILL.md changes.
+    Skill {
+        #[command(subcommand)]
+        action: MemSkillAction,
+    },
     /// Show mem store stats (counts by kind, blob sizes)
     Stats,
     /// Capture a quick learning (insight, error, feature request)
@@ -470,6 +489,37 @@ pub enum MemWorkerAction {
     Report { summary: String },
     /// Kill a worker by id
     Kill { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum MemSkillAction {
+    /// Scaffold a new skill folder under ~/.codeterm/skills/<name>/, write
+    /// a SKILL.md template (with frontmatter + canonical sections) plus an
+    /// empty scripts/ subdir, then register it in mem immediately. After
+    /// this, edit the SKILL.md — Librarian will re-index on change.
+    New {
+        /// Skill slug (also folder name). Use kebab-case.
+        name: String,
+        /// Optional area tag to put in the frontmatter.
+        #[arg(long)]
+        area: Option<String>,
+    },
+    /// Register an existing skill folder. Reads <folder>/SKILL.md and saves
+    /// a mem item with source_path linked to it. Re-runs are idempotent.
+    /// Area can come from --area flag, YAML frontmatter (`area: foo`), or
+    /// the parent folder name (~/.codeterm/skills/<area>/<skill>/SKILL.md).
+    Add {
+        /// Folder containing SKILL.md (e.g. ~/.codeterm/skills/mem-testing).
+        folder: String,
+        /// Override the auto-detected area.
+        #[arg(long)]
+        area: Option<String>,
+        /// Importance 1-5, default 4.
+        #[arg(long, default_value = "4")]
+        importance: f64,
+    },
+    /// List all registered skills.
+    List,
 }
 
 #[derive(Subcommand)]
@@ -2351,6 +2401,45 @@ fn main() {
 
 // ── Mem CLI handler ─────────────────────────────────────────────────
 
+/// Lightweight frontmatter parser for SKILL.md.
+/// Recognises `title:`, `area:`, `tags:` (comma-separated) between leading `---` lines.
+fn strip_skill_frontmatter(body: &str) -> &str {
+    let mut lines = body.lines();
+    if lines.next().map(|l| l.trim()) != Some("---") { return body; }
+    let mut consumed = body.lines().next().unwrap_or("").len() + 1;
+    for line in lines {
+        consumed += line.len() + 1;
+        if line.trim() == "---" {
+            return body.get(consumed..).unwrap_or("");
+        }
+    }
+    body
+}
+
+fn parse_skill_frontmatter(body: &str) -> (Option<String>, Option<String>, Vec<String>) {
+    let mut lines = body.lines();
+    if lines.next().map(|l| l.trim()) != Some("---") {
+        return (None, None, Vec::new());
+    }
+    let mut title = None;
+    let mut area = None;
+    let mut tags = Vec::new();
+    for line in lines {
+        let t = line.trim();
+        if t == "---" { break; }
+        if let Some(v) = t.strip_prefix("title:") {
+            title = Some(v.trim().trim_matches('"').to_string());
+        } else if let Some(v) = t.strip_prefix("area:") {
+            area = Some(v.trim().trim_matches('"').to_string());
+        } else if let Some(v) = t.strip_prefix("tags:") {
+            tags = v.trim().trim_matches('[').trim_matches(']')
+                .split(',').map(|s| s.trim().trim_matches('"').to_string())
+                .filter(|s| !s.is_empty()).collect();
+        }
+    }
+    (title, area, tags)
+}
+
 fn mem_get_request(http: &reqwest::blocking::Client, url: &str) -> Result<serde_json::Value, String> {
     let resp = http.get(url).send().map_err(|e| e.to_string())?;
     let status = resp.status();
@@ -2496,6 +2585,131 @@ fn handle_mem(json_mode: bool, action: MemAction) {
                 &serde_json::json!({}),
             )
         }
+        MemAction::Skill { action } => match action {
+            MemSkillAction::New { name, area } => {
+                let skills_root = dirs::home_dir().unwrap_or_default().join(data_dir_name()).join("skills");
+                let folder_path = skills_root.join(&name);
+                if folder_path.exists() {
+                    eprintln!("Error: skill folder already exists: {}", folder_path.display());
+                    std::process::exit(1);
+                }
+                if let Err(e) = std::fs::create_dir_all(folder_path.join("scripts")) {
+                    eprintln!("Error creating folder: {}", e);
+                    std::process::exit(1);
+                }
+                let area_line = area.as_deref().unwrap_or("general");
+                let template = format!(
+                    "---\ntitle: {name}\narea: {area_line}\ntags: []\n---\n\n# {name}\n\n_One-paragraph summary that becomes the search snippet._\n\n## When to use\n\n…\n\n## Steps\n\n1. …\n2. …\n\n## Gotchas\n\n…\n\n## Scripts\n\n- `./scripts/foo.sh` — describe what it does\n",
+                    name = name, area_line = area_line,
+                );
+                let skill_md = folder_path.join("SKILL.md");
+                if let Err(e) = std::fs::write(&skill_md, template) {
+                    eprintln!("Error writing SKILL.md: {}", e);
+                    std::process::exit(1);
+                }
+                eprintln!("Created skill folder: {}", folder_path.display());
+                eprintln!("Edit: {}", skill_md.display());
+                eprintln!("Add scripts to: {}", folder_path.join("scripts").display());
+                eprintln!();
+                // Register immediately so it appears in mem search right away.
+                let body = std::fs::read_to_string(&skill_md).unwrap_or_default();
+                let (fm_title, fm_area, _fm_tags) = parse_skill_frontmatter(&body);
+                let title = fm_title.unwrap_or(name.clone());
+                let area_resolved = area.clone().or(fm_area);
+                let summary = format!("Skill scaffold — edit {} to fill in.", skill_md.display());
+                let source = format!("file:{}", skill_md.display());
+                let mut payload = serde_json::json!({
+                    "kind": "skill",
+                    "title": title,
+                    "body": body,
+                    "summary": summary,
+                    "source": source,
+                    "source_path": source,
+                    "tags": ["folder-skill", "scaffold"],
+                    "importance": 4.0,
+                    "skip_extract": true,
+                    "replace": true,
+                });
+                if let Some(a) = area_resolved {
+                    payload["area"] = serde_json::json!(a);
+                }
+                mem_post_request(&http, &format!("{}/api/mem/items", base), &payload)
+            }
+            MemSkillAction::Add { folder, area, importance } => {
+                let folder_expanded = if let Some(stripped) = folder.strip_prefix("~/") {
+                    dirs::home_dir().map(|h| h.join(stripped)).unwrap_or_else(|| std::path::PathBuf::from(&folder))
+                } else if folder == "~" {
+                    dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("~"))
+                } else {
+                    std::path::PathBuf::from(&folder)
+                };
+                let folder_path = folder_expanded;
+                let skill_md = folder_path.join("SKILL.md");
+                if !skill_md.exists() {
+                    eprintln!("Error: SKILL.md not found in {}", folder_path.display());
+                    std::process::exit(1);
+                }
+                let body = match std::fs::read_to_string(&skill_md) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("Error reading SKILL.md: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                // Optional YAML-ish frontmatter parse: between two --- lines at top.
+                // Picks `title:`, `area:`, `tags:` (comma list) if present.
+                let (fm_title, fm_area, fm_tags) = parse_skill_frontmatter(&body);
+                // Title priority: frontmatter → first H1 → folder name.
+                let title = fm_title.or_else(|| body.lines()
+                    .find(|l| l.trim_start().starts_with("# "))
+                    .map(|l| l.trim_start().trim_start_matches("# ").trim().to_string()))
+                    .unwrap_or_else(|| folder_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "skill".into()));
+                // Area priority: --area flag → frontmatter → parent folder name (if grandparent is skills/).
+                let area_resolved = area.clone().or(fm_area).or_else(|| {
+                    let parent = folder_path.parent()?.file_name()?.to_string_lossy().to_string();
+                    if parent == "skills" { None } else { Some(parent) }
+                });
+                // Skip the YAML frontmatter block before picking summary.
+                let body_after_fm = strip_skill_frontmatter(&body);
+                let summary: String = body_after_fm.lines()
+                    .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+                    .next().unwrap_or("").to_string();
+                let source = format!("file:{}", skill_md.display());
+                let mut tags: Vec<String> = vec!["folder-skill".into()];
+                tags.extend(fm_tags);
+                let mut payload = serde_json::json!({
+                    "kind": "skill",
+                    "title": title,
+                    "body": body,
+                    "summary": summary,
+                    "source": source,
+                    "source_path": source,
+                    "tags": tags,
+                    "importance": importance,
+                    "skip_extract": true,
+                    "replace": true,
+                });
+                if let Some(a) = area_resolved {
+                    payload["area"] = serde_json::json!(a);
+                }
+                mem_post_request(&http, &format!("{}/api/mem/items", base), &payload)
+            }
+            MemSkillAction::List => {
+                match mem_get_request(&http, &format!("{}/api/mem/tail?limit=500", base)) {
+                    Ok(resp) => {
+                        if let Some(rows) = resp.get("rows").and_then(|v| v.as_array()) {
+                            let skills: Vec<&serde_json::Value> = rows.iter()
+                                .filter(|r| r.get("kind").and_then(|k| k.as_str()) == Some("skill"))
+                                .collect();
+                            Ok(serde_json::json!({"skills": skills}))
+                        } else {
+                            Ok(resp)
+                        }
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+        },
         MemAction::WakeUp { budget, l0_only, no_l0 } => {
             let mut url = format!("{}/api/mem/wake-up", base);
             let mut sep = '?';
