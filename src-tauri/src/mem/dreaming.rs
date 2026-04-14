@@ -449,44 +449,46 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
 
 pub const LIBRARIAN_CRON_NAME: &str = "mem-librarian-auto";
 
-const LIBRARIAN_TASK: &str = "codeterm mem sync && codeterm agent report \"librarian sync complete\"\n";
-
-pub fn ensure_librarian_cron(cron_store: &mut crate::cron::store::CronStore) -> Result<bool, String> {
-    if cron_store.list().iter().any(|j| j.name == LIBRARIAN_CRON_NAME) {
-        return Ok(false);
-    }
-
-    let mem_cfg = crate::config::memory_config();
-    let agent = if mem_cfg.dreaming_agent.is_empty() {
-        None
-    } else {
-        Some(mem_cfg.dreaming_agent.clone())
-    };
-
-    let _ = cron_store.create(crate::cron::store::CronCreateParams {
-        name: LIBRARIAN_CRON_NAME.into(),
-        workspace_id: String::new(),
-        schedule: "0 * * * *".into(),
-        task: LIBRARIAN_TASK.into(),
-        description: Some("File sync worker. Checks source-tracked memory items for changes on disk every hour. Re-indexes modified files, flags deleted ones.".into()),
-        agent,
-        model: None,
-        cwd: None,
-        role: None,
-        creator_pane_id: None,
-        enabled: Some(true),
-        max_history: Some(50),
-        oneshot: Some(false),
-        jitter_max_ms: Some(600_000),
-    })?;
-    if let Some(job) = cron_store.list().iter().find(|j| j.name == LIBRARIAN_CRON_NAME) {
-        let job_id = job.id.clone();
-        if let Some(j) = cron_store.get_mut(&job_id) {
-            j.protected = true;
+/// Removes the legacy LLM-based librarian cron if it still exists from older
+/// installs. The librarian is now a direct in-process loop (see `start_librarian_loop`),
+/// not an agent — kept as a migration step.
+pub fn remove_legacy_librarian_cron(cron_store: &mut crate::cron::store::CronStore) -> bool {
+    let existing = cron_store.list().iter().find(|j| j.name == LIBRARIAN_CRON_NAME).map(|j| j.id.clone());
+    if let Some(id) = existing {
+        if let Some(job) = cron_store.get_mut(&id) {
+            job.protected = false;
         }
+        let _ = cron_store.delete(&id);
         let _ = cron_store.save();
+        true
+    } else {
+        false
     }
-    Ok(true)
+}
+
+/// Librarian: scans every source-tracked mem_item once per hour, re-indexes
+/// files whose size or mtime changed. Pure Rust loop — no agent, no tokens.
+pub fn start_librarian_loop(mem: std::sync::Arc<crate::mem::MemManager>) {
+    std::thread::spawn(move || {
+        // Short initial wait so we don't hammer the FS on every boot.
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        loop {
+            match crate::mem::file_sync::sync_all(&mem) {
+                Ok(result) => {
+                    if result.re_indexed > 0 || result.source_missing > 0 || result.source_recovered > 0 {
+                        log::info!(
+                            "[librarian] scan: re_indexed={} missing={} recovered={}",
+                            result.re_indexed, result.source_missing, result.source_recovered
+                        );
+                    } else {
+                        log::debug!("[librarian] scan: no changes");
+                    }
+                }
+                Err(e) => log::warn!("[librarian] scan failed: {}", e),
+            }
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
+    });
 }
 
 #[cfg(test)]

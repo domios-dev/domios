@@ -114,7 +114,10 @@ fn has_tag(tags_json: &str, tag: &str) -> bool {
 }
 
 fn sync_one(mem: &Arc<MemManager>, item: &TrackedItem) -> Result<SyncAction, String> {
-    let path = Path::new(&item.source_path);
+    // Items saved via `source="file:/path/to/file"` store the prefix in
+    // source_path. Strip it so fs::metadata() gets a real filesystem path.
+    let raw_path = item.source_path.strip_prefix("file:").unwrap_or(&item.source_path);
+    let path = Path::new(raw_path);
     let has_missing_tag = has_tag(&item.tags_json, "source-missing");
 
     let meta = match std::fs::metadata(path) {

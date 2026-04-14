@@ -166,6 +166,9 @@ pub fn find_pending_items(
 ) -> Result<Vec<(String, String, String, MemKind)>, String> {
     use crate::mem::store::MemKind::*;
     svc.mem.with_conn(|conn| {
+        // "Pending" = eligible item with zero graph relations either direction.
+        // Any relation (uses/mentions/applies_to/extracted_from/…) means a worker
+        // has already run against it — we don't need to re-queue.
         let mut stmt = conn.prepare(
             r#"SELECT m.id, m.kind, m.title, COALESCE(m.body_inline, '')
                FROM mem_items m
@@ -173,7 +176,7 @@ pub fn find_pending_items(
                  AND m.tags_json NOT LIKE '%auto-extracted%'
                  AND NOT EXISTS (
                    SELECT 1 FROM relations r
-                   WHERE r.to_id = m.id AND r.relation_type = 'extracted_from'
+                   WHERE r.from_id = m.id OR r.to_id = m.id
                  )
                ORDER BY m.created_at DESC
                LIMIT ?1"#,
