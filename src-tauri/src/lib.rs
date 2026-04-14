@@ -585,10 +585,11 @@ fn start_servers(
             Ok(false) => log::debug!("[mem] dreaming cron already present"),
             Err(e) => log::warn!("[mem] failed to install dreaming cron: {}", e),
         }
-        match mem::dreaming::ensure_librarian_cron(&mut cs) {
-            Ok(true) => log::info!("[mem] auto-installed librarian cron"),
-            Ok(false) => log::debug!("[mem] librarian cron already present"),
-            Err(e) => log::warn!("[mem] failed to install librarian cron: {}", e),
+        // Librarian is now a direct in-process loop (see start_librarian_loop).
+        // Remove the legacy LLM-based cron from any older install so we don't
+        // keep burning tokens to wrap a single bash command.
+        if mem::dreaming::remove_legacy_librarian_cron(&mut cs) {
+            log::info!("[mem] removed legacy librarian cron (replaced by direct loop)");
         }
     }
 
@@ -1075,6 +1076,10 @@ pub fn run() {
 
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
+
+            // Librarian loop: scans source-tracked mem_items hourly, re-embeds
+            // changed files. Pure Rust — no agent, no tokens.
+            mem::dreaming::start_librarian_loop(mem.clone());
 
             // Auto-install Claude hooks (Notification, Stop, PreCompact).
             // PreCompact is critical for mem — it flushes pane scrollback
