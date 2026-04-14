@@ -23,11 +23,27 @@ use serde::{Deserialize, Serialize};
 use super::store::MemItem;
 
 const STOP_WORDS: &[&str] = &[
+    // English
     "what", "when", "where", "who", "how", "which", "did", "do", "does", "was", "were",
     "have", "has", "had", "is", "are", "the", "a", "an", "my", "me", "i", "you", "your",
     "their", "it", "its", "in", "on", "at", "to", "for", "of", "with", "by", "from",
     "ago", "last", "that", "this", "there", "about", "get", "got", "give", "gave",
-    "buy", "bought", "made", "make",
+    "buy", "bought", "made", "make", "can", "could", "would", "should", "will",
+    "am", "be", "been", "being", "or", "and", "but", "not", "no", "yes", "if",
+    "then", "else", "also", "just", "like", "so", "than", "some", "any", "all",
+    "they", "them", "we", "us", "our", "he", "she", "his", "her",
+    // Russian
+    "что", "как", "где", "когда", "кто", "какой", "какая", "какие", "какое",
+    "почему", "зачем", "куда", "откуда", "это", "этот", "эта", "эти", "тот",
+    "та", "те", "у", "в", "во", "на", "по", "за", "с", "со", "от", "до", "из",
+    "к", "о", "об", "про", "для", "при", "над", "под", "без", "через",
+    "я", "ты", "он", "она", "оно", "мы", "вы", "они", "меня", "тебя", "его",
+    "её", "нас", "вас", "их", "мой", "моя", "моё", "мои", "твой", "твоя",
+    "твоё", "твои", "наш", "наша", "наше", "наши", "ваш", "ваша", "ваше", "ваши",
+    "есть", "быть", "был", "была", "было", "были", "будет", "будут",
+    "и", "или", "но", "да", "нет", "не", "ни", "же", "ли", "бы", "ведь",
+    "уже", "ещё", "только", "также", "тоже", "очень", "так", "вот",
+    "делать", "делает", "сделать", "сделал",
 ];
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -37,6 +53,39 @@ pub struct SearchQuery {
     pub scope: Option<String>,
     pub area: Option<String>,
     pub limit: Option<usize>,
+}
+
+/// Tunable search ranking parameters. `Default::default()` reproduces the
+/// production values baked in today; tests/benches may override to A/B.
+#[derive(Debug, Clone)]
+pub struct SearchConfig {
+    /// RRF k constant. Smaller k → top ranks dominate more.
+    pub rrf_k: f64,
+    /// Multiplier applied to items tagged `auto-extracted`. <1.0 penalises.
+    pub auto_extracted_penalty: f64,
+    /// Max recurrence boost (e.g. 0.25 → up to +25% for items saved many times).
+    pub recurrence_cap: f64,
+    /// Per-recurrence increment (e.g. 0.05 → +5% per save).
+    pub recurrence_step: f64,
+    /// How strongly keyword_overlap reduces bm25 distance. Higher = FTS leans harder on exact matches.
+    pub keyword_overlap_weight: f64,
+    /// If true, drop stop-words from FTS query (tighter match). If false, current behaviour (all words joined with OR).
+    pub fts_drop_stopwords: bool,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            rrf_k: 60.0,
+            auto_extracted_penalty: 0.5,
+            recurrence_cap: 0.25,
+            recurrence_step: 0.05,
+            keyword_overlap_weight: 0.30,
+            // A/B proven: +10pp Recall@1 on 30-query bench (30 EN queries).
+            // RU stop words added too but not yet bench-validated on RU queries.
+            fts_drop_stopwords: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,10 +99,19 @@ pub fn run(
     q: &SearchQuery,
     blobs_dir: &Path,
 ) -> Result<Vec<SearchHit>, String> {
+    run_with_config(conn, q, blobs_dir, &SearchConfig::default())
+}
+
+pub fn run_with_config(
+    conn: &Connection,
+    q: &SearchQuery,
+    blobs_dir: &Path,
+    cfg: &SearchConfig,
+) -> Result<Vec<SearchHit>, String> {
     let limit = q.limit.unwrap_or(5).clamp(1, 50);
     let pool = limit * 5; // overfetch then re-rank with hybrid scoring
 
-    let fts_query = sanitize_fts_query(&q.query);
+    let fts_query = sanitize_fts_query(&q.query, cfg.fts_drop_stopwords);
     if fts_query.is_empty() {
         return Ok(Vec::new());
     }
@@ -100,17 +158,14 @@ pub fn run(
         };
         let overlap = keyword_overlap(&keywords, &item);
         let importance_boost = ((item.importance - 3.0) / 5.0).max(0.0) * 0.20;
-        // Recurrence boost: items seen 5+ times get up to 25% score reduction (better).
-        // Formula: min(recurrence_count * 0.05, 0.25)
-        let recurrence_boost = ((item.recurrence_count as f64) * 0.05).min(0.25);
+        let recurrence_boost = ((item.recurrence_count as f64) * cfg.recurrence_step).min(cfg.recurrence_cap);
         let temporal_boost = match &temporal {
             Some(days_ago) => temporal_boost_for(&item, *days_ago, now),
             None => 0.0,
         };
-        // Lower fused = better. bm25 is already negative-ish; we work with absolute.
         let abs_bm = bm25.abs();
         let fused =
-            abs_bm * (1.0 - 0.30 * overlap) * (1.0 - temporal_boost) * (1.0 - importance_boost) * (1.0 - recurrence_boost);
+            abs_bm * (1.0 - cfg.keyword_overlap_weight * overlap) * (1.0 - temporal_boost) * (1.0 - importance_boost) * (1.0 - recurrence_boost);
         hits.push(SearchHit { item, score: fused });
     }
 
@@ -119,13 +174,23 @@ pub fn run(
     Ok(hits)
 }
 
-fn sanitize_fts_query(q: &str) -> String {
+fn sanitize_fts_query(q: &str, drop_stopwords: bool) -> String {
     let cleaned: String = q
         .chars()
         .map(|c| if c.is_alphanumeric() || c.is_whitespace() { c } else { ' ' })
         .collect();
-    let words: Vec<&str> = cleaned.split_whitespace().filter(|w| w.len() >= 2).collect();
+    let stops: HashSet<&str> = STOP_WORDS.iter().copied().collect();
+    let words: Vec<String> = cleaned
+        .split_whitespace()
+        .filter(|w| w.len() >= 2)
+        .filter(|w| !drop_stopwords || !stops.contains(w.to_lowercase().as_str()))
+        .map(|w| w.to_string())
+        .collect();
     if words.is_empty() {
+        // If stop-word filter wiped everything, fall back to original behaviour
+        if drop_stopwords {
+            return sanitize_fts_query(q, false);
+        }
         String::new()
     } else {
         words.join(" OR ")
@@ -212,19 +277,26 @@ fn temporal_boost_for(
 }
 
 /// Reciprocal Rank Fusion: merge FTS5 + vector results into unified ranking.
-/// RRF score = Σ 1/(k + rank_i) where k=60 (standard constant).
+/// RRF score = Σ 1/(k + rank_i). Standard k=60; lower k makes top ranks dominate more.
 /// Higher RRF score = more relevant.
-const RRF_K: f64 = 60.0;
-
 pub fn hybrid_rrf(
     conn: &Connection,
     q: &SearchQuery,
     blobs_dir: &Path,
 ) -> Result<Vec<SearchHit>, String> {
+    hybrid_rrf_with_config(conn, q, blobs_dir, &SearchConfig::default())
+}
+
+pub fn hybrid_rrf_with_config(
+    conn: &Connection,
+    q: &SearchQuery,
+    blobs_dir: &Path,
+    cfg: &SearchConfig,
+) -> Result<Vec<SearchHit>, String> {
     let limit = q.limit.unwrap_or(5).clamp(1, 50);
 
     // 1. FTS5 candidates (may be empty on typos)
-    let fts_hits = run(conn, q, blobs_dir).unwrap_or_default();
+    let fts_hits = run_with_config(conn, q, blobs_dir, cfg).unwrap_or_default();
 
     // 2. Vector candidates
     #[cfg(feature = "embeddings")]
@@ -263,7 +335,7 @@ pub fn hybrid_rrf(
     let mut rrf_scores: HashMap<String, (f64, MemItem)> = HashMap::new();
 
     for (rank, hit) in fts_hits.iter().enumerate() {
-        let rrf = 1.0 / (RRF_K + rank as f64);
+        let rrf = 1.0 / (cfg.rrf_k + rank as f64);
         rrf_scores
             .entry(hit.item.id.clone())
             .and_modify(|(s, _)| *s += rrf)
@@ -271,22 +343,19 @@ pub fn hybrid_rrf(
     }
 
     for (rank, hit) in vec_hits.iter().enumerate() {
-        let rrf = 1.0 / (RRF_K + rank as f64);
+        let rrf = 1.0 / (cfg.rrf_k + rank as f64);
         rrf_scores
             .entry(hit.item.id.clone())
             .and_modify(|(s, _)| *s += rrf)
             .or_insert((rrf, hit.item.clone()));
     }
 
-    // Higher RRF = better. Apply adjustments:
-    //  - auto-extracted penalty (×0.5): originals outrank derivatives.
-    //  - recurrence boost (×(1 + min(count*0.05, 0.25))): recurring topics rank higher.
     let mut merged: Vec<SearchHit> = rrf_scores
         .into_values()
         .map(|(rrf, item)| {
             let is_auto = item.tags.iter().any(|t| t == "auto-extracted");
-            let auto_mul = if is_auto { 0.5 } else { 1.0 };
-            let rec_mul = 1.0 + ((item.recurrence_count as f64) * 0.05).min(0.25);
+            let auto_mul = if is_auto { cfg.auto_extracted_penalty } else { 1.0 };
+            let rec_mul = 1.0 + ((item.recurrence_count as f64) * cfg.recurrence_step).min(cfg.recurrence_cap);
             let adjusted = rrf * auto_mul * rec_mul;
             SearchHit { item, score: -adjusted }
         })

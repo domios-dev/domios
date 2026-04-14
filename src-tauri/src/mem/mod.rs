@@ -332,6 +332,16 @@ impl MemManager {
         search::hybrid_rrf(&conn, q, &self.blobs_dir)
     }
 
+    /// A/B-testable hybrid recall with custom ranking config.
+    pub fn recall_with_config(
+        &self,
+        q: &SearchQuery,
+        cfg: &search::SearchConfig,
+    ) -> Result<Vec<SearchHit>, String> {
+        let conn = self.conn.lock();
+        search::hybrid_rrf_with_config(&conn, q, &self.blobs_dir, cfg)
+    }
+
     pub fn vector_recall(&self, query: &str, k: usize) -> Result<Vec<(String, f64)>, String> {
         let conn = self.conn.lock();
         embeddings::recall(&conn, query, k)
