@@ -367,14 +367,6 @@ pub enum MemAction {
         #[arg(long)]
         skip_extract: bool,
     },
-    /// Semantic-first search (vectors when enabled, FTS fallback)
-    Recall {
-        query: String,
-        #[arg(long)]
-        kind: Option<String>,
-        #[arg(long, default_value = "5")]
-        limit: usize,
-    },
     /// Print L0+L1 wake-up context (GA init injection)
     WakeUp {
         /// Total token budget (split L0 + L1)
@@ -2388,15 +2380,6 @@ fn handle_mem(json_mode: bool, action: MemAction) {
             if let Some(a) = &area { url.push_str(&format!("&area={}", a)); }
             if let Some(s) = &scope { url.push_str(&format!("&scope={}", s)); }
             if rerank { url.push_str("&rerank=true"); }
-            mem_get_request(&http, &url)
-        }
-        MemAction::Recall { query, kind, limit } => {
-            // Recall hits the dedicated endpoint that uses sqlite-vec when
-            // the embeddings feature is compiled in, otherwise falls back to
-            // FTS5 hybrid search transparently.
-            let mut url = format!("{}/api/mem/recall?q={}&limit={}",
-                base, urlencoding::encode(&query), limit);
-            if let Some(k) = &kind { url.push_str(&format!("&kind={}", k)); }
             mem_get_request(&http, &url)
         }
         MemAction::Get { id } => {

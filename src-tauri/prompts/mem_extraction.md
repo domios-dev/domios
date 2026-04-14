@@ -29,8 +29,8 @@ DEDUP THRESHOLD: {dedup_threshold}
 TASK — execute each step as Bash tool calls, in order:
 
 1. DEDUP SEARCH
-   Search for similar items using vector recall (semantic similarity):
-     codeterm mem recall "{title}" --limit 5
+   Search for similar items using hybrid search (FTS + vector embeddings):
+     codeterm mem search "{title}" --limit 5
    For each result with distance < {dedup_threshold}:
    a. Read the full body: `codeterm mem get <id>`
    b. Compare with SOURCE TEXT above

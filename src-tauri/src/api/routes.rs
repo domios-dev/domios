@@ -138,7 +138,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/check-duplicate", post(super::mem_routes::mem_check_duplicate))
         .route("/api/mem/dream", post(super::mem_routes::mem_dream))
         .route("/api/mem/dream/report", get(super::mem_routes::mem_dream_report))
-        .route("/api/mem/recall", get(super::mem_routes::mem_recall))
         .route("/api/mem/graph/full", get(super::mem_routes::mem_graph_full))
         .route("/api/mem/positions", axum::routing::patch(super::mem_routes::mem_positions))
         .route("/api/mem/activity/recent", get(super::mem_routes::mem_activity_recent))
