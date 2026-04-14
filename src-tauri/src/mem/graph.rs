@@ -129,7 +129,8 @@ pub fn timeline(
     Ok(out)
 }
 
-/// Outgoing relations from `id`. Optional type filter and as-of date.
+/// Relations connected to `id` (both incoming and outgoing).
+/// Optional type filter and as-of date.
 pub fn related(
     conn: &Connection,
     id: &str,
@@ -139,7 +140,7 @@ pub fn related(
     let mut sql = String::from(
         r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to,
                   confidence, properties_json
-           FROM relations WHERE from_id = ?1"#,
+           FROM relations WHERE (from_id = ?1 OR to_id = ?1)"#,
     );
     let mut binds: Vec<String> = vec![id.to_string()];
     if let Some(t) = rel_type {
@@ -485,6 +486,35 @@ mod tests {
         // No date filter: should see both
         let r = related(&conn, "person_kai", None, None).unwrap();
         assert_eq!(r.len(), 2);
+    }
+
+    #[test]
+    fn related_is_bidirectional() {
+        let conn = fresh();
+        insert_relation(
+            &conn,
+            &Relation {
+                from_id: "note_a".into(),
+                relation_type: "mentions".into(),
+                to_id: "person_alex".into(),
+                scope: "global".into(),
+                valid_from: "2026-01-01T00:00:00Z".into(),
+                valid_to: None,
+                confidence: 1.0,
+                properties: serde_json::json!({}),
+            },
+        )
+        .unwrap();
+
+        // Query target entity — should find the incoming relation
+        let r = related(&conn, "person_alex", None, None).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].from_id, "note_a");
+        assert_eq!(r[0].to_id, "person_alex");
+
+        // Query source — should also find it
+        let r = related(&conn, "note_a", None, None).unwrap();
+        assert_eq!(r.len(), 1);
     }
 
     #[test]
