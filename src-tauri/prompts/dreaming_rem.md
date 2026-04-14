@@ -11,9 +11,8 @@ CRITICAL RULES:
 
 You have full access to the memory store via CLI:
 
-  codeterm mem search "<query>" --limit N     # FTS search
+  codeterm mem search "<query>" --limit N     # hybrid FTS + vector embeddings (RRF-fused)
   codeterm mem search "" --kind <kind> --limit N  # browse by kind
-  codeterm mem recall "<query>" --limit N     # semantic/vector search
   codeterm mem get <id>                       # read full item body
   codeterm mem update <id> --area/--body/--importance/--tags ...
   codeterm mem delete <id>
@@ -33,9 +32,9 @@ Work through these in whatever order makes sense. Skip goals that have nothing t
 Find items without an area. Read their bodies. Assign the best-fit area.
 
 ### 2. Deduplicate
-Find items with similar titles or overlapping content. Use both FTS and vector search:
+Find items with similar titles or overlapping content. `mem search` runs FTS + embeddings together — try both keyword and full title:
   codeterm mem search "<keywords from suspicious title>"
-  codeterm mem recall "<title>" --limit 5
+  codeterm mem search "<full title>" --limit 5
 Read both bodies. If genuinely duplicate → merge into the more complete one, delete the other. If different angles on the same topic → keep both but link them.
 
 ### 3. Promote or archive learnings

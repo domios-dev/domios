@@ -12,6 +12,7 @@ codeterm-workspace/
 tests/e2e/__pycache__/
 tests/e2e/testdata_*.json
 src-tauri/bundled-cli/
+src-tauri/bundled-embed/
 *.local.sh
 .env
 NUL

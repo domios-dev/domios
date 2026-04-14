@@ -2,11 +2,12 @@
 
 ## Memory Protocol — follow these rules at all times
 
+0. **ALWAYS USE ENGLISH FOR MEM.** Titles, bodies, summaries, search queries — all English, regardless of what language the user is speaking. The vector embedder is English-dominant; cross-lingual retrieval fails. Translate before `mem save` / `mem search`; talk to the user in whatever language they prefer.
 1. **BEFORE RESPONDING** about any person, project, or past event — `codeterm mem search` FIRST. Never guess from vague memory. Wrong is worse than slow.
 2. **IF UNSURE** about a fact (name, date, decision, config) — say "let me check" and search. Don't fabricate.
 3. **FOR IDENTITY QUESTIONS** (who am I, who is the user, what's my name, what's this machine) — use `codeterm mem wake-up`. It returns L0 identity + L1 critical facts. Never guess mem_item ids like `preference_identity` — they follow slug rules and rarely match what you expect.
 4. **NEVER GUESS IDS** — if you don't see an id from search results, don't try `codeterm mem get <guessed_id>`. Always search first, then `get` a real id.
-5. **WHEN THE USER SAYS "remember"** — save immediately via `codeterm mem save`. A background worker handles area classification, entity extraction, graph linking, and dedup. You don't need to worry about schema.
+5. **WHEN THE USER SAYS "remember"** — save immediately via `codeterm mem save`, in English. A background worker handles area classification, entity extraction, graph linking, and dedup. You don't need to worry about schema.
 6. **WHEN FACTS CHANGE** — save the new fact. Old version stays in history. If explicitly outdated, `codeterm mem delete` the old one.
 7. **WHEN A SESSION ENDS** (context compaction) — the PreCompact hook auto-flushes conversation to mem. You don't need to manually save session summaries.
 8. **NEVER add the current date to the body.** The `created_at` and `updated_at` columns are tracked automatically — duplicating them in the body pollutes vector search.
@@ -36,9 +37,8 @@ cat /path/to/doc.md | codeterm mem save --kind document \
 
 ## Commands
 
-- `codeterm mem search "<query>"` — full-text search across every kind of item. Returns ranked results with id, kind, title, short summary. Default limit 5.
+- `codeterm mem search "<query>"` — hybrid search: runs FTS5 (keyword/BM25) and vector embeddings in parallel, fuses ranks via RRF. The query string is automatically embedded — one command does both keyword and semantic search. Default limit 5.
 - `codeterm mem get <id>` — print the full body of one item.
-- `codeterm mem recall "<query>"` — semantic-first search (vectors when enabled, FTS5 fallback). Use when exact words might not match.
 - `codeterm mem save --kind <kind> --title "<short title>" "<detailed content>"` — capture something new.
 - `codeterm mem update <id> --area "..." --body "..."` — update an existing item.
 - `codeterm mem delete <id>` — remove a specific item (also cleans vectors and relations).
@@ -79,11 +79,15 @@ Add `--limit <n>` to change the result count.
 
 Graph entities are auto-created by the extraction worker. Entity types: Person, Project, Tech, Machine. Relations are free-form verb-based predicates (works_on, uses, shipped, runs_on, etc).
 
-## Escalation order when a search misses
+## Search strategy when results miss
 
-1. **Try literal keywords first** — `codeterm mem search "home automation"`.
-2. **If no clear winner, broaden semantically** — `codeterm mem recall "what can I use to control lights"`.
+`codeterm mem search` combines FTS5 + vector embeddings in one call. To get better results when the first try misses:
+
+1. **Try short keyword first** — `codeterm mem search "home automation"`. Best when you know the exact term.
+2. **Reformulate as natural phrase** — `codeterm mem search "what can I use to control lights at home"`. Embedding catches semantic intent when keywords don't match.
 3. **Follow graph relationships** — `codeterm mem graph related --id skill_home_assistant`.
+
+Don't give up after one query. If the first call returns nothing useful, restate with different terms — the system has both keyword and semantic indexes; either may catch on the second try.
 
 Do NOT load every skill upfront. Fetch specific bodies only after a search identifies what's relevant.
 

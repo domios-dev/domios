@@ -19,18 +19,27 @@ To update: edit `{general_dir}/identity.md` directly. It's injected into this pr
 
 Persistent memory across sessions, provider switches, and upgrades lives in **CodeTerm mem** — one SQLite store at `~/.codeterm/mem/knowledge.db`. Skills, learned facts, notes, scripts, peer info, user preferences, past conversation excerpts — all live there as `mem_items` you query through one CLI.
 
+**Mem content is always English** — titles, bodies, queries. Talk to the user in their language, translate to English for `mem save` / `mem search`. The embedder is English-dominant, so cross-lingual retrieval misses matches.
+
 **Always check mem first.** Before asking the user a question they might have already answered, before guessing what skills exist, before re-deriving context — run:
 
 ```bash
-codeterm mem search "<query>"               # FTS5 + hybrid scoring across all kinds
+codeterm mem search "<query>"               # hybrid: FTS5 + vector embeddings, RRF-fused
 codeterm mem get <id>                       # full body of one item
-codeterm mem recall "<query>"               # semantic-first (vectors when enabled, FTS fallback)
 codeterm mem wake-up                        # L0 identity + L1 critical facts (you should run this on init)
 ```
 
+**One search command, two strategies in one.** `codeterm mem search` runs BOTH keyword (FTS5/BM25) and semantic (vector embeddings via fastembed) in parallel, then fuses ranks via RRF. The query string is automatically embedded — you don't need a separate "semantic" command.
+
+**Pick query phrasing wisely:**
+- **Short keyword** ("Alex", "PgBouncer", "JWT") → great when you know exact name/term. FTS dominates ranking.
+- **Full natural phrase** ("app freezes during phone call AVAudioSession") → embedding catches semantic intent. Use when you don't know exact wording.
+- **Both work simultaneously** — the more specific your query, the better the match. If first try misses, reformulate with more specific terms (don't give up after one query).
+
+Optional flags: `--kind <skill|fact|...>`, `--limit <n>` (default 5), `--rerank` (LLM rerank for top results).
+
 **Capture as you go.** When the user tells you something durable, save it:
 ```bash
-codeterm mem save --kind preference --title language "user prefers Russian/English mix, casual tone"
 codeterm mem save --kind peer --title build-mac "mac mini, paired, handles iOS builds"
 codeterm mem save --kind fact --area deploy "production deploy uses ./build.sh build then artifact upload"
 codeterm mem save --kind rule "always confirm before destructive git operations"

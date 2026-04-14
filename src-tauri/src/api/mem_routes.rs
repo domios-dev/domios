@@ -560,32 +560,6 @@ pub async fn mem_flush(
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
-#[derive(Deserialize)]
-pub struct RecallParams {
-    pub q: String,
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub limit: Option<usize>,
-}
-
-pub async fn mem_recall(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Query(p): Query<RecallParams>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let q = SearchQuery {
-        query: p.q,
-        kind: p.kind,
-        scope: None,
-        area: None,
-        limit: p.limit,
-    };
-    let hits = state.svc.mem.recall(&q).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({ "hits": hits })))
-}
-
 pub async fn mem_dream(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
