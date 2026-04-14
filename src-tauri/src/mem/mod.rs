@@ -364,6 +364,13 @@ impl MemManager {
         search::hybrid_rrf(&conn, q, &self.blobs_dir)
     }
 
+    /// Run a read-only SQL closure against the underlying connection.
+    /// Used by sibling modules that need direct query access.
+    pub fn with_conn<R>(&self, f: impl FnOnce(&rusqlite::Connection) -> R) -> R {
+        let conn = self.conn.lock();
+        f(&*conn)
+    }
+
     /// A/B-testable hybrid recall with custom ranking config.
     pub fn recall_with_config(
         &self,
