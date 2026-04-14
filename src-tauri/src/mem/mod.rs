@@ -143,14 +143,19 @@ impl MemManager {
 
 #[cfg(feature = "embeddings")]
 fn query_missing_vectors(conn: &rusqlite::Connection) -> Vec<(String, String)> {
-    let sql = r#"SELECT m.id, COALESCE(m.body_inline, '')
+    // Returns (id, embed_text) where embed_text = title + "\n\n" + body.
+    // Keeps title in the vector index so title-only matches don't rely on FTS alone.
+    let sql = r#"SELECT m.id, m.title, COALESCE(m.body_inline, '')
                  FROM mem_items m
                  LEFT JOIN mem_vectors v ON v.mem_id = m.id
                  WHERE v.mem_id IS NULL AND m.body_inline IS NOT NULL AND LENGTH(m.body_inline) > 10"#;
     let mut out = Vec::new();
     if let Ok(mut stmt) = conn.prepare(sql) {
         if let Ok(rows) = stmt.query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            let id: String = r.get(0)?;
+            let title: String = r.get(1)?;
+            let body: String = r.get(2)?;
+            Ok((id, format!("{}\n\n{}", title, body)))
         }) {
             for row in rows.flatten() {
                 out.push(row);
@@ -183,17 +188,20 @@ impl MemManager {
                 return;
             }
             log::info!("[mem] reindex catch-up: DIRECT index for {} item(s)", missing.len());
-            for (id, body) in missing {
-                let actual_body = if body.is_empty() {
-                    let blob_path: Option<String> = conn
+            for (id, embed_text) in missing {
+                // embed_text already has title prefixed (from query_missing_vectors).
+                // If body was empty (blob storage), re-read blob and re-prefix title.
+                let actual_text = if embed_text.trim_end().ends_with("\n\n") {
+                    let row: Option<(String, Option<String>)> = conn
                         .query_row(
-                            "SELECT body_blob_path FROM mem_items WHERE id = ?1",
-                            rusqlite::params![&id], |r| r.get(0),
-                        ).ok().flatten();
-                    let Some(rel) = blob_path else { continue };
-                    std::fs::read_to_string(blobs_dir.join(rel)).unwrap_or_default()
-                } else { body };
-                match embeddings::index(&conn, &id, &actual_body) {
+                            "SELECT title, body_blob_path FROM mem_items WHERE id = ?1",
+                            rusqlite::params![&id], |r| Ok((r.get(0)?, r.get(1)?)),
+                        ).ok();
+                    let Some((title, Some(rel))) = row else { continue };
+                    let body = std::fs::read_to_string(blobs_dir.join(rel)).unwrap_or_default();
+                    format!("{}\n\n{}", title, body)
+                } else { embed_text };
+                match embeddings::index(&conn, &id, &actual_text) {
                     Ok(()) => log::info!("[mem] reindex direct: indexed {}", id),
                     Err(e) => log::warn!("[mem] reindex direct {}: {}", id, e),
                 }
@@ -400,7 +408,7 @@ impl MemManager {
 
         #[cfg(feature = "embeddings")]
         {
-            let embed_text = if let Some(ref src) = item.source {
+            let body_text = if let Some(ref src) = item.source {
                 if let Some(path) = src.strip_prefix("file:") {
                     std::fs::read_to_string(path).unwrap_or_else(|_| item.body.clone())
                 } else {
@@ -409,6 +417,10 @@ impl MemManager {
             } else {
                 item.body.clone()
             };
+            // Prefix title so the embedding captures it too — otherwise only
+            // body participates in the vector index and title-only matches
+            // rely on FTS alone.
+            let embed_text = format!("{}\n\n{}", item.title, body_text);
             self.embed_queue.enqueue(id.clone(), embed_text);
         }
         if matches!(
@@ -491,16 +503,20 @@ impl MemManager {
     }
 
     pub fn update(&self, id: &str, patch: store::MemUpdate) -> Result<bool, String> {
-        let body_changed = patch.body.is_some();
-        let new_body_for_index = patch.body.clone();
+        let body_changed = patch.body.is_some() || patch.title.is_some();
         let updated = {
             let conn = self.conn.lock();
             store::update(&conn, id, &patch, &self.blobs_dir)?
         };
         if updated && body_changed {
             #[cfg(feature = "embeddings")]
-            if let Some(body) = new_body_for_index {
-                self.embed_queue.enqueue(id.to_string(), body);
+            {
+                let conn = self.conn.lock();
+                if let Ok(Some(item)) = store::get(&conn, id, &self.blobs_dir) {
+                    let embed_text = format!("{}\n\n{}", item.title, item.body);
+                    drop(conn);
+                    self.embed_queue.enqueue(id.to_string(), embed_text);
+                }
             }
         }
         Ok(updated)
