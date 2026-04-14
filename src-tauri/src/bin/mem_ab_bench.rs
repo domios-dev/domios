@@ -163,6 +163,12 @@ fn main() {
             ..Default::default()
         }),
         ("F: stronger keyword overlap (0.5)", SearchConfig { keyword_overlap_weight: 0.5, ..Default::default() }),
+        ("G: title match bonus 0.2", SearchConfig { title_match_bonus: 0.2, ..Default::default() }),
+        ("H: title match bonus 0.4", SearchConfig { title_match_bonus: 0.4, ..Default::default() }),
+        ("I: title match bonus 0.6", SearchConfig { title_match_bonus: 0.6, ..Default::default() }),
+        ("I2: title match bonus 0.8", SearchConfig { title_match_bonus: 0.8, ..Default::default() }),
+        ("I3: title match bonus 1.0", SearchConfig { title_match_bonus: 1.0, ..Default::default() }),
+        ("J: k=20 + title bonus 0.6", SearchConfig { rrf_k: 20.0, title_match_bonus: 0.6, ..Default::default() }),
     ];
 
     for (name, cfg) in &variants {

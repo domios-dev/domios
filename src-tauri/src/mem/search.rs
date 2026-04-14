@@ -71,6 +71,9 @@ pub struct SearchConfig {
     pub keyword_overlap_weight: f64,
     /// If true, drop stop-words from FTS query (tighter match). If false, current behaviour (all words joined with OR).
     pub fts_drop_stopwords: bool,
+    /// Score reduction applied when any non-stop query keyword appears in the item's title.
+    /// 0.0 = no bonus, 0.4 = 40% distance reduction (stronger than general keyword_overlap).
+    pub title_match_bonus: f64,
 }
 
 impl Default for SearchConfig {
@@ -80,10 +83,15 @@ impl Default for SearchConfig {
             auto_extracted_penalty: 0.5,
             recurrence_cap: 0.25,
             recurrence_step: 0.05,
-            keyword_overlap_weight: 0.30,
+            // A/B: 0.5 gave +3.3pp Recall@1 over 0.30 after the embed format
+            // was extended to carry kind/area/tags alongside title+body.
+            keyword_overlap_weight: 0.5,
             // A/B proven: +10pp Recall@1 on 30-query bench (30 EN queries).
             // RU stop words added too but not yet bench-validated on RU queries.
             fts_drop_stopwords: true,
+            // A/B: 0.6 combined with keyword_overlap=0.5 hits 60% Recall@1.
+            // 1.0 pushes to 83% but collapses BM25 tie-breaking; keep 0.6 safe.
+            title_match_bonus: 0.6,
         }
     }
 }
@@ -163,9 +171,14 @@ pub fn run_with_config(
             Some(days_ago) => temporal_boost_for(&item, *days_ago, now),
             None => 0.0,
         };
+        let title_boost = if cfg.title_match_bonus > 0.0 && title_has_keyword(&keywords, &item.title) {
+            cfg.title_match_bonus
+        } else {
+            0.0
+        };
         let abs_bm = bm25.abs();
         let fused =
-            abs_bm * (1.0 - cfg.keyword_overlap_weight * overlap) * (1.0 - temporal_boost) * (1.0 - importance_boost) * (1.0 - recurrence_boost);
+            abs_bm * (1.0 - cfg.keyword_overlap_weight * overlap) * (1.0 - temporal_boost) * (1.0 - importance_boost) * (1.0 - recurrence_boost) * (1.0 - title_boost);
         hits.push(SearchHit { item, score: fused });
     }
 
@@ -204,6 +217,14 @@ fn extract_keywords(q: &str) -> HashSet<String> {
         .map(|w| w.to_lowercase())
         .filter(|w| !stops.contains(w.as_str()))
         .collect()
+}
+
+fn title_has_keyword(keywords: &HashSet<String>, title: &str) -> bool {
+    if keywords.is_empty() {
+        return false;
+    }
+    let lc = title.to_lowercase();
+    keywords.iter().any(|k| lc.contains(k))
 }
 
 fn keyword_overlap(keywords: &HashSet<String>, item: &MemItem) -> f64 {
