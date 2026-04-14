@@ -142,10 +142,30 @@ impl MemManager {
 }
 
 #[cfg(feature = "embeddings")]
+/// Build the embedding input text for an item.
+/// Format: "kind: title [area] #tag1 #tag2\n\nbody" — compact header so
+/// the embedder captures title/kind/area/tags alongside body content.
+pub fn compose_embed_text(
+    kind: &str,
+    title: &str,
+    area: Option<&str>,
+    tags: &[String],
+    body: &str,
+) -> String {
+    let mut header = format!("{}: {}", kind, title);
+    if let Some(a) = area {
+        if !a.is_empty() {
+            header.push_str(&format!(" [{}]", a));
+        }
+    }
+    for tag in tags.iter().filter(|t| !t.is_empty()) {
+        header.push_str(&format!(" #{}", tag));
+    }
+    format!("{}\n\n{}", header, body)
+}
+
 fn query_missing_vectors(conn: &rusqlite::Connection) -> Vec<(String, String)> {
-    // Returns (id, embed_text) where embed_text = title + "\n\n" + body.
-    // Keeps title in the vector index so title-only matches don't rely on FTS alone.
-    let sql = r#"SELECT m.id, m.title, COALESCE(m.body_inline, '')
+    let sql = r#"SELECT m.id, m.kind, m.title, m.area, m.tags_json, COALESCE(m.body_inline, '')
                  FROM mem_items m
                  LEFT JOIN mem_vectors v ON v.mem_id = m.id
                  WHERE v.mem_id IS NULL AND m.body_inline IS NOT NULL AND LENGTH(m.body_inline) > 10"#;
@@ -153,9 +173,13 @@ fn query_missing_vectors(conn: &rusqlite::Connection) -> Vec<(String, String)> {
     if let Ok(mut stmt) = conn.prepare(sql) {
         if let Ok(rows) = stmt.query_map([], |r| {
             let id: String = r.get(0)?;
-            let title: String = r.get(1)?;
-            let body: String = r.get(2)?;
-            Ok((id, format!("{}\n\n{}", title, body)))
+            let kind: String = r.get(1)?;
+            let title: String = r.get(2)?;
+            let area: Option<String> = r.get(3)?;
+            let tags_json: String = r.get(4)?;
+            let body: String = r.get(5)?;
+            let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+            Ok((id, compose_embed_text(&kind, &title, area.as_deref(), &tags, &body)))
         }) {
             for row in rows.flatten() {
                 out.push(row);
@@ -417,10 +441,13 @@ impl MemManager {
             } else {
                 item.body.clone()
             };
-            // Prefix title so the embedding captures it too — otherwise only
-            // body participates in the vector index and title-only matches
-            // rely on FTS alone.
-            let embed_text = format!("{}\n\n{}", item.title, body_text);
+            let embed_text = compose_embed_text(
+                &format!("{:?}", item.kind).to_lowercase(),
+                &item.title,
+                item.area.as_deref(),
+                &item.tags,
+                &body_text,
+            );
             self.embed_queue.enqueue(id.clone(), embed_text);
         }
         if matches!(
@@ -513,7 +540,13 @@ impl MemManager {
             {
                 let conn = self.conn.lock();
                 if let Ok(Some(item)) = store::get(&conn, id, &self.blobs_dir) {
-                    let embed_text = format!("{}\n\n{}", item.title, item.body);
+                    let embed_text = compose_embed_text(
+                        &format!("{:?}", item.kind).to_lowercase(),
+                        &item.title,
+                        item.area.as_deref(),
+                        &item.tags,
+                        &item.body,
+                    );
                     drop(conn);
                     self.embed_queue.enqueue(id.to_string(), embed_text);
                 }
