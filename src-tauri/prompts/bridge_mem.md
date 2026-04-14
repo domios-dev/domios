@@ -45,7 +45,65 @@ cat /path/to/doc.md | codeterm mem save --kind document \
 - `codeterm mem forget <area>` — batch delete everything in an area.
 - `codeterm mem sync` — trigger file sync for all source-tracked items.
 - `codeterm mem wake-up` — prints L0+L1 context (identity + top-N important items).
+- `codeterm mem skill add <folder>` — register a skill folder. Folder must contain `SKILL.md`; everything else (scripts, examples) lives alongside. Mem indexes `SKILL.md`; Librarian re-vectorizes on file change. Optional `--area` flag, optional YAML frontmatter (`title:` `area:` `tags:`).
+- `codeterm mem skill list` — list all registered skill folders.
+- `codeterm mem extract-pending [--limit N]` — re-queue extraction workers for items that haven't been processed (after API quota or interrupted runs).
 - `codeterm mem worker spawn --intent "<name>" --task "<prompt>"` — spawn a headless graph worker for custom enrichment tasks (entity extraction, relation building, dedup). Worker runs in the Memory Panel's Workers section. Use when the user asks to "enrich", "process", or "analyze" a memory item more deeply than auto-extraction did.
+
+### Adding a new skill (the folder workflow)
+
+A skill is a **folder**, not a single file. `SKILL.md` is the index — it gets indexed in mem and shows up in search results. The folder may also contain executable scripts, example payloads, snippets, or anything else needed to actually do the thing the skill describes.
+
+```
+<skills-dir>/deploy-to-staging/
+  SKILL.md           ← what gets indexed (markdown, vectorized)
+  scripts/
+    deploy.sh        ← real bash, callable from SKILL.md steps
+    rollback.sh
+  examples/
+    sample-payload.json
+```
+
+Inside `SKILL.md` reference scripts by relative path (`./scripts/deploy.sh`). When the user invokes the skill, `cat SKILL.md` to recall the procedure, then `bash scripts/deploy.sh <args>` to execute.
+
+**Always create new skills via `codeterm mem skill new <slug>`** — it picks the right `<skills-dir>` for the current instance (dev vs prod), scaffolds SKILL.md with frontmatter + sections, and registers in mem immediately. Don't hardcode `~/.codeterm/skills/...` because dev uses `~/.codeterm-dev/skills/`.
+
+```bash
+codeterm mem skill new deploy-to-staging --area infra
+# CLI prints the folder path. Now flesh out SKILL.md and add scripts:
+cat > <printed-folder>/SKILL.md <<'EOF'
+---
+title: Deploy to staging
+area: infra
+tags: [deploy, staging]
+---
+
+# Deploy to staging
+
+One-paragraph summary.
+
+## When to use
+…
+
+## Steps
+1. `bash scripts/deploy.sh`
+2. Verify with `curl …`
+
+## Gotchas
+…
+EOF
+
+cat > <printed-folder>/scripts/deploy.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "deploying…"
+EOF
+chmod +x <printed-folder>/scripts/*.sh
+```
+
+`codeterm mem skill add <folder>` is only for IMPORTING an existing folder (cloned repo, copied from another machine).
+
+When you find a skill via search, the body has `SKILL.md` content. To see the full folder contents and execute scripts: `ls $(dirname <source_path>)` then run files directly. Editing any file → Librarian's hourly scan re-indexes; `codeterm mem sync` triggers immediately.
 
 ## What to save as what
 

@@ -466,13 +466,13 @@ pub fn remove_legacy_librarian_cron(cron_store: &mut crate::cron::store::CronSto
     }
 }
 
-/// Librarian: scans every source-tracked mem_item once per hour, re-indexes
-/// files whose size or mtime changed. Pure Rust loop — no agent, no tokens.
+/// Librarian: scans source-tracked mem_items + auto-discovers new skill
+/// folders once per hour. Pure Rust loop — no agent, no tokens.
 pub fn start_librarian_loop(mem: std::sync::Arc<crate::mem::MemManager>) {
     std::thread::spawn(move || {
-        // Short initial wait so we don't hammer the FS on every boot.
         std::thread::sleep(std::time::Duration::from_secs(30));
         loop {
+            scan_skill_folders(&mem);
             match crate::mem::file_sync::sync_all(&mem) {
                 Ok(result) => {
                     if result.re_indexed > 0 || result.source_missing > 0 || result.source_recovered > 0 {
@@ -489,6 +489,77 @@ pub fn start_librarian_loop(mem: std::sync::Arc<crate::mem::MemManager>) {
             std::thread::sleep(std::time::Duration::from_secs(3600));
         }
     });
+}
+
+/// Find skill folders under ~/.codeterm/skills/ that have a SKILL.md but no
+/// matching mem_item with that source_path, and register them automatically.
+fn scan_skill_folders(mem: &std::sync::Arc<crate::mem::MemManager>) {
+    let skills_root = crate::paths::data_dir().join("skills");
+    if !skills_root.is_dir() { return }
+
+    let known_paths: std::collections::HashSet<String> = mem.with_conn(|conn| {
+        let mut out = std::collections::HashSet::new();
+        if let Ok(mut stmt) = conn.prepare("SELECT source_path FROM mem_items WHERE source_path LIKE 'file:%SKILL.md'") {
+            if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
+                for row in rows.flatten() { out.insert(row); }
+            }
+        }
+        out
+    });
+
+    let entries = match std::fs::read_dir(&skills_root) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let folder = entry.path();
+        if !folder.is_dir() { continue; }
+        let skill_md = folder.join("SKILL.md");
+        if !skill_md.is_file() { continue; }
+        let source = format!("file:{}", skill_md.display());
+        if known_paths.contains(&source) { continue; }
+
+        let body = match std::fs::read_to_string(&skill_md) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let title = title_from_skill_md(&body)
+            .unwrap_or_else(|| folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "skill".into()));
+        let area = area_from_skill_md(&body);
+
+        let item = crate::mem::store::NewMemItem {
+            kind: crate::mem::store::MemKind::Skill,
+            scope: crate::mem::store::MemScope::Global,
+            title,
+            summary: None,
+            area,
+            tags: vec!["folder-skill".into(), "auto-registered".into()],
+            body,
+            source: Some(source.clone()),
+            importance: 4.0,
+            source_path: Some(source.clone()),
+        };
+        match mem.save(item) {
+            Ok(id) => log::info!("[librarian] auto-registered skill: {} ({})", id, source),
+            Err(e) => log::warn!("[librarian] auto-register failed for {}: {}", source, e),
+        }
+    }
+}
+
+fn title_from_skill_md(body: &str) -> Option<String> {
+    if let Some(line) = body.lines().take(20).find(|l| l.trim_start().starts_with("title:")) {
+        let v = line.trim_start().trim_start_matches("title:").trim().trim_matches('"').to_string();
+        if !v.is_empty() { return Some(v); }
+    }
+    body.lines().find(|l| l.trim_start().starts_with("# "))
+        .map(|l| l.trim_start().trim_start_matches("# ").trim().to_string())
+}
+
+fn area_from_skill_md(body: &str) -> Option<String> {
+    body.lines().take(20)
+        .find(|l| l.trim_start().starts_with("area:"))
+        .map(|l| l.trim_start().trim_start_matches("area:").trim().trim_matches('"').to_string())
+        .filter(|s| !s.is_empty())
 }
 
 #[cfg(test)]

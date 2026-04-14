@@ -56,7 +56,16 @@ fn load_cases() -> Vec<TestCase> {
         {"id":"R02","cat":"rule","q":"AWS credentials policy","expect":["aws","key","commit","secret"]},
         {"id":"M01","cat":"metrics","q":"Aurora monthly active users","expect":["12k","monthly","active","growth"]},
         {"id":"M02","cat":"metrics","q":"app crash rate","expect":["crash","99.6","99.2"]},
-        {"id":"D01","cat":"dedup","q":"Beacon database connection pool config","expect":["pgbouncer","400","transaction"]}
+        {"id":"D01","cat":"dedup","q":"Beacon database connection pool config","expect":["pgbouncer","400","transaction"]},
+
+        {"id":"GR01","cat":"graph","q":"what is Alex working on","expect":["mixer","alex","refactor"]},
+        {"id":"GR02","cat":"graph","q":"tools used in the meeting assistant","expect":["langgraph","deepgram","livekit","whisper"]},
+        {"id":"GR03","cat":"graph","q":"who contributes to the audio app","expect":["alex","morgan","sam","aurora"]},
+        {"id":"GR04","cat":"graph","q":"beacon backend team","expect":["jordan","taylor"]},
+        {"id":"GR05","cat":"graph","q":"infrastructure topics Kai handles","expect":["kai","home","lab","infra","tailscale","mesh"]},
+        {"id":"GR06","cat":"graph","q":"decisions made about the onboarding flow","expect":["morgan","onboarding","mockup","design","carousel"]},
+        {"id":"GR07","cat":"graph","q":"audio engineer of Aurora","expect":["sam","audio","reverb","preset"]},
+        {"id":"GR08","cat":"graph","q":"who optimized transcription","expect":["taylor","whisper","faster"]}
     ]"#;
     serde_json::from_str(raw).unwrap()
 }
@@ -172,6 +181,15 @@ fn main() {
         ("I2d: title match bonus 0.95", SearchConfig { title_match_bonus: 0.95, ..Default::default() }),
         ("I3: title match bonus 1.0", SearchConfig { title_match_bonus: 1.0, ..Default::default() }),
         ("J: k=20 + title bonus 0.6", SearchConfig { rrf_k: 20.0, title_match_bonus: 0.6, ..Default::default() }),
+        ("GR1: graph boost 1.3", SearchConfig { graph_entity_boost: 1.3, ..Default::default() }),
+        ("GR2: graph boost 1.5", SearchConfig { graph_entity_boost: 1.5, ..Default::default() }),
+        ("GR3: graph boost 2.0", SearchConfig { graph_entity_boost: 2.0, ..Default::default() }),
+        ("GR4: graph boost 3.0", SearchConfig { graph_entity_boost: 3.0, ..Default::default() }),
+        ("GR5: title=0 + graph 2.0 (graph-only)", SearchConfig { title_match_bonus: 0.0, graph_entity_boost: 2.0, ..Default::default() }),
+        ("GR6: title=0.6 + graph 1.5 (combined mild)", SearchConfig { title_match_bonus: 0.6, graph_entity_boost: 1.5, ..Default::default() }),
+        ("GR7: graph as RRF source (title=1.0)", SearchConfig { graph_as_rrf_source: true, ..Default::default() }),
+        ("GR8: graph as RRF source + title=0", SearchConfig { title_match_bonus: 0.0, graph_as_rrf_source: true, ..Default::default() }),
+        ("GR9: graph as RRF source + title=0.6", SearchConfig { title_match_bonus: 0.6, graph_as_rrf_source: true, ..Default::default() }),
     ];
 
     for (name, cfg) in &variants {

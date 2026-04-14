@@ -47,6 +47,32 @@ codeterm mem save --kind rule "always confirm before destructive git operations"
 
 Valid `--kind` values: `skill`, `fact`, `note`, `conversation`, `script`, `peer`, `preference`, `daily`, `learning`, `rule`, `summary`.
 
+**Skills are folders on disk, indexed in mem.** A skill is a folder containing `SKILL.md` (required, indexed in mem, vectorized) + any support files. Common layout:
+
+```
+<skills-dir>/<slug>/
+  SKILL.md            ← procedure / how-to
+  scripts/            ← real bash/python you can execute, referenced from SKILL.md
+  examples/           ← sample payloads, configs
+```
+
+The exact `<skills-dir>` depends on instance (`~/.codeterm/skills/` for prod, `~/.codeterm-dev/skills/` for dev). **Don't hardcode it.** Use `codeterm mem skill new <slug>` — it picks the right folder for the current instance, scaffolds `SKILL.md` with proper frontmatter + `scripts/` subdir, and registers in mem immediately. Then edit the SKILL.md and add scripts.
+
+```bash
+codeterm mem skill new deploy-checks --area infra
+# CLI prints the folder path it created. Now edit SKILL.md and drop scripts there:
+$EDITOR <printed-folder>/SKILL.md
+$EDITOR <printed-folder>/scripts/run.sh
+chmod +x <printed-folder>/scripts/*.sh
+# No re-register needed — Librarian re-vectorizes on file change.
+```
+
+Use `codeterm mem skill add <folder>` only when importing an EXISTING folder (e.g. cloned from a repo, copied from another machine).
+
+Inside `SKILL.md` link scripts by relative path (`./scripts/foo.sh`). When you find the skill via `mem search`, body is the SKILL.md content; for the rest, `ls $(dirname <source_path>)` shows the folder, then run files directly. Don't inline scripts as fenced code blocks — they live as real files you can chmod and run.
+
+YAML frontmatter (between `---` lines) sets `title:`, `area:`, `tags: [a, b]`. Without it: title = first `# heading`, area = parent folder name when nested as `<skills-dir>/<area>/<slug>/SKILL.md`.
+
 **Identity lives as a mem_item.** When the user gives you a name or describes your role, save it with `codeterm mem save --kind preference --title identity --replace "..."`. The next session's `mem wake-up` loads this as L0 automatically. Use `--replace` so the canonical `preference_identity` row gets overwritten in place instead of creating a hash-suffixed duplicate.
 
 **Auto-extraction works.** When you save `--kind conversation` or `--kind note`, mem runs 16 regex patterns over the body and creates child preference items for things like "I usually X", "I prefer Y", "I always Z" — linked back via the `extracted_from` graph relation. You don't need to manually extract preferences from raw conversations.
