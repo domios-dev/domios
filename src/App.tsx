@@ -60,6 +60,18 @@ function AppInner() {
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   const [cronInitialId, setCronInitialId] = useState<string | undefined>(undefined);
   const [activeCronId, setActiveCronId] = useState<string | undefined>(undefined);
+  // Lazy-mount panels: each panel mounts only after its first open, then stays
+  // mounted so subsequent view switches are instant. Cuts startup cost (don't
+  // pay for Memory/Settings/Cron initial fetches until the user actually looks
+  // at them) while keeping switching smooth.
+  const [mountedSettings, setMountedSettings] = useState(false);
+  const [mountedMemory, setMountedMemory] = useState(false);
+  const [mountedCron, setMountedCron] = useState(false);
+  useEffect(() => {
+    if (mainView === "settings") setMountedSettings(true);
+    if (mainView === "memory") setMountedMemory(true);
+    if (mainView === "cron") setMountedCron(true);
+  }, [mainView]);
   const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "settings";
@@ -511,39 +523,70 @@ function AppInner() {
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
-          {mainView === "settings" && (
-            <SettingsPanel
-              config={config}
-              onUpdateConfig={updateConfig}
-              onClose={() => setSettingsOpen(false)}
-            />
-          )}
-          {mainView === "memory" && (
-            <MemoryPanel
-              api={config.api}
-              onClose={() => {
-                setMemoryOpen(false);
-                setMemoryInitial(undefined);
+          {/* All panels stay mounted — switching mainView only changes visibility.
+              Unmounting the workspace would tear down xterm + re-run get_pane_text
+              on return, blocking the main thread with MB of escape codes. */}
+          {mountedSettings && (
+            <div
+              className="absolute inset-0"
+              style={{
+                zIndex: mainView === "settings" ? 2 : 0,
+                visibility: mainView === "settings" ? "visible" : "hidden",
+                pointerEvents: mainView === "settings" ? "auto" : "none",
               }}
-              initialState={memoryInitial}
-              onFocusPane={handleMemoryFocusPane}
-            />
+            >
+              <SettingsPanel
+                config={config}
+                onUpdateConfig={updateConfig}
+                onClose={() => setSettingsOpen(false)}
+              />
+            </div>
           )}
-          {mainView === "cron" && (
-            <CronPanel
-              initialView={
-                cronInitialId
-                  ? { type: "detail", cronId: cronInitialId }
-                  : { type: "dashboard" }
-              }
-              onClose={closeCronPanel}
-              onActiveCronChange={setActiveCronId}
-            />
+          {mountedMemory && (
+            <div
+              className="absolute inset-0"
+              style={{
+                zIndex: mainView === "memory" ? 2 : 0,
+                visibility: mainView === "memory" ? "visible" : "hidden",
+                pointerEvents: mainView === "memory" ? "auto" : "none",
+              }}
+            >
+              <MemoryPanel
+                api={config.api}
+                onClose={() => {
+                  setMemoryOpen(false);
+                  setMemoryInitial(undefined);
+                }}
+                initialState={memoryInitial}
+                onFocusPane={handleMemoryFocusPane}
+              />
+            </div>
           )}
-          {mainView === "workspace" && state.workspaces.length > 0 ? (
+          {mountedCron && (
+            <div
+              className="absolute inset-0"
+              style={{
+                zIndex: mainView === "cron" ? 2 : 0,
+                visibility: mainView === "cron" ? "visible" : "hidden",
+                pointerEvents: mainView === "cron" ? "auto" : "none",
+              }}
+            >
+              <CronPanel
+                initialView={
+                  cronInitialId
+                    ? { type: "detail", cronId: cronInitialId }
+                    : { type: "dashboard" }
+                }
+                onClose={closeCronPanel}
+                onActiveCronChange={setActiveCronId}
+              />
+            </div>
+          )}
+          {state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
-                const isVisible = ws.id === state.active_workspace_id && tab.id === ws.active_tab_id;
+                const isActiveTab = ws.id === state.active_workspace_id && tab.id === ws.active_tab_id;
+                const isVisible = mainView === "workspace" && isActiveTab;
                 return (
               <div
                 key={tab.id}
@@ -576,9 +619,7 @@ function AppInner() {
               className="flex items-center justify-center w-full h-full text-sm"
               style={{ color: theme.bright_black }}
             >
-              {state.workspaces.length === 0
-                ? "Loading..."
-                : "No tabs open. Press Ctrl+Shift+T to create one."}
+              Loading...
             </div>
           ) : null}
         </main>

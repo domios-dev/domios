@@ -167,10 +167,12 @@ const REINDEX_MAX_FAILURES_PER_ITEM: usize = 2;
 impl MemManager {
     #[cfg(feature = "embeddings")]
     pub fn reindex_missing(self: &Arc<Self>) {
-        // Disabled: fastembed/ort runtime leaks ~100 MB per inference on
-        // Windows. New items still get vectors via embed_queue (subprocess
-        // isolation planned). Old items without vectors fall back to FTS5.
-        log::info!("[mem] reindex_missing disabled (ort leak on Windows)");
+        // Disabled. Re-enabling triggered a ~100 MB/sec parent-process leak
+        // even when embed() was isolated to a child process — root cause
+        // appears to be in the index() path (vec0 INSERT or DELETE) on this
+        // Windows host. Investigation pending; for now items without vectors
+        // fall back to FTS5 recall (high-quality on its own).
+        log::info!("[mem] reindex_missing disabled (unresolved leak in index path)");
         return;
         let db_path = self.db_path.clone();
         let blobs_dir = self.blobs_dir.clone();

@@ -79,18 +79,36 @@ Agent-to-agent communication is always English: `--task` arguments, reports, cro
 
 ## Message routing
 
-Incoming messages arrive with a prefix — route by the current prefix, regardless of previous channel:
+**Decide where to reply by looking at the prefix of the incoming message.** Every inbound message from a remote channel (Telegram, another agent, a mesh peer) starts with a bracketed tag. The tag tells you WHERE to reply. If there's no tag, the user is typing directly into this pane — reply in the pane, normal chat.
 
-- `[Telegram: USER_ID] text` → reply with `codeterm bridge send --to USER_ID --service telegram "..."`. Text is positional, not a `--message` flag. **Format replies with HTML tags** (`<b>`, `<i>`, `<code>`, `<pre>`), NOT Markdown — the bridge renders HTML only. For long explanations: first `bridge send` (no flag), then `bridge send --append "..."` for each continuation — the bridge edits the previous message in-place within 60s. For images: `bridge send --to USER_ID --type photo --file <existing-path>` (CodeTerm has no screenshot CLI — if the user wants a screen capture, ask them to paste an image into the chat or provide a file path).
-- `[Mesh: PEER pane=ID] text` → reply with `codeterm send-text "..." --pane ID --mesh PEER`.
-- `[Report from PANE_ID] text` → report from a child agent. Act on it or ignore; never reply to it.
+Rules:
+
+| Incoming prefix | Sender | How to reply | Reply in pane output? |
+|-----------------|--------|--------------|-----------------------|
+| `[Telegram: USER_ID msg_id=N] text` | User via Telegram bridge | `codeterm bridge send --to USER_ID --service telegram "..."` | No |
+| `[Mesh: PEER pane=ID] text` | Remote agent or user on peer machine | `codeterm send-text "..." --pane ID --mesh PEER` | No |
+| `[Report from PANE_ID] text` | Child agent reporting back | Act on it or ignore; never reply | No |
+| *(no prefix)* | Local user at the keyboard | Normal pane reply | Yes |
+
+Core rule: **the prefix IS the return address.** If someone messaged you via Telegram, they're on Telegram, not sitting next to the machine — reply via Telegram. If another agent messaged you via mesh, reply back to its pane via mesh. Never assume the local user cares about a remote conversation — don't dump the reply into the pane and also send it via the channel.
+
+Concrete examples:
+
+- In: `[Telegram: 123456789 msg_id=575] are you working right now?` → Out: `codeterm bridge send --to 123456789 --service telegram "yep, online"`. Nothing else printed in the pane.
+- In: `[Telegram: 123456789 msg_id=576] Q` → Still reply via Telegram (`codeterm bridge send --to 123456789 --service telegram "didn't parse that — can you clarify?"`), because the prefix says so — don't fall back to pane output just because the message is short/ambiguous.
+- In: `[Mesh: workstation pane=a3f1b2c7] can you run the tests?` → Out: `codeterm send-text "running now" --pane a3f1b2c7 --mesh workstation`, then do the work, then `codeterm send-text "tests pass" --pane a3f1b2c7 --mesh workstation`.
+- In: `run the tests` (no prefix) → you're talking to the local user. Reply in the pane normally, matching their language.
+
+Telegram formatting rules: the bridge renders **HTML only** (`<b>`, `<i>`, `<code>`, `<pre>`), NOT Markdown. For long replies, first `bridge send` (no flag), then `bridge send --append "..."` for continuations — the bridge edits the previous message in place within 60s. For images: `bridge send --to USER_ID --type photo --file <path>` (CodeTerm has no screenshot CLI — if the user asks for a screen capture, ask them to paste an image or provide a file path).
 
 ### After sending: don't echo
 
-`bridge send` and `agent report` ARE the reply. Do not repeat the same content in your own pane output. No "Replied to user with X", no "Reported: Y". Delivery is the acknowledgment.
+`bridge send`, `agent report`, and mesh `send-text` ARE the reply — the recipient sees it once. Do NOT repeat the same content in your own pane output. No "Replied to user with X", no "Reported: Y", no summary of what you just sent.
 
+- More work queued → silently continue with the next task.
 - No more work queued → stop. Your reply is the final state.
-- More work queued → continue silently with the next task.
+
+The only case where you DO write in the pane is the no-prefix case (local user).
 
 ## Spawning workers and reading reports
 
