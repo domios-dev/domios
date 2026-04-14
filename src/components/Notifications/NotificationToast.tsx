@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
-import type { Notification } from "../../lib/types";
+import { invoke } from "@tauri-apps/api/core";
+import type { Notification, NotificationAction } from "../../lib/types";
 import { InfoIcon, WarningIcon, ErrorIcon } from "../Icons";
 
 const LEVEL_STYLES: Record<Notification["level"], { border: string; icon: string }> = {
@@ -18,16 +19,18 @@ interface ToastItemProps {
 
 function ToastItem({ notification, onDismiss, onNavigate }: ToastItemProps) {
   const [visible, setVisible] = useState(false);
+  const hasActions = (notification.actions?.length ?? 0) > 0;
+  const sticky = notification.sticky || hasActions;
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true));
-
+    if (sticky) return;
     const timer = setTimeout(() => {
       setVisible(false);
       setTimeout(() => onDismiss(notification.id), 200);
     }, AUTO_DISMISS_MS);
     return () => clearTimeout(timer);
-  }, [notification.id, onDismiss]);
+  }, [notification.id, onDismiss, sticky]);
 
   const dismiss = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -36,12 +39,29 @@ function ToastItem({ notification, onDismiss, onNavigate }: ToastItemProps) {
   }, [notification.id, onDismiss]);
 
   const handleClick = useCallback(() => {
+    if (hasActions) return;
     if (notification.pane_id && onNavigate) {
       onNavigate(notification.pane_id);
     }
     setVisible(false);
     setTimeout(() => onDismiss(notification.id), 200);
-  }, [notification.id, notification.pane_id, onDismiss, onNavigate]);
+  }, [notification.id, notification.pane_id, onDismiss, onNavigate, hasActions]);
+
+  const runAction = useCallback(async (action: NotificationAction) => {
+    if (action.type === "dismiss") {
+      // just close
+    } else if (action.type === "url" && action.value) {
+      try { window.open(action.value, "_blank"); } catch {}
+    } else if (action.type === "invoke" && action.value) {
+      try {
+        await invoke(action.value, action.args ?? {});
+      } catch (e) {
+        console.warn(`Notification action '${action.value}' failed:`, e);
+      }
+    }
+    setVisible(false);
+    setTimeout(() => onDismiss(notification.id), 200);
+  }, [notification.id, onDismiss]);
 
   const styles = LEVEL_STYLES[notification.level];
 
@@ -51,7 +71,7 @@ function ToastItem({ notification, onDismiss, onNavigate }: ToastItemProps) {
       className={`
         border-l-2 ${styles.border} bg-[var(--ct-sidebar-bg)] rounded-r shadow-lg
         px-3 pt-2 pb-1.5 max-w-[360px] min-w-[260px]
-        transition-all duration-200 ease-out ct-float cursor-pointer
+        transition-all duration-200 ease-out ct-float ${hasActions ? "" : "cursor-pointer"}
         ${visible ? "opacity-100 translate-x-0" : "opacity-0 translate-x-4"}
       `}
     >
@@ -64,6 +84,26 @@ function ToastItem({ notification, onDismiss, onNavigate }: ToastItemProps) {
           {notification.body && (
             <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5 line-clamp-2">
               {notification.body}
+            </div>
+          )}
+          {hasActions && (
+            <div className="flex gap-1.5 mt-2">
+              {notification.actions!.map((action, i) => (
+                <button
+                  key={i}
+                  onClick={(e) => { e.stopPropagation(); runAction(action); }}
+                  className={`
+                    text-[11px] px-2 py-0.5 rounded border
+                    ${i === 0
+                      ? "bg-[var(--ct-accent)] text-[var(--ct-bg)] border-[var(--ct-accent)] hover:opacity-90"
+                      : "bg-transparent text-[var(--ct-muted-fg)] border-[var(--ct-border)] hover:text-[var(--ct-fg)]"
+                    }
+                    transition-colors
+                  `}
+                >
+                  {action.label}
+                </button>
+              ))}
             </div>
           )}
         </div>

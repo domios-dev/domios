@@ -135,55 +135,34 @@ impl ServiceContext {
 
 }
 
-/// Poll VT100 screen for a shell prompt on the last non-empty line.
-/// Uses the screen parser instead of raw buffer to avoid false positives from file content.
-pub fn poll_shell_prompt(screen_state: &crate::ScreenStateHandle, pty_id: &str, timeout: std::time::Duration) -> bool {
-    let deadline = std::time::Instant::now() + timeout;
-    let mut attempt = 0u32;
-    loop {
-        if std::time::Instant::now() > deadline {
-            log::warn!("[poll_shell_prompt] timeout after {}ms for pty {}", timeout.as_millis(), &pty_id[..pty_id.len().min(8)]);
-            return false;
-        }
-        let ready = screen_state.try_lock()
-            .and_then(|ss| ss.get_screen_text(pty_id).map(|screen| {
-                let has = screen_has_shell_prompt(&screen);
-                if attempt % 10 == 0 {
-                    let last = screen.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
-                    log::debug!("[poll_shell_prompt] pty={} attempt={} has_prompt={} last_line={:?}",
-                        &pty_id[..pty_id.len().min(8)], attempt, has, &last.chars().take(60).collect::<String>());
-                }
-                has
-            }))
-            .unwrap_or(false);
-        if ready {
-            log::info!("[poll_shell_prompt] shell ready for pty {} after {} attempts", &pty_id[..pty_id.len().min(8)], attempt);
-            return true;
-        }
-        attempt += 1;
-        std::thread::sleep(std::time::Duration::from_millis(300));
+/// Wait (event-driven) for a shell prompt to appear on a PTY.
+/// Arms the prompt signal once under the `screen_state` lock and then blocks on a
+/// condvar — no busy-poll. The `ScreenState::process` path fires the signal as soon
+/// as a chunk produces a prompt-looking last line, so this returns immediately.
+/// Returns `true` if ready, `false` on timeout.
+pub fn poll_shell_prompt(
+    screen_state: &crate::ScreenStateHandle,
+    pty_id: &str,
+    timeout: std::time::Duration,
+) -> bool {
+    let signal = screen_state.lock().arm_prompt_signal(pty_id);
+    let short_id = &pty_id[..pty_id.len().min(8)];
+    let t0 = std::time::Instant::now();
+    let ready = signal.wait(timeout);
+    if ready {
+        log::info!(
+            "[poll_shell_prompt] shell ready for pty {} after {}ms",
+            short_id,
+            t0.elapsed().as_millis()
+        );
+    } else {
+        log::warn!(
+            "[poll_shell_prompt] timeout after {}ms for pty {}",
+            timeout.as_millis(),
+            short_id
+        );
     }
-}
-
-/// Check if the last non-empty line of screen text looks like a shell prompt.
-fn screen_has_shell_prompt(screen_text: &str) -> bool {
-    let last_line = screen_text
-        .lines()
-        .rev()
-        .find(|l| !l.trim().is_empty());
-    match last_line {
-        None => false,
-        Some(line) => {
-            let trimmed = line.trim_end();
-            trimmed.ends_with("$ ")
-                || trimmed.ends_with("$")
-                || trimmed.ends_with("% ")
-                || trimmed.ends_with("%")
-                || trimmed.ends_with("> ")
-                || trimmed.ends_with(">")
-                || (trimmed.starts_with("PS ") && trimmed.ends_with(">"))
-        }
-    }
+    ready
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -285,6 +264,8 @@ mod tests {
     }
 
     // ── screen_has_shell_prompt ──
+
+    use crate::pty::screen_state::screen_has_shell_prompt;
 
     #[test]
     fn prompt_bash_dollar() {

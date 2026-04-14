@@ -18,7 +18,7 @@ pub mod pty_io;
 mod hierarchy;
 mod orchestrator;
 pub mod spawn;
-mod notification;
+pub mod notification;
 mod output;
 pub mod cron;
 pub mod pty_lifecycle;

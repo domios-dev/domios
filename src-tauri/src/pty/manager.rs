@@ -1,9 +1,33 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtyPair, PtySize};
 use std::collections::HashMap;
 use std::io::Read;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
+use std::time::Instant;
+
+use parking_lot::Mutex as PlMutex;
 
 use super::write_queue::WriteQueue;
+
+pub struct SpawnMark {
+    pub when: Instant,
+    pub shell: String,
+}
+
+fn spawn_times() -> &'static PlMutex<HashMap<String, SpawnMark>> {
+    static SPAWN_TIMES: OnceLock<PlMutex<HashMap<String, SpawnMark>>> = OnceLock::new();
+    SPAWN_TIMES.get_or_init(|| PlMutex::new(HashMap::new()))
+}
+
+pub fn record_spawn_time(pty_id: &str, shell: &str) {
+    spawn_times().lock().insert(
+        pty_id.to_string(),
+        SpawnMark { when: Instant::now(), shell: shell.to_string() },
+    );
+}
+
+pub fn take_spawn_time(pty_id: &str) -> Option<SpawnMark> {
+    spawn_times().lock().remove(pty_id)
+}
 
 /// A PTY session — stores the pair, reader, writer, child.
 pub struct PtySession {
@@ -83,6 +107,93 @@ impl OutputBuffer {
     }
 }
 
+/// A freshly opened PTY plus its child process, not yet registered in any manager.
+/// Produced by `build_session` — the heavy, blocking step — so the manager lock
+/// is not held while `openpty` / `CreateProcess` run.
+pub struct BuiltSession {
+    pub shell: String,
+    pub session: Arc<PtySession>,
+}
+
+/// Build a new PTY + child process without touching any manager state.
+/// Safe to call from `spawn_blocking` — does blocking I/O (ConPTY + CreateProcess on Windows).
+pub fn build_session(
+    command: Option<String>,
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+    env_vars: HashMap<String, String>,
+) -> Result<BuiltSession, String> {
+    let pty_system = native_pty_system();
+    let size = PtySize { rows, cols, pixel_width: 0, pixel_height: 0 };
+
+    let pair = pty_system
+        .openpty(size)
+        .map_err(|e| format!("Failed to open PTY: {}", e))?;
+
+    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+
+    let (shell, mut cmd) = match command {
+        Some(c) => (c.clone(), CommandBuilder::new(&c)),
+        None => {
+            let s = detect_default_shell();
+            #[cfg(target_os = "windows")]
+            {
+                (s.clone(), CommandBuilder::new(&s))
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                (s, CommandBuilder::new_default_prog())
+            }
+        }
+    };
+
+    if let Some(dir) = cwd {
+        cmd.cwd(dir);
+    }
+
+    cmd.env("CODETERM", "1");
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM_PROGRAM", "CodeTerm");
+    cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if std::env::var("LANG").map_or(true, |v| v.is_empty()) {
+            cmd.env("LANG", "en_US.UTF-8");
+        }
+        cmd.env("LC_CTYPE", "UTF-8");
+    }
+
+    super::shell_integration::apply_env(&mut cmd, &shell);
+
+    for (key, value) in &env_vars {
+        cmd.env(key, value);
+    }
+
+    cmd.env_remove("CLAUDECODE");
+
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("Failed to spawn '{}': {}", shell, e))?;
+
+    let write_queue = WriteQueue::new(writer);
+
+    let session = Arc::new(PtySession {
+        pair: StdMutex::new(pair),
+        reader: StdMutex::new(Some(reader)),
+        write_queue,
+        child: StdMutex::new(child),
+        backend_reader_tx: StdMutex::new(None),
+        backend_reader_rx: StdMutex::new(None),
+    });
+
+    Ok(BuiltSession { shell, session })
+}
+
 /// Manages PTY sessions. Sessions are stored behind Arc for shared access.
 pub struct PtyManager {
     sessions: HashMap<String, Arc<PtySession>>,
@@ -113,83 +224,24 @@ impl PtyManager {
         rows: u16,
         env_vars: HashMap<String, String>,
     ) -> Result<(String, Arc<PtySession>), String> {
-        let pty_system = native_pty_system();
-        let size = PtySize { rows, cols, pixel_width: 0, pixel_height: 0 };
+        let built = build_session(command, cwd, cols, rows, env_vars)?;
+        Ok(self.register_session(custom_id, built))
+    }
 
-        let pair = pty_system
-            .openpty(size)
-            .map_err(|e| format!("Failed to open PTY: {}", e))?;
-
-        let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
-        let reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-
-        let (shell, mut cmd) = match command {
-            Some(c) => (c.clone(), CommandBuilder::new(&c)),
-            None => {
-                let s = detect_default_shell();
-                #[cfg(target_os = "windows")]
-                {
-                    // On Windows, new_default_prog() always uses COMSPEC (cmd.exe).
-                    // We want PowerShell, so spawn it explicitly.
-                    (s.clone(), CommandBuilder::new(&s))
-                }
-                #[cfg(not(target_os = "windows"))]
-                {
-                    // On Unix, new_default_prog() spawns a login shell (argv[0] prefixed
-                    // with '-'), which sources .zprofile/.bash_profile and sets up PATH.
-                    (s, CommandBuilder::new_default_prog())
-                }
-            }
-        };
-
-        if let Some(dir) = cwd {
-            cmd.cwd(dir);
-        }
-
-        cmd.env("CODETERM", "1");
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
-        cmd.env("TERM_PROGRAM", "CodeTerm");
-        cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
-
-        // Ensure UTF-8 locale for proper Unicode/Cyrillic support (Unix only)
-        #[cfg(not(target_os = "windows"))]
-        {
-            if std::env::var("LANG").map_or(true, |v| v.is_empty()) {
-                cmd.env("LANG", "en_US.UTF-8");
-            }
-            cmd.env("LC_CTYPE", "UTF-8");
-        }
-
-        // Invisible shell integration: OSC 7 CWD tracking via env vars
-        super::shell_integration::apply_env(&mut cmd, &shell);
-
-        for (key, value) in &env_vars {
-            cmd.env(key, value);
-        }
-
-        // Remove vars that prevent tools from running inside CodeTerm
-        cmd.env_remove("CLAUDECODE");
-
-        let child = pair.slave.spawn_command(cmd)
-            .map_err(|e| format!("Failed to spawn '{}': {}", shell, e))?;
-
+    /// Insert a pre-built session into the manager. Holds the manager lock only
+    /// long enough to insert into the HashMap — the heavy `openpty` +
+    /// `CreateProcess` work has already happened in `build_session`.
+    pub fn register_session(
+        &mut self,
+        custom_id: Option<String>,
+        built: BuiltSession,
+    ) -> (String, Arc<PtySession>) {
+        let BuiltSession { shell, session } = built;
         let pty_id = custom_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         log::info!("Spawned PTY {} with shell '{}'", pty_id, shell);
-
-        let write_queue = WriteQueue::new(writer);
-
-        let session = Arc::new(PtySession {
-            pair: StdMutex::new(pair),
-            reader: StdMutex::new(Some(reader)),
-            write_queue,
-            child: StdMutex::new(child),
-            backend_reader_tx: StdMutex::new(None),
-            backend_reader_rx: StdMutex::new(None),
-        });
-
+        record_spawn_time(&pty_id, &shell);
         self.sessions.insert(pty_id.clone(), session.clone());
-        Ok((pty_id, session))
+        (pty_id, session)
     }
 
     pub fn get_session(&self, pty_id: &str) -> Option<Arc<PtySession>> {
@@ -250,13 +302,15 @@ impl PtyManager {
 fn detect_default_shell() -> String {
     #[cfg(target_os = "windows")]
     {
-        if let Ok(comspec) = std::env::var("COMSPEC") {
-            if which_exists("powershell.exe") {
-                return "powershell.exe".to_string();
-            }
-            return comspec;
+        // PowerShell 7 (pwsh.exe) cold-starts ~10x faster than Windows PowerShell 5.1
+        // and doesn't block on AMSI during PSReadLine autoload. Prefer it when available.
+        if let Some(path) = which_exe("pwsh.exe") {
+            return path;
         }
-        "cmd.exe".to_string()
+        if let Some(path) = which_exe("powershell.exe") {
+            return path;
+        }
+        std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -266,14 +320,14 @@ fn detect_default_shell() -> String {
 }
 
 #[cfg(target_os = "windows")]
-fn which_exists(name: &str) -> bool {
-    if let Ok(path) = std::env::var("PATH") {
-        for dir in path.split(';') {
-            let full = std::path::Path::new(dir).join(name);
-            if full.exists() {
-                return true;
-            }
+fn which_exe(name: &str) -> Option<String> {
+    let path = std::env::var("PATH").ok()?;
+    for dir in path.split(';') {
+        if dir.is_empty() { continue; }
+        let full = std::path::Path::new(dir).join(name);
+        if full.is_file() {
+            return Some(full.to_string_lossy().into_owned());
         }
     }
-    false
+    None
 }

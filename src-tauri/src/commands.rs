@@ -113,12 +113,20 @@ pub async fn spawn_pty(
         crate::socket::server::socket_display_path(),
     );
 
-    let (pty_id, _session) = {
-        let mut manager = state.lock();
-        manager.spawn_with_id(predicted_id, command, cwd, cols, rows, env_vars)?
-    };
+    let t0 = std::time::Instant::now();
+    let built = tokio::task::spawn_blocking(move || {
+        crate::pty::manager::build_session(command, cwd, cols, rows, env_vars)
+    })
+    .await
+    .map_err(|e| format!("spawn_pty join error: {}", e))??;
+    let build_ms = t0.elapsed().as_millis();
 
-    log::info!("PTY {} spawned", pty_id);
+    let (pty_id, _session) = state.lock().register_session(predicted_id, built);
+    log::info!("PTY {} spawned (build={}ms)", pty_id, build_ms);
+
+    if let Some(ref pid) = pane_id {
+        svc.link_pty(pid, pty_id.clone());
+    }
 
     // Auto-resume: if this pane has a saved session_id, resume it after shell is ready.
     // This runs in backend so it works even for non-visible tabs.
@@ -209,18 +217,23 @@ pub async fn read_pty(
             let result = rx.recv().await;
             match result {
                 Some(data) => {
+                    if let Some(mark) = crate::pty::manager::take_spawn_time(&pty_id) {
+                        log::info!(
+                            "[pty-first-byte] pty={} elapsed={}ms bytes={} (via backend channel)",
+                            &pty_id[..pty_id.len().min(8)],
+                            mark.when.elapsed().as_millis(),
+                            data.len()
+                        );
+                    }
                     *session.backend_reader_rx.lock().unwrap() = Some(rx);
                     return Ok(data);
                 }
                 None => {
-                    // Channel closed — backend reader exited (PTY dead).
-                    // handle_pty_death was already called by backend reader.
                     *session.backend_reader_rx.lock().unwrap() = None;
                     return Err("PTY closed".to_string());
                 }
             }
         }
-        // rx was None — no backend reader active, fall through to raw PTY path
     }
 
     let ob = (*output_buf).clone();
@@ -242,6 +255,7 @@ pub async fn read_pty(
         }
     };
 
+    let pid_for_timing = pid.clone();
     let result = tokio::task::spawn_blocking(move || {
         let mut buf = vec![0u8; 8192];
         let n = reader_to_use.read(&mut buf).map_err(|e| e.to_string())?;
@@ -252,11 +266,20 @@ pub async fn read_pty(
         ob.lock().append(&pid, &buf);
         ss.lock().process(&pid, &buf);
 
-        // Return reader so next call can reuse it
         Ok((buf, reader_to_use))
     })
     .await
     .map_err(|e| e.to_string())?;
+    if let Ok((ref data, _)) = result {
+        if let Some(mark) = crate::pty::manager::take_spawn_time(&pid_for_timing) {
+            log::info!(
+                "[pty-first-byte] pty={} elapsed={}ms bytes={} (via raw reader)",
+                &pid_for_timing[..pid_for_timing.len().min(8)],
+                mark.when.elapsed().as_millis(),
+                data.len()
+            );
+        }
+    }
 
     match result {
         Ok((data, reader_back)) => {
@@ -1161,6 +1184,110 @@ pub fn get_pane_git_info(
         Some(cwd) => Ok(git_info::get_git_info(cwd)),
         None => Ok(None),
     }
+}
+
+/// Diagnostics surfaced in Settings → General on Windows: which shell we would
+/// spawn for a new tab, and whether the faster PowerShell 7 (pwsh) is installed.
+/// The Settings UI shows an install banner only when `pwsh_installed` is false.
+/// Runs the filesystem walk in `spawn_blocking` because `Path::is_file()` on a
+/// dead network mount in the user's PATH (SMB/VPN) can block seconds.
+#[tauri::command]
+pub async fn get_shell_diagnostics() -> serde_json::Value {
+    let platform = std::env::consts::OS;
+    #[cfg(target_os = "windows")]
+    {
+        tokio::task::spawn_blocking(move || {
+            fn exists_on_path(name: &str) -> Option<String> {
+                let path = std::env::var("PATH").ok()?;
+                for dir in path.split(';') {
+                    if dir.is_empty() { continue; }
+                    let p = std::path::Path::new(dir).join(name);
+                    if p.is_file() {
+                        return Some(p.to_string_lossy().into_owned());
+                    }
+                }
+                None
+            }
+            let pwsh = exists_on_path("pwsh.exe");
+            let ps5 = exists_on_path("powershell.exe");
+            let current = pwsh.clone().or(ps5.clone())
+                .unwrap_or_else(|| std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into()));
+            serde_json::json!({
+                "platform": platform,
+                "pwsh_installed": pwsh.is_some(),
+                "pwsh_path": pwsh,
+                "powershell_path": ps5,
+                "current_shell": current,
+            })
+        })
+        .await
+        .unwrap_or_else(|_| serde_json::json!({
+            "platform": platform,
+            "pwsh_installed": true,
+            "current_shell": "unknown",
+        }))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        serde_json::json!({
+            "platform": platform,
+            "pwsh_installed": true,
+            "current_shell": std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into()),
+        })
+    }
+}
+
+/// Cleanly restart the CodeTerm process. Used by the Settings UI after the user
+/// installs pwsh so the new shell is picked up by `detect_default_shell`.
+#[tauri::command]
+pub fn restart_app(app: AppHandle) {
+    app.restart();
+}
+
+/// Open a new shell tab and type `winget install Microsoft.PowerShell` into it,
+/// without pressing Enter — the user reviews the command and hits Enter manually.
+#[tauri::command]
+pub fn suggest_install_pwsh(
+    svc: tauri::State<'_, crate::service::ServiceState>,
+) -> Result<String, String> {
+    use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
+    let handle = svc.spawn_pane(SpawnPaneSpec {
+        title: Some("Install pwsh 7".to_string()),
+        visibility: PaneVisibility::Visible,
+        command: PaneCommand::Shell,
+        ..Default::default()
+    })?;
+    let pane_id = handle.pane_id.clone();
+    let svc_arc = svc.inner().clone();
+    let pane_id_bg = pane_id.clone();
+    std::thread::spawn(move || {
+        let cmd_text = "winget install Microsoft.PowerShell";
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        loop {
+            if std::time::Instant::now() > deadline {
+                log::warn!("[suggest_install_pwsh] gave up waiting for PTY on {}", pane_id_bg);
+                return;
+            }
+            let pty_id = svc_arc
+                .mux
+                .lock()
+                .get_pane(&pane_id_bg)
+                .and_then(|p| p.pty_id.clone());
+            if let Some(pid) = pty_id {
+                let _ = crate::service::pty_io::poll_shell_prompt(
+                    &svc_arc.screen_state,
+                    &pid,
+                    std::time::Duration::from_secs(10),
+                );
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+        if let Err(e) = svc_arc.send_text(&pane_id_bg, cmd_text, false) {
+            log::warn!("[suggest_install_pwsh] send_text failed: {}", e);
+        }
+    });
+    Ok(pane_id)
 }
 
 #[tauri::command]

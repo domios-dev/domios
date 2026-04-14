@@ -50,7 +50,7 @@ pub fn start_backend_reader(
 
     let handle = tokio::spawn(async move {
         log::info!("[backend-reader] started for pty {}", &pty_id[..pty_id.len().min(8)]);
-        backend_read_loop(reader, svc, pty_id, frontend_tx).await;
+        backend_read_loop(reader, svc, pty_id, frontend_tx, true).await;
     });
 
     Ok(handle)
@@ -62,7 +62,9 @@ async fn backend_read_loop(
     svc: ServiceState,
     pty_id: String,
     frontend_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    _measure_first_byte: bool,
 ) {
+    let mut first_byte_logged = false;
     loop {
         let ob = svc.output_buf.clone();
         let ss = svc.screen_state.clone();
@@ -93,6 +95,18 @@ async fn backend_read_loop(
         match result {
             Ok(Ok((data, reader_back))) => {
                 reader = reader_back;
+
+                if !first_byte_logged {
+                    first_byte_logged = true;
+                    if let Some(mark) = crate::pty::manager::take_spawn_time(&pty_id) {
+                        log::info!(
+                            "[pty-first-byte] pty={} elapsed={}ms bytes={}",
+                            &pty_id[..pty_id.len().min(8)],
+                            mark.when.elapsed().as_millis(),
+                            data.len()
+                        );
+                    }
+                }
 
                 // hidden pane only: answer CSI 6n so PowerShell doesn't hang
                 // (visible panes let xterm.js answer — double-answering races
