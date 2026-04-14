@@ -81,3 +81,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[bin]]
 name = "mem-bench"
 path = "src/bin/mem_bench.rs"
+
+# Isolated embedding worker — fastembed/ort runs here so its Windows
+# memory leak is bounded by periodic child restart (parent kills and
+# respawns after N inferences or memory threshold).
+[[bin]]
+name = "codeterm-embed"
+path = "src/bin/codeterm_embed.rs"

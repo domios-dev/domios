@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { parseJsonlSession, parseTerminalOutput } from "./parser";
-import { getAgentProvider, isProviderNoise } from "../../lib/agentProviders";
+import { getAgentProvider } from "../../lib/agentProviders";
 import { useTauriFileDrop } from "../../hooks/terminal";
 import { MessageBubble } from "./MessageBubble";
 import type { ChatMessage } from "./parser";
 import { AlertTriangle, File } from "lucide-react";
 import { SendIcon, ChevronUpIcon } from "../Icons";
+
+// TODO(api-chat): ChatView is reserved for future direct-API chat mode
+// (pick a model, talk to LLMs via HTTP — no PTY in the middle).
+// Terminal/JSONL parsing was removed — the view currently only renders
+// user-sent optimistic messages + pending prompts. Wire the API path here
+// when the feature lands; keep the input/attachments/prompt UI as the shell.
 
 interface ChatViewProps {
   paneId: string;
@@ -16,8 +21,6 @@ interface ChatViewProps {
   agentType?: string | null;
   onToggle: () => void;
 }
-
-type ParseMode = "jsonl" | "terminal" | "detecting";
 
 interface Attachment {
   id: string;
@@ -61,26 +64,9 @@ function mimeFromPath(p: string): string {
 
 export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: ChatViewProps) {
   const provider = getAgentProvider(agentType);
-  const rawSessionParser = provider?.parseSessionData || parseJsonlSession;
-  const rawTerminalParser = provider?.parseTerminalOutput || parseTerminalOutput;
-
-  // Wrap parsers with noise filter from provider
-  const filterNoise = useCallback((msgs: ChatMessage[]) =>
-    msgs.filter(m => !isProviderNoise(agentType, m.content)),
-  [agentType]);
-  // Line-level noise filter for terminal parser — removes TUI noise before block assembly
-  const lineFilter = useCallback((line: string) =>
-    !isProviderNoise(agentType, line),
-  [agentType]);
-  const sessionParser = useCallback((data: string) => filterNoise(rawSessionParser(data)), [rawSessionParser, filterNoise]);
-  const terminalParser = useCallback((data: string) => {
-    // Pass line-level filter to terminal parser — removes noise before block assembly
-    const parser = rawTerminalParser as (text: string, lineFilter?: (line: string) => boolean) => ChatMessage[];
-    return filterNoise(parser(data, lineFilter));
-  }, [rawTerminalParser, filterNoise, lineFilter]);
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, _setIsLoading] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
   const [waitingForReply, setWaitingForReply] = useState(false);
   const [inputExpanded, setInputExpanded] = useState(false);
@@ -128,239 +114,43 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
-  const prevMessageCount = useRef(0);
-  const prevOutputLen = useRef(0);
-  const jsonlOffset = useRef(0);
-  const accumulatedJsonl = useRef("");
-  const parseMode = useRef<ParseMode>("detecting");
-  const jsonlRetryCount = useRef(0);
 
-  // Poll output and parse
+  // Prompt subscription — event-driven, no polling. Kept so permission
+  // prompts still surface in the chat view (approve/deny dialogs).
   useEffect(() => {
     let active = true;
 
-    async function pollJsonl() {
-      if (!active) return;
-      try {
-        const newData = await invoke<string>("read_session_jsonl", {
-          paneId,
-          offset: jsonlOffset.current,
-        });
-        if (!active) return;
-
-        if (newData.length > 0) {
-          jsonlOffset.current += new TextEncoder().encode(newData).length;
-          accumulatedJsonl.current += newData;
-
-          // Only re-parse when we got new data
-          const parsed = sessionParser(accumulatedJsonl.current);
-          if (parsed.length !== prevMessageCount.current) {
-            // Keep optimistic messages until JSONL contains a matching user message
-            setAllMessages(prev => {
-              const optimistic = prev.filter(m => m.id.startsWith('optimistic-'));
-              if (optimistic.length === 0) return parsed;
-              // Check if JSONL now has a user message that matches each optimistic one
-              const lastParsedUser = [...parsed].reverse().find(m => m.type === 'user');
-              const lastOptimistic = optimistic[optimistic.length - 1];
-              if (lastParsedUser && lastOptimistic &&
-                  lastParsedUser.content.includes(lastOptimistic.content.slice(0, 40))) {
-                // JSONL caught up — drop optimistic
-                return parsed;
-              }
-              // JSONL hasn't caught up yet — keep optimistic at end
-              return [...parsed, ...optimistic];
-            });
-            // Auto-scroll on new messages
-            if (!userScrolledUp.current) {
-              requestAnimationFrame(() => {
-                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-              });
-            }
-            prevMessageCount.current = parsed.length;
-          }
-        }
-        // No new data — skip re-parse entirely
-      } catch (err) {
-        // JSONL read failed — only fall back to terminal during initial detection
-        if (parseMode.current === "detecting") {
-          jsonlRetryCount.current++;
-          if (jsonlRetryCount.current > 5) {
-            parseMode.current = "terminal";
-          }
-        }
-        // If already in JSONL mode — stay in JSONL, just skip this poll (don't switch back)
-      }
-    }
-
-    async function pollTerminal() {
-      if (!active) return;
-      try {
-        const text = await invoke<string>("get_pane_output", { paneId });
-        if (!active) return;
-
-        const parsed = terminalParser(text);
-        setAllMessages(prev => {
-          const optimistic = prev.filter(m => m.id.startsWith('optimistic-'));
-          if (optimistic.length === 0) return parsed;
-          // Check if terminal output now has the user message
-          const lastParsedUser = [...parsed].reverse().find(m => m.type === 'user');
-          const lastOptimistic = optimistic[optimistic.length - 1];
-          if (lastParsedUser && lastOptimistic &&
-              lastParsedUser.content.includes(lastOptimistic.content.slice(0, 40))) {
-            return parsed;
-          }
-          return [...parsed, ...optimistic];
-        });
-        setIsLoading(false);
-
-        const len = text.length;
-        if (len > prevOutputLen.current && !userScrolledUp.current) {
-          requestAnimationFrame(() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-          });
-        }
-        prevOutputLen.current = len;
-      } catch (err) {
-        console.warn('[ChatView] terminal poll error:', err);
-      }
-    }
-
-    // Read pending prompt from backend state (provider-agnostic)
-    async function checkForPrompt() {
+    (async () => {
       try {
         const state = await invoke<MuxSnapshot>("mux_get_state");
         if (!active) return;
-        const pane = state?.panes?.[paneId];
-        const prompt = pane?.pending_prompt ?? null;
-        // Only update if changed
-        const prev = pendingPromptRef.current;
-        if (JSON.stringify(prompt) !== JSON.stringify(prev)) {
+        const prompt = state?.panes?.[paneId]?.pending_prompt ?? null;
+        if (prompt) {
           setPendingPrompt(prompt);
           pendingPromptRef.current = prompt;
-          // Auto-scroll to prompt when it appears
-          if (prompt && !prev) {
-            requestAnimationFrame(() => {
-              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-            });
-          }
         }
       } catch { /* ignore */ }
-    }
+    })();
 
-    let polling = false;
-    async function poll() {
-      if (!active || polling) return;
-      polling = true;
-      try { await doPoll(); } finally { polling = false; }
-    }
-    async function doPoll() {
-      // Prompt detection is event-driven via "prompt-state-changed" — no polling needed
-
-      // On first poll or while detecting, try JSONL
-      if (parseMode.current === "detecting") {
-        // Show loading immediately, don't block
-        setIsLoading(true);
-
-        try {
-          const data = await invoke<string>("read_session_jsonl", {
-            paneId,
-            offset: 0,
-            tailBytes: 5000000,  // 5MB tail for fast initial load (JSONL lines can be large)
-          });
-          if (!active) return;
-          // JSONL works — use it
-          parseMode.current = "jsonl";
-
-          // Extract offset marker from tail read
-          let jsonlData = data;
-          if (data.startsWith("__offset:")) {
-            const nlIdx = data.indexOf("\n");
-            const fileLen = parseInt(data.substring(9, nlIdx), 10);
-            jsonlData = data.substring(nlIdx + 1);
-            jsonlOffset.current = fileLen; // next poll reads from end of file
-          } else {
-            jsonlOffset.current = new TextEncoder().encode(data).length;
-          }
-          accumulatedJsonl.current = jsonlData;
-
-          // Parse in next frame to avoid blocking UI
-          requestAnimationFrame(() => {
-            if (!active) return;
-            const parsed = sessionParser(jsonlData);
-            setAllMessages(parsed);
-            setIsLoading(false);
-            prevMessageCount.current = parsed.length;
-            if (!userScrolledUp.current && parsed.length > 0) {
-              requestAnimationFrame(() => {
-                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-              });
-            }
-          });
-          return;
-        } catch {
-          jsonlRetryCount.current++;
-          if (jsonlRetryCount.current > 2) {
-            // JSONL not available — use terminal mode for this session
-            // JSONL will be picked up on next ChatView mount (close/open)
-            parseMode.current = "terminal";
-            setIsLoading(false);
-            await pollTerminal();
-          }
-          // Still detecting (retries 1-2): show loading, don't flash terminal
-          return;
-        }
-      }
-
-      // No runtime mode switching — once mode is set (jsonl or terminal), it stays.
-      // JSONL will be detected on next ChatView mount if it becomes available later.
-      if (parseMode.current === "jsonl") {
-        await pollJsonl();
-      } else {
-        await pollTerminal();
-      }
-    }
-
-    // Check for existing prompt on mount (event-driven handles subsequent changes)
-    checkForPrompt();
-
-    // Defer first poll so overlay renders instantly with loading state
-    setTimeout(poll, 0);
-
-    // Listen for output change events from backend — debounced to prevent flicker
-    let eventPollTimer: ReturnType<typeof setTimeout> | null = null;
-    const unlisten = listen<{ pty_id: string }>("pane-output-changed", () => {
-      if (eventPollTimer) clearTimeout(eventPollTimer);
-      eventPollTimer = setTimeout(poll, 300);
-    });
-
-    // Listen for prompt state changes — direct event, no polling needed
     const unlistenPrompt = listen<{ pane_id: string; prompt: PromptPayload | null }>("prompt-state-changed", ({ payload }) => {
       if (payload.pane_id === paneId) {
         const prompt = payload.prompt ?? null;
         const hadPrompt = pendingPromptRef.current != null;
         setPendingPrompt(prompt);
         pendingPromptRef.current = prompt;
-        // Prompt appeared — scroll to it
         if (prompt && !hadPrompt) {
           requestAnimationFrame(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
           });
         }
-        // Prompt cleared (user answered Yes/No) — stop waiting indicator
         if (!prompt && hadPrompt) {
           setWaitingForReply(false);
-          // Trigger poll to pick up Claude's response
-          poll();
         }
       }
     });
 
-    // Fallback polling at 2s (event-driven handles the fast path)
-    const interval = setInterval(poll, 2000);
     return () => {
       active = false;
-      clearInterval(interval);
-      unlisten.then(fn => fn());
       unlistenPrompt.then(fn => fn());
     };
   }, [paneId]);
@@ -393,7 +183,6 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
         type: 'user' as const,
         content: displayContent,
       }]);
-      prevMessageCount.current += 1;
     }
     setWaitingForReply(true);
 

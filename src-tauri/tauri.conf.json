@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "touch cli/src/main.rs && cargo build --release --manifest-path cli/Cargo.toml && node scripts/bundle-cli.js && pnpm dev",
-    "beforeBuildCommand": "pnpm build && touch cli/src/main.rs && cargo build --release --manifest-path cli/Cargo.toml && node scripts/bundle-cli.js"
+    "beforeDevCommand": "touch cli/src/main.rs && cargo build --release --manifest-path cli/Cargo.toml && node scripts/bundle-cli.js && cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed && node scripts/bundle-embed.js && pnpm dev",
+    "beforeBuildCommand": "pnpm build && touch cli/src/main.rs && cargo build --release --manifest-path cli/Cargo.toml && node scripts/bundle-cli.js && cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed && node scripts/bundle-embed.js"
   },
   "app": {
     "withGlobalTauri": true,
@@ -39,6 +39,9 @@
       "../skills": "skills",
       "bundled-cli/*": "cli/"
     },
+    "externalBin": [
+      "bundled-embed/codeterm-embed"
+    ],
     "macOS": {
       "minimumSystemVersion": "10.15"
     }

@@ -34,13 +34,121 @@ impl Default for EmbeddingsConfig {
 
 #[cfg(feature = "embeddings")]
 pub mod inner {
-    use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
     use parking_lot::Mutex;
     use rusqlite::{ffi::sqlite3_auto_extension, params, Connection};
-    use std::sync::{OnceLock, Once};
+    use serde::{Deserialize, Serialize};
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+    use std::sync::{Once, OnceLock};
 
-    static MODEL: OnceLock<Mutex<Option<TextEmbedding>>> = OnceLock::new();
     static EXT_REGISTERED: Once = Once::new();
+
+    // How many inferences to run in one child before recycling it. Bounds
+    // the fastembed/ort memory leak on Windows (~100 MB per call) to a
+    // predictable ceiling (~CHILD_MAX_CALLS × 100 MB), then kills and
+    // respawns the child to drop all leaked pages.
+    const CHILD_MAX_CALLS: u64 = 200;
+
+    #[derive(Serialize)]
+    struct EmbedRequest<'a> {
+        id: &'a str,
+        text: &'a str,
+    }
+
+    #[derive(Deserialize)]
+    struct EmbedResponse {
+        #[allow(dead_code)]
+        id: String,
+        embedding: Option<Vec<f32>>,
+        error: Option<String>,
+    }
+
+    struct EmbedChild {
+        child: Child,
+        stdin: ChildStdin,
+        stdout: BufReader<ChildStdout>,
+        calls: u64,
+    }
+
+    impl EmbedChild {
+        fn spawn() -> Result<Self, String> {
+            let exe = codeterm_embed_path()?;
+            let mut cmd = Command::new(&exe);
+            cmd.stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit());
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+                cmd.creation_flags(CREATE_NO_WINDOW);
+            }
+            let mut child = cmd
+                .spawn()
+                .map_err(|e| format!("spawn {}: {}", exe.display(), e))?;
+            let stdin = child.stdin.take().ok_or("no stdin")?;
+            let stdout = BufReader::new(child.stdout.take().ok_or("no stdout")?);
+            log::info!("[embed] spawned child pid={}", child.id());
+            Ok(Self { child, stdin, stdout, calls: 0 })
+        }
+
+        fn request(&mut self, id: &str, text: &str) -> Result<Vec<f32>, String> {
+            let req = EmbedRequest { id, text };
+            let line = serde_json::to_string(&req).map_err(|e| e.to_string())?;
+            writeln!(self.stdin, "{}", line).map_err(|e| format!("write: {}", e))?;
+            self.stdin.flush().map_err(|e| format!("flush: {}", e))?;
+
+            let mut resp_line = String::new();
+            self.stdout.read_line(&mut resp_line).map_err(|e| format!("read: {}", e))?;
+            if resp_line.is_empty() {
+                return Err("child closed stdout".into());
+            }
+            let resp: EmbedResponse = serde_json::from_str(resp_line.trim())
+                .map_err(|e| format!("parse response: {}", e))?;
+            self.calls += 1;
+            if let Some(err) = resp.error {
+                return Err(err);
+            }
+            resp.embedding.ok_or_else(|| "no embedding".into())
+        }
+    }
+
+    impl Drop for EmbedChild {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    fn codeterm_embed_path() -> Result<std::path::PathBuf, String> {
+        // Try the Tauri externalBin location first (sidecar next to main
+        // exe), then fall back to a sibling binary in the cargo target dir
+        // for `cargo run` / dev scenarios.
+        let exe_name = if cfg!(windows) { "codeterm-embed.exe" } else { "codeterm-embed" };
+        let current = std::env::current_exe()
+            .map_err(|e| format!("current_exe: {}", e))?;
+        let dir = current.parent().ok_or("no parent dir")?;
+
+        let candidates = [
+            dir.join(exe_name),
+            dir.join("codeterm-embed"),
+            dir.join("bundled-embed").join(exe_name),
+        ];
+        for path in &candidates {
+            if path.exists() {
+                return Ok(path.clone());
+            }
+        }
+        Err(format!(
+            "codeterm-embed not found near {}",
+            dir.display()
+        ))
+    }
+
+    fn child_handle() -> &'static Mutex<Option<EmbedChild>> {
+        static CELL: OnceLock<Mutex<Option<EmbedChild>>> = OnceLock::new();
+        CELL.get_or_init(|| Mutex::new(None))
+    }
 
     /// Register sqlite-vec as an auto-extension. This installs it into the
     /// global auto-extension list — every Connection opened after this call
@@ -116,26 +224,35 @@ pub mod inner {
         result.trim().to_string()
     }
 
-    /// Compute an embedding for `text`. Initializes the model on first call.
-    /// Uses multilingual model for Russian/English support.
-    /// Text is preprocessed (lowercased, whitespace-normalized) before embedding.
+    /// Compute an embedding for `text`. Delegates to the `codeterm-embed`
+    /// subprocess so the fastembed/ort memory leak on Windows is isolated
+    /// and bounded by periodic child recycling.
     pub fn embed(text: &str) -> Result<Vec<f32>, String> {
         let normalized = preprocess(text);
-        let lock = MODEL.get_or_init(|| Mutex::new(None));
-        let mut guard = lock.lock();
-        if guard.is_none() {
-            // paraphrase-multilingual-MiniLM-L12-v2: 384-dim, supports 50+ languages
-            // including Russian and English. Same dimension as AllMiniLML6V2.
-            let model = TextEmbedding::try_new(
-                InitOptions::new(EmbeddingModel::ParaphraseMLMiniLML12V2),
-            ).map_err(|e| format!("model init: {}", e))?;
-            *guard = Some(model);
+        let slot = child_handle();
+        let mut guard = slot.lock();
+
+        // Recycle child when call budget is exhausted, to bound ort leak.
+        if let Some(c) = guard.as_ref() {
+            if c.calls >= CHILD_MAX_CALLS {
+                log::info!("[embed] recycling child after {} calls", c.calls);
+                *guard = None;
+            }
         }
-        let model = guard.as_mut().unwrap();
-        let embeddings = model
-            .embed(vec![normalized], None)
-            .map_err(|e| format!("embed: {}", e))?;
-        embeddings.into_iter().next().ok_or_else(|| "no embedding".to_string())
+        if guard.is_none() {
+            *guard = Some(EmbedChild::spawn()?);
+        }
+
+        let child = guard.as_mut().unwrap();
+        match child.request("", &normalized) {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                // Child may have died — drop it so next call respawns.
+                log::warn!("[embed] child request failed ({}), dropping", e);
+                *guard = None;
+                Err(e)
+            }
+        }
     }
 
     const CHUNK_SIZE: usize = 800;
