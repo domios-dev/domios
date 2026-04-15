@@ -19,7 +19,7 @@ pub enum TaskDelivery {
     PtyInput,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AgentLaunchParams {
     pub agent_name: Option<String>,
     pub task: Option<String>,
@@ -27,6 +27,24 @@ pub struct AgentLaunchParams {
     pub skip_permissions: bool,
     // True for one-shot hidden panes; providers pick non-interactive delivery.
     pub headless: bool,
+    // Pre-generated session id to use when starting a NEW conversation.
+    // Honored only by providers reporting `SessionIdInjection != None` —
+    // others ignore it (they generate ids themselves and CodeTerm has to
+    // detect after launch).
+    pub session_id: Option<String>,
+}
+
+/// Whether a provider lets us choose the session id ahead of launch.
+/// Drives whether CodeTerm pre-generates and tracks a UUID before spawning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionIdInjection {
+    /// Provider generates its own id; CodeTerm detects it after launch.
+    None,
+    /// Provider takes a CLI flag for fresh sessions (e.g. claude --session-id).
+    Fresh,
+    /// Plus accepts explicit id when forking from --resume.
+    FreshAndFork,
 }
 
 // ── Plugin self-presentation types (Chunk B.1) ─────────────────────
@@ -345,6 +363,13 @@ pub trait AgentProvider: Send + Sync {
 
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
+
+    /// What kind of session-id control this provider supports.
+    /// Default is `None` — provider generates its own ids and CodeTerm
+    /// has to detect them post-launch via `detect_session_id`.
+    fn session_id_injection(&self) -> SessionIdInjection {
+        SessionIdInjection::None
+    }
 
     /// Whether this agent supports hook-based detection (vs PTY parsing fallback).
     /// Agents with hooks get detected via API endpoints, not PTY output parsing.

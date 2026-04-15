@@ -438,13 +438,31 @@ pub fn start_general_agent(
             }
         }
     } else {
-        // Fresh start
+        // Fresh start. If the provider supports session-id injection
+        // (claude --session-id <uuid>), pre-generate a UUID, write it to
+        // the pane BEFORE launch so subsequent restarts/resumes match this
+        // session deterministically, and pass it through. Without this we'd
+        // have to scan the JSONL dir post-launch and guess by mtime, which
+        // breaks when multiple panes share a cwd.
+        let injection = svc
+            .agent_registry
+            .with_provider(provider_name, |p| p.session_id_injection())
+            .unwrap_or(crate::agent::provider::SessionIdInjection::None);
+        let pre_session_id = if injection != crate::agent::provider::SessionIdInjection::None {
+            let id = uuid::Uuid::new_v4().to_string();
+            svc.set_agent_session_id(&pane_id, Some(id.clone()));
+            log::info!("[general-agent] Pre-assigned session id {} for fresh launch", id);
+            Some(id)
+        } else {
+            None
+        };
         let params = crate::agent::provider::AgentLaunchParams {
             agent_name: None,
             task: None,
             args: None,
             skip_permissions: true,
             headless: false,
+            session_id: pre_session_id,
         };
         match svc.agent_registry.with_provider(provider_name, |p| p.build_launch_command(&params)) {
             Some(cmd) => cmd,
