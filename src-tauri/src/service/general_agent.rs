@@ -320,10 +320,10 @@ pub fn start_general_agent(
 
     // Validate session_id: if provider can't resolve it to a file, it's stale/wrong-provider
     let session_id = if let Some(ref id) = session_id {
-        let found = svc.agent_registry.with_provider(provider_name, |p| {
-            p.session_file_path(&general_cwd, id).filter(|f| f.exists())
-        }).flatten();
-        if found.is_none() {
+        let valid = svc.agent_registry.with_provider(provider_name, |p| {
+            p.session_exists(&general_cwd, id)
+        }).unwrap_or(false);
+        if !valid {
             log::info!("[general-agent] Session '{}' not valid for provider '{}' — clearing, will detect fresh", id, provider_name);
             svc.set_agent_session_id(&pane_id, None);
             // Try detecting a valid session for this provider

@@ -334,6 +334,15 @@ pub trait AgentProvider: Send + Sync {
     /// Detect the most recent session ID for the given working directory.
     fn detect_session_id(&self, cwd: &str, exclude: &[String], max_age: Option<Duration>) -> Option<String>;
 
+    /// Whether a session id still has a backing file (JSONL / session store / whatever
+    /// the provider keeps). Default implementation is `session_file_path(...).exists()`.
+    /// Providers without file-based session storage override this.
+    fn session_exists(&self, cwd: &str, session_id: &str) -> bool {
+        self.session_file_path(cwd, session_id)
+            .map(|p| p.exists())
+            .unwrap_or(false)
+    }
+
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
 
