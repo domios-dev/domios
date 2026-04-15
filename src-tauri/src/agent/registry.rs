@@ -195,7 +195,12 @@ impl AgentRegistry {
         if opts.terms.is_empty() {
             return Vec::new();
         }
-        let lowered: Vec<String> = opts.terms.iter().map(|t| t.to_lowercase()).collect();
+        // Use ASCII-lowercase so the lowered string stays byte-for-byte aligned
+        // with the original. `str::to_lowercase` can change byte AND char count
+        // (`ß → ss`, `İ → i̇`), which would misalign snippet windows when we
+        // translate a lowercased-string position back into the original.
+        let lowered_terms: Vec<String> =
+            opts.terms.iter().map(|t| t.to_ascii_lowercase()).collect();
         let limit = if opts.limit == 0 { 10 } else { opts.limit };
         let max_snippets = if opts.max_snippets == 0 { 3 } else { opts.max_snippets };
 
@@ -220,20 +225,21 @@ impl AgentRegistry {
                     if msg.is_meta {
                         continue;
                     }
-                    let text_lc = msg.text.to_lowercase();
-                    if !lowered.iter().all(|t| text_lc.contains(t)) {
+                    let text_lc = msg.text.to_ascii_lowercase();
+                    if !lowered_terms.iter().all(|t| text_lc.contains(t)) {
                         continue;
                     }
                     matched_msgs += 1;
                     if snippets.len() < max_snippets {
-                        let pos = lowered
+                        // Positions in `text_lc` map 1:1 to bytes in `msg.text`
+                        // thanks to ascii-lowercasing.
+                        let pos = lowered_terms
                             .iter()
                             .filter_map(|t| text_lc.find(t))
                             .min()
                             .unwrap_or(0);
-                        let start = msg.text.floor_char_boundary(pos.saturating_sub(80));
-                        let end_raw = (pos + 120).min(msg.text.len());
-                        let end = msg.text.floor_char_boundary(end_raw);
+                        let start = floor_char_boundary(&msg.text, pos.saturating_sub(80));
+                        let end = floor_char_boundary(&msg.text, (pos + 120).min(msg.text.len()));
                         let mut snippet = msg.text[start..end].to_string();
                         if start > 0 {
                             snippet.insert_str(0, "…");
@@ -266,20 +272,15 @@ impl AgentRegistry {
     }
 }
 
-/// Crate-local shim: `str::floor_char_boundary` is still unstable on stable
-/// Rust, so provide a minimal equivalent. Returns the largest char boundary
-/// index <= `index`. Needed to slice UTF-8 safely inside a snippet window.
-trait FloorCharBoundary {
-    fn floor_char_boundary(&self, index: usize) -> usize;
-}
-impl FloorCharBoundary for str {
-    fn floor_char_boundary(&self, index: usize) -> usize {
-        let mut i = index.min(self.len());
-        while i > 0 && !self.is_char_boundary(i) {
-            i -= 1;
-        }
-        i
+/// Largest char boundary index ≤ `index`. Shim for the still-unstable
+/// `str::floor_char_boundary`; needed to slice UTF-8 safely inside the
+/// snippet window in `search_sessions`.
+fn floor_char_boundary(s: &str, index: usize) -> usize {
+    let mut i = index.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
     }
+    i
 }
 
 impl Default for AgentRegistry {

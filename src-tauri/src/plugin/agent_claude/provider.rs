@@ -52,11 +52,6 @@ impl ClaudeProvider {
         None
     }
 
-    fn fs_time_to_unix(t: std::io::Result<std::time::SystemTime>) -> Option<i64> {
-        t.ok()
-            .and_then(|st| st.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs() as i64)
-    }
 }
 
 impl AgentProvider for ClaudeProvider {
@@ -170,8 +165,8 @@ impl AgentProvider for ClaudeProvider {
                 }
                 let file_path_buf = f.path();
                 let meta = f.metadata().ok();
-                let created_ts = meta.as_ref().map(|m| Self::fs_time_to_unix(m.created())).unwrap_or(None);
-                let modified_ts = meta.as_ref().map(|m| Self::fs_time_to_unix(m.modified())).unwrap_or(None);
+                let created_ts = meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.created().ok()));
+                let modified_ts = meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
 
                 let entry_meta = index.get(stem);
                 let title = entry_meta
