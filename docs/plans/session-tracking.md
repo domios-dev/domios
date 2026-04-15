@@ -2,6 +2,14 @@
 
 Fix agent-session lifecycle across all providers: stop retrying stale sessions, detect which session belongs to which pane (even with multiple sessions in one cwd), and let users search past sessions from inside CodeTerm.
 
+## Status
+
+- **Task A** — DONE (`40de383`). Validate session file before `--resume`.
+- **Task B1** — DONE (`f8b4d9a`). Proactive `--session-id` injection for Claude. Stress-tested with 5 panes in one cwd: each got a unique UUID, all restored correctly after restart.
+- **Task B2** — DONE (`d590e9d`). Claude `SessionStart` hook + auth exemption for loopback hook callbacks. Covers `/new` and `/clear` inside the TUI.
+- **Task B3** — DEFERRED. Content-fingerprint fallback for providers without injection + hooks. Only needed once we add a non-Claude provider that has session files but no way to announce its id.
+- **Task C** — DONE (`dabd5c3`). Cross-provider session search via CLI + REST. Claude parses JSONLs; Codex still on the default stub (returns empty until its on-disk schema is audited).
+
 ## Context
 
 Current state after `993f8e7`:
