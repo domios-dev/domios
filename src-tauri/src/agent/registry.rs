@@ -168,6 +168,22 @@ impl AgentRegistry {
         out
     }
 
+    /// Locate a session by id across all registered providers. Returns the
+    /// provider-id-matching `SessionMetadata` (file_path, cwd, etc.), or
+    /// None if nothing claims it. Used by "resume a past session" flows so
+    /// callers can open the agent in the RIGHT cwd instead of guessing.
+    pub fn find_session(&self, session_id: &str) -> Option<SessionMetadata> {
+        let guard = self.providers.read();
+        for provider in guard.values() {
+            for meta in provider.enumerate_sessions() {
+                if meta.session_id == session_id {
+                    return Some(meta);
+                }
+            }
+        }
+        None
+    }
+
     /// Cross-provider session search. Iterates every registered provider,
     /// calls `enumerate_sessions()` + `parse_session_messages()`, and returns
     /// merged hits sorted by most-recently-modified. Providers that haven't

@@ -159,9 +159,9 @@ Do NOT load every skill upfront. Fetch specific bodies only after a search ident
 
 ## Past sessions (vs mem)
 
-`codeterm sessions search "<query>"` — searches raw conversation JSONLs across all providers; each hit tagged with `provider` + ready-to-run resume command. Use when the user wants to find an old chat ("where did we talk about X", "resume that…"). Flags: `--provider`, `--project`, `--limit`.
-
-Resume must run IN the session's original cwd (`claude --resume` / `codex resume` scan the current project dir for the JSONL). The CLI prints a combined `cd <path> && <agent> resume <id>` — copy that verbatim, or when spawning a new pane pass `--cwd <project_path>`.
+`codeterm sessions search "<query>"` — find past chats by content. Flags: `--provider`, `--project`, `--limit`.
+`codeterm sessions get <id>` — probe a session (provider, cwd, file path).
+`codeterm sessions resume <id>` — **atomic resume**. Creates workspace at the session's original cwd, spawns agent pane, passes resume id to provider. Use this instead of manually doing `workspace create → agent spawn --args=--resume=UUID` — the manual path keeps breaking because `claude --resume` needs the JSONL in the current encoded project dir.
 
 `mem search` — facts/notes/skills in long-term memory. Use for digested decisions and knowledge.
 

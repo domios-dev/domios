@@ -301,6 +301,31 @@ pub enum SessionsAction {
         #[arg(long, default_value = "3")]
         max_snippets: usize,
     },
+    /// Resume a past session in its original cwd. Atomic replacement for
+    /// the "workspace create → agent spawn --args=--resume=UUID" dance
+    /// which keeps failing because Claude/Codex look for the JSONL in the
+    /// current cwd. This command: finds the session across providers,
+    /// creates a workspace at the right project path, spawns an agent
+    /// pane there, and hands the resume id to the provider correctly.
+    Resume {
+        /// Session id to resume (UUID).
+        session_id: String,
+        /// Tab title for the new pane. Defaults to "resumed <shortid>".
+        #[arg(long)]
+        title: Option<String>,
+        /// Reuse an existing workspace instead of creating a new one.
+        #[arg(long)]
+        workspace_id: Option<String>,
+        /// Custom name for the new workspace (default: basename of cwd).
+        #[arg(long)]
+        workspace_name: Option<String>,
+    },
+    /// Print metadata for a past session (provider, cwd, file path, times).
+    /// Read-only probe — use before `sessions resume` to verify the session
+    /// is still on disk.
+    Get {
+        session_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -3291,6 +3316,72 @@ fn handle_sessions(
                         println!();
                     }
                 }
+            }
+        }
+        SessionsAction::Resume { session_id, title, workspace_id, workspace_name } => {
+            let mut body = serde_json::Map::new();
+            if let Some(t) = title { body.insert("title".into(), serde_json::Value::String(t)); }
+            if let Some(w) = workspace_id { body.insert("workspace_id".into(), serde_json::Value::String(w)); }
+            if let Some(n) = workspace_name { body.insert("workspace_name".into(), serde_json::Value::String(n)); }
+
+            let url = format!("{}/api/sessions/{}/resume", base, urlencoding::encode(&session_id));
+            let mut req = http.post(&url).json(&serde_json::Value::Object(body));
+            if let Some(t) = token {
+                req = req.header("Authorization", format!("Bearer {}", t));
+            }
+            match req.send() {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let val: serde_json::Value = resp.json().unwrap_or_default();
+                    if json_mode {
+                        println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
+                        return;
+                    }
+                    if !status.is_success() {
+                        eprintln!("Error: {} — {}", status, val);
+                        std::process::exit(1);
+                    }
+                    let pane = val.get("pane_id").and_then(|v| v.as_str()).unwrap_or("?");
+                    let ws = val.get("workspace_id").and_then(|v| v.as_str()).unwrap_or("?");
+                    let provider = val.get("provider").and_then(|v| v.as_str()).unwrap_or("?");
+                    let cwd = val.get("cwd").and_then(|v| v.as_str()).unwrap_or("?");
+                    println!("Resumed [{}] {}", provider, session_id);
+                    println!("  workspace: {}", ws);
+                    println!("  pane:      {}", pane);
+                    println!("  cwd:       {}", cwd);
+                }
+                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+            }
+        }
+        SessionsAction::Get { session_id } => {
+            let url = format!("{}/api/sessions/{}", base, urlencoding::encode(&session_id));
+            let mut req = http.get(&url);
+            if let Some(t) = token {
+                req = req.header("Authorization", format!("Bearer {}", t));
+            }
+            match req.send() {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let val: serde_json::Value = resp.json().unwrap_or_default();
+                    if json_mode {
+                        println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
+                        return;
+                    }
+                    if !status.is_success() {
+                        eprintln!("Error: {} — {}", status, val);
+                        std::process::exit(1);
+                    }
+                    let provider = val.get("provider").and_then(|v| v.as_str()).unwrap_or("?");
+                    let cwd = val.get("project_path").and_then(|v| v.as_str()).unwrap_or("-");
+                    let file = val.get("file_path").and_then(|v| v.as_str()).unwrap_or("-");
+                    let modified = val.get("modified_ts").and_then(|v| v.as_i64()).unwrap_or(0);
+                    println!("session: {}", session_id);
+                    println!("  provider: {}", provider);
+                    println!("  cwd:      {}", cwd);
+                    println!("  file:     {}", file);
+                    println!("  modified: {}", format_unix_ts(modified));
+                }
+                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
             }
         }
     }

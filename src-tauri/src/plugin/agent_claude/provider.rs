@@ -30,12 +30,26 @@ impl ClaudeProvider {
         Some(home.join(".claude").join("projects").join(encoded))
     }
 
-    /// Best-effort decode of the encoded project directory name back to a
-    /// filesystem path. Claude encodes `/Users/x/proj` as `-Users-x-proj`.
-    /// Irreversible if the original path had `-` chars, so this is only used
-    /// for display and filtering — never for reopening files.
-    fn decode_project_dir(dirname: &str) -> Option<String> {
-        dirname.strip_prefix('-').map(|rest| format!("/{}", rest.replace('-', "/")))
+    /// Read the real cwd out of a Claude session JSONL. Claude's directory
+    /// encoding collapses both `/` and `_` (and other non-alphanumerics)
+    /// into `-`, so the dir name like `-Users-x-eco-iq` ambiguously maps
+    /// back to several real paths (`/Users/x/eco/iq`, `/Users/x/eco_iq`,
+    /// `/Users/x/e-co/iq`, …). Pick up the authoritative value from the
+    /// first few JSONL lines, where every message carries a `cwd` field.
+    fn read_session_cwd(file_path: &std::path::Path) -> Option<String> {
+        use std::io::{BufRead, BufReader};
+        let f = std::fs::File::open(file_path).ok()?;
+        let reader = BufReader::new(f);
+        // cwd appears on every message line but not on the permission-mode
+        // header, so bound the scan to the first ~20 lines.
+        for line in reader.lines().take(20).map_while(Result::ok) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+                if let Some(cwd) = v.get("cwd").and_then(|c| c.as_str()) {
+                    return Some(cwd.to_string());
+                }
+            }
+        }
+        None
     }
 
     fn fs_time_to_unix(t: std::io::Result<std::time::SystemTime>) -> Option<i64> {
@@ -128,8 +142,6 @@ impl AgentProvider for ClaudeProvider {
                 continue;
             }
             let dir_path = entry.path();
-            let dir_name = entry.file_name().to_string_lossy().to_string();
-            let project_path = Self::decode_project_dir(&dir_name);
 
             // Also look for a sessions-index.json to pick up titles/summaries.
             let index: std::collections::HashMap<String, serde_json::Value> =
@@ -156,6 +168,7 @@ impl AgentProvider for ClaudeProvider {
                 if stem.len() < 32 || !stem.contains('-') {
                     continue;
                 }
+                let file_path_buf = f.path();
                 let meta = f.metadata().ok();
                 let created_ts = meta.as_ref().map(|m| Self::fs_time_to_unix(m.created())).unwrap_or(None);
                 let modified_ts = meta.as_ref().map(|m| Self::fs_time_to_unix(m.modified())).unwrap_or(None);
@@ -167,14 +180,17 @@ impl AgentProvider for ClaudeProvider {
                 let summary = entry_meta
                     .and_then(|v| v.get("summary").and_then(|s| s.as_str()))
                     .map(String::from);
+                // Read real cwd from the JSONL itself — the directory name
+                // encoding is lossy (both `/` and `_` become `-`).
+                let project_path = Self::read_session_cwd(&file_path_buf);
 
                 out.push(SessionMetadata {
                     session_id: stem.to_string(),
                     provider: "claude".to_string(),
-                    project_path: project_path.clone(),
+                    project_path,
                     title,
                     summary,
-                    file_path: f.path().to_string_lossy().to_string(),
+                    file_path: file_path_buf.to_string_lossy().to_string(),
                     created_ts,
                     modified_ts,
                 });
