@@ -29,9 +29,43 @@ struct Response {
     error: Option<String>,
 }
 
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn ensure_ort_dylib() {
+    if std::env::var_os("ORT_DYLIB_PATH").is_some() {
+        return;
+    }
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    let dir = match exe.parent() {
+        Some(d) => d,
+        None => return,
+    };
+    let candidates = [
+        dir.join("libonnxruntime.dylib"),
+        dir.join("../Resources/_up_/embed-libs/libonnxruntime.dylib"),
+        dir.join("../Resources/embed-libs/libonnxruntime.dylib"),
+        dir.join("../Frameworks/libonnxruntime.dylib"),
+    ];
+    for c in &candidates {
+        if c.exists() {
+            std::env::set_var("ORT_DYLIB_PATH", c);
+            eprintln!("[codeterm-embed] ORT_DYLIB_PATH={}", c.display());
+            return;
+        }
+    }
+    eprintln!("[codeterm-embed] no bundled libonnxruntime.dylib found near {}", dir.display());
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+fn ensure_ort_dylib() {}
+
 #[cfg(feature = "embeddings")]
 fn main() {
     use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+
+    ensure_ort_dylib();
 
     let mut model = match TextEmbedding::try_new(
         InitOptions::new(EmbeddingModel::ParaphraseMLMiniLML12V2),

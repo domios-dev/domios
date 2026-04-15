@@ -61,6 +61,13 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
 objc2-foundation = "0.3"
 
+# x86_64 macOS: pyke does not ship an ort prebuilt for this target, so we
+# enable fastembed's `ort-load-dynamic` feature and dlopen libonnxruntime
+# at runtime from a dylib bundled next to the app binary. arm64 keeps
+# static linking via the default `download-binaries` path.
+[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
+fastembed = { version = "5", optional = true, features = ["ort-load-dynamic"] }
+
 [target.'cfg(windows)'.dependencies]
 conpty = "0.7"
 clipboard-win = "5"
