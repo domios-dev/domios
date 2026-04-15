@@ -1,8 +1,45 @@
 use std::collections::HashMap;
 
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 
-use super::provider::AgentProvider;
+use super::provider::{AgentProvider, SessionMetadata};
+
+/// One matching snippet from a session message, with enough surrounding
+/// context for a human to decide whether to resume the session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSnippet {
+    pub role: String,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ts: Option<i64>,
+}
+
+/// One session search hit: metadata + the top-N snippets that contained
+/// the query terms. Provider-agnostic — `meta.provider` tags the origin.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSearchHit {
+    pub meta: SessionMetadata,
+    pub snippets: Vec<SessionSnippet>,
+    pub match_count: usize,
+}
+
+/// Filters/limits for a cross-provider session search.
+#[derive(Debug, Clone, Default)]
+pub struct SessionSearchOpts {
+    /// Each term must appear (case-insensitive) in at least one message of
+    /// a session for it to match. `terms` is typically the whitespace split
+    /// of a user query.
+    pub terms: Vec<String>,
+    /// Restrict to a specific provider id (e.g. "claude"). `None` = all.
+    pub provider: Option<String>,
+    /// Restrict to sessions whose recorded `project_path` equals this value.
+    pub project_path: Option<String>,
+    /// Max number of hits returned, ordered by most-recently-modified first.
+    pub limit: usize,
+    /// Max snippets returned per session.
+    pub max_snippets: usize,
+}
 
 /// Registry of available agent providers.
 ///
@@ -129,6 +166,103 @@ impl AgentRegistry {
         let out: Vec<_> = guard.values().map(|p| p.describe()).collect();
         drop(guard);
         out
+    }
+
+    /// Cross-provider session search. Iterates every registered provider,
+    /// calls `enumerate_sessions()` + `parse_session_messages()`, and returns
+    /// merged hits sorted by most-recently-modified. Providers that haven't
+    /// implemented the trait methods silently contribute nothing.
+    ///
+    /// Kept on-demand (no persistent index) for v1 — JSONLs are small and
+    /// session counts are typically <1000. Upgrade to FTS5 when perf bites.
+    pub fn search_sessions(&self, opts: &SessionSearchOpts) -> Vec<SessionSearchHit> {
+        if opts.terms.is_empty() {
+            return Vec::new();
+        }
+        let lowered: Vec<String> = opts.terms.iter().map(|t| t.to_lowercase()).collect();
+        let limit = if opts.limit == 0 { 10 } else { opts.limit };
+        let max_snippets = if opts.max_snippets == 0 { 3 } else { opts.max_snippets };
+
+        let guard = self.providers.read();
+        let mut hits: Vec<SessionSearchHit> = Vec::new();
+        for provider in guard.values() {
+            if let Some(ref pid) = opts.provider {
+                if pid != provider.id() {
+                    continue;
+                }
+            }
+            for meta in provider.enumerate_sessions() {
+                if let Some(ref proj) = opts.project_path {
+                    if meta.project_path.as_deref() != Some(proj.as_str()) {
+                        continue;
+                    }
+                }
+                let messages = provider.parse_session_messages(std::path::Path::new(&meta.file_path));
+                let mut matched_msgs = 0usize;
+                let mut snippets: Vec<SessionSnippet> = Vec::new();
+                for msg in &messages {
+                    if msg.is_meta {
+                        continue;
+                    }
+                    let text_lc = msg.text.to_lowercase();
+                    if !lowered.iter().all(|t| text_lc.contains(t)) {
+                        continue;
+                    }
+                    matched_msgs += 1;
+                    if snippets.len() < max_snippets {
+                        let pos = lowered
+                            .iter()
+                            .filter_map(|t| text_lc.find(t))
+                            .min()
+                            .unwrap_or(0);
+                        let start = msg.text.floor_char_boundary(pos.saturating_sub(80));
+                        let end_raw = (pos + 120).min(msg.text.len());
+                        let end = msg.text.floor_char_boundary(end_raw);
+                        let mut snippet = msg.text[start..end].to_string();
+                        if start > 0 {
+                            snippet.insert_str(0, "…");
+                        }
+                        if end < msg.text.len() {
+                            snippet.push('…');
+                        }
+                        snippets.push(SessionSnippet {
+                            role: msg.role.clone(),
+                            text: snippet,
+                            ts: msg.ts,
+                        });
+                    }
+                }
+                if !snippets.is_empty() {
+                    hits.push(SessionSearchHit { meta, snippets, match_count: matched_msgs });
+                }
+            }
+        }
+        drop(guard);
+
+        hits.sort_by(|a, b| {
+            b.meta
+                .modified_ts
+                .unwrap_or(0)
+                .cmp(&a.meta.modified_ts.unwrap_or(0))
+        });
+        hits.truncate(limit);
+        hits
+    }
+}
+
+/// Crate-local shim: `str::floor_char_boundary` is still unstable on stable
+/// Rust, so provide a minimal equivalent. Returns the largest char boundary
+/// index <= `index`. Needed to slice UTF-8 safely inside a snippet window.
+trait FloorCharBoundary {
+    fn floor_char_boundary(&self, index: usize) -> usize;
+}
+impl FloorCharBoundary for str {
+    fn floor_char_boundary(&self, index: usize) -> usize {
+        let mut i = index.min(self.len());
+        while i > 0 && !self.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
     }
 }
 

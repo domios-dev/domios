@@ -77,6 +77,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/hook/session_start", post(hook_session_start))
         .route("/api/agents", get(list_agents))
         .route("/api/agents/providers", get(list_agent_providers))
+        .route("/api/sessions/search", get(search_sessions_api))
         .route("/api/agents/hierarchy", get(get_hierarchy))
         .route("/api/agents/spawn", post(spawn_agent))
         .route("/api/batch", post(batch_commands))
@@ -1389,6 +1390,49 @@ async fn hook_session_start(
     state.svc.set_agent_session_id(&pane_id, Some(sid));
     state.svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true, "changed": true})))
+}
+
+#[derive(Deserialize)]
+struct SearchSessionsQuery {
+    q: String,
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    max_snippets: Option<usize>,
+}
+
+/// Cross-provider session search: walks every registered `AgentProvider`,
+/// collects past sessions from disk, and returns matches ranked by recency.
+/// Each hit carries its `provider` so callers can route a "resume in new pane"
+/// action to the correct launcher.
+async fn search_sessions_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<SearchSessionsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let terms: Vec<String> = q
+        .q
+        .split_whitespace()
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if terms.is_empty() {
+        return Ok(Json(serde_json::json!({ "hits": [] })));
+    }
+    let opts = crate::agent::registry::SessionSearchOpts {
+        terms,
+        provider: q.provider.filter(|p| p != "all" && !p.is_empty()),
+        project_path: q.project,
+        limit: q.limit.unwrap_or(10),
+        max_snippets: q.max_snippets.unwrap_or(3),
+    };
+    let hits = state.svc.agent_registry.search_sessions(&opts);
+    Ok(Json(serde_json::json!({ "hits": hits })))
 }
 
 async fn list_agents(

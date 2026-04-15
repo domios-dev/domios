@@ -47,6 +47,37 @@ pub enum SessionIdInjection {
     FreshAndFork,
 }
 
+/// Provider-reported metadata for one past session (found on disk).
+/// Used by the cross-provider session search so results from Claude,
+/// Codex, and future providers arrive in the same shape.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionMetadata {
+    pub session_id: String,
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub file_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_ts: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified_ts: Option<i64>,
+}
+
+/// A single message extracted from a session file by the provider's parser.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionMessage {
+    pub role: String,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ts: Option<i64>,
+    #[serde(default)]
+    pub is_meta: bool,
+}
+
 // ── Plugin self-presentation types (Chunk B.1) ─────────────────────
 //
 // `ProviderDescriptor` is the wire format every plugin reports through
@@ -369,6 +400,23 @@ pub trait AgentProvider: Send + Sync {
     /// has to detect them post-launch via `detect_session_id`.
     fn session_id_injection(&self) -> SessionIdInjection {
         SessionIdInjection::None
+    }
+
+    /// Enumerate all past sessions this provider keeps on disk.
+    /// Used by the cross-provider session search. Default returns empty —
+    /// providers without on-disk session history (or not yet implemented)
+    /// contribute nothing and fall out of search silently.
+    fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
+        Vec::new()
+    }
+
+    /// Extract conversation messages from a session file produced by this
+    /// provider. Called by the search pipeline for each candidate session;
+    /// returning `vec![]` means this provider can't participate in content
+    /// search yet. Must be pure + I/O-only (no locks, no process calls).
+    fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
+        let _ = file_path;
+        Vec::new()
     }
 
     /// Whether this agent supports hook-based detection (vs PTY parsing fallback).

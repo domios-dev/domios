@@ -189,10 +189,14 @@ pub async fn spawn_pty(
                 tokio::spawn(async move {
                     if !resume_enabled { return; }
 
+                    // 60s is generous but matters under contention: at app
+                    // restart dozens of panes spawn in parallel and shell
+                    // initialization can stall well past the old 15s budget
+                    // (observed 14-20s for Nth-pane zsh under load on macOS).
                     let ready = tokio::task::spawn_blocking(move || {
                         crate::service::pty_io::poll_shell_prompt(
                             &screen_state_clone, &pty_id_for_poll,
-                            std::time::Duration::from_secs(15),
+                            std::time::Duration::from_secs(60),
                         )
                     }).await.unwrap_or(false);
 
