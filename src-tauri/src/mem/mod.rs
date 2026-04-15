@@ -164,6 +164,7 @@ pub fn compose_embed_text(
     format!("{}\n\n{}", header, body)
 }
 
+#[cfg(feature = "embeddings")]
 fn query_missing_vectors(conn: &rusqlite::Connection) -> Vec<(String, String)> {
     let sql = r#"SELECT m.id, m.kind, m.title, m.area, m.tags_json, COALESCE(m.body_inline, '')
                  FROM mem_items m
