@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sigma from "sigma";
 import Graph from "graphology";
+import EdgeCurveProgram from "@sigma/edge-curve";
 import type { ApiConfig } from "../../lib/types";
 import { MemoryNodeDetail } from "./MemoryNodeDetail";
 import { colorForKind, KIND_COLORS } from "./nodeKind";
@@ -25,10 +26,13 @@ interface Props {
   physicsEnabled: boolean;
 }
 
-// Normalize importance [1..10] → node size [4..14].
 function nodeSize(n: MemNode): number {
-  return Math.max(4, Math.min(14, 3 + (n.importance ?? 3) * 1.1));
+  const imp = n.importance ?? 3;
+  return Math.max(3, Math.min(8, 2.5 + imp * 0.6));
 }
+
+const SELECTION_COLOR = "#c9d1d9";
+const EDGE_RGB = "201,209,217";
 
 export function MemoryCanvas({
   api,
@@ -49,10 +53,11 @@ export function MemoryCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
   const graphRef = useRef<Graph | null>(null);
-  const dragRef = useRef<{ id: string; active: boolean }>({ id: "", active: false });
+  const draggingRef = useRef<string | null>(null);
 
   const [selectedIdInternal, setSelectedIdInternal] = useState<string | null>(null);
-  const selectedId = selectedIdOverride !== undefined ? selectedIdOverride : selectedIdInternal;
+  const selectedId =
+    selectedIdOverride !== undefined ? selectedIdOverride : selectedIdInternal;
   const setSelectedId = useCallback(
     (id: string | null) => {
       setSelectedIdInternal(id);
@@ -68,21 +73,101 @@ export function MemoryCanvas({
     enabled: physicsEnabled,
   });
 
-  // Sigma init / teardown. Creates one instance bound to the container,
-  // tears down on unmount. Graph topology is written in a separate effect
-  // so hot-reload and data updates don't thrash the WebGL context.
+  // Keep callbacks referenced by event handlers in a ref so the init effect
+  // can run once without re-subscribing when callbacks change.
+  const handlersRef = useRef({
+    setSelectedId,
+    pin: layout.pin,
+    setPos: layout.setPosition,
+    pinPosition,
+  });
+  handlersRef.current = {
+    setSelectedId,
+    pin: layout.pin,
+    setPos: layout.setPosition,
+    pinPosition,
+  };
+
+  // Selection id lives in a ref so the nodeReducer (per-frame closure) sees
+  // the latest value without re-wiring sigma.
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selectedId ?? null;
+  useEffect(() => {
+    sigmaRef.current?.refresh({ skipIndexation: true });
+  }, [selectedId]);
+
   useEffect(() => {
     if (!containerRef.current) return;
     const graph = new Graph({ multi: false });
     graphRef.current = graph;
+
     const sigma = new Sigma(graph, containerRef.current, {
       renderLabels: true,
       renderEdgeLabels: false,
-      labelRenderedSizeThreshold: 12,
-      defaultNodeType: "circle",
-      defaultEdgeType: "line",
+      labelColor: { color: "#c9d1d9" },
+      labelWeight: "400",
+      labelSize: 11,
+      labelDensity: 0.6,
+      labelGridCellSize: 80,
+      labelRenderedSizeThreshold: 5,
+      minCameraRatio: 0.1,
+      maxCameraRatio: 10,
+      defaultEdgeType: "curve",
+      edgeProgramClasses: { curve: EdgeCurveProgram },
+      nodeReducer: (node, data) => {
+        if (selectedIdRef.current === node) {
+          return {
+            ...data,
+            highlighted: true,
+            color: SELECTION_COLOR,
+            size: (data.size as number) + 2,
+            zIndex: 1,
+          };
+        }
+        return data;
+      },
     });
     sigmaRef.current = sigma;
+
+    sigma.on("clickNode", ({ node }) => handlersRef.current.setSelectedId(node));
+    sigma.on("clickStage", () => handlersRef.current.setSelectedId(null));
+
+    sigma.on("downNode", ({ node }) => {
+      draggingRef.current = node;
+      const attrs = graph.getNodeAttributes(node);
+      handlersRef.current.pin(node, {
+        x: attrs.x as number,
+        y: -(attrs.y as number),
+      });
+      graph.setNodeAttribute(node, "highlighted", true);
+      if (!sigma.getCustomBBox()) sigma.setCustomBBox(sigma.getBBox());
+    });
+
+    sigma.on("moveBody", ({ event }) => {
+      const id = draggingRef.current;
+      if (!id) return;
+      const pos = sigma.viewportToGraph(event);
+      graph.setNodeAttribute(id, "x", pos.x);
+      graph.setNodeAttribute(id, "y", pos.y);
+      handlersRef.current.setPos(id, { x: pos.x, y: -pos.y });
+      event.preventSigmaDefault();
+      event.original.preventDefault();
+      event.original.stopPropagation();
+    });
+
+    const handleUp = () => {
+      const id = draggingRef.current;
+      if (!id) return;
+      const attrs = graph.getNodeAttributes(id);
+      const x = attrs.x as number;
+      const y = -(attrs.y as number);
+      graph.removeNodeAttribute(id, "highlighted");
+      handlersRef.current.pinPosition(id, x, y);
+      draggingRef.current = null;
+    };
+    sigma.on("upNode", handleUp);
+    sigma.on("upStage", handleUp);
+
     return () => {
       sigma.kill();
       sigmaRef.current = null;
@@ -90,75 +175,23 @@ export function MemoryCanvas({
     };
   }, []);
 
-  // Wire selection: click on a node = select; click on empty space = deselect.
-  useEffect(() => {
-    const sigma = sigmaRef.current;
-    if (!sigma) return;
-    const onClickNode = ({ node }: { node: string }) => setSelectedId(node);
-    const onClickStage = () => setSelectedId(null);
-    sigma.on("clickNode", onClickNode);
-    sigma.on("clickStage", onClickStage);
-    return () => {
-      sigma.off("clickNode", onClickNode);
-      sigma.off("clickStage", onClickStage);
-    };
-  }, [setSelectedId]);
-
-  // Wire drag: pin on drag-start (so the worker respects the position),
-  // emit position updates every move, persist pin on drag-release.
-  useEffect(() => {
-    const sigma = sigmaRef.current;
-    if (!sigma) return;
-
-    const onDownNode = (evt: { node: string; event: { preventSigmaDefault: () => void } }) => {
-      dragRef.current = { id: evt.node, active: true };
-      const pos = layout.positions.get(evt.node);
-      if (pos) layout.pin(evt.node, pos);
-      evt.event.preventSigmaDefault();
-    };
-    const onMove = (evt: { x: number; y: number }) => {
-      if (!dragRef.current.active) return;
-      const id = dragRef.current.id;
-      const graphPos = sigma.viewportToGraph({ x: evt.x, y: evt.y });
-      layout.setPosition(id, { x: graphPos.x, y: graphPos.y });
-    };
-    const onUp = () => {
-      if (!dragRef.current.active) return;
-      const id = dragRef.current.id;
-      const pos = layout.positions.get(id);
-      if (pos) pinPosition(id, pos.x, pos.y);
-      dragRef.current = { id: "", active: false };
-    };
-
-    sigma.on("downNode", onDownNode);
-    sigma.getMouseCaptor().on("mousemovebody", onMove);
-    sigma.getMouseCaptor().on("mouseup", onUp);
-    return () => {
-      sigma.off("downNode", onDownNode);
-      sigma.getMouseCaptor().off("mousemovebody", onMove);
-      sigma.getMouseCaptor().off("mouseup", onUp);
-    };
-  }, [layout, pinPosition]);
-
-  // Sync graph topology (nodes/edges) when the data source changes. Positions
-  // get filled in from the layout cache when available, otherwise Sigma puts
-  // the node at (0,0) and the next layout tick moves it.
+  // Sync graph topology. Positions come from layout.positions (already
+  // seeded by useGraphLayout before this effect fires — hook order).
   useEffect(() => {
     const graph = graphRef.current;
     const sigma = sigmaRef.current;
     if (!graph || !sigma) return;
 
-    const currentNodeIds = new Set(graph.nodes());
-    const wantedNodeIds = new Set(nodes.keys());
-
-    for (const id of currentNodeIds) {
-      if (!wantedNodeIds.has(id)) graph.dropNode(id);
+    const wanted = new Set(nodes.keys());
+    for (const id of graph.nodes()) {
+      if (!wanted.has(id)) graph.dropNode(id);
     }
     for (const [id, n] of nodes) {
       const pos = layout.positions.get(id) ?? { x: 0, y: 0 };
+      // Sigma's screen y grows downwards; layout uses math-up.
       const attrs = {
         x: pos.x,
-        y: -pos.y, // Sigma's y is screen-down, layout uses math-up
+        y: -pos.y,
         size: nodeSize(n),
         color: colorForKind(n.kind),
         label: n.title,
@@ -174,67 +207,66 @@ export function MemoryCanvas({
       wantedEdges.add(key);
       if (!graph.hasEdge(key)) {
         try {
+          const conf = e.confidence ?? 0.5;
           graph.addEdgeWithKey(key, e.from, e.to, {
-            size: 0.4 + (e.confidence ?? 0.5) * 0.8,
-            color: `rgba(255,255,255,${0.12 + (e.confidence ?? 0.5) * 0.35})`,
+            size: 0.1 + conf * 0.2,
+            color: `rgba(${EDGE_RGB},${0.06 + conf * 0.14})`,
           });
         } catch {
-          /* duplicate */
+          /* duplicate — ignore */
         }
       }
     }
     for (const key of graph.edges()) {
       if (!wantedEdges.has(key)) graph.dropEdge(key);
     }
-    sigma.refresh();
-  }, [nodes, edges, layout.positions]);
+  }, [nodes, edges]);
 
-  // Stream physics ticks back into Sigma.
+  // Stream physics ticks into sigma's graphology store. Skip the dragged
+  // node so the user's mouse owns it; re-apply on release.
   useEffect(() => {
     const graph = graphRef.current;
-    const sigma = sigmaRef.current;
-    if (!graph || !sigma) return;
+    if (!graph) return;
+    const dragging = draggingRef.current;
     for (const [id, pos] of layout.positions) {
-      if (graph.hasNode(id)) {
-        graph.setNodeAttribute(id, "x", pos.x);
-        graph.setNodeAttribute(id, "y", -pos.y);
-      }
+      if (!graph.hasNode(id)) continue;
+      if (id === dragging) continue;
+      graph.setNodeAttribute(id, "x", pos.x);
+      graph.setNodeAttribute(id, "y", -pos.y);
     }
-    sigma.refresh();
   }, [layout.version]);
 
-  // Pulse rendering: bump the matching node's size briefly. Cheap — Sigma
-  // redraws on attribute change, no extra layers.
   useEffect(() => {
     const graph = graphRef.current;
-    const sigma = sigmaRef.current;
-    if (!graph || !sigma) return;
-    for (const [id, _pulse] of pulses) {
+    if (!graph) return;
+    const timers: number[] = [];
+    for (const [id, pulse] of pulses) {
       if (!graph.hasNode(id)) continue;
       const n = nodes.get(id);
       if (!n) continue;
-      graph.setNodeAttribute(id, "size", nodeSize(n) * 1.4);
+      const base = nodeSize(n);
+      graph.mergeNodeAttributes(id, { color: pulse.color, size: base + 1.5 });
+      timers.push(
+        window.setTimeout(() => {
+          const g = graphRef.current;
+          if (!g?.hasNode(id)) return;
+          g.mergeNodeAttributes(id, { color: colorForKind(n.kind), size: base });
+        }, 500),
+      );
     }
-    sigma.refresh();
-    const t = window.setTimeout(() => {
-      if (!graphRef.current) return;
-      for (const [id] of pulses) {
-        if (!graph.hasNode(id)) continue;
-        const n = nodes.get(id);
-        if (!n) continue;
-        graph.setNodeAttribute(id, "size", nodeSize(n));
-      }
-      sigmaRef.current?.refresh();
-    }, 600);
-    return () => window.clearTimeout(t);
+    return () => {
+      for (const t of timers) window.clearTimeout(t);
+    };
   }, [pulses, nodes]);
 
-  // Fit / recenter registration (MemoryPanel wires buttons to these).
+  // Manual fit/recenter buttons — compute bbox + ratio to fit the graph
+  // within the container with 15% padding. Ratio=1 would be 1-graph-unit
+  // per screen pixel, which blanks the view at our seed layout scale.
   const doFit = useCallback(() => {
     const sigma = sigmaRef.current;
     const graph = graphRef.current;
-    if (!sigma || !graph || graph.order === 0) return;
-    // Compute bbox of all node positions in graph space.
+    const el = containerRef.current;
+    if (!sigma || !graph || !el || graph.order === 0) return;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     graph.forEachNode((_id, attrs) => {
       const x = attrs.x as number;
@@ -247,25 +279,20 @@ export function MemoryCanvas({
     if (!isFinite(minX)) return;
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
-    const camera = sigma.getCamera();
-    camera.animate({ x: cx, y: cy, ratio: 1 }, { duration: 300 });
-  }, []);
-  const doRecenter = useCallback(() => {
-    sigmaRef.current?.getCamera().animate({ x: 0, y: 0, ratio: 1 }, { duration: 300 });
+    const w = Math.max(1, maxX - minX);
+    const h = Math.max(1, maxY - minY);
+    const pad = 1.15;
+    const ratio = Math.max(
+      (w * pad) / Math.max(1, el.clientWidth),
+      (h * pad) / Math.max(1, el.clientHeight),
+      0.1,
+    );
+    sigma.getCamera().animate({ x: cx, y: cy, ratio }, { duration: 300 });
   }, []);
   useEffect(() => {
     registerFit(doFit);
-    registerRecenter(doRecenter);
-  }, [registerFit, registerRecenter, doFit, doRecenter]);
-
-  // First-load auto-fit after positions settle.
-  const autoFittedRef = useRef(false);
-  useEffect(() => {
-    if (autoFittedRef.current) return;
-    if (nodes.size === 0 || layout.positions.size === 0) return;
-    autoFittedRef.current = true;
-    requestAnimationFrame(doFit);
-  }, [nodes.size, layout.positions.size, doFit]);
+    registerRecenter(doFit);
+  }, [registerFit, registerRecenter, doFit]);
 
   const selectedNode = selectedId ? nodes.get(selectedId) ?? null : null;
 
@@ -289,7 +316,6 @@ export function MemoryCanvas({
   return (
     <div className="absolute inset-0 overflow-hidden bg-[var(--ct-bg)]">
       <div ref={containerRef} className="absolute inset-0" />
-
       {selectedNode && (
         <MemoryNodeDetail
           api={api}
@@ -301,12 +327,13 @@ export function MemoryCanvas({
           onUnpin={isSelectedPinned ? handleUnpin : undefined}
         />
       )}
-
-      {/* Kind legend */}
-      <div className="absolute bottom-3 left-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--ct-muted-fg)] pointer-events-none opacity-60">
+      <div className="absolute bottom-3 left-3 right-3 max-w-[520px] flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--ct-muted-fg)] pointer-events-none opacity-55 leading-[1.4]">
         {Object.entries(KIND_COLORS).map(([kind, color]) => (
-          <span key={kind} className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full inline-block" style={{ background: color }} />
+          <span key={kind} className="flex items-center gap-1 whitespace-nowrap">
+            <span
+              className="w-1.5 h-1.5 rounded-full inline-block shrink-0"
+              style={{ background: color }}
+            />
             {kind}
           </span>
         ))}
