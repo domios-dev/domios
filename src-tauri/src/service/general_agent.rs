@@ -574,7 +574,8 @@ pub fn start_watchdog(
                     log::info!("[general-agent/watchdog] Agent not running — restarting ({}/{})",
                         consecutive_restarts, general_config.max_restart_attempts);
                     // Clear stale agent_type so start_general_agent doesn't skip with "Already running"
-                    if let Some(pid) = mux.lock().resolve_pane_id(GENERAL_ALIAS) {
+                    let pid = mux.lock().resolve_pane_id(GENERAL_ALIAS);
+                    if let Some(pid) = pid {
                         svc.set_pane_agent_type(&pid, None);
                     }
                     std::thread::sleep(std::time::Duration::from_secs(general_config.restart_delay_s as u64));

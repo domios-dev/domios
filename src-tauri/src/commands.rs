@@ -1174,16 +1174,18 @@ pub fn get_network_info(state: tauri::State<'_, crate::config::ConfigState>) -> 
 }
 
 #[tauri::command]
-pub fn get_pane_git_info(
+pub async fn get_pane_git_info(
     mux: tauri::State<'_, MuxState>,
     pane_id: String,
 ) -> Result<Option<GitInfo>, String> {
-    let mux = mux.lock();
-    let pane = mux.get_pane(&pane_id);
-    match pane.and_then(|p| p.cwd.as_ref()) {
-        Some(cwd) => Ok(git_info::get_git_info(cwd)),
-        None => Ok(None),
-    }
+    let cwd = {
+        let mux = mux.lock();
+        mux.get_pane(&pane_id).and_then(|p| p.cwd.clone())
+    };
+    let Some(cwd) = cwd else { return Ok(None) };
+    Ok(tokio::task::spawn_blocking(move || git_info::get_git_info(&cwd))
+        .await
+        .map_err(|e| format!("join: {}", e))?)
 }
 
 /// Diagnostics surfaced in Settings → General on Windows: which shell we would

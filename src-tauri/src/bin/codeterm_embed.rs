@@ -62,13 +62,32 @@ fn ensure_ort_dylib() {
 fn ensure_ort_dylib() {}
 
 #[cfg(feature = "embeddings")]
+fn resolve_cache_dir() -> std::path::PathBuf {
+    if let Some(dir) = std::env::var_os("CODETERM_EMBED_CACHE_DIR") {
+        return std::path::PathBuf::from(dir);
+    }
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    home.join(".codeterm").join("fastembed_cache")
+}
+
+#[cfg(feature = "embeddings")]
 fn main() {
     use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 
     ensure_ort_dylib();
 
+    let cache_dir = resolve_cache_dir();
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+        eprintln!("[codeterm-embed] failed to create cache dir {}: {}", cache_dir.display(), e);
+    }
+    eprintln!("[codeterm-embed] cache_dir={}", cache_dir.display());
+
     let mut model = match TextEmbedding::try_new(
-        InitOptions::new(EmbeddingModel::ParaphraseMLMiniLML12V2),
+        InitOptions::new(EmbeddingModel::ParaphraseMLMiniLML12V2)
+            .with_cache_dir(cache_dir),
     ) {
         Ok(m) => m,
         Err(e) => {
