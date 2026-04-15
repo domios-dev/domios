@@ -199,7 +199,21 @@ Custom theme TOML format and CLI: `references/themes.md`.
 
 ## Session persistence
 
-Sessions auto-save every 30s. CWD is tracked via OSC 7. Claude Code sessions are detected and auto-resumed with `--resume`.
+Sessions auto-save every 30s. CWD is tracked via OSC 7. Claude Code sessions are detected and auto-resumed with `--resume`. Stale ids (JSONL gone from disk) are skipped instead of looping. Each pane gets a pre-generated `--session-id` UUID so multiple panes in the same cwd stay disambiguated, and Claude's `SessionStart` hook updates the persisted id when the user runs `/new` or `/clear` inside the TUI.
+
+## Past agent sessions (search & resume)
+
+Search across every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/`):
+
+```bash
+codeterm sessions search "webpack hmr"                       # all providers
+codeterm sessions search "auth flow" --provider claude --limit 5
+codeterm sessions search "bug" --project /Users/me/code/foo  # scope by project
+codeterm sessions get SESSION_ID                             # provider, cwd, file, times
+codeterm sessions resume SESSION_ID                          # opens the right workspace + pane, hands the resume id to the provider
+```
+
+Use `sessions resume` instead of the brittle "create workspace at guessed cwd → `agent spawn --args=--resume=UUID`" dance — Claude/Codex look for the session file in the current encoded project dir, so getting the cwd wrong is how you get `No conversation found with session ID`. Resume reads the real cwd out of the session file itself.
 
 ## Config
 
@@ -220,4 +234,4 @@ Dot-notation for nested keys. Values are JSON (`true`, `false`, `42`, `"string"`
 
 `Cmd+K` / `Ctrl+K` opens the palette for quick tab/workspace/theme access.
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->

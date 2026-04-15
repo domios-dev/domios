@@ -48,6 +48,9 @@ Skills are markdown files that Claude Code loads automatically when relevant. Wh
 19. **Write config**: `codeterm config set integrations.telegram_enabled true` (JSON values)
 20. **Send to Telegram**: `codeterm bridge send --to USER_ID --service telegram "text"` (auto-edits within 60s, `--append` to concatenate)
 21. **Keep system awake**: `codeterm keepawake start --duration-secs 3600 [--display]` (cross-platform: caffeinate on macOS, SetThreadExecutionState on Windows). Stop: `codeterm keepawake stop`. Status: `codeterm keepawake status`. Use this instead of calling `caffeinate` / `powercfg` / `systemd-inhibit` directly.
+22. **Search past agent sessions**: `codeterm sessions search "QUERY" [--provider claude|codex|all] [--project /path] [--limit N]` — content search across every registered provider's on-disk sessions. Each hit carries its `provider` and `session_id`.
+23. **Inspect a past session**: `codeterm sessions get SESSION_ID` — provider, recorded cwd, file path, timestamps. Use before `resume` to verify the JSONL is still on disk.
+24. **Resume a past session atomically**: `codeterm sessions resume SESSION_ID [--title T] [--workspace-id ID] [--workspace-name N]` — locates the session, opens the right workspace at the recorded cwd, spawns the agent pane, and hands the resume id to the provider with the correct CLI shape. Use this instead of the brittle "create workspace at guessed cwd → `agent spawn --args=--resume=UUID`" dance.
 
 ## CLI Flags
 
@@ -206,7 +209,10 @@ Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `
 CodeTerm tracks and restores terminal state across sessions:
 
 - **CWD tracking**: Working directory is tracked via OSC 7 escape sequences and saved/restored per pane on restart.
-- **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`, so context is preserved across restarts.
+- **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`. Before injecting the resume flag, CodeTerm validates the session file exists on disk via `AgentProvider::session_exists` — missing JSONLs (cleared cache, machine-synced config without sessions) launch fresh instead of looping on `No conversation found with session ID`.
+- **Pre-generated session ids**: For providers reporting `SessionIdInjection != None` (Claude today), CodeTerm pre-generates a UUID and passes it via `--session-id` at launch. Each pane gets a unique id even when several panes share the same cwd.
+- **SessionStart hook**: Claude's `SessionStart` matcher POSTs back to `/api/panes/{id}/hook/session_start`, so `/new` and `/clear` inside the TUI rotate the persisted `agent_session_id` immediately.
+- **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the pane in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

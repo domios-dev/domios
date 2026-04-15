@@ -57,7 +57,7 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 
 ### AI Agent Integration
 - **Agent detection** — automatically detects Claude Code running in a pane (orange indicator)
-- **Session resume** — saves Claude Code session IDs and resumes them on restart with `--resume`
+- **Session resume** — saves Claude Code session IDs and resumes them on restart with `--resume`. Stale ids are validated before launch (`session_exists`) so missing JSONLs don't loop. Pre-generated `--session-id` UUIDs keep multiple panes in the same cwd disambiguated. Cross-provider session search/resume is exposed via `codeterm sessions` and `/api/sessions/*` (see [docs/plans/session-tracking.md](docs/plans/session-tracking.md))
 - **Permission notifications** — surfaces Claude Code permission requests as desktop notifications
 - **Webhook system** — register webhooks for agent events (permission requests, task completion)
 - **Programmatic control** — agents can create panes, run commands, read output via API
@@ -227,6 +227,7 @@ CodeTerm sets these in every PTY session:
 | `CODETERM` | Always `1` — detect if running inside CodeTerm |
 | `CODETERM_PANE_ID` | UUID of the current pane |
 | `CODETERM_SOCKET_PATH` | Socket path for JSON-RPC API |
+| `CODETERM_API_PORT` / `CODETERM_API_TOKEN` | API port and bearer token, so CLI subcommands and Claude hooks (`/api/panes/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring |
 | `TERM_PROGRAM` | `CodeTerm` |
 
 See [API Reference](docs/API.md) for the complete endpoint documentation.

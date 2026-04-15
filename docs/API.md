@@ -61,6 +61,8 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/rename` | `{title}` | Rename pane/tab (pinned) |
 | POST | `/api/panes/{id}/resize` | `{cols, rows}` | Resize terminal |
 | POST | `/api/panes/{id}/hook/permission` | `{question?, options?: [{label, value}]}` | Notify that agent is showing a permission prompt (see below) |
+| POST | `/api/panes/{id}/hook/stop` | `{}` | Notify that the agent finished its turn (see below) |
+| POST | `/api/panes/{id}/hook/session_start` | *(Claude SessionStart JSON, forwarded from stdin)* | Persist the agent-reported `session_id` on the pane; covers `/new` and `/clear` inside the TUI (see below) |
 
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
@@ -130,8 +132,27 @@ Called by Claude Code hooks (Stop matcher) to notify CodeTerm that the agent has
 
 ```bash
 curl -X POST "http://host:7685/api/panes/$PANE/hook/stop" \
-  -H "Content-Type: application/json" -d '{}'
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $CODETERM_API_TOKEN" -d '{}'
 ```
+
+#### SessionStart Hook (POST /api/panes/{id}/hook/session_start)
+
+Called by Claude Code's `SessionStart` matcher every time Claude opens a session — fresh launch, `--resume`, `/new`, or `/clear` inside the TUI. CodeTerm extracts `session_id` from the JSON Claude pipes to the hook on stdin and persists it on the pane, so the next restart resumes the right thread instead of the stale id from the previous session.
+
+```bash
+# Claude pipes its hook payload on stdin; the installed hook forwards it verbatim.
+curl -X POST "http://host:7685/api/panes/$PANE/hook/session_start" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $CODETERM_API_TOKEN" \
+  --data-binary @-
+```
+
+Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok": true, "changed": false}` when the same id was already on the pane (no-op so per-turn pings don't churn the snapshot), `{"ok": false, "reason": "no session_id in body"}` when the body lacks a recognizable `session_id` field.
+
+#### Hook auth
+
+`/api/panes/*/hook/*` and `/api/mem/flush` require the standard Bearer token — there is no auth-exempt loopback path. CodeTerm injects `CODETERM_API_TOKEN` into every PTY (alongside `CODETERM_API_PORT` and `CODETERM_PANE_ID`), and the installed Claude hook commands reference `${CODETERM_API_TOKEN}` directly. External callers wiring custom hooks must set the same header.
 
 #### Canvas (Visualizations)
 | Method | Path | Body | Description |
@@ -258,6 +279,66 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 | GET | `/api/mem/stats` | — | Counts per kind, totals, index health |
 
 **Extraction concurrency:** `ServiceContext::extract_semaphore` caps auto-extraction at **4 concurrent workers** across the whole process. Every `mem_save` (except items tagged `auto-extracted`, sourced from `extracted_from:*`, or sent with `skip_extract: true`) schedules an extraction task that acquires a permit from this semaphore before spawning a hidden extraction pane. Additional graph routes (`/api/mem/graph/*`), learnings, dreaming, and worker endpoints exist but are not documented here — read `src-tauri/src/api/mem_routes.rs` for the full surface.
+
+#### Past Agent Sessions
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/sessions/search` | `?q=...&provider=claude\|codex\|all&project=...&limit=N&max_snippets=N` | Cross-provider session content search |
+| GET | `/api/sessions/{id}` | — | Resolve a session id to its provider metadata (cwd, file path, timestamps) |
+| POST | `/api/sessions/{id}/resume` | `{title?, workspace_id?, workspace_name?}` | Atomic "open the right workspace + pane + resume" action |
+
+Provider-agnostic: every registered `AgentProvider` contributes its own session enumerator + parser. Today Claude reads `~/.claude/projects/*.jsonl` (cwd extracted from JSONL content, not the lossy directory name); Codex walks `~/.codex/sessions/YYYY/MM/DD/*.jsonl` and parses `response_item` messages. Providers without on-disk session storage silently contribute nothing.
+
+**GET /api/sessions/search** — whitespace-splits `q` into terms; every term must appear (case-insensitively) in at least one non-meta message of a session for it to match. Hits are sorted most-recently-modified first. `provider=all` (default) walks every registered provider; pass an id (`claude`, `codex`) to scope. `limit` defaults to 10, `max_snippets` to 3. Snippets carry ~80 chars of context before and ~120 after the first matching position, sliced on UTF-8 char boundaries so non-ASCII queries don't panic.
+
+Response shape:
+```json
+{
+  "hits": [
+    {
+      "meta": {
+        "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
+        "provider": "claude",
+        "project_path": "/Users/me/code/foo",
+        "title": null,
+        "summary": null,
+        "file_path": "/Users/me/.claude/projects/-Users-me-code-foo/0193e1a4-....jsonl",
+        "created_ts": 1744300000,
+        "modified_ts": 1744387200
+      },
+      "snippets": [
+        {"role": "user", "text": "…fix the webpack config so HMR works…", "ts": 1744300050}
+      ],
+      "match_count": 4
+    }
+  ]
+}
+```
+
+**GET /api/sessions/{id}** — returns the `SessionMetadata` for whichever provider claims this id. Returns `404` if no provider knows it (gone from disk, never existed, wrong machine).
+
+**POST /api/sessions/{id}/resume** — single call replacing the error-prone "create workspace at guessed cwd → spawn agent with `--resume <id>`" dance. Steps:
+1. Locate the session across providers (`AgentRegistry::find_session`) → get cwd + provider id from disk metadata (Claude reads cwd out of the JSONL itself; the encoded directory name is NOT trusted because it loses leading-dot folders and case).
+2. Reuse the workspace at `workspace_id` if given; otherwise create one at the recorded cwd, named `workspace_name` or the cwd basename.
+3. Spawn an agent pane in that workspace with `--resume <id>` baked into `args` (Claude). Other providers are routed via their `build_resume_command` shape.
+4. The pane's `agent_session_id` is NOT pre-set — the SessionStart hook records it as soon as the agent reports it, avoiding double `--resume` injection from the auto-resume code path in `commands.rs::spawn_pty`.
+
+Response:
+```json
+{
+  "pane_id": "a3f1b2c7",
+  "tab_id": "d5e6f7a8",
+  "workspace_id": "b4e2c8d1",
+  "provider": "claude",
+  "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
+  "cwd": "/Users/me/code/foo",
+  "resume_command": "claude --resume 0193e1a4-... --dangerously-skip-permissions"
+}
+```
+
+Errors: `404` if the session id isn't found; `400` if the located session has no `project_path` (can't decide cwd); `500` on workspace create / agent spawn failure.
+
+Implementation plan + Codex schema audit live in `docs/plans/session-tracking.md`.
 
 #### Configuration
 | Method | Path | Body / Query | Description |
@@ -681,6 +762,14 @@ codeterm mesh send TARGET "text" [--pane ID]   # Send text to remote peer
 codeterm mesh output TARGET [--pane ID]        # Get output from remote peer
 codeterm mesh panes TARGET                     # List panes on remote peer
 
+# Past Agent Sessions
+codeterm sessions search "QUERY" [--provider claude|codex|all] [--project PATH] [--limit N] [--max-snippets N]
+                                               # Cross-provider session content search
+codeterm sessions get SESSION_ID               # Print metadata for a past session (provider, cwd, file path, times)
+codeterm sessions resume SESSION_ID [--title T] [--workspace-id ID] [--workspace-name N]
+                                               # Atomic resume: locate session, open the right workspace + pane, hand the resume id
+                                               # to the provider with the correct CLI shape (no double --resume injection)
+
 ```
 
 Add `--json` flag for machine-readable output.
@@ -717,6 +806,7 @@ Set automatically in every PTY spawned by CodeTerm:
 | `CODETERM_ROLE` | `Orchestrator` | Agent role: `Orchestrator`, `Lead`, or `Worker` (empty if no role). Set at PTY spawn. |
 | `CODETERM_PARENT_PANE_ID` | `b4e2c8d1` | Parent pane ID in hierarchy (empty if Orchestrator or no role). Set at PTY spawn. |
 | `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by CodeTerm so CLI and hooks use the correct port (dev: 7686, prod: 7685). |
+| `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/panes/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring. |
 | `TERM` | `xterm-256color` | Terminal type |
 | `COLORTERM` | `truecolor` | Color support |
 | `TERM_PROGRAM` | `CodeTerm` | Terminal name |
@@ -761,4 +851,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->

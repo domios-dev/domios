@@ -5,8 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use super::provider::{AgentProvider, SessionMetadata};
 
-/// One matching snippet from a session message, with enough surrounding
-/// context for a human to decide whether to resume the session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSnippet {
     pub role: String,
@@ -15,8 +13,6 @@ pub struct SessionSnippet {
     pub ts: Option<i64>,
 }
 
-/// One session search hit: metadata + the top-N snippets that contained
-/// the query terms. Provider-agnostic — `meta.provider` tags the origin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSearchHit {
     pub meta: SessionMetadata,
@@ -24,27 +20,15 @@ pub struct SessionSearchHit {
     pub match_count: usize,
 }
 
-/// Filters/limits for a cross-provider session search.
 #[derive(Debug, Clone, Default)]
 pub struct SessionSearchOpts {
-    /// Each term must appear (case-insensitive) in at least one message of
-    /// a session for it to match. `terms` is typically the whitespace split
-    /// of a user query.
     pub terms: Vec<String>,
-    /// Restrict to a specific provider id (e.g. "claude"). `None` = all.
     pub provider: Option<String>,
-    /// Restrict to sessions whose recorded `project_path` equals this value.
     pub project_path: Option<String>,
-    /// Max number of hits returned, ordered by most-recently-modified first.
     pub limit: usize,
-    /// Max snippets returned per session.
     pub max_snippets: usize,
 }
 
-/// Registry of available agent providers.
-///
-/// Uses interior mutability (RwLock) so providers can be registered
-/// dynamically by plugins while the registry is shared via `Arc<AgentRegistry>`.
 pub struct AgentRegistry {
     providers: RwLock<HashMap<String, Box<dyn AgentProvider>>>,
 }
