@@ -1510,19 +1510,33 @@ mod tests {
     }
 
     #[test]
-    fn migration_adds_graph_columns_idempotently() {
+    fn migration_creates_pinned_positions_idempotently() {
         let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
         init_schema(&conn).unwrap();
-        let cols: Vec<String> = conn
+        // mem_items must NOT carry layout columns anymore — positions live
+        // in graph_pinned_positions or in the force-sim worker.
+        let mem_cols: Vec<String> = conn
             .prepare("PRAGMA table_info(mem_items)")
             .unwrap()
             .query_map([], |r| r.get::<_, String>(1))
             .unwrap()
             .filter_map(Result::ok)
             .collect();
-        assert!(cols.iter().any(|c| c == "graph_x"));
-        assert!(cols.iter().any(|c| c == "graph_y"));
+        assert!(!mem_cols.iter().any(|c| c == "graph_x"));
+        assert!(!mem_cols.iter().any(|c| c == "graph_y"));
+        // The pinned-positions table must exist with the expected columns.
+        let pin_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(graph_pinned_positions)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert!(pin_cols.iter().any(|c| c == "mem_id"));
+        assert!(pin_cols.iter().any(|c| c == "x"));
+        assert!(pin_cols.iter().any(|c| c == "y"));
+        assert!(pin_cols.iter().any(|c| c == "updated_at"));
     }
 
     #[test]
@@ -1555,16 +1569,27 @@ mod tests {
         assert_eq!(edge.to, b);
         assert_eq!(edge.rel, "has_script");
 
-        // set_positions roundtrip
-        let n = set_positions(&mut conn, &[(a.clone(), 12.5, -3.25)]).unwrap();
-        assert_eq!(n, 1);
-        let got = get(&conn, &a, &blobs).unwrap().unwrap();
-        assert_eq!(got.graph_x, Some(12.5));
-        assert_eq!(got.graph_y, Some(-3.25));
+        // pinned positions: set, read, unset, read-again.
+        let existed = set_pinned_position(&conn, &a, 12.5, -3.25).unwrap();
+        assert!(existed, "mem_item exists → upsert must report true");
+        let got = list_pinned_positions(&conn).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].mem_id, a);
+        assert!((got[0].x - 12.5).abs() < 1e-9);
+        assert!((got[0].y - (-3.25)).abs() < 1e-9);
 
-        // unknown id is skipped
-        let n2 = set_positions(&mut conn, &[("nope".into(), 1.0, 2.0)]).unwrap();
-        assert_eq!(n2, 0);
+        // unknown mem_id → returns false, nothing written
+        let existed2 = set_pinned_position(&conn, "nope", 1.0, 2.0).unwrap();
+        assert!(!existed2);
+        assert_eq!(list_pinned_positions(&conn).unwrap().len(), 1);
+
+        let removed = delete_pinned_position(&conn, &a).unwrap();
+        assert_eq!(removed, 1);
+        assert!(list_pinned_positions(&conn).unwrap().is_empty());
+
+        // MemItem no longer carries positions — body/metadata unchanged.
+        let item = get(&conn, &a, &blobs).unwrap().unwrap();
+        assert_eq!(item.id, a);
     }
 
     #[test]
