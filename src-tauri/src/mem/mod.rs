@@ -708,12 +708,19 @@ impl MemManager {
         store::graph_full(&conn)
     }
 
-    pub fn set_positions(
-        &self,
-        positions: &[(String, f64, f64)],
-    ) -> Result<usize, String> {
-        let mut conn = self.conn.lock();
-        store::set_positions(&mut conn, positions)
+    pub fn list_pinned_positions(&self) -> Result<Vec<store::PinnedPosition>, String> {
+        let conn = self.conn.lock();
+        store::list_pinned_positions(&conn)
+    }
+
+    pub fn set_pinned_position(&self, mem_id: &str, x: f64, y: f64) -> Result<bool, String> {
+        let conn = self.conn.lock();
+        store::set_pinned_position(&conn, mem_id, x, y)
+    }
+
+    pub fn delete_pinned_position(&self, mem_id: &str) -> Result<usize, String> {
+        let conn = self.conn.lock();
+        store::delete_pinned_position(&conn, mem_id)
     }
 
     pub fn stats(&self) -> Result<MemStats, String> {
