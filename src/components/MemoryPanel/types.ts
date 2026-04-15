@@ -22,13 +22,17 @@ export interface MemNode {
   tags: string[] | null;
   has_vector: boolean;
   has_body: boolean;
-  graph_x: number | null;
-  graph_y: number | null;
   body?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   access_count?: number;
   recurrence_count?: number;
+}
+
+export interface PinnedPosition {
+  mem_id: string;
+  x: number;
+  y: number;
 }
 
 export interface MemEdge {
@@ -60,8 +64,6 @@ export interface MemItemFull {
   created_at: string;
   updated_at: string;
   accessed_at: string | null;
-  graph_x?: number | null;
-  graph_y?: number | null;
 }
 
 export type NodeKind = "basic" | "expanded" | "image";
