@@ -862,6 +862,7 @@ fn is_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
                         || cmd.contains("/api/panes/")
                         || cmd.contains("/hook/permission")
                         || cmd.contains("/hook/stop")
+                        || cmd.contains("/hook/session_start")
                         || cmd.contains("/api/mem/flush");
                     is_codeterm_url && is_codeterm_path
                 })
@@ -899,10 +900,14 @@ pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(is_codeterm_hook))
         .unwrap_or(false);
+    let session_start_hook = json.pointer("/hooks/SessionStart")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(is_codeterm_hook))
+        .unwrap_or(false);
 
     Ok(ClaudeHooksStatus {
         settings_exists: true,
-        hooks_installed: notification_hook && stop_hook && precompact_hook,
+        hooks_installed: notification_hook && stop_hook && precompact_hook && session_start_hook,
         notification_hook,
         stop_hook,
     })
@@ -964,6 +969,11 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
     let precompact_cmd = format!(
         "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/mem/flush -H 'Content-Type: application/json' -d '{{\"pane\":\"'\"$CODETERM_PANE_ID\"'\",\"title\":\"pre-compact\"}}' > {null_dev} 2>&1 || true"
     );
+    // Forward Claude's SessionStart JSON (delivered on stdin) to CodeTerm so we
+    // learn the new session_id when the user runs /new, /clear, or starts fresh.
+    let session_start_cmd = format!(
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' --data-binary @- > {null_dev} 2>&1 || true"
+    );
 
     if json.get("hooks").is_none() {
         json["hooks"] = serde_json::json!({});
@@ -999,10 +1009,20 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
         }]
     });
 
+    let session_start_hook = serde_json::json!({
+        "matcher": "",
+        "hooks": [{
+            "type": "command",
+            "command": session_start_cmd,
+            "timeout": 5000,
+            "_source": CODETERM_HOOK_MARKER
+        }]
+    });
+
     let hooks = json["hooks"].as_object_mut()
         .ok_or("hooks is not an object")?;
 
-    for key in &["Notification", "Stop", "PreCompact"] {
+    for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
         if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
             arr.retain(|h| !is_codeterm_hook(h));
         }
@@ -1022,6 +1042,11 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
         hooks.insert("PreCompact".into(), serde_json::json!([]));
     }
     hooks["PreCompact"].as_array_mut().unwrap().push(precompact_hook);
+
+    if !hooks.contains_key("SessionStart") {
+        hooks.insert("SessionStart".into(), serde_json::json!([]));
+    }
+    hooks["SessionStart"].as_array_mut().unwrap().push(session_start_hook);
 
     let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
     std::fs::write(&path, pretty).map_err(|e| e.to_string())?;

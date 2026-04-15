@@ -27,6 +27,12 @@ fn is_custom_auth(path: &str) -> bool {
     path == "/api/mesh/relay"
         || path == "/api/mesh/introduce"
         || path.starts_with("/api/mesh/peers/") && !path.ends_with("/peers")
+        // Local-only hook callbacks fired by Claude Code from inside the PTY
+        // we just spawned. They hit 127.0.0.1, carry no token, and have been
+        // silently failing with 401 (curl swallows it via `|| true`). Treat as
+        // exempt — anyone able to reach loopback already runs as the user.
+        || path.starts_with("/api/panes/") && path.contains("/hook/")
+        || path == "/api/mem/flush"
 }
 
 fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity, ()> {
