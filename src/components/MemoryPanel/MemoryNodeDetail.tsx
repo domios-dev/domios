@@ -10,6 +10,8 @@ interface Props {
   onClose: () => void;
   onUpdate: (id: string, patch: Partial<MemNode>) => void;
   onDelete: (id: string) => void;
+  isPinned?: boolean;
+  onUnpin?: () => void;
 }
 
 interface EditState {
@@ -32,7 +34,18 @@ function buildEditState(node: MemNode): EditState {
   };
 }
 
-export function MemoryNodeDetail({ api, node, onClose, onUpdate, onDelete }: Props) {
+export function MemoryNodeDetail({
+  api,
+  node,
+  onClose,
+  onUpdate,
+  onDelete,
+  isPinned,
+  onUnpin,
+}: Props) {
+  // The pin chip sits next to the title; tapping it releases the position so
+  // the force sim can reflow the node. Non-pinned nodes just don't render it.
+  void isPinned; void onUnpin;
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState<EditState>(() => buildEditState(node));
   const [tagInput, setTagInput] = useState("");

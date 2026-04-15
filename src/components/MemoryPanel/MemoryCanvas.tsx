@@ -1,27 +1,23 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MemoryEdge } from "./MemoryEdge";
-import { MemoryNodeDetail } from "./MemoryNodeDetail";
-import { BasicNode } from "./nodes/BasicNode";
-import { ExpandedNode } from "./nodes/ExpandedNode";
-import { ImageNode } from "./nodes/ImageNode";
-import type { NodeRendererProps } from "./nodes/NodeRenderer";
-import { useViewport } from "./useViewport";
-import { usePhysics } from "./usePhysics";
-import { deriveNodeKind, KIND_COLORS } from "./nodeKind";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Sigma from "sigma";
+import Graph from "graphology";
 import type { ApiConfig } from "../../lib/types";
-import type { MemEdge, MemNode, NodeKind } from "./types";
+import { MemoryNodeDetail } from "./MemoryNodeDetail";
+import { colorForKind, KIND_COLORS } from "./nodeKind";
+import { useGraphLayout, type Position } from "./useGraphLayout";
+import type { MemEdge, MemNode } from "./types";
 import type { Pulse } from "./useActivityPulses";
-import { getVisibleNodeIds } from "./lib/viewport";
-import { RENDERING } from "./lib/rendering-config";
 
 interface Props {
   api: ApiConfig;
   nodes: Map<string, MemNode>;
   edges: MemEdge[];
   pulses: Map<string, Pulse>;
-  updateNode: (id: string, patch: Partial<MemNode>, markDirty?: boolean) => void;
-  bulkUpdatePositions: (updates: Array<{ id: string; x: number; y: number }>, markDirty?: boolean) => void;
+  pinnedPositions: Map<string, Position>;
+  updateNode: (id: string, patch: Partial<MemNode>) => void;
   removeNode: (id: string) => void;
+  pinPosition: (id: string, x: number, y: number) => void;
+  unpinPosition: (id: string) => void;
   registerFit: (fn: () => void) => void;
   registerRecenter: (fn: () => void) => void;
   selectedIdOverride?: string | null;
@@ -29,27 +25,32 @@ interface Props {
   physicsEnabled: boolean;
 }
 
-const RENDERERS: Record<NodeKind, React.ComponentType<NodeRendererProps>> = {
-  basic: BasicNode,
-  expanded: ExpandedNode,
-  image: ImageNode,
-};
+// Normalize importance [1..10] → node size [4..14].
+function nodeSize(n: MemNode): number {
+  return Math.max(4, Math.min(14, 3 + (n.importance ?? 3) * 1.1));
+}
 
 export function MemoryCanvas({
   api,
   nodes,
   edges,
   pulses,
+  pinnedPositions,
   updateNode,
-  bulkUpdatePositions,
   removeNode,
+  pinPosition,
+  unpinPosition,
   registerFit,
   registerRecenter,
   selectedIdOverride,
   onSelectedIdChange,
   physicsEnabled,
 }: Props) {
-  const { viewport, onWheel, onPanStart, fitToView, recenter } = useViewport();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const sigmaRef = useRef<Sigma | null>(null);
+  const graphRef = useRef<Graph | null>(null);
+  const dragRef = useRef<{ id: string; active: boolean }>({ id: "", active: false });
+
   const [selectedIdInternal, setSelectedIdInternal] = useState<string | null>(null);
   const selectedId = selectedIdOverride !== undefined ? selectedIdOverride : selectedIdInternal;
   const setSelectedId = useCallback(
@@ -59,123 +60,213 @@ export function MemoryCanvas({
     },
     [onSelectedIdChange],
   );
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const pinnedRef = useRef<Set<string>>(new Set());
 
-  const onPhysicsTick = useCallback(
-    (updates: Array<{ id: string; x: number; y: number }>) => {
-      bulkUpdatePositions(updates);
-    },
-    [bulkUpdatePositions],
-  );
-
-  const { heat } = usePhysics({
-    enabled: physicsEnabled,
+  const layout = useGraphLayout({
     nodes,
     edges,
-    pinnedRef,
-    onTick: onPhysicsTick,
+    pinnedPositions,
+    enabled: physicsEnabled,
   });
-  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
-  const scaleRef = useRef(viewport.scale);
-  scaleRef.current = viewport.scale;
-  const nodesRef = useRef(nodes);
-  nodesRef.current = nodes;
-  const autoFittedRef = useRef(false);
 
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const measure = () => setCanvasSize({ width: el.clientWidth, height: el.clientHeight });
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
+  // Sigma init / teardown. Creates one instance bound to the container,
+  // tears down on unmount. Graph topology is written in a separate effect
+  // so hot-reload and data updates don't thrash the WebGL context.
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const graph = new Graph({ multi: false });
+    graphRef.current = graph;
+    const sigma = new Sigma(graph, containerRef.current, {
+      renderLabels: true,
+      renderEdgeLabels: false,
+      labelRenderedSizeThreshold: 12,
+      defaultNodeType: "circle",
+      defaultEdgeType: "line",
+    });
+    sigmaRef.current = sigma;
+    return () => {
+      sigma.kill();
+      sigmaRef.current = null;
+      graphRef.current = null;
+    };
   }, []);
 
-  const doFit = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    fitToView(nodesRef.current.values(), el.clientWidth, el.clientHeight);
-  }, [fitToView]);
+  // Wire selection: click on a node = select; click on empty space = deselect.
+  useEffect(() => {
+    const sigma = sigmaRef.current;
+    if (!sigma) return;
+    const onClickNode = ({ node }: { node: string }) => setSelectedId(node);
+    const onClickStage = () => setSelectedId(null);
+    sigma.on("clickNode", onClickNode);
+    sigma.on("clickStage", onClickStage);
+    return () => {
+      sigma.off("clickNode", onClickNode);
+      sigma.off("clickStage", onClickStage);
+    };
+  }, [setSelectedId]);
 
+  // Wire drag: pin on drag-start (so the worker respects the position),
+  // emit position updates every move, persist pin on drag-release.
+  useEffect(() => {
+    const sigma = sigmaRef.current;
+    if (!sigma) return;
+
+    const onDownNode = (evt: { node: string; event: { preventSigmaDefault: () => void } }) => {
+      dragRef.current = { id: evt.node, active: true };
+      const pos = layout.positions.get(evt.node);
+      if (pos) layout.pin(evt.node, pos);
+      evt.event.preventSigmaDefault();
+    };
+    const onMove = (evt: { x: number; y: number }) => {
+      if (!dragRef.current.active) return;
+      const id = dragRef.current.id;
+      const graphPos = sigma.viewportToGraph({ x: evt.x, y: evt.y });
+      layout.setPosition(id, { x: graphPos.x, y: graphPos.y });
+    };
+    const onUp = () => {
+      if (!dragRef.current.active) return;
+      const id = dragRef.current.id;
+      const pos = layout.positions.get(id);
+      if (pos) pinPosition(id, pos.x, pos.y);
+      dragRef.current = { id: "", active: false };
+    };
+
+    sigma.on("downNode", onDownNode);
+    sigma.getMouseCaptor().on("mousemovebody", onMove);
+    sigma.getMouseCaptor().on("mouseup", onUp);
+    return () => {
+      sigma.off("downNode", onDownNode);
+      sigma.getMouseCaptor().off("mousemovebody", onMove);
+      sigma.getMouseCaptor().off("mouseup", onUp);
+    };
+  }, [layout, pinPosition]);
+
+  // Sync graph topology (nodes/edges) when the data source changes. Positions
+  // get filled in from the layout cache when available, otherwise Sigma puts
+  // the node at (0,0) and the next layout tick moves it.
+  useEffect(() => {
+    const graph = graphRef.current;
+    const sigma = sigmaRef.current;
+    if (!graph || !sigma) return;
+
+    const currentNodeIds = new Set(graph.nodes());
+    const wantedNodeIds = new Set(nodes.keys());
+
+    for (const id of currentNodeIds) {
+      if (!wantedNodeIds.has(id)) graph.dropNode(id);
+    }
+    for (const [id, n] of nodes) {
+      const pos = layout.positions.get(id) ?? { x: 0, y: 0 };
+      const attrs = {
+        x: pos.x,
+        y: -pos.y, // Sigma's y is screen-down, layout uses math-up
+        size: nodeSize(n),
+        color: colorForKind(n.kind),
+        label: n.title,
+      };
+      if (graph.hasNode(id)) graph.mergeNodeAttributes(id, attrs);
+      else graph.addNode(id, attrs);
+    }
+
+    const wantedEdges = new Set<string>();
+    for (const e of edges) {
+      if (!graph.hasNode(e.from) || !graph.hasNode(e.to)) continue;
+      const key = `${e.from}→${e.to}`;
+      wantedEdges.add(key);
+      if (!graph.hasEdge(key)) {
+        try {
+          graph.addEdgeWithKey(key, e.from, e.to, {
+            size: 0.4 + (e.confidence ?? 0.5) * 0.8,
+            color: `rgba(255,255,255,${0.12 + (e.confidence ?? 0.5) * 0.35})`,
+          });
+        } catch {
+          /* duplicate */
+        }
+      }
+    }
+    for (const key of graph.edges()) {
+      if (!wantedEdges.has(key)) graph.dropEdge(key);
+    }
+    sigma.refresh();
+  }, [nodes, edges, layout.positions]);
+
+  // Stream physics ticks back into Sigma.
+  useEffect(() => {
+    const graph = graphRef.current;
+    const sigma = sigmaRef.current;
+    if (!graph || !sigma) return;
+    for (const [id, pos] of layout.positions) {
+      if (graph.hasNode(id)) {
+        graph.setNodeAttribute(id, "x", pos.x);
+        graph.setNodeAttribute(id, "y", -pos.y);
+      }
+    }
+    sigma.refresh();
+  }, [layout.version]);
+
+  // Pulse rendering: bump the matching node's size briefly. Cheap — Sigma
+  // redraws on attribute change, no extra layers.
+  useEffect(() => {
+    const graph = graphRef.current;
+    const sigma = sigmaRef.current;
+    if (!graph || !sigma) return;
+    for (const [id, _pulse] of pulses) {
+      if (!graph.hasNode(id)) continue;
+      const n = nodes.get(id);
+      if (!n) continue;
+      graph.setNodeAttribute(id, "size", nodeSize(n) * 1.4);
+    }
+    sigma.refresh();
+    const t = window.setTimeout(() => {
+      if (!graphRef.current) return;
+      for (const [id] of pulses) {
+        if (!graph.hasNode(id)) continue;
+        const n = nodes.get(id);
+        if (!n) continue;
+        graph.setNodeAttribute(id, "size", nodeSize(n));
+      }
+      sigmaRef.current?.refresh();
+    }, 600);
+    return () => window.clearTimeout(t);
+  }, [pulses, nodes]);
+
+  // Fit / recenter registration (MemoryPanel wires buttons to these).
+  const doFit = useCallback(() => {
+    const sigma = sigmaRef.current;
+    const graph = graphRef.current;
+    if (!sigma || !graph || graph.order === 0) return;
+    // Compute bbox of all node positions in graph space.
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    graph.forEachNode((_id, attrs) => {
+      const x = attrs.x as number;
+      const y = attrs.y as number;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    });
+    if (!isFinite(minX)) return;
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const camera = sigma.getCamera();
+    camera.animate({ x: cx, y: cy, ratio: 1 }, { duration: 300 });
+  }, []);
+  const doRecenter = useCallback(() => {
+    sigmaRef.current?.getCamera().animate({ x: 0, y: 0, ratio: 1 }, { duration: 300 });
+  }, []);
   useEffect(() => {
     registerFit(doFit);
-    registerRecenter(recenter);
-  }, [registerFit, registerRecenter, doFit, recenter]);
+    registerRecenter(doRecenter);
+  }, [registerFit, registerRecenter, doFit, doRecenter]);
 
+  // First-load auto-fit after positions settle.
+  const autoFittedRef = useRef(false);
   useEffect(() => {
     if (autoFittedRef.current) return;
-    if (nodes.size === 0) return;
-    const hasPositions = [...nodes.values()].some(
-      (n) => n.graph_x != null && n.graph_y != null,
-    );
-    if (!hasPositions) return;
-    const el = containerRef.current;
-    if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
+    if (nodes.size === 0 || layout.positions.size === 0) return;
     autoFittedRef.current = true;
-    requestAnimationFrame(() => doFit());
-  }, [nodes, doFit, canvasSize]);
+    requestAnimationFrame(doFit);
+  }, [nodes.size, layout.positions.size, doFit]);
 
-  const onDragStart = useCallback(
-    (id: string, e: React.MouseEvent) => {
-      const startX = e.clientX;
-      const startY = e.clientY;
-      const cur = nodesRef.current.get(id);
-      if (!cur) return;
-      const origX = cur.graph_x ?? 0;
-      const origY = cur.graph_y ?? 0;
-      setSelectedId(id);
-      setDraggingId(id);
-      pinnedRef.current.add(id);
-      heat();
-      const move = (ev: MouseEvent) => {
-        const dx = (ev.clientX - startX) / scaleRef.current;
-        const dy = (ev.clientY - startY) / scaleRef.current;
-        updateNode(id, { graph_x: origX + dx, graph_y: origY + dy });
-      };
-      const up = () => {
-        window.removeEventListener("mousemove", move);
-        window.removeEventListener("mouseup", up);
-        setDraggingId(null);
-        pinnedRef.current.delete(id);
-        heat();
-        updateNode(id, {}, true);
-      };
-      window.addEventListener("mousemove", move);
-      window.addEventListener("mouseup", up);
-    },
-    [updateNode, setSelectedId],
-  );
-
-  const onToggleCollapse = useCallback((id: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const nodeList = useMemo(() => [...nodes.values()], [nodes]);
-
-  const visibleSet = useMemo(() => {
-    if (nodeList.length <= RENDERING.cullThresholdNodes) {
-      return new Set(nodeList.map((n) => n.id));
-    }
-    const ids = getVisibleNodeIds(nodeList, viewport, canvasSize, {
-      padding: RENDERING.cullPadding,
-    });
-    const set = new Set(ids);
-    if (draggingId) set.add(draggingId);
-    if (selectedId) set.add(selectedId);
-    return set;
-  }, [nodeList, viewport, canvasSize, draggingId, selectedId]);
-
-
-  const transform = `translate(${viewport.panX}px, ${viewport.panY}px) scale(${viewport.scale})`;
   const selectedNode = selectedId ? nodes.get(selectedId) ?? null : null;
 
   const handleDelete = useCallback(
@@ -186,61 +277,18 @@ export function MemoryCanvas({
     [removeNode, setSelectedId],
   );
 
+  const handleUnpin = useCallback(() => {
+    if (selectedId) unpinPosition(selectedId);
+  }, [selectedId, unpinPosition]);
+
+  const isSelectedPinned = useMemo(
+    () => (selectedId ? pinnedPositions.has(selectedId) : false),
+    [selectedId, pinnedPositions],
+  );
+
   return (
-    <div
-      ref={containerRef}
-      className="absolute inset-0 overflow-hidden cursor-grab bg-[var(--ct-bg)]"
-      onWheel={onWheel}
-      onMouseDown={(e) => {
-        setSelectedId(null);
-        onPanStart(e);
-      }}
-    >
-      <div className="absolute inset-0 pointer-events-none">
-          <svg
-            className="absolute inset-0 w-full h-full pointer-events-none overflow-visible"
-          >
-            <g style={{ transform, transformOrigin: "0 0" }}>
-              {edges.map((e, i) => {
-                if (!visibleSet.has(e.from) || !visibleSet.has(e.to)) return null;
-                const from = nodes.get(e.from);
-                const to = nodes.get(e.to);
-                if (!from || !to) return null;
-                return (
-                  <MemoryEdge
-                    key={`${e.from}::${e.rel}::${e.to}::${i}`}
-                    edge={e}
-                    fromNode={from}
-                    toNode={to}
-                  />
-                );
-              })}
-            </g>
-          </svg>
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{ transform, transformOrigin: "0 0" }}
-          >
-            {nodeList.map((n) => {
-              if (!visibleSet.has(n.id)) return null;
-              const kind = deriveNodeKind(n);
-              const Renderer = RENDERERS[kind];
-              return (
-                <Renderer
-                  key={n.id}
-                  node={n}
-                  selected={n.id === selectedId}
-                  collapsed={collapsed.has(n.id)}
-                  scale={viewport.scale}
-                  activePulse={pulses.get(n.id) ?? null}
-                  onSelect={setSelectedId}
-                  onDragStart={onDragStart}
-                  onToggleCollapse={onToggleCollapse}
-                />
-              );
-            })}
-          </div>
-        </div>
+    <div className="absolute inset-0 overflow-hidden bg-[var(--ct-bg)]">
+      <div ref={containerRef} className="absolute inset-0" />
 
       {selectedNode && (
         <MemoryNodeDetail
@@ -249,8 +297,11 @@ export function MemoryCanvas({
           onClose={() => setSelectedId(null)}
           onUpdate={updateNode}
           onDelete={handleDelete}
+          isPinned={isSelectedPinned}
+          onUnpin={isSelectedPinned ? handleUnpin : undefined}
         />
       )}
+
       {/* Kind legend */}
       <div className="absolute bottom-3 left-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--ct-muted-fg)] pointer-events-none opacity-60">
         {Object.entries(KIND_COLORS).map(([kind, color]) => (
