@@ -1,8 +1,45 @@
 use std::collections::HashMap;
 
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 
-use super::provider::AgentProvider;
+use super::provider::{AgentProvider, SessionMetadata};
+
+/// One matching snippet from a session message, with enough surrounding
+/// context for a human to decide whether to resume the session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSnippet {
+    pub role: String,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ts: Option<i64>,
+}
+
+/// One session search hit: metadata + the top-N snippets that contained
+/// the query terms. Provider-agnostic — `meta.provider` tags the origin.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSearchHit {
+    pub meta: SessionMetadata,
+    pub snippets: Vec<SessionSnippet>,
+    pub match_count: usize,
+}
+
+/// Filters/limits for a cross-provider session search.
+#[derive(Debug, Clone, Default)]
+pub struct SessionSearchOpts {
+    /// Each term must appear (case-insensitive) in at least one message of
+    /// a session for it to match. `terms` is typically the whitespace split
+    /// of a user query.
+    pub terms: Vec<String>,
+    /// Restrict to a specific provider id (e.g. "claude"). `None` = all.
+    pub provider: Option<String>,
+    /// Restrict to sessions whose recorded `project_path` equals this value.
+    pub project_path: Option<String>,
+    /// Max number of hits returned, ordered by most-recently-modified first.
+    pub limit: usize,
+    /// Max snippets returned per session.
+    pub max_snippets: usize,
+}
 
 /// Registry of available agent providers.
 ///
@@ -130,6 +167,120 @@ impl AgentRegistry {
         drop(guard);
         out
     }
+
+    /// Locate a session by id across all registered providers. Returns the
+    /// provider-id-matching `SessionMetadata` (file_path, cwd, etc.), or
+    /// None if nothing claims it. Used by "resume a past session" flows so
+    /// callers can open the agent in the RIGHT cwd instead of guessing.
+    pub fn find_session(&self, session_id: &str) -> Option<SessionMetadata> {
+        let guard = self.providers.read();
+        for provider in guard.values() {
+            for meta in provider.enumerate_sessions() {
+                if meta.session_id == session_id {
+                    return Some(meta);
+                }
+            }
+        }
+        None
+    }
+
+    /// Cross-provider session search. Iterates every registered provider,
+    /// calls `enumerate_sessions()` + `parse_session_messages()`, and returns
+    /// merged hits sorted by most-recently-modified. Providers that haven't
+    /// implemented the trait methods silently contribute nothing.
+    ///
+    /// Kept on-demand (no persistent index) for v1 — JSONLs are small and
+    /// session counts are typically <1000. Upgrade to FTS5 when perf bites.
+    pub fn search_sessions(&self, opts: &SessionSearchOpts) -> Vec<SessionSearchHit> {
+        if opts.terms.is_empty() {
+            return Vec::new();
+        }
+        // Use ASCII-lowercase so the lowered string stays byte-for-byte aligned
+        // with the original. `str::to_lowercase` can change byte AND char count
+        // (`ß → ss`, `İ → i̇`), which would misalign snippet windows when we
+        // translate a lowercased-string position back into the original.
+        let lowered_terms: Vec<String> =
+            opts.terms.iter().map(|t| t.to_ascii_lowercase()).collect();
+        let limit = if opts.limit == 0 { 10 } else { opts.limit };
+        let max_snippets = if opts.max_snippets == 0 { 3 } else { opts.max_snippets };
+
+        let guard = self.providers.read();
+        let mut hits: Vec<SessionSearchHit> = Vec::new();
+        for provider in guard.values() {
+            if let Some(ref pid) = opts.provider {
+                if pid != provider.id() {
+                    continue;
+                }
+            }
+            for meta in provider.enumerate_sessions() {
+                if let Some(ref proj) = opts.project_path {
+                    if meta.project_path.as_deref() != Some(proj.as_str()) {
+                        continue;
+                    }
+                }
+                let messages = provider.parse_session_messages(std::path::Path::new(&meta.file_path));
+                let mut matched_msgs = 0usize;
+                let mut snippets: Vec<SessionSnippet> = Vec::new();
+                for msg in &messages {
+                    if msg.is_meta {
+                        continue;
+                    }
+                    let text_lc = msg.text.to_ascii_lowercase();
+                    if !lowered_terms.iter().all(|t| text_lc.contains(t)) {
+                        continue;
+                    }
+                    matched_msgs += 1;
+                    if snippets.len() < max_snippets {
+                        // Positions in `text_lc` map 1:1 to bytes in `msg.text`
+                        // thanks to ascii-lowercasing.
+                        let pos = lowered_terms
+                            .iter()
+                            .filter_map(|t| text_lc.find(t))
+                            .min()
+                            .unwrap_or(0);
+                        let start = floor_char_boundary(&msg.text, pos.saturating_sub(80));
+                        let end = floor_char_boundary(&msg.text, (pos + 120).min(msg.text.len()));
+                        let mut snippet = msg.text[start..end].to_string();
+                        if start > 0 {
+                            snippet.insert_str(0, "…");
+                        }
+                        if end < msg.text.len() {
+                            snippet.push('…');
+                        }
+                        snippets.push(SessionSnippet {
+                            role: msg.role.clone(),
+                            text: snippet,
+                            ts: msg.ts,
+                        });
+                    }
+                }
+                if !snippets.is_empty() {
+                    hits.push(SessionSearchHit { meta, snippets, match_count: matched_msgs });
+                }
+            }
+        }
+        drop(guard);
+
+        hits.sort_by(|a, b| {
+            b.meta
+                .modified_ts
+                .unwrap_or(0)
+                .cmp(&a.meta.modified_ts.unwrap_or(0))
+        });
+        hits.truncate(limit);
+        hits
+    }
+}
+
+/// Largest char boundary index ≤ `index`. Shim for the still-unstable
+/// `str::floor_char_boundary`; needed to slice UTF-8 safely inside the
+/// snippet window in `search_sessions`.
+fn floor_char_boundary(s: &str, index: usize) -> usize {
+    let mut i = index.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
 }
 
 impl Default for AgentRegistry {

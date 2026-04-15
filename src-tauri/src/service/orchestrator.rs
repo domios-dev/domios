@@ -479,6 +479,7 @@ pub(crate) fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, ta
         args: params.args.clone(),
         skip_permissions: params.skip_permissions.unwrap_or(true),
         headless: false,
+        session_id: None,
     };
     registry.with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
         .unwrap_or_else(|| {

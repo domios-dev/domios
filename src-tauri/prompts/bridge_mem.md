@@ -157,6 +157,16 @@ Do NOT load every skill upfront. Fetch specific bodies only after a search ident
 - **Every `save` should be specific.** "did some work" is noise. "Fixed JWT refresh 401 by adding kid header from JWKS endpoint" is searchable.
 - **When a task needs a skill you haven't loaded, search for it first.**
 
+## Past sessions (vs mem)
+
+`codeterm sessions search "<query>"` — find past chats by content. Flags: `--provider`, `--project`, `--limit`.
+`codeterm sessions get <id>` — probe a session (provider, cwd, file path).
+`codeterm sessions resume <id>` — **atomic resume**. Creates workspace at the session's original cwd, spawns agent pane, passes resume id to provider. Use this instead of manually doing `workspace create → agent spawn --args=--resume=UUID` — the manual path keeps breaking because `claude --resume` needs the JSONL in the current encoded project dir.
+
+`mem search` — facts/notes/skills in long-term memory. Use for digested decisions and knowledge.
+
+Rule of thumb: past conversation → `sessions search`; durable fact → `mem search`.
+
 ## System power (keepawake)
 
 When the user asks to prevent sleep, use `codeterm keepawake` — never `caffeinate`, `powercfg`, or `systemd-inhibit` directly.
