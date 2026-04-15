@@ -63,7 +63,10 @@ open_settings = "Ctrl+,"
 # Agent config controls AI agent integration (e.g. Claude Code).
 # poll_interval_ms: how often the agent polls for new commands.
 # idle_timeout_s: seconds of idle before treating agent as idle (used for output streaming).
-# resume_sessions: auto-resume Claude Code sessions on restart.
+# resume_sessions: auto-resume agent sessions on restart. When the JSONL referenced
+#                  by the saved session id is missing on disk (`AgentProvider::session_exists`
+#                  returns false), CodeTerm clears the stale id and launches fresh
+#                  instead of looping on "No conversation found".
 # resume_skip_permissions: add --dangerously-skip-permissions to resumed sessions.
 poll_interval_ms = 500
 idle_timeout_s = 2
@@ -293,6 +296,15 @@ Saving a mem item triggers an extraction cascade that pulls structured entities 
 
 To suppress extraction on a specific save — used by seed loaders to avoid re-extracting bundled items on every boot — pass `skip_extract: true` on the `POST /api/mem/items` body (or via the matching socket method). Items tagged `auto-extracted` or sourced from `extracted_from:*` are also skipped automatically.
 
+## Past Agent Sessions
+
+There is no per-session config — every registered `AgentProvider` decides where its session files live and how to parse them. Today:
+
+- **Claude:** `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl`. The encoded directory name is lossy (drops leading dots, mangles case), so CodeTerm reads the real cwd out of the JSONL content itself when enumerating sessions.
+- **Codex:** `~/.codex/sessions/YYYY/MM/DD/rollout-<iso>-<uuid>.jsonl`. UUID v7 in the filename is used as the session id; first-line `session_meta` carries cwd.
+
+Search and resume from the CLI with `codeterm sessions search|get|resume`. REST endpoints under `/api/sessions/*` mirror the CLI. See `docs/API.md` for the full contract and `docs/plans/session-tracking.md` for the architecture.
+
 ## Dev/Prod Isolation
 
 Dev builds use separate paths and ports to avoid conflicts with production:
@@ -307,4 +319,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
