@@ -74,6 +74,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/prompt/clear", post(clear_prompt))
         .route("/api/panes/{id}/hook/permission", post(hook_permission))
         .route("/api/panes/{id}/hook/stop", post(hook_stop))
+        .route("/api/panes/{id}/hook/session_start", post(hook_session_start))
         .route("/api/agents", get(list_agents))
         .route("/api/agents/providers", get(list_agent_providers))
         .route("/api/agents/hierarchy", get(get_hierarchy))
@@ -1353,6 +1354,41 @@ async fn hook_stop(
     state.svc.emit_state_changed();
 
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Hook endpoint: SessionStart event from Claude Code. Body is the JSON Claude
+/// passes to the hook on stdin (forwarded by the curl command we install).
+/// We extract `session_id` and persist it on the pane so future restarts
+/// resume the right conversation — covers /new and /clear inside the TUI.
+async fn hook_session_start(
+    AxumState(state): AxumState<AppState>,
+    Path(raw_pane_id): Path<String>,
+    body: Option<Json<serde_json::Value>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let pane_id = resolve_pane(&state, &raw_pane_id)
+        .map_err(|(s, m)| (s, m.to_string()))?;
+    let body = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
+    let session_id = body.get("session_id").and_then(|v| v.as_str()).map(String::from);
+    let source = body.get("source").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+
+    let Some(sid) = session_id else {
+        log::warn!("[hook_session_start] pane={} source={} body had no session_id", pane_id, source);
+        return Ok(Json(serde_json::json!({"ok": false, "reason": "no session_id in body"})));
+    };
+
+    let prev = state.svc.mux.lock().get_pane(&pane_id).and_then(|p| p.agent_session_id.clone());
+    if prev.as_deref() == Some(sid.as_str()) {
+        // Same session — no-op (avoids snapshot churn on every Claude turn).
+        return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
+    }
+
+    log::info!(
+        "[hook_session_start] pane={} source={} session {:?} -> {}",
+        pane_id, source, prev.as_deref().unwrap_or("-"), sid
+    );
+    state.svc.set_agent_session_id(&pane_id, Some(sid));
+    state.svc.emit_state_changed();
+    Ok(Json(serde_json::json!({"ok": true, "changed": true})))
 }
 
 async fn list_agents(
