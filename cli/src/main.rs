@@ -3169,6 +3169,15 @@ fn print_taxonomy(value: &serde_json::Value) {
 
 // ── Sessions CLI handler ─────────────────────────────────────────────
 
+/// Shell-quote a path for copy-pasteable `cd` hints.
+fn shell_quote(s: &str) -> String {
+    if s.chars().all(|c| c.is_ascii_alphanumeric() || "/_.-~".contains(c)) {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
 /// Minimal unix-ts-to-"YYYY-MM-DD HH:MM" formatter (UTC). Avoids pulling
 /// chrono into the CLI crate just for a date label.
 fn format_unix_ts(ts: i64) -> String {
@@ -3249,10 +3258,19 @@ fn handle_sessions(
                 if !project.is_empty() {
                     println!("  project: {}", project);
                 }
-                let resume_hint = match provider_id {
+                // Claude's `--resume` scans the CURRENT cwd's encoded project
+                // dir, so you must `cd` to `project_path` first or the JSONL
+                // won't be found even though we just located it. Include the
+                // cd step in the hint when we know the path.
+                let resume_cmd = match provider_id {
                     "claude" => format!("claude --resume {}", sid),
                     "codex" => format!("codex resume {}", sid),
                     other => format!("{} resume {}", other, sid),
+                };
+                let resume_hint = if !project.is_empty() {
+                    format!("cd {} && {}", shell_quote(project), resume_cmd)
+                } else {
+                    resume_cmd
                 };
                 println!("  resume:  {}", resume_hint);
                 println!();
@@ -3260,7 +3278,15 @@ fn handle_sessions(
                     for s in snips {
                         let role = s.get("role").and_then(|v| v.as_str()).unwrap_or("?");
                         let text = s.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                        let tag = if role == "user" { "You" } else { "Claude" };
+                        let tag = match role {
+                            "user" => "You".to_string(),
+                            "assistant" => match provider_id {
+                                "claude" => "Claude".to_string(),
+                                "codex" => "Codex".to_string(),
+                                other => other.to_string(),
+                            },
+                            other => other.to_string(),
+                        };
                         println!("  [{}] {}", tag, text);
                         println!();
                     }

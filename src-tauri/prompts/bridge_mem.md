@@ -161,6 +161,8 @@ Do NOT load every skill upfront. Fetch specific bodies only after a search ident
 
 `codeterm sessions search "<query>"` — searches raw conversation JSONLs across all providers; each hit tagged with `provider` + ready-to-run resume command. Use when the user wants to find an old chat ("where did we talk about X", "resume that…"). Flags: `--provider`, `--project`, `--limit`.
 
+Resume must run IN the session's original cwd (`claude --resume` / `codex resume` scan the current project dir for the JSONL). The CLI prints a combined `cd <path> && <agent> resume <id>` — copy that verbatim, or when spawning a new pane pass `--cwd <project_path>`.
+
 `mem search` — facts/notes/skills in long-term memory. Use for digested decisions and knowledge.
 
 Rule of thumb: past conversation → `sessions search`; durable fact → `mem search`.
