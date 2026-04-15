@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::agent::provider::{
     self, ActionStyle, AgentLaunchParams, AgentProvider, BadgeStyle, BadgeVariant, ModelInfo,
-    PathOpenKind, ReadinessStrategy, SettingField, TaskDelivery,
+    PathOpenKind, ReadinessStrategy, SessionIdInjection, SettingField, TaskDelivery,
 };
 use crate::shell::ShellSyntax;
 
@@ -82,11 +82,24 @@ impl AgentProvider for ClaudeProvider {
             parts.push(ShellSyntax::quote(name));
         }
 
+        // Pre-generated session id (only honored for fresh sessions —
+        // `--session-id` is silently ignored by claude when also resuming).
+        if !use_stdin_pipe {
+            if let Some(ref sid) = params.session_id {
+                parts.push("--session-id".to_string());
+                parts.push(ShellSyntax::quote(sid));
+            }
+        }
+
         if let Some(ref extra) = params.args {
             parts.extend(extra.iter().cloned());
         }
 
         parts.join(" ")
+    }
+
+    fn session_id_injection(&self) -> SessionIdInjection {
+        SessionIdInjection::FreshAndFork
     }
 
     fn readiness_strategy(&self) -> ReadinessStrategy {
@@ -545,6 +558,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: false,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         if cfg!(target_os = "windows") {
@@ -568,6 +582,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: false,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains("--dangerously-skip-permissions"));
@@ -584,6 +599,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: false,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains("--agent"));
@@ -600,6 +616,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: true,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         // Must include the pipe prefix, then claude binary, then -p flag.
@@ -642,6 +659,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: true,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         // No task → no pipe, no -p, no stream-json — just plain claude.
@@ -661,6 +679,7 @@ mod tests {
             args: Some(vec!["--model".into(), "claude-haiku-4-5-20251001".into()]),
             skip_permissions: true,
             headless: false,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains(".ct-task-"));
@@ -676,6 +695,7 @@ mod tests {
             args: Some(vec!["--model".into(), "claude-haiku-4-5-20251001".into()]),
             skip_permissions: true,
             headless: true,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains(" -p"));
@@ -729,6 +749,50 @@ mod tests {
         assert!(path_str.contains(".claude"));
         assert!(path_str.contains("projects"));
         assert!(path_str.contains("-home-user-project"));
+    }
+
+    #[test]
+    fn test_build_launch_command_with_session_id_injection() {
+        let p = ClaudeProvider::new();
+        // Fresh launch with explicit session id → command must include --session-id
+        let params = AgentLaunchParams {
+            agent_name: None,
+            task: None,
+            args: None,
+            skip_permissions: true,
+            headless: false,
+            session_id: Some("my-pre-generated-uuid".to_string()),
+        };
+        let cmd = p.build_launch_command(&params);
+        assert!(cmd.contains("--session-id"), "must pass --session-id flag, got: {}", cmd);
+        assert!(cmd.contains("my-pre-generated-uuid"), "must include the chosen uuid, got: {}", cmd);
+    }
+
+    #[test]
+    fn test_session_id_injection_supported_for_claude() {
+        let p = ClaudeProvider::new();
+        assert_eq!(
+            p.session_id_injection(),
+            crate::agent::provider::SessionIdInjection::FreshAndFork
+        );
+    }
+
+    #[test]
+    fn test_headless_does_not_inject_session_id() {
+        // Headless (-p) Claude launches don't take --session-id; we must
+        // skip injection rather than emit a flag claude will reject.
+        let p = ClaudeProvider::new();
+        let params = AgentLaunchParams {
+            agent_name: None,
+            task: Some("hello".to_string()),
+            args: None,
+            skip_permissions: true,
+            headless: true,
+            session_id: Some("should-not-appear".to_string()),
+        };
+        let cmd = p.build_launch_command(&params);
+        assert!(!cmd.contains("--session-id"), "headless launch must not pass --session-id, got: {}", cmd);
+        assert!(!cmd.contains("should-not-appear"));
     }
 
     #[test]

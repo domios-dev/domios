@@ -387,6 +387,7 @@ mod tests {
             args: None,
             skip_permissions: false,
             headless: false,
+            session_id: None,
         });
         assert_eq!(cmd, "codex");
     }
@@ -400,6 +401,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: false,
+            session_id: None,
         });
         assert_eq!(cmd, "codex --full-auto");
     }
@@ -413,6 +415,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: false,
+            session_id: None,
         });
         assert!(cmd.contains("codex exec --dangerously-bypass-approvals-and-sandbox"));
         assert!(cmd.contains("shell_environment_policy.inherit=all"));
