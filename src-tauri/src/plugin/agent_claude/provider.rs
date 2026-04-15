@@ -732,6 +732,34 @@ mod tests {
     }
 
     #[test]
+    fn test_session_exists_default_via_file_path() {
+        let p = ClaudeProvider::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_string_lossy().to_string();
+
+        // Build the path the provider expects, then materialize it so the
+        // default `session_exists` (which checks `session_file_path().exists()`)
+        // can find it. Skips the test if HOME isn't writable.
+        let real_path = match p.session_file_path(&cwd, "session-real") {
+            Some(p) => p,
+            None => return,
+        };
+        if let Some(parent) = real_path.parent() {
+            if std::fs::create_dir_all(parent).is_err() {
+                return;
+            }
+        }
+        if std::fs::write(&real_path, "{}\n").is_err() {
+            return;
+        }
+
+        assert!(p.session_exists(&cwd, "session-real"), "existing JSONL should be detected");
+        assert!(!p.session_exists(&cwd, "session-bogus-uuid-xxx"), "missing JSONL must report false");
+
+        let _ = std::fs::remove_file(&real_path);
+    }
+
+    #[test]
     fn test_build_resume_command() {
         let p = ClaudeProvider::new();
         let cmd = p

@@ -132,19 +132,40 @@ pub async fn spawn_pty(
     // This runs in backend so it works even for non-visible tabs.
     // Skip protected panes (General Agent) — backend manages their lifecycle.
     if let Some(ref pid) = pane_id {
-        let (session_id, is_protected) = {
+        let (session_id, is_protected, pane_cwd) = {
             let m = mux_state.lock();
             let pane = m.get_pane(pid);
             (
                 pane.and_then(|p| p.agent_session_id.clone()),
                 pane.map(|p| p.protected).unwrap_or(false),
+                pane.and_then(|p| p.cwd.clone()),
             )
         };
-        // Also grab agent_type from pane (snapshot preserves it)
         let agent_type = mux_state.lock().get_pane(pid)
             .and_then(|p| p.agent_type.clone());
         if let Some(session_id) = session_id.filter(|_| !is_protected) {
             let provider_id = agent_type.unwrap_or_else(crate::config::default_agent_provider);
+
+            // Validate the session file still exists. If it's gone (cleared cache,
+            // different machine, /new inside the TUI last run), resuming produces
+            // spam like "No conversation found with session ID: ..." which the
+            // watchdog then retries forever. Clear and bail quietly instead.
+            let session_valid = pane_cwd.as_deref().map(|cwd| {
+                svc.agent_registry.with_provider(&provider_id, |p| {
+                    p.session_exists(cwd, &session_id)
+                }).unwrap_or(false)
+            }).unwrap_or(false);
+
+            if !session_valid {
+                log::info!(
+                    "[resume] session {} for pane {} has no backing file under {:?} — clearing, skipping resume",
+                    session_id, pid, pane_cwd
+                );
+                svc.set_agent_session_id(pid, None);
+                svc.emit_state_changed();
+                return Ok(pty_id);
+            }
+
             svc.set_pane_agent_type(pid, Some(provider_id.clone()));
             svc.emit_state_changed();
 
