@@ -41,7 +41,18 @@ interface Props {
 
 export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) {
   const [activeTab, setActiveTab] = useState<MemoryTab>(initialState?.activeTab ?? "list");
-  const { nodes, edges, loading, error, stats, updateNode, bulkUpdatePositions, removeNode } = useGraphData(api);
+  const {
+    nodes,
+    edges,
+    loading,
+    error,
+    stats,
+    pinnedPositions,
+    updateNode,
+    removeNode,
+    pinPosition,
+    unpinPosition,
+  } = useGraphData(api);
   const { pulses } = useActivityPulses(api);
   const [workerPanelVisible, setWorkerPanelVisible] = useState(
     initialState?.workerPanelVisible ?? false,
@@ -216,9 +227,11 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
                 nodes={nodes}
                 edges={edges}
                 pulses={pulses}
+                pinnedPositions={pinnedPositions}
                 updateNode={updateNode}
-                bulkUpdatePositions={bulkUpdatePositions}
                 removeNode={removeNode}
+                pinPosition={pinPosition}
+                unpinPosition={unpinPosition}
                 registerFit={registerFit}
                 registerRecenter={registerRecenter}
                 selectedIdOverride={selectedId}
