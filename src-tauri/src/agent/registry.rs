@@ -367,4 +367,130 @@ mod tests {
         assert!(json.is_array());
         assert_eq!(json.as_array().unwrap().len(), 1);
     }
+
+    // UTF-8 safety: snippet windowing must never slice mid-codepoint.
+    #[test]
+    fn floor_char_boundary_handles_utf8() {
+        let s = "Привет мир";
+        assert_eq!(super::floor_char_boundary(s, 0), 0);
+        assert_eq!(super::floor_char_boundary(s, s.len()), s.len());
+        for i in 1..s.len() {
+            let b = super::floor_char_boundary(s, i);
+            assert!(s.is_char_boundary(b));
+            assert!(b <= i);
+        }
+    }
+
+    struct StubSearchProvider {
+        sessions: Vec<SessionMetadata>,
+        messages: std::collections::HashMap<String, Vec<crate::agent::provider::SessionMessage>>,
+    }
+
+    impl crate::agent::provider::AgentProvider for StubSearchProvider {
+        fn id(&self) -> &str { "stub" }
+        fn display_name(&self) -> &str { "Stub" }
+        fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String { String::new() }
+        fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+            crate::agent::provider::ReadinessStrategy::FixedDelay { duration: std::time::Duration::from_secs(0) }
+        }
+        fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+            crate::agent::provider::TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _: &str) -> bool { false }
+        fn detect_from_output(&self, _: &str) -> bool { false }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<std::path::PathBuf> { None }
+        fn detect_session_id(&self, _: &str, _: &[String], _: Option<std::time::Duration>) -> Option<String> { None }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> { None }
+        fn enumerate_sessions(&self) -> Vec<SessionMetadata> { self.sessions.clone() }
+        fn parse_session_messages(&self, path: &std::path::Path) -> Vec<crate::agent::provider::SessionMessage> {
+            self.messages.get(path.to_str().unwrap_or("")).cloned().unwrap_or_default()
+        }
+    }
+
+    fn stub_registry(sessions: Vec<SessionMetadata>, msgs: Vec<(&str, Vec<(&str, &str)>)>) -> AgentRegistry {
+        let mut messages = std::collections::HashMap::new();
+        for (file, list) in msgs {
+            messages.insert(
+                file.to_string(),
+                list.into_iter().map(|(role, text)| crate::agent::provider::SessionMessage {
+                    role: role.to_string(),
+                    text: text.to_string(),
+                    ts: None,
+                    is_meta: false,
+                }).collect(),
+            );
+        }
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(StubSearchProvider { sessions, messages }));
+        reg
+    }
+
+    #[test]
+    fn search_sessions_all_terms_must_match_in_same_session() {
+        let sessions = vec![
+            SessionMetadata {
+                session_id: "s1".into(), provider: "stub".into(),
+                project_path: None, title: None, summary: None,
+                file_path: "f1".into(), created_ts: None, modified_ts: Some(2),
+            },
+            SessionMetadata {
+                session_id: "s2".into(), provider: "stub".into(),
+                project_path: None, title: None, summary: None,
+                file_path: "f2".into(), created_ts: None, modified_ts: Some(1),
+            },
+        ];
+        let reg = stub_registry(sessions, vec![
+            ("f1", vec![("user", "webpack config crashed"), ("assistant", "try HMR")]),
+            ("f2", vec![("user", "only webpack"), ("assistant", "no config talk here")]),
+        ]);
+        let hits = reg.search_sessions(&SessionSearchOpts {
+            terms: vec!["webpack".into(), "config".into()],
+            provider: None, project_path: None, limit: 10, max_snippets: 3,
+        });
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].meta.session_id, "s1");
+    }
+
+    #[test]
+    fn search_sessions_utf8_snippet_does_not_panic() {
+        let sessions = vec![SessionMetadata {
+            session_id: "s".into(), provider: "stub".into(),
+            project_path: None, title: None, summary: None,
+            file_path: "f".into(), created_ts: None, modified_ts: Some(1),
+        }];
+        let body = "Привет, пытаюсь починить webpack конфиг — всё валится на pnpm install у нас тут";
+        let reg = stub_registry(sessions, vec![("f", vec![("user", body)])]);
+        let hits = reg.search_sessions(&SessionSearchOpts {
+            terms: vec!["webpack".into()],
+            provider: None, project_path: None, limit: 5, max_snippets: 1,
+        });
+        assert_eq!(hits.len(), 1);
+        let snippet = &hits[0].snippets[0].text;
+        assert!(snippet.contains("webpack"));
+        assert!(snippet.is_char_boundary(0));
+        assert!(snippet.is_char_boundary(snippet.len()));
+    }
+
+    #[test]
+    fn search_sessions_respects_provider_filter() {
+        let sessions = vec![SessionMetadata {
+            session_id: "s".into(), provider: "stub".into(),
+            project_path: None, title: None, summary: None,
+            file_path: "f".into(), created_ts: None, modified_ts: Some(1),
+        }];
+        let reg = stub_registry(sessions, vec![("f", vec![("user", "needle in haystack")])]);
+        let hits_other = reg.search_sessions(&SessionSearchOpts {
+            terms: vec!["needle".into()],
+            provider: Some("nonexistent".into()),
+            project_path: None, limit: 10, max_snippets: 3,
+        });
+        assert!(hits_other.is_empty());
+
+        let hits_match = reg.search_sessions(&SessionSearchOpts {
+            terms: vec!["needle".into()],
+            provider: Some("stub".into()),
+            project_path: None, limit: 10, max_snippets: 3,
+        });
+        assert_eq!(hits_match.len(), 1);
+    }
 }
