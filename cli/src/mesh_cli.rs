@@ -269,6 +269,22 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 path.push_str(&format!("&limit={}&max_snippets={}", limit, max_snippets));
                 ("GET".into(), path, None)
             }
+            super::SessionsAction::Resume { session_id, title, workspace_id, workspace_name } => {
+                let mut body = serde_json::Map::new();
+                if let Some(t) = title { body.insert("title".into(), serde_json::Value::String(t.clone())); }
+                if let Some(w) = workspace_id { body.insert("workspace_id".into(), serde_json::Value::String(w.clone())); }
+                if let Some(n) = workspace_name { body.insert("workspace_name".into(), serde_json::Value::String(n.clone())); }
+                (
+                    "POST".into(),
+                    format!("/api/sessions/{}/resume", urlencoding::encode(session_id)),
+                    Some(serde_json::Value::Object(body).to_string()),
+                )
+            }
+            super::SessionsAction::Get { session_id } => (
+                "GET".into(),
+                format!("/api/sessions/{}", urlencoding::encode(session_id)),
+                None,
+            ),
         },
         Commands::Keepawake { action } => match action {
             Some(super::KeepAwakeAction::Stop) => ("POST".into(), "/api/keepawake/stop".into(), None),

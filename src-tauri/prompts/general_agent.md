@@ -38,7 +38,7 @@ codeterm mem wake-up                        # L0 identity + L1 critical facts (y
 
 Optional flags: `--kind <skill|fact|...>`, `--limit <n>` (default 5), `--rerank` (LLM rerank for top results).
 
-**"Find that past session…" → `codeterm sessions search "<query>"`** (not `mem search`). Walks raw JSONL transcripts across every provider, returns hits with a ready-made resume command. Flags: `--provider`, `--project`, `--limit`.
+**"Find that past session…" → `codeterm sessions search "<query>"`** (not `mem search`). To actually open it, use **`codeterm sessions resume <id>`** — one command, handles workspace + cwd + resume id correctly. Do NOT do `workspace create + agent spawn --args=--resume=UUID` by hand, it breaks because `claude --resume` looks for the JSONL in the CURRENT encoded project dir.
 
 **Capture as you go.** When the user tells you something durable, save it:
 ```bash
