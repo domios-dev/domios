@@ -1554,13 +1554,16 @@ async fn resume_session_api(
         report_target_pane_id: None,
         skip_permissions: Some(true),
     };
+    // DO NOT set pane.agent_session_id before spawn — commands.rs::spawn_pty's
+    // auto-resume path fires on any saved session_id and would inject its own
+    // `--resume` command on top of the one we passed through `args`, producing
+    // two concatenated `claude --resume ...` strings in the shell. The
+    // SessionStart hook (Task B2) will record the id as soon as claude starts.
     let spawned = state
         .svc
         .spawn_agent(spawn_params)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-
-    state.svc.set_agent_session_id(&spawned.pane_id, Some(meta.session_id.clone()));
     state.svc.set_pane_agent_type(&spawned.pane_id, Some(meta.provider.clone()));
     state.svc.emit_state_changed();
 

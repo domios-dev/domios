@@ -112,6 +112,20 @@ pub async fn spawn_pty(
         "CODETERM_SOCKET_PATH".to_string(),
         crate::socket::server::socket_display_path(),
     );
+    // Hook callbacks (Notification/Stop/PreCompact/SessionStart) POST to our
+    // REST API with an Authorization header read from this env var. Without
+    // it, the hook curl hits auth_middleware and 401s silently.
+    let api_cfg = config_state.lock().api.clone();
+    if let Ok(port) = std::env::var("CODETERM_API_PORT") {
+        env_vars.insert("CODETERM_API_PORT".into(), port);
+    } else {
+        env_vars.insert("CODETERM_API_PORT".into(), api_cfg.port.to_string());
+    }
+    if let Some(ref tok) = api_cfg.token {
+        if !tok.is_empty() {
+            env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
+        }
+    }
 
     let t0 = std::time::Instant::now();
     let built = tokio::task::spawn_blocking(move || {
@@ -848,17 +862,22 @@ fn claude_settings_path() -> Result<std::path::PathBuf, String> {
     Ok(home.join(".claude").join("settings.json"))
 }
 
-const CODETERM_HOOK_MARKER: &str = "codeterm-hook";
+// v2 = hooks carry `Authorization: Bearer $CODETERM_API_TOKEN` and rely on
+// auth_middleware instead of the old loopback-exemption path. Any older
+// marker is treated as upgradable so we overwrite the pre-v2 curl commands.
+const CODETERM_HOOK_MARKER: &str = "codeterm-hook-v2";
 
+/// True when a hook entry was installed by CodeTerm at any version — used on
+/// install to REMOVE stale entries before writing the current ones. Accepts
+/// any historical marker plus a URL-based legacy fallback.
 fn is_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
     hook_entry.get("hooks").and_then(|hs| hs.as_array())
         .map(|hs| hs.iter().any(|h| {
             if let Some(source) = h.get("_source").and_then(|s| s.as_str()) {
-                if source == CODETERM_HOOK_MARKER || source == "codeterm" {
+                if source.starts_with("codeterm-hook") || source == "codeterm" {
                     return true;
                 }
             }
-            // Legacy detection: check if command posts to CodeTerm API
             h.get("command").and_then(|c| c.as_str())
                 .map(|cmd| {
                     let is_codeterm_url = cmd.contains("7685") || cmd.contains("7686");
@@ -875,6 +894,19 @@ fn is_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
+/// True only when the hook matches the CURRENT installer output. Drives the
+/// `hooks_installed` bit so we force-upgrade stale pre-v2 entries (which
+/// lacked the auth header and relied on the dropped exemption).
+fn is_current_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
+    hook_entry.get("hooks").and_then(|hs| hs.as_array())
+        .map(|hs| hs.iter().any(|h| {
+            h.get("_source").and_then(|s| s.as_str())
+                .map(|src| src == CODETERM_HOOK_MARKER)
+                .unwrap_or(false)
+        }))
+        .unwrap_or(false)
+}
+
 /// Check if Claude Code hooks are installed for CodeTerm notifications.
 #[tauri::command]
 pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
@@ -885,6 +917,8 @@ pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
             hooks_installed: false,
             notification_hook: false,
             stop_hook: false,
+            precompact_hook: false,
+            session_start_hook: false,
         });
     }
 
@@ -894,19 +928,19 @@ pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
 
     let notification_hook = json.pointer("/hooks/Notification")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_codeterm_hook))
+        .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
     let stop_hook = json.pointer("/hooks/Stop")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_codeterm_hook))
+        .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
     let precompact_hook = json.pointer("/hooks/PreCompact")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_codeterm_hook))
+        .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
     let session_start_hook = json.pointer("/hooks/SessionStart")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_codeterm_hook))
+        .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
 
     Ok(ClaudeHooksStatus {
@@ -914,6 +948,8 @@ pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
         hooks_installed: notification_hook && stop_hook && precompact_hook && session_start_hook,
         notification_hook,
         stop_hook,
+        precompact_hook,
+        session_start_hook,
     })
 }
 
@@ -926,7 +962,7 @@ pub fn ensure_claude_hooks_installed() {
             if let Err(e) = install_claude_hooks(None) {
                 log::warn!("[startup] failed to auto-install claude hooks: {}", e);
             } else {
-                log::info!("[startup] claude hooks auto-installed (Notification, Stop, PreCompact)");
+                log::info!("[startup] claude hooks auto-installed (Notification, Stop, PreCompact, SessionStart)");
             }
         }
     }
@@ -938,6 +974,8 @@ pub struct ClaudeHooksStatus {
     pub hooks_installed: bool,
     pub notification_hook: bool,
     pub stop_hook: bool,
+    pub precompact_hook: bool,
+    pub session_start_hook: bool,
 }
 
 #[tauri::command]
@@ -963,20 +1001,24 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
     };
 
     let null_dev = crate::shell::ShellSyntax::NULL_DEV;
+    // Hook callbacks share one auth header so the endpoints can stay behind
+    // auth_middleware and don't need a loopback/LAN exemption. CodeTerm sets
+    // $CODETERM_API_TOKEN in the PTY env at spawn time.
+    let auth_h = "-H \"Authorization: Bearer ${CODETERM_API_TOKEN}\"";
     let notify_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
     );
     let stop_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
     );
     // flush PTY scrollback before summarization destroys it
     let precompact_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/mem/flush -H 'Content-Type: application/json' -d '{{\"pane\":\"'\"$CODETERM_PANE_ID\"'\",\"title\":\"pre-compact\"}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/mem/flush -H 'Content-Type: application/json' {auth_h} -d '{{\"pane\":\"'\"$CODETERM_PANE_ID\"'\",\"title\":\"pre-compact\"}}' > {null_dev} 2>&1 || true"
     );
     // Forward Claude's SessionStart JSON (delivered on stdin) to CodeTerm so we
     // learn the new session_id when the user runs /new, /clear, or starts fresh.
     let session_start_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' --data-binary @- > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' {auth_h} --data-binary @- > {null_dev} 2>&1 || true"
     );
 
     if json.get("hooks").is_none() {

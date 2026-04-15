@@ -355,6 +355,15 @@ pub fn start_general_agent(
         if let Ok(port) = std::env::var("CODETERM_API_PORT") {
             env.insert("CODETERM_API_PORT".to_string(), port);
         }
+        // Hook callbacks POST to our REST API. Without the token they'd 401
+        // on any non-loopback bind and silently swallow the failure via
+        // `curl … || true`, so set it unconditionally.
+        let tok: Option<String> = config.lock().api.token.clone();
+        if let Some(tok) = tok {
+            if !tok.is_empty() {
+                env.insert("CODETERM_API_TOKEN".to_string(), tok);
+            }
+        }
         env
     };
 
@@ -411,10 +420,10 @@ pub fn start_general_agent(
     let ready = crate::service::pty_io::poll_shell_prompt(
         screen_state,
         &pty_id,
-        std::time::Duration::from_secs(15),
+        std::time::Duration::from_secs(60),
     );
     if !ready {
-        log::warn!("[general-agent] Shell not ready within 15s for PTY {} — watchdog will retry", pty_id);
+        log::warn!("[general-agent] Shell not ready within 60s for PTY {} — watchdog will retry", pty_id);
         return;
     }
     log::info!("[general-agent] Shell ready, building launch command...");

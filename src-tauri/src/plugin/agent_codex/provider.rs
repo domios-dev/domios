@@ -106,8 +106,8 @@ impl AgentProvider for CodexProvider {
             let Some(session_id) = session_id else { return };
 
             let meta = std::fs::metadata(path).ok();
-            let created_ts = meta.as_ref().and_then(|m| fs_time_to_unix(m.created().ok()));
-            let modified_ts = meta.as_ref().and_then(|m| fs_time_to_unix(m.modified().ok()));
+            let created_ts = meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.created().ok()));
+            let modified_ts = meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
 
             out.push(SessionMetadata {
                 session_id,
@@ -474,11 +474,6 @@ fn read_session_meta(path: &std::path::Path) -> Option<(Option<String>, Option<S
     let id = payload.get("id").and_then(|s| s.as_str()).map(String::from);
     let cwd = payload.get("cwd").and_then(|s| s.as_str()).map(String::from);
     Some((id, cwd))
-}
-
-fn fs_time_to_unix(t: Option<std::time::SystemTime>) -> Option<i64> {
-    t.and_then(|st| st.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
 }
 
 /// Filter CodeTerm's own boot-time system messages that codex records as

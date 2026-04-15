@@ -67,6 +67,14 @@ pub struct SessionMetadata {
     pub modified_ts: Option<i64>,
 }
 
+/// Convert a `SystemTime` (from `fs::Metadata::created`/`modified`) into unix
+/// seconds. Shared by every provider's `enumerate_sessions` to keep the
+/// `created_ts` / `modified_ts` calc in one place.
+pub fn fs_time_to_unix(t: Option<std::time::SystemTime>) -> Option<i64> {
+    t.and_then(|st| st.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+}
+
 /// A single message extracted from a session file by the provider's parser.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMessage {
