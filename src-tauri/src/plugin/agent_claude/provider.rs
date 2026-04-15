@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use crate::agent::provider::{
     self, ActionStyle, AgentLaunchParams, AgentProvider, BadgeStyle, BadgeVariant, ModelInfo,
-    PathOpenKind, ReadinessStrategy, SessionIdInjection, SettingField, TaskDelivery,
+    PathOpenKind, ReadinessStrategy, SessionIdInjection, SessionMessage, SessionMetadata,
+    SettingField, TaskDelivery,
 };
 use crate::shell::ShellSyntax;
 
@@ -27,6 +28,20 @@ impl ClaudeProvider {
         let home = dirs::home_dir()?;
         let encoded = Self::encode_cwd(cwd);
         Some(home.join(".claude").join("projects").join(encoded))
+    }
+
+    /// Best-effort decode of the encoded project directory name back to a
+    /// filesystem path. Claude encodes `/Users/x/proj` as `-Users-x-proj`.
+    /// Irreversible if the original path had `-` chars, so this is only used
+    /// for display and filtering — never for reopening files.
+    fn decode_project_dir(dirname: &str) -> Option<String> {
+        dirname.strip_prefix('-').map(|rest| format!("/{}", rest.replace('-', "/")))
+    }
+
+    fn fs_time_to_unix(t: std::io::Result<std::time::SystemTime>) -> Option<i64> {
+        t.ok()
+            .and_then(|st| st.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64)
     }
 }
 
@@ -100,6 +115,120 @@ impl AgentProvider for ClaudeProvider {
 
     fn session_id_injection(&self) -> SessionIdInjection {
         SessionIdInjection::FreshAndFork
+    }
+
+    fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
+        let Some(home) = dirs::home_dir() else { return Vec::new() };
+        let projects_root = home.join(".claude").join("projects");
+        let Ok(entries) = std::fs::read_dir(&projects_root) else { return Vec::new() };
+
+        let mut out = Vec::new();
+        for entry in entries.filter_map(|e| e.ok()) {
+            if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let dir_path = entry.path();
+            let dir_name = entry.file_name().to_string_lossy().to_string();
+            let project_path = Self::decode_project_dir(&dir_name);
+
+            // Also look for a sessions-index.json to pick up titles/summaries.
+            let index: std::collections::HashMap<String, serde_json::Value> =
+                std::fs::read_to_string(dir_path.join("sessions-index.json"))
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                    .and_then(|v| {
+                        v.get("entries").and_then(|e| e.as_array()).map(|arr| {
+                            arr.iter()
+                                .filter_map(|it| {
+                                    it.get("sessionId").and_then(|s| s.as_str()).map(|sid| {
+                                        (sid.to_string(), it.clone())
+                                    })
+                                })
+                                .collect()
+                        })
+                    })
+                    .unwrap_or_default();
+
+            let Ok(files) = std::fs::read_dir(&dir_path) else { continue };
+            for f in files.filter_map(|e| e.ok()) {
+                let name = f.file_name().to_string_lossy().to_string();
+                let Some(stem) = name.strip_suffix(".jsonl") else { continue };
+                if stem.len() < 32 || !stem.contains('-') {
+                    continue;
+                }
+                let meta = f.metadata().ok();
+                let created_ts = meta.as_ref().map(|m| Self::fs_time_to_unix(m.created())).unwrap_or(None);
+                let modified_ts = meta.as_ref().map(|m| Self::fs_time_to_unix(m.modified())).unwrap_or(None);
+
+                let entry_meta = index.get(stem);
+                let title = entry_meta
+                    .and_then(|v| v.get("title").and_then(|s| s.as_str()))
+                    .map(String::from);
+                let summary = entry_meta
+                    .and_then(|v| v.get("summary").and_then(|s| s.as_str()))
+                    .map(String::from);
+
+                out.push(SessionMetadata {
+                    session_id: stem.to_string(),
+                    provider: "claude".to_string(),
+                    project_path: project_path.clone(),
+                    title,
+                    summary,
+                    file_path: f.path().to_string_lossy().to_string(),
+                    created_ts,
+                    modified_ts,
+                });
+            }
+        }
+        out
+    }
+
+    fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
+        use std::io::{BufRead, BufReader};
+        let Ok(f) = std::fs::File::open(file_path) else { return Vec::new() };
+        let reader = BufReader::new(f);
+        let mut out = Vec::new();
+        for line in reader.lines().map_while(Result::ok) {
+            if line.is_empty() {
+                continue;
+            }
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+            let msg_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            if msg_type != "user" && msg_type != "assistant" {
+                continue;
+            }
+            let is_meta = v.get("isMeta").and_then(|b| b.as_bool()).unwrap_or(false);
+
+            // Claude JSONL nests the real content under `message.content`,
+            // which can be a string or an array of typed blocks.
+            let content = v.get("message").and_then(|m| m.get("content"));
+            let text = match content {
+                Some(serde_json::Value::String(s)) => s.clone(),
+                Some(serde_json::Value::Array(blocks)) => blocks
+                    .iter()
+                    .filter_map(|b| {
+                        if b.get("type").and_then(|t| t.as_str()) == Some("text") {
+                            b.get("text").and_then(|t| t.as_str()).map(String::from)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                _ => continue,
+            };
+            if text.trim().is_empty() {
+                continue;
+            }
+
+            let ts = v.get("timestamp")
+                .and_then(|t| t.as_str())
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.timestamp());
+
+            out.push(SessionMessage { role: msg_type.to_string(), text, ts, is_meta });
+        }
+        out
     }
 
     fn readiness_strategy(&self) -> ReadinessStrategy {

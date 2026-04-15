@@ -261,6 +261,15 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         // mem operations isn't routed through mesh in 3.1; users should run
         // `codeterm mem ...` on the local pane (mem is per-machine state).
         Commands::Mem { .. } => ("GET".into(), "/api/mem/stats".into(), None),
+        Commands::Sessions { action } => match action {
+            super::SessionsAction::Search { query, provider, project, limit, max_snippets } => {
+                let mut path = format!("/api/sessions/search?q={}", urlencoding::encode(query));
+                if let Some(p) = provider { path.push_str(&format!("&provider={}", urlencoding::encode(p))); }
+                if let Some(p) = project { path.push_str(&format!("&project={}", urlencoding::encode(p))); }
+                path.push_str(&format!("&limit={}&max_snippets={}", limit, max_snippets));
+                ("GET".into(), path, None)
+            }
+        },
         Commands::Keepawake { action } => match action {
             Some(super::KeepAwakeAction::Stop) => ("POST".into(), "/api/keepawake/stop".into(), None),
             Some(super::KeepAwakeAction::Start { duration_secs, display }) => (

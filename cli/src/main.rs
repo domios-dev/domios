@@ -269,6 +269,38 @@ pub enum Commands {
         #[command(subcommand)]
         action: MemAction,
     },
+
+    /// Past agent sessions — search conversations across all providers
+    Sessions {
+        #[command(subcommand)]
+        action: SessionsAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SessionsAction {
+    /// Search past sessions by content across all registered providers.
+    /// Results are tagged with `provider` so an agent can resume with the
+    /// right launcher.
+    Search {
+        /// Query string. Terms are whitespace-split; every term must
+        /// appear (case-insensitive) in at least one matching message.
+        query: String,
+        /// Filter by provider id (e.g. "claude"). Omit or pass "all" to
+        /// search every registered provider.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Restrict to sessions tagged with this project path. Handy when
+        /// you only want hits from the current repo.
+        #[arg(long)]
+        project: Option<String>,
+        /// Max sessions returned.
+        #[arg(long, default_value = "10")]
+        limit: usize,
+        /// Max snippets shown per session.
+        #[arg(long, default_value = "3")]
+        max_snippets: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2394,6 +2426,12 @@ fn main() {
             handle_mem(json_mode, action);
             return;
         }
+        Commands::Sessions { action } => {
+            let (base_url, token) = read_api_config();
+            let http = build_http(&token);
+            handle_sessions(cli.json, action, &http, &base_url, token.as_deref());
+            return;
+        }
     };
 
     handle_result(cli.json, result);
@@ -3124,6 +3162,109 @@ fn print_taxonomy(value: &serde_json::Value) {
             for k in kind_keys {
                 let n = kinds.get(k).and_then(|v| v.as_u64()).unwrap_or(0);
                 println!("  {:<13} {}", k, n);
+            }
+        }
+    }
+}
+
+// ── Sessions CLI handler ─────────────────────────────────────────────
+
+/// Minimal unix-ts-to-"YYYY-MM-DD HH:MM" formatter (UTC). Avoids pulling
+/// chrono into the CLI crate just for a date label.
+fn format_unix_ts(ts: i64) -> String {
+    if ts <= 0 {
+        return "?".into();
+    }
+    let days = ts / 86_400;
+    let sec_of_day = ts.rem_euclid(86_400);
+    let hh = sec_of_day / 3600;
+    let mm = (sec_of_day % 3600) / 60;
+    // Civil-from-days algorithm (Howard Hinnant), days since 1970-01-01.
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{:04}-{:02}-{:02} {:02}:{:02}", y, m, d, hh, mm)
+}
+
+fn handle_sessions(
+    json_mode: bool,
+    action: SessionsAction,
+    http: &reqwest::blocking::Client,
+    base: &str,
+    token: Option<&str>,
+) {
+    match action {
+        SessionsAction::Search { query, provider, project, limit, max_snippets } => {
+            let mut url = format!("{}/api/sessions/search?q={}", base, urlencoding::encode(&query));
+            if let Some(p) = provider {
+                url.push_str(&format!("&provider={}", urlencoding::encode(&p)));
+            }
+            if let Some(p) = project {
+                url.push_str(&format!("&project={}", urlencoding::encode(&p)));
+            }
+            url.push_str(&format!("&limit={}", limit));
+            url.push_str(&format!("&max_snippets={}", max_snippets));
+
+            let mut req = http.get(&url);
+            if let Some(t) = token {
+                req = req.header("Authorization", format!("Bearer {}", t));
+            }
+            let resp = match req.send() {
+                Ok(r) => r,
+                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+            };
+            let val: serde_json::Value = resp.json().unwrap_or_default();
+            if json_mode {
+                println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
+                return;
+            }
+            let hits = val.get("hits").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            if hits.is_empty() {
+                println!("No sessions matched: {}", query);
+                return;
+            }
+            println!("Found {} session(s) for: {}\n", hits.len(), query);
+            for (i, hit) in hits.iter().enumerate() {
+                let meta = hit.get("meta").cloned().unwrap_or_default();
+                let provider_id = meta.get("provider").and_then(|v| v.as_str()).unwrap_or("?");
+                let sid = meta.get("session_id").and_then(|v| v.as_str()).unwrap_or("?");
+                let project = meta.get("project_path").and_then(|v| v.as_str()).unwrap_or("");
+                let title = meta.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                let modified = meta.get("modified_ts").and_then(|v| v.as_i64()).unwrap_or(0);
+                let modified_str = format_unix_ts(modified);
+                println!("{:─<70}", "");
+                let header = if title.is_empty() {
+                    format!("{}. [{}] [{}] {}", i + 1, provider_id, modified_str, sid)
+                } else {
+                    format!("{}. [{}] [{}] {} — {}", i + 1, provider_id, modified_str, title, sid)
+                };
+                println!("  {}", header);
+                if !project.is_empty() {
+                    println!("  project: {}", project);
+                }
+                let resume_hint = match provider_id {
+                    "claude" => format!("claude --resume {}", sid),
+                    "codex" => format!("codex resume {}", sid),
+                    other => format!("{} resume {}", other, sid),
+                };
+                println!("  resume:  {}", resume_hint);
+                println!();
+                if let Some(snips) = hit.get("snippets").and_then(|v| v.as_array()) {
+                    for s in snips {
+                        let role = s.get("role").and_then(|v| v.as_str()).unwrap_or("?");
+                        let text = s.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                        let tag = if role == "user" { "You" } else { "Claude" };
+                        println!("  [{}] {}", tag, text);
+                        println!();
+                    }
+                }
             }
         }
     }
