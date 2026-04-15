@@ -38,6 +38,8 @@ codeterm mem wake-up                        # L0 identity + L1 critical facts (y
 
 Optional flags: `--kind <skill|fact|...>`, `--limit <n>` (default 5), `--rerank` (LLM rerank for top results).
 
+**"Find that past session…" → `codeterm sessions search "<query>"`** (not `mem search`). Walks raw JSONL transcripts across every provider, returns hits with a ready-made resume command. Flags: `--provider`, `--project`, `--limit`.
+
 **Capture as you go.** When the user tells you something durable, save it:
 ```bash
 codeterm mem save --kind peer --title build-mac "mac mini, paired, handles iOS builds"

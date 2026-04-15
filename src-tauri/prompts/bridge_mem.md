@@ -157,6 +157,14 @@ Do NOT load every skill upfront. Fetch specific bodies only after a search ident
 - **Every `save` should be specific.** "did some work" is noise. "Fixed JWT refresh 401 by adding kid header from JWKS endpoint" is searchable.
 - **When a task needs a skill you haven't loaded, search for it first.**
 
+## Past sessions (vs mem)
+
+`codeterm sessions search "<query>"` — searches raw conversation JSONLs across all providers; each hit tagged with `provider` + ready-to-run resume command. Use when the user wants to find an old chat ("where did we talk about X", "resume that…"). Flags: `--provider`, `--project`, `--limit`.
+
+`mem search` — facts/notes/skills in long-term memory. Use for digested decisions and knowledge.
+
+Rule of thumb: past conversation → `sessions search`; durable fact → `mem search`.
+
 ## System power (keepawake)
 
 When the user asks to prevent sleep, use `codeterm keepawake` — never `caffeinate`, `powercfg`, or `systemd-inhibit` directly.
