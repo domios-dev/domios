@@ -256,3 +256,114 @@ Tests inline per CLAUDE.md. Run `./build.sh check` + `./build.sh test` + e2e spo
 - Cross-agent session migration (resume a Claude session under Codex, etc.) — out of scope.
 - Vector/semantic search over session history — defer. FTS5 is sufficient for "find that session about X".
 - UI-level session manager / session tree view — nice to have, not part of this plan.
+
+---
+
+## Appendix: Codex on-disk schema (audit for C implementation)
+
+Needed to plug Codex into `enumerate_sessions` + `parse_session_messages` the same way Claude is plugged in today.
+
+### File layout
+```
+~/.codex/sessions/
+  <YYYY>/<MM>/<DD>/
+    rollout-<YYYY-MM-DDTHH-MM-SS>-<uuid>.jsonl
+```
+
+- Date-partitioned three directories deep (not flat like Claude).
+- Filename format: `rollout-{iso-timestamp-with-hyphens}-{uuid}.jsonl`. The timestamp is `YYYY-MM-DDTHH-MM-SS` (19 chars, hyphen-delimited, not colon). The UUID is UUID v7 (time-ordered).
+- `src-tauri/src/plugin/agent_codex/provider.rs::extract_session_uuid` already strips the prefix and returns the uuid. `collect_jsonl_files` already recurses the date tree. Reuse both for `enumerate_sessions`.
+- Codex CLI resumes via `codex resume <uuid>` — NOT the filename stem.
+
+### JSONL line schema
+Every line is a JSON object with the same envelope:
+```json
+{
+  "timestamp": "2026-04-10T11:50:27.862Z",
+  "type": "session_meta | event_msg | response_item | turn_context",
+  "payload": { ... }
+}
+```
+
+Line types seen in practice:
+| `type`           | Frequency      | Contents                                                                   |
+|------------------|----------------|----------------------------------------------------------------------------|
+| `session_meta`   | 1 per file     | id, cwd, model_provider, cli_version, source ("exec"/"interactive"), base_instructions |
+| `turn_context`   | 1 per file     | per-turn model + policy settings                                           |
+| `event_msg`      | many           | lifecycle events — `task_started`, approval results, etc.                  |
+| `response_item`  | majority       | actual conversation payload (messages, function calls, reasoning)          |
+
+### `session_meta` → SessionMetadata mapping
+```
+session_id   = payload.id            (UUID v7)
+project_path = payload.cwd           (absolute path, no encoding)
+created_ts   = payload.timestamp     (parsed as RFC3339)
+modified_ts  = file mtime
+title        = — not provided by codex (leave None)
+summary      = — same
+```
+Note: unlike Claude, Codex does NOT keep a `sessions-index.json` beside the JSONLs. Titles/summaries aren't available without reading the file content.
+
+### `response_item` → SessionMessage mapping
+Only rows with `payload.type == "message"` count as conversation:
+```json
+{
+  "type": "response_item",
+  "payload": {
+    "type": "message",
+    "role": "user" | "assistant" | "developer",
+    "content": [
+      { "type": "input_text" | "output_text" | "text", "text": "..." },
+      ...
+    ]
+  }
+}
+```
+Extraction:
+- `role` → copied verbatim into `SessionMessage.role`.
+- `text` → concatenate every content block whose `type` is in {`input_text`, `output_text`, `text`}.
+- `ts`  → parse top-level `timestamp`.
+
+Other `payload.type` values to skip for search: `function_call`, `function_call_output`, `reasoning`. (`reasoning` blocks might be worth indexing later for "find where Codex thought about X" but they add noise; skip for v1.)
+
+### Meta/noise filtering
+Codex does not carry an `isMeta` flag like Claude. The codebase injects several system-style messages as `role: user` for the agent's own consumption — they should set `is_meta=true` so `search_sessions` skips them:
+
+- User messages whose first content block starts with any of:
+  - `# AGENTS.md instructions`
+  - `<INSTRUCTIONS>`
+  - `<environment_context>`
+  - `You are a Graph Worker` (CodeTerm's own bootstrap prompt)
+  - `<permissions instructions>` (this one appears with `role: developer`, already skipped by role filter)
+
+- Skip `role: developer` entirely — it's always system-prompt content.
+
+Keep the filter list short and explicit; don't regex-guess. Unknown system injections will show up as hits until we add them — that's acceptable.
+
+### Implementation sketch
+```rust
+// In ClaudeProvider pattern, adapted for Codex:
+
+fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
+    let Some(root) = Self::sessions_root() else { return Vec::new(); };
+    let mut out = Vec::new();
+    // walk YYYY/MM/DD/*.jsonl — reuse collect_jsonl_files with no exclude/recency filter
+    // for each file: read FIRST LINE ONLY to extract session_meta.payload.id + payload.cwd
+    //                extract_session_uuid(stem) as fallback if first line not session_meta
+    //                file metadata for timestamps
+    // return SessionMetadata { provider: "codex", ... }
+    out
+}
+
+fn parse_session_messages(&self, file_path: &Path) -> Vec<SessionMessage> {
+    // stream lines, filter type == "response_item", payload.type == "message"
+    // skip role == "developer"
+    // extract text from input_text/output_text/text blocks
+    // mark is_meta=true when text starts with known injection markers
+}
+```
+
+### Open items before shipping Codex search
+1. Confirm Codex supports `--session-id <uuid>` equivalent (earlier `codex --help` audit showed no flag). If still not, B1 stays Claude-only; Codex relies on post-launch detection by UUID v7 time-order + cwd match.
+2. Decide whether to index `reasoning` blocks. Current plan: no. Revisit if users complain "can't find where Codex worked through X".
+3. Decide session-file-path strategy for `session_exists`: Codex's `session_file_path` already calls `find_session_file_by_uuid` which scans the tree — it's O(n) per check, acceptable for Task A validation (rare) but not for hot-path checks. If we ever need hot-path lookups, cache date→uuid map.
