@@ -24,6 +24,7 @@
     "vite": "^8.0.0"
   },
   "dependencies": {
+    "@sigma/edge-curve": "^3.1.0",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-notification": "^2.3.3",
@@ -36,9 +37,9 @@
     "@xterm/xterm": "^6.0.0",
     "graphology": "^0.25.4",
     "html2canvas-pro": "^2.0.2",
-    "sigma": "^3.0.0",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "sigma": "^3.0.0"
   }
 }
