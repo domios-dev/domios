@@ -1,6 +1,6 @@
 # CodeTerm Memory System
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
 
 Persistent memory for agents. Survives restarts, provider switches
 (Claude ↔ Codex), and CodeTerm upgrades. Agent-agnostic.
@@ -10,9 +10,23 @@ Persistent memory for agents. Survives restarts, provider switches
 - **Storage** — single SQLite DB at `~/.codeterm/mem/knowledge.db` + body blobs on disk
 - **Search** — FTS5 + sqlite-vec hybrid with RRF fusion
 - **Graph** — temporal entity-relation triples (people, projects; NO tech nodes)
-- **Workers** — hidden headless agents that extract entities, build graph, dedup
+- **Workers** — hidden headless agents that extract entities, build graph, dedup; `mem worker spawn` for ad-hoc enrichment
+- **Skills** — folder skills (`SKILL.md` + scripts) registered via `mem skill new/add`, indexed alongside other items
+- **Librarian** — periodic file-sync daemon: re-vectorizes source-tracked items when their on-disk file changes, flags deletions
 - **Dreaming** — nightly consolidation (SQL phases + LLM REM phase in a worker)
+- **Auto-flush** — `PreCompact` and `SessionStart` hooks POST to authenticated CodeTerm endpoints to capture conversation state without manual saves
 - **Protocol** — 7 behavioral rules injected into every agent session via `bridge_mem.md`
+
+## Mem vs past-session search
+
+Two stores, two purposes — don't confuse them:
+
+| Surface | Stored where | Asks | Used for |
+|---|---|---|---|
+| **mem** (`~/.codeterm/mem/knowledge.db`) | SQLite + FTS5 + sqlite-vec | "what did the agent learn / decide / save?" | Curated facts, learnings, skills, conversations the agent chose to keep |
+| **sessions** (provider-owned files) | Claude JSONLs / Codex rollouts | "what did we talk about that one time?" | Raw conversation history; on-demand search via `codeterm sessions search`, atomic resume via `codeterm sessions resume` |
+
+Mem is curated and indexed; sessions are raw and provider-owned. The two never share storage. See `docs/API.md` (`/api/sessions/*`) and `docs/plans/session-tracking.md` for the session side.
 
 ## Storage layer
 
@@ -88,6 +102,51 @@ Identity first, then (in order): rules → preferences → peers → facts → s
 - `codeterm mem graph create --id <id> --entity-type Person --scope global` (idempotent)
 - `codeterm mem graph relate --from <id> --rel mentions --to person_tima`
 - `codeterm mem graph related --id <id>` — outgoing relations
+
+## Auto-flush from agent hooks
+
+The mem flush API (`POST /api/mem/flush`) is the entry point providers call from their lifecycle hooks. There is no auth-exempt loopback path — every hook carries `Authorization: Bearer $CODETERM_API_TOKEN` (CodeTerm injects the token into every PTY at spawn). Today Claude installs four hook handlers:
+
+| Hook | Endpoint | Purpose |
+|---|---|---|
+| `Notification` | `POST /api/panes/{id}/hook/permission` | Surface a permission prompt without waiting for PTY auto-detect |
+| `Stop` | `POST /api/panes/{id}/hook/stop` | Mark task complete, fire `agent.task_complete` webhook |
+| `PreCompact` | `POST /api/mem/flush` | Persist conversation summary to mem before Claude compacts the context window |
+| `SessionStart` | `POST /api/panes/{id}/hook/session_start` | Track the live `session_id` so `/new` and `/clear` inside the TUI don't desync the persisted resume id |
+
+Hooks are installed by `commands.rs::install_hooks_v2` into `~/.claude/hooks.json`. The installer is idempotent and version-tagged so old loopback-auth shapes get replaced.
+
+## Skill folders (`mem skill new/add`)
+
+A skill is a **folder**, not a single file. `SKILL.md` is the index that mem ingests and vectorizes; the folder may also carry executable scripts, example payloads, snippets — anything an agent needs to actually do the thing the skill describes.
+
+```
+<skills-dir>/deploy-to-staging/
+  SKILL.md           ← indexed in mem (kind=skill, source-tracked)
+  scripts/
+    deploy.sh        ← real bash, callable from SKILL.md steps
+    rollback.sh
+  examples/
+    sample-payload.json
+```
+
+CLI:
+
+- `codeterm mem skill new <slug> [--area X]` — scaffold a folder under the right `<skills-dir>` (dev: `~/.codeterm-dev/skills/`, prod: `~/.codeterm/skills/`), seed `SKILL.md` with frontmatter + sections, and register in mem.
+- `codeterm mem skill add <folder>` — register an existing folder (cloned repo, copied from another machine).
+- `codeterm mem skill list` — list every registered skill folder.
+
+Inside `SKILL.md`, reference scripts by relative path (`./scripts/deploy.sh`). When the user invokes the skill, agents `cat SKILL.md` to recall the procedure, then execute the scripts directly. Edit any file in the folder → Librarian re-indexes on its next scan; `codeterm mem sync` triggers immediately.
+
+## Librarian (file sync daemon)
+
+A background loop that periodically scans every mem item carrying `source_path` (documents loaded with `--source-path`, skill `SKILL.md` files, etc.):
+
+- File mtime > index mtime → re-read body, re-vectorize, update FTS5.
+- File deleted → flag the item (kept searchable, not removed).
+- New skill folder dropped into `<skills-dir>/` without registration → auto-discovered and indexed.
+
+Manual trigger: `codeterm mem sync` (or `POST /api/mem/sync`). Code lives in `src-tauri/src/mem/librarian.rs`.
 
 ## Workers (`src-tauri/src/mem/workers.rs`)
 
@@ -192,6 +251,16 @@ codeterm mem graph related --id <id>
 # Workers
 codeterm mem worker progress "<status>"
 codeterm mem worker report "<summary>"
+codeterm mem worker spawn --intent "<name>" --task "<prompt>"    # ad-hoc graph worker for custom enrichment
+codeterm mem extract-pending [--limit N]                         # re-queue extraction for items that missed processing (API quota, interrupts)
+
+# Skill folders
+codeterm mem skill new <slug> [--area X]    # scaffold + register
+codeterm mem skill add <folder>             # import existing
+codeterm mem skill list
+
+# File sync (Librarian)
+codeterm mem sync                    # trigger re-index of source-tracked items
 
 # Dreaming
 codeterm mem dream                   # SQL phases + spawn REM worker
