@@ -697,4 +697,42 @@ mod tests {
         assert!(p.notifications_schema().is_empty());
         assert!(p.describe().notifications_schema.is_empty());
     }
+
+    // Meta filter — these strings are injections CodeTerm writes to a codex
+    // session as role=user. Session search must mark them is_meta so they
+    // don't pollute results with our own bootstrap noise.
+    #[test]
+    fn is_codeterm_injection_matches_known_boot_prompts() {
+        assert!(is_codeterm_injection("# AGENTS.md instructions for /Users/x/proj"));
+        assert!(is_codeterm_injection("<INSTRUCTIONS>\nYou are..."));
+        assert!(is_codeterm_injection("<environment_context>\n  <cwd>/x</cwd>\n</environment_context>"));
+        assert!(is_codeterm_injection("<permissions instructions>\nFilesystem sandboxing..."));
+        assert!(is_codeterm_injection("You are a Graph Worker for the CodeTerm memory system."));
+        assert!(is_codeterm_injection("You are the General Agent — the always-on system brain"));
+        // Leading whitespace is ok — real codex payloads don't trim.
+        assert!(is_codeterm_injection("   \n<INSTRUCTIONS>payload"));
+    }
+
+    #[test]
+    fn is_codeterm_injection_leaves_real_user_messages_alone() {
+        assert!(!is_codeterm_injection("fix the bug in parser.rs"));
+        assert!(!is_codeterm_injection("why did the deploy fail?"));
+        assert!(!is_codeterm_injection("# TODO list\n- ship v2"));
+        // User could paste the literal strings inside a question — that's
+        // legitimate. Strict `starts_with` keeps false positives low.
+        assert!(!is_codeterm_injection("looking at <INSTRUCTIONS> — what does it mean"));
+    }
+
+    #[test]
+    fn extract_session_uuid_strips_rollout_timestamp_prefix() {
+        // Real rollout stem layout: rollout-YYYY-MM-DDTHH-MM-SS-<uuid>
+        let stem = "rollout-2026-04-10T14-50-25-019d773a-a5e8-7a02-9295-a40f9f9016ea";
+        assert_eq!(
+            extract_session_uuid(stem),
+            Some("019d773a-a5e8-7a02-9295-a40f9f9016ea"),
+        );
+        // Malformed input must return None, not a garbled slice.
+        assert_eq!(extract_session_uuid("not-a-rollout-file"), None);
+        assert_eq!(extract_session_uuid("rollout-short"), None);
+    }
 }
