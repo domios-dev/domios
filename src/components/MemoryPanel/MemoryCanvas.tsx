@@ -1,27 +1,24 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MemoryEdge } from "./MemoryEdge";
-import { MemoryNodeDetail } from "./MemoryNodeDetail";
-import { BasicNode } from "./nodes/BasicNode";
-import { ExpandedNode } from "./nodes/ExpandedNode";
-import { ImageNode } from "./nodes/ImageNode";
-import type { NodeRendererProps } from "./nodes/NodeRenderer";
-import { useViewport } from "./useViewport";
-import { usePhysics } from "./usePhysics";
-import { deriveNodeKind, KIND_COLORS } from "./nodeKind";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Sigma from "sigma";
+import Graph from "graphology";
+import EdgeCurveProgram from "@sigma/edge-curve";
 import type { ApiConfig } from "../../lib/types";
-import type { MemEdge, MemNode, NodeKind } from "./types";
+import { MemoryNodeDetail } from "./MemoryNodeDetail";
+import { colorForKind, KIND_COLORS } from "./nodeKind";
+import { useGraphLayout, type Position } from "./useGraphLayout";
+import type { MemEdge, MemNode } from "./types";
 import type { Pulse } from "./useActivityPulses";
-import { getVisibleNodeIds } from "./lib/viewport";
-import { RENDERING } from "./lib/rendering-config";
 
 interface Props {
   api: ApiConfig;
   nodes: Map<string, MemNode>;
   edges: MemEdge[];
   pulses: Map<string, Pulse>;
-  updateNode: (id: string, patch: Partial<MemNode>, markDirty?: boolean) => void;
-  bulkUpdatePositions: (updates: Array<{ id: string; x: number; y: number }>, markDirty?: boolean) => void;
+  pinnedPositions: Map<string, Position>;
+  updateNode: (id: string, patch: Partial<MemNode>) => void;
   removeNode: (id: string) => void;
+  pinPosition: (id: string, x: number, y: number) => void;
+  unpinPosition: (id: string) => void;
   registerFit: (fn: () => void) => void;
   registerRecenter: (fn: () => void) => void;
   selectedIdOverride?: string | null;
@@ -29,29 +26,38 @@ interface Props {
   physicsEnabled: boolean;
 }
 
-const RENDERERS: Record<NodeKind, React.ComponentType<NodeRendererProps>> = {
-  basic: BasicNode,
-  expanded: ExpandedNode,
-  image: ImageNode,
-};
+function nodeSize(n: MemNode): number {
+  const imp = n.importance ?? 3;
+  return Math.max(3, Math.min(8, 2.5 + imp * 0.6));
+}
+
+const SELECTION_COLOR = "#c9d1d9";
+const EDGE_RGB = "201,209,217";
 
 export function MemoryCanvas({
   api,
   nodes,
   edges,
   pulses,
+  pinnedPositions,
   updateNode,
-  bulkUpdatePositions,
   removeNode,
+  pinPosition,
+  unpinPosition,
   registerFit,
   registerRecenter,
   selectedIdOverride,
   onSelectedIdChange,
   physicsEnabled,
 }: Props) {
-  const { viewport, onWheel, onPanStart, fitToView, recenter } = useViewport();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const sigmaRef = useRef<Sigma | null>(null);
+  const graphRef = useRef<Graph | null>(null);
+  const draggingRef = useRef<string | null>(null);
+
   const [selectedIdInternal, setSelectedIdInternal] = useState<string | null>(null);
-  const selectedId = selectedIdOverride !== undefined ? selectedIdOverride : selectedIdInternal;
+  const selectedId =
+    selectedIdOverride !== undefined ? selectedIdOverride : selectedIdInternal;
   const setSelectedId = useCallback(
     (id: string | null) => {
       setSelectedIdInternal(id);
@@ -59,123 +65,294 @@ export function MemoryCanvas({
     },
     [onSelectedIdChange],
   );
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const pinnedRef = useRef<Set<string>>(new Set());
 
-  const onPhysicsTick = useCallback(
-    (updates: Array<{ id: string; x: number; y: number }>) => {
-      bulkUpdatePositions(updates);
-    },
-    [bulkUpdatePositions],
-  );
-
-  const { heat } = usePhysics({
-    enabled: physicsEnabled,
+  const layout = useGraphLayout({
     nodes,
     edges,
-    pinnedRef,
-    onTick: onPhysicsTick,
+    pinnedPositions,
+    enabled: physicsEnabled,
   });
-  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
-  const scaleRef = useRef(viewport.scale);
-  scaleRef.current = viewport.scale;
-  const nodesRef = useRef(nodes);
-  nodesRef.current = nodes;
-  const autoFittedRef = useRef(false);
 
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const measure = () => setCanvasSize({ width: el.clientWidth, height: el.clientHeight });
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
+  // Keep callbacks referenced by event handlers in a ref so the init effect
+  // can run once without re-subscribing when callbacks change.
+  const handlersRef = useRef({
+    setSelectedId,
+    pin: layout.pin,
+    setPos: layout.setPosition,
+    pinPosition,
+  });
+  handlersRef.current = {
+    setSelectedId,
+    pin: layout.pin,
+    setPos: layout.setPosition,
+    pinPosition,
+  };
+
+  // Selection + hover ids live in refs so the nodeReducer (per-frame
+  // closure) sees the latest values without re-wiring sigma.
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selectedId ?? null;
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const hoveredIdRef = useRef<string | null>(null);
+  hoveredIdRef.current = hoveredId;
+  useEffect(() => {
+    sigmaRef.current?.refresh({ skipIndexation: true });
+  }, [selectedId, hoveredId]);
+
+  // Per-frame screen position of the currently active (hovered or selected)
+  // node — drives the HTML chip overlay without forcing React to re-render
+  // every camera frame.
+  const [chipStyle, setChipStyle] = useState<{
+    x: number;
+    y: number;
+    label: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const graph = new Graph({ multi: false });
+    graphRef.current = graph;
+
+    const sigma = new Sigma(graph, containerRef.current, {
+      renderLabels: true,
+      renderEdgeLabels: false,
+      labelColor: { color: "#c9d1d9" },
+      labelWeight: "400",
+      labelSize: 11,
+      labelDensity: 0.6,
+      labelGridCellSize: 80,
+      labelRenderedSizeThreshold: 5,
+      minCameraRatio: 0.1,
+      maxCameraRatio: 10,
+      defaultEdgeType: "curve",
+      edgeProgramClasses: { curve: EdgeCurveProgram },
+      nodeReducer: (node, data) => {
+        const isActive =
+          selectedIdRef.current === node || hoveredIdRef.current === node;
+        if (isActive) {
+          // Node itself becomes the grey "pad" behind the HTML chip — label
+          // shown in the overlay in black. Dim the sigma-rendered label by
+          // hiding it so the overlay doesn't overlap.
+          return {
+            ...data,
+            color: SELECTION_COLOR,
+            size: (data.size as number) + 1,
+            label: "",
+            zIndex: 1,
+          };
+        }
+        return data;
+      },
+    });
+    sigmaRef.current = sigma;
+
+    sigma.on("clickNode", ({ node }) => handlersRef.current.setSelectedId(node));
+    sigma.on("clickStage", () => handlersRef.current.setSelectedId(null));
+    sigma.on("enterNode", ({ node }) => setHoveredId(node));
+    sigma.on("leaveNode", () => setHoveredId(null));
+
+    sigma.on("downNode", ({ node }) => {
+      draggingRef.current = node;
+      const attrs = graph.getNodeAttributes(node);
+      handlersRef.current.pin(node, {
+        x: attrs.x as number,
+        y: -(attrs.y as number),
+      });
+      // Pin bbox so camera doesn't auto-scroll during drag.
+      if (!sigma.getCustomBBox()) sigma.setCustomBBox(sigma.getBBox());
+    });
+
+    sigma.on("moveBody", ({ event }) => {
+      const id = draggingRef.current;
+      if (!id) return;
+      const pos = sigma.viewportToGraph(event);
+      graph.setNodeAttribute(id, "x", pos.x);
+      graph.setNodeAttribute(id, "y", pos.y);
+      handlersRef.current.setPos(id, { x: pos.x, y: -pos.y });
+      event.preventSigmaDefault();
+      event.original.preventDefault();
+      event.original.stopPropagation();
+    });
+
+    const handleUp = () => {
+      const id = draggingRef.current;
+      if (!id) return;
+      const attrs = graph.getNodeAttributes(id);
+      const x = attrs.x as number;
+      const y = -(attrs.y as number);
+      handlersRef.current.pinPosition(id, x, y);
+      draggingRef.current = null;
+    };
+    sigma.on("upNode", handleUp);
+    sigma.on("upStage", handleUp);
+
+    return () => {
+      sigma.kill();
+      sigmaRef.current = null;
+      graphRef.current = null;
+    };
   }, []);
 
-  const doFit = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    fitToView(nodesRef.current.values(), el.clientWidth, el.clientHeight);
-  }, [fitToView]);
+  // Sync graph topology. Positions come from layout.positions (already
+  // seeded by useGraphLayout before this effect fires — hook order).
+  useEffect(() => {
+    const graph = graphRef.current;
+    const sigma = sigmaRef.current;
+    if (!graph || !sigma) return;
 
+    const wanted = new Set(nodes.keys());
+    for (const id of graph.nodes()) {
+      if (!wanted.has(id)) graph.dropNode(id);
+    }
+    for (const [id, n] of nodes) {
+      const pos = layout.positions.get(id) ?? { x: 0, y: 0 };
+      // Sigma's screen y grows downwards; layout uses math-up.
+      const attrs = {
+        x: pos.x,
+        y: -pos.y,
+        size: nodeSize(n),
+        color: colorForKind(n.kind),
+        label: n.title,
+      };
+      if (graph.hasNode(id)) graph.mergeNodeAttributes(id, attrs);
+      else graph.addNode(id, attrs);
+    }
+
+    const wantedEdges = new Set<string>();
+    for (const e of edges) {
+      if (!graph.hasNode(e.from) || !graph.hasNode(e.to)) continue;
+      const key = `${e.from}→${e.to}`;
+      wantedEdges.add(key);
+      if (!graph.hasEdge(key)) {
+        try {
+          const conf = e.confidence ?? 0.5;
+          graph.addEdgeWithKey(key, e.from, e.to, {
+            size: 0.02 + conf * 0.04,
+            color: `rgba(${EDGE_RGB},${0.03 + conf * 0.05})`,
+          });
+        } catch {
+          /* duplicate — ignore */
+        }
+      }
+    }
+    for (const key of graph.edges()) {
+      if (!wantedEdges.has(key)) graph.dropEdge(key);
+    }
+  }, [nodes, edges]);
+
+  // Stream physics ticks into sigma's graphology store. Skip the dragged
+  // node so the user's mouse owns it; re-apply on release.
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    const dragging = draggingRef.current;
+    for (const [id, pos] of layout.positions) {
+      if (!graph.hasNode(id)) continue;
+      if (id === dragging) continue;
+      graph.setNodeAttribute(id, "x", pos.x);
+      graph.setNodeAttribute(id, "y", -pos.y);
+    }
+  }, [layout.version]);
+
+  useEffect(() => {
+    const graph = graphRef.current;
+    if (!graph) return;
+    const timers: number[] = [];
+    for (const [id, pulse] of pulses) {
+      if (!graph.hasNode(id)) continue;
+      const n = nodes.get(id);
+      if (!n) continue;
+      const base = nodeSize(n);
+      graph.mergeNodeAttributes(id, { color: pulse.color, size: base + 1.5 });
+      timers.push(
+        window.setTimeout(() => {
+          const g = graphRef.current;
+          if (!g?.hasNode(id)) return;
+          g.mergeNodeAttributes(id, { color: colorForKind(n.kind), size: base });
+        }, 500),
+      );
+    }
+    return () => {
+      for (const t of timers) window.clearTimeout(t);
+    };
+  }, [pulses, nodes]);
+
+  // Active-node chip: track screen position of selected/hovered node every
+  // render frame, push into React state as {x,y,label}. Subscribes to sigma
+  // afterRender which fires after camera moves, drag updates, or any
+  // refresh — keeps the chip glued to its node without per-frame re-renders
+  // when nothing is active.
+  useEffect(() => {
+    const sigma = sigmaRef.current;
+    if (!sigma) return;
+    const onAfter = () => {
+      const activeId = selectedIdRef.current ?? hoveredIdRef.current;
+      if (!activeId) {
+        setChipStyle((prev) => (prev == null ? prev : null));
+        return;
+      }
+      const n = nodes.get(activeId);
+      if (!n) return;
+      const graph = graphRef.current;
+      if (!graph?.hasNode(activeId)) return;
+      const display = sigma.getNodeDisplayData(activeId);
+      if (!display) return;
+      const viewport = sigma.graphToViewport(display);
+      setChipStyle((prev) => {
+        const next = { x: viewport.x, y: viewport.y, label: n.title };
+        if (
+          prev &&
+          Math.abs(prev.x - next.x) < 0.5 &&
+          Math.abs(prev.y - next.y) < 0.5 &&
+          prev.label === next.label
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    };
+    sigma.on("afterRender", onAfter);
+    onAfter();
+    return () => {
+      sigma.off("afterRender", onAfter);
+    };
+  }, [selectedId, hoveredId, nodes]);
+
+  // Manual fit/recenter buttons — compute bbox + ratio to fit the graph
+  // within the container with 15% padding. Ratio=1 would be 1-graph-unit
+  // per screen pixel, which blanks the view at our seed layout scale.
+  const doFit = useCallback(() => {
+    const sigma = sigmaRef.current;
+    const graph = graphRef.current;
+    const el = containerRef.current;
+    if (!sigma || !graph || !el || graph.order === 0) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    graph.forEachNode((_id, attrs) => {
+      const x = attrs.x as number;
+      const y = attrs.y as number;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    });
+    if (!isFinite(minX)) return;
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const w = Math.max(1, maxX - minX);
+    const h = Math.max(1, maxY - minY);
+    const pad = 1.15;
+    const ratio = Math.max(
+      (w * pad) / Math.max(1, el.clientWidth),
+      (h * pad) / Math.max(1, el.clientHeight),
+      0.1,
+    );
+    sigma.getCamera().animate({ x: cx, y: cy, ratio }, { duration: 300 });
+  }, []);
   useEffect(() => {
     registerFit(doFit);
-    registerRecenter(recenter);
-  }, [registerFit, registerRecenter, doFit, recenter]);
+    registerRecenter(doFit);
+  }, [registerFit, registerRecenter, doFit]);
 
-  useEffect(() => {
-    if (autoFittedRef.current) return;
-    if (nodes.size === 0) return;
-    const hasPositions = [...nodes.values()].some(
-      (n) => n.graph_x != null && n.graph_y != null,
-    );
-    if (!hasPositions) return;
-    const el = containerRef.current;
-    if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
-    autoFittedRef.current = true;
-    requestAnimationFrame(() => doFit());
-  }, [nodes, doFit, canvasSize]);
-
-  const onDragStart = useCallback(
-    (id: string, e: React.MouseEvent) => {
-      const startX = e.clientX;
-      const startY = e.clientY;
-      const cur = nodesRef.current.get(id);
-      if (!cur) return;
-      const origX = cur.graph_x ?? 0;
-      const origY = cur.graph_y ?? 0;
-      setSelectedId(id);
-      setDraggingId(id);
-      pinnedRef.current.add(id);
-      heat();
-      const move = (ev: MouseEvent) => {
-        const dx = (ev.clientX - startX) / scaleRef.current;
-        const dy = (ev.clientY - startY) / scaleRef.current;
-        updateNode(id, { graph_x: origX + dx, graph_y: origY + dy });
-      };
-      const up = () => {
-        window.removeEventListener("mousemove", move);
-        window.removeEventListener("mouseup", up);
-        setDraggingId(null);
-        pinnedRef.current.delete(id);
-        heat();
-        updateNode(id, {}, true);
-      };
-      window.addEventListener("mousemove", move);
-      window.addEventListener("mouseup", up);
-    },
-    [updateNode, setSelectedId],
-  );
-
-  const onToggleCollapse = useCallback((id: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const nodeList = useMemo(() => [...nodes.values()], [nodes]);
-
-  const visibleSet = useMemo(() => {
-    if (nodeList.length <= RENDERING.cullThresholdNodes) {
-      return new Set(nodeList.map((n) => n.id));
-    }
-    const ids = getVisibleNodeIds(nodeList, viewport, canvasSize, {
-      padding: RENDERING.cullPadding,
-    });
-    const set = new Set(ids);
-    if (draggingId) set.add(draggingId);
-    if (selectedId) set.add(selectedId);
-    return set;
-  }, [nodeList, viewport, canvasSize, draggingId, selectedId]);
-
-
-  const transform = `translate(${viewport.panX}px, ${viewport.panY}px) scale(${viewport.scale})`;
   const selectedNode = selectedId ? nodes.get(selectedId) ?? null : null;
 
   const handleDelete = useCallback(
@@ -186,61 +363,34 @@ export function MemoryCanvas({
     [removeNode, setSelectedId],
   );
 
+  const handleUnpin = useCallback(() => {
+    if (selectedId) unpinPosition(selectedId);
+  }, [selectedId, unpinPosition]);
+
+  const isSelectedPinned = useMemo(
+    () => (selectedId ? pinnedPositions.has(selectedId) : false),
+    [selectedId, pinnedPositions],
+  );
+
   return (
-    <div
-      ref={containerRef}
-      className="absolute inset-0 overflow-hidden cursor-grab bg-[var(--ct-bg)]"
-      onWheel={onWheel}
-      onMouseDown={(e) => {
-        setSelectedId(null);
-        onPanStart(e);
-      }}
-    >
-      <div className="absolute inset-0 pointer-events-none">
-          <svg
-            className="absolute inset-0 w-full h-full pointer-events-none overflow-visible"
-          >
-            <g style={{ transform, transformOrigin: "0 0" }}>
-              {edges.map((e, i) => {
-                if (!visibleSet.has(e.from) || !visibleSet.has(e.to)) return null;
-                const from = nodes.get(e.from);
-                const to = nodes.get(e.to);
-                if (!from || !to) return null;
-                return (
-                  <MemoryEdge
-                    key={`${e.from}::${e.rel}::${e.to}::${i}`}
-                    edge={e}
-                    fromNode={from}
-                    toNode={to}
-                  />
-                );
-              })}
-            </g>
-          </svg>
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{ transform, transformOrigin: "0 0" }}
-          >
-            {nodeList.map((n) => {
-              if (!visibleSet.has(n.id)) return null;
-              const kind = deriveNodeKind(n);
-              const Renderer = RENDERERS[kind];
-              return (
-                <Renderer
-                  key={n.id}
-                  node={n}
-                  selected={n.id === selectedId}
-                  collapsed={collapsed.has(n.id)}
-                  scale={viewport.scale}
-                  activePulse={pulses.get(n.id) ?? null}
-                  onSelect={setSelectedId}
-                  onDragStart={onDragStart}
-                  onToggleCollapse={onToggleCollapse}
-                />
-              );
-            })}
-          </div>
+    <div className="absolute inset-0 overflow-hidden bg-[var(--ct-bg)]">
+      <div ref={containerRef} className="absolute inset-0" />
+
+      {chipStyle && (
+        <div
+          className="absolute pointer-events-none select-none px-2 py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap"
+          style={{
+            left: chipStyle.x,
+            top: chipStyle.y,
+            transform: "translate(12px, -50%)",
+            background: SELECTION_COLOR,
+            color: "#111",
+            boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
+          }}
+        >
+          {chipStyle.label}
         </div>
+      )}
 
       {selectedNode && (
         <MemoryNodeDetail
@@ -249,13 +399,17 @@ export function MemoryCanvas({
           onClose={() => setSelectedId(null)}
           onUpdate={updateNode}
           onDelete={handleDelete}
+          isPinned={isSelectedPinned}
+          onUnpin={isSelectedPinned ? handleUnpin : undefined}
         />
       )}
-      {/* Kind legend */}
-      <div className="absolute bottom-3 left-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--ct-muted-fg)] pointer-events-none opacity-60">
+      <div className="absolute bottom-3 left-3 right-3 max-w-[520px] flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--ct-muted-fg)] pointer-events-none opacity-55 leading-[1.4]">
         {Object.entries(KIND_COLORS).map(([kind, color]) => (
-          <span key={kind} className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full inline-block" style={{ background: color }} />
+          <span key={kind} className="flex items-center gap-1 whitespace-nowrap">
+            <span
+              className="w-1.5 h-1.5 rounded-full inline-block shrink-0"
+              style={{ background: color }}
+            />
             {kind}
           </span>
         ))}
