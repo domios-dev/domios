@@ -277,10 +277,15 @@ pub struct MemItem {
     pub access_count: i64,
     #[serde(default)]
     pub recurrence_count: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub graph_x: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub graph_y: Option<f64>,
+}
+
+/// One entry in `graph_pinned_positions` — user has anchored this node
+/// so the force sim respects it and it survives reload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PinnedPosition {
+    pub mem_id: String,
+    pub x: f64,
+    pub y: f64,
 }
 
 pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
@@ -384,6 +389,24 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         "#,
     )?;
 
+    // Pinned positions live in a dedicated table — only rows the user has
+    // explicitly anchored by drag-drop are persisted. Force-sim positions
+    // are transient (worker-owned) and must not touch SQLite per tick.
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS graph_pinned_positions (
+            mem_id      TEXT PRIMARY KEY,
+            x           REAL NOT NULL,
+            y           REAL NOT NULL,
+            updated_at  INTEGER NOT NULL,
+            FOREIGN KEY (mem_id) REFERENCES mem_items(id) ON DELETE CASCADE
+        );
+        "#,
+    )?;
+
+    // Legacy `graph_x` / `graph_y` columns are being retired — positions are
+    // transient. Drop them when running against SQLite ≥ 3.35 (supports
+    // DROP COLUMN). Earlier versions just leave the dead columns in place.
     let has_graph_x: bool = {
         let mut stmt = conn.prepare("PRAGMA table_info(mem_items)")?;
         let cols: Vec<String> = stmt
@@ -392,11 +415,11 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
             .collect();
         cols.iter().any(|c| c == "graph_x")
     };
-    if !has_graph_x {
-        conn.execute_batch(
-            "ALTER TABLE mem_items ADD COLUMN graph_x REAL;\n\
-             ALTER TABLE mem_items ADD COLUMN graph_y REAL;",
-        )?;
+    if has_graph_x {
+        let _ = conn.execute_batch(
+            "ALTER TABLE mem_items DROP COLUMN graph_x;\n\
+             ALTER TABLE mem_items DROP COLUMN graph_y;",
+        );
     }
 
     let has_access_count = {
@@ -612,11 +635,11 @@ pub fn get(
     id: &str,
     blobs_dir: &Path,
 ) -> Result<Option<MemItem>, String> {
-    let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String, Option<String>, Option<String>, Option<String>, f64, String, String, Option<String>, i64, i64, Option<f64>, Option<f64>)> = conn
+    let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String, Option<String>, Option<String>, Option<String>, f64, String, String, Option<String>, i64, i64)> = conn
         .query_row(
             r#"SELECT id, uid, kind, scope, title, summary, area, tags_json,
                       body_inline, body_blob_path, source, importance,
-                      created_at, updated_at, accessed_at, access_count, recurrence_count, graph_x, graph_y
+                      created_at, updated_at, accessed_at, access_count, recurrence_count
                FROM mem_items WHERE id = ?1"#,
             params![id],
             |r| {
@@ -624,7 +647,7 @@ pub fn get(
                     r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
                     r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
                     r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?, r.get(14)?,
-                    r.get(15)?, r.get(16)?, r.get(17)?, r.get(18)?,
+                    r.get(15)?, r.get(16)?,
                 ))
             },
         )
@@ -633,7 +656,7 @@ pub fn get(
 
     let Some((id, uid, kind, scope, title, summary, area, tags_json,
               body_inline, body_blob_path, source, importance,
-              created_at, updated_at, accessed_at, access_count, recurrence_count, graph_x, graph_y)) = row else {
+              created_at, updated_at, accessed_at, access_count, recurrence_count)) = row else {
         return Ok(None);
     };
 
@@ -673,7 +696,7 @@ pub fn get(
         importance, created_at, updated_at,
         accessed_at: new_accessed_at,
         access_count: new_access_count,
-        recurrence_count, graph_x, graph_y,
+        recurrence_count,
     }))
 }
 
@@ -1005,8 +1028,6 @@ pub struct GraphNode {
     pub tags: Vec<String>,
     pub has_vector: bool,
     pub has_body: bool,
-    pub graph_x: Option<f64>,
-    pub graph_y: Option<f64>,
     #[serde(default)]
     pub access_count: i64,
     #[serde(default)]
@@ -1052,7 +1073,7 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
     let mut stmt = conn
         .prepare(
             r#"SELECT id, kind, title, summary, area, tags_json, importance,
-                      body_inline, body_blob_path, graph_x, graph_y,
+                      body_inline, body_blob_path,
                       access_count, recurrence_count
                FROM mem_items"#,
         )
@@ -1069,10 +1090,8 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
                 r.get::<_, f64>(6)?,
                 r.get::<_, Option<String>>(7)?,
                 r.get::<_, Option<String>>(8)?,
-                r.get::<_, Option<f64>>(9)?,
-                r.get::<_, Option<f64>>(10)?,
-                r.get::<_, i64>(11)?,
-                r.get::<_, i64>(12)?,
+                r.get::<_, i64>(9)?,
+                r.get::<_, i64>(10)?,
             ))
         })
         .map_err(|e| format!("query graph nodes: {}", e))?;
@@ -1080,7 +1099,7 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
     let mut nodes: Vec<GraphNode> = Vec::new();
     for row in rows {
         let (id, kind, title, summary, area, tags_json, importance,
-             body_inline, body_blob_path, graph_x, graph_y, access_count, recurrence_count) =
+             body_inline, body_blob_path, access_count, recurrence_count) =
             row.map_err(|e| format!("row graph nodes: {}", e))?;
         let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
         let has_body = body_inline.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
@@ -1088,7 +1107,7 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
         let has_vector = vector_ids.contains(&id);
         nodes.push(GraphNode {
             id, kind, title, summary, area, importance, tags,
-            has_vector, has_body, graph_x, graph_y, access_count, recurrence_count,
+            has_vector, has_body, access_count, recurrence_count,
         });
     }
 
@@ -1116,8 +1135,6 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
                     tags: vec!["entity".to_string()],
                     has_vector: false,
                     has_body: false,
-                    graph_x: None,
-                    graph_y: None,
                     access_count: 0,
                     recurrence_count: 0,
                 });
@@ -1158,25 +1175,56 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
     Ok(GraphDump { nodes, edges, stats })
 }
 
-pub fn set_positions(
-    conn: &mut Connection,
-    positions: &[(String, f64, f64)],
-) -> Result<usize, String> {
-    let tx = conn.transaction().map_err(|e| format!("begin tx: {}", e))?;
-    let mut updated = 0usize;
-    {
-        let mut stmt = tx
-            .prepare("UPDATE mem_items SET graph_x = ?1, graph_y = ?2 WHERE id = ?3")
-            .map_err(|e| format!("prepare set_positions: {}", e))?;
-        for (id, x, y) in positions {
-            let n = stmt
-                .execute(params![x, y, id])
-                .map_err(|e| format!("update position: {}", e))?;
-            updated += n;
-        }
+pub fn list_pinned_positions(conn: &Connection) -> Result<Vec<PinnedPosition>, String> {
+    let mut stmt = conn
+        .prepare("SELECT mem_id, x, y FROM graph_pinned_positions ORDER BY updated_at DESC")
+        .map_err(|e| format!("prepare list_pinned: {}", e))?;
+    let rows = stmt
+        .query_map([], |r| Ok(PinnedPosition {
+            mem_id: r.get(0)?,
+            x: r.get(1)?,
+            y: r.get(2)?,
+        }))
+        .map_err(|e| format!("query list_pinned: {}", e))?;
+    rows.filter_map(|r| r.ok()).map(Ok).collect()
+}
+
+/// Upsert a pinned position. Returns `Ok(false)` when the mem_id doesn't
+/// exist — callers translate that to a 404 instead of creating an orphan
+/// row (the FOREIGN KEY would catch it anyway, but explicit is nicer).
+pub fn set_pinned_position(
+    conn: &Connection,
+    mem_id: &str,
+    x: f64,
+    y: f64,
+) -> Result<bool, String> {
+    let exists: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM mem_items WHERE id = ?1",
+            params![mem_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("check mem_item: {}", e))?;
+    if exists == 0 {
+        return Ok(false);
     }
-    tx.commit().map_err(|e| format!("commit tx: {}", e))?;
-    Ok(updated)
+    let now = chrono::Utc::now().timestamp();
+    conn.execute(
+        r#"INSERT INTO graph_pinned_positions (mem_id, x, y, updated_at)
+           VALUES (?1, ?2, ?3, ?4)
+           ON CONFLICT(mem_id) DO UPDATE SET x = excluded.x, y = excluded.y, updated_at = excluded.updated_at"#,
+        params![mem_id, x, y, now],
+    )
+    .map_err(|e| format!("upsert pinned: {}", e))?;
+    Ok(true)
+}
+
+pub fn delete_pinned_position(conn: &Connection, mem_id: &str) -> Result<usize, String> {
+    conn.execute(
+        "DELETE FROM graph_pinned_positions WHERE mem_id = ?1",
+        params![mem_id],
+    )
+    .map_err(|e| format!("delete pinned: {}", e))
 }
 
 fn write_blob(blobs_dir: &Path, body: &str) -> Result<String, String> {
@@ -1462,19 +1510,33 @@ mod tests {
     }
 
     #[test]
-    fn migration_adds_graph_columns_idempotently() {
+    fn migration_creates_pinned_positions_idempotently() {
         let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
         init_schema(&conn).unwrap();
-        let cols: Vec<String> = conn
+        // mem_items must NOT carry layout columns anymore — positions live
+        // in graph_pinned_positions or in the force-sim worker.
+        let mem_cols: Vec<String> = conn
             .prepare("PRAGMA table_info(mem_items)")
             .unwrap()
             .query_map([], |r| r.get::<_, String>(1))
             .unwrap()
             .filter_map(Result::ok)
             .collect();
-        assert!(cols.iter().any(|c| c == "graph_x"));
-        assert!(cols.iter().any(|c| c == "graph_y"));
+        assert!(!mem_cols.iter().any(|c| c == "graph_x"));
+        assert!(!mem_cols.iter().any(|c| c == "graph_y"));
+        // The pinned-positions table must exist with the expected columns.
+        let pin_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(graph_pinned_positions)")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert!(pin_cols.iter().any(|c| c == "mem_id"));
+        assert!(pin_cols.iter().any(|c| c == "x"));
+        assert!(pin_cols.iter().any(|c| c == "y"));
+        assert!(pin_cols.iter().any(|c| c == "updated_at"));
     }
 
     #[test]
@@ -1507,16 +1569,27 @@ mod tests {
         assert_eq!(edge.to, b);
         assert_eq!(edge.rel, "has_script");
 
-        // set_positions roundtrip
-        let n = set_positions(&mut conn, &[(a.clone(), 12.5, -3.25)]).unwrap();
-        assert_eq!(n, 1);
-        let got = get(&conn, &a, &blobs).unwrap().unwrap();
-        assert_eq!(got.graph_x, Some(12.5));
-        assert_eq!(got.graph_y, Some(-3.25));
+        // pinned positions: set, read, unset, read-again.
+        let existed = set_pinned_position(&conn, &a, 12.5, -3.25).unwrap();
+        assert!(existed, "mem_item exists → upsert must report true");
+        let got = list_pinned_positions(&conn).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].mem_id, a);
+        assert!((got[0].x - 12.5).abs() < 1e-9);
+        assert!((got[0].y - (-3.25)).abs() < 1e-9);
 
-        // unknown id is skipped
-        let n2 = set_positions(&mut conn, &[("nope".into(), 1.0, 2.0)]).unwrap();
-        assert_eq!(n2, 0);
+        // unknown mem_id → returns false, nothing written
+        let existed2 = set_pinned_position(&conn, "nope", 1.0, 2.0).unwrap();
+        assert!(!existed2);
+        assert_eq!(list_pinned_positions(&conn).unwrap().len(), 1);
+
+        let removed = delete_pinned_position(&conn, &a).unwrap();
+        assert_eq!(removed, 1);
+        assert!(list_pinned_positions(&conn).unwrap().is_empty());
+
+        // MemItem no longer carries positions — body/metadata unchanged.
+        let item = get(&conn, &a, &blobs).unwrap().unwrap();
+        assert_eq!(item.id, a);
     }
 
     #[test]
