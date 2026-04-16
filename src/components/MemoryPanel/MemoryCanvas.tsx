@@ -88,13 +88,25 @@ export function MemoryCanvas({
     pinPosition,
   };
 
-  // Selection id lives in a ref so the nodeReducer (per-frame closure) sees
-  // the latest value without re-wiring sigma.
+  // Selection + hover ids live in refs so the nodeReducer (per-frame
+  // closure) sees the latest values without re-wiring sigma.
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId ?? null;
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const hoveredIdRef = useRef<string | null>(null);
+  hoveredIdRef.current = hoveredId;
   useEffect(() => {
     sigmaRef.current?.refresh({ skipIndexation: true });
-  }, [selectedId]);
+  }, [selectedId, hoveredId]);
+
+  // Per-frame screen position of the currently active (hovered or selected)
+  // node — drives the HTML chip overlay without forcing React to re-render
+  // every camera frame.
+  const [chipStyle, setChipStyle] = useState<{
+    x: number;
+    y: number;
+    label: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -115,12 +127,17 @@ export function MemoryCanvas({
       defaultEdgeType: "curve",
       edgeProgramClasses: { curve: EdgeCurveProgram },
       nodeReducer: (node, data) => {
-        if (selectedIdRef.current === node) {
+        const isActive =
+          selectedIdRef.current === node || hoveredIdRef.current === node;
+        if (isActive) {
+          // Node itself becomes the grey "pad" behind the HTML chip — label
+          // shown in the overlay in black. Dim the sigma-rendered label by
+          // hiding it so the overlay doesn't overlap.
           return {
             ...data,
-            highlighted: true,
             color: SELECTION_COLOR,
-            size: (data.size as number) + 2,
+            size: (data.size as number) + 1,
+            label: "",
             zIndex: 1,
           };
         }
@@ -131,6 +148,8 @@ export function MemoryCanvas({
 
     sigma.on("clickNode", ({ node }) => handlersRef.current.setSelectedId(node));
     sigma.on("clickStage", () => handlersRef.current.setSelectedId(null));
+    sigma.on("enterNode", ({ node }) => setHoveredId(node));
+    sigma.on("leaveNode", () => setHoveredId(null));
 
     sigma.on("downNode", ({ node }) => {
       draggingRef.current = node;
@@ -139,7 +158,7 @@ export function MemoryCanvas({
         x: attrs.x as number,
         y: -(attrs.y as number),
       });
-      graph.setNodeAttribute(node, "highlighted", true);
+      // Pin bbox so camera doesn't auto-scroll during drag.
       if (!sigma.getCustomBBox()) sigma.setCustomBBox(sigma.getBBox());
     });
 
@@ -161,7 +180,6 @@ export function MemoryCanvas({
       const attrs = graph.getNodeAttributes(id);
       const x = attrs.x as number;
       const y = -(attrs.y as number);
-      graph.removeNodeAttribute(id, "highlighted");
       handlersRef.current.pinPosition(id, x, y);
       draggingRef.current = null;
     };
@@ -209,8 +227,8 @@ export function MemoryCanvas({
         try {
           const conf = e.confidence ?? 0.5;
           graph.addEdgeWithKey(key, e.from, e.to, {
-            size: 0.1 + conf * 0.2,
-            color: `rgba(${EDGE_RGB},${0.06 + conf * 0.14})`,
+            size: 0.02 + conf * 0.04,
+            color: `rgba(${EDGE_RGB},${0.03 + conf * 0.05})`,
           });
         } catch {
           /* duplicate — ignore */
@@ -258,6 +276,47 @@ export function MemoryCanvas({
       for (const t of timers) window.clearTimeout(t);
     };
   }, [pulses, nodes]);
+
+  // Active-node chip: track screen position of selected/hovered node every
+  // render frame, push into React state as {x,y,label}. Subscribes to sigma
+  // afterRender which fires after camera moves, drag updates, or any
+  // refresh — keeps the chip glued to its node without per-frame re-renders
+  // when nothing is active.
+  useEffect(() => {
+    const sigma = sigmaRef.current;
+    if (!sigma) return;
+    const onAfter = () => {
+      const activeId = selectedIdRef.current ?? hoveredIdRef.current;
+      if (!activeId) {
+        setChipStyle((prev) => (prev == null ? prev : null));
+        return;
+      }
+      const n = nodes.get(activeId);
+      if (!n) return;
+      const graph = graphRef.current;
+      if (!graph?.hasNode(activeId)) return;
+      const display = sigma.getNodeDisplayData(activeId);
+      if (!display) return;
+      const viewport = sigma.graphToViewport(display);
+      setChipStyle((prev) => {
+        const next = { x: viewport.x, y: viewport.y, label: n.title };
+        if (
+          prev &&
+          Math.abs(prev.x - next.x) < 0.5 &&
+          Math.abs(prev.y - next.y) < 0.5 &&
+          prev.label === next.label
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    };
+    sigma.on("afterRender", onAfter);
+    onAfter();
+    return () => {
+      sigma.off("afterRender", onAfter);
+    };
+  }, [selectedId, hoveredId, nodes]);
 
   // Manual fit/recenter buttons — compute bbox + ratio to fit the graph
   // within the container with 15% padding. Ratio=1 would be 1-graph-unit
@@ -316,6 +375,23 @@ export function MemoryCanvas({
   return (
     <div className="absolute inset-0 overflow-hidden bg-[var(--ct-bg)]">
       <div ref={containerRef} className="absolute inset-0" />
+
+      {chipStyle && (
+        <div
+          className="absolute pointer-events-none select-none px-2 py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap"
+          style={{
+            left: chipStyle.x,
+            top: chipStyle.y,
+            transform: "translate(12px, -50%)",
+            background: SELECTION_COLOR,
+            color: "#111",
+            boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
+          }}
+        >
+          {chipStyle.label}
+        </div>
+      )}
+
       {selectedNode && (
         <MemoryNodeDetail
           api={api}
