@@ -1,6 +1,6 @@
 # Whiteboard Plugin (tldraw)
 
-**Status:** Planned  
+**Status (2026-04-13):** Not started — design phase only. Zero code references in src/ or src-tauri/. Estimated ~35–45h to ship first working version.  
 **Date:** 2026-04-05  
 **Priority:** P2
 

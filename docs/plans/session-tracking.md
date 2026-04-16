@@ -1,5 +1,7 @@
 # Session Tracking Plan
 
+> **Status (2026-04-13):** ~80% done. Tasks A (validate-before-resume), B1 (proactive UUID injection), B2 (session hooks), C (cross-provider search) DONE. Task B3 (fingerprint fallback) intentionally deferred — only needed if non-Claude providers regress.
+
 Fix agent-session lifecycle across all providers: stop retrying stale sessions, detect which session belongs to which pane (even with multiple sessions in one cwd), and let users search past sessions from inside CodeTerm.
 
 ## Status

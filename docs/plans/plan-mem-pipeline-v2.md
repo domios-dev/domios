@@ -1,5 +1,7 @@
 # Mem Pipeline v2 — Plan
 
+> **Status (2026-04-13):** ~70% done. Phase 1 (worker always runs on save) + Phase 2 (worker dedup + free-form entity extraction) + Dreaming (light/deep/REM phases) shipped and verified (0% orphans on orphan-bench). Phase 3 (Documents + `source_path` + Librarian cron) shipped core logic; inline Settings UI for Librarian partial. Phase 4.5 polish pending.
+
 ## Context for implementor
 
 ### Key files
