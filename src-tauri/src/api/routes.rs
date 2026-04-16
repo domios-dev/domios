@@ -144,7 +144,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/extract-pending", post(super::mem_routes::mem_extract_pending))
         .route("/api/mem/dream/report", get(super::mem_routes::mem_dream_report))
         .route("/api/mem/graph/full", get(super::mem_routes::mem_graph_full))
-        .route("/api/mem/positions", axum::routing::patch(super::mem_routes::mem_positions))
+        .route("/api/mem/pinned-positions", get(super::mem_routes::mem_pinned_positions_list))
+        .route(
+            "/api/mem/pinned-positions/{mem_id}",
+            axum::routing::patch(super::mem_routes::mem_pinned_positions_set)
+                .delete(super::mem_routes::mem_pinned_positions_delete),
+        )
         .route("/api/mem/activity/recent", get(super::mem_routes::mem_activity_recent))
         .route("/api/mem/workers", get(super::mem_routes::workers_list).post(super::mem_routes::workers_spawn))
         .route("/api/mem/workers/{id}", get(super::mem_routes::workers_get).delete(super::mem_routes::workers_kill))

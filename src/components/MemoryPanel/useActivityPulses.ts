@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { ApiConfig } from "../../lib/types";
 import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
-import { hashString } from "./forceLayout";
+import { hashString } from "./seedLayout";
 
 export type MemOp =
   | "read"

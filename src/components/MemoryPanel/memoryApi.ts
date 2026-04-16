@@ -1,5 +1,5 @@
 import type { ApiConfig } from "../../lib/types";
-import type { GraphFullResponse, MemItemFull } from "./types";
+import type { GraphFullResponse, MemItemFull, PinnedPosition } from "./types";
 
 export function baseUrl(api: ApiConfig): string {
   const host = api.host === "0.0.0.0" ? "127.0.0.1" : api.host;
@@ -33,17 +33,51 @@ export async function fetchGraphFull(
   return res.json();
 }
 
-export async function patchPositions(
+export async function fetchPinnedPositions(
   api: ApiConfig,
-  positions: Array<{ id: string; x: number; y: number }>,
-): Promise<{ updated: number }> {
-  const res = await fetch(`${baseUrl(api)}/api/mem/positions`, {
-    method: "PATCH",
-    headers: { ...authHeaders(api), "Content-Type": "application/json" },
-    body: JSON.stringify({ positions }),
+  signal?: AbortSignal,
+): Promise<PinnedPosition[]> {
+  const res = await fetch(`${baseUrl(api)}/api/mem/pinned-positions`, {
+    headers: authHeaders(api),
+    signal,
   });
-  if (!res.ok) throw new Error(`positions failed: ${res.status} ${await res.text()}`);
-  return res.json();
+  if (!res.ok) {
+    throw new Error(`pinned-positions failed: ${res.status} ${await res.text()}`);
+  }
+  const data = (await res.json()) as { positions?: PinnedPosition[] };
+  return data.positions ?? [];
+}
+
+export async function pinPinnedPosition(
+  api: ApiConfig,
+  memId: string,
+  x: number,
+  y: number,
+): Promise<void> {
+  const res = await fetch(
+    `${baseUrl(api)}/api/mem/pinned-positions/${encodeURIComponent(memId)}`,
+    {
+      method: "PATCH",
+      headers: { ...authHeaders(api), "Content-Type": "application/json" },
+      body: JSON.stringify({ x, y }),
+    },
+  );
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`pin failed: ${res.status} ${await res.text()}`);
+  }
+}
+
+export async function unpinPinnedPosition(api: ApiConfig, memId: string): Promise<void> {
+  const res = await fetch(
+    `${baseUrl(api)}/api/mem/pinned-positions/${encodeURIComponent(memId)}`,
+    {
+      method: "DELETE",
+      headers: authHeaders(api),
+    },
+  );
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`unpin failed: ${res.status} ${await res.text()}`);
+  }
 }
 
 export async function fetchItemFull(api: ApiConfig, id: string): Promise<MemItemFull> {
