@@ -19,7 +19,7 @@ pub enum TaskDelivery {
     PtyInput,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AgentLaunchParams {
     pub agent_name: Option<String>,
     pub task: Option<String>,
@@ -27,6 +27,56 @@ pub struct AgentLaunchParams {
     pub skip_permissions: bool,
     // True for one-shot hidden panes; providers pick non-interactive delivery.
     pub headless: bool,
+    // Pre-generated session id to use when starting a NEW conversation.
+    // Honored only by providers reporting `SessionIdInjection != None` —
+    // others ignore it (they generate ids themselves and CodeTerm has to
+    // detect after launch).
+    pub session_id: Option<String>,
+}
+
+/// Whether a provider lets us choose the session id ahead of launch.
+/// Drives whether CodeTerm pre-generates and tracks a UUID before spawning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionIdInjection {
+    /// Provider generates its own id; CodeTerm detects it after launch.
+    None,
+    /// Provider takes a CLI flag for fresh sessions (e.g. claude --session-id).
+    Fresh,
+    /// Plus accepts explicit id when forking from --resume.
+    FreshAndFork,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionMetadata {
+    pub session_id: String,
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub file_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_ts: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified_ts: Option<i64>,
+}
+
+pub fn fs_time_to_unix(t: Option<std::time::SystemTime>) -> Option<i64> {
+    t.and_then(|st| st.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionMessage {
+    pub role: String,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ts: Option<i64>,
+    #[serde(default)]
+    pub is_meta: bool,
 }
 
 // ── Plugin self-presentation types (Chunk B.1) ─────────────────────
@@ -334,8 +384,41 @@ pub trait AgentProvider: Send + Sync {
     /// Detect the most recent session ID for the given working directory.
     fn detect_session_id(&self, cwd: &str, exclude: &[String], max_age: Option<Duration>) -> Option<String>;
 
+    /// Whether a session id still has a backing file (JSONL / session store / whatever
+    /// the provider keeps). Default implementation is `session_file_path(...).exists()`.
+    /// Providers without file-based session storage override this.
+    fn session_exists(&self, cwd: &str, session_id: &str) -> bool {
+        self.session_file_path(cwd, session_id)
+            .map(|p| p.exists())
+            .unwrap_or(false)
+    }
+
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
+
+    /// What kind of session-id control this provider supports.
+    /// Default is `None` — provider generates its own ids and CodeTerm
+    /// has to detect them post-launch via `detect_session_id`.
+    fn session_id_injection(&self) -> SessionIdInjection {
+        SessionIdInjection::None
+    }
+
+    /// Enumerate all past sessions this provider keeps on disk.
+    /// Used by the cross-provider session search. Default returns empty —
+    /// providers without on-disk session history (or not yet implemented)
+    /// contribute nothing and fall out of search silently.
+    fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
+        Vec::new()
+    }
+
+    /// Extract conversation messages from a session file produced by this
+    /// provider. Called by the search pipeline for each candidate session;
+    /// returning `vec![]` means this provider can't participate in content
+    /// search yet. Must be pure + I/O-only (no locks, no process calls).
+    fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
+        let _ = file_path;
+        Vec::new()
+    }
 
     /// Whether this agent supports hook-based detection (vs PTY parsing fallback).
     /// Agents with hooks get detected via API endpoints, not PTY output parsing.

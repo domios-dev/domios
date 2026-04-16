@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::agent::provider::{
-    self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SettingField,
-    TaskDelivery,
+    self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SessionMessage,
+    SessionMetadata, SettingField, TaskDelivery,
 };
 use crate::shell::ShellSyntax;
 
@@ -89,6 +89,104 @@ impl AgentProvider for CodexProvider {
         // session_id is a UUID — need to find the matching rollout-*-<uuid>.jsonl file
         let root = Self::sessions_root()?;
         find_session_file_by_uuid(&root, session_id)
+    }
+
+    fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
+        let Some(root) = Self::sessions_root() else { return Vec::new(); };
+        let mut out = Vec::new();
+        walk_jsonl_recursive(&root, 0, &mut |path| {
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { return };
+            let fallback_uuid = extract_session_uuid(stem).map(String::from);
+
+            // First line carries session_meta with the authoritative id + cwd.
+            // Falls back to filename-derived uuid when the first line is not
+            // session_meta (older codex rollouts, truncated files, etc.).
+            let (session_id, cwd) = read_session_meta(path).unwrap_or((None, None));
+            let session_id = session_id.or(fallback_uuid);
+            let Some(session_id) = session_id else { return };
+
+            let meta = std::fs::metadata(path).ok();
+            let created_ts = meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.created().ok()));
+            let modified_ts = meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
+
+            out.push(SessionMetadata {
+                session_id,
+                provider: "codex".to_string(),
+                project_path: cwd,
+                // Codex has no sessions-index.json; titles/summaries would
+                // need full-file parsing. Leave None for v1.
+                title: None,
+                summary: None,
+                file_path: path.to_string_lossy().to_string(),
+                created_ts,
+                modified_ts,
+            });
+        });
+        out
+    }
+
+    fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
+        use std::io::{BufRead, BufReader};
+        let Ok(f) = std::fs::File::open(file_path) else { return Vec::new() };
+        let reader = BufReader::new(f);
+        let mut out = Vec::new();
+        for line in reader.lines().map_while(Result::ok) {
+            if line.is_empty() {
+                continue;
+            }
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+            if v.get("type").and_then(|t| t.as_str()) != Some("response_item") {
+                continue;
+            }
+            let payload = match v.get("payload") {
+                Some(p) => p,
+                None => continue,
+            };
+            if payload.get("type").and_then(|t| t.as_str()) != Some("message") {
+                continue;
+            }
+            let role = match payload.get("role").and_then(|r| r.as_str()) {
+                Some(r) if r == "user" || r == "assistant" => r.to_string(),
+                _ => continue, // skip "developer" and unknown roles
+            };
+
+            let text = payload
+                .get("content")
+                .and_then(|c| c.as_array())
+                .map(|blocks| {
+                    blocks
+                        .iter()
+                        .filter_map(|b| {
+                            let kind = b.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                            if matches!(kind, "input_text" | "output_text" | "text") {
+                                b.get("text").and_then(|t| t.as_str()).map(String::from)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default();
+
+            if text.trim().is_empty() {
+                continue;
+            }
+
+            // CodeTerm injects a few system-shaped prompts as role=user at
+            // session start (AGENTS.md, worker bootstraps, environment
+            // context). Mark them meta so cross-provider search skips them.
+            let is_meta = role == "user" && is_codeterm_injection(&text);
+
+            let ts = v
+                .get("timestamp")
+                .and_then(|t| t.as_str())
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.timestamp());
+
+            out.push(SessionMessage { role, text, ts, is_meta });
+        }
+        out
     }
 
     fn detect_session_id(
@@ -339,6 +437,58 @@ fn find_file_by_suffix(dir: &std::path::Path, suffix: &str, depth: u8) -> Option
     None
 }
 
+/// Recursively visit every `*.jsonl` file under the codex sessions tree
+/// (which is YYYY/MM/DD deep). Mirror of `collect_jsonl_files` but without
+/// the exclude/recency filtering — session search wants them all.
+fn walk_jsonl_recursive(dir: &std::path::Path, depth: u8, visit: &mut dyn FnMut(&std::path::Path)) {
+    if depth > 5 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let Ok(ft) = entry.file_type() else { continue };
+        let path = entry.path();
+        if ft.is_dir() {
+            walk_jsonl_recursive(&path, depth + 1, visit);
+        } else if ft.is_file()
+            && path.extension().and_then(|e| e.to_str()) == Some("jsonl")
+        {
+            visit(&path);
+        }
+    }
+}
+
+/// Read just the first line of a rollout file and extract `(session_id, cwd)`
+/// from its `session_meta` payload. Cheap — one line per file, no full parse.
+fn read_session_meta(path: &std::path::Path) -> Option<(Option<String>, Option<String>)> {
+    use std::io::{BufRead, BufReader};
+    let f = std::fs::File::open(path).ok()?;
+    let mut reader = BufReader::new(f);
+    let mut line = String::new();
+    reader.read_line(&mut line).ok()?;
+    let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+    if v.get("type").and_then(|t| t.as_str()) != Some("session_meta") {
+        return None;
+    }
+    let payload = v.get("payload")?;
+    let id = payload.get("id").and_then(|s| s.as_str()).map(String::from);
+    let cwd = payload.get("cwd").and_then(|s| s.as_str()).map(String::from);
+    Some((id, cwd))
+}
+
+/// Filter CodeTerm's own boot-time system messages that codex records as
+/// `role: user`. These start with one of a short, explicit set of markers —
+/// no regex guessing; unknown injections will show up in search until added.
+fn is_codeterm_injection(text: &str) -> bool {
+    let t = text.trim_start();
+    t.starts_with("# AGENTS.md instructions")
+        || t.starts_with("<INSTRUCTIONS>")
+        || t.starts_with("<environment_context>")
+        || t.starts_with("<permissions instructions>")
+        || t.starts_with("You are a Graph Worker")
+        || t.starts_with("You are the General Agent")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,6 +537,7 @@ mod tests {
             args: None,
             skip_permissions: false,
             headless: false,
+            session_id: None,
         });
         assert_eq!(cmd, "codex");
     }
@@ -400,6 +551,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: false,
+            session_id: None,
         });
         assert_eq!(cmd, "codex --full-auto");
     }
@@ -413,6 +565,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: false,
+            session_id: None,
         });
         assert!(cmd.contains("codex exec --dangerously-bypass-approvals-and-sandbox"));
         assert!(cmd.contains("shell_environment_policy.inherit=all"));
@@ -543,5 +696,43 @@ mod tests {
         let p = CodexProvider::new();
         assert!(p.notifications_schema().is_empty());
         assert!(p.describe().notifications_schema.is_empty());
+    }
+
+    // Meta filter — these strings are injections CodeTerm writes to a codex
+    // session as role=user. Session search must mark them is_meta so they
+    // don't pollute results with our own bootstrap noise.
+    #[test]
+    fn is_codeterm_injection_matches_known_boot_prompts() {
+        assert!(is_codeterm_injection("# AGENTS.md instructions for /Users/x/proj"));
+        assert!(is_codeterm_injection("<INSTRUCTIONS>\nYou are..."));
+        assert!(is_codeterm_injection("<environment_context>\n  <cwd>/x</cwd>\n</environment_context>"));
+        assert!(is_codeterm_injection("<permissions instructions>\nFilesystem sandboxing..."));
+        assert!(is_codeterm_injection("You are a Graph Worker for the CodeTerm memory system."));
+        assert!(is_codeterm_injection("You are the General Agent — the always-on system brain"));
+        // Leading whitespace is ok — real codex payloads don't trim.
+        assert!(is_codeterm_injection("   \n<INSTRUCTIONS>payload"));
+    }
+
+    #[test]
+    fn is_codeterm_injection_leaves_real_user_messages_alone() {
+        assert!(!is_codeterm_injection("fix the bug in parser.rs"));
+        assert!(!is_codeterm_injection("why did the deploy fail?"));
+        assert!(!is_codeterm_injection("# TODO list\n- ship v2"));
+        // User could paste the literal strings inside a question — that's
+        // legitimate. Strict `starts_with` keeps false positives low.
+        assert!(!is_codeterm_injection("looking at <INSTRUCTIONS> — what does it mean"));
+    }
+
+    #[test]
+    fn extract_session_uuid_strips_rollout_timestamp_prefix() {
+        // Real rollout stem layout: rollout-YYYY-MM-DDTHH-MM-SS-<uuid>
+        let stem = "rollout-2026-04-10T14-50-25-019d773a-a5e8-7a02-9295-a40f9f9016ea";
+        assert_eq!(
+            extract_session_uuid(stem),
+            Some("019d773a-a5e8-7a02-9295-a40f9f9016ea"),
+        );
+        // Malformed input must return None, not a garbled slice.
+        assert_eq!(extract_session_uuid("not-a-rollout-file"), None);
+        assert_eq!(extract_session_uuid("rollout-short"), None);
     }
 }

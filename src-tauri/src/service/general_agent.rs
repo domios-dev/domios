@@ -320,10 +320,10 @@ pub fn start_general_agent(
 
     // Validate session_id: if provider can't resolve it to a file, it's stale/wrong-provider
     let session_id = if let Some(ref id) = session_id {
-        let found = svc.agent_registry.with_provider(provider_name, |p| {
-            p.session_file_path(&general_cwd, id).filter(|f| f.exists())
-        }).flatten();
-        if found.is_none() {
+        let valid = svc.agent_registry.with_provider(provider_name, |p| {
+            p.session_exists(&general_cwd, id)
+        }).unwrap_or(false);
+        if !valid {
             log::info!("[general-agent] Session '{}' not valid for provider '{}' — clearing, will detect fresh", id, provider_name);
             svc.set_agent_session_id(&pane_id, None);
             // Try detecting a valid session for this provider
@@ -354,6 +354,15 @@ pub fn start_general_agent(
         env.insert("CODETERM_ROLE".to_string(), "Orchestrator".to_string());
         if let Ok(port) = std::env::var("CODETERM_API_PORT") {
             env.insert("CODETERM_API_PORT".to_string(), port);
+        }
+        // Hook callbacks POST to our REST API. Without the token they'd 401
+        // on any non-loopback bind and silently swallow the failure via
+        // `curl … || true`, so set it unconditionally.
+        let tok: Option<String> = config.lock().api.token.clone();
+        if let Some(tok) = tok {
+            if !tok.is_empty() {
+                env.insert("CODETERM_API_TOKEN".to_string(), tok);
+            }
         }
         env
     };
@@ -411,10 +420,10 @@ pub fn start_general_agent(
     let ready = crate::service::pty_io::poll_shell_prompt(
         screen_state,
         &pty_id,
-        std::time::Duration::from_secs(15),
+        std::time::Duration::from_secs(60),
     );
     if !ready {
-        log::warn!("[general-agent] Shell not ready within 15s for PTY {} — watchdog will retry", pty_id);
+        log::warn!("[general-agent] Shell not ready within 60s for PTY {} — watchdog will retry", pty_id);
         return;
     }
     log::info!("[general-agent] Shell ready, building launch command...");
@@ -438,13 +447,31 @@ pub fn start_general_agent(
             }
         }
     } else {
-        // Fresh start
+        // Fresh start. If the provider supports session-id injection
+        // (claude --session-id <uuid>), pre-generate a UUID, write it to
+        // the pane BEFORE launch so subsequent restarts/resumes match this
+        // session deterministically, and pass it through. Without this we'd
+        // have to scan the JSONL dir post-launch and guess by mtime, which
+        // breaks when multiple panes share a cwd.
+        let injection = svc
+            .agent_registry
+            .with_provider(provider_name, |p| p.session_id_injection())
+            .unwrap_or(crate::agent::provider::SessionIdInjection::None);
+        let pre_session_id = if injection != crate::agent::provider::SessionIdInjection::None {
+            let id = uuid::Uuid::new_v4().to_string();
+            svc.set_agent_session_id(&pane_id, Some(id.clone()));
+            log::info!("[general-agent] Pre-assigned session id {} for fresh launch", id);
+            Some(id)
+        } else {
+            None
+        };
         let params = crate::agent::provider::AgentLaunchParams {
             agent_name: None,
             task: None,
             args: None,
             skip_permissions: true,
             headless: false,
+            session_id: pre_session_id,
         };
         match svc.agent_registry.with_provider(provider_name, |p| p.build_launch_command(&params)) {
             Some(cmd) => cmd,
@@ -574,7 +601,8 @@ pub fn start_watchdog(
                     log::info!("[general-agent/watchdog] Agent not running — restarting ({}/{})",
                         consecutive_restarts, general_config.max_restart_attempts);
                     // Clear stale agent_type so start_general_agent doesn't skip with "Already running"
-                    if let Some(pid) = mux.lock().resolve_pane_id(GENERAL_ALIAS) {
+                    let pid = mux.lock().resolve_pane_id(GENERAL_ALIAS);
+                    if let Some(pid) = pid {
                         svc.set_pane_agent_type(&pid, None);
                     }
                     std::thread::sleep(std::time::Duration::from_secs(general_config.restart_delay_s as u64));

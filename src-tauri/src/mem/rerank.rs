@@ -642,7 +642,6 @@ mod tests {
                 title: id.into(), summary: None, area: None, tags: vec![],
                 body: id.into(), source: None, importance: 3.0,
                 created_at: "".into(), updated_at: "".into(), accessed_at: None, access_count: 0, recurrence_count: 0,
-                graph_x: None, graph_y: None,
             },
             score: 1.0,
         }

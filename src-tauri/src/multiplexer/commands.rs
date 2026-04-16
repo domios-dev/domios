@@ -244,6 +244,7 @@ pub fn build_agent_launch_command(
         args: None,
         skip_permissions,
         headless: false,
+        session_id: None,
     };
     svc.agent_registry
         .with_provider(&agent_id, |p| p.build_launch_command(&params))

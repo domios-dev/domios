@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use crate::agent::provider::{
     self, ActionStyle, AgentLaunchParams, AgentProvider, BadgeStyle, BadgeVariant, ModelInfo,
-    PathOpenKind, ReadinessStrategy, SettingField, TaskDelivery,
+    PathOpenKind, ReadinessStrategy, SessionIdInjection, SessionMessage, SessionMetadata,
+    SettingField, TaskDelivery,
 };
 use crate::shell::ShellSyntax;
 
@@ -28,6 +29,29 @@ impl ClaudeProvider {
         let encoded = Self::encode_cwd(cwd);
         Some(home.join(".claude").join("projects").join(encoded))
     }
+
+    /// Read the real cwd out of a Claude session JSONL. Claude's directory
+    /// encoding collapses both `/` and `_` (and other non-alphanumerics)
+    /// into `-`, so the dir name like `-Users-x-eco-iq` ambiguously maps
+    /// back to several real paths (`/Users/x/eco/iq`, `/Users/x/eco_iq`,
+    /// `/Users/x/e-co/iq`, …). Pick up the authoritative value from the
+    /// first few JSONL lines, where every message carries a `cwd` field.
+    fn read_session_cwd(file_path: &std::path::Path) -> Option<String> {
+        use std::io::{BufRead, BufReader};
+        let f = std::fs::File::open(file_path).ok()?;
+        let reader = BufReader::new(f);
+        // cwd appears on every message line but not on the permission-mode
+        // header, so bound the scan to the first ~20 lines.
+        for line in reader.lines().take(20).map_while(Result::ok) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+                if let Some(cwd) = v.get("cwd").and_then(|c| c.as_str()) {
+                    return Some(cwd.to_string());
+                }
+            }
+        }
+        None
+    }
+
 }
 
 impl AgentProvider for ClaudeProvider {
@@ -82,11 +106,140 @@ impl AgentProvider for ClaudeProvider {
             parts.push(ShellSyntax::quote(name));
         }
 
+        // Pre-generated session id (only honored for fresh sessions —
+        // `--session-id` is silently ignored by claude when also resuming).
+        if !use_stdin_pipe {
+            if let Some(ref sid) = params.session_id {
+                parts.push("--session-id".to_string());
+                parts.push(ShellSyntax::quote(sid));
+            }
+        }
+
         if let Some(ref extra) = params.args {
             parts.extend(extra.iter().cloned());
         }
 
         parts.join(" ")
+    }
+
+    fn session_id_injection(&self) -> SessionIdInjection {
+        SessionIdInjection::FreshAndFork
+    }
+
+    fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
+        let Some(home) = dirs::home_dir() else { return Vec::new() };
+        let projects_root = home.join(".claude").join("projects");
+        let Ok(entries) = std::fs::read_dir(&projects_root) else { return Vec::new() };
+
+        let mut out = Vec::new();
+        for entry in entries.filter_map(|e| e.ok()) {
+            if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let dir_path = entry.path();
+
+            // Also look for a sessions-index.json to pick up titles/summaries.
+            let index: std::collections::HashMap<String, serde_json::Value> =
+                std::fs::read_to_string(dir_path.join("sessions-index.json"))
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                    .and_then(|v| {
+                        v.get("entries").and_then(|e| e.as_array()).map(|arr| {
+                            arr.iter()
+                                .filter_map(|it| {
+                                    it.get("sessionId").and_then(|s| s.as_str()).map(|sid| {
+                                        (sid.to_string(), it.clone())
+                                    })
+                                })
+                                .collect()
+                        })
+                    })
+                    .unwrap_or_default();
+
+            let Ok(files) = std::fs::read_dir(&dir_path) else { continue };
+            for f in files.filter_map(|e| e.ok()) {
+                let name = f.file_name().to_string_lossy().to_string();
+                let Some(stem) = name.strip_suffix(".jsonl") else { continue };
+                if stem.len() < 32 || !stem.contains('-') {
+                    continue;
+                }
+                let file_path_buf = f.path();
+                let meta = f.metadata().ok();
+                let created_ts = meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.created().ok()));
+                let modified_ts = meta.as_ref().and_then(|m| provider::fs_time_to_unix(m.modified().ok()));
+
+                let entry_meta = index.get(stem);
+                let title = entry_meta
+                    .and_then(|v| v.get("title").and_then(|s| s.as_str()))
+                    .map(String::from);
+                let summary = entry_meta
+                    .and_then(|v| v.get("summary").and_then(|s| s.as_str()))
+                    .map(String::from);
+                // Read real cwd from the JSONL itself — the directory name
+                // encoding is lossy (both `/` and `_` become `-`).
+                let project_path = Self::read_session_cwd(&file_path_buf);
+
+                out.push(SessionMetadata {
+                    session_id: stem.to_string(),
+                    provider: "claude".to_string(),
+                    project_path,
+                    title,
+                    summary,
+                    file_path: file_path_buf.to_string_lossy().to_string(),
+                    created_ts,
+                    modified_ts,
+                });
+            }
+        }
+        out
+    }
+
+    fn parse_session_messages(&self, file_path: &std::path::Path) -> Vec<SessionMessage> {
+        use std::io::{BufRead, BufReader};
+        let Ok(f) = std::fs::File::open(file_path) else { return Vec::new() };
+        let reader = BufReader::new(f);
+        let mut out = Vec::new();
+        for line in reader.lines().map_while(Result::ok) {
+            if line.is_empty() {
+                continue;
+            }
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+            let msg_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            if msg_type != "user" && msg_type != "assistant" {
+                continue;
+            }
+            let is_meta = v.get("isMeta").and_then(|b| b.as_bool()).unwrap_or(false);
+
+            // Claude JSONL nests the real content under `message.content`,
+            // which can be a string or an array of typed blocks.
+            let content = v.get("message").and_then(|m| m.get("content"));
+            let text = match content {
+                Some(serde_json::Value::String(s)) => s.clone(),
+                Some(serde_json::Value::Array(blocks)) => blocks
+                    .iter()
+                    .filter_map(|b| {
+                        if b.get("type").and_then(|t| t.as_str()) == Some("text") {
+                            b.get("text").and_then(|t| t.as_str()).map(String::from)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                _ => continue,
+            };
+            if text.trim().is_empty() {
+                continue;
+            }
+
+            let ts = v.get("timestamp")
+                .and_then(|t| t.as_str())
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.timestamp());
+
+            out.push(SessionMessage { role: msg_type.to_string(), text, ts, is_meta });
+        }
+        out
     }
 
     fn readiness_strategy(&self) -> ReadinessStrategy {
@@ -545,6 +698,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: false,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         if cfg!(target_os = "windows") {
@@ -568,6 +722,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: false,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains("--dangerously-skip-permissions"));
@@ -584,6 +739,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: false,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains("--agent"));
@@ -600,6 +756,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: true,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         // Must include the pipe prefix, then claude binary, then -p flag.
@@ -642,6 +799,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             headless: true,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         // No task → no pipe, no -p, no stream-json — just plain claude.
@@ -661,6 +819,7 @@ mod tests {
             args: Some(vec!["--model".into(), "claude-haiku-4-5-20251001".into()]),
             skip_permissions: true,
             headless: false,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains(".ct-task-"));
@@ -676,6 +835,7 @@ mod tests {
             args: Some(vec!["--model".into(), "claude-haiku-4-5-20251001".into()]),
             skip_permissions: true,
             headless: true,
+            session_id: None,
         };
         let cmd = p.build_launch_command(&params);
         assert!(cmd.contains(" -p"));
@@ -729,6 +889,78 @@ mod tests {
         assert!(path_str.contains(".claude"));
         assert!(path_str.contains("projects"));
         assert!(path_str.contains("-home-user-project"));
+    }
+
+    #[test]
+    fn test_build_launch_command_with_session_id_injection() {
+        let p = ClaudeProvider::new();
+        // Fresh launch with explicit session id → command must include --session-id
+        let params = AgentLaunchParams {
+            agent_name: None,
+            task: None,
+            args: None,
+            skip_permissions: true,
+            headless: false,
+            session_id: Some("my-pre-generated-uuid".to_string()),
+        };
+        let cmd = p.build_launch_command(&params);
+        assert!(cmd.contains("--session-id"), "must pass --session-id flag, got: {}", cmd);
+        assert!(cmd.contains("my-pre-generated-uuid"), "must include the chosen uuid, got: {}", cmd);
+    }
+
+    #[test]
+    fn test_session_id_injection_supported_for_claude() {
+        let p = ClaudeProvider::new();
+        assert_eq!(
+            p.session_id_injection(),
+            crate::agent::provider::SessionIdInjection::FreshAndFork
+        );
+    }
+
+    #[test]
+    fn test_headless_does_not_inject_session_id() {
+        // Headless (-p) Claude launches don't take --session-id; we must
+        // skip injection rather than emit a flag claude will reject.
+        let p = ClaudeProvider::new();
+        let params = AgentLaunchParams {
+            agent_name: None,
+            task: Some("hello".to_string()),
+            args: None,
+            skip_permissions: true,
+            headless: true,
+            session_id: Some("should-not-appear".to_string()),
+        };
+        let cmd = p.build_launch_command(&params);
+        assert!(!cmd.contains("--session-id"), "headless launch must not pass --session-id, got: {}", cmd);
+        assert!(!cmd.contains("should-not-appear"));
+    }
+
+    #[test]
+    fn test_session_exists_default_via_file_path() {
+        let p = ClaudeProvider::new();
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_string_lossy().to_string();
+
+        // Build the path the provider expects, then materialize it so the
+        // default `session_exists` (which checks `session_file_path().exists()`)
+        // can find it. Skips the test if HOME isn't writable.
+        let real_path = match p.session_file_path(&cwd, "session-real") {
+            Some(p) => p,
+            None => return,
+        };
+        if let Some(parent) = real_path.parent() {
+            if std::fs::create_dir_all(parent).is_err() {
+                return;
+            }
+        }
+        if std::fs::write(&real_path, "{}\n").is_err() {
+            return;
+        }
+
+        assert!(p.session_exists(&cwd, "session-real"), "existing JSONL should be detected");
+        assert!(!p.session_exists(&cwd, "session-bogus-uuid-xxx"), "missing JSONL must report false");
+
+        let _ = std::fs::remove_file(&real_path);
     }
 
     #[test]

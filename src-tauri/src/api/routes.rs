@@ -74,8 +74,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/prompt/clear", post(clear_prompt))
         .route("/api/panes/{id}/hook/permission", post(hook_permission))
         .route("/api/panes/{id}/hook/stop", post(hook_stop))
+        .route("/api/panes/{id}/hook/session_start", post(hook_session_start))
         .route("/api/agents", get(list_agents))
         .route("/api/agents/providers", get(list_agent_providers))
+        .route("/api/sessions/search", get(search_sessions_api))
+        .route("/api/sessions/{id}", get(get_session_api))
+        .route("/api/sessions/{id}/resume", post(resume_session_api))
         .route("/api/agents/hierarchy", get(get_hierarchy))
         .route("/api/agents/spawn", post(spawn_agent))
         .route("/api/batch", post(batch_commands))
@@ -140,7 +144,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/extract-pending", post(super::mem_routes::mem_extract_pending))
         .route("/api/mem/dream/report", get(super::mem_routes::mem_dream_report))
         .route("/api/mem/graph/full", get(super::mem_routes::mem_graph_full))
-        .route("/api/mem/positions", axum::routing::patch(super::mem_routes::mem_positions))
+        .route("/api/mem/pinned-positions", get(super::mem_routes::mem_pinned_positions_list))
+        .route(
+            "/api/mem/pinned-positions/{mem_id}",
+            axum::routing::patch(super::mem_routes::mem_pinned_positions_set)
+                .delete(super::mem_routes::mem_pinned_positions_delete),
+        )
         .route("/api/mem/activity/recent", get(super::mem_routes::mem_activity_recent))
         .route("/api/mem/workers", get(super::mem_routes::workers_list).post(super::mem_routes::workers_spawn))
         .route("/api/mem/workers/{id}", get(super::mem_routes::workers_get).delete(super::mem_routes::workers_kill))
@@ -1353,6 +1362,225 @@ async fn hook_stop(
     state.svc.emit_state_changed();
 
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Hook endpoint: SessionStart event from Claude Code. Body is the JSON Claude
+/// passes to the hook on stdin (forwarded by the curl command we install).
+/// We extract `session_id` and persist it on the pane so future restarts
+/// resume the right conversation — covers /new and /clear inside the TUI.
+async fn hook_session_start(
+    AxumState(state): AxumState<AppState>,
+    Path(raw_pane_id): Path<String>,
+    body: Option<Json<serde_json::Value>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let pane_id = resolve_pane(&state, &raw_pane_id)
+        .map_err(|(s, m)| (s, m.to_string()))?;
+    let body = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
+    let session_id = body.get("session_id").and_then(|v| v.as_str()).map(String::from);
+    let source = body.get("source").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+
+    let Some(sid) = session_id else {
+        log::warn!("[hook_session_start] pane={} source={} body had no session_id", pane_id, source);
+        return Ok(Json(serde_json::json!({"ok": false, "reason": "no session_id in body"})));
+    };
+
+    let prev = state.svc.mux.lock().get_pane(&pane_id).and_then(|p| p.agent_session_id.clone());
+    if prev.as_deref() == Some(sid.as_str()) {
+        // Same session — no-op (avoids snapshot churn on every Claude turn).
+        return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
+    }
+
+    log::info!(
+        "[hook_session_start] pane={} source={} session {:?} -> {}",
+        pane_id, source, prev.as_deref().unwrap_or("-"), sid
+    );
+    state.svc.set_agent_session_id(&pane_id, Some(sid));
+    state.svc.emit_state_changed();
+    Ok(Json(serde_json::json!({"ok": true, "changed": true})))
+}
+
+#[derive(Deserialize)]
+struct SearchSessionsQuery {
+    q: String,
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    max_snippets: Option<usize>,
+}
+
+/// Cross-provider session search: walks every registered `AgentProvider`,
+/// collects past sessions from disk, and returns matches ranked by recency.
+/// Each hit carries its `provider` so callers can route a "resume in new pane"
+/// action to the correct launcher.
+async fn search_sessions_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<SearchSessionsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let terms: Vec<String> = q
+        .q
+        .split_whitespace()
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if terms.is_empty() {
+        return Ok(Json(serde_json::json!({ "hits": [] })));
+    }
+    let opts = crate::agent::registry::SessionSearchOpts {
+        terms,
+        provider: q.provider.filter(|p| p != "all" && !p.is_empty()),
+        project_path: q.project,
+        limit: q.limit.unwrap_or(10),
+        max_snippets: q.max_snippets.unwrap_or(3),
+    };
+    let hits = state.svc.agent_registry.search_sessions(&opts);
+    Ok(Json(serde_json::json!({ "hits": hits })))
+}
+
+/// Resolve a session id to its metadata across all providers.
+/// Returns `null` + 404 when nothing claims the id.
+async fn get_session_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    match state.svc.agent_registry.find_session(&session_id) {
+        Some(meta) => Ok(Json(serde_json::to_value(meta).unwrap_or_default())),
+        None => Err((StatusCode::NOT_FOUND, format!("session {} not found", session_id))),
+    }
+}
+
+#[derive(Deserialize)]
+struct ResumeSessionBody {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    workspace_id: Option<String>,
+    #[serde(default)]
+    workspace_name: Option<String>,
+}
+
+/// Atomic "resume a past session" action:
+///   1. locate the session across providers → get cwd + provider
+///   2. create (or pick) a workspace whose cwd matches that project path
+///   3. create a tab + PTY in that workspace
+///   4. wait for shell prompt + send the provider's resume command
+///
+/// This is what agents should call instead of the error-prone "create workspace
+/// at guessed cwd → agent spawn --args=--resume=UUID" dance. Claude/Codex look
+/// for the JSONL in the current encoded project dir, so getting cwd wrong is
+/// how you get "No conversation found with session ID".
+async fn resume_session_api(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+    body: Option<Json<ResumeSessionBody>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let body = body.map(|Json(v)| v).unwrap_or(ResumeSessionBody {
+        title: None, workspace_id: None, workspace_name: None,
+    });
+
+    let meta = state
+        .svc
+        .agent_registry
+        .find_session(&session_id)
+        .ok_or((StatusCode::NOT_FOUND, format!("session {} not found", session_id)))?;
+
+    let cwd = meta.project_path.clone().ok_or((
+        StatusCode::BAD_REQUEST,
+        format!("session {} has no recorded project_path; can't decide cwd", session_id),
+    ))?;
+
+    // Pre-compute the resume command so we can echo it back to the caller
+    // even if spawn_agent uses its own launch path. This is what will hit
+    // the PTY either via args (claude) or as the canonical shape for docs.
+    let resume_cmd_preview = state
+        .svc
+        .agent_registry
+        .with_provider(&meta.provider, |p| p.build_resume_command(&meta.session_id, true))
+        .flatten();
+
+    // Per-provider flag layout. Claude accepts `--resume <uuid>` appended
+    // to the normal launch flags; Codex needs `resume <uuid>` as a BARE
+    // subcommand with no `--full-auto` in front, so we use `exec` layout
+    // upstream and pass the resume form through args. Stays simple — if a
+    // provider adds a different shape, extend the match.
+    let args = match meta.provider.as_str() {
+        "claude" => Some(vec!["--resume".to_string(), meta.session_id.clone()]),
+        _ => None,
+    };
+
+    let ws_id = match body.workspace_id {
+        Some(id) => id,
+        None => {
+            let ws_name = body.workspace_name.unwrap_or_else(|| {
+                std::path::Path::new(&cwd)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(&meta.provider)
+                    .to_string()
+            });
+            let cmd = crate::dispatch::Command::WorkspaceCreate {
+                name: ws_name,
+                cwd: Some(cwd.clone()),
+            };
+            let result = crate::dispatch::dispatch(&cmd, &state.svc)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            result
+                .into_json()
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "workspace create returned no id".into()))?
+        }
+    };
+
+    let spawn_params = crate::service::SpawnAgentParams {
+        agent: Some(meta.provider.clone()),
+        agent_name: None,
+        args,
+        cwd: Some(cwd.clone()),
+        title: body.title.or_else(|| {
+            meta.title.clone().or_else(|| Some(format!("resumed {}", &meta.session_id[..8])))
+        }),
+        role: None,
+        parent_pane_id: None,
+        can_spawn: None,
+        task: None,
+        workspace_id: Some(ws_id.clone()),
+        force_tab: None,
+        report_target_pane_id: None,
+        skip_permissions: Some(true),
+    };
+    // DO NOT set pane.agent_session_id before spawn — commands.rs::spawn_pty's
+    // auto-resume path fires on any saved session_id and would inject its own
+    // `--resume` command on top of the one we passed through `args`, producing
+    // two concatenated `claude --resume ...` strings in the shell. The
+    // SessionStart hook (Task B2) will record the id as soon as claude starts.
+    let spawned = state
+        .svc
+        .spawn_agent(spawn_params)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    state.svc.set_pane_agent_type(&spawned.pane_id, Some(meta.provider.clone()));
+    state.svc.emit_state_changed();
+
+    Ok(Json(serde_json::json!({
+        "pane_id": spawned.pane_id,
+        "tab_id": spawned.tab_id,
+        "workspace_id": ws_id,
+        "provider": meta.provider,
+        "session_id": meta.session_id,
+        "cwd": cwd,
+        "resume_command": resume_cmd_preview,
+    })))
 }
 
 async fn list_agents(

@@ -1,5 +1,7 @@
 # Browser Improvements Plan
 
+> **Status (2026-04-13):** ~20% done. Skeleton routes + pane type exist. P0 (3rd-party cookies), P1 (address bar/nav), P2 (screenshots) pending.
+
 ## Current State
 
 - Browser panes use Tauri's `WebviewWindow` (WebView2 on Windows, WKWebView on macOS)

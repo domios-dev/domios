@@ -112,6 +112,20 @@ pub async fn spawn_pty(
         "CODETERM_SOCKET_PATH".to_string(),
         crate::socket::server::socket_display_path(),
     );
+    // Hook callbacks (Notification/Stop/PreCompact/SessionStart) POST to our
+    // REST API with an Authorization header read from this env var. Without
+    // it, the hook curl hits auth_middleware and 401s silently.
+    let api_cfg = config_state.lock().api.clone();
+    if let Ok(port) = std::env::var("CODETERM_API_PORT") {
+        env_vars.insert("CODETERM_API_PORT".into(), port);
+    } else {
+        env_vars.insert("CODETERM_API_PORT".into(), api_cfg.port.to_string());
+    }
+    if let Some(ref tok) = api_cfg.token {
+        if !tok.is_empty() {
+            env_vars.insert("CODETERM_API_TOKEN".into(), tok.clone());
+        }
+    }
 
     let t0 = std::time::Instant::now();
     let built = tokio::task::spawn_blocking(move || {
@@ -132,19 +146,40 @@ pub async fn spawn_pty(
     // This runs in backend so it works even for non-visible tabs.
     // Skip protected panes (General Agent) — backend manages their lifecycle.
     if let Some(ref pid) = pane_id {
-        let (session_id, is_protected) = {
+        let (session_id, is_protected, pane_cwd) = {
             let m = mux_state.lock();
             let pane = m.get_pane(pid);
             (
                 pane.and_then(|p| p.agent_session_id.clone()),
                 pane.map(|p| p.protected).unwrap_or(false),
+                pane.and_then(|p| p.cwd.clone()),
             )
         };
-        // Also grab agent_type from pane (snapshot preserves it)
         let agent_type = mux_state.lock().get_pane(pid)
             .and_then(|p| p.agent_type.clone());
         if let Some(session_id) = session_id.filter(|_| !is_protected) {
             let provider_id = agent_type.unwrap_or_else(crate::config::default_agent_provider);
+
+            // Validate the session file still exists. If it's gone (cleared cache,
+            // different machine, /new inside the TUI last run), resuming produces
+            // spam like "No conversation found with session ID: ..." which the
+            // watchdog then retries forever. Clear and bail quietly instead.
+            let session_valid = pane_cwd.as_deref().map(|cwd| {
+                svc.agent_registry.with_provider(&provider_id, |p| {
+                    p.session_exists(cwd, &session_id)
+                }).unwrap_or(false)
+            }).unwrap_or(false);
+
+            if !session_valid {
+                log::info!(
+                    "[resume] session {} for pane {} has no backing file under {:?} — clearing, skipping resume",
+                    session_id, pid, pane_cwd
+                );
+                svc.set_agent_session_id(pid, None);
+                svc.emit_state_changed();
+                return Ok(pty_id);
+            }
+
             svc.set_pane_agent_type(pid, Some(provider_id.clone()));
             svc.emit_state_changed();
 
@@ -168,10 +203,14 @@ pub async fn spawn_pty(
                 tokio::spawn(async move {
                     if !resume_enabled { return; }
 
+                    // 60s is generous but matters under contention: at app
+                    // restart dozens of panes spawn in parallel and shell
+                    // initialization can stall well past the old 15s budget
+                    // (observed 14-20s for Nth-pane zsh under load on macOS).
                     let ready = tokio::task::spawn_blocking(move || {
                         crate::service::pty_io::poll_shell_prompt(
                             &screen_state_clone, &pty_id_for_poll,
-                            std::time::Duration::from_secs(15),
+                            std::time::Duration::from_secs(60),
                         )
                     }).await.unwrap_or(false);
 
@@ -823,17 +862,22 @@ fn claude_settings_path() -> Result<std::path::PathBuf, String> {
     Ok(home.join(".claude").join("settings.json"))
 }
 
-const CODETERM_HOOK_MARKER: &str = "codeterm-hook";
+// v2 = hooks carry `Authorization: Bearer $CODETERM_API_TOKEN` and rely on
+// auth_middleware instead of the old loopback-exemption path. Any older
+// marker is treated as upgradable so we overwrite the pre-v2 curl commands.
+const CODETERM_HOOK_MARKER: &str = "codeterm-hook-v2";
 
+/// True when a hook entry was installed by CodeTerm at any version — used on
+/// install to REMOVE stale entries before writing the current ones. Accepts
+/// any historical marker plus a URL-based legacy fallback.
 fn is_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
     hook_entry.get("hooks").and_then(|hs| hs.as_array())
         .map(|hs| hs.iter().any(|h| {
             if let Some(source) = h.get("_source").and_then(|s| s.as_str()) {
-                if source == CODETERM_HOOK_MARKER || source == "codeterm" {
+                if source.starts_with("codeterm-hook") || source == "codeterm" {
                     return true;
                 }
             }
-            // Legacy detection: check if command posts to CodeTerm API
             h.get("command").and_then(|c| c.as_str())
                 .map(|cmd| {
                     let is_codeterm_url = cmd.contains("7685") || cmd.contains("7686");
@@ -841,9 +885,23 @@ fn is_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
                         || cmd.contains("/api/panes/")
                         || cmd.contains("/hook/permission")
                         || cmd.contains("/hook/stop")
+                        || cmd.contains("/hook/session_start")
                         || cmd.contains("/api/mem/flush");
                     is_codeterm_url && is_codeterm_path
                 })
+                .unwrap_or(false)
+        }))
+        .unwrap_or(false)
+}
+
+/// True only when the hook matches the CURRENT installer output. Drives the
+/// `hooks_installed` bit so we force-upgrade stale pre-v2 entries (which
+/// lacked the auth header and relied on the dropped exemption).
+fn is_current_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
+    hook_entry.get("hooks").and_then(|hs| hs.as_array())
+        .map(|hs| hs.iter().any(|h| {
+            h.get("_source").and_then(|s| s.as_str())
+                .map(|src| src == CODETERM_HOOK_MARKER)
                 .unwrap_or(false)
         }))
         .unwrap_or(false)
@@ -859,6 +917,8 @@ pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
             hooks_installed: false,
             notification_hook: false,
             stop_hook: false,
+            precompact_hook: false,
+            session_start_hook: false,
         });
     }
 
@@ -868,22 +928,28 @@ pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
 
     let notification_hook = json.pointer("/hooks/Notification")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_codeterm_hook))
+        .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
     let stop_hook = json.pointer("/hooks/Stop")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_codeterm_hook))
+        .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
     let precompact_hook = json.pointer("/hooks/PreCompact")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().any(is_codeterm_hook))
+        .map(|arr| arr.iter().any(is_current_codeterm_hook))
+        .unwrap_or(false);
+    let session_start_hook = json.pointer("/hooks/SessionStart")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
 
     Ok(ClaudeHooksStatus {
         settings_exists: true,
-        hooks_installed: notification_hook && stop_hook && precompact_hook,
+        hooks_installed: notification_hook && stop_hook && precompact_hook && session_start_hook,
         notification_hook,
         stop_hook,
+        precompact_hook,
+        session_start_hook,
     })
 }
 
@@ -896,7 +962,7 @@ pub fn ensure_claude_hooks_installed() {
             if let Err(e) = install_claude_hooks(None) {
                 log::warn!("[startup] failed to auto-install claude hooks: {}", e);
             } else {
-                log::info!("[startup] claude hooks auto-installed (Notification, Stop, PreCompact)");
+                log::info!("[startup] claude hooks auto-installed (Notification, Stop, PreCompact, SessionStart)");
             }
         }
     }
@@ -908,6 +974,8 @@ pub struct ClaudeHooksStatus {
     pub hooks_installed: bool,
     pub notification_hook: bool,
     pub stop_hook: bool,
+    pub precompact_hook: bool,
+    pub session_start_hook: bool,
 }
 
 #[tauri::command]
@@ -933,15 +1001,24 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
     };
 
     let null_dev = crate::shell::ShellSyntax::NULL_DEV;
+    // Hook callbacks share one auth header so the endpoints can stay behind
+    // auth_middleware and don't need a loopback/LAN exemption. CodeTerm sets
+    // $CODETERM_API_TOKEN in the PTY env at spawn time.
+    let auth_h = "-H \"Authorization: Bearer ${CODETERM_API_TOKEN}\"";
     let notify_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
     );
     let stop_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' -d '{{}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/stop -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
     );
     // flush PTY scrollback before summarization destroys it
     let precompact_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/mem/flush -H 'Content-Type: application/json' -d '{{\"pane\":\"'\"$CODETERM_PANE_ID\"'\",\"title\":\"pre-compact\"}}' > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/mem/flush -H 'Content-Type: application/json' {auth_h} -d '{{\"pane\":\"'\"$CODETERM_PANE_ID\"'\",\"title\":\"pre-compact\"}}' > {null_dev} 2>&1 || true"
+    );
+    // Forward Claude's SessionStart JSON (delivered on stdin) to CodeTerm so we
+    // learn the new session_id when the user runs /new, /clear, or starts fresh.
+    let session_start_cmd = format!(
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' {auth_h} --data-binary @- > {null_dev} 2>&1 || true"
     );
 
     if json.get("hooks").is_none() {
@@ -978,10 +1055,20 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
         }]
     });
 
+    let session_start_hook = serde_json::json!({
+        "matcher": "",
+        "hooks": [{
+            "type": "command",
+            "command": session_start_cmd,
+            "timeout": 5000,
+            "_source": CODETERM_HOOK_MARKER
+        }]
+    });
+
     let hooks = json["hooks"].as_object_mut()
         .ok_or("hooks is not an object")?;
 
-    for key in &["Notification", "Stop", "PreCompact"] {
+    for key in &["Notification", "Stop", "PreCompact", "SessionStart"] {
         if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
             arr.retain(|h| !is_codeterm_hook(h));
         }
@@ -1001,6 +1088,11 @@ pub fn install_claude_hooks(api_port: Option<u16>) -> Result<(), String> {
         hooks.insert("PreCompact".into(), serde_json::json!([]));
     }
     hooks["PreCompact"].as_array_mut().unwrap().push(precompact_hook);
+
+    if !hooks.contains_key("SessionStart") {
+        hooks.insert("SessionStart".into(), serde_json::json!([]));
+    }
+    hooks["SessionStart"].as_array_mut().unwrap().push(session_start_hook);
 
     let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
     std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
@@ -1174,16 +1266,18 @@ pub fn get_network_info(state: tauri::State<'_, crate::config::ConfigState>) -> 
 }
 
 #[tauri::command]
-pub fn get_pane_git_info(
+pub async fn get_pane_git_info(
     mux: tauri::State<'_, MuxState>,
     pane_id: String,
 ) -> Result<Option<GitInfo>, String> {
-    let mux = mux.lock();
-    let pane = mux.get_pane(&pane_id);
-    match pane.and_then(|p| p.cwd.as_ref()) {
-        Some(cwd) => Ok(git_info::get_git_info(cwd)),
-        None => Ok(None),
-    }
+    let cwd = {
+        let mux = mux.lock();
+        mux.get_pane(&pane_id).and_then(|p| p.cwd.clone())
+    };
+    let Some(cwd) = cwd else { return Ok(None) };
+    Ok(tokio::task::spawn_blocking(move || git_info::get_git_info(&cwd))
+        .await
+        .map_err(|e| format!("join: {}", e))?)
 }
 
 /// Diagnostics surfaced in Settings → General on Windows: which shell we would
