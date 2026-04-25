@@ -1077,10 +1077,6 @@ pub fn run() {
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
 
-            // Librarian loop: scans source-tracked mem_items hourly, re-embeds
-            // changed files. Pure Rust — no agent, no tokens.
-            mem::dreaming::start_librarian_loop(mem.clone());
-
             // Auto-install Claude hooks (Notification, Stop, PreCompact).
             // PreCompact is critical for mem — it flushes pane scrollback
             // before Claude summarizes the context window.
@@ -1120,6 +1116,23 @@ pub fn run() {
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
+
+            // Librarian: hourly file-sync + skill-folder scan, run as a
+            // subprocess via the supervisor so a panic / OOM cannot take
+            // the daemon down. First fire after a 30s warm-up.
+            {
+                let supervisor = service_state.mem_supervisor.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    loop {
+                        match supervisor.run(crate::mem::supervisor::WorkerKind::LibrarianOnce).await {
+                            Ok(report) => log::info!("[librarian] {}", report),
+                            Err(e) => log::warn!("[librarian] {}", e),
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+                    }
+                });
+            }
 
             // Resume extraction for items that were saved but never finished
             // (previous run crashed mid-extraction, LLM API errored, bulk import).
