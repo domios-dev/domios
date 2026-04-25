@@ -55,6 +55,23 @@ pub struct SearchQuery {
     pub limit: Option<usize>,
 }
 
+/// Which retrieval pipeline to use when `hybrid_rrf_with_config` is called.
+/// Lets us A/B the existing RRF fusion against a MemPalace-style vector-first
+/// rerank without changing the public `recall` API surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchMode {
+    /// Current default: pull FTS candidates with keyword-rerank AND vector
+    /// candidates, then fuse both rankings with Reciprocal Rank Fusion.
+    HybridRrf,
+    /// MemPalace hybrid_v2 port: pull only from vector recall (overfetched),
+    /// then rerank with `dist * (1 - w * keyword_overlap) * (1 - temporal_boost)`.
+    /// Skips FTS entirely — tolerant of misspellings, fixes the
+    /// "specific noun underweighted by cosine" failure mode via the keyword
+    /// overlap factor. See benchmarks/HYBRID_MODE.md for the +1.8pp R@5
+    /// measurement on LongMemEval.
+    VectorFirstRerank,
+}
+
 /// Tunable search ranking parameters. `Default::default()` reproduces the
 /// production values baked in today; tests/benches may override to A/B.
 #[derive(Debug, Clone)]
@@ -83,6 +100,17 @@ pub struct SearchConfig {
     /// to the fused score, just like FTS/vector — so graph rank survives even
     /// when title_match_bonus collapses FTS scores to 0.
     pub graph_as_rrf_source: bool,
+    /// Retrieval pipeline selector. Default `HybridRrf` = unchanged behaviour.
+    /// Flip to `VectorFirstRerank` to test MemPalace-style re-ranking.
+    pub mode: SearchMode,
+    /// Weight of the keyword-overlap boost in vector-first mode. MemPalace's
+    /// full-500 sweep settled on 0.30 as optimal; higher values overweight
+    /// exact-match at the cost of semantic neighbours.
+    pub vector_rerank_weight: f64,
+    /// Candidate pool multiplier for vector recall in vector-first mode.
+    /// MemPalace uses fixed n_results=50; we mirror that by fetching
+    /// `limit * multiplier` then truncating post-rerank.
+    pub vector_rerank_pool_multiplier: usize,
 }
 
 impl Default for SearchConfig {
@@ -105,6 +133,11 @@ impl Default for SearchConfig {
             title_match_bonus: 1.0,
             graph_entity_boost: 1.0,
             graph_as_rrf_source: false,
+            // Off by default — default behaviour stays HybridRrf until benches
+            // show vector-first wins on our own corpus.
+            mode: SearchMode::HybridRrf,
+            vector_rerank_weight: 0.30,
+            vector_rerank_pool_multiplier: 5,
         }
     }
 }
@@ -381,6 +414,9 @@ pub fn hybrid_rrf_with_config(
     blobs_dir: &Path,
     cfg: &SearchConfig,
 ) -> Result<Vec<SearchHit>, String> {
+    if matches!(cfg.mode, SearchMode::VectorFirstRerank) {
+        return run_vector_first(conn, q, blobs_dir, cfg);
+    }
     let limit = q.limit.unwrap_or(5).clamp(1, 50);
 
     // 1. FTS5 candidates (may be empty on typos)
@@ -481,6 +517,84 @@ pub fn hybrid_rrf_with_config(
     Ok(merged)
 }
 
+/// Vector-first retrieval + keyword/temporal re-rank. Ported from MemPalace's
+/// `build_palace_and_retrieve_hybrid_v2` (`benchmarks/longmemeval_bench.py`).
+///
+/// Formula: `fused = cosine_dist × (1 − w × keyword_overlap) × (1 − temporal_boost)`
+/// where `w = cfg.vector_rerank_weight` (MemPalace settled on 0.30 for LongMemEval).
+///
+/// Differs from `hybrid_rrf_with_config`:
+///   - Skips FTS5 entirely — tolerates typos naturally (vector is character-fuzzy).
+///   - Single-stage: no RRF fusion, scores are comparable across items.
+///   - Keyword overlap is a *boost*, not a *filter* — items with 0 overlap still
+///     score by pure cosine distance, so semantically-close-but-lexically-absent
+///     items aren't eliminated.
+///
+/// Filters (kind/scope/area) are applied *after* vector recall. We overfetch
+/// `limit × cfg.vector_rerank_pool_multiplier` to give the rerank pool room
+/// after filtering.
+///
+/// Lock duration: caller passes `&Connection` and the per-id `store::get`
+/// loop performs blob and source-file disk I/O while that lock is held — up
+/// to `pool` (≤250) candidates per call. Inherits caller-side lock duration.
+pub fn run_vector_first(
+    conn: &Connection,
+    q: &SearchQuery,
+    blobs_dir: &Path,
+    cfg: &SearchConfig,
+) -> Result<Vec<SearchHit>, String> {
+    let limit = q.limit.unwrap_or(5).clamp(1, 50);
+    let pool = limit * cfg.vector_rerank_pool_multiplier.max(1);
+
+    #[cfg(feature = "embeddings")]
+    let raw = super::embeddings::recall(conn, &q.query, pool).unwrap_or_default();
+    #[cfg(not(feature = "embeddings"))]
+    let raw: Vec<(String, f64)> = Vec::new();
+
+    if raw.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let keywords = extract_keywords(&q.query);
+    let temporal = parse_temporal_offset(&q.query);
+    let now = chrono::Utc::now();
+
+    let mut hits: Vec<SearchHit> = Vec::with_capacity(raw.len());
+    for (id, dist) in raw {
+        let Some(item) = super::store::get(conn, &id, blobs_dir)? else { continue };
+        if let Some(ref k) = q.kind { if item.kind != *k { continue; } }
+        if let Some(ref s) = q.scope { if item.scope != *s { continue; } }
+        if let Some(ref a) = q.area { if item.area.as_deref() != Some(a) { continue; } }
+
+        let overlap = keyword_overlap(&keywords, &item);
+        let temporal_boost = match &temporal {
+            Some(days_ago) => temporal_boost_for(&item, *days_ago, now),
+            None => 0.0,
+        };
+        let importance_boost = ((item.importance - 3.0) / 5.0).max(0.0) * 0.20;
+        let recurrence_boost = ((item.recurrence_count as f64) * cfg.recurrence_step)
+            .min(cfg.recurrence_cap);
+        let auto_penalty = if item.tags.iter().any(|t| t == "auto-extracted") {
+            1.0 / cfg.auto_extracted_penalty.max(1e-6)
+        } else {
+            1.0
+        };
+
+        let fused = dist
+            * (1.0 - cfg.vector_rerank_weight * overlap)
+            * (1.0 - temporal_boost)
+            * (1.0 - importance_boost)
+            * (1.0 - recurrence_boost)
+            * auto_penalty;
+
+        hits.push(SearchHit { item, score: fused });
+    }
+
+    hits.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.truncate(limit);
+    Ok(hits)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,5 +677,60 @@ mod tests {
         assert_eq!(parse_temporal_offset("3 weeks ago"), Some(21));
         assert_eq!(parse_temporal_offset("2 months ago"), Some(60));
         assert_eq!(parse_temporal_offset("nothing temporal here"), None);
+    }
+
+    #[test]
+    fn default_mode_is_hybrid_rrf() {
+        // Default behaviour must stay unchanged until benched.
+        let cfg = SearchConfig::default();
+        assert!(matches!(cfg.mode, SearchMode::HybridRrf));
+        assert!((cfg.vector_rerank_weight - 0.30).abs() < 1e-9);
+        assert_eq!(cfg.vector_rerank_pool_multiplier, 5);
+    }
+
+    /// When the `embeddings` feature is off, vector-first must degrade cleanly
+    /// (empty result) rather than panicking. This is the contract callers rely
+    /// on: they can set `mode = VectorFirstRerank` and fall back to HybridRrf
+    /// via `unwrap_or_default`.
+    #[cfg(not(feature = "embeddings"))]
+    #[test]
+    fn vector_first_returns_empty_without_embeddings() {
+        let (conn, blobs) = fresh();
+        insert(&conn, &NewMemItem {
+            kind: MemKind::Fact, scope: MemScope::Global,
+            title: "a".into(), summary: None, area: None, tags: vec![],
+            body: "b".into(), source: None, importance: 3.0, source_path: None,
+        }, &blobs).unwrap();
+        let cfg = SearchConfig {
+            mode: SearchMode::VectorFirstRerank,
+            ..SearchConfig::default()
+        };
+        let r = run_vector_first(&conn, &SearchQuery {
+            query: "anything".into(), ..Default::default()
+        }, &blobs, &cfg).unwrap();
+        assert!(r.is_empty());
+    }
+
+    /// FTS path must behave the same regardless of `mode` — the dispatch only
+    /// kicks in via `hybrid_rrf_with_config`. `run` directly hits FTS.
+    #[test]
+    fn fts_path_unchanged_by_mode_flag() {
+        let (conn, blobs) = fresh();
+        insert(&conn, &NewMemItem {
+            kind: MemKind::Skill, scope: MemScope::Global,
+            title: "home assistant".into(), summary: None, area: None,
+            tags: vec![], body: "scenes and automations".into(),
+            source: None, importance: 3.0, source_path: None,
+        }, &blobs).unwrap();
+        let cfg_a = SearchConfig::default();
+        let cfg_b = SearchConfig {
+            mode: SearchMode::VectorFirstRerank,
+            ..SearchConfig::default()
+        };
+        let q = SearchQuery { query: "home automation".into(), ..Default::default() };
+        let a = run_with_config(&conn, &q, &blobs, &cfg_a).unwrap();
+        let b = run_with_config(&conn, &q, &blobs, &cfg_b).unwrap();
+        assert_eq!(a.len(), b.len());
+        assert_eq!(a[0].item.id, b[0].item.id);
     }
 }

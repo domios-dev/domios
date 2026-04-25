@@ -1077,14 +1077,15 @@ pub fn run() {
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
 
-            // Librarian loop: scans source-tracked mem_items hourly, re-embeds
-            // changed files. Pure Rust — no agent, no tokens.
-            mem::dreaming::start_librarian_loop(mem.clone());
-
             // Auto-install Claude hooks (Notification, Stop, PreCompact).
             // PreCompact is critical for mem — it flushes pane scrollback
             // before Claude summarizes the context window.
             commands::ensure_claude_hooks_installed();
+
+            let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
+                crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
+                mem.db_path().to_path_buf(),
+            ));
 
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
@@ -1098,6 +1099,7 @@ pub fn run() {
                 report_store: states.report_store.clone(),
                 agent_registry,
                 mem,
+                mem_supervisor,
                 activity: crate::mem::activity::ActivityRing::new(500),
                 workers: crate::mem::workers::GraphWorkerRegistry::load(
                     crate::paths::data_dir().join("mem").join("workers.json"),
@@ -1115,18 +1117,38 @@ pub fn run() {
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
 
-            // Resume extraction for items that were saved but never finished
-            // (previous run crashed mid-extraction, LLM API errored, bulk import).
-            // Sequential spawn with 500ms delay rate-limits naturally — no cap.
-            // Idempotent: items already extracted are skipped by the SQL query.
+            // Librarian: hourly file-sync + skill-folder scan, run as a
+            // subprocess via the supervisor so a panic / OOM cannot take
+            // the daemon down. First fire after a 30s warm-up.
             {
-                let svc_for_extract = service_state.clone();
-                std::thread::spawn(move || {
-                    let queued = crate::mem::auto_extract::run_extract_pending(svc_for_extract, usize::MAX);
-                    if queued > 0 {
-                        log::info!("[mem] startup: resuming extraction for {} pending item(s)", queued);
+                let supervisor = service_state.mem_supervisor.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    loop {
+                        match supervisor.run(crate::mem::supervisor::WorkerKind::LibrarianOnce).await {
+                            Ok(report) => log::info!("[librarian] {}", report),
+                            Err(e) => log::warn!("[librarian] {}", e),
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
                     }
                 });
+            }
+
+            // Resume extraction for items that were saved but never finished
+            // (previous run crashed mid-extraction, LLM API errored, bulk import).
+            // run_extract_pending returns fast after spawning its tokio task.
+            {
+                let svc_for_extract = service_state.clone();
+                let queued = crate::mem::auto_extract::run_extract_pending(
+                    svc_for_extract,
+                    usize::MAX,
+                );
+                if queued > 0 {
+                    log::info!(
+                        "[mem] startup: resuming extraction for {} pending item(s)",
+                        queued
+                    );
+                }
             }
 
             install_bundled_cli(app);
