@@ -392,6 +392,7 @@ pub struct IntegrationsConfig {
     pub discord_allowed_users: Vec<String>,
     pub webhook_enabled: bool,
     pub webhook_port: u16,
+    pub voice_transcribe: VoiceTranscribeConfig,
 }
 
 impl Default for IntegrationsConfig {
@@ -403,6 +404,40 @@ impl Default for IntegrationsConfig {
             discord_allowed_users: Vec::new(),
             webhook_enabled: false,
             webhook_port: 7687,
+            voice_transcribe: VoiceTranscribeConfig::default(),
+        }
+    }
+}
+
+fn default_voice_daemon_url() -> String { "http://127.0.0.1:7891".to_string() }
+fn default_voice_timeout_ms() -> u64 { 60_000 }
+fn default_voice_health_ttl_secs() -> u64 { 60 }
+fn default_voice_fallback_raw() -> bool { true }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VoiceTranscribeConfig {
+    pub enabled: bool,
+    #[serde(default = "default_voice_daemon_url")]
+    pub daemon_url: String,
+    #[serde(default = "default_voice_timeout_ms")]
+    pub timeout_ms: u64,
+    pub language: String,
+    #[serde(default = "default_voice_fallback_raw")]
+    pub fallback_raw_on_error: bool,
+    #[serde(default = "default_voice_health_ttl_secs")]
+    pub health_check_ttl_secs: u64,
+}
+
+impl Default for VoiceTranscribeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            daemon_url: default_voice_daemon_url(),
+            timeout_ms: default_voice_timeout_ms(),
+            language: String::new(),
+            fallback_raw_on_error: default_voice_fallback_raw(),
+            health_check_ttl_secs: default_voice_health_ttl_secs(),
         }
     }
 }
