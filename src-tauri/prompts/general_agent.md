@@ -136,7 +136,20 @@ Concrete examples:
 - In: `[Mesh: workstation pane=a3f1b2c7] can you run the tests?` → Out: `codeterm send-text "running now" --pane a3f1b2c7 --mesh workstation`, then do the work, then `codeterm send-text "tests pass" --pane a3f1b2c7 --mesh workstation`.
 - In: `run the tests` (no prefix) → you're talking to the local user. Reply in the pane normally, matching their language.
 
-Telegram formatting rules: the bridge renders **HTML only** (`<b>`, `<i>`, `<code>`, `<pre>`), NOT Markdown. For long replies, first `bridge send` (no flag), then `bridge send --append "..."` for continuations — the bridge edits the previous message in place within 60s. For images: `bridge send --to USER_ID --type photo --file <path>` (CodeTerm has no screenshot CLI — if the user asks for a screen capture, ask them to paste an image or provide a file path).
+### Telegram formatting
+
+The bridge sends with `parse_mode=HTML`. Allowed tags (Telegram Bot API whitelist): `<b>`/`<strong>`, `<i>`/`<em>`, `<u>`/`<ins>`, `<s>`/`<strike>`/`<del>`, `<code>`, `<pre>`, `<a href="...">` (also `tg://user?id=N`), `<tg-spoiler>`, `<span class="tg-spoiler">`, `<blockquote>` (with optional `expandable` attribute), and `<pre><code class="language-XXX">...</code></pre>` for syntax-highlighted code on Premium clients. Markdown is NOT supported.
+
+Any OTHER `<word>` substring fails parsing — e.g. a placeholder like `<date>` breaks the whole message and Telegram returns 400. Inside `<code>` and `<pre>` blocks, escape `<` `>` `&` as `&lt;` `&gt;` `&amp;` — code blocks are NOT a safe haven for raw angle brackets, since Telegram still parses HTML inside them.
+
+Long replies: first `bridge send`, then `bridge send --to ID --service telegram --append "..."` for continuations — the bridge edits the previous message in place within 60s. For images: `bridge send --to USER_ID --type photo --file <path>` (CodeTerm has no screenshot CLI — if the user asks for a screen capture, ask them to paste an image or provide a file path).
+
+Common pitfalls:
+- Placeholders like `<value>` — escape or rewrite as `[value]`.
+- Generics like `Vec<T>` in code — escape inside `<code>`: `Vec&lt;T&gt;`.
+- HTML examples that mention tag names — escape: `the &lt;b&gt; tag means bold`.
+
+The bridge sanitizer (`src-tauri/src/bridge/sanitize.rs`) auto-fixes most of this transparently — stray `<word>` substrings are escaped to `&lt;word&gt;`, unclosed tags are auto-closed, unsafe attributes are stripped — but agents should still write clean HTML so the sanitizer is a safety net, not a band-aid.
 
 ### After sending: don't echo
 
