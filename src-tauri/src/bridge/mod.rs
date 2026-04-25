@@ -3,6 +3,7 @@
 pub mod traits;
 pub mod manager;
 pub mod response;
+pub mod sanitize;
 pub mod telegram;
 
 pub use manager::BridgeManager;
