@@ -10,7 +10,9 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 use parking_lot::Mutex;
 
-use super::traits::{InboundMessage, InlineKeyboard, MessagingService, OutboundContent, ReplyContext};
+use super::traits::{InboundAttachment, InboundMessage, InlineKeyboard, MessagingService, OutboundContent, ReplyContext};
+use super::voice_transcribe;
+use crate::config::schema::VoiceTranscribeConfig;
 use crate::service::general_agent;
 use crate::service::ServiceContext;
 
@@ -149,7 +151,8 @@ impl BridgeManager {
                         reply_ctx: first.reply_ctx.clone(),
                     };
 
-                    if let Err(e) = inject_message(&svc, &merged_msg) {
+                    let voice_cfg = crate::config::load_config().integrations.voice_transcribe.clone();
+                    if let Err(e) = inject_message(&svc, &merged_msg, &voice_cfg).await {
                         log::error!("[bridge] inject failed: {}", e);
                     }
                 }
@@ -422,32 +425,60 @@ async fn send_media(client: &reqwest::Client, token: &str, chat_id: i64, content
     Ok(())
 }
 
-fn inject_message(svc: &ServiceContext, msg: &InboundMessage) -> Result<(), String> {
+/// Build the paste body for an inbound message, transcribing voice
+/// attachments inline when enabled. Pure async — no PTY/lock access.
+pub async fn build_message_body(msg: &InboundMessage, voice_cfg: &VoiceTranscribeConfig) -> String {
+    let mut parts = Vec::new();
+    if !msg.text.is_empty() {
+        parts.push(msg.text.clone());
+    }
+    for att in &msg.attachments {
+        parts.push(format_attachment_line(att, voice_cfg).await);
+    }
+    parts.join("\n")
+}
+
+async fn format_attachment_line(att: &InboundAttachment, voice_cfg: &VoiceTranscribeConfig) -> String {
+    let desc = if let Some(ref name) = att.filename {
+        format!("[{}: {}]", att.kind, name)
+    } else {
+        format!("[{}]", att.kind)
+    };
+    let file_uri = format!("file://{}", att.path.replace('\\', "/"));
+
+    if att.kind == "voice" && voice_cfg.enabled && !att.path.is_empty() {
+        match voice_transcribe::transcribe(std::path::Path::new(&att.path), voice_cfg).await {
+            Ok(t) => {
+                let escaped = t.text.replace('"', "\\\"");
+                return format!("{} (voice transcript: \"{}\") {}", desc, escaped, file_uri);
+            }
+            Err(e) => {
+                log::warn!("[bridge] voice transcribe failed for {}: {}", att.path, e);
+                if !voice_cfg.fallback_raw_on_error {
+                    return format!("{} (transcription unavailable: {})", desc, e);
+                }
+            }
+        }
+    }
+    format!("{} {}", desc, file_uri)
+}
+
+async fn inject_message(
+    svc: &ServiceContext,
+    msg: &InboundMessage,
+    voice_cfg: &VoiceTranscribeConfig,
+) -> Result<(), String> {
     let pane_id = {
         let mux = svc.mux.lock();
         mux.resolve_pane_id(general_agent::GENERAL_ALIAS)
             .ok_or("General Agent not found")?
     };
 
-    // Build message with attachment info
-    let mut parts = Vec::new();
-    if !msg.text.is_empty() {
-        parts.push(msg.text.clone());
-    }
-    for att in &msg.attachments {
-        let desc = if let Some(ref name) = att.filename {
-            format!("[{}: {}]", att.kind, name)
-        } else {
-            format!("[{}]", att.kind)
-        };
-        parts.push(format!("{} file://{}", desc, att.path.replace('\\', "/")));
-    }
-    let body = parts.join("\n");
+    let body = build_message_body(msg, voice_cfg).await;
     let msg_id_suffix = msg.message_id.map(|id| format!(" msg_id={}", id)).unwrap_or_default();
     let prefixed = format!("[{}: {}{}] {}",
         capitalize(&msg.service), msg.user_id, msg_id_suffix, body);
 
-    // Bracket paste the text
     let pty_id = svc.resolve_pty_id(&pane_id)?;
     let paste = format!("\x1b[200~{}\x1b[201~", prefixed);
     svc.pty.lock().write(&pty_id, paste.as_bytes()).map_err(|e| e.to_string())?;
@@ -495,6 +526,163 @@ mod tests {
         assert_eq!(buttons[0][0].text, "Да");
         assert_eq!(buttons[0][0].data.as_deref(), Some("yes"));
         assert!(buttons[0][0].url.is_none());
+    }
+
+    fn voice_msg(path: &str) -> InboundMessage {
+        InboundMessage {
+            service: "telegram".into(),
+            user_id: 42,
+            user_name: "tester".into(),
+            text: String::new(),
+            attachments: vec![InboundAttachment {
+                path: path.into(),
+                kind: "voice".into(),
+                filename: None,
+                mime_type: Some("audio/ogg".into()),
+            }],
+            message_id: Some(7),
+            reply_ctx: ReplyContext::Telegram { chat_id: 99 },
+        }
+    }
+
+    fn photo_msg(path: &str) -> InboundMessage {
+        InboundMessage {
+            service: "telegram".into(),
+            user_id: 42,
+            user_name: "tester".into(),
+            text: String::new(),
+            attachments: vec![InboundAttachment {
+                path: path.into(),
+                kind: "photo".into(),
+                filename: Some("pic.jpg".into()),
+                mime_type: Some("image/jpeg".into()),
+            }],
+            message_id: None,
+            reply_ctx: ReplyContext::Telegram { chat_id: 99 },
+        }
+    }
+
+    fn enabled_cfg(url: &str) -> VoiceTranscribeConfig {
+        VoiceTranscribeConfig {
+            enabled: true,
+            daemon_url: url.into(),
+            timeout_ms: 5_000,
+            language: String::new(),
+            fallback_raw_on_error: true,
+            health_check_ttl_secs: 60,
+        }
+    }
+
+    async fn spawn_transcribe_server(
+        text: &'static str,
+    ) -> (std::net::SocketAddr, tokio::sync::oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
+        use axum::{routing::{get, post}, Json, Router};
+        let router = Router::new()
+            .route("/healthz", get(|| async { "ok" }))
+            .route("/transcribe", post(move || async move {
+                Json(serde_json::json!({ "text": text }))
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            let _ = axum::serve(listener, router)
+                .with_graceful_shutdown(async move { let _ = rx.await; })
+                .await;
+        });
+        (addr, tx, handle)
+    }
+
+    #[tokio::test]
+    async fn body_includes_transcript_and_file_uri() {
+        voice_transcribe::reset_health_cache();
+        let (addr, stop, handle) = spawn_transcribe_server("привет мир").await;
+        let cfg = enabled_cfg(&format!("http://{}", addr));
+
+        let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
+        assert!(body.contains("(voice transcript: \"привет мир\")"), "body: {}", body);
+        assert!(body.contains("file:///tmp/voice.oga"), "body: {}", body);
+
+        let _ = stop.send(());
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn body_falls_back_to_raw_when_daemon_down() {
+        voice_transcribe::reset_health_cache();
+        // Reserve a port and drop the listener so nothing answers.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+        let cfg = enabled_cfg(&format!("http://{}", addr));
+
+        let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
+        assert!(!body.contains("voice transcript"), "should not have transcript: {}", body);
+        assert_eq!(body, "[voice] file:///tmp/voice.oga");
+    }
+
+    #[tokio::test]
+    async fn disabled_cfg_preserves_legacy_format() {
+        voice_transcribe::reset_health_cache();
+        let mut cfg = enabled_cfg("http://127.0.0.1:1");
+        cfg.enabled = false;
+
+        let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
+        assert_eq!(body, "[voice] file:///tmp/voice.oga");
+    }
+
+    #[tokio::test]
+    async fn non_voice_attachments_not_transcribed() {
+        voice_transcribe::reset_health_cache();
+        // Daemon URL points nowhere; if we accidentally hit it, the test fails
+        // because we'd see fallback path. With photo kind we never call it.
+        let cfg = enabled_cfg("http://127.0.0.1:1");
+
+        let body = build_message_body(&photo_msg("/tmp/pic.jpg"), &cfg).await;
+        assert_eq!(body, "[photo: pic.jpg] file:///tmp/pic.jpg");
+    }
+
+    #[tokio::test]
+    async fn empty_attachment_path_skips_transcription() {
+        voice_transcribe::reset_health_cache();
+        let cfg = enabled_cfg("http://127.0.0.1:1");
+
+        let body = build_message_body(&voice_msg(""), &cfg).await;
+        assert_eq!(body, "[voice] file://");
+    }
+
+    #[tokio::test]
+    async fn multiple_voice_attachments_each_transcribed() {
+        voice_transcribe::reset_health_cache();
+        let (addr, stop, handle) = spawn_transcribe_server("ok").await;
+        let cfg = enabled_cfg(&format!("http://{}", addr));
+
+        let mut msg = voice_msg("/tmp/a.oga");
+        msg.attachments.push(InboundAttachment {
+            path: "/tmp/b.oga".into(),
+            kind: "voice".into(),
+            filename: None,
+            mime_type: Some("audio/ogg".into()),
+        });
+
+        let body = build_message_body(&msg, &cfg).await;
+        let occurrences = body.matches("(voice transcript: \"ok\")").count();
+        assert_eq!(occurrences, 2, "body: {}", body);
+        assert!(body.contains("/a.oga"));
+        assert!(body.contains("/b.oga"));
+
+        let _ = stop.send(());
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn malformed_url_falls_back_to_raw() {
+        voice_transcribe::reset_health_cache();
+        let mut cfg = enabled_cfg("not-a-url");
+        cfg.daemon_url = "not a url".into();
+
+        let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
+        assert_eq!(body, "[voice] file:///tmp/voice.oga");
     }
 
     #[test]
