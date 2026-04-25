@@ -26,17 +26,24 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub use store::{MemItem, MemKind, MemScope, NewMemItem};
 pub use graph::{Entity, Relation};
 pub use search::{SearchHit, SearchQuery};
 pub use layers::WakeUpOptions;
 
+/// Cap on concurrent long-running mem operations (dreaming, extraction,
+/// embedding). API search / recall / save / get never acquire this permit,
+/// so they keep priority access to the connection lock.
+const HEAVY_OPS_PERMITS: usize = 2;
+
 pub struct MemManager {
     conn: Mutex<Connection>,
     db_path: PathBuf,
     blobs_dir: PathBuf,
     embed_queue: embed_queue::EmbedQueue,
+    heavy_ops_permits: Arc<Semaphore>,
 }
 
 impl MemManager {
@@ -66,13 +73,15 @@ impl MemManager {
             log::warn!("[mem] sqlite-vec init failed: {} — semantic recall disabled", e);
         }
 
-        let embed_queue = embed_queue::EmbedQueue::start(db_path.clone());
+        let heavy_ops_permits = Arc::new(Semaphore::new(HEAVY_OPS_PERMITS));
+        let embed_queue = embed_queue::EmbedQueue::start(db_path.clone(), heavy_ops_permits.clone());
 
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
             db_path,
             blobs_dir,
             embed_queue,
+            heavy_ops_permits,
         }))
     }
 
@@ -89,6 +98,7 @@ impl MemManager {
             db_path: tmp.join("knowledge.db"),
             blobs_dir: tmp.join("blobs"),
             embed_queue: embed_queue::EmbedQueue::disabled(),
+            heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
         }))
     }
 
@@ -133,6 +143,7 @@ impl MemManager {
             db_path,
             blobs_dir,
             embed_queue: embed_queue::EmbedQueue::disabled(),
+            heavy_ops_permits: Arc::new(Semaphore::new(HEAVY_OPS_PERMITS)),
         }))
     }
 
@@ -343,6 +354,35 @@ impl MemManager {
 
     pub(crate) fn conn(&self) -> &parking_lot::Mutex<rusqlite::Connection> {
         &self.conn
+    }
+
+    /// Try to acquire the connection lock with a timeout. Returns `None` if
+    /// another holder still owns it when the deadline expires — callers in
+    /// request-handler paths translate that into HTTP 503 so the daemon
+    /// stays responsive under heavy background load.
+    pub fn try_conn_for(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Option<parking_lot::MutexGuard<'_, rusqlite::Connection>> {
+        self.conn.try_lock_for(timeout)
+    }
+
+    /// Acquire one of `HEAVY_OPS_PERMITS` slots. Holders run the long-running
+    /// background jobs (dreaming, extraction batch, embed queue); API
+    /// request handlers never take this permit, so they keep priority access
+    /// to the connection. Drop the returned guard to release.
+    pub async fn acquire_heavy_permit(&self) -> OwnedSemaphorePermit {
+        self.heavy_ops_permits
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("heavy_ops semaphore closed")
+    }
+
+    /// Handle to the same semaphore for contexts that need blocking acquire
+    /// (e.g. the embed-queue sync worker thread).
+    pub fn heavy_ops_permits(&self) -> Arc<Semaphore> {
+        self.heavy_ops_permits.clone()
     }
 
     pub(crate) fn queue_embed(&self, id: &str, body: &str) {
@@ -895,5 +935,41 @@ mod tests {
         assert!(stats.total_items >= 2, "expected ≥2 items, got {}", stats.total_items);
         let pref_count = stats.by_kind.get("preference").copied().unwrap_or(0);
         assert!(pref_count >= 1, "expected ≥1 preference, got {}", pref_count);
+    }
+
+    #[test]
+    fn try_conn_for_times_out_when_held_by_another_thread() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let mem = MemManager::open_in_memory().unwrap();
+        let (block_tx, block_rx) = mpsc::channel::<()>();
+        let (held_tx, held_rx) = mpsc::channel::<()>();
+
+        let holder = {
+            let mem = mem.clone();
+            std::thread::spawn(move || {
+                let _guard = mem.conn().lock();
+                held_tx.send(()).unwrap();
+                block_rx.recv().unwrap();
+            })
+        };
+        held_rx.recv().unwrap();
+
+        let start = std::time::Instant::now();
+        let result = mem.try_conn_for(Duration::from_millis(50));
+        let elapsed = start.elapsed();
+        assert!(result.is_none(), "expected timeout, got Some guard");
+        assert!(
+            elapsed >= Duration::from_millis(40),
+            "try_conn_for returned too early: {:?}",
+            elapsed
+        );
+
+        block_tx.send(()).unwrap();
+        holder.join().unwrap();
+
+        let ok = mem.try_conn_for(Duration::from_millis(200));
+        assert!(ok.is_some(), "lock should be reacquirable after holder drops");
     }
 }

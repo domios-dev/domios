@@ -37,8 +37,11 @@ pub struct DreamReport {
 /// Lock discipline: acquires the mem connection lock only to snapshot
 /// candidates and, per-batch, to commit an UPDATE + history_log pair. Scoring
 /// runs lock-free; between batches the task yields so API handlers aren't
-/// starved.
+/// starved. Holds a `heavy_ops` permit for the full call so only a bounded
+/// number of background mem jobs run concurrently.
 pub async fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
+    let _permit = mem.acquire_heavy_permit().await;
+
     const BATCH: usize = 8;
 
     let now_ts = chrono::Utc::now();
@@ -169,6 +172,8 @@ pub async fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
 ///
 /// All require importance < 4.0 (user-pinned items are untouched).
 pub async fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
+    let _permit = mem.acquire_heavy_permit().await;
+
     let now = chrono::Utc::now().to_rfc3339();
     let mut total_expired = 0u64;
 
