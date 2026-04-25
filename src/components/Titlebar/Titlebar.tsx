@@ -5,6 +5,7 @@ import { HamburgerIcon, CloseXIcon } from "../Icons";
 
 import { isMac } from "../../lib/keybindings";
 import { KeepAwakeTray } from "./KeepAwakeTray";
+import { UpdateBadge } from "../UpdateBadge";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -79,7 +80,8 @@ export function Titlebar({
       <div className="flex-1" data-tauri-drag-region />
 
       {/* Tray area — right side, before window controls */}
-      <div className="flex items-center gap-0.5 pr-1">
+      <div className="flex items-center gap-1 pr-1">
+        <UpdateBadge />
         <KeepAwakeTray />
       </div>
 
