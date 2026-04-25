@@ -15,7 +15,7 @@ use crate::mem::{
     layers::WakeUpOptions,
     learnings::{self, LearnKind},
     rerank::RerankConfig,
-    search::SearchQuery,
+    search::{SearchConfig, SearchMode, SearchQuery},
     store::{MemKind, MemScope, MemUpdate, NewMemItem},
     workers::{self, GraphWorkerInfo, WorkerStatus},
 };
@@ -146,6 +146,15 @@ pub struct SearchParams {
     pub limit: Option<usize>,
     #[serde(default)]
     pub rerank: Option<bool>,
+    /// Override retrieval pipeline: `hybrid_rrf` (default) or `vector_first_rerank`.
+    /// Lets the bench harness A/B the a reference memory system-style rerank without a code
+    /// change. Unknown values fall back to the default.
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// Vector-first mode only: keyword-overlap weight. a reference memory system uses 0.30.
+    /// Ignored when mode is hybrid_rrf.
+    #[serde(default)]
+    pub weight: Option<f64>,
 }
 
 pub async fn mem_search(
@@ -171,7 +180,23 @@ pub async fn mem_search(
         state.svc.mem.search_with_rerank(&q, &cfg)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
     } else {
-        state.svc.mem.recall(&q)
+        let mut sc = SearchConfig::default();
+        match p.mode.as_deref() {
+            Some("vector_first_rerank") | Some("vector_first") => {
+                sc.mode = SearchMode::VectorFirstRerank;
+            }
+            Some("hybrid_rrf") | Some("rrf") | None => {}
+            Some(other) => {
+                return Err((StatusCode::BAD_REQUEST, format!("unknown mode: {}", other)));
+            }
+        }
+        if let Some(w) = p.weight {
+            if !(0.0..=1.0).contains(&w) {
+                return Err((StatusCode::BAD_REQUEST, format!("weight must be 0.0..=1.0, got {}", w)));
+            }
+            sc.vector_rerank_weight = w;
+        }
+        state.svc.mem.recall_with_config(&q, &sc)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
     };
     Ok(Json(serde_json::json!({ "hits": hits })))

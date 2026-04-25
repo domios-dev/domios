@@ -269,7 +269,7 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 #### Memory
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/mem/search` | `?q=...&kind=...&area=...&scope=...&limit=N` | FTS5 full-text search across mem_items |
+| GET | `/api/mem/search` | `?q=...&kind=...&area=...&scope=...&limit=N&mode=hybrid_rrf\|vector_first_rerank&weight=0.30&rerank=true` | Hybrid retrieval. Default mode is `hybrid_rrf` (FTS5+vector RRF fusion). `mode=vector_first_rerank` switches to the a reference memory system-style pipeline (vector recall + keyword/temporal rerank); `weight` tunes its keyword-overlap strength (0.0..=1.0, default 0.30). `rerank=true` layers an LLM second-pass on top. |
 | GET | `/api/mem/recall` | `?q=...&limit=N` | Semantic-first search (vector + FTS5 fallback) |
 | GET | `/api/mem/items/{id}` | — | Get one item (full body) |
 | POST | `/api/mem/items` | `{kind, title, body, scope?, summary?, area?, tags?, source?, importance?, replace?, skip_extract?}` | Save a mem item. `skip_extract: true` suppresses the auto-extraction cascade (seed loaders use this to avoid re-extracting bundled items on every startup). |
@@ -851,4 +851,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->
