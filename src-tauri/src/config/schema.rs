@@ -29,6 +29,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub mesh: MeshConfig,
     #[serde(default)]
+    pub updater: UpdaterConfig,
+    #[serde(default)]
     pub onboarding_completed: bool,
 }
 
@@ -48,9 +50,16 @@ impl Default for AppConfig {
             memory: MemoryConfig::default(),
             integrations: IntegrationsConfig::default(),
             mesh: MeshConfig::default(),
+            updater: UpdaterConfig::default(),
             onboarding_completed: false,
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdaterConfig {
+    pub channel: crate::update::Channel,
 }
 
 /// Per-provider settings owned by an agent plugin.
