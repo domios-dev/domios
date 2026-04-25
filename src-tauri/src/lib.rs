@@ -1117,16 +1117,19 @@ pub fn run() {
 
             // Resume extraction for items that were saved but never finished
             // (previous run crashed mid-extraction, LLM API errored, bulk import).
-            // Sequential spawn with 500ms delay rate-limits naturally — no cap.
-            // Idempotent: items already extracted are skipped by the SQL query.
+            // run_extract_pending returns fast after spawning its tokio task.
             {
                 let svc_for_extract = service_state.clone();
-                std::thread::spawn(move || {
-                    let queued = crate::mem::auto_extract::run_extract_pending(svc_for_extract, usize::MAX);
-                    if queued > 0 {
-                        log::info!("[mem] startup: resuming extraction for {} pending item(s)", queued);
-                    }
-                });
+                let queued = crate::mem::auto_extract::run_extract_pending(
+                    svc_for_extract,
+                    usize::MAX,
+                );
+                if queued > 0 {
+                    log::info!(
+                        "[mem] startup: resuming extraction for {} pending item(s)",
+                        queued
+                    );
+                }
             }
 
             install_bundled_cli(app);
