@@ -6,6 +6,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
+use crate::update::apply::{check_and_apply, ApplyOptions};
 use crate::update::Channel;
 
 #[derive(Deserialize)]
@@ -47,6 +48,10 @@ pub async fn check_update(
 #[derive(Deserialize)]
 pub struct InstallUpdateQuery {
     pub method: Option<String>,
+    /// Override manifest URL — gated behind `dev-updater-allowlocal` feature
+    /// at the manifest fetch layer (rejected in release builds for non-https
+    /// schemes). Used by local end-to-end tests.
+    pub manifest_url: Option<String>,
 }
 
 pub async fn install_update(
@@ -71,38 +76,17 @@ pub async fn install_update(
     if q.method.as_deref() == Some("auto") {
         let app = state.svc.app_handle.clone();
         let latest = info.latest_version.clone();
+        let channel = state.update_state.lock().channel;
+        let manifest_url = q.manifest_url.clone();
         std::thread::spawn(move || {
-            use tauri_plugin_updater::UpdaterExt;
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .expect("tokio runtime");
             rt.block_on(async {
-                let updater = match app.updater() {
-                    Ok(u) => u,
-                    Err(e) => {
-                        log::error!("[updater] Init failed: {}", e);
-                        return;
-                    }
-                };
-                let update = match updater.check().await {
-                    Ok(Some(u)) => u,
-                    Ok(None) => {
-                        log::info!("[updater] No update found");
-                        return;
-                    }
-                    Err(e) => {
-                        log::error!("[updater] Check failed: {}", e);
-                        return;
-                    }
-                };
-                log::info!("[updater] Downloading and installing v{}...", update.version);
-                match update.download_and_install(|_, _| {}, || {}).await {
-                    Ok(()) => {
-                        log::info!("[updater] Installed, restarting...");
-                        app.restart();
-                    }
-                    Err(e) => log::error!("[updater] Install failed: {}", e),
+                let opts = ApplyOptions { channel, manifest_url };
+                if let Err(e) = check_and_apply(&app, opts).await {
+                    log::error!("[updater] check_and_apply failed: {}", e);
                 }
             });
         });

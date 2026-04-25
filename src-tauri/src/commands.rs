@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::io::Read;
 use base64::Engine as _;
 use tauri::{AppHandle, Emitter, State};
-use tauri_plugin_updater::UpdaterExt;
 
 use crate::agent::git_info::{self, GitInfo};
 use crate::multiplexer::commands::MuxState;
@@ -32,15 +31,19 @@ pub async fn check_for_update(
 }
 
 #[tauri::command]
-pub async fn install_app_update(app: AppHandle) -> Result<(), String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
-    let update = updater.check().await.map_err(|e| e.to_string())?;
-    if let Some(update) = update {
-        update.download_and_install(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
-        app.restart();
-    } else {
-        Err("No update available".into())
-    }
+pub async fn install_app_update(
+    app: AppHandle,
+    update_state: tauri::State<'_, UpdateStateHandle>,
+) -> Result<(), String> {
+    let channel = update_state.lock().channel;
+    crate::update::apply::check_and_apply(
+        &app,
+        crate::update::apply::ApplyOptions {
+            channel,
+            manifest_url: None,
+        },
+    )
+    .await
 }
 
 #[tauri::command]
