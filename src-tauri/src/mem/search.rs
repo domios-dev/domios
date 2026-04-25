@@ -533,6 +533,10 @@ pub fn hybrid_rrf_with_config(
 /// Filters (kind/scope/area) are applied *after* vector recall. We overfetch
 /// `limit × cfg.vector_rerank_pool_multiplier` to give the rerank pool room
 /// after filtering.
+///
+/// Lock duration: caller passes `&Connection` and the per-id `store::get`
+/// loop performs blob and source-file disk I/O while that lock is held — up
+/// to `pool` (≤250) candidates per call. Inherits caller-side lock duration.
 pub fn run_vector_first(
     conn: &Connection,
     q: &SearchQuery,
