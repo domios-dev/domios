@@ -56,6 +56,7 @@ CodeTermは、AI支援開発のためにゼロから設計されたクロスプ�
 - **権限通知** — Claude Codeの権限リクエストをデスクトップ通知として表示
 - **Webhookシステム** — エージェントイベント（権限リクエスト、タスク完了）のWebhookを登録
 - **プログラム的制御** — エージェントがAPI経由でペインの作成、コマンドの実行、出力の読み取りが可能
+- **エージェント再起動** — `codeterm agent restart --pane ID` で任意のペインに対して `/exit` による優雅な終了と自動再開を実行（`--force` でハングしたエージェントを強制終了）。自動アップデートと同じライフサイクルを再利用
 
 ### フルAPI
 - **REST API** — ターミナルの完全制御のための30以上のエンドポイント（ポート7685）
@@ -63,6 +64,16 @@ CodeTermは、AI支援開発のためにゼロから設計されたクロスプ�
 - **Socket API** — 名前付きパイプ（Windows）/ Unixソケット上のJSON-RPC v2
 - **リアルタイムストリーミング** — ライブターミナル出力のためのSSEエンドポイント
 - **出力キャプチャ** — カーソルベースのページネーション、ANSIストリッピング、スクリーンスナップショット
+
+### ブリッジと外部サービス
+- **Telegram ブリッジ** — 双方向。受信メッセージは General Agent ペインに `[Telegram: USER_ID] text` として届く。送信応答は `codeterm bridge send` 経由で HTML フォーマット（サニタイザーがサポートされない `<word>` 部分文字列を自動エスケープし、未知のトークンがパーサーを壊さないようにする）
+- **音声書き起こし** — `integrations.voice_transcribe.enabled = true` のとき、ボイス／ビデオノート添付はローカルの Whisper デーモン（既定 `http://127.0.0.1:7891`）でテキスト化されてからエージェントに届く。Claude、Codex、将来のクライアントすべてを単一の上流変更でカバー
+- **Webhook ブリッジ** — エージェントイベント（`agent.permission_request`、`agent.task_complete`、`agent.report`）の URL を登録
+
+### 自動アップデートと耐障害性
+- **自動アップデート** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`。マニフェストは ed25519 で署名され、バイナリに触れる前に検証される。自動インストールは 9 ステップの優雅なシャットダウン（mem WAL チェックポイント、スーパーバイザー停止、署名済みバイナリ入れ替え）を実行し、その後ペインが自動再開 — コンテキストはアップグレードを生き延びる
+- **サブプロセス スーパーバイザー** — 重い mem 処理（dreaming、Librarian 抽出）は子プロセスで動作し、サーキットブレーカー（60 秒で 3 回失敗 → オープン）でガード。ワーカーの死は API を巻き込まず、重い mem リクエストの `503` タイムアウトでデーモンの応答性を保つ
+- **外部ウォッチドッグ** — `/api/health` のヘルスプローブ。Windows タスクスケジューラ、launchd、systemd 向けのセットアップは [docs/RESILIENCE.md](docs/RESILIENCE.md) を参照
 
 ### テーマ
 - **8つの組み込みテーマ** — GitHub Dark、Dracula、Catppuccin Mocha、One Dark、Nord、GitHub Light、Solarized Light、Pip-Boy
