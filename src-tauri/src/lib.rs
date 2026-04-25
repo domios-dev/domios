@@ -1111,6 +1111,7 @@ pub fn run() {
                 bridge_outbound: bridge_outbound_tx,
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_task: Arc::new(Mutex::new(None)),
+                restart_tracker: crate::service::agent_restart::new_restart_tracker(),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
