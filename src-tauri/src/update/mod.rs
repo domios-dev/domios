@@ -1,4 +1,11 @@
+pub mod apply;
+pub mod channel;
 pub mod checker;
+pub mod manifest;
+pub mod shutdown;
+
+pub use channel::Channel;
+pub use manifest::Manifest;
 
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +43,7 @@ pub struct UpdateState {
     pub install_method: InstallMethod,
     pub last_check: Option<checker::UpdateInfo>,
     pub last_check_time: Option<std::time::Instant>,
+    pub channel: Channel,
 }
 
 /// Detect how CodeTerm was installed based on executable path.

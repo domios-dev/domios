@@ -93,10 +93,12 @@ fn init_states() -> AppStates {
     // Detect install method and init update state
     let install_method = update::detect_install_method();
     log::info!("Install method detected: {}", install_method);
+    let channel = config_state.lock().updater.channel;
     let update_state: UpdateStateHandle = Arc::new(Mutex::new(update::UpdateState {
         install_method,
         last_check: None,
         last_check_time: None,
+        channel,
     }));
 
     // Try to restore last session, fallback to default workspace
