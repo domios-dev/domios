@@ -921,6 +921,18 @@ pub enum AgentAction {
         #[arg(long)]
         pane: Option<String>,
     },
+    /// Restart agent (gracefully /exit + auto-resume to pick up settings or recover)
+    Restart {
+        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
+        #[arg(long)]
+        pane: Option<String>,
+        /// Skip the graceful exit and force-kill instead. Use only when the agent is hung.
+        #[arg(long)]
+        force: bool,
+        /// Wait this long for graceful exit before force-killing (seconds)
+        #[arg(long, default_value = "10")]
+        grace_secs: u64,
+    },
     /// Switch agent model (sends /model to Claude)
     Model {
         /// Model name: sonnet, haiku, opus
@@ -1863,6 +1875,40 @@ fn main() {
                         .send()
                     {
                         Ok(_) => { println!("Sent /compact to {}", pane_id); return; }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                }
+                AgentAction::Restart { pane, force, grace_secs } => {
+                    let pane_id = resolve_pane(&mut client, pane);
+                    let body = serde_json::json!({"force": force, "grace_secs": grace_secs});
+                    match http.post(format!("{}/api/panes/{}/agent/restart", base, pane_id))
+                        .json(&body)
+                        .send()
+                    {
+                        Ok(resp) => {
+                            let status = resp.status();
+                            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                                let retry = resp.headers()
+                                    .get("retry-after")
+                                    .and_then(|v| v.to_str().ok())
+                                    .unwrap_or("30");
+                                eprintln!("Error: rate limited (retry after {}s)", retry);
+                                std::process::exit(1);
+                            }
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if !status.is_success() {
+                                let msg = val.get("error").and_then(|v| v.as_str())
+                                    .unwrap_or_else(|| val.as_str().unwrap_or("restart failed"));
+                                eprintln!("Error: {}", msg);
+                                std::process::exit(1);
+                            }
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                println!("Restarting pane {}...", pane_id);
+                            }
+                            return;
+                        }
                         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                     }
                 }
