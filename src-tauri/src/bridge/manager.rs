@@ -90,6 +90,7 @@ impl BridgeManager {
         }
 
         let token = super::telegram::read_token().unwrap_or_default();
+        let api_base = telegram_api_base();
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(15))
@@ -139,7 +140,7 @@ impl BridgeManager {
 
                     let ReplyContext::Telegram { chat_id } = &first.reply_ctx;
                     *fallback_clone.lock() = Some(*chat_id);
-                    send_typing(&client, &token, *chat_id).await;
+                    send_typing(&client, &api_base, &token, *chat_id).await;
 
                     let merged_msg = InboundMessage {
                         service: first.service.clone(),
@@ -192,11 +193,13 @@ impl BridgeManager {
                                 .map(|s| s.sent_at.elapsed().as_secs() < AUTO_EDIT_WINDOW_SECS)
                                 .unwrap_or(false);
 
-                            if can_edit && final_text.len() <= super::telegram::TELEGRAM_MAX_LEN {
+                            let sanitized = super::sanitize::sanitize_html_for_telegram(&final_text);
+
+                            if can_edit && sanitized.len() <= super::telegram::TELEGRAM_MAX_LEN {
                                 let msg_id = chat_states[&chat_id].message_id;
-                                let edited = edit_message(&client, &token, chat_id, msg_id, &final_text).await;
+                                let edited = edit_message(&client, &api_base, &token, chat_id, msg_id, &sanitized).await;
                                 if !edited {
-                                    if let Some(new_id) = send_message(&client, &token, chat_id, &final_text).await {
+                                    if let Some(new_id) = send_message(&client, &api_base, &token, chat_id, &sanitized).await {
                                         chat_states.insert(chat_id, ChatState { message_id: new_id, sent_at: Instant::now(), text: final_text });
                                     }
                                 } else {
@@ -206,13 +209,12 @@ impl BridgeManager {
                                     }
                                 }
                             } else {
-                                // Send as new message(s), attach buttons to last chunk
-                                let chunks: Vec<String> = super::response::chunk_message(&final_text, super::telegram::TELEGRAM_MAX_LEN);
+                                let chunks: Vec<String> = super::response::chunk_message(&sanitized, super::telegram::TELEGRAM_MAX_LEN);
                                 let mut last_id = None;
                                 let last_idx = chunks.len().saturating_sub(1);
                                 for (i, chunk) in chunks.iter().enumerate() {
                                     let btns = if i == last_idx { out_msg.buttons.as_ref() } else { None };
-                                    last_id = send_message_with_buttons(&client, &token, chat_id, chunk, btns).await;
+                                    last_id = send_message_with_buttons(&client, &api_base, &token, chat_id, chunk, btns).await;
                                 }
                                 if let Some(id) = last_id {
                                     chat_states.insert(chat_id, ChatState { message_id: id, sent_at: Instant::now(), text: final_text });
@@ -221,7 +223,7 @@ impl BridgeManager {
                         }
                         ref media_content => {
                             log::info!("[bridge-outbound] sending media {:?} to {}", std::mem::discriminant(media_content), chat_id);
-                            if let Err(e) = send_media(&client, &token, chat_id, media_content).await {
+                            if let Err(e) = send_media(&client, &api_base, &token, chat_id, media_content).await {
                                 log::error!("[bridge-outbound] media send failed: {}", e);
                             }
                         }
@@ -239,22 +241,27 @@ impl BridgeManager {
     }
 }
 
-/// Send typing indicator to chat.
-async fn send_typing(client: &reqwest::Client, token: &str, chat_id: i64) {
+fn telegram_api_base() -> String {
+    std::env::var("TELEGRAM_API_BASE").unwrap_or_else(|_| "https://api.telegram.org".to_string())
+}
+
+fn tg_url(base: &str, token: &str, method: &str) -> String {
+    format!("{}/bot{}/{}", base.trim_end_matches('/'), token, method)
+}
+
+async fn send_typing(client: &reqwest::Client, base: &str, token: &str, chat_id: i64) {
     let _ = client
-        .post(format!("https://api.telegram.org/bot{}/sendChatAction", token))
+        .post(tg_url(base, token, "sendChatAction"))
         .json(&serde_json::json!({ "chat_id": chat_id, "action": "typing" }))
         .timeout(std::time::Duration::from_secs(5))
         .send().await;
 }
 
-/// Send a new message. Returns message_id on success.
-async fn send_message(client: &reqwest::Client, token: &str, chat_id: i64, text: &str) -> Option<i64> {
-    send_message_with_buttons(client, token, chat_id, text, None).await
+async fn send_message(client: &reqwest::Client, base: &str, token: &str, chat_id: i64, text: &str) -> Option<i64> {
+    send_message_with_buttons(client, base, token, chat_id, text, None).await
 }
 
-/// Send a new message with optional inline keyboard. Returns message_id on success.
-async fn send_message_with_buttons(client: &reqwest::Client, token: &str, chat_id: i64, text: &str, buttons: Option<&InlineKeyboard>) -> Option<i64> {
+async fn send_message_with_buttons(client: &reqwest::Client, base: &str, token: &str, chat_id: i64, text: &str, buttons: Option<&InlineKeyboard>) -> Option<i64> {
     let mut payload = serde_json::json!({
         "chat_id": chat_id,
         "text": text,
@@ -266,14 +273,13 @@ async fn send_message_with_buttons(client: &reqwest::Client, token: &str, chat_i
     }
 
     let resp = client
-        .post(format!("https://api.telegram.org/bot{}/sendMessage", token))
+        .post(tg_url(base, token, "sendMessage"))
         .json(&payload)
         .timeout(std::time::Duration::from_secs(10))
         .send().await.ok()?;
 
     let body: serde_json::Value = resp.json().await.ok()?;
 
-    // If HTML parsing failed, retry without parse_mode
     if body.get("ok").and_then(|v| v.as_bool()) != Some(true) {
         let mut payload2 = serde_json::json!({
             "chat_id": chat_id,
@@ -284,7 +290,7 @@ async fn send_message_with_buttons(client: &reqwest::Client, token: &str, chat_i
             payload2["reply_markup"] = serde_json::json!({ "inline_keyboard": kb });
         }
         let resp2 = client
-            .post(format!("https://api.telegram.org/bot{}/sendMessage", token))
+            .post(tg_url(base, token, "sendMessage"))
             .json(&payload2)
             .timeout(std::time::Duration::from_secs(10))
             .send().await.ok()?;
@@ -295,10 +301,9 @@ async fn send_message_with_buttons(client: &reqwest::Client, token: &str, chat_i
     body.get("result").and_then(|r| r.get("message_id")).and_then(|v| v.as_i64())
 }
 
-/// Edit an existing message. Returns true on success.
-async fn edit_message(client: &reqwest::Client, token: &str, chat_id: i64, message_id: i64, text: &str) -> bool {
+async fn edit_message(client: &reqwest::Client, base: &str, token: &str, chat_id: i64, message_id: i64, text: &str) -> bool {
     let resp = client
-        .post(format!("https://api.telegram.org/bot{}/editMessageText", token))
+        .post(tg_url(base, token, "editMessageText"))
         .json(&serde_json::json!({
             "chat_id": chat_id,
             "message_id": message_id,
@@ -315,15 +320,13 @@ async fn edit_message(client: &reqwest::Client, token: &str, chat_id: i64, messa
             if body.get("ok").and_then(|v| v.as_bool()) == Some(true) {
                 return true;
             }
-            // "message is not modified" is ok (idempotent)
             let desc = body.get("description").and_then(|v| v.as_str()).unwrap_or("");
             if desc.contains("message is not modified") {
                 return true;
             }
-            // Retry without Markdown if parse failed
             if desc.contains("parse") {
                 let resp2 = client
-                    .post(format!("https://api.telegram.org/bot{}/editMessageText", token))
+                    .post(tg_url(base, token, "editMessageText"))
                     .json(&serde_json::json!({
                         "chat_id": chat_id,
                         "message_id": message_id,
@@ -344,9 +347,8 @@ async fn edit_message(client: &reqwest::Client, token: &str, chat_id: i64, messa
     }
 }
 
-/// Send a media message via Telegram API using multipart/form-data.
-async fn send_media(client: &reqwest::Client, token: &str, chat_id: i64, content: &OutboundContent) -> Result<(), String> {
-    let (method, file_path, caption, filename) = match content {
+async fn send_media(client: &reqwest::Client, base: &str, token: &str, chat_id: i64, content: &OutboundContent) -> Result<(), String> {
+    let (method, file_path, raw_caption, filename) = match content {
         OutboundContent::Photo { file, caption } => ("sendPhoto", file.as_str(), caption.as_deref(), None),
         OutboundContent::Document { file, caption, filename } => ("sendDocument", file.as_str(), caption.as_deref(), filename.as_deref()),
         OutboundContent::Voice { file, caption } => ("sendVoice", file.as_str(), caption.as_deref(), None),
@@ -355,6 +357,8 @@ async fn send_media(client: &reqwest::Client, token: &str, chat_id: i64, content
         OutboundContent::Sticker { file } => ("sendSticker", file.as_str(), None, None),
         OutboundContent::Text { .. } => return Err("send_media called with Text content".into()),
     };
+    let sanitized_caption = raw_caption.map(super::sanitize::sanitize_html_for_telegram);
+    let caption = sanitized_caption.as_deref();
 
     // Read file
     let file_bytes = tokio::fs::read(file_path).await.map_err(|e| format!("Failed to read file {}: {}", file_path, e))?;
@@ -388,7 +392,7 @@ async fn send_media(client: &reqwest::Client, token: &str, chat_id: i64, content
         form = form.text("parse_mode", "HTML".to_string());
     }
 
-    let url = format!("https://api.telegram.org/bot{}/{}", token, method);
+    let url = tg_url(base, token, method);
     let resp = client
         .post(&url)
         .multipart(form)
@@ -694,11 +698,80 @@ mod tests {
         ]];
         let payload = serde_json::json!({ "inline_keyboard": kb });
         let s = payload.to_string();
-        // Telegram expects "callback_data", not "data"
         assert!(s.contains("\"callback_data\""), "should serialize as callback_data: {}", s);
         assert!(!s.contains("\"data\""), "should not contain raw 'data' key: {}", s);
         let rows = payload["inline_keyboard"].as_array().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].as_array().unwrap().len(), 2);
+    }
+
+    use std::sync::Arc;
+    use parking_lot::Mutex as PLMutex;
+
+    async fn spawn_fake_telegram(captured: Arc<PLMutex<Vec<serde_json::Value>>>) -> String {
+        use axum::{routing::post, Router, Json};
+
+        let captured_a = captured.clone();
+        let captured_b = captured.clone();
+
+        let app = Router::new()
+            .route("/bot:method", post(move |Json(body): Json<serde_json::Value>| {
+                let captured = captured_a.clone();
+                async move {
+                    captured.lock().push(body);
+                    Json(serde_json::json!({"ok": true, "result": {"message_id": 42}}))
+                }
+            }))
+            .fallback(move |Json(body): Json<serde_json::Value>| {
+                let captured = captured_b.clone();
+                async move {
+                    captured.lock().push(body);
+                    Json(serde_json::json!({"ok": true, "result": {"message_id": 42}}))
+                }
+            });
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        format!("http://{}", addr)
+    }
+
+    #[tokio::test]
+    async fn integration_send_message_sanitizes_reproducer() {
+        let captured = Arc::new(PLMutex::new(Vec::new()));
+        let base = spawn_fake_telegram(captured.clone()).await;
+        let client = reqwest::Client::new();
+
+        let original = "<code>--valid-to <date></code>";
+        let sanitized = super::super::sanitize::sanitize_html_for_telegram(original);
+        let result = send_message(&client, &base, "FAKETOKEN", 12345, &sanitized).await;
+
+        assert_eq!(result, Some(42), "send should succeed via fake server");
+        let recorded = captured.lock();
+        assert_eq!(recorded.len(), 1, "must NOT trigger fallback retry, got {} requests", recorded.len());
+        let body = &recorded[0];
+        assert_eq!(body.get("parse_mode").and_then(|v| v.as_str()), Some("HTML"),
+            "first request must be HTML mode (cold-path fallback only)");
+        let text = body.get("text").and_then(|v| v.as_str()).unwrap();
+        assert!(!text.contains("<date>"), "raw <date> must be sanitized; got: {}", text);
+        assert!(text.contains("&lt;date&gt;"), "must contain escaped &lt;date&gt;; got: {}", text);
+        assert!(text.contains("<code>"), "must keep <code> wrapper; got: {}", text);
+    }
+
+    #[tokio::test]
+    async fn integration_send_message_no_fallback_for_valid_html() {
+        let captured = Arc::new(PLMutex::new(Vec::new()));
+        let base = spawn_fake_telegram(captured.clone()).await;
+        let client = reqwest::Client::new();
+
+        let original = "<b>bold</b> and <i>italic</i>";
+        let sanitized = super::super::sanitize::sanitize_html_for_telegram(original);
+        assert_eq!(sanitized, original);
+
+        let result = send_message(&client, &base, "FAKETOKEN", 12345, &sanitized).await;
+        assert_eq!(result, Some(42));
+        assert_eq!(captured.lock().len(), 1);
     }
 }
