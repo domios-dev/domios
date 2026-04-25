@@ -61,10 +61,12 @@ impl MemManager {
         let db_path = mem_dir.join("knowledge.db");
         let conn = Connection::open(&db_path)
             .map_err(|e| format!("open knowledge.db: {}", e))?;
-        // concurrent writers wait up to 5s instead of failing
+        // concurrent writers wait up to 5s instead of failing — required for
+        // multi-process access (daemon + `mem run-worker` subprocess share the DB).
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(|e| format!("set busy_timeout: {}", e))?;
 
+        // WAL + synchronous=NORMAL pragmas come from store::init_schema.
         store::init_schema(&conn)
             .map_err(|e| format!("init schema: {}", e))?;
 
