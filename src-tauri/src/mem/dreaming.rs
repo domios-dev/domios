@@ -850,4 +850,183 @@ mod tests {
         assert_eq!(r.dropped, 0);
         assert!(mem.get(&id).unwrap().is_some());
     }
+
+    /// Followup #4: the CLI subprocess (`mem run-worker dreaming-light`,
+    /// `cli/src/main.rs::worker_dreaming_light`) writes `mem_item_history`
+    /// rows via an inline `INSERT` rather than calling the canonical
+    /// `super::store::history_log`. Since the CLI is standalone (no
+    /// `codeterm_lib` dep), the SQL is duplicated by design. This test
+    /// runs both paths against identical fixtures and asserts every
+    /// observable column matches.
+    ///
+    /// We deliberately do NOT spawn the CLI binary — the subprocess body
+    /// (`run_subprocess_light_inline` below) is a verbatim copy of the
+    /// SQL in `cli/src/main.rs::worker_dreaming_light`. If that block
+    /// changes in the CLI, copy the new version here.
+    #[test]
+    fn dreaming_light_history_log_subprocess_parity() {
+        fn seed(mem: &MemManager) -> String {
+            let id = mem
+                .save(NewMemItem {
+                    kind: MemKind::Learning,
+                    scope: MemScope::Global,
+                    title: "parity fixture".into(),
+                    summary: None,
+                    area: None,
+                    tags: vec![],
+                    body: "x".into(),
+                    source: None,
+                    importance: 3.0,
+                    source_path: None,
+                })
+                .unwrap();
+            let two_days_ago = (chrono::Utc::now() - chrono::Duration::days(2)).to_rfc3339();
+            let conn = mem.conn();
+            let conn = conn.lock();
+            conn.execute(
+                "UPDATE mem_items SET created_at = ?1, accessed_at = ?1, access_count = 5 WHERE id = ?2",
+                params![&two_days_ago, &id],
+            )
+            .unwrap();
+            id
+        }
+
+        let mem_a = MemManager::open_in_memory().unwrap();
+        let mem_b = MemManager::open_in_memory().unwrap();
+        let id_a = seed(&mem_a);
+        let id_b = seed(&mem_b);
+
+        {
+            let mut conn = mem_a.conn().lock();
+            light_phase_sync(&mut conn).unwrap();
+        }
+
+        {
+            let conn = mem_b.conn().lock();
+            run_subprocess_light_inline(&conn);
+        }
+
+        let hist_a = {
+            let conn = mem_a.conn().lock();
+            crate::mem::store::get_item_history(&conn, &id_a).unwrap()
+        };
+        let hist_b = {
+            let conn = mem_b.conn().lock();
+            crate::mem::store::get_item_history(&conn, &id_b).unwrap()
+        };
+
+        let promotes_a: Vec<_> = hist_a.iter().filter(|h| h.change_type == "promote").collect();
+        let promotes_b: Vec<_> = hist_b.iter().filter(|h| h.change_type == "promote").collect();
+
+        assert_eq!(promotes_a.len(), 1, "in-process path must emit exactly one promote row");
+        assert_eq!(promotes_b.len(), 1, "subprocess path must emit exactly one promote row");
+
+        let a = &promotes_a[0];
+        let b = &promotes_b[0];
+
+        assert_eq!(a.changed_by, b.changed_by, "changed_by must match (both 'dreaming:rem')");
+        assert_eq!(a.changed_by, "dreaming:rem");
+        assert_eq!(a.change_type, b.change_type);
+        assert_eq!(a.old_title, b.old_title);
+        assert_eq!(a.new_title, b.new_title);
+        assert_eq!(a.old_body, b.old_body);
+        assert_eq!(a.new_body, b.new_body);
+        assert_eq!(a.old_importance, b.old_importance);
+        assert_eq!(a.new_importance, b.new_importance);
+        assert_eq!(a.old_kind, b.old_kind);
+        assert_eq!(a.new_kind, b.new_kind);
+        assert_eq!(a.reason, b.reason);
+
+        assert_eq!(a.old_kind.as_deref(), Some("learning"));
+        assert_eq!(a.new_kind.as_deref(), Some("fact"));
+        assert_eq!(a.old_importance, Some(3.0));
+        assert_eq!(a.new_importance, Some(4.0));
+        assert!(a.old_title.is_none() && a.new_title.is_none());
+        assert!(a.old_body.is_none() && a.new_body.is_none());
+        assert!(a.reason.is_none());
+
+        assert!(chrono::DateTime::parse_from_rfc3339(&a.changed_at).is_ok());
+        assert!(chrono::DateTime::parse_from_rfc3339(&b.changed_at).is_ok());
+    }
+
+    /// Verbatim copy of the SQL in `cli/src/main.rs::worker_dreaming_light`
+    /// (the candidate query, scoring, UPDATE, and inline history INSERT).
+    /// Used by `dreaming_light_history_log_subprocess_parity` above. Keep
+    /// in sync with that function.
+    fn run_subprocess_light_inline(conn: &rusqlite::Connection) {
+        let now_ts = chrono::Utc::now();
+        let one_day_ago = (now_ts - chrono::Duration::days(1)).to_rfc3339();
+
+        let candidates: Vec<(String, i64, f64, String, Option<String>)> = {
+            let mut stmt = conn
+                .prepare(
+                    r#"SELECT id, access_count, importance, created_at, accessed_at
+                       FROM mem_items
+                       WHERE kind = 'learning'
+                         AND access_count >= 3
+                         AND created_at < ?1"#,
+                )
+                .unwrap();
+            stmt.query_map(params![one_day_ago], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, f64>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
+        };
+
+        for (id, access_count, importance, created_at, accessed_at) in &candidates {
+            let frequency = (*access_count as f64 / 10.0).min(1.0);
+            let recency = accessed_at
+                .as_ref()
+                .and_then(|a| chrono::DateTime::parse_from_rfc3339(a).ok())
+                .map(|a| {
+                    let days = (now_ts - a.with_timezone(&chrono::Utc))
+                        .num_hours()
+                        .max(0) as f64
+                        / 24.0;
+                    (-days * 0.693 / 14.0).exp()
+                })
+                .unwrap_or(0.0);
+            let imp_score = (*importance / 5.0).min(1.0);
+            let age = chrono::DateTime::parse_from_rfc3339(created_at)
+                .ok()
+                .map(|c| {
+                    let days = (now_ts - c.with_timezone(&chrono::Utc))
+                        .num_hours()
+                        .max(0) as f64
+                        / 24.0;
+                    (days / 7.0).min(1.0)
+                })
+                .unwrap_or(0.5);
+            let score = frequency * 0.30 + recency * 0.25 + imp_score * 0.25 + age * 0.20;
+            if score < 0.5 {
+                continue;
+            }
+
+            let now = chrono::Utc::now().to_rfc3339();
+            let n = conn
+                .execute(
+                    "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
+                    params![&now, id],
+                )
+                .unwrap();
+            if n > 0 {
+                let new_imp: f64 = importance.max(4.0);
+                let _ = conn.execute(
+                    r#"INSERT INTO mem_item_history
+                       (item_id, changed_at, changed_by, change_type,
+                        old_importance, new_importance, old_kind, new_kind)
+                       VALUES (?1, ?2, 'dreaming:rem', 'promote', ?3, ?4, 'learning', 'fact')"#,
+                    params![id, &now, importance, new_imp],
+                );
+            }
+        }
+    }
 }
