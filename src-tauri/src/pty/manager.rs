@@ -271,10 +271,20 @@ impl PtyManager {
 
     /// Kill/remove PTY. Returns error if PTY not found (already killed).
     pub fn kill(&mut self, pty_id: &str) -> Result<(), String> {
-        if self.sessions.remove(pty_id).is_none() {
-            return Err(format!("PTY {} not found", pty_id));
+        let session = self
+            .sessions
+            .remove(pty_id)
+            .ok_or_else(|| format!("PTY {} not found", pty_id))?;
+        // Drop alone is unreliable on Windows: closing the Child handle does not
+        // always TerminateProcess. Send the signal explicitly, then reap.
+        match session.child.lock() {
+            Ok(mut child) => {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            Err(e) => log::warn!("PTY {} child mutex poisoned during kill: {}", pty_id, e),
         }
-        log::info!("Killed PTY {}", pty_id);
+        log::info!("Killed PTY {} (child terminated)", pty_id);
         Ok(())
     }
 
@@ -330,4 +340,48 @@ fn which_exe(name: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kill_terminates_child_and_removes_session() {
+        let mut manager = PtyManager::new();
+        let (pty_id, session) = manager
+            .spawn(None, None, 80, 24, HashMap::new())
+            .expect("spawn default shell");
+
+        let pid = session
+            .child
+            .lock()
+            .expect("child mutex")
+            .process_id();
+        assert!(pid.is_some(), "spawned child should expose a pid");
+
+        manager.kill(&pty_id).expect("kill should succeed");
+
+        assert!(
+            manager.get_session(&pty_id).is_none(),
+            "session should be gone from manager after kill"
+        );
+
+        let mut child = session.child.lock().expect("child mutex");
+        let status = child
+            .try_wait()
+            .expect("try_wait after kill should not error");
+        assert!(
+            status.is_some(),
+            "child must have exited after PtyManager::kill (was: {:?})",
+            status
+        );
+    }
+
+    #[test]
+    fn kill_returns_err_for_unknown_pty() {
+        let mut manager = PtyManager::new();
+        let result = manager.kill("nonexistent-pty-id");
+        assert!(result.is_err(), "kill on unknown id must return Err");
+    }
 }
