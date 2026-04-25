@@ -1086,6 +1086,11 @@ pub fn run() {
             // before Claude summarizes the context window.
             commands::ensure_claude_hooks_installed();
 
+            let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
+                crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
+                mem.db_path().to_path_buf(),
+            ));
+
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
@@ -1098,6 +1103,7 @@ pub fn run() {
                 report_store: states.report_store.clone(),
                 agent_registry,
                 mem,
+                mem_supervisor,
                 activity: crate::mem::activity::ActivityRing::new(500),
                 workers: crate::mem::workers::GraphWorkerRegistry::load(
                     crate::paths::data_dir().join("mem").join("workers.json"),
