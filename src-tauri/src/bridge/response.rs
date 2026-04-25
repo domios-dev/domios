@@ -70,26 +70,100 @@ fn floor_char_boundary(s: &str, max_bytes: usize) -> usize {
 
 pub fn chunk_message(text: &str, max_len: usize) -> Vec<String> {
     if text.len() <= max_len { return vec![text.to_string()]; }
-    let mut chunks = Vec::new();
-    let mut remaining = text;
-    while !remaining.is_empty() {
-        if remaining.len() <= max_len { chunks.push(remaining.to_string()); break; }
-        // Find a safe byte boundary that doesn't split a multi-byte char
-        let safe_end = floor_char_boundary(remaining, max_len);
-        if safe_end == 0 {
-            // Degenerate case: max_len is smaller than a single character
-            // Take the first char regardless
-            let first_char_end = remaining.char_indices().nth(1).map(|(i, _)| i).unwrap_or(remaining.len());
-            chunks.push(remaining[..first_char_end].to_string());
-            remaining = &remaining[first_char_end..];
-            continue;
+    let tokens = super::sanitize::tokenize(text);
+
+    let mut chunks: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut prefix_for_next = String::new();
+    let mut stack: Vec<(String, String)> = Vec::new();
+
+    let close_overhead = |stack: &Vec<(String, String)>| -> usize {
+        stack.iter().map(|(n, _)| n.len() + 3).sum()
+    };
+
+    let flush = |current: &mut String, prefix_for_next: &mut String, stack: &Vec<(String, String)>, chunks: &mut Vec<String>| {
+        for (n, _) in stack.iter().rev() {
+            current.push_str("</");
+            current.push_str(n);
+            current.push('>');
         }
-        let slice = &remaining[..safe_end];
-        let break_at = slice.rfind('\n').unwrap_or(safe_end);
-        let break_at = if break_at == 0 { safe_end } else { break_at };
-        chunks.push(remaining[..break_at].to_string());
-        remaining = remaining[break_at..].trim_start_matches('\n');
+        chunks.push(std::mem::take(current));
+        prefix_for_next.clear();
+        for (_, raw) in stack.iter() {
+            prefix_for_next.push_str(raw);
+        }
+        current.push_str(prefix_for_next);
+    };
+
+    for tok in tokens {
+        match tok {
+            super::sanitize::Token::Text(t) => {
+                let mut remaining = t.as_str();
+                while !remaining.is_empty() {
+                    let avail = max_len.saturating_sub(current.len() + close_overhead(&stack));
+                    if avail == 0 {
+                        flush(&mut current, &mut prefix_for_next, &stack, &mut chunks);
+                        continue;
+                    }
+                    if remaining.len() <= avail {
+                        current.push_str(remaining);
+                        break;
+                    }
+                    let safe_end = floor_char_boundary(remaining, avail);
+                    if safe_end == 0 {
+                        let first_char_end = remaining.char_indices().nth(1).map(|(i, _)| i).unwrap_or(remaining.len());
+                        if !current.is_empty() {
+                            flush(&mut current, &mut prefix_for_next, &stack, &mut chunks);
+                            continue;
+                        }
+                        current.push_str(&remaining[..first_char_end]);
+                        remaining = &remaining[first_char_end..];
+                        continue;
+                    }
+                    let slice = &remaining[..safe_end];
+                    let break_at = slice.rfind('\n')
+                        .or_else(|| slice.rfind(' '))
+                        .map(|p| p + 1)
+                        .unwrap_or(safe_end);
+                    let break_at = if break_at == 0 { safe_end } else { break_at };
+                    current.push_str(&remaining[..break_at]);
+                    remaining = remaining[break_at..].trim_start_matches('\n');
+                    if !remaining.is_empty() {
+                        flush(&mut current, &mut prefix_for_next, &stack, &mut chunks);
+                    }
+                }
+            }
+            super::sanitize::Token::Open { name, raw } => {
+                if current.len() + raw.len() + close_overhead(&stack) + name.len() + 3 > max_len && !current.is_empty() {
+                    flush(&mut current, &mut prefix_for_next, &stack, &mut chunks);
+                }
+                current.push_str(&raw);
+                stack.push((name, raw));
+            }
+            super::sanitize::Token::Close { name, raw } => {
+                if let Some(pos) = stack.iter().rposition(|(n, _)| *n == name) {
+                    while stack.len() > pos + 1 {
+                        let (n, _) = stack.pop().unwrap();
+                        current.push_str("</");
+                        current.push_str(&n);
+                        current.push('>');
+                    }
+                    stack.pop();
+                }
+                current.push_str(&raw);
+            }
+        }
     }
+
+    if !current.is_empty() || !stack.is_empty() {
+        for (n, _) in stack.iter().rev() {
+            current.push_str("</");
+            current.push_str(n);
+            current.push('>');
+        }
+        chunks.push(current);
+    }
+
     chunks
 }
 
@@ -137,6 +211,41 @@ mod tests {
         assert!(chunks.len() > 1);
         for chunk in &chunks {
             assert!(chunk.len() <= 12); // 4-byte emoji, so max overshoot is a single char boundary
+        }
+    }
+
+    #[test]
+    fn test_chunk_html_tag_aware_split_inside_bold() {
+        let inner = "x".repeat(200);
+        let text = format!("<b>{}</b>", inner);
+        let chunks = chunk_message(&text, 120);
+        assert!(chunks.len() >= 2, "expected multiple chunks, got: {:?}", chunks);
+        for c in &chunks {
+            assert!(c.starts_with("<b>"), "chunk should reopen <b>: {}", c);
+            assert!(c.ends_with("</b>"), "chunk should close </b>: {}", c);
+            assert!(c.len() <= 120, "chunk exceeds max_len: {} bytes", c.len());
+        }
+        let combined: String = chunks.iter()
+            .map(|c| c.trim_start_matches("<b>").trim_end_matches("</b>"))
+            .collect();
+        assert_eq!(combined, inner);
+    }
+
+    #[test]
+    fn test_chunk_html_short_unchanged() {
+        let chunks = chunk_message("<b>short</b>", 100);
+        assert_eq!(chunks, vec!["<b>short</b>".to_string()]);
+    }
+
+    #[test]
+    fn test_chunk_html_keeps_attrs_on_reopen() {
+        let inner = "y".repeat(200);
+        let text = format!(r#"<a href="http://example.com">{}</a>"#, inner);
+        let chunks = chunk_message(&text, 120);
+        assert!(chunks.len() >= 2);
+        for c in &chunks[1..] {
+            assert!(c.starts_with(r#"<a href="http://example.com">"#),
+                "later chunks must reopen full <a> with href: {}", c);
         }
     }
 
