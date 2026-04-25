@@ -33,96 +33,121 @@ pub struct DreamReport {
 /// - age: min(days_since_creation / 7, 1.0) — older = more validated
 ///
 /// Items with score >= 0.5 AND access_count >= 3 get promoted.
-pub fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
-    let conn = mem.conn();
-    let conn = conn.lock();
+///
+/// Lock discipline: acquires the mem connection lock only to snapshot
+/// candidates and, per-batch, to commit an UPDATE + history_log pair. Scoring
+/// runs lock-free; between batches the task yields so API handlers aren't
+/// starved.
+pub async fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
+    const BATCH: usize = 8;
+
+    let now_ts = chrono::Utc::now();
+    let one_day_ago = (now_ts - chrono::Duration::days(1)).to_rfc3339();
+
+    let candidates: Vec<(String, i64, f64, String, Option<String>)> = {
+        let conn = mem.conn().lock();
+        let mut stmt = conn
+            .prepare(
+                r#"SELECT id, access_count, importance, created_at, accessed_at
+                   FROM mem_items
+                   WHERE kind = 'learning'
+                     AND access_count >= 3
+                     AND created_at < ?1"#,
+            )
+            .map_err(|e| e.to_string())?;
+        let rows: Vec<_> = stmt
+            .query_map(params![one_day_ago], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, f64>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    };
 
     let mut considered = 0u64;
     let mut promoted = 0u64;
-    let now_ts = chrono::Utc::now();
 
-    let one_day_ago = (now_ts - chrono::Duration::days(1)).to_rfc3339();
-    let mut stmt = conn
-        .prepare(
-            r#"SELECT id, access_count, importance, created_at, accessed_at
-               FROM mem_items
-               WHERE kind = 'learning'
-                 AND access_count >= 3
-                 AND created_at < ?1"#,
-        )
-        .map_err(|e| e.to_string())?;
+    for (batch_idx, chunk) in candidates.chunks(BATCH).enumerate() {
+        for (id, access_count, importance, created_at, accessed_at) in chunk {
+            considered += 1;
 
-    let candidates: Vec<(String, i64, f64, String, Option<String>)> = stmt
-        .query_map(params![one_day_ago], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-        })
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
+            let frequency = (*access_count as f64 / 10.0).min(1.0);
 
-    for (id, access_count, importance, created_at, accessed_at) in &candidates {
-        considered += 1;
+            let recency = accessed_at
+                .as_ref()
+                .and_then(|a| chrono::DateTime::parse_from_rfc3339(a).ok())
+                .map(|a| {
+                    let days = (now_ts - a.with_timezone(&chrono::Utc))
+                        .num_hours()
+                        .max(0) as f64 / 24.0;
+                    (-days * 0.693 / 14.0).exp() // ln(2)/14 ≈ 0.0495
+                })
+                .unwrap_or(0.0);
 
-        let frequency = (*access_count as f64 / 10.0).min(1.0);
+            let imp_score = (*importance / 5.0).min(1.0);
 
-        let recency = accessed_at
-            .as_ref()
-            .and_then(|a| chrono::DateTime::parse_from_rfc3339(a).ok())
-            .map(|a| {
-                let days = (now_ts - a.with_timezone(&chrono::Utc))
-                    .num_hours()
-                    .max(0) as f64 / 24.0;
-                (-days * 0.693 / 14.0).exp() // ln(2)/14 ≈ 0.0495
-            })
-            .unwrap_or(0.0);
+            let age = chrono::DateTime::parse_from_rfc3339(created_at)
+                .ok()
+                .map(|c| {
+                    let days = (now_ts - c.with_timezone(&chrono::Utc))
+                        .num_hours()
+                        .max(0) as f64 / 24.0;
+                    (days / 7.0).min(1.0)
+                })
+                .unwrap_or(0.5);
 
-        let imp_score = (*importance / 5.0).min(1.0);
+            let score = frequency * 0.30 + recency * 0.25 + imp_score * 0.25 + age * 0.20;
 
-        let age = chrono::DateTime::parse_from_rfc3339(created_at)
-            .ok()
-            .map(|c| {
-                let days = (now_ts - c.with_timezone(&chrono::Utc))
-                    .num_hours()
-                    .max(0) as f64 / 24.0;
-                (days / 7.0).min(1.0)
-            })
-            .unwrap_or(0.5);
+            if score < 0.5 {
+                continue;
+            }
 
-        let score = frequency * 0.30 + recency * 0.25 + imp_score * 0.25 + age * 0.20;
-
-        if score >= 0.5 {
-            let now = chrono::Utc::now().to_rfc3339();
             let new_imp = importance.max(4.0);
-            let n = super::store::with_changed_by("dreaming:rem", || {
-                let n = conn
-                    .execute(
-                        "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
-                        params![&now, &id],
-                    )
-                    .map_err(|e| e.to_string())?;
-                if n > 0 {
-                    super::store::history_log(
-                        &conn,
-                        id,
-                        "promote",
-                        &super::store::HistorySnapshot {
-                            importance: Some(*importance),
-                            kind: Some("learning".into()),
-                            ..Default::default()
-                        },
-                        &super::store::HistorySnapshot {
-                            importance: Some(new_imp),
-                            kind: Some("fact".into()),
-                            ..Default::default()
-                        },
-                        None,
-                    );
-                }
-                Ok::<usize, String>(n)
-            })?;
+            let now = chrono::Utc::now().to_rfc3339();
+            let n = {
+                let conn = mem.conn().lock();
+                super::store::with_changed_by("dreaming:rem", || {
+                    let n = conn
+                        .execute(
+                            "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
+                            params![&now, &id],
+                        )
+                        .map_err(|e| e.to_string())?;
+                    if n > 0 {
+                        super::store::history_log(
+                            &conn,
+                            id,
+                            "promote",
+                            &super::store::HistorySnapshot {
+                                importance: Some(*importance),
+                                kind: Some("learning".into()),
+                                ..Default::default()
+                            },
+                            &super::store::HistorySnapshot {
+                                importance: Some(new_imp),
+                                kind: Some("fact".into()),
+                                ..Default::default()
+                            },
+                            None,
+                        );
+                    }
+                    Ok::<usize, String>(n)
+                })?
+            };
             if n > 0 {
                 promoted += 1;
             }
+        }
+
+        if batch_idx + 1 < candidates.chunks(BATCH).len() {
+            tokio::task::yield_now().await;
         }
     }
 
@@ -143,9 +168,7 @@ pub fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
 /// - learning: >90 days, never accessed (hasn't earned promotion → stale)
 ///
 /// All require importance < 4.0 (user-pinned items are untouched).
-pub fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
-    let conn = mem.conn();
-    let conn = conn.lock();
+pub async fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
     let now = chrono::Utc::now().to_rfc3339();
     let mut total_expired = 0u64;
 
@@ -157,15 +180,23 @@ pub fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
         ("learning", 90),
     ];
 
-    for (kind, days) in tiers {
+    for (idx, (kind, days)) in tiers.iter().enumerate() {
         let cutoff = (chrono::Utc::now() - chrono::Duration::days(*days)).to_rfc3339();
-        let expired = conn.execute(
-            "UPDATE mem_items SET importance = 0.0, updated_at = ?1 \
-             WHERE kind = ?2 AND access_count = 0 AND created_at < ?3 \
-             AND importance > 0.0 AND importance < 4.0",
-            params![&now, kind, &cutoff],
-        ).map_err(|e| e.to_string())? as u64;
+        let expired = {
+            let conn = mem.conn().lock();
+            conn.execute(
+                "UPDATE mem_items SET importance = 0.0, updated_at = ?1 \
+                 WHERE kind = ?2 AND access_count = 0 AND created_at < ?3 \
+                 AND importance > 0.0 AND importance < 4.0",
+                params![&now, kind, &cutoff],
+            )
+            .map_err(|e| e.to_string())? as u64
+        };
         total_expired += expired;
+
+        if idx + 1 < tiers.len() {
+            tokio::task::yield_now().await;
+        }
     }
 
     Ok(DreamReport {
@@ -330,10 +361,10 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
 }
 
 /// Run SQL phases (light + deep), then spawn headless REM worker.
-pub fn run_all(mem: &MemManager) -> Result<Vec<DreamReport>, String> {
+pub async fn run_all(mem: &MemManager) -> Result<Vec<DreamReport>, String> {
     let mut out = Vec::new();
-    out.push(light_phase(mem)?);
-    out.push(deep_phase(mem)?);
+    out.push(light_phase(mem).await?);
+    out.push(deep_phase(mem).await?);
     Ok(out)
 }
 
@@ -567,8 +598,8 @@ mod tests {
     use super::*;
     use crate::mem::store::{MemKind, MemScope, NewMemItem};
 
-    #[test]
-    fn light_phase_promotes_accessed_learnings() {
+    #[tokio::test]
+    async fn light_phase_promotes_accessed_learnings() {
         let mem = MemManager::open_in_memory().unwrap();
         let id = mem
             .save(NewMemItem {
@@ -585,7 +616,6 @@ mod tests {
             })
             .unwrap();
 
-        // Backdate creation + simulate 3 accesses (meets threshold)
         {
             let conn = mem.conn();
             let conn = conn.lock();
@@ -597,7 +627,7 @@ mod tests {
             .unwrap();
         }
 
-        let report = light_phase(&mem).unwrap();
+        let report = light_phase(&mem).await.unwrap();
         assert_eq!(report.considered, 1);
         assert_eq!(report.promoted, 1);
 
@@ -606,8 +636,8 @@ mod tests {
         assert!(after.importance >= 4.0);
     }
 
-    #[test]
-    fn deep_phase_expires_old_unaccessed_conversations() {
+    #[tokio::test]
+    async fn deep_phase_expires_old_unaccessed_conversations() {
         let mem = MemManager::open_in_memory().unwrap();
         let id = mem
             .save(NewMemItem {
@@ -636,7 +666,7 @@ mod tests {
             .unwrap();
         }
 
-        let report = deep_phase(&mem).unwrap();
+        let report = deep_phase(&mem).await.unwrap();
         assert_eq!(report.dropped, 1);
         // Item still exists but with importance = 0 (expired, not deleted)
         let after = mem.get(&id).unwrap().unwrap();
@@ -667,8 +697,8 @@ mod tests {
         assert_eq!(job.schedule, "0 3 * * *");
     }
 
-    #[test]
-    fn deep_phase_keeps_high_importance_conversations() {
+    #[tokio::test]
+    async fn deep_phase_keeps_high_importance_conversations() {
         let mem = MemManager::open_in_memory().unwrap();
         let id = mem
             .save(NewMemItem {
@@ -695,7 +725,7 @@ mod tests {
             .unwrap();
         }
 
-        let r = deep_phase(&mem).unwrap();
+        let r = deep_phase(&mem).await.unwrap();
         assert_eq!(r.dropped, 0);
         assert!(mem.get(&id).unwrap().is_some());
     }
