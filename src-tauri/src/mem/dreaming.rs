@@ -7,7 +7,9 @@
 //! mem-architecture.md (Light → Deep → REM with token budgets) is layered on
 //! top of this baseline in later phases as needed.
 
-use rusqlite::{params, Connection};
+use rusqlite::params;
+#[cfg(test)]
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use super::MemManager;
@@ -20,25 +22,9 @@ pub struct DreamReport {
     pub phase: String,
 }
 
-/// Light phase: identify learnings that have been accessed multiple times,
-/// auto-promote them to facts and bump importance.
-///
-/// Weighted scoring for learning promotion (inspired by a gateway).
-///
-/// Score = frequency × 0.30 + recency × 0.25 + importance × 0.25 + age × 0.20
-///
-/// - frequency: access_count / 10 (capped at 1.0)
-/// - recency: exp(-days_since_access * ln2 / 14) — 14-day half-life
-/// - importance: current_importance / 5.0
-/// - age: min(days_since_creation / 7, 1.0) — older = more validated
-///
-/// Items with score >= 0.5 AND access_count >= 3 get promoted.
-///
-/// Lock discipline: acquires the mem connection lock only to snapshot
-/// candidates and, per-batch, to commit an UPDATE + history_log pair. Scoring
-/// runs lock-free; between batches the task yields so API handlers aren't
-/// starved. Holds a `heavy_ops` permit for the full call so only a bounded
-/// number of background mem jobs run concurrently.
+/// Test-only fixture; production runs the SQL inline in `cli::worker_dreaming_light`.
+/// Pull the CLI back under codeterm_lib later? Reintroduce a sync version and call it.
+#[cfg(test)]
 pub async fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
     let _permit = mem.acquire_heavy_permit().await;
 
@@ -80,35 +66,11 @@ pub async fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
     })
 }
 
-/// Sync version: runs light_phase logic against a directly-owned connection.
-/// Used by the subprocess worker (no MemManager available, no permit needed —
-/// the parent supervisor enforces the concurrency cap).
-pub fn light_phase_sync(conn: &mut Connection) -> Result<DreamReport, String> {
-    let now_ts = chrono::Utc::now();
-    let one_day_ago = (now_ts - chrono::Duration::days(1)).to_rfc3339();
-
-    let candidates = light_query_candidates(conn, &one_day_ago)?;
-
-    let mut considered = 0u64;
-    let mut promoted = 0u64;
-
-    for cand in &candidates {
-        considered += 1;
-        if light_promote_one(conn, cand, now_ts)? {
-            promoted += 1;
-        }
-    }
-
-    Ok(DreamReport {
-        considered,
-        promoted,
-        dropped: 0,
-        phase: "light".into(),
-    })
-}
-
+#[cfg(test)]
 type LightCandidate = (String, i64, f64, String, Option<String>);
 
+// Mirrored in `cli/src/main.rs::worker_dreaming_light`; keep SQL in sync.
+#[cfg(test)]
 fn light_query_candidates(
     conn: &Connection,
     one_day_ago: &str,
@@ -138,6 +100,8 @@ fn light_query_candidates(
     Ok(rows)
 }
 
+// Mirrored in `cli/src/main.rs::worker_dreaming_light`; keep scoring + UPDATE + history INSERT in sync.
+#[cfg(test)]
 fn light_promote_one(
     conn: &Connection,
     cand: &LightCandidate,
@@ -208,15 +172,9 @@ fn light_promote_one(
     Ok(n > 0)
 }
 
-/// Deep phase: archive stale items that nobody reads.
-/// Sets importance to 0 — items stay searchable but won't appear in L1 wake-up.
-///
-/// Targets by age threshold:
-/// - conversation, daily: >30 days, never accessed
-/// - note, script: >60 days, never accessed
-/// - learning: >90 days, never accessed (hasn't earned promotion → stale)
-///
-/// All require importance < 4.0 (user-pinned items are untouched).
+/// Test-only fixture; production runs the SQL inline in `cli::worker_dreaming_deep`.
+/// Pull the CLI back under codeterm_lib later? Reintroduce a sync version and call it.
+#[cfg(test)]
 pub async fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
     let _permit = mem.acquire_heavy_permit().await;
 
@@ -243,21 +201,8 @@ pub async fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
     })
 }
 
-/// Sync version of deep_phase for the subprocess worker.
-pub fn deep_phase_sync(conn: &mut Connection) -> Result<DreamReport, String> {
-    let tiers = deep_tiers();
-    let mut total_expired = 0u64;
-    for (kind, days) in tiers.iter() {
-        total_expired += deep_expire_tier(conn, kind, *days)?;
-    }
-    Ok(DreamReport {
-        considered: total_expired,
-        promoted: 0,
-        dropped: total_expired,
-        phase: "deep".into(),
-    })
-}
-
+// Mirrored in `cli/src/main.rs::worker_dreaming_deep`; keep tier table in sync.
+#[cfg(test)]
 fn deep_tiers() -> &'static [(&'static str, i64)] {
     &[
         ("conversation", 30),
@@ -268,6 +213,8 @@ fn deep_tiers() -> &'static [(&'static str, i64)] {
     ]
 }
 
+// Mirrored in `cli/src/main.rs::worker_dreaming_deep`; keep UPDATE in sync.
+#[cfg(test)]
 fn deep_expire_tier(conn: &Connection, kind: &str, days: i64) -> Result<u64, String> {
     let now = chrono::Utc::now().to_rfc3339();
     let cutoff = (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339();
@@ -435,16 +382,8 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
     }
 }
 
-/// Run SQL phases (light + deep), then spawn headless REM worker.
-pub async fn run_all(mem: &MemManager) -> Result<Vec<DreamReport>, String> {
-    let mut out = Vec::new();
-    out.push(light_phase(mem).await?);
-    out.push(deep_phase(mem).await?);
-    Ok(out)
-}
-
 /// Spawn a headless dreaming worker for REM phase (dedup, classify, insights, diary).
-/// Called after `run_all` completes SQL phases.
+/// Called after the supervisor runs the SQL phases.
 pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
     let mem_cfg = crate::config::memory_config();
     let agent = if mem_cfg.dreaming_agent.is_empty() {
@@ -556,8 +495,8 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
 pub const LIBRARIAN_CRON_NAME: &str = "mem-librarian-auto";
 
 /// Removes the legacy LLM-based librarian cron if it still exists from older
-/// installs. The librarian is now a direct in-process loop (see `start_librarian_loop`),
-/// not an agent — kept as a migration step.
+/// installs. The librarian now runs as a CLI subprocess via the supervisor;
+/// kept as a migration step.
 pub fn remove_legacy_librarian_cron(cron_store: &mut crate::cron::store::CronStore) -> bool {
     let existing = cron_store.list().iter().find(|j| j.name == LIBRARIAN_CRON_NAME).map(|j| j.id.clone());
     if let Some(id) = existing {
@@ -570,148 +509,6 @@ pub fn remove_legacy_librarian_cron(cron_store: &mut crate::cron::store::CronSto
     } else {
         false
     }
-}
-
-/// Librarian: scans source-tracked mem_items + auto-discovers new skill
-/// folders once per hour. Pure Rust loop — no agent, no tokens.
-pub fn start_librarian_loop(mem: std::sync::Arc<crate::mem::MemManager>) {
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(30));
-        loop {
-            scan_skill_folders(&mem);
-            match crate::mem::file_sync::sync_all(&mem) {
-                Ok(result) => log_librarian_scan(&result),
-                Err(e) => log::warn!("[librarian] scan failed: {}", e),
-            }
-            std::thread::sleep(std::time::Duration::from_secs(3600));
-        }
-    });
-}
-
-/// Sync version: one librarian iteration against a directly owned connection.
-/// Used by the `mem run-worker librarian-once` subprocess. `skills_root` is
-/// the top-level skills directory (e.g. ~/.codeterm/skills); when it doesn't
-/// exist the skill scan is skipped.
-pub fn librarian_once_sync(
-    conn: &Connection,
-    blobs_dir: &std::path::Path,
-    skills_root: &std::path::Path,
-) -> Result<(), String> {
-    scan_skill_folders_sync(conn, blobs_dir, skills_root);
-    let result = crate::mem::file_sync::sync_all_sync(conn)?;
-    log_librarian_scan(&result);
-    Ok(())
-}
-
-fn log_librarian_scan(result: &crate::mem::file_sync::FileSyncResult) {
-    if result.re_indexed > 0 || result.source_missing > 0 || result.source_recovered > 0 {
-        log::info!(
-            "[librarian] scan: re_indexed={} missing={} recovered={}",
-            result.re_indexed, result.source_missing, result.source_recovered
-        );
-    } else {
-        log::debug!("[librarian] scan: no changes");
-    }
-}
-
-/// Find skill folders under ~/.codeterm/skills/ that have a SKILL.md but no
-/// matching mem_item with that source_path, and register them automatically.
-fn scan_skill_folders(mem: &std::sync::Arc<crate::mem::MemManager>) {
-    let skills_root = crate::paths::data_dir().join("skills");
-    if !skills_root.is_dir() { return }
-
-    let known_paths = {
-        let conn = mem.conn().lock();
-        list_known_skill_paths(&conn)
-    };
-
-    let entries = match std::fs::read_dir(&skills_root) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let folder = entry.path();
-        let Some((source, item)) = build_skill_item(&folder, &known_paths) else { continue };
-        match mem.save(item) {
-            Ok(id) => log::info!("[librarian] auto-registered skill: {} ({})", id, source),
-            Err(e) => log::warn!("[librarian] auto-register failed for {}: {}", source, e),
-        }
-    }
-}
-
-fn scan_skill_folders_sync(
-    conn: &Connection,
-    blobs_dir: &std::path::Path,
-    skills_root: &std::path::Path,
-) {
-    if !skills_root.is_dir() { return }
-    let known_paths = list_known_skill_paths(conn);
-    let entries = match std::fs::read_dir(skills_root) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let folder = entry.path();
-        let Some((source, item)) = build_skill_item(&folder, &known_paths) else { continue };
-        match super::store::insert(conn, &item, blobs_dir) {
-            Ok(id) => log::info!("[librarian] auto-registered skill: {} ({})", id, source),
-            Err(e) => log::warn!("[librarian] auto-register failed for {}: {}", source, e),
-        }
-    }
-}
-
-fn list_known_skill_paths(conn: &Connection) -> std::collections::HashSet<String> {
-    let mut out = std::collections::HashSet::new();
-    if let Ok(mut stmt) = conn.prepare("SELECT source_path FROM mem_items WHERE source_path LIKE 'file:%SKILL.md'") {
-        if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
-            for row in rows.flatten() { out.insert(row); }
-        }
-    }
-    out
-}
-
-fn build_skill_item(
-    folder: &std::path::Path,
-    known_paths: &std::collections::HashSet<String>,
-) -> Option<(String, crate::mem::store::NewMemItem)> {
-    if !folder.is_dir() { return None; }
-    let skill_md = folder.join("SKILL.md");
-    if !skill_md.is_file() { return None; }
-    let source = format!("file:{}", skill_md.display());
-    if known_paths.contains(&source) { return None; }
-    let body = std::fs::read_to_string(&skill_md).ok()?;
-    let title = title_from_skill_md(&body)
-        .unwrap_or_else(|| folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "skill".into()));
-    let area = area_from_skill_md(&body);
-    let item = crate::mem::store::NewMemItem {
-        kind: crate::mem::store::MemKind::Skill,
-        scope: crate::mem::store::MemScope::Global,
-        title,
-        summary: None,
-        area,
-        tags: vec!["folder-skill".into(), "auto-registered".into()],
-        body,
-        source: Some(source.clone()),
-        importance: 4.0,
-        source_path: Some(source.clone()),
-    };
-    Some((source, item))
-}
-
-fn title_from_skill_md(body: &str) -> Option<String> {
-    if let Some(line) = body.lines().take(20).find(|l| l.trim_start().starts_with("title:")) {
-        let v = line.trim_start().trim_start_matches("title:").trim().trim_matches('"').to_string();
-        if !v.is_empty() { return Some(v); }
-    }
-    body.lines().find(|l| l.trim_start().starts_with("# "))
-        .map(|l| l.trim_start().trim_start_matches("# ").trim().to_string())
-}
-
-fn area_from_skill_md(body: &str) -> Option<String> {
-    body.lines().take(20)
-        .find(|l| l.trim_start().starts_with("area:"))
-        .map(|l| l.trim_start().trim_start_matches("area:").trim().trim_matches('"').to_string())
-        .filter(|s| !s.is_empty())
 }
 
 #[cfg(test)]
