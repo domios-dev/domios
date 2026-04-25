@@ -69,6 +69,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/report", post(submit_report))
         .route("/api/panes/{id}/reports", get(get_reports))
         .route("/api/panes/{id}/can-spawn", post(set_can_spawn))
+        .route("/api/panes/{id}/agent/restart", post(agent_restart_handler))
         .route("/api/panes/{id}/agent-type", post(set_agent_type))
         .route("/api/panes/{id}/prompt/respond", post(respond_prompt))
         .route("/api/panes/{id}/prompt/clear", post(clear_prompt))
@@ -1141,6 +1142,80 @@ async fn set_can_spawn(
     state.svc.set_can_spawn(&id, body.can_spawn)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+struct AgentRestartBody {
+    #[serde(default)]
+    force: bool,
+    #[serde(default = "default_grace_secs")]
+    grace_secs: u64,
+}
+
+fn default_grace_secs() -> u64 {
+    crate::service::agent_restart::DEFAULT_GRACE_SECS
+}
+
+async fn agent_restart_handler(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+    body: Option<Json<AgentRestartBody>>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err((status, msg)) = check_auth(&state, &headers) {
+        return (status, msg.to_string()).into_response();
+    }
+    let pane_id = match resolve_pane(&state, &raw_pane_id) {
+        Ok(p) => p,
+        Err((status, msg)) => return (status, msg.to_string()).into_response(),
+    };
+    let body = body.map(|Json(b)| b).unwrap_or(AgentRestartBody {
+        force: false,
+        grace_secs: default_grace_secs(),
+    });
+
+    match state.svc.agent_restart(&pane_id, body.force, body.grace_secs) {
+        Ok(outcome) => (
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({
+                "restarting": true,
+                "pane_id": outcome.pane_id,
+                "provider": outcome.provider,
+                "session_id": outcome.session_id,
+                "session_was_stale": outcome.session_was_stale,
+                "force": outcome.force,
+            })),
+        )
+            .into_response(),
+        Err(crate::service::agent_restart::AgentRestartError::NotFound(m)) => {
+            (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": m}))).into_response()
+        }
+        Err(crate::service::agent_restart::AgentRestartError::BadRequest(m)) => {
+            (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": m}))).into_response()
+        }
+        Err(crate::service::agent_restart::AgentRestartError::RateLimited { retry_after_secs }) => {
+            let mut h = HeaderMap::new();
+            h.insert(
+                "Retry-After",
+                retry_after_secs.to_string().parse().unwrap(),
+            );
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                h,
+                Json(serde_json::json!({
+                    "error": "rate limited",
+                    "retry_after_secs": retry_after_secs,
+                })),
+            )
+                .into_response()
+        }
+        Err(crate::service::agent_restart::AgentRestartError::Internal(m)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": m})),
+        )
+            .into_response(),
+    }
 }
 
 async fn respond_prompt(
