@@ -891,6 +891,9 @@ pub enum AgentAction {
         /// Clear reports after reading
         #[arg(long)]
         clear: bool,
+        /// Show only the N most recent reports (default: all)
+        #[arg(long)]
+        limit: Option<usize>,
     },
     /// Get detailed status of a pane
     Status {
@@ -1765,7 +1768,7 @@ fn main() {
                         "message": message,
                     })))
                 }
-                AgentAction::Reports { pane, clear } => {
+                AgentAction::Reports { pane, clear, limit } => {
                     let pane_id = resolve_pane(&mut client, pane);
                     // Use socket (not REST) for reliability
                     match client.call("agent.reports", Some(serde_json::json!({
@@ -1777,7 +1780,8 @@ fn main() {
                                 println!("{}", serde_json::to_string_pretty(&val).unwrap());
                             } else if let Some(arr) = val.as_array() {
                                 if arr.is_empty() { println!("No reports."); }
-                                for r in arr {
+                                let take = limit.unwrap_or(arr.len());
+                                for r in arr.iter().rev().take(take) {
                                     let from = r.get("from_title").and_then(|v| v.as_str()).unwrap_or("?");
                                     let msg = r.get("message").and_then(|v| v.as_str()).unwrap_or("");
                                     println!("[{}] {}", from, msg);
