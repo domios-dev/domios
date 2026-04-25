@@ -827,6 +827,7 @@ dependencies = [
  "toml 0.8.2",
  "tower-http",
  "ulid",
+ "url",
  "uuid",
  "vt100",
  "x25519-dalek",

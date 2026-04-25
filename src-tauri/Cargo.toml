@@ -44,6 +44,7 @@ mdns-sd = "0.11"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 aes-gcm = "0.10"
+url = "2"
 rand = "0.8"
 rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
 regex = "1"
@@ -55,6 +56,7 @@ fastembed = { version = "5", optional = true }
 default = ["embeddings"]
 webdriver = ["tauri-plugin-webdriver"]
 embeddings = ["dep:sqlite-vec", "dep:fastembed"]
+dev-updater-allowlocal = []
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
