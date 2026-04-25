@@ -7,7 +7,7 @@
 //! mem-architecture.md (Light → Deep → REM with token budgets) is layered on
 //! top of this baseline in later phases as needed.
 
-use rusqlite::params;
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
 use super::MemManager;
@@ -47,104 +47,22 @@ pub async fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
     let now_ts = chrono::Utc::now();
     let one_day_ago = (now_ts - chrono::Duration::days(1)).to_rfc3339();
 
-    let candidates: Vec<(String, i64, f64, String, Option<String>)> = {
+    let candidates = {
         let conn = mem.conn().lock();
-        let mut stmt = conn
-            .prepare(
-                r#"SELECT id, access_count, importance, created_at, accessed_at
-                   FROM mem_items
-                   WHERE kind = 'learning'
-                     AND access_count >= 3
-                     AND created_at < ?1"#,
-            )
-            .map_err(|e| e.to_string())?;
-        let rows: Vec<_> = stmt
-            .query_map(params![one_day_ago], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, i64>(1)?,
-                    r.get::<_, f64>(2)?,
-                    r.get::<_, String>(3)?,
-                    r.get::<_, Option<String>>(4)?,
-                ))
-            })
-            .map_err(|e| e.to_string())?
-            .filter_map(|r| r.ok())
-            .collect();
-        rows
+        light_query_candidates(&conn, &one_day_ago)?
     };
 
     let mut considered = 0u64;
     let mut promoted = 0u64;
 
     for (batch_idx, chunk) in candidates.chunks(BATCH).enumerate() {
-        for (id, access_count, importance, created_at, accessed_at) in chunk {
+        for cand in chunk {
             considered += 1;
-
-            let frequency = (*access_count as f64 / 10.0).min(1.0);
-
-            let recency = accessed_at
-                .as_ref()
-                .and_then(|a| chrono::DateTime::parse_from_rfc3339(a).ok())
-                .map(|a| {
-                    let days = (now_ts - a.with_timezone(&chrono::Utc))
-                        .num_hours()
-                        .max(0) as f64 / 24.0;
-                    (-days * 0.693 / 14.0).exp() // ln(2)/14 ≈ 0.0495
-                })
-                .unwrap_or(0.0);
-
-            let imp_score = (*importance / 5.0).min(1.0);
-
-            let age = chrono::DateTime::parse_from_rfc3339(created_at)
-                .ok()
-                .map(|c| {
-                    let days = (now_ts - c.with_timezone(&chrono::Utc))
-                        .num_hours()
-                        .max(0) as f64 / 24.0;
-                    (days / 7.0).min(1.0)
-                })
-                .unwrap_or(0.5);
-
-            let score = frequency * 0.30 + recency * 0.25 + imp_score * 0.25 + age * 0.20;
-
-            if score < 0.5 {
-                continue;
-            }
-
-            let new_imp = importance.max(4.0);
-            let now = chrono::Utc::now().to_rfc3339();
-            let n = {
+            let promote = {
                 let conn = mem.conn().lock();
-                super::store::with_changed_by("dreaming:rem", || {
-                    let n = conn
-                        .execute(
-                            "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
-                            params![&now, &id],
-                        )
-                        .map_err(|e| e.to_string())?;
-                    if n > 0 {
-                        super::store::history_log(
-                            &conn,
-                            id,
-                            "promote",
-                            &super::store::HistorySnapshot {
-                                importance: Some(*importance),
-                                kind: Some("learning".into()),
-                                ..Default::default()
-                            },
-                            &super::store::HistorySnapshot {
-                                importance: Some(new_imp),
-                                kind: Some("fact".into()),
-                                ..Default::default()
-                            },
-                            None,
-                        );
-                    }
-                    Ok::<usize, String>(n)
-                })?
+                light_promote_one(&conn, cand, now_ts)?
             };
-            if n > 0 {
+            if promote {
                 promoted += 1;
             }
         }
@@ -162,6 +80,134 @@ pub async fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
     })
 }
 
+/// Sync version: runs light_phase logic against a directly-owned connection.
+/// Used by the subprocess worker (no MemManager available, no permit needed —
+/// the parent supervisor enforces the concurrency cap).
+pub fn light_phase_sync(conn: &mut Connection) -> Result<DreamReport, String> {
+    let now_ts = chrono::Utc::now();
+    let one_day_ago = (now_ts - chrono::Duration::days(1)).to_rfc3339();
+
+    let candidates = light_query_candidates(conn, &one_day_ago)?;
+
+    let mut considered = 0u64;
+    let mut promoted = 0u64;
+
+    for cand in &candidates {
+        considered += 1;
+        if light_promote_one(conn, cand, now_ts)? {
+            promoted += 1;
+        }
+    }
+
+    Ok(DreamReport {
+        considered,
+        promoted,
+        dropped: 0,
+        phase: "light".into(),
+    })
+}
+
+type LightCandidate = (String, i64, f64, String, Option<String>);
+
+fn light_query_candidates(
+    conn: &Connection,
+    one_day_ago: &str,
+) -> Result<Vec<LightCandidate>, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"SELECT id, access_count, importance, created_at, accessed_at
+               FROM mem_items
+               WHERE kind = 'learning'
+                 AND access_count >= 3
+                 AND created_at < ?1"#,
+        )
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<_> = stmt
+        .query_map(params![one_day_ago], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, f64>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, Option<String>>(4)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+fn light_promote_one(
+    conn: &Connection,
+    cand: &LightCandidate,
+    now_ts: chrono::DateTime<chrono::Utc>,
+) -> Result<bool, String> {
+    let (id, access_count, importance, created_at, accessed_at) = cand;
+
+    let frequency = (*access_count as f64 / 10.0).min(1.0);
+
+    let recency = accessed_at
+        .as_ref()
+        .and_then(|a| chrono::DateTime::parse_from_rfc3339(a).ok())
+        .map(|a| {
+            let days = (now_ts - a.with_timezone(&chrono::Utc))
+                .num_hours()
+                .max(0) as f64 / 24.0;
+            (-days * 0.693 / 14.0).exp() // ln(2)/14 ≈ 0.0495
+        })
+        .unwrap_or(0.0);
+
+    let imp_score = (*importance / 5.0).min(1.0);
+
+    let age = chrono::DateTime::parse_from_rfc3339(created_at)
+        .ok()
+        .map(|c| {
+            let days = (now_ts - c.with_timezone(&chrono::Utc))
+                .num_hours()
+                .max(0) as f64 / 24.0;
+            (days / 7.0).min(1.0)
+        })
+        .unwrap_or(0.5);
+
+    let score = frequency * 0.30 + recency * 0.25 + imp_score * 0.25 + age * 0.20;
+
+    if score < 0.5 {
+        return Ok(false);
+    }
+
+    let new_imp = importance.max(4.0);
+    let now = chrono::Utc::now().to_rfc3339();
+    let n = super::store::with_changed_by("dreaming:rem", || {
+        let n = conn
+            .execute(
+                "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
+                params![&now, id],
+            )
+            .map_err(|e| e.to_string())?;
+        if n > 0 {
+            super::store::history_log(
+                conn,
+                id,
+                "promote",
+                &super::store::HistorySnapshot {
+                    importance: Some(*importance),
+                    kind: Some("learning".into()),
+                    ..Default::default()
+                },
+                &super::store::HistorySnapshot {
+                    importance: Some(new_imp),
+                    kind: Some("fact".into()),
+                    ..Default::default()
+                },
+                None,
+            );
+        }
+        Ok::<usize, String>(n)
+    })?;
+    Ok(n > 0)
+}
+
 /// Deep phase: archive stale items that nobody reads.
 /// Sets importance to 0 — items stay searchable but won't appear in L1 wake-up.
 ///
@@ -174,28 +220,13 @@ pub async fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
 pub async fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
     let _permit = mem.acquire_heavy_permit().await;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let tiers = deep_tiers();
     let mut total_expired = 0u64;
 
-    let tiers: &[(&str, i64)] = &[
-        ("conversation", 30),
-        ("daily", 30),
-        ("note", 60),
-        ("script", 60),
-        ("learning", 90),
-    ];
-
     for (idx, (kind, days)) in tiers.iter().enumerate() {
-        let cutoff = (chrono::Utc::now() - chrono::Duration::days(*days)).to_rfc3339();
         let expired = {
             let conn = mem.conn().lock();
-            conn.execute(
-                "UPDATE mem_items SET importance = 0.0, updated_at = ?1 \
-                 WHERE kind = ?2 AND access_count = 0 AND created_at < ?3 \
-                 AND importance > 0.0 AND importance < 4.0",
-                params![&now, kind, &cutoff],
-            )
-            .map_err(|e| e.to_string())? as u64
+            deep_expire_tier(&conn, kind, *days)?
         };
         total_expired += expired;
 
@@ -210,6 +241,45 @@ pub async fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
         dropped: total_expired,
         phase: "deep".into(),
     })
+}
+
+/// Sync version of deep_phase for the subprocess worker.
+pub fn deep_phase_sync(conn: &mut Connection) -> Result<DreamReport, String> {
+    let tiers = deep_tiers();
+    let mut total_expired = 0u64;
+    for (kind, days) in tiers.iter() {
+        total_expired += deep_expire_tier(conn, kind, *days)?;
+    }
+    Ok(DreamReport {
+        considered: total_expired,
+        promoted: 0,
+        dropped: total_expired,
+        phase: "deep".into(),
+    })
+}
+
+fn deep_tiers() -> &'static [(&'static str, i64)] {
+    &[
+        ("conversation", 30),
+        ("daily", 30),
+        ("note", 60),
+        ("script", 60),
+        ("learning", 90),
+    ]
+}
+
+fn deep_expire_tier(conn: &Connection, kind: &str, days: i64) -> Result<u64, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339();
+    let n = conn
+        .execute(
+            "UPDATE mem_items SET importance = 0.0, updated_at = ?1 \
+             WHERE kind = ?2 AND access_count = 0 AND created_at < ?3 \
+             AND importance > 0.0 AND importance < 4.0",
+            params![&now, kind, &cutoff],
+        )
+        .map_err(|e| e.to_string())? as u64;
+    Ok(n)
 }
 
 /// Prepare data for the REM agent — returns a text summary of candidates.
@@ -510,21 +580,38 @@ pub fn start_librarian_loop(mem: std::sync::Arc<crate::mem::MemManager>) {
         loop {
             scan_skill_folders(&mem);
             match crate::mem::file_sync::sync_all(&mem) {
-                Ok(result) => {
-                    if result.re_indexed > 0 || result.source_missing > 0 || result.source_recovered > 0 {
-                        log::info!(
-                            "[librarian] scan: re_indexed={} missing={} recovered={}",
-                            result.re_indexed, result.source_missing, result.source_recovered
-                        );
-                    } else {
-                        log::debug!("[librarian] scan: no changes");
-                    }
-                }
+                Ok(result) => log_librarian_scan(&result),
                 Err(e) => log::warn!("[librarian] scan failed: {}", e),
             }
             std::thread::sleep(std::time::Duration::from_secs(3600));
         }
     });
+}
+
+/// Sync version: one librarian iteration against a directly owned connection.
+/// Used by the `mem run-worker librarian-once` subprocess. `skills_root` is
+/// the top-level skills directory (e.g. ~/.codeterm/skills); when it doesn't
+/// exist the skill scan is skipped.
+pub fn librarian_once_sync(
+    conn: &Connection,
+    blobs_dir: &std::path::Path,
+    skills_root: &std::path::Path,
+) -> Result<(), String> {
+    scan_skill_folders_sync(conn, blobs_dir, skills_root);
+    let result = crate::mem::file_sync::sync_all_sync(conn)?;
+    log_librarian_scan(&result);
+    Ok(())
+}
+
+fn log_librarian_scan(result: &crate::mem::file_sync::FileSyncResult) {
+    if result.re_indexed > 0 || result.source_missing > 0 || result.source_recovered > 0 {
+        log::info!(
+            "[librarian] scan: re_indexed={} missing={} recovered={}",
+            result.re_indexed, result.source_missing, result.source_recovered
+        );
+    } else {
+        log::debug!("[librarian] scan: no changes");
+    }
 }
 
 /// Find skill folders under ~/.codeterm/skills/ that have a SKILL.md but no
@@ -533,15 +620,10 @@ fn scan_skill_folders(mem: &std::sync::Arc<crate::mem::MemManager>) {
     let skills_root = crate::paths::data_dir().join("skills");
     if !skills_root.is_dir() { return }
 
-    let known_paths: std::collections::HashSet<String> = mem.with_conn(|conn| {
-        let mut out = std::collections::HashSet::new();
-        if let Ok(mut stmt) = conn.prepare("SELECT source_path FROM mem_items WHERE source_path LIKE 'file:%SKILL.md'") {
-            if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
-                for row in rows.flatten() { out.insert(row); }
-            }
-        }
-        out
-    });
+    let known_paths = {
+        let conn = mem.conn().lock();
+        list_known_skill_paths(&conn)
+    };
 
     let entries = match std::fs::read_dir(&skills_root) {
         Ok(e) => e,
@@ -549,37 +631,71 @@ fn scan_skill_folders(mem: &std::sync::Arc<crate::mem::MemManager>) {
     };
     for entry in entries.flatten() {
         let folder = entry.path();
-        if !folder.is_dir() { continue; }
-        let skill_md = folder.join("SKILL.md");
-        if !skill_md.is_file() { continue; }
-        let source = format!("file:{}", skill_md.display());
-        if known_paths.contains(&source) { continue; }
-
-        let body = match std::fs::read_to_string(&skill_md) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        let title = title_from_skill_md(&body)
-            .unwrap_or_else(|| folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "skill".into()));
-        let area = area_from_skill_md(&body);
-
-        let item = crate::mem::store::NewMemItem {
-            kind: crate::mem::store::MemKind::Skill,
-            scope: crate::mem::store::MemScope::Global,
-            title,
-            summary: None,
-            area,
-            tags: vec!["folder-skill".into(), "auto-registered".into()],
-            body,
-            source: Some(source.clone()),
-            importance: 4.0,
-            source_path: Some(source.clone()),
-        };
+        let Some((source, item)) = build_skill_item(&folder, &known_paths) else { continue };
         match mem.save(item) {
             Ok(id) => log::info!("[librarian] auto-registered skill: {} ({})", id, source),
             Err(e) => log::warn!("[librarian] auto-register failed for {}: {}", source, e),
         }
     }
+}
+
+fn scan_skill_folders_sync(
+    conn: &Connection,
+    blobs_dir: &std::path::Path,
+    skills_root: &std::path::Path,
+) {
+    if !skills_root.is_dir() { return }
+    let known_paths = list_known_skill_paths(conn);
+    let entries = match std::fs::read_dir(skills_root) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let folder = entry.path();
+        let Some((source, item)) = build_skill_item(&folder, &known_paths) else { continue };
+        match super::store::insert(conn, &item, blobs_dir) {
+            Ok(id) => log::info!("[librarian] auto-registered skill: {} ({})", id, source),
+            Err(e) => log::warn!("[librarian] auto-register failed for {}: {}", source, e),
+        }
+    }
+}
+
+fn list_known_skill_paths(conn: &Connection) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    if let Ok(mut stmt) = conn.prepare("SELECT source_path FROM mem_items WHERE source_path LIKE 'file:%SKILL.md'") {
+        if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
+            for row in rows.flatten() { out.insert(row); }
+        }
+    }
+    out
+}
+
+fn build_skill_item(
+    folder: &std::path::Path,
+    known_paths: &std::collections::HashSet<String>,
+) -> Option<(String, crate::mem::store::NewMemItem)> {
+    if !folder.is_dir() { return None; }
+    let skill_md = folder.join("SKILL.md");
+    if !skill_md.is_file() { return None; }
+    let source = format!("file:{}", skill_md.display());
+    if known_paths.contains(&source) { return None; }
+    let body = std::fs::read_to_string(&skill_md).ok()?;
+    let title = title_from_skill_md(&body)
+        .unwrap_or_else(|| folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "skill".into()));
+    let area = area_from_skill_md(&body);
+    let item = crate::mem::store::NewMemItem {
+        kind: crate::mem::store::MemKind::Skill,
+        scope: crate::mem::store::MemScope::Global,
+        title,
+        summary: None,
+        area,
+        tags: vec!["folder-skill".into(), "auto-registered".into()],
+        body,
+        source: Some(source.clone()),
+        importance: 4.0,
+        source_path: Some(source.clone()),
+    };
+    Some((source, item))
 }
 
 fn title_from_skill_md(body: &str) -> Option<String> {
