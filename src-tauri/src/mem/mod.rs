@@ -139,6 +139,25 @@ impl MemManager {
     pub fn db_path(&self) -> &std::path::Path { &self.db_path }
     pub fn blobs_dir(&self) -> &std::path::Path { &self.blobs_dir }
 
+    /// Flush WAL to the main database and truncate the WAL file. Returns
+    /// `(busy, log_frames, checkpointed)` from `PRAGMA wal_checkpoint(TRUNCATE)`
+    /// so the caller can log forensics around shutdown.
+    ///
+    /// Called from the updater's graceful shutdown so the new binary, which
+    /// reopens the same db immediately after restart, sees a clean state with
+    /// no orphaned WAL frames.
+    pub fn checkpoint_and_close(&self) -> Result<(i64, i64, i64), String> {
+        let conn = self.conn.lock();
+        let row = conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
+                let busy: i64 = r.get(0)?;
+                let log_frames: i64 = r.get(1)?;
+                let checkpointed: i64 = r.get(2)?;
+                Ok((busy, log_frames, checkpointed))
+            })
+            .map_err(|e| format!("wal_checkpoint(TRUNCATE) failed: {}", e))?;
+        Ok(row)
+    }
 }
 
 #[cfg(feature = "embeddings")]

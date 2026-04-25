@@ -253,6 +253,10 @@ pub enum Commands {
         /// Shortcut for `update channel [name]`. Pass without value to print current channel.
         #[arg(long, num_args = 0..=1, default_missing_value = "", conflicts_with_all = ["check", "apply"])]
         channel: Option<String>,
+        /// Override manifest URL when paired with --apply (or `install --auto`).
+        /// Backend must be built with `dev-updater-allowlocal` for non-https URLs.
+        #[arg(long)]
+        manifest_url: Option<String>,
     },
 
     /// Read or write CodeTerm configuration
@@ -974,6 +978,11 @@ pub enum UpdateAction {
         /// Use Tauri built-in updater: download, install, and restart automatically
         #[arg(long)]
         auto: bool,
+        /// Override manifest URL (dev/test escape hatch). Requires the
+        /// backend to be built with the `dev-updater-allowlocal` feature
+        /// for non-https schemes; release builds reject it.
+        #[arg(long)]
+        manifest_url: Option<String>,
     },
     /// Get or set the update channel (stable, rc, nightly)
     Channel {
@@ -2132,7 +2141,7 @@ fn main() {
             }
         }
 
-        Commands::Update { action, check, apply, channel } => {
+        Commands::Update { action, check, apply, channel, manifest_url } => {
             let (base_url, token) = read_api_config();
             let http = build_http(&token);
 
@@ -2141,7 +2150,7 @@ fn main() {
                     channel: if ch.is_empty() { None } else { Some(ch) },
                 })
             } else if apply {
-                Some(UpdateAction::Install { auto: true })
+                Some(UpdateAction::Install { auto: true, manifest_url: manifest_url.clone() })
             } else if check {
                 Some(UpdateAction::Check { force: false })
             } else {
@@ -2190,12 +2199,24 @@ fn main() {
                     }
                     return;
                 }
-                UpdateAction::Install { auto } => {
-                    let url = if auto {
-                        format!("{}/api/update/install?method=auto", base_url)
+                UpdateAction::Install { auto, manifest_url } => {
+                    let mut params: Vec<(&str, String)> = Vec::new();
+                    if auto {
+                        params.push(("method", "auto".into()));
+                    }
+                    if let Some(m) = manifest_url {
+                        params.push(("manifest_url", m));
+                    }
+                    let qs = if params.is_empty() {
+                        String::new()
                     } else {
-                        format!("{}/api/update/install", base_url)
+                        let pairs: Vec<String> = params
+                            .iter()
+                            .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
+                            .collect();
+                        format!("?{}", pairs.join("&"))
                     };
+                    let url = format!("{}/api/update/install{}", base_url, qs);
                     match http.post(&url).send() {
                         Ok(resp) if resp.status().is_success() => {
                             let body: serde_json::Value = resp.json().unwrap_or_default();
