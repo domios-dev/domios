@@ -44,6 +44,14 @@
     ],
     "macOS": {
       "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "perUser"
+      },
+      "wix": {
+        "installScope": "perUser"
+      }
     }
   },
   "plugins": {
