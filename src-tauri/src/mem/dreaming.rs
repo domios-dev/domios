@@ -22,25 +22,8 @@ pub struct DreamReport {
     pub phase: String,
 }
 
-/// Light phase: identify learnings that have been accessed multiple times,
-/// auto-promote them to facts and bump importance.
-///
-/// Weighted scoring for learning promotion (inspired by OpenClaw).
-///
-/// Score = frequency × 0.30 + recency × 0.25 + importance × 0.25 + age × 0.20
-///
-/// - frequency: access_count / 10 (capped at 1.0)
-/// - recency: exp(-days_since_access * ln2 / 14) — 14-day half-life
-/// - importance: current_importance / 5.0
-/// - age: min(days_since_creation / 7, 1.0) — older = more validated
-///
-/// Items with score >= 0.5 AND access_count >= 3 get promoted.
-///
-/// Lock discipline: acquires the mem connection lock only to snapshot
-/// candidates and, per-batch, to commit an UPDATE + history_log pair. Scoring
-/// runs lock-free; between batches the task yields so API handlers aren't
-/// starved. Holds a `heavy_ops` permit for the full call so only a bounded
-/// number of background mem jobs run concurrently.
+/// Test-only fixture; production runs the SQL inline in `cli::worker_dreaming_light`.
+/// Pull the CLI back under codeterm_lib later? Reintroduce a sync version and call it.
 #[cfg(test)]
 pub async fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
     let _permit = mem.acquire_heavy_permit().await;
@@ -86,6 +69,7 @@ pub async fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
 #[cfg(test)]
 type LightCandidate = (String, i64, f64, String, Option<String>);
 
+// Mirrored in `cli/src/main.rs::worker_dreaming_light`; keep SQL in sync.
 #[cfg(test)]
 fn light_query_candidates(
     conn: &Connection,
@@ -116,6 +100,7 @@ fn light_query_candidates(
     Ok(rows)
 }
 
+// Mirrored in `cli/src/main.rs::worker_dreaming_light`; keep scoring + UPDATE + history INSERT in sync.
 #[cfg(test)]
 fn light_promote_one(
     conn: &Connection,
@@ -187,15 +172,8 @@ fn light_promote_one(
     Ok(n > 0)
 }
 
-/// Deep phase: archive stale items that nobody reads.
-/// Sets importance to 0 — items stay searchable but won't appear in L1 wake-up.
-///
-/// Targets by age threshold:
-/// - conversation, daily: >30 days, never accessed
-/// - note, script: >60 days, never accessed
-/// - learning: >90 days, never accessed (hasn't earned promotion → stale)
-///
-/// All require importance < 4.0 (user-pinned items are untouched).
+/// Test-only fixture; production runs the SQL inline in `cli::worker_dreaming_deep`.
+/// Pull the CLI back under codeterm_lib later? Reintroduce a sync version and call it.
 #[cfg(test)]
 pub async fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
     let _permit = mem.acquire_heavy_permit().await;
@@ -223,6 +201,7 @@ pub async fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
     })
 }
 
+// Mirrored in `cli/src/main.rs::worker_dreaming_deep`; keep tier table in sync.
 #[cfg(test)]
 fn deep_tiers() -> &'static [(&'static str, i64)] {
     &[
@@ -234,6 +213,7 @@ fn deep_tiers() -> &'static [(&'static str, i64)] {
     ]
 }
 
+// Mirrored in `cli/src/main.rs::worker_dreaming_deep`; keep UPDATE in sync.
 #[cfg(test)]
 fn deep_expire_tier(conn: &Connection, kind: &str, days: i64) -> Result<u64, String> {
     let now = chrono::Utc::now().to_rfc3339();
