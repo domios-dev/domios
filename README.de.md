@@ -56,6 +56,7 @@ Gebaut mit **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Berechtigungsbenachrichtigungen** — zeigt Claude-Code-Berechtigungsanfragen als Desktop-Benachrichtigungen an
 - **Webhook-System** — Webhooks für Agenten-Events registrieren (Berechtigungsanfragen, Aufgabenabschluss)
 - **Programmatische Steuerung** — Agenten können Panes erstellen, Befehle ausführen und Ausgaben über die API lesen
+- **Agenten-Neustart** — `codeterm agent restart --pane ID` führt einen geordneten `/exit` mit Auto-Resume in jedem Pane aus (`--force` killt einen hängenden Agenten); derselbe Mechanismus wie beim Self-Update
 
 ### Vollständige API
 - **REST-API** — über 30 Endpunkte für vollständige Terminalsteuerung (Port 7685)
@@ -63,6 +64,16 @@ Gebaut mit **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Socket-API** — JSON-RPC v2 über Named Pipes (Windows) / Unix-Sockets
 - **Echtzeit-Streaming** — SSE-Endpunkt für Live-Terminal-Ausgaben
 - **Ausgabeerfassung** — cursorbasierte Paginierung, ANSI-Stripping, Bildschirm-Snapshots
+
+### Bridges & externe Dienste
+- **Telegram-Bridge** — bidirektional. Eingehende Nachrichten landen im General-Agent-Pane als `[Telegram: USER_ID] text`; ausgehende Antworten gehen über `codeterm bridge send` mit HTML-Formatierung (der Sanitizer escaped automatisch fremde `<word>`-Substrings, damit nicht unterstützte Tokens den Parser nicht brechen)
+- **Sprach-Transkription** — bei `integrations.voice_transcribe.enabled = true` werden Sprach- und Video-Notizen von einem lokalen Whisper-Daemon (Standard `http://127.0.0.1:7891`) transkribiert, bevor sie irgendeinen Agenten erreichen — Claude, Codex und künftige Clients sind mit einer einzigen Upstream-Änderung abgedeckt
+- **Webhook-Bridge** — URLs für Agenten-Events registrieren (`agent.permission_request`, `agent.task_complete`, `agent.report`)
+
+### Self-Update & Resilienz
+- **Self-Update** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Manifeste sind ed25519-signiert und werden verifiziert, bevor irgendeine Binary angefasst wird; Auto-Install führt einen 9-stufigen geordneten Shutdown aus (mem-WAL-Checkpoint, Supervisor-Stop, signierter Binary-Tausch), danach resumen die Panes automatisch — Kontext überlebt das Upgrade
+- **Subprozess-Supervisor** — schwere Mem-Operationen (Dreaming, Librarian-Extraktion) laufen als Kindprozesse mit Circuit-Breaker (3 Fehler in 60 s → offen). Worker-Tod legt die API nicht lahm; `503`-Timeouts auf schweren Mem-Anfragen halten den Daemon reaktionsfähig
+- **Externer Watchdog** — Health-Probe unter `/api/health`; Setup-Rezepte für Windows Task Scheduler, launchd und systemd in [docs/RESILIENCE.md](docs/RESILIENCE.md)
 
 ### Themes
 - **8 integrierte Themes** — GitHub Dark, Dracula, Catppuccin Mocha, One Dark, Nord, GitHub Light, Solarized Light, Pip-Boy
