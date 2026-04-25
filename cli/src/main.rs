@@ -244,6 +244,15 @@ pub enum Commands {
     Update {
         #[command(subcommand)]
         action: Option<UpdateAction>,
+        /// Shortcut for `update check`
+        #[arg(long, conflicts_with_all = ["apply", "channel"])]
+        check: bool,
+        /// Shortcut for `update install --auto`
+        #[arg(long, conflicts_with_all = ["check", "channel"])]
+        apply: bool,
+        /// Shortcut for `update channel [name]`. Pass without value to print current channel.
+        #[arg(long, num_args = 0..=1, default_missing_value = "", conflicts_with_all = ["check", "apply"])]
+        channel: Option<String>,
     },
 
     /// Read or write CodeTerm configuration
@@ -965,6 +974,11 @@ pub enum UpdateAction {
         /// Use Tauri built-in updater: download, install, and restart automatically
         #[arg(long)]
         auto: bool,
+    },
+    /// Get or set the update channel (stable, rc, nightly)
+    Channel {
+        /// New channel value. Omit to print current channel.
+        channel: Option<String>,
     },
 }
 
@@ -2118,11 +2132,23 @@ fn main() {
             }
         }
 
-        Commands::Update { action } => {
+        Commands::Update { action, check, apply, channel } => {
             let (base_url, token) = read_api_config();
             let http = build_http(&token);
 
-            match action.unwrap_or(UpdateAction::Check { force: false }) {
+            let resolved = if let Some(ch) = channel {
+                Some(UpdateAction::Channel {
+                    channel: if ch.is_empty() { None } else { Some(ch) },
+                })
+            } else if apply {
+                Some(UpdateAction::Install { auto: true })
+            } else if check {
+                Some(UpdateAction::Check { force: false })
+            } else {
+                action
+            };
+
+            match resolved.unwrap_or(UpdateAction::Check { force: false }) {
                 UpdateAction::Check { force } => {
                     let url = if force {
                         format!("{}/api/update/check?force=true", base_url)
@@ -2194,6 +2220,37 @@ fn main() {
                                     }
                                     _ => println!("{}", body),
                                 }
+                            }
+                        }
+                        Ok(resp) => {
+                            eprintln!("Error: {}", resp.status());
+                            std::process::exit(1);
+                        }
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                    return;
+                }
+                UpdateAction::Channel { channel } => {
+                    let url = format!("{}/api/update/channel", base_url);
+                    let result = match channel {
+                        None => http.get(&url).send(),
+                        Some(name) => http
+                            .post(&url)
+                            .json(&serde_json::json!({ "channel": name }))
+                            .send(),
+                    };
+                    match result {
+                        Ok(resp) if resp.status().is_success() => {
+                            let body: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+                            } else if let Some(c) = body["channel"].as_str() {
+                                println!("Channel: {}", c);
+                            } else {
+                                println!("{}", body);
                             }
                         }
                         Ok(resp) => {
