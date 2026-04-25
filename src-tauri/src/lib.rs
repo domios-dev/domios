@@ -585,7 +585,7 @@ fn start_servers(
             Ok(false) => log::debug!("[mem] dreaming cron already present"),
             Err(e) => log::warn!("[mem] failed to install dreaming cron: {}", e),
         }
-        // Librarian is now a direct in-process loop (see start_librarian_loop).
+        // Librarian now runs as a CLI subprocess via the mem supervisor.
         // Remove the legacy LLM-based cron from any older install so we don't
         // keep burning tokens to wrap a single bash command.
         if mem::dreaming::remove_legacy_librarian_cron(&mut cs) {
