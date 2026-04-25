@@ -17,6 +17,7 @@ pub mod activity;
 pub mod workers;
 pub mod auto_extract;
 pub mod file_sync;
+pub mod supervisor;
 
 // TODO(mesh-sync): cross-machine replication — see docs/plans/mem-architecture.md "Mesh replication policy".
 

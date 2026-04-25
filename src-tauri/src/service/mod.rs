@@ -57,6 +57,7 @@ pub struct ServiceContext {
     pub report_store: ReportStoreState,
     pub agent_registry: Arc<AgentRegistry>,
     pub mem: Arc<crate::mem::MemManager>,
+    pub mem_supervisor: Arc<crate::mem::supervisor::Supervisor>,
     pub activity: Arc<crate::mem::activity::ActivityRing>,
     pub workers: Arc<crate::mem::workers::GraphWorkerRegistry>,
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
