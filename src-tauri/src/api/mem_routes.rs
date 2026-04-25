@@ -608,6 +608,7 @@ pub async fn mem_dream(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let reports = dreaming::run_all(&state.svc.mem)
+        .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     let svc = state.svc.clone();
