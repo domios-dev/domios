@@ -1,0 +1,157 @@
+name: update-smoke
+
+# End-to-end smoke test for the self-update pipeline. Builds two
+# `dev-updater-allowlocal` versions (0.0.1-test → 0.0.2-test), serves the
+# newer one over a local HTTP server, runs `codeterm update --apply
+# --manifest-url http://127.0.0.1:8080/manifest.json`, then asserts the
+# relaunched binary reports the new version.
+#
+# Cost-gated: only runs when a maintainer adds the `test:update-smoke`
+# label to a PR, or when triggered manually via workflow_dispatch.
+#
+# Status: SCAFFOLD. The job will fail today because several pieces of
+# machinery do not exist yet — see the TODO comments inline. Track these
+# in docs/plans/auto-update.md §Testing.
+
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    # Skip unless the trigger was a label add of test:update-smoke
+    # (workflow_dispatch always passes the condition).
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'test:update-smoke')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            install_ext: msi
+          - os: macos-14
+            target: aarch64-apple-darwin
+            install_ext: dmg
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri
+            cli
+
+      - name: Install pnpm deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build two-version test rig
+        # build-fixture.sh sed-flips src-tauri/tauri.conf.json between
+        # 0.0.1-test and 0.0.2-test, runs `pnpm tauri build --features
+        # dev-updater-allowlocal`, copies bundles into ./dist, and
+        # regenerates manifest.json with real signatures.
+        #
+        # TODO: build-fixture.sh today documents the recipe but is a
+        # bash script — Windows runners need a PowerShell port or use
+        # Git Bash via `shell: bash`. Pin the dev signing keypair into a
+        # repo secret (`TAURI_DEV_PRIVATE_KEY`) so signatures are
+        # reproducible across runners; never reuse the prod key here.
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_DEV_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_DEV_KEY_PASSWORD }}
+        run: |
+          cd tests/fixtures/auto-update
+          ./build-fixture.sh ${{ matrix.target }}
+
+      - name: Install older version (0.0.1-test)
+        # TODO: silent-install flags vary per platform.
+        # Windows MSI: `msiexec /i <path> /qn`
+        # macOS DMG : `hdiutil attach <path>` then `cp -R *.app /Applications/`
+        # Both need the `dev-updater-allowlocal` feature baked in to
+        # accept the http://127.0.0.1 manifest URL.
+        shell: bash
+        run: |
+          echo "TODO: platform-specific silent install of 0.0.1-test bundle"
+          ls tests/fixtures/auto-update/dist/
+
+      - name: Serve fixture over loopback
+        # python -m http.server is good enough for loopback. Background
+        # the process; the next step polls the upgrade.
+        shell: bash
+        run: |
+          cd tests/fixtures/auto-update
+          python -m http.server 8080 --directory dist &
+          echo $! > .http_server.pid
+          # Wait for the listener to come up.
+          for _ in {1..20}; do
+            curl -s -o /dev/null http://127.0.0.1:8080/ && break
+            sleep 0.5
+          done
+
+      - name: Launch CodeTerm 0.0.1-test headlessly
+        # TODO: headless launch flag does not exist yet. Need either
+        # `--no-window` or `CODETERM_HEADLESS=1` env handling in
+        # src-tauri/src/lib.rs::run() so this step doesn't try to
+        # render a webview on a CI runner. Track in
+        # docs/plans/auto-update.md §Testing.CI.
+        shell: bash
+        run: |
+          echo "TODO: launch 0.0.1-test headlessly, wait for /api/health to respond"
+
+      - name: Trigger self-update against local manifest
+        shell: bash
+        run: |
+          codeterm update --apply --manifest-url http://127.0.0.1:8080/manifest.json
+          # Poll /api/health for ~60s waiting for the new build to come up.
+          for i in {1..60}; do
+            health=$(curl -s http://127.0.0.1:7685/api/health || echo '')
+            ver=$(echo "$health" | python -c 'import sys,json; print(json.load(sys.stdin).get("version",""))' 2>/dev/null || echo '')
+            if [ "$ver" = "0.0.2-test" ]; then
+              echo "Updated to 0.0.2-test (poll #$i)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Update did not complete within 60s"
+          exit 1
+
+      - name: Assert CLI version matches
+        shell: bash
+        run: |
+          v=$(codeterm --version | awk '{print $NF}')
+          test "$v" = "0.0.2-test" || { echo "Expected 0.0.2-test, got $v"; exit 1; }
+
+      - name: Tear down HTTP server
+        if: always()
+        shell: bash
+        run: |
+          if [ -f tests/fixtures/auto-update/.http_server.pid ]; then
+            kill "$(cat tests/fixtures/auto-update/.http_server.pid)" || true
+          fi
+
+      - name: Upload diagnostic logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-smoke-logs-${{ matrix.os }}
+          path: |
+            ~/.codeterm/logs/
+            tests/fixtures/auto-update/dist/
+          if-no-files-found: ignore
