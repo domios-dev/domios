@@ -1,7 +1,7 @@
 # CodeTerm self-update via tauri-plugin-updater
 
-**Branch:** `feat/auto-update`
-**Status:** queued — pick up after `feat/prod-resilience` is merged.
+**Branch:** `feat/auto-update` (merged into `develop` 2026-04-25 as 540d42e)
+**Status:** shipped 2026-04-25 — Phases 1–4 landed. The brief below is kept as the design record; for current behaviour see `docs/API.md` §Updates and `docs/contributing/auto-update-testing.md`.
 **Source:** Andrey 2026-04-25, expanded into a brief here.
 
 ## Goal
