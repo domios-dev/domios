@@ -10,9 +10,9 @@ lives in `git log` with no aggregated narrative.
 ## [1.1.0] — 2026-04-29
 
 The "resilience + features" push. Seven feature branches plus three
-cleanup followups landed in `develop` on 2026-04-25; the wake-up
-auto-injection and a pty cleanup fix followed on 2026-04-28. Design
-rationale for the 04-25 batch lives in the mem decisions chain
+cleanup followups landed in `develop` on 2026-04-25; a pty cleanup fix
+merged on 2026-04-26 and the wake-up auto-injection on 2026-04-29.
+Design rationale for the 04-25 batch lives in the mem decisions chain
 (`fact_design_decisions_chain_2026_04_25_codeterm_resilience_featur`).
 
 ### Added
