@@ -208,7 +208,9 @@ pub fn find_pending_items(
 
 /// Run extraction for pending items, sequentially spawning workers with
 /// a short delay between each to avoid flooding the LLM provider. Returns
-/// the number of workers queued. Runs in a background thread — returns immediately.
+/// the number of workers queued. Runs in a background tokio task — returns
+/// immediately. The background task holds a `heavy_ops` permit for its full
+/// duration so extraction batches can't saturate mem alongside dreaming.
 pub fn run_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
     let pending = match find_pending_items(&svc, limit) {
         Ok(p) => p,
@@ -221,13 +223,26 @@ pub fn run_extract_pending(svc: Arc<ServiceContext>, limit: usize) -> usize {
     let count = pending.len();
     log::info!("[auto-extract] queued {} pending items for extraction", count);
 
-    std::thread::spawn(move || {
+    let mem = svc.mem.clone();
+    let fut = async move {
+        let _permit = mem.acquire_heavy_permit().await;
         for (id, title, body, kind) in pending {
             spawn_extraction_worker(&svc, id, title, body, kind);
-            // Small delay so we don't fork a dozen claude processes at once.
-            std::thread::sleep(std::time::Duration::from_millis(500));
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
-    });
+    };
+    match tokio::runtime::Handle::try_current() {
+        Ok(h) => { h.spawn(fut); }
+        Err(_) => {
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("build extract runtime");
+                rt.block_on(fut);
+            });
+        }
+    }
 
     count
 }

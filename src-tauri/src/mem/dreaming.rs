@@ -8,6 +8,8 @@
 //! top of this baseline in later phases as needed.
 
 use rusqlite::params;
+#[cfg(test)]
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use super::MemManager;
@@ -20,109 +22,39 @@ pub struct DreamReport {
     pub phase: String,
 }
 
-/// Light phase: identify learnings that have been accessed multiple times,
-/// auto-promote them to facts and bump importance.
-///
-/// Weighted scoring for learning promotion (inspired by a gateway).
-///
-/// Score = frequency × 0.30 + recency × 0.25 + importance × 0.25 + age × 0.20
-///
-/// - frequency: access_count / 10 (capped at 1.0)
-/// - recency: exp(-days_since_access * ln2 / 14) — 14-day half-life
-/// - importance: current_importance / 5.0
-/// - age: min(days_since_creation / 7, 1.0) — older = more validated
-///
-/// Items with score >= 0.5 AND access_count >= 3 get promoted.
-pub fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
-    let conn = mem.conn();
-    let conn = conn.lock();
+/// Test-only fixture; production runs the SQL inline in `cli::worker_dreaming_light`.
+/// Pull the CLI back under codeterm_lib later? Reintroduce a sync version and call it.
+#[cfg(test)]
+pub async fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
+    let _permit = mem.acquire_heavy_permit().await;
+
+    const BATCH: usize = 8;
+
+    let now_ts = chrono::Utc::now();
+    let one_day_ago = (now_ts - chrono::Duration::days(1)).to_rfc3339();
+
+    let candidates = {
+        let conn = mem.conn().lock();
+        light_query_candidates(&conn, &one_day_ago)?
+    };
 
     let mut considered = 0u64;
     let mut promoted = 0u64;
-    let now_ts = chrono::Utc::now();
 
-    let one_day_ago = (now_ts - chrono::Duration::days(1)).to_rfc3339();
-    let mut stmt = conn
-        .prepare(
-            r#"SELECT id, access_count, importance, created_at, accessed_at
-               FROM mem_items
-               WHERE kind = 'learning'
-                 AND access_count >= 3
-                 AND created_at < ?1"#,
-        )
-        .map_err(|e| e.to_string())?;
-
-    let candidates: Vec<(String, i64, f64, String, Option<String>)> = stmt
-        .query_map(params![one_day_ago], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-        })
-        .map_err(|e| e.to_string())?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    for (id, access_count, importance, created_at, accessed_at) in &candidates {
-        considered += 1;
-
-        let frequency = (*access_count as f64 / 10.0).min(1.0);
-
-        let recency = accessed_at
-            .as_ref()
-            .and_then(|a| chrono::DateTime::parse_from_rfc3339(a).ok())
-            .map(|a| {
-                let days = (now_ts - a.with_timezone(&chrono::Utc))
-                    .num_hours()
-                    .max(0) as f64 / 24.0;
-                (-days * 0.693 / 14.0).exp() // ln(2)/14 ≈ 0.0495
-            })
-            .unwrap_or(0.0);
-
-        let imp_score = (*importance / 5.0).min(1.0);
-
-        let age = chrono::DateTime::parse_from_rfc3339(created_at)
-            .ok()
-            .map(|c| {
-                let days = (now_ts - c.with_timezone(&chrono::Utc))
-                    .num_hours()
-                    .max(0) as f64 / 24.0;
-                (days / 7.0).min(1.0)
-            })
-            .unwrap_or(0.5);
-
-        let score = frequency * 0.30 + recency * 0.25 + imp_score * 0.25 + age * 0.20;
-
-        if score >= 0.5 {
-            let now = chrono::Utc::now().to_rfc3339();
-            let new_imp = importance.max(4.0);
-            let n = super::store::with_changed_by("dreaming:rem", || {
-                let n = conn
-                    .execute(
-                        "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
-                        params![&now, &id],
-                    )
-                    .map_err(|e| e.to_string())?;
-                if n > 0 {
-                    super::store::history_log(
-                        &conn,
-                        id,
-                        "promote",
-                        &super::store::HistorySnapshot {
-                            importance: Some(*importance),
-                            kind: Some("learning".into()),
-                            ..Default::default()
-                        },
-                        &super::store::HistorySnapshot {
-                            importance: Some(new_imp),
-                            kind: Some("fact".into()),
-                            ..Default::default()
-                        },
-                        None,
-                    );
-                }
-                Ok::<usize, String>(n)
-            })?;
-            if n > 0 {
+    for (batch_idx, chunk) in candidates.chunks(BATCH).enumerate() {
+        for cand in chunk {
+            considered += 1;
+            let promote = {
+                let conn = mem.conn().lock();
+                light_promote_one(&conn, cand, now_ts)?
+            };
+            if promote {
                 promoted += 1;
             }
+        }
+
+        if batch_idx + 1 < candidates.chunks(BATCH).len() {
+            tokio::task::yield_now().await;
         }
     }
 
@@ -134,38 +66,131 @@ pub fn light_phase(mem: &MemManager) -> Result<DreamReport, String> {
     })
 }
 
-/// Deep phase: archive stale items that nobody reads.
-/// Sets importance to 0 — items stay searchable but won't appear in L1 wake-up.
-///
-/// Targets by age threshold:
-/// - conversation, daily: >30 days, never accessed
-/// - note, script: >60 days, never accessed
-/// - learning: >90 days, never accessed (hasn't earned promotion → stale)
-///
-/// All require importance < 4.0 (user-pinned items are untouched).
-pub fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
-    let conn = mem.conn();
-    let conn = conn.lock();
+#[cfg(test)]
+type LightCandidate = (String, i64, f64, String, Option<String>);
+
+// Mirrored in `cli/src/main.rs::worker_dreaming_light`; keep SQL in sync.
+#[cfg(test)]
+fn light_query_candidates(
+    conn: &Connection,
+    one_day_ago: &str,
+) -> Result<Vec<LightCandidate>, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"SELECT id, access_count, importance, created_at, accessed_at
+               FROM mem_items
+               WHERE kind = 'learning'
+                 AND access_count >= 3
+                 AND created_at < ?1"#,
+        )
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<_> = stmt
+        .query_map(params![one_day_ago], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, f64>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, Option<String>>(4)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(rows)
+}
+
+// Mirrored in `cli/src/main.rs::worker_dreaming_light`; keep scoring + UPDATE + history INSERT in sync.
+#[cfg(test)]
+fn light_promote_one(
+    conn: &Connection,
+    cand: &LightCandidate,
+    now_ts: chrono::DateTime<chrono::Utc>,
+) -> Result<bool, String> {
+    let (id, access_count, importance, created_at, accessed_at) = cand;
+
+    let frequency = (*access_count as f64 / 10.0).min(1.0);
+
+    let recency = accessed_at
+        .as_ref()
+        .and_then(|a| chrono::DateTime::parse_from_rfc3339(a).ok())
+        .map(|a| {
+            let days = (now_ts - a.with_timezone(&chrono::Utc))
+                .num_hours()
+                .max(0) as f64 / 24.0;
+            (-days * 0.693 / 14.0).exp() // ln(2)/14 ≈ 0.0495
+        })
+        .unwrap_or(0.0);
+
+    let imp_score = (*importance / 5.0).min(1.0);
+
+    let age = chrono::DateTime::parse_from_rfc3339(created_at)
+        .ok()
+        .map(|c| {
+            let days = (now_ts - c.with_timezone(&chrono::Utc))
+                .num_hours()
+                .max(0) as f64 / 24.0;
+            (days / 7.0).min(1.0)
+        })
+        .unwrap_or(0.5);
+
+    let score = frequency * 0.30 + recency * 0.25 + imp_score * 0.25 + age * 0.20;
+
+    if score < 0.5 {
+        return Ok(false);
+    }
+
+    let new_imp = importance.max(4.0);
     let now = chrono::Utc::now().to_rfc3339();
+    let n = super::store::with_changed_by("dreaming:rem", || {
+        let n = conn
+            .execute(
+                "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
+                params![&now, id],
+            )
+            .map_err(|e| e.to_string())?;
+        if n > 0 {
+            super::store::history_log(
+                conn,
+                id,
+                "promote",
+                &super::store::HistorySnapshot {
+                    importance: Some(*importance),
+                    kind: Some("learning".into()),
+                    ..Default::default()
+                },
+                &super::store::HistorySnapshot {
+                    importance: Some(new_imp),
+                    kind: Some("fact".into()),
+                    ..Default::default()
+                },
+                None,
+            );
+        }
+        Ok::<usize, String>(n)
+    })?;
+    Ok(n > 0)
+}
+
+/// Test-only fixture; production runs the SQL inline in `cli::worker_dreaming_deep`.
+/// Pull the CLI back under codeterm_lib later? Reintroduce a sync version and call it.
+#[cfg(test)]
+pub async fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
+    let _permit = mem.acquire_heavy_permit().await;
+
+    let tiers = deep_tiers();
     let mut total_expired = 0u64;
 
-    let tiers: &[(&str, i64)] = &[
-        ("conversation", 30),
-        ("daily", 30),
-        ("note", 60),
-        ("script", 60),
-        ("learning", 90),
-    ];
-
-    for (kind, days) in tiers {
-        let cutoff = (chrono::Utc::now() - chrono::Duration::days(*days)).to_rfc3339();
-        let expired = conn.execute(
-            "UPDATE mem_items SET importance = 0.0, updated_at = ?1 \
-             WHERE kind = ?2 AND access_count = 0 AND created_at < ?3 \
-             AND importance > 0.0 AND importance < 4.0",
-            params![&now, kind, &cutoff],
-        ).map_err(|e| e.to_string())? as u64;
+    for (idx, (kind, days)) in tiers.iter().enumerate() {
+        let expired = {
+            let conn = mem.conn().lock();
+            deep_expire_tier(&conn, kind, *days)?
+        };
         total_expired += expired;
+
+        if idx + 1 < tiers.len() {
+            tokio::task::yield_now().await;
+        }
     }
 
     Ok(DreamReport {
@@ -174,6 +199,34 @@ pub fn deep_phase(mem: &MemManager) -> Result<DreamReport, String> {
         dropped: total_expired,
         phase: "deep".into(),
     })
+}
+
+// Mirrored in `cli/src/main.rs::worker_dreaming_deep`; keep tier table in sync.
+#[cfg(test)]
+fn deep_tiers() -> &'static [(&'static str, i64)] {
+    &[
+        ("conversation", 30),
+        ("daily", 30),
+        ("note", 60),
+        ("script", 60),
+        ("learning", 90),
+    ]
+}
+
+// Mirrored in `cli/src/main.rs::worker_dreaming_deep`; keep UPDATE in sync.
+#[cfg(test)]
+fn deep_expire_tier(conn: &Connection, kind: &str, days: i64) -> Result<u64, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339();
+    let n = conn
+        .execute(
+            "UPDATE mem_items SET importance = 0.0, updated_at = ?1 \
+             WHERE kind = ?2 AND access_count = 0 AND created_at < ?3 \
+             AND importance > 0.0 AND importance < 4.0",
+            params![&now, kind, &cutoff],
+        )
+        .map_err(|e| e.to_string())? as u64;
+    Ok(n)
 }
 
 /// Prepare data for the REM agent — returns a text summary of candidates.
@@ -329,16 +382,8 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
     }
 }
 
-/// Run SQL phases (light + deep), then spawn headless REM worker.
-pub fn run_all(mem: &MemManager) -> Result<Vec<DreamReport>, String> {
-    let mut out = Vec::new();
-    out.push(light_phase(mem)?);
-    out.push(deep_phase(mem)?);
-    Ok(out)
-}
-
 /// Spawn a headless dreaming worker for REM phase (dedup, classify, insights, diary).
-/// Called after `run_all` completes SQL phases.
+/// Called after the supervisor runs the SQL phases.
 pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
     let mem_cfg = crate::config::memory_config();
     let agent = if mem_cfg.dreaming_agent.is_empty() {
@@ -450,8 +495,8 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
 pub const LIBRARIAN_CRON_NAME: &str = "mem-librarian-auto";
 
 /// Removes the legacy LLM-based librarian cron if it still exists from older
-/// installs. The librarian is now a direct in-process loop (see `start_librarian_loop`),
-/// not an agent — kept as a migration step.
+/// installs. The librarian now runs as a CLI subprocess via the supervisor;
+/// kept as a migration step.
 pub fn remove_legacy_librarian_cron(cron_store: &mut crate::cron::store::CronStore) -> bool {
     let existing = cron_store.list().iter().find(|j| j.name == LIBRARIAN_CRON_NAME).map(|j| j.id.clone());
     if let Some(id) = existing {
@@ -466,109 +511,13 @@ pub fn remove_legacy_librarian_cron(cron_store: &mut crate::cron::store::CronSto
     }
 }
 
-/// Librarian: scans source-tracked mem_items + auto-discovers new skill
-/// folders once per hour. Pure Rust loop — no agent, no tokens.
-pub fn start_librarian_loop(mem: std::sync::Arc<crate::mem::MemManager>) {
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_secs(30));
-        loop {
-            scan_skill_folders(&mem);
-            match crate::mem::file_sync::sync_all(&mem) {
-                Ok(result) => {
-                    if result.re_indexed > 0 || result.source_missing > 0 || result.source_recovered > 0 {
-                        log::info!(
-                            "[librarian] scan: re_indexed={} missing={} recovered={}",
-                            result.re_indexed, result.source_missing, result.source_recovered
-                        );
-                    } else {
-                        log::debug!("[librarian] scan: no changes");
-                    }
-                }
-                Err(e) => log::warn!("[librarian] scan failed: {}", e),
-            }
-            std::thread::sleep(std::time::Duration::from_secs(3600));
-        }
-    });
-}
-
-/// Find skill folders under ~/.codeterm/skills/ that have a SKILL.md but no
-/// matching mem_item with that source_path, and register them automatically.
-fn scan_skill_folders(mem: &std::sync::Arc<crate::mem::MemManager>) {
-    let skills_root = crate::paths::data_dir().join("skills");
-    if !skills_root.is_dir() { return }
-
-    let known_paths: std::collections::HashSet<String> = mem.with_conn(|conn| {
-        let mut out = std::collections::HashSet::new();
-        if let Ok(mut stmt) = conn.prepare("SELECT source_path FROM mem_items WHERE source_path LIKE 'file:%SKILL.md'") {
-            if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
-                for row in rows.flatten() { out.insert(row); }
-            }
-        }
-        out
-    });
-
-    let entries = match std::fs::read_dir(&skills_root) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let folder = entry.path();
-        if !folder.is_dir() { continue; }
-        let skill_md = folder.join("SKILL.md");
-        if !skill_md.is_file() { continue; }
-        let source = format!("file:{}", skill_md.display());
-        if known_paths.contains(&source) { continue; }
-
-        let body = match std::fs::read_to_string(&skill_md) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        let title = title_from_skill_md(&body)
-            .unwrap_or_else(|| folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "skill".into()));
-        let area = area_from_skill_md(&body);
-
-        let item = crate::mem::store::NewMemItem {
-            kind: crate::mem::store::MemKind::Skill,
-            scope: crate::mem::store::MemScope::Global,
-            title,
-            summary: None,
-            area,
-            tags: vec!["folder-skill".into(), "auto-registered".into()],
-            body,
-            source: Some(source.clone()),
-            importance: 4.0,
-            source_path: Some(source.clone()),
-        };
-        match mem.save(item) {
-            Ok(id) => log::info!("[librarian] auto-registered skill: {} ({})", id, source),
-            Err(e) => log::warn!("[librarian] auto-register failed for {}: {}", source, e),
-        }
-    }
-}
-
-fn title_from_skill_md(body: &str) -> Option<String> {
-    if let Some(line) = body.lines().take(20).find(|l| l.trim_start().starts_with("title:")) {
-        let v = line.trim_start().trim_start_matches("title:").trim().trim_matches('"').to_string();
-        if !v.is_empty() { return Some(v); }
-    }
-    body.lines().find(|l| l.trim_start().starts_with("# "))
-        .map(|l| l.trim_start().trim_start_matches("# ").trim().to_string())
-}
-
-fn area_from_skill_md(body: &str) -> Option<String> {
-    body.lines().take(20)
-        .find(|l| l.trim_start().starts_with("area:"))
-        .map(|l| l.trim_start().trim_start_matches("area:").trim().trim_matches('"').to_string())
-        .filter(|s| !s.is_empty())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::mem::store::{MemKind, MemScope, NewMemItem};
 
-    #[test]
-    fn light_phase_promotes_accessed_learnings() {
+    #[tokio::test]
+    async fn light_phase_promotes_accessed_learnings() {
         let mem = MemManager::open_in_memory().unwrap();
         let id = mem
             .save(NewMemItem {
@@ -585,7 +534,6 @@ mod tests {
             })
             .unwrap();
 
-        // Backdate creation + simulate 3 accesses (meets threshold)
         {
             let conn = mem.conn();
             let conn = conn.lock();
@@ -597,7 +545,7 @@ mod tests {
             .unwrap();
         }
 
-        let report = light_phase(&mem).unwrap();
+        let report = light_phase(&mem).await.unwrap();
         assert_eq!(report.considered, 1);
         assert_eq!(report.promoted, 1);
 
@@ -606,8 +554,8 @@ mod tests {
         assert!(after.importance >= 4.0);
     }
 
-    #[test]
-    fn deep_phase_expires_old_unaccessed_conversations() {
+    #[tokio::test]
+    async fn deep_phase_expires_old_unaccessed_conversations() {
         let mem = MemManager::open_in_memory().unwrap();
         let id = mem
             .save(NewMemItem {
@@ -636,7 +584,7 @@ mod tests {
             .unwrap();
         }
 
-        let report = deep_phase(&mem).unwrap();
+        let report = deep_phase(&mem).await.unwrap();
         assert_eq!(report.dropped, 1);
         // Item still exists but with importance = 0 (expired, not deleted)
         let after = mem.get(&id).unwrap().unwrap();
@@ -667,8 +615,8 @@ mod tests {
         assert_eq!(job.schedule, "0 3 * * *");
     }
 
-    #[test]
-    fn deep_phase_keeps_high_importance_conversations() {
+    #[tokio::test]
+    async fn deep_phase_keeps_high_importance_conversations() {
         let mem = MemManager::open_in_memory().unwrap();
         let id = mem
             .save(NewMemItem {
@@ -695,7 +643,7 @@ mod tests {
             .unwrap();
         }
 
-        let r = deep_phase(&mem).unwrap();
+        let r = deep_phase(&mem).await.unwrap();
         assert_eq!(r.dropped, 0);
         assert!(mem.get(&id).unwrap().is_some());
     }

@@ -56,6 +56,7 @@ CodeTerm 是一款从零开始为 AI 辅助开发而设计的跨平台终端复�
 - **权限通知** — 将 Claude Code 的权限请求作为桌面通知呈现
 - **Webhook 系统** — 为代理事件（权限请求、任务完成）注册 webhook
 - **编程控制** — 代理可以通过 API 创建窗格、运行命令、读取输出
+- **代理重启** — `codeterm agent restart --pane ID` 在任意窗格执行优雅 `/exit` 加自动恢复（`--force` 强制结束挂起的代理）；与自更新使用同一机制
 
 ### 完整 API
 - **REST API** — 30+ 个端点，提供完整的终端控制（端口 7685）
@@ -63,6 +64,16 @@ CodeTerm 是一款从零开始为 AI 辅助开发而设计的跨平台终端复�
 - **Socket API** — 基于命名管道（Windows）/ Unix 套接字的 JSON-RPC v2
 - **实时流式传输** — SSE 端点，用于实时终端输出
 - **输出捕获** — 基于游标的分页、ANSI 剥离、屏幕快照
+
+### 桥接与外部服务
+- **Telegram 桥接** — 双向。入站消息以 `[Telegram: USER_ID] text` 形式抵达 General Agent 窗格；出站回复通过 `codeterm bridge send` 以 HTML 格式发送（清理器自动转义不受支持的 `<word>` 子串，使陌生标记不会破坏解析器）
+- **语音转写** — 当 `integrations.voice_transcribe.enabled = true` 时，语音 / 视频留言由本地 Whisper 守护进程（默认 `http://127.0.0.1:7891`）转写后再送达任何代理 —— Claude、Codex 及未来的客户端都通过单一上游变更得到覆盖
+- **Webhook 桥接** — 为代理事件（`agent.permission_request`、`agent.task_complete`、`agent.report`）注册 URL
+
+### 自更新与韧性
+- **自更新** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`。清单使用 ed25519 签名，在触碰任何二进制前都会先验证；自动安装执行 9 步优雅关机（mem WAL 检查点、停止监督进程、签名二进制热替换），随后窗格自动恢复 —— 上下文不会因升级丢失
+- **子进程监督器** — 重型 mem 操作（dreaming、Librarian 提取）在子进程中运行并配有熔断器（60 秒内 3 次失败即开路）。worker 崩溃不会拖垮 API；重型 mem 请求上的 `503` 超时让守护进程保持响应
+- **外部看门狗** — `/api/health` 上的健康探针；针对 Windows 任务计划程序、launchd 与 systemd 的设置配方见 [docs/RESILIENCE.md](docs/RESILIENCE.md)
 
 ### 主题
 - **8 个内置主题** — GitHub Dark、Dracula、Catppuccin Mocha、One Dark、Nord、GitHub Light、Solarized Light、Pip-Boy

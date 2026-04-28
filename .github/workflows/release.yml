@@ -1,0 +1,245 @@
+name: release
+
+"on":
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v1.0.2). Required for manual runs.'
+        required: true
+        type: string
+
+# Required GitHub repository secrets — configure in Settings → Secrets → Actions
+# before the first run. Each entry below documents the expected value.
+#
+# TAURI_PRIVATE_KEY:
+#   Full text of the encrypted ed25519 private key file
+#   (`~/.tauri/codeterm.key`). Generate once with:
+#     cargo tauri signer generate -w ~/.tauri/codeterm.key
+#   The matching public key must already be in
+#   `src-tauri/tauri.conf.json::plugins.updater.pubkey`.
+#
+# TAURI_KEY_PASSWORD:
+#   Passphrase entered when generating the keypair above. Used by
+#   tauri-action to decrypt the private key before signing.
+#
+# APPLE_ID:
+#   Apple ID email used for notarytool submissions
+#   (e.g. releases@codeterm.app).
+#
+# APPLE_PASSWORD:
+#   App-specific password generated at https://appleid.apple.com for the
+#   APPLE_ID account. NOT the iCloud password — the dedicated notarization
+#   password.
+#
+# APPLE_TEAM_ID:
+#   10-character Apple Developer team identifier (e.g. JMMWQ9LWF7), shown
+#   in the Apple Developer membership page.
+#
+# APPLE_CERTIFICATE:
+#   Base64-encoded `.p12` export of the "Developer ID Application" cert and
+#   its private key. Generate locally with:
+#     security export -k login.keychain -t identities -f pkcs12 \
+#       -o codeterm-developer-id.p12
+#     base64 -i codeterm-developer-id.p12 | pbcopy
+#
+# APPLE_CERTIFICATE_PASSWORD:
+#   Password set when exporting the .p12 above.
+#
+# APPLE_SIGNING_IDENTITY:
+#   Common Name of the signing identity, exactly as `security find-identity`
+#   prints it. Example:
+#     "Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust_target: x86_64-pc-windows-msvc
+          - os: macos-13
+            target: x86_64-apple-darwin
+            rust_target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+            rust_target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect channel and prerelease flag
+        id: channel
+        shell: bash
+        run: |
+          tag="${{ steps.tag.outputs.name }}"
+          if [[ "$tag" == *-rc* ]]; then
+            echo "manifest=latest-rc.json" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$tag" == *-nightly* ]]; then
+            echo "manifest=latest-nightly.json" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "manifest=latest.json" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri
+            cli
+          key: ${{ matrix.target }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
+
+      - name: Install npm dependencies
+        run: pnpm install --frozen-lockfile
+
+      # macOS x86_64 needs the onnxruntime dynamic library bundled next to
+      # the app binary because pyke does not ship an ort prebuilt for this
+      # target. arm64 keeps static linking via fastembed's default path.
+      - name: Stage onnxruntime dylib (macOS x86_64 only)
+        if: matrix.target == 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          ONNX_VER="1.23.2"
+          ONNX_DIR="/tmp/onnxruntime-osx-x86_64-${ONNX_VER}"
+          ONNX_TGZ="${ONNX_DIR}.tgz"
+          curl -sL -o "$ONNX_TGZ" \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VER}/onnxruntime-osx-x86_64-${ONNX_VER}.tgz"
+          tar -xzf "$ONNX_TGZ" -C /tmp/
+          mkdir -p src-tauri/bundled-embed-libs
+          cp "${ONNX_DIR}/lib/libonnxruntime.${ONNX_VER}.dylib" \
+            src-tauri/bundled-embed-libs/libonnxruntime.dylib
+
+      - name: Import Apple signing certificate (macOS)
+        if: startsWith(matrix.os, 'macos')
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Build, sign, and upload release assets
+        uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ steps.tag.outputs.name }}
+          releaseName: 'CodeTerm ${{ steps.tag.outputs.name }}'
+          releaseBody: 'See the assets to download this version and install. Auto-update users will be offered this build via the configured channel.'
+          releaseDraft: true
+          prerelease: ${{ steps.channel.outputs.prerelease }}
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: --target ${{ matrix.target }}
+
+      - name: Upload latest.json fragment as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-manifest-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/latest.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  publish-manifest:
+    name: publish channel manifest
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect channel manifest filename
+        id: channel
+        shell: bash
+        run: |
+          tag="${{ steps.tag.outputs.name }}"
+          if [[ "$tag" == *-rc* ]]; then
+            echo "manifest=latest-rc.json" >> "$GITHUB_OUTPUT"
+          elif [[ "$tag" == *-nightly* ]]; then
+            echo "manifest=latest-nightly.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "manifest=latest.json" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download per-platform manifest fragments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: updater-manifest-*
+          path: manifest-fragments
+          merge-multiple: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Merge fragments into channel manifest
+        shell: bash
+        run: |
+          node scripts/merge-latest-json.js \
+            --in manifest-fragments \
+            --out "${{ steps.channel.outputs.manifest }}"
+
+      - name: Upload channel manifest to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.tag.outputs.name }}" \
+            "${{ steps.channel.outputs.manifest }}" \
+            --clobber \
+            --repo "${{ github.repository }}"

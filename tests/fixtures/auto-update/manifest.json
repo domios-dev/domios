@@ -1,0 +1,19 @@
+{
+  "version": "0.0.2-test",
+  "notes": "CodeTerm auto-update test fixture. Two-version rig per docs/contributing/auto-update-testing.md.",
+  "pub_date": "2026-04-25T00:00:00Z",
+  "platforms": {
+    "windows-x86_64": {
+      "url": "http://127.0.0.1:8080/dist/codeterm-0.0.2-test-x64.msi.zip",
+      "signature": "PLACEHOLDER_RUN_BUILD_FIXTURE_SH_TO_REGENERATE"
+    },
+    "darwin-aarch64": {
+      "url": "http://127.0.0.1:8080/dist/codeterm-0.0.2-test-aarch64.app.tar.gz",
+      "signature": "PLACEHOLDER_RUN_BUILD_FIXTURE_SH_TO_REGENERATE"
+    },
+    "darwin-x86_64": {
+      "url": "http://127.0.0.1:8080/dist/codeterm-0.0.2-test-x64.app.tar.gz",
+      "signature": "PLACEHOLDER_RUN_BUILD_FIXTURE_SH_TO_REGENERATE"
+    }
+  }
+}

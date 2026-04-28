@@ -56,6 +56,7 @@ Construído com **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Notificações de permissão** — exibe solicitações de permissão do Claude Code como notificações da área de trabalho
 - **Sistema de webhooks** — registre webhooks para eventos de agentes (solicitações de permissão, conclusão de tarefas)
 - **Controle programático** — agentes podem criar painéis, executar comandos, ler saída via API
+- **Reinício de agente** — `codeterm agent restart --pane ID` executa um `/exit` ordenado com auto-retomada em qualquer painel (`--force` mata um agente travado); reutiliza o mesmo mecanismo da auto-atualização
 
 ### API Completa
 - **API REST** — mais de 30 endpoints para controle completo do terminal (porta 7685)
@@ -63,6 +64,16 @@ Construído com **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **API de Socket** — JSON-RPC v2 via named pipes (Windows) / Unix sockets
 - **Streaming em tempo real** — endpoint SSE para saída ao vivo do terminal
 - **Captura de saída** — paginação baseada em cursor, remoção de ANSI, snapshots de tela
+
+### Pontes e serviços externos
+- **Ponte Telegram** — bidirecional. Mensagens recebidas chegam ao painel do General Agent como `[Telegram: USER_ID] text`; respostas saem via `codeterm bridge send` com formatação HTML (o sanitizador escapa automaticamente subcadeias `<word>` não suportadas para que tokens desconhecidos não quebrem o parser)
+- **Transcrição de voz** — quando `integrations.voice_transcribe.enabled = true`, mensagens de voz / nota de vídeo são transcritas por um daemon Whisper local (por padrão `http://127.0.0.1:7891`) antes de chegarem a qualquer agente — Claude, Codex e clientes futuros são cobertos por uma única mudança upstream
+- **Ponte de webhooks** — registre URLs para eventos de agente (`agent.permission_request`, `agent.task_complete`, `agent.report`)
+
+### Auto-atualização e resiliência
+- **Auto-atualização** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Manifestos são assinados com ed25519 e verificados antes de qualquer toque no binário; a auto-instalação executa um desligamento ordenado em 9 etapas (checkpoint do WAL de mem, parada do supervisor, troca do binário assinado), após o que os painéis se auto-retomam — o contexto sobrevive à atualização
+- **Supervisor de subprocessos** — operações pesadas de mem (dreaming, extração do Librarian) rodam como processos filhos com disjuntor (3 falhas em 60 s → aberto). A morte de um worker não derruba a API; timeouts `503` em requisições pesadas mantêm o daemon responsivo
+- **Watchdog externo** — sonda de saúde em `/api/health`; receitas de configuração para Windows Task Scheduler, launchd e systemd em [docs/RESILIENCE.md](docs/RESILIENCE.md)
 
 ### Temas
 - **8 temas integrados** — GitHub Dark, Dracula, Catppuccin Mocha, One Dark, Nord, GitHub Light, Solarized Light, Pip-Boy

@@ -63,6 +63,7 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/hook/permission` | `{question?, options?: [{label, value}]}` | Notify that agent is showing a permission prompt (see below) |
 | POST | `/api/panes/{id}/hook/stop` | `{}` | Notify that the agent finished its turn (see below) |
 | POST | `/api/panes/{id}/hook/session_start` | *(Claude SessionStart JSON, forwarded from stdin)* | Persist the agent-reported `session_id` on the pane; covers `/new` and `/clear` inside the TUI (see below) |
+| POST | `/api/panes/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart the agent in this pane (graceful `/exit` + auto-resume). See [Agent Restart](#agent-restart-post-apipanesidagentrestart). |
 
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
@@ -266,10 +267,32 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 | POST | `/api/crons/:id/cancel` | — | Stop any currently-running executions of this cron job. Returns `{cancelled: N}` — number of panes closed. Does NOT delete the job; future scheduled fires continue normally. Running history entries flip status to `Cancelled`. |
 | GET | `/api/crons/:id/history` | — | Get run history for cron job |
 
+Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
+
+**Oneshot jobs:** Set `oneshot: true` to create a one-time scheduled task. Oneshot jobs accept relative time (`"in 5m"`, `"in 1h30m"`, `"in 2d"`), ISO 8601 (`"2026-04-05T14:30:00Z"`), or unix milliseconds instead of cron expressions. After firing, oneshot jobs are disabled (`next_run=null`) and auto-deleted on completion. The `CronJob` object includes `oneshot: bool` (default `false`, omitted from JSON when `false`).
+
+**`model`** — optional per-job override of the agent's model (e.g. `"opus"`, `"haiku"`, `"gpt-5.4-mini"`). Valid values depend on the `agent` provider; query `/api/agents/providers` for the list. Unset → use provider default.
+
+**`jitter_max_ms`** — max random delay added to each scheduled fire. `null`/omitted → auto (10% of interval, clamped to `[1m, 30m]`). `0` → disabled (fires exactly on schedule). Positive → cap in milliseconds.
+
+**`CronRunStatus` enum:** `Running`, `Success`, `Failed`, `Cancelled`. `Cancelled` is set by `POST /api/crons/:id/cancel` on any runs currently in `Running` state.
+
+**Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden pane** (no UI surface); observe progress via the cron panel / `cron_read_log`, not as a regular tab. When done, the agent calls `codeterm cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. Successful spawns do not generate notifications — only errors do.
+
+**Workspace resolution:** The CLI `cron create` command uses `$CODETERM_WORKSPACE_ID` by default (the agent's own workspace), falling back to the first workspace if the env var is not set. Override with `--workspace ID`.
+
+**Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID.
+
+**Deleting a cron job** cascades: kills all running panes/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
+
+**Tauri events:**
+- `cron-state-changed` — emitted on any cron CRUD operation
+- `cron-fired` — emitted when a cron fires, payload: `{cron_id, run_id, pane_id, tab_id}`
+
 #### Memory
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/mem/search` | `?q=...&kind=...&area=...&scope=...&limit=N` | FTS5 full-text search across mem_items |
+| GET | `/api/mem/search` | `?q=...&kind=...&area=...&scope=...&limit=N&mode=hybrid_rrf\|vector_first_rerank&weight=0.30&rerank=true` | Hybrid retrieval. Default mode is `hybrid_rrf` (FTS5+vector RRF fusion). `mode=vector_first_rerank` switches to the a reference memory system-style pipeline (vector recall + keyword/temporal rerank); `weight` tunes its keyword-overlap strength (0.0..=1.0, default 0.30). `rerank=true` layers an LLM second-pass on top. |
 | GET | `/api/mem/recall` | `?q=...&limit=N` | Semantic-first search (vector + FTS5 fallback) |
 | GET | `/api/mem/items/{id}` | — | Get one item (full body) |
 | POST | `/api/mem/items` | `{kind, title, body, scope?, summary?, area?, tags?, source?, importance?, replace?, skip_extract?}` | Save a mem item. `skip_extract: true` suppresses the auto-extraction cascade (seed loaders use this to avoid re-extracting bundled items on every startup). |
@@ -357,30 +380,62 @@ The config is saved to disk and a `config-changed` Tauri event is emitted.
 #### Updates
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/api/update/check` | `?force=true` | Check for available updates |
-| POST | `/api/update/install` | — | Download and install pending update |
+| GET | `/api/update/check` | `?force=true` | Check for available updates on the active channel. Cached for 1 hour unless `force=true`. |
+| POST | `/api/update/install` | `?method=auto&manifest_url=...` | Install the pending update. Without `method=auto`, returns either an OS install command or opens the download URL in the browser. With `method=auto`, runs the full Tauri-plugin-updater flow (download, signature verify, install, restart). |
+| GET | `/api/update/channel` | — | Returns `{"channel": "stable" \| "rc" \| "nightly"}` |
+| POST | `/api/update/channel` | `{channel}` | Set the active channel. Persists to `[updater] channel = "..."` in `config.toml` and updates the in-memory state. |
 
-Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*/30 * * * *` (every 30 min), `0 9 * * *` (daily 9am), `0 9 * * 1` (Mondays 9am).
+**Channels.** `stable` is the default. `rc` follows release-candidate tags (`vX.Y.Z-rcN`); `nightly` follows develop builds. Manifests are signed with ed25519 — the public key is embedded in `tauri.conf.json`; signature verification is handled by `tauri-plugin-updater` and a wrong-key signature aborts the install before any binary is touched.
 
-**Oneshot jobs:** Set `oneshot: true` to create a one-time scheduled task. Oneshot jobs accept relative time (`"in 5m"`, `"in 1h30m"`, `"in 2d"`), ISO 8601 (`"2026-04-05T14:30:00Z"`), or unix milliseconds instead of cron expressions. After firing, oneshot jobs are disabled (`next_run=null`) and auto-deleted on completion. The `CronJob` object includes `oneshot: bool` (default `false`, omitted from JSON when `false`).
+**Auto install flow (`method=auto`).** The daemon spawns a background tokio runtime that calls `update::apply::check_and_apply`. This:
+1. Picks the manifest URL from `updater.channel` (or `manifest_url` query override — only honored when the binary is built with `dev-updater-allowlocal` for non-https schemes; release builds reject it).
+2. Downloads the platform asset, verifies the ed25519 signature, performs the platform-specific install (atomic binary swap on Windows, rsync into `.app` on macOS).
+3. Performs the 9-step graceful shutdown: panes are signaled to exit, the mem WAL is checkpointed, the supervisor is stopped, then the app restarts.
+4. After restart, Claude/Codex panes auto-resume their sessions (no context wipe).
 
-**`model`** — optional per-job override of the agent's model (e.g. `"opus"`, `"haiku"`, `"gpt-5.4-mini"`). Valid values depend on the `agent` provider; query `/api/agents/providers` for the list. Unset → use provider default.
+The HTTP response returns immediately (`{"status": "updating", "version": "..."}`); progress is reported via Tauri events to the frontend (`UpdateBadge` + `UpdateModal`).
 
-**`jitter_max_ms`** — max random delay added to each scheduled fire. `null`/omitted → auto (10% of interval, clamped to `[1m, 30m]`). `0` → disabled (fires exactly on schedule). Positive → cap in milliseconds.
+**Manual install fallback.** Without `method=auto`, the response carries either:
+- `{"status": "command", "command": "..."}` — for package-manager installs (Homebrew, Scoop) where running a shell command is the right action.
+- `{"status": "browser_opened", "url": "..."}` — for raw archive/installer downloads.
+- `{"status": "up_to_date"}` — when no update is available.
 
-**`CronRunStatus` enum:** `Running`, `Success`, `Failed`, `Cancelled`. `Cancelled` is set by `POST /api/crons/:id/cancel` on any runs currently in `Running` state.
+**Errors:** `502 Failed to check for updates` when GitHub is unreachable; `400 Run check first` when `install` is called before `check` populated the cache; `400 invalid channel` on a malformed `channel` body.
 
-**Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden pane** (no UI surface); observe progress via the cron panel / `cron_read_log`, not as a regular tab. When done, the agent calls `codeterm cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.codeterm/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections. Successful spawns do not generate notifications — only errors do.
+#### Agent Restart (POST /api/panes/{id}/agent/restart)
 
-**Workspace resolution:** The CLI `cron create` command uses `$CODETERM_WORKSPACE_ID` by default (the agent's own workspace), falling back to the first workspace if the env var is not set. Override with `--workspace ID`.
+Restart the agent in a pane. Default behaviour is graceful: send `/exit` (provider-specific exit command), wait up to `grace_secs` for the PTY to exit, then auto-resume via the existing pane lifecycle (Claude restarts as `claude --resume <session_id>` if a session id is recorded).
 
-**Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID.
+```json
+{"force": false, "grace_secs": 10}
+```
 
-**Deleting a cron job** cascades: kills all running panes/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `force` | `bool` | `false` | Skip the graceful exit and force-kill the PTY. Use only when the agent is hung / unresponsive. |
+| `grace_secs` | `u64` | `10` | Seconds to wait for graceful exit before force-killing. Ignored when `force=true`. |
 
-**Tauri events:**
-- `cron-state-changed` — emitted on any cron CRUD operation
-- `cron-fired` — emitted when a cron fires, payload: `{cron_id, run_id, pane_id, tab_id}`
+**Response** (`202 Accepted`):
+```json
+{
+  "restarting": true,
+  "pane_id": "a3f1b2c7",
+  "provider": "claude",
+  "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
+  "session_was_stale": false,
+  "force": false
+}
+```
+
+`session_was_stale` is `true` when the recorded session id pointed at a JSONL that no longer exists on disk; the restart proceeds without `--resume` and a fresh session is created.
+
+**Errors:**
+- `404` — pane id not found
+- `400` — pane has no agent to restart, or unsupported provider
+- `429` — rate-limited (returns `Retry-After` header + `{"retry_after_secs": N}` body); restart is throttled per-pane to avoid restart loops
+- `500` — internal restart failure (PTY spawn error, etc.)
+
+This is the same flow `codeterm agent restart --pane PANE_ID [--force] [--grace-secs N]` invokes from the CLI.
 
 ### Keep-Awake (GET/POST /api/keepawake*)
 
@@ -634,6 +689,7 @@ Newline-delimited JSON:
 | `agent.link` | `{pane_id, parent_pane_id}` | Link pane under parent |
 | `agent.report` | `{pane_id, message}` | Send report to direct parent |
 | `agent.reports` | `{pane_id, clear?}` | Read reports from children |
+| `agent.restart` | `{pane_id, force?, grace_secs?}` | Restart the agent in a pane (graceful `/exit` + auto-resume; same flow as REST). |
 | `cron.list` | `{workspace_id?}` | List cron jobs |
 | `cron.get` | `{id}` | Get cron job by ID |
 | `cron.create` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?}` | Create cron job |
@@ -704,6 +760,9 @@ codeterm agent reports [--pane ID] [--clear]   # Read reports from children
 codeterm agent status [--pane ID]              # Get detailed status + role
 codeterm agent compact [--pane ID]             # Send /compact to Claude (compacts context)
 codeterm agent model <sonnet|haiku|opus> [--pane ID]  # Switch Claude model (sends /model <name>)
+codeterm agent restart [--pane ID] [--force] [--grace-secs N]
+                                               # Restart agent (graceful /exit + auto-resume)
+                                               # --force skips the graceful exit, --grace-secs overrides the default 10s timeout
 codeterm agent providers                       # List registered agent providers (id, display_name, default_model, model count). Backed by GET /api/agents/providers.
 codeterm agent models PROVIDER                 # List available models for one provider (e.g. `codeterm agent models claude`)
 codeterm agent spawn [AGENT] [--title T] [--cwd DIR] [--role R] [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS_ID] [--args A1 A2]
@@ -736,6 +795,13 @@ codeterm cron complete --run-id UUID --summary "result"
 # Configuration
 codeterm config get <key>                      # Get config value (dot-notation, e.g. "integrations.telegram_enabled")
 codeterm config set <key> <value>              # Set config value (JSON: true, false, 42, "string", ["array"])
+
+# Self-update
+codeterm update --check                        # Check for available updates on the current channel
+codeterm update --apply                        # Download, verify, install, restart (Tauri-plugin-updater)
+codeterm update --channel                      # Print current channel
+codeterm update --channel <stable|rc|nightly>  # Switch channel (persists to config.toml)
+codeterm update --apply --manifest-url URL     # Override manifest URL (dev/test only; release builds reject non-https)
 
 # Bridge (Telegram / External Services)
 codeterm bridge send --to CHAT_ID --service telegram "message text"
@@ -851,4 +917,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 29 -->
+<!-- revision: 31 -->

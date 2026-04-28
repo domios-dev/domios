@@ -1,8 +1,11 @@
 //! Single-worker embedding indexer — one sqlite writer, bounded queue.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::{self, SyncSender, TrySendError};
 use std::thread;
+
+use tokio::sync::Semaphore;
 
 use super::embeddings;
 
@@ -24,16 +27,17 @@ impl EmbedQueue {
         Self { tx: None }
     }
 
-    pub fn start(db_path: PathBuf) -> Self {
+    pub fn start(db_path: PathBuf, heavy_ops_permits: Arc<Semaphore>) -> Self {
         if !cfg!(feature = "embeddings") {
             return Self { tx: None };
         }
 
         let (tx, rx) = mpsc::sync_channel::<EmbedJob>(QUEUE_CAPACITY);
 
+        let runtime = tokio::runtime::Handle::try_current().ok();
         thread::Builder::new()
             .name("mem-embed-queue".into())
-            .spawn(move || run_worker(db_path, rx))
+            .spawn(move || run_worker(db_path, rx, heavy_ops_permits, runtime))
             .expect("spawn embed queue worker");
 
         Self { tx: Some(tx) }
@@ -63,7 +67,12 @@ impl EmbedQueue {
 }
 
 #[cfg(feature = "embeddings")]
-fn run_worker(db_path: PathBuf, rx: mpsc::Receiver<EmbedJob>) {
+fn run_worker(
+    db_path: PathBuf,
+    rx: mpsc::Receiver<EmbedJob>,
+    heavy_ops_permits: Arc<Semaphore>,
+    runtime: Option<tokio::runtime::Handle>,
+) {
     embeddings::ensure_extension_registered();
     let conn = match rusqlite::Connection::open(&db_path) {
         Ok(c) => {
@@ -79,6 +88,10 @@ fn run_worker(db_path: PathBuf, rx: mpsc::Receiver<EmbedJob>) {
     log::info!("[mem] embed queue worker started on {}", db_path.display());
 
     for job in rx.iter() {
+        let _permit = runtime
+            .as_ref()
+            .map(|h| h.block_on(heavy_ops_permits.clone().acquire_owned()).ok())
+            .unwrap_or(None);
         match embeddings::index(&conn, &job.id, &job.text) {
             Ok(()) => log::debug!("[mem] indexed embedding for {}", job.id),
             Err(e) => log::warn!("[mem] embed index {}: {}", job.id, e),
@@ -89,7 +102,13 @@ fn run_worker(db_path: PathBuf, rx: mpsc::Receiver<EmbedJob>) {
 }
 
 #[cfg(not(feature = "embeddings"))]
-fn run_worker(_db_path: PathBuf, _rx: mpsc::Receiver<EmbedJob>) {}
+fn run_worker(
+    _db_path: PathBuf,
+    _rx: mpsc::Receiver<EmbedJob>,
+    _heavy_ops_permits: Arc<Semaphore>,
+    _runtime: Option<tokio::runtime::Handle>,
+) {
+}
 
 #[cfg(test)]
 mod tests {
