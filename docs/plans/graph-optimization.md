@@ -1,5 +1,7 @@
 # Memory graph optimization plan
 
+> **Status (2026-04-13):** ~50% done. Phase 1 (physics off main thread) + Phase 2 (Sigma renderer with zoom switching) shipped. Phase 3 (pinned positions persistence + save-on-idle semantics) still pending.
+
 The `MemoryCanvas` mem-graph view becomes sluggish past ~500 nodes because every node is a React DOM component, every edge is an SVG element, and the force simulation runs on the main thread inside React state (`usePhysics`). Positions are persisted per-node in SQLite (`graph_x`, `graph_y` columns on `mem_items`), which adds write amplification on every tick and makes graph layout fragile — a single new edge visibly jumbles existing positions.
 
 This doc plans the migration to a Sigma-rendered canvas with client-side layout and optional pinning.
