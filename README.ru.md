@@ -31,6 +31,10 @@
 
 <!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
 <!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+<!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
+     1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
+     2. Per-OS install subsections instead of one combined "Скачать": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
+     3. Rename the "Встроенный браузер" section to match English `### Canvas Panels` (the feature was renamed). -->
 
 ---
 
@@ -183,10 +187,10 @@ curl -X POST http://localhost:7685/api/workspaces \
   -H "Content-Type: application/json" \
   -d '{"name": "My Project"}'
 
-# Разделить панель
-curl -X POST http://localhost:7685/api/panes/{id}/split \
+# Запустить агента в новой панели рядом с родительской
+curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
-  -d '{"direction": "right"}'
+  -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
 
 # Потоковый вывод в реальном времени (SSE)
 curl http://localhost:7685/api/panes/{id}/output/stream
@@ -201,7 +205,6 @@ codeterm workspace create "Project"
 
 # Управление терминалом
 codeterm pane list
-codeterm pane split PANE_ID --direction right
 codeterm send-text PANE_ID "npm run build"
 codeterm get-output PANE_ID --lines 50
 
