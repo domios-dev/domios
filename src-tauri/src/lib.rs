@@ -135,7 +135,7 @@ fn init_states() -> AppStates {
     let mut mux_state_inner = mux_state_inner;
     if general_config.enabled {
         service::general_agent::ensure_directories();
-        service::general_agent::generate_instructions(&general_config.agent_provider);
+        service::general_agent::generate_instructions(&general_config.agent_provider, None);
         service::general_agent::ensure_general_workspace(&mut mux_state_inner);
     }
 
