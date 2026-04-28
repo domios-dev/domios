@@ -7,14 +7,23 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
-## [Unreleased] — 2026-04-25 develop
+## [1.1.0] — 2026-04-29
 
-The "resilience + features" push. All seven feature branches plus
-three cleanup followups landed in `develop` on 2026-04-25; design
-rationale for each item lives in the mem decisions chain
+The "resilience + features" push. Seven feature branches plus three
+cleanup followups landed in `develop` on 2026-04-25; the wake-up
+auto-injection and a pty cleanup fix followed on 2026-04-28. Design
+rationale for the 04-25 batch lives in the mem decisions chain
 (`fact_design_decisions_chain_2026_04_25_codeterm_resilience_featur`).
 
 ### Added
+
+- **General Agent wake-up auto-injection** — the L0 identity + L1
+  critical-context payload from `codeterm mem wake-up` is now rendered
+  directly into the GA system prompt under a new `## Live mem snapshot`
+  section, so the agent boots already aware of identity, rules, peers,
+  and critical facts without spending a turn on the CLI. Wake-up
+  failures fall back to an empty section so GA bootstrap never blocks
+  on mem. (4ea3e3f, merged in 4eb6088.)
 
 - **Self-update via `tauri-plugin-updater`** — `codeterm update --check`,
   `--apply`, `--channel <stable|rc|nightly>`. Manifests are signed with
@@ -71,6 +80,13 @@ rationale for each item lives in the mem decisions chain
   tests). Added `--limit N` and reverse-output ordering. (a5fe019,
   merged in 5505465.)
 
+### Fixed
+
+- **PTY child process termination on `PtyManager::kill`** — closing a
+  pane now explicitly kills the child process instead of relying on
+  shell-side cleanup, fixing leaked subprocesses when the user closed
+  a pane mid-command. (be0d045, merged in 8227b5e.)
+
 ### Changed
 
 - **`resolve_cli_path` resolution chain** — 5 steps:
@@ -103,3 +119,6 @@ rationale for each item lives in the mem decisions chain
   `docs/contributing/auto-update-testing.md`,
   `docs/contributing/auto-update-signing.md`.
 - `docs/plans/auto-update.md` flagged as **shipped 2026-04-25**.
+- README mirrored to all translation locales (auto-translated drafts)
+  with the new agent restart, bridges, voice transcription,
+  self-update, and supervisor sections. (1fb2bab, 12ea9a1.)
