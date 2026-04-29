@@ -122,11 +122,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BUNDLE_DIR="src-tauri/target/${TARGET}/release/bundle/nsis"
-          UPDATER_BUNDLE=$(find "$BUNDLE_DIR" -name '*.nsis.zip' ! -name '*.sig' | head -n1)
-          [ -n "$UPDATER_BUNDLE" ] || { echo "::error::No NSIS .nsis.zip produced under $BUNDLE_DIR"; exit 1; }
-          UPDATER_SIG="${UPDATER_BUNDLE}.sig"
-          [ -f "$UPDATER_SIG" ] || { echo "::error::No signature file at $UPDATER_SIG"; exit 1; }
+          BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
+          echo "::group::bundle directory listing"
+          find "$BUNDLE_ROOT" -maxdepth 3 -type f | sort || true
+          echo "::endgroup::"
+          UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*.nsis.zip.sig' 2>/dev/null | head -n1)
+          [ -n "$UPDATER_SIG" ] || { echo "::error::No NSIS signature under $BUNDLE_ROOT/nsis"; exit 1; }
+          UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
+          [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
 
           # The .nsis.zip + .sig are not uploaded by tauri-action, so push
           # them ourselves — the updater URL must resolve to a real asset.

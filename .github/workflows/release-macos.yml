@@ -164,11 +164,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/macos"
-          UPDATER_BUNDLE=$(find "$BUNDLE_DIR" -name '*.app.tar.gz' | head -n1)
-          [ -n "$UPDATER_BUNDLE" ] || { echo "::error::No .app.tar.gz under $BUNDLE_DIR"; exit 1; }
-          UPDATER_SIG="${UPDATER_BUNDLE}.sig"
-          [ -f "$UPDATER_SIG" ] || { echo "::error::No signature file at $UPDATER_SIG"; exit 1; }
+          BUNDLE_ROOT="src-tauri/target/${{ matrix.target }}/release/bundle"
+          echo "::group::bundle directory listing"
+          find "$BUNDLE_ROOT" -maxdepth 3 -type f | sort || true
+          echo "::endgroup::"
+          UPDATER_SIG=$(find "$BUNDLE_ROOT/macos" -name '*.app.tar.gz.sig' 2>/dev/null | head -n1)
+          [ -n "$UPDATER_SIG" ] || { echo "::error::No .app.tar.gz signature under $BUNDLE_ROOT/macos"; exit 1; }
+          UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
+          [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
 
           gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$REPO"
 
