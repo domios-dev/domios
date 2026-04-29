@@ -106,7 +106,7 @@ jobs:
           releaseBody: 'See the assets to download this version and install. Auto-update users will be offered this build via the configured channel.'
           releaseDraft: true
           prerelease: ${{ steps.channel.outputs.prerelease }}
-          includeUpdaterJson: false
+          includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: --target ${{ env.TARGET }}
 
