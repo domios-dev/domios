@@ -138,11 +138,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BUNDLE_DIR="src-tauri/target/${TARGET}/release/bundle/appimage"
-          UPDATER_BUNDLE=$(find "$BUNDLE_DIR" -name '*.AppImage.tar.gz' | head -n1)
-          [ -n "$UPDATER_BUNDLE" ] || { echo "::error::No .AppImage.tar.gz under $BUNDLE_DIR"; exit 1; }
-          UPDATER_SIG="${UPDATER_BUNDLE}.sig"
-          [ -f "$UPDATER_SIG" ] || { echo "::error::No signature file at $UPDATER_SIG"; exit 1; }
+          BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
+          echo "::group::bundle directory listing"
+          find "$BUNDLE_ROOT" -maxdepth 3 -type f | sort || true
+          echo "::endgroup::"
+          # Prefer the v1-compatible .AppImage.tar.gz updater bundle if Tauri
+          # produced one; otherwise fall back to the direct .AppImage that
+          # Tauri 2 uses by default.
+          UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.tar.gz.sig' 2>/dev/null | head -n1)
+          if [ -z "$UPDATER_SIG" ]; then
+            UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.sig' 2>/dev/null | head -n1)
+          fi
+          [ -n "$UPDATER_SIG" ] || { echo "::error::No AppImage signature under $BUNDLE_ROOT/appimage"; exit 1; }
+          UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
+          [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
 
           gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$REPO"
 
