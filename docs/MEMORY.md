@@ -308,4 +308,3 @@ Memory Panel UI reads this directly.
 - `src-tauri/prompts/bridge_mem.md` — behavioral protocol
 - `src/components/MemoryPanel/` — UI
 - `docs/plans/references/mempalace.md` — what we adopted from MemPalace
-- `docs/plans/mem-architecture.md` — original design doc (historical)

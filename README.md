@@ -200,10 +200,10 @@ curl -X POST http://localhost:7685/api/workspaces \
   -H "Content-Type: application/json" \
   -d '{"name": "My Project"}'
 
-# Split pane
-curl -X POST http://localhost:7685/api/panes/{id}/split \
+# Spawn an agent in a new pane next to a parent
+curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
-  -d '{"direction": "right"}'
+  -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
 
 # Stream output in real-time (SSE)
 curl http://localhost:7685/api/panes/{id}/output/stream
@@ -218,7 +218,6 @@ codeterm workspace create "Project"
 
 # Terminal control
 codeterm pane list
-codeterm pane split PANE_ID --direction right
 codeterm send-text PANE_ID "npm run build"
 codeterm get-output PANE_ID --lines 50
 
