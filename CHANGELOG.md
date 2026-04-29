@@ -7,12 +7,57 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.1.1] — 2026-04-29
+
+Patch: nightly memory dreamer was being marked Failed in cron history
+even though the REM worker spawned successfully and produced
+`daily_dream_<date>` mem items each night. Plus per-platform CI
+plumbing on the develop branch.
+
+### Fixed
+
+- **Cron status race after explicit `cron complete`** — when an agent
+  inside a cron pane called `codeterm cron complete`, the backend
+  marked the run Success and closed the pane, but the
+  `RunWatcherRegistry` watchdog kept its 30-second idle timer alive.
+  After the pane closed there was no more output, the timer tripped,
+  and `finish_run` overwrote the Success with Failed. `cron_complete`
+  now calls `run_watcher.mark_completed_externally` on the pane's pty
+  before `close_pane`, so the watchdog exits cleanly. Confirmed
+  against the dreamer's 2026-04-25 → 2026-04-29 run logs.
+
+### Added
+
+- **Per-platform release workflows** — `.github/workflows/release.yml`
+  was split into `release-windows.yml`, `release-macos.yml`, and
+  `release-linux.yml`. Each builds independently on a tag push and can
+  be suppressed via repo Variables `RELEASE_WINDOWS_ENABLED` /
+  `RELEASE_MACOS_ENABLED` / `RELEASE_LINUX_ENABLED` (set to `false`).
+  Secret rename `TAURI_PRIVATE_KEY` → `TAURI_SIGNING_PRIVATE_KEY`
+  matches the actual repo secret.
+- **Documentation review pass** — README translations carry
+  TRANSLATION-TODO markers for the three sections that drifted from
+  English (top-of-features GIFs, per-OS install split, "Canvas Panels"
+  rename). Stale references to deleted plans / endpoints in `docs/`,
+  `.claude/agents/`, and prompt files are corrected.
+- **Stronger orchestrator suffix** — `prompts/orchestrator_suffix.md`
+  now mandates a final `codeterm agent report` call so spawning
+  parents see completion immediately instead of polling status.
+
+### Notes
+
+- v1.1.1 ships **Windows-only** assets directly from a local BLACKSTAR
+  build. The new per-platform workflows landed but went un-validated
+  in CI because Actions free minutes were exhausted; revisit after the
+  monthly quota resets. macOS DMGs are still produced manually from
+  MacBook per `github-release` skill.
+
 ## [1.1.0] — 2026-04-29
 
 The "resilience + features" push. Seven feature branches plus three
-cleanup followups landed in `develop` on 2026-04-25; the wake-up
-auto-injection and a pty cleanup fix followed on 2026-04-28. Design
-rationale for the 04-25 batch lives in the mem decisions chain
+cleanup followups landed in `develop` on 2026-04-25; a pty cleanup fix
+merged on 2026-04-26 and the wake-up auto-injection on 2026-04-29.
+Design rationale for the 04-25 batch lives in the mem decisions chain
 (`fact_design_decisions_chain_2026_04_25_codeterm_resilience_featur`).
 
 ### Added
