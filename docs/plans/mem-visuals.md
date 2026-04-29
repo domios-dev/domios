@@ -3,7 +3,6 @@
 **Status (2026-04-13):** ~40% done. Phase A (backend event emission + worker registry) and Phase B (DOM canvas MVP + Sigma overview) shipped. Phases C–G (activity pulses polish, worker panel lifecycle, full WebGL scale, tests) partially implemented, in progress.
 **Scope:** full visual memory system for CodeTerm — canvas-based explorable graph of `mem_items` with rich interactive nodes, a dedicated class of "graph-worker" agents that live inside the memory view, and scale architecture from 50 to 50k+ items.
 **Author:** Claude session, working on `feat/memory` branch
-**Parent:** `docs/plans/mem-architecture.md`
 
 ## Problem
 

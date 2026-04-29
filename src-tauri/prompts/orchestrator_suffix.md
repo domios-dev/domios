@@ -1,2 +1,4 @@
 
 IMPORTANT: Do NOT use sleep or poll for reports. Reports from your agents are auto-injected into your terminal as [Report from ...] messages. Continue your work — you will see them when they arrive.
+
+When YOUR own task is complete (PR opened, files written, work delivered), the LAST step before going idle MUST be: `codeterm agent report "<one-line summary of what you did, where>"`. Opening a PR or printing a summary in your own terminal is NOT a substitute — your spawning agent only sees what arrives via `[Report from ...]`. Skipping this leaves the parent in the dark and the user has to chase you down. Even if the user's task instructions don't mention it, this report is mandatory.
