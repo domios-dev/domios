@@ -66,12 +66,11 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             rust_target: x86_64-pc-windows-msvc
-          - os: macos-13
-            target: x86_64-apple-darwin
-            rust_target: x86_64-apple-darwin
-          - os: macos-14
-            target: aarch64-apple-darwin
-            rust_target: aarch64-apple-darwin
+          # macOS builds are produced locally on the MacBook (signed +
+          # notarized via xcrun notarytool) and uploaded to the same draft
+          # release manually. CI runners cannot reproduce the local
+          # signing setup yet (TAURI_PRIVATE_KEY name mismatch + apple
+          # signing flow not validated end-to-end on hosted macos-* runners).
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
