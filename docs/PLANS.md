@@ -4,7 +4,6 @@
 
 - [Plugin Architecture](plans/plugin-architecture.md) — core + plugins, MCP agent interface, unified dispatch, 6-phase roadmap
 - [Plugin Authoring Guide](PLUGINS.md) — how to author a plugin given what exists in code today (manifest, `Plugin` trait, lifecycle, events)
-- [Architecture Evolution](plans/architecture-evolution.md) — hexagonal + command bus migration, phase status
 - [Browser Improvements](plans/browser_improvements.md) — WebView2/WKWebView, CDP control, agent screenshots
 - [Whiteboard Plugin](plans/whiteboard-plugin.md) — tldraw canvas, agents draw/read diagrams, MCP tools
 - [Naming Research](plans/naming-research.md) — rebrand candidates, trademark checks, available names
