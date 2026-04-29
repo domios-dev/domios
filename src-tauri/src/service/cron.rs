@@ -285,6 +285,13 @@ impl ServiceContext {
             log::info!("Cron run completed: job={}, run={}, oneshot={}, summary_len={}", job_id, run_id, is_oneshot, log_text.len());
             drop(store);
 
+            // Tell the run-watcher this pane is already done so the idle /
+            // hard timeout watchdog does NOT fire later and overwrite our
+            // Success status with Failed.
+            if let Some(ref pid) = pty_id {
+                self.run_watcher.mark_completed_externally(pid);
+            }
+
             let _ = self.close_pane(&pane_id);
 
             if is_oneshot {
