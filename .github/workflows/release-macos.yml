@@ -149,23 +149,35 @@ jobs:
           releaseBody: 'See the assets to download this version and install. Auto-update users will be offered this build via the configured channel.'
           releaseDraft: true
           prerelease: ${{ steps.channel.outputs.prerelease }}
-          includeUpdaterJson: true
+          # tauri-action's own updater-JSON path silently skips when its
+          # internal sig matcher cannot pair an artifact with a signature.
+          # We build the fragment ourselves below.
+          includeUpdaterJson: false
           args: --target ${{ matrix.target }}
 
       - name: Publish per-platform updater fragment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+          REPO: ${{ github.repository }}
+          PLATFORM_KEY: ${{ matrix.target == 'aarch64-apple-darwin' && 'darwin-aarch64' || 'darwin-x86_64' }}
         shell: bash
         run: |
-          fragment=$(find "src-tauri/target/${{ matrix.target }}/release/bundle" -name latest.json | head -n1)
-          if [ -z "$fragment" ]; then
-            echo "::error::No latest.json fragment produced by tauri-action"
-            exit 1
-          fi
-          out="updater-${{ matrix.target }}.json"
-          cp "$fragment" "$out"
-          gh release upload "${{ steps.tag.outputs.name }}" "$out" \
-            --clobber --repo "${{ github.repository }}"
+          set -euo pipefail
+          BUNDLE_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          UPDATER_BUNDLE=$(find "$BUNDLE_DIR" -name '*.app.tar.gz' | head -n1)
+          [ -n "$UPDATER_BUNDLE" ] || { echo "::error::No .app.tar.gz under $BUNDLE_DIR"; exit 1; }
+          UPDATER_SIG="${UPDATER_BUNDLE}.sig"
+          [ -f "$UPDATER_SIG" ] || { echo "::error::No signature file at $UPDATER_SIG"; exit 1; }
+
+          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$REPO"
+
+          OUT="updater-${{ matrix.target }}.json"
+          UPDATER_BUNDLE="$UPDATER_BUNDLE" \
+          UPDATER_SIG="$UPDATER_SIG" \
+          OUT="$OUT" \
+            python3 .github/workflows/build-updater-fragment.py
+          gh release upload "$TAG" "$OUT" --clobber --repo "$REPO"
 
       - name: Refresh merged channel manifest
         env:
