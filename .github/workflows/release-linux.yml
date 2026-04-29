@@ -1,7 +1,12 @@
 name: release-linux
 
-# Builds the Linux bundles (AppImage + .deb) on ubuntu-22.04, uploads to
+# Builds the Linux bundles (AppImage + .deb) on ubuntu-24.04, uploads to
 # the GitHub release, then refreshes the channel updater manifest.
+#
+# Runner choice: ubuntu-24.04 ships glibc 2.39, which is required by the
+# pyke/ort prebuilt onnxruntime static library — it references symbols
+# such as __isoc23_strtoll that only exist in glibc >= 2.38. Building on
+# ubuntu-22.04 (glibc 2.35) fails the link step.
 #
 # Triggers:
 #   - push of a tag matching v*  (fires alongside Windows / macOS workflows)
@@ -32,7 +37,7 @@ jobs:
   build:
     name: build (x86_64-unknown-linux-gnu)
     if: ${{ vars.RELEASE_LINUX_ENABLED != 'false' }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       TARGET: x86_64-unknown-linux-gnu
     steps:
@@ -118,7 +123,7 @@ jobs:
           releaseBody: 'See the assets to download this version and install. Auto-update users will be offered this build via the configured channel.'
           releaseDraft: true
           prerelease: ${{ steps.channel.outputs.prerelease }}
-          includeUpdaterJson: false
+          includeUpdaterJson: true
           args: --target ${{ env.TARGET }} --bundles appimage,deb
 
       - name: Publish per-platform updater fragment
