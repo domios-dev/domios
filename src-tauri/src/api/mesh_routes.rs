@@ -620,6 +620,18 @@ pub async fn mesh_sync(
     Ok(Json(serde_json::to_value(our_payload).unwrap()))
 }
 
+/// Sensitive relay paths that mutate the peer (install update, change channel).
+/// Read-only paths (GET checks, GET channel) are not gated and remain available
+/// to any paired peer.
+fn path_requires_full_access(method: &str, path: &str) -> bool {
+    let m = method.to_ascii_uppercase();
+    let bare = path.split('?').next().unwrap_or(path);
+    matches!(
+        (m.as_str(), bare),
+        ("POST", "/api/update/install") | ("POST", "/api/update/channel")
+    )
+}
+
 /// Verify relay sender: must be paired. Paired = trusted.
 pub fn check_mesh_relay_auth(state: &AppState, headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
     let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
@@ -648,6 +660,23 @@ pub async fn mesh_relay(
 ) -> Result<Json<crate::mesh::types::RelayResponse>, (StatusCode, String)> {
     let sender_id = check_mesh_relay_auth(&state, &headers)?;
     log::info!("[mesh/relay] {} {} from {}", cmd.method, cmd.path, sender_id);
+
+    if path_requires_full_access(&cmd.method, &cmd.path) && sender_id != "local" {
+        let access = state.mesh.lock().paired_peers.get(&sender_id)
+            .map(|p| p.access_level.clone())
+            .unwrap_or(crate::mesh::types::AccessLevel::Full);
+        if access != crate::mesh::types::AccessLevel::Full {
+            return Ok(Json(crate::mesh::types::RelayResponse {
+                ok: false,
+                status: 403,
+                data: None,
+                error: Some(format!(
+                    "Peer not authorized to {} {} (access_level={:?})",
+                    cmd.method, cmd.path, access
+                )),
+            }));
+        }
+    }
 
     // Get sender's name for message prefix
     let sender_name = {
@@ -694,4 +723,34 @@ pub async fn mesh_relay(
         ok: status < 400, status, data: Some(data),
         error: if status >= 400 { Some(format!("HTTP {}", status)) } else { None },
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::path_requires_full_access;
+
+    #[test]
+    fn install_update_is_gated() {
+        assert!(path_requires_full_access("POST", "/api/update/install"));
+        assert!(path_requires_full_access("POST", "/api/update/install?method=auto"));
+        assert!(path_requires_full_access("post", "/api/update/install?method=auto&manifest_url=foo"));
+    }
+
+    #[test]
+    fn set_channel_is_gated() {
+        assert!(path_requires_full_access("POST", "/api/update/channel"));
+    }
+
+    #[test]
+    fn check_and_get_channel_are_open() {
+        assert!(!path_requires_full_access("GET", "/api/update/check"));
+        assert!(!path_requires_full_access("GET", "/api/update/check?force=true"));
+        assert!(!path_requires_full_access("GET", "/api/update/channel"));
+    }
+
+    #[test]
+    fn unrelated_paths_are_open() {
+        assert!(!path_requires_full_access("POST", "/api/panes/general/send"));
+        assert!(!path_requires_full_access("GET", "/api/mesh/peers"));
+    }
 }
