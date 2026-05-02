@@ -72,14 +72,12 @@ impl ServiceContext {
         );
 
         // Auto-push report into parent's PTY so Claude sees it immediately.
+        // Route through send_text (bracket paste + delayed Enter) — same path
+        // Telegram/Mesh injection uses. Raw `\r` writes get swallowed by
+        // Claude/Codex TUIs while they're still processing the paste buffer.
         {
-            let notify_msg = format!(
-                "[Report from {}] {}\r",
-                from_title, message
-            );
-            if let Ok(pty_id) = self.resolve_pty_id(&target_id) {
-                let _ = self.pty.lock().write(&pty_id, notify_msg.as_bytes());
-            }
+            let notify_msg = format!("[Report from {}] {}", from_title, message);
+            let _ = self.send_text(&target_id, &notify_msg, true);
         }
 
         Ok(ReportResult {
@@ -412,44 +410,46 @@ mod tests {
     }
 
     // ── Report message format ──
-    // Tests the format string used in submit_report (line 85-87):
-    //   format!("[Report from {}] {}\r", from_title, message)
+    // submit_report builds the notify body without a trailing CR — Enter is
+    // sent as a separate delayed raw write by send_text's bracket-paste path.
 
     fn format_report(from_title: &str, message: &str) -> String {
-        format!("[Report from {}] {}\r", from_title, message)
+        format!("[Report from {}] {}", from_title, message)
     }
 
     #[test]
     fn report_format_basic() {
         let msg = format_report("Scout", "Task completed successfully");
-        assert_eq!(msg, "[Report from Scout] Task completed successfully\r");
+        assert_eq!(msg, "[Report from Scout] Task completed successfully");
     }
 
     #[test]
-    fn report_format_ends_with_cr() {
+    fn report_format_no_trailing_cr() {
+        // Enter is delivered as a separate write by send_text — the body
+        // itself must NOT contain trailing \r, otherwise Claude's prompt
+        // submits before the bracket-paste end marker is processed.
         let msg = format_report("Worker-1", "done");
-        assert!(msg.ends_with('\r'), "Report message must end with \\r for PTY");
+        assert!(!msg.ends_with('\r'), "Report body must not end with \\r");
     }
 
     #[test]
     fn report_format_message_with_newlines() {
-        // BASELINE: newlines inside message are NOT escaped — they pass through raw
+        // Internal newlines pass through raw — bracket paste protects them.
         let msg = format_report("Lead", "line1\nline2\nline3");
-        assert_eq!(msg, "[Report from Lead] line1\nline2\nline3\r");
+        assert_eq!(msg, "[Report from Lead] line1\nline2\nline3");
         assert!(msg.contains('\n'), "Internal newlines are preserved");
-        assert!(msg.ends_with('\r'), "Still ends with \\r");
     }
 
     #[test]
     fn report_format_empty_message() {
         let msg = format_report("Agent", "");
-        assert_eq!(msg, "[Report from Agent] \r");
+        assert_eq!(msg, "[Report from Agent] ");
     }
 
     #[test]
     fn report_format_title_with_spaces() {
         let msg = format_report("My Agent Title", "ok");
-        assert_eq!(msg, "[Report from My Agent Title] ok\r");
+        assert_eq!(msg, "[Report from My Agent Title] ok");
     }
 
     #[test]
