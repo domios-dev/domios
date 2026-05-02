@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use super::InstallMethod;
 
 const GITHUB_API: &str = "https://api.github.com/repos/rollacode/codeterm/releases/latest";
-const GITHUB_REPO: &str = "rollacode/codeterm";
+pub(super) const GITHUB_REPO: &str = "rollacode/codeterm";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateInfo {

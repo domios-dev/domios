@@ -93,10 +93,12 @@ fn init_states() -> AppStates {
     // Detect install method and init update state
     let install_method = update::detect_install_method();
     log::info!("Install method detected: {}", install_method);
+    let channel = config_state.lock().updater.channel;
     let update_state: UpdateStateHandle = Arc::new(Mutex::new(update::UpdateState {
         install_method,
         last_check: None,
         last_check_time: None,
+        channel,
     }));
 
     // Try to restore last session, fallback to default workspace
@@ -133,7 +135,7 @@ fn init_states() -> AppStates {
     let mut mux_state_inner = mux_state_inner;
     if general_config.enabled {
         service::general_agent::ensure_directories();
-        service::general_agent::generate_instructions(&general_config.agent_provider);
+        service::general_agent::generate_instructions(&general_config.agent_provider, None);
         service::general_agent::ensure_general_workspace(&mut mux_state_inner);
     }
 
@@ -585,7 +587,7 @@ fn start_servers(
             Ok(false) => log::debug!("[mem] dreaming cron already present"),
             Err(e) => log::warn!("[mem] failed to install dreaming cron: {}", e),
         }
-        // Librarian is now a direct in-process loop (see start_librarian_loop).
+        // Librarian now runs as a CLI subprocess via the mem supervisor.
         // Remove the legacy LLM-based cron from any older install so we don't
         // keep burning tokens to wrap a single bash command.
         if mem::dreaming::remove_legacy_librarian_cron(&mut cs) {
@@ -1077,14 +1079,15 @@ pub fn run() {
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
 
-            // Librarian loop: scans source-tracked mem_items hourly, re-embeds
-            // changed files. Pure Rust — no agent, no tokens.
-            mem::dreaming::start_librarian_loop(mem.clone());
-
             // Auto-install Claude hooks (Notification, Stop, PreCompact).
             // PreCompact is critical for mem — it flushes pane scrollback
             // before Claude summarizes the context window.
             commands::ensure_claude_hooks_installed();
+
+            let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
+                crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
+                mem.db_path().to_path_buf(),
+            ));
 
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
@@ -1098,6 +1101,7 @@ pub fn run() {
                 report_store: states.report_store.clone(),
                 agent_registry,
                 mem,
+                mem_supervisor,
                 activity: crate::mem::activity::ActivityRing::new(500),
                 workers: crate::mem::workers::GraphWorkerRegistry::load(
                     crate::paths::data_dir().join("mem").join("workers.json"),
@@ -1111,22 +1115,43 @@ pub fn run() {
                 bridge_outbound: bridge_outbound_tx,
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_task: Arc::new(Mutex::new(None)),
+                restart_tracker: crate::service::agent_restart::new_restart_tracker(),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
 
-            // Resume extraction for items that were saved but never finished
-            // (previous run crashed mid-extraction, LLM API errored, bulk import).
-            // Sequential spawn with 500ms delay rate-limits naturally — no cap.
-            // Idempotent: items already extracted are skipped by the SQL query.
+            // Librarian: hourly file-sync + skill-folder scan, run as a
+            // subprocess via the supervisor so a panic / OOM cannot take
+            // the daemon down. First fire after a 30s warm-up.
             {
-                let svc_for_extract = service_state.clone();
-                std::thread::spawn(move || {
-                    let queued = crate::mem::auto_extract::run_extract_pending(svc_for_extract, usize::MAX);
-                    if queued > 0 {
-                        log::info!("[mem] startup: resuming extraction for {} pending item(s)", queued);
+                let supervisor = service_state.mem_supervisor.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    loop {
+                        match supervisor.run(crate::mem::supervisor::WorkerKind::LibrarianOnce).await {
+                            Ok(report) => log::info!("[librarian] {}", report),
+                            Err(e) => log::warn!("[librarian] {}", e),
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
                     }
                 });
+            }
+
+            // Resume extraction for items that were saved but never finished
+            // (previous run crashed mid-extraction, LLM API errored, bulk import).
+            // run_extract_pending returns fast after spawning its tokio task.
+            {
+                let svc_for_extract = service_state.clone();
+                let queued = crate::mem::auto_extract::run_extract_pending(
+                    svc_for_extract,
+                    usize::MAX,
+                );
+                if queued > 0 {
+                    log::info!(
+                        "[mem] startup: resuming extraction for {} pending item(s)",
+                        queued
+                    );
+                }
             }
 
             install_bundled_cli(app);

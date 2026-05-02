@@ -31,6 +31,10 @@
 
 <!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
 <!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+<!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
+     1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
+     2. Per-OS install subsections instead of one combined "Скачать": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
+     3. Rename the "Встроенный браузер" section to match English `### Canvas Panels` (the feature was renamed). -->
 
 ---
 
@@ -56,6 +60,7 @@ CodeTerm — это кроссплатформенный терминальны�
 - **Уведомления о разрешениях** — запросы разрешений от Claude Code отображаются как системные уведомления
 - **Система вебхуков** — регистрация вебхуков для событий агента (запросы разрешений, завершение задач)
 - **Программное управление** — агенты могут создавать панели, выполнять команды, читать вывод через API
+- **Перезапуск агента** — `codeterm agent restart --pane ID` выполняет корректный `/exit` с авто-возобновлением для любой панели (`--force` принудительно завершает зависший агент); тот же механизм используется при самообновлении
 
 ### Полноценный API
 - **REST API** — 30+ эндпоинтов для полного управления терминалом (порт 7685)
@@ -63,6 +68,16 @@ CodeTerm — это кроссплатформенный терминальны�
 - **Socket API** — JSON-RPC v2 через именованные каналы (Windows) / Unix-сокеты
 - **Потоковая передача в реальном времени** — SSE-эндпоинт для живого вывода терминала
 - **Захват вывода** — пагинация на основе курсора, очистка ANSI, снимки экрана
+
+### Мосты и внешние сервисы
+- **Мост Telegram** — двусторонний. Входящие сообщения попадают в панель General Agent как `[Telegram: USER_ID] text`; исходящие ответы отправляются через `codeterm bridge send` с HTML-форматированием (санитайзер автоматически экранирует случайные подстроки `<word>`, чтобы неподдерживаемые токены не ломали парсер)
+- **Транскрипция голосовых** — при `integrations.voice_transcribe.enabled = true` голосовые и видео-сообщения транскрибируются локальным демоном Whisper (по умолчанию `http://127.0.0.1:7891`) до того, как достигнут любого агента — Claude, Codex и будущие клиенты охвачены одним апстрим-изменением
+- **Мост вебхуков** — регистрация URL для событий агента (`agent.permission_request`, `agent.task_complete`, `agent.report`)
+
+### Самообновление и устойчивость
+- **Самообновление** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Манифесты подписаны ed25519 и проверяются до любых операций с бинарником; авто-установка выполняет 9-этапное корректное завершение работы (чекпоинт mem WAL, остановка супервизора, подменa подписанного бинарника), после чего панели авто-возобновляются — контекст переживает обновление
+- **Супервизор подпроцессов** — тяжёлые операции памяти (dreaming, извлечение в Librarian) выполняются как дочерние процессы с автоматическим выключателем (3 сбоя за 60 с → размыкание). Падение воркера не уносит API; `503` тайм-ауты на тяжёлых mem-запросах сохраняют отзывчивость демона
+- **Внешний сторожевой таймер** — health-проба на `/api/health`; рецепты для Windows Task Scheduler, launchd и systemd — в [docs/RESILIENCE.md](docs/RESILIENCE.md)
 
 ### Темы оформления
 - **8 встроенных тем** — GitHub Dark, Dracula, Catppuccin Mocha, One Dark, Nord, GitHub Light, Solarized Light, Pip-Boy
@@ -172,10 +187,10 @@ curl -X POST http://localhost:7685/api/workspaces \
   -H "Content-Type: application/json" \
   -d '{"name": "My Project"}'
 
-# Разделить панель
-curl -X POST http://localhost:7685/api/panes/{id}/split \
+# Запустить агента в новой панели рядом с родительской
+curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
-  -d '{"direction": "right"}'
+  -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
 
 # Потоковый вывод в реальном времени (SSE)
 curl http://localhost:7685/api/panes/{id}/output/stream
@@ -190,7 +205,6 @@ codeterm workspace create "Project"
 
 # Управление терминалом
 codeterm pane list
-codeterm pane split PANE_ID --direction right
 codeterm send-text PANE_ID "npm run build"
 codeterm get-output PANE_ID --lines 50
 

@@ -31,6 +31,10 @@
 
 <!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
 <!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+<!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
+     1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
+     2. Per-OS install subsections instead of one combined "다운로드": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
+     3. Rename the "내장 브라우저" section to match English `### Canvas Panels` (the feature was renamed). -->
 
 ---
 
@@ -56,6 +60,7 @@ CodeTerm은 AI 지원 개발을 위해 처음부터 설계된 크로스 플랫�
 - **권한 알림** — Claude Code 권한 요청을 데스크톱 알림으로 표시
 - **웹훅 시스템** — 에이전트 이벤트(권한 요청, 작업 완료)에 대한 웹훅 등록
 - **프로그래밍 제어** — 에이전트가 API를 통해 패널 생성, 명령 실행, 출력 읽기 가능
+- **에이전트 재시작** — `codeterm agent restart --pane ID`로 모든 패널에서 정상적인 `/exit` + 자동 재개를 실행 (`--force`로 멈춘 에이전트 강제 종료); 자동 업데이트와 동일한 메커니즘 재사용
 
 ### 완전한 API
 - **REST API** — 터미널 전체 제어를 위한 30개 이상의 엔드포인트 (포트 7685)
@@ -63,6 +68,16 @@ CodeTerm은 AI 지원 개발을 위해 처음부터 설계된 크로스 플랫�
 - **Socket API** — 명명된 파이프(Windows) / Unix 소켓을 통한 JSON-RPC v2
 - **실시간 스트리밍** — 실시간 터미널 출력을 위한 SSE 엔드포인트
 - **출력 캡처** — 커서 기반 페이지네이션, ANSI 제거, 화면 스냅샷
+
+### 브리지 및 외부 서비스
+- **Telegram 브리지** — 양방향. 수신 메시지는 General Agent 패널에 `[Telegram: USER_ID] text`로 도착하고, 발신 응답은 `codeterm bridge send`를 통해 HTML 형식으로 전송됩니다 (sanitizer가 지원되지 않는 `<word>` 부분 문자열을 자동으로 이스케이프하므로 알 수 없는 토큰이 파서를 깨뜨리지 않습니다)
+- **음성 전사** — `integrations.voice_transcribe.enabled = true`인 경우, 음성 / 비디오 노트 첨부는 로컬 Whisper 데몬 (기본값 `http://127.0.0.1:7891`)에서 전사된 후 에이전트에 전달됩니다 — Claude, Codex 및 향후 클라이언트가 단일 업스트림 변경으로 모두 커버됩니다
+- **웹훅 브리지** — 에이전트 이벤트(`agent.permission_request`, `agent.task_complete`, `agent.report`)에 대한 URL 등록
+
+### 자체 업데이트 및 복원력
+- **자체 업데이트** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. 매니페스트는 ed25519로 서명되며 어떤 바이너리든 건드리기 전에 검증됩니다. 자동 설치는 9단계의 정상 종료 (mem WAL 체크포인트, 슈퍼바이저 정지, 서명된 바이너리 교체)를 수행한 후 패널이 자동 재개됩니다 — 컨텍스트는 업그레이드를 살아남습니다
+- **서브프로세스 슈퍼바이저** — 무거운 mem 작업(dreaming, Librarian 추출)이 회로 차단기와 함께 자식 프로세스로 실행됩니다 (60초에 3회 실패 → 개방). 워커 사망이 API를 넘어뜨리지 않으며, 무거운 mem 요청에 대한 `503` 타임아웃이 데몬 반응성을 유지합니다
+- **외부 워치독** — `/api/health`의 헬스 프로브; Windows 작업 스케줄러, launchd, systemd에 대한 설정 레시피는 [docs/RESILIENCE.md](docs/RESILIENCE.md)에 있습니다
 
 ### 테마
 - **8개의 내장 테마** — GitHub Dark, Dracula, Catppuccin Mocha, One Dark, Nord, GitHub Light, Solarized Light, Pip-Boy
@@ -171,10 +186,10 @@ curl -X POST http://localhost:7685/api/workspaces \
   -H "Content-Type: application/json" \
   -d '{"name": "My Project"}'
 
-# 패널 분할
-curl -X POST http://localhost:7685/api/panes/{id}/split \
+# 부모 패널 옆의 새 패널에서 에이전트 실행
+curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
-  -d '{"direction": "right"}'
+  -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
 
 # 실시간 출력 스트리밍 (SSE)
 curl http://localhost:7685/api/panes/{id}/output/stream
@@ -189,7 +204,6 @@ codeterm workspace create "Project"
 
 # 터미널 제어
 codeterm pane list
-codeterm pane split PANE_ID --direction right
 codeterm send-text PANE_ID "npm run build"
 codeterm get-output PANE_ID --lines 50
 

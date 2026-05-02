@@ -87,6 +87,18 @@ impl RunWatcherRegistry {
         tauri::async_runtime::spawn(watchdog_loop(svc, state, timeout_secs));
     }
 
+    /// Tell the watcher this run is already finished via an explicit
+    /// completion path (e.g. `codeterm cron complete`) so the idle / hard
+    /// timeout watchdog does NOT fire afterwards and clobber the Success
+    /// status with Failed.
+    pub fn mark_completed_externally(&self, pty_id: &str) {
+        let mut runs = self.runs.lock();
+        if let Some(state) = runs.get(pty_id) {
+            state.completed.store(true, Ordering::Release);
+        }
+        runs.remove(pty_id);
+    }
+
     pub fn feed(&self, svc: &ServiceContext, pty_id: &str, bytes: &[u8]) {
         let state = match self.runs.lock().get(pty_id).cloned() {
             Some(s) => s,

@@ -31,6 +31,10 @@
 
 <!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
 <!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+<!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
+     1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
+     2. Per-OS install subsections instead of one combined "Téléchargement": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
+     3. Rename the "Navigateur intégré" section to match English `### Canvas Panels` (the feature was renamed). -->
 
 ---
 
@@ -56,6 +60,7 @@ Construit avec **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Notifications de permissions** — affiche les demandes de permissions de Claude Code sous forme de notifications de bureau
 - **Système de webhooks** — enregistrez des webhooks pour les événements d'agent (demandes de permissions, achèvement de tâches)
 - **Contrôle programmatique** — les agents peuvent créer des panneaux, exécuter des commandes et lire la sortie via l'API
+- **Redémarrage d'agent** — `codeterm agent restart --pane ID` exécute un `/exit` propre avec auto-resume sur n'importe quel panneau (`--force` tue un agent figé) ; même mécanisme que la mise à jour automatique
 
 ### API complète
 - **API REST** — plus de 30 points d'accès pour un contrôle total du terminal (port 7685)
@@ -63,6 +68,16 @@ Construit avec **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **API Socket** — JSON-RPC v2 via des pipes nommés (Windows) / sockets Unix
 - **Streaming en temps réel** — point d'accès SSE pour la sortie terminal en direct
 - **Capture de sortie** — pagination par curseur, suppression ANSI, captures d'écran
+
+### Ponts et services externes
+- **Pont Telegram** — bidirectionnel. Les messages entrants arrivent dans le panneau du General Agent sous la forme `[Telegram: USER_ID] text` ; les réponses sortent via `codeterm bridge send` au format HTML (le sanitizer échappe automatiquement les sous-chaînes `<word>` non prises en charge afin que les jetons inconnus ne cassent pas le parser)
+- **Transcription vocale** — quand `integrations.voice_transcribe.enabled = true`, les messages vocaux / vidéo-notes sont transcrits par un daemon Whisper local (par défaut `http://127.0.0.1:7891`) avant d'atteindre tout agent — Claude, Codex et les futurs clients sont couverts par un unique changement en amont
+- **Pont webhooks** — enregistrez des URL pour les événements d'agent (`agent.permission_request`, `agent.task_complete`, `agent.report`)
+
+### Mise à jour automatique et résilience
+- **Mise à jour automatique** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Les manifestes sont signés ed25519 et vérifiés avant toute manipulation du binaire ; l'auto-installation effectue un arrêt propre en 9 étapes (checkpoint WAL de mem, arrêt du superviseur, échange du binaire signé), puis les panneaux reprennent automatiquement — le contexte survit à la mise à jour
+- **Superviseur de sous-processus** — les opérations mem lourdes (dreaming, extraction Librarian) tournent en processus enfants avec disjoncteur (3 échecs en 60 s → ouvert). La mort d'un worker ne tue pas l'API ; les timeouts `503` sur les requêtes mem lourdes maintiennent le daemon réactif
+- **Watchdog externe** — sonde de santé sur `/api/health` ; recettes de configuration pour Windows Task Scheduler, launchd et systemd dans [docs/RESILIENCE.md](docs/RESILIENCE.md)
 
 ### Thèmes
 - **8 thèmes intégrés** — GitHub Dark, Dracula, Catppuccin Mocha, One Dark, Nord, GitHub Light, Solarized Light, Pip-Boy
@@ -171,10 +186,10 @@ curl -X POST http://localhost:7685/api/workspaces \
   -H "Content-Type: application/json" \
   -d '{"name": "Mon Projet"}'
 
-# Diviser un panneau
-curl -X POST http://localhost:7685/api/panes/{id}/split \
+# Lancer un agent dans un nouveau panneau à côté du panneau parent
+curl -X POST http://localhost:7685/api/agents/spawn \
   -H "Content-Type: application/json" \
-  -d '{"direction": "right"}'
+  -d '{"agent": "claude", "parent_pane_id": "PANE_ID"}'
 
 # Streamer la sortie en temps réel (SSE)
 curl http://localhost:7685/api/panes/{id}/output/stream
@@ -189,7 +204,6 @@ codeterm workspace create "Project"
 
 # Contrôle du terminal
 codeterm pane list
-codeterm pane split PANE_ID --direction right
 codeterm send-text PANE_ID "npm run build"
 codeterm get-output PANE_ID --lines 50
 

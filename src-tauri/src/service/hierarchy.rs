@@ -45,18 +45,7 @@ impl ServiceContext {
     pub fn submit_report(&self, pane_id: &str, message: &str) -> Result<ReportResult, String> {
         let (from_title, target_id) = {
             let mux = self.mux.lock();
-            let pane = mux.get_pane(pane_id).ok_or("Pane not found")?;
-            let title = pane.title.clone();
-            // Report goes to direct parent, then report_target (cron creator), then orchestrator
-            let target = pane.parent_pane_id.clone()
-                .or_else(|| pane.report_target_pane_id.clone())
-                .unwrap_or_else(|| {
-                    find_orchestrator(&mux, pane_id).unwrap_or_default()
-                });
-            if target.is_empty() {
-                return Err("No parent or orchestrator found".to_string());
-            }
-            (title, target)
+            resolve_report_target(&mux, pane_id)?
         };
 
         let report = self
@@ -253,6 +242,32 @@ fn find_orchestrator(
     Err("No orchestrator found in hierarchy".to_string())
 }
 
+/// Resolve where a report from `pane_id` should be delivered.
+///
+/// Returns `(from_title, target_pane_id)`. The target is — in order —
+/// the reporter's direct parent, an explicit `report_target_pane_id`
+/// (used by cron / mem worker spawns that don't join the role hierarchy),
+/// or the nearest orchestrator walking up the parent chain.
+///
+/// Extracted from [`ServiceContext::submit_report`] so the resolution
+/// rules are testable without a live ServiceContext / Tauri AppHandle.
+pub fn resolve_report_target(
+    mux: &crate::multiplexer::state::MultiplexerState,
+    pane_id: &str,
+) -> Result<(String, String), String> {
+    let pane = mux.get_pane(pane_id).ok_or("Pane not found")?;
+    let title = pane.title.clone();
+    let target = pane
+        .parent_pane_id
+        .clone()
+        .or_else(|| pane.report_target_pane_id.clone())
+        .unwrap_or_else(|| find_orchestrator(mux, pane_id).unwrap_or_default());
+    if target.is_empty() {
+        return Err("No parent or orchestrator found".to_string());
+    }
+    Ok((title, target))
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PaneStatusInfo {
     pub pane_id: String,
@@ -269,7 +284,134 @@ pub struct PaneStatusInfo {
 
 #[cfg(test)]
 mod tests {
-    // ── 5. Report message format ──
+    use super::resolve_report_target;
+    use crate::agent::reports::ReportStore;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::multiplexer::types::{AgentRole, Orientation};
+
+    // ── Report round-trip: child submits → parent lists ──
+    //
+    // These reproduce the bug where `codeterm agent reports` returns
+    // "No reports." even though `codeterm agent report` succeeded and
+    // injected `[Report from …]` into the parent pane. They lock down
+    // the contract: the key the reporter writes under MUST match the
+    // key the parent queries with.
+
+    fn build_orchestrator_with_worker(
+        worker_title: &str,
+    ) -> (MultiplexerState, String, String) {
+        let (mut mux, orch) = MultiplexerState::new();
+        let worker = mux
+            .split_pane(&orch, Orientation::Horizontal)
+            .expect("split orchestrator pane");
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&orch))
+            .expect("attach worker to orchestrator");
+        mux.rename_pane(&worker, worker_title)
+            .expect("rename worker pane");
+        (mux, orch, worker)
+    }
+
+    #[test]
+    fn worker_report_is_listed_by_orchestrator() {
+        let (mux, orch, worker) = build_orchestrator_with_worker("Worker-1");
+        let mut store = ReportStore::new(100);
+
+        let (from_title, target_id) =
+            resolve_report_target(&mux, &worker).expect("resolve target");
+        assert_eq!(target_id, orch, "worker reports to its direct parent");
+        assert_eq!(from_title, "Worker-1");
+
+        store.add(&target_id, &worker, &from_title, "task done");
+
+        let listed = store.get(&orch, false);
+        assert_eq!(
+            listed.len(),
+            1,
+            "orchestrator must see the worker's report after submit"
+        );
+        assert_eq!(listed[0].from_pane_id, worker);
+        assert_eq!(listed[0].from_title, "Worker-1");
+        assert_eq!(listed[0].message, "task done");
+    }
+
+    #[test]
+    fn worker_report_keys_match_storage_and_query() {
+        let (mux, orch, worker) = build_orchestrator_with_worker("Worker-A");
+        let mut store = ReportStore::new(100);
+
+        let (from_title, storage_key) =
+            resolve_report_target(&mux, &worker).expect("resolve target");
+        store.add(&storage_key, &worker, &from_title, "msg");
+
+        let query_key = &orch;
+        assert_eq!(
+            &storage_key, query_key,
+            "submit_report write key and agent.reports query key must agree"
+        );
+        assert_eq!(store.get(query_key, false).len(), 1);
+    }
+
+    #[test]
+    fn lead_to_worker_cascade_targets_lead_not_orchestrator() {
+        let (mut mux, orch) = MultiplexerState::new();
+        let lead = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
+        mux.set_pane_role(&lead, AgentRole::Lead, Some(&orch))
+            .unwrap();
+        mux.rename_pane(&lead, "Lead-1").unwrap();
+        let worker = mux.split_pane(&lead, Orientation::Horizontal).unwrap();
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&lead))
+            .unwrap();
+        mux.rename_pane(&worker, "Worker-Sub").unwrap();
+
+        let (_, target) = resolve_report_target(&mux, &worker).unwrap();
+        assert_eq!(
+            target, lead,
+            "worker reports to direct parent (Lead) for cascade reporting"
+        );
+
+        let mut store = ReportStore::new(100);
+        store.add(&target, &worker, "Worker-Sub", "phase 1 done");
+        assert_eq!(store.get(&lead, false).len(), 1);
+        assert_eq!(
+            store.get(&orch, false).len(),
+            0,
+            "orchestrator should NOT see worker's report directly — cascade goes through Lead"
+        );
+    }
+
+    #[test]
+    fn cron_report_target_is_used_when_no_parent() {
+        let (mut mux, orch) = MultiplexerState::new();
+        let cron_pane = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
+        // Cron-spawned panes carry an explicit report_target_pane_id but no role.
+        if let Some(pane) = mux.get_pane_mut(&cron_pane) {
+            pane.report_target_pane_id = Some(orch.clone());
+        }
+        mux.rename_pane(&cron_pane, "cron-task").unwrap();
+
+        let (from_title, target) = resolve_report_target(&mux, &cron_pane).unwrap();
+        assert_eq!(target, orch);
+        assert_eq!(from_title, "cron-task");
+    }
+
+    #[test]
+    fn orchestrator_self_report_uses_own_pane_id() {
+        let (mux, orch) = MultiplexerState::new();
+        let (_, target) = resolve_report_target(&mux, &orch).unwrap();
+        assert_eq!(
+            target, orch,
+            "an orchestrator without a parent reports to itself, surfacing summaries on its own pane"
+        );
+    }
+
+    #[test]
+    fn unknown_pane_id_is_rejected() {
+        let (mux, _orch) = MultiplexerState::new();
+        let err = resolve_report_target(&mux, "nonexistent").unwrap_err();
+        assert!(err.contains("Pane not found"), "got: {}", err);
+    }
+
+    // ── Report message format ──
     // Tests the format string used in submit_report (line 85-87):
     //   format!("[Report from {}] {}\r", from_title, message)
 

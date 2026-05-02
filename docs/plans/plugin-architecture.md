@@ -1,6 +1,6 @@
 # Plugin Architecture Plan
 
-**Status:** Phase 1 structurally done, Phase 2 not started
+**Status (2026-04-13):** Phase 1 (unified dispatch + plugin manager skeleton) DONE. Phase 2 (agent provider extraction) ~60% — `plugin/agent_claude`, `plugin/agent_codex` extracted; provider trait surface evolving. Phase 3+ (memory, WASM, bridges) early stage.
 **Date:** 2026-04-05 (last status update: 2026-04-06)
 
 ## Status (2026-04-06)
