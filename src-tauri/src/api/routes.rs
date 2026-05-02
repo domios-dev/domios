@@ -96,6 +96,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/config", get(get_config_api).patch(patch_config_api))
         .route("/api/update/check", get(super::updater_routes::check_update))
         .route("/api/update/install", post(super::updater_routes::install_update))
+        .route("/api/update/self_apply", post(super::updater_routes::self_update_apply))
+        .route("/api/update/rollback", post(super::updater_routes::self_update_rollback))
         .route(
             "/api/update/channel",
             get(super::updater_routes::get_channel).post(super::updater_routes::set_channel),

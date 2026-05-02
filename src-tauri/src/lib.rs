@@ -712,6 +712,10 @@ fn start_servers(
     if integrations.telegram_enabled {
         start_telegram_bridge(service_state);
     }
+
+    // If we just booted after a self-update, push the result through the
+    // bridge and clean up the staging file. Spawned task — non-blocking.
+    update::boot_pickup::spawn(service_state.clone());
 }
 
 /// Start or restart Telegram bridge. Safe to call multiple times.
