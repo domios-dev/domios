@@ -130,6 +130,30 @@ pub fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
         .unwrap_or_else(|_| reqwest::blocking::Client::new())
 }
 
+fn print_self_update_outcome(body: &serde_json::Value) {
+    match body.get("status").and_then(|v| v.as_str()) {
+        Some("up_to_date") => {
+            let v = body.get("version").and_then(|v| v.as_str()).unwrap_or("?");
+            println!("Already up to date (v{}).", v);
+        }
+        Some("scheduled") => {
+            let old = body.get("old_version").and_then(|v| v.as_str()).unwrap_or("?");
+            let new = body.get("new_version").and_then(|v| v.as_str()).unwrap_or("?");
+            let log = body.get("log_path").and_then(|v| v.as_str()).unwrap_or("?");
+            let script = body.get("script_path").and_then(|v| v.as_str()).unwrap_or("?");
+            println!("self-update scheduled: v{} -> v{}", old, new);
+            println!("daemon will exit shortly; orchestrator runs in the background.");
+            println!("script: {}", script);
+            println!("log:    {}", log);
+        }
+        Some("unsupported") => {
+            let r = body.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+            println!("self-update unsupported: {}", r);
+        }
+        _ => println!("{}", body),
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "codeterm", version, about = "CodeTerm CLI — control your terminal multiplexer")]
 pub struct Cli {
@@ -257,6 +281,25 @@ pub enum Commands {
         /// Backend must be built with `dev-updater-allowlocal` for non-https URLs.
         #[arg(long)]
         manifest_url: Option<String>,
+    },
+
+    /// Headless self-update flow: download → swap → verify → roll back on
+    /// mismatch. Survives daemon shutdown via an external orchestrator
+    /// script (schtasks on Windows). Routes the result through the
+    /// Telegram bridge once the new daemon boots.
+    SelfUpdate {
+        /// Skip download and just print whether an update is available.
+        #[arg(long, conflicts_with_all = ["apply", "rollback"])]
+        check: bool,
+        /// Run the full upgrade flow.
+        #[arg(long, conflicts_with_all = ["check", "rollback"])]
+        apply: bool,
+        /// Restore the previous binary from `.bak` and restart.
+        #[arg(long, conflicts_with_all = ["check", "apply"])]
+        rollback: bool,
+        /// Channel override for `--apply`. Defaults to the configured channel.
+        #[arg(long)]
+        channel: Option<String>,
     },
 
     /// Read or write CodeTerm configuration
@@ -2350,6 +2393,77 @@ fn main() {
                     return;
                 }
             }
+        }
+
+        Commands::SelfUpdate { check, apply, rollback, channel } => {
+            let (base_url, token) = read_api_config();
+            let http = build_http(&token);
+
+            if check {
+                let url = format!("{}/api/update/check", base_url);
+                match http.get(&url).send() {
+                    Ok(resp) if resp.status().is_success() => {
+                        let body: serde_json::Value = resp.json().unwrap_or_default();
+                        if cli.json {
+                            println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+                        } else {
+                            let current = body["current_version"].as_str().unwrap_or("?");
+                            let latest = body["latest_version"].as_str().unwrap_or("?");
+                            let available = body["update_available"].as_bool().unwrap_or(false);
+                            println!("Current: v{}  Latest: v{}", current, latest);
+                            println!("{}", if available { "Update available." } else { "Up to date." });
+                        }
+                    }
+                    Ok(resp) => { eprintln!("Error: {}", resp.status()); std::process::exit(1); }
+                    Err(e)   => { eprintln!("Error: {}", e); std::process::exit(1); }
+                }
+                return;
+            }
+
+            if rollback {
+                let url = format!("{}/api/update/rollback", base_url);
+                match http.post(&url).send() {
+                    Ok(resp) if resp.status().is_success() => {
+                        let body: serde_json::Value = resp.json().unwrap_or_default();
+                        if cli.json {
+                            println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+                        } else {
+                            print_self_update_outcome(&body);
+                        }
+                    }
+                    Ok(resp) => { eprintln!("Error: {}", resp.status()); std::process::exit(1); }
+                    Err(e)   => { eprintln!("Error: {}", e); std::process::exit(1); }
+                }
+                return;
+            }
+
+            // Default: apply (also when --apply explicitly passed)
+            let _ = apply;
+            let mut params: Vec<(&str, String)> = Vec::new();
+            if let Some(c) = channel { params.push(("channel", c)); }
+            let qs = if params.is_empty() {
+                String::new()
+            } else {
+                let pairs: Vec<String> = params
+                    .iter()
+                    .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
+                    .collect();
+                format!("?{}", pairs.join("&"))
+            };
+            let url = format!("{}/api/update/self_apply{}", base_url, qs);
+            match http.post(&url).send() {
+                Ok(resp) if resp.status().is_success() => {
+                    let body: serde_json::Value = resp.json().unwrap_or_default();
+                    if cli.json {
+                        println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+                    } else {
+                        print_self_update_outcome(&body);
+                    }
+                }
+                Ok(resp) => { eprintln!("Error: {}", resp.status()); std::process::exit(1); }
+                Err(e)   => { eprintln!("Error: {}", e); std::process::exit(1); }
+            }
+            return;
         }
 
         // Config is handled before socket connect (uses HTTP API)
