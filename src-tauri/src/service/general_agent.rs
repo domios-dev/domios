@@ -83,7 +83,10 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
     }
 }
 
-pub fn generate_instructions(provider_name: &str) {
+/// Pure render of `AGENT.md` content given the rendered wake-up snippet.
+/// Split out from [`generate_instructions`] so unit tests can verify the
+/// {wake_up} substitution without hitting real disk paths.
+fn render_agent_md(provider_name: &str, wake_up_section: &str) -> String {
     let version = env!("CARGO_PKG_VERSION");
     let platform = if cfg!(target_os = "windows") { "Windows" }
         else if cfg!(target_os = "macos") { "macOS" }
@@ -94,11 +97,8 @@ pub fn generate_instructions(provider_name: &str) {
 
     let dir = general_dir();
 
-    // Read identity.md and soul.md from general dir (user-editable files)
-    let identity = std::fs::read_to_string(dir.join("identity.md"))
-        .unwrap_or_default();
-    let soul = std::fs::read_to_string(dir.join("soul.md"))
-        .unwrap_or_default();
+    let identity = std::fs::read_to_string(dir.join("identity.md")).unwrap_or_default();
+    let soul = std::fs::read_to_string(dir.join("soul.md")).unwrap_or_default();
 
     let identity_section = if identity.trim().is_empty() {
         "No identity configured yet. Ask the user who they are during bootstrap.".to_string()
@@ -112,8 +112,7 @@ pub fn generate_instructions(provider_name: &str) {
         format!("\n## Soul\n\n{}\n", soul.trim())
     };
 
-    // 1. AGENT.md — system prompt, regenerated every start
-    let agent_content = crate::prompts::GENERAL_AGENT_TEMPLATE
+    crate::prompts::GENERAL_AGENT_TEMPLATE
         .replace("{version}", version)
         .replace("{platform}", platform)
         .replace("{hostname}", &hostname)
@@ -122,7 +121,31 @@ pub fn generate_instructions(provider_name: &str) {
         .replace("{secrets_dir}", &secrets_dir().to_string_lossy())
         .replace("{skills_dir}", &crate::paths::data_dir().join("skills").to_string_lossy())
         .replace("{identity}", &identity_section)
-        .replace("{soul}", &soul_section);
+        .replace("{soul}", &soul_section)
+        .replace("{wake_up}", wake_up_section)
+}
+
+/// Render the L0+L1 wake-up payload as a markdown section, or empty when
+/// mem is unavailable / failed. On error we log and substitute empty so GA
+/// bootstrap never fails because of memory.
+fn render_wake_up_section(mem: Option<&std::sync::Arc<crate::mem::MemManager>>) -> String {
+    let Some(m) = mem else { return String::new() };
+    match m.wake_up(&crate::mem::WakeUpOptions::default()) {
+        Ok(text) => format!("\n## Live mem snapshot\n\n{}\n", text.trim()),
+        Err(e) => {
+            log::warn!("[general-agent] wake-up render failed: {} — injecting empty section", e);
+            String::new()
+        }
+    }
+}
+
+pub fn generate_instructions(
+    provider_name: &str,
+    mem: Option<&std::sync::Arc<crate::mem::MemManager>>,
+) {
+    let dir = general_dir();
+    let wake_up_section = render_wake_up_section(mem);
+    let agent_content = render_agent_md(provider_name, &wake_up_section);
 
     if let Err(e) = std::fs::write(dir.join("AGENT.md"), &agent_content) {
         log::error!("[general-agent] Failed to write AGENT.md: {}", e);
@@ -244,6 +267,12 @@ pub fn start_general_agent(
     let provider_name = &general_config.agent_provider;
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
+
+    // Regenerate AGENT.md with the live mem snapshot injected. The bootstrap
+    // copy written from init_states had no mem yet (singleton not built);
+    // refreshing here guarantees the agent reads identity + L1 facts on
+    // every launch without having to call `codeterm mem wake-up` itself.
+    generate_instructions(provider_name, Some(&svc.mem));
 
     let general_cwd = general_dir().to_string_lossy().to_string();
 
@@ -659,7 +688,7 @@ pub fn restart_general_agent(
     // Re-generate instructions for potentially new provider
     // Clone to avoid holding the config lock (deadlock with start_general_agent)
     let provider_name = config.lock().general_agent.agent_provider.clone();
-    generate_instructions(&provider_name);
+    generate_instructions(&provider_name, Some(&svc.mem));
 
     // Relaunch
     start_general_agent(svc, mux, pty, screen_state, config, app);
@@ -732,5 +761,70 @@ mod tests {
         let template = crate::prompts::GENERAL_AGENT_TEMPLATE;
         assert!(!template.contains("CODETERM-AUTO-START"));
         assert!(!template.contains("CODETERM-AUTO-END"));
+    }
+
+    #[test]
+    fn test_template_has_wake_up_placeholder() {
+        // The template must have {wake_up} or render_agent_md will leave it
+        // as a literal placeholder in the output.
+        let template = crate::prompts::GENERAL_AGENT_TEMPLATE;
+        assert!(template.contains("{wake_up}"), "general_agent.md template must declare {{wake_up}} placeholder");
+    }
+
+    #[test]
+    fn test_wake_up_section_empty_when_mem_none() {
+        // No mem available (early bootstrap) → empty section.
+        let section = render_wake_up_section(None);
+        assert!(section.is_empty());
+        let rendered = render_agent_md("claude", &section);
+        // Placeholder must be substituted, not left literal.
+        assert!(!rendered.contains("{wake_up}"));
+        // The L0/L1 markers from layers::generate must NOT appear when mem
+        // was unavailable (the prompt may still reference the section by
+        // name elsewhere — only the rendered payload is gone).
+        assert!(!rendered.contains("L0 — Identity"));
+        assert!(!rendered.contains("L1 — Critical context"));
+    }
+
+    #[test]
+    fn test_wake_up_injects_identity_into_agent_md() {
+        // When mem has a preference_identity row, render_agent_md must surface
+        // its body inside the `## Live mem snapshot` section.
+        let mem = crate::mem::MemManager::open_in_memory().unwrap();
+        mem.save_replace(crate::mem::NewMemItem {
+            kind: crate::mem::MemKind::Preference,
+            scope: crate::mem::MemScope::Global,
+            title: "identity".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "I am Andrey, the General Agent on this dev box.".into(),
+            source: None,
+            importance: 5.0,
+            source_path: None,
+        }).unwrap();
+        // Add a rule too so L1 has at least one entry.
+        mem.save(crate::mem::NewMemItem {
+            kind: crate::mem::MemKind::Rule,
+            scope: crate::mem::MemScope::Global,
+            title: "never edit autogen".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "Never edit CLAUDE.md or AGENTS.md by hand.".into(),
+            source: None,
+            importance: 5.0,
+            source_path: None,
+        }).unwrap();
+
+        let section = render_wake_up_section(Some(&mem));
+        assert!(section.contains("## Live mem snapshot"), "section must have header: {}", section);
+        assert!(section.contains("Andrey"), "section must contain identity body: {}", section);
+
+        let rendered = render_agent_md("claude", &section);
+        assert!(rendered.contains("## Live mem snapshot"));
+        assert!(rendered.contains("Andrey"));
+        assert!(rendered.contains("never edit autogen"));
+        assert!(!rendered.contains("{wake_up}"));
     }
 }

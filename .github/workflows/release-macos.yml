@@ -1,0 +1,184 @@
+name: release-macos
+
+# Builds, signs, and notarizes the macOS bundles (.app + .dmg) for both
+# Apple Silicon and Intel, uploads to the GitHub release, then refreshes
+# the channel updater manifest.
+#
+# Triggers:
+#   - push of a tag matching v*  (fires alongside Windows / Linux workflows)
+#   - workflow_dispatch with explicit `tag` input (manual re-run)
+#
+# Disable: set repo Variable RELEASE_MACOS_ENABLED=false in
+# Settings -> Secrets and variables -> Actions -> Variables.
+#
+# Required secrets:
+#   TAURI_SIGNING_PRIVATE_KEY, APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
+#   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID, APPLE_SIGNING_IDENTITY.
+# Optional secret: TAURI_KEY_PASSWORD (only if the signing key is encrypted).
+
+"on":
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v1.1.0). Required for manual runs.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    if: ${{ vars.RELEASE_MACOS_ENABLED != 'false' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect channel and prerelease flag
+        id: channel
+        shell: bash
+        run: |
+          tag="${{ steps.tag.outputs.name }}"
+          if [[ "$tag" == *-rc* ]]; then
+            echo "manifest=latest-rc.json" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$tag" == *-nightly* ]]; then
+            echo "manifest=latest-nightly.json" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "manifest=latest.json" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri
+            cli
+          key: ${{ matrix.target }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
+
+      - name: Install npm dependencies
+        run: pnpm install --frozen-lockfile
+
+      # macOS x86_64 needs the onnxruntime dynamic library bundled next to
+      # the app binary because pyke does not ship an ort prebuilt for this
+      # target. arm64 keeps static linking via fastembed's default path.
+      - name: Stage onnxruntime dylib (macOS x86_64 only)
+        if: matrix.target == 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          ONNX_VER="1.23.2"
+          ONNX_DIR="/tmp/onnxruntime-osx-x86_64-${ONNX_VER}"
+          ONNX_TGZ="${ONNX_DIR}.tgz"
+          curl -sL -o "$ONNX_TGZ" \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_VER}/onnxruntime-osx-x86_64-${ONNX_VER}.tgz"
+          tar -xzf "$ONNX_TGZ" -C /tmp/
+          mkdir -p src-tauri/bundled-embed-libs
+          cp "${ONNX_DIR}/lib/libonnxruntime.${ONNX_VER}.dylib" \
+            src-tauri/bundled-embed-libs/libonnxruntime.dylib
+
+      - name: Import Apple signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Build, sign, and upload release assets
+        uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # If the signing key is encrypted, add TAURI_KEY_PASSWORD to
+          # repo secrets — this evaluates to an empty string otherwise.
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ steps.tag.outputs.name }}
+          releaseName: 'CodeTerm ${{ steps.tag.outputs.name }}'
+          releaseBody: 'See the assets to download this version and install. Auto-update users will be offered this build via the configured channel.'
+          releaseDraft: true
+          prerelease: ${{ steps.channel.outputs.prerelease }}
+          includeUpdaterJson: false
+          args: --target ${{ matrix.target }}
+
+      - name: Publish per-platform updater fragment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          fragment=$(find "src-tauri/target/${{ matrix.target }}/release/bundle" -name latest.json | head -n1)
+          if [ -z "$fragment" ]; then
+            echo "::error::No latest.json fragment produced by tauri-action"
+            exit 1
+          fi
+          out="updater-${{ matrix.target }}.json"
+          cp "$fragment" "$out"
+          gh release upload "${{ steps.tag.outputs.name }}" "$out" \
+            --clobber --repo "${{ github.repository }}"
+
+      - name: Refresh merged channel manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          mkdir -p _frags manifest-fragments
+          gh release download "${{ steps.tag.outputs.name }}" \
+            --pattern 'updater-*.json' \
+            --dir _frags \
+            --repo "${{ github.repository }}"
+          for f in _frags/updater-*.json; do
+            base=$(basename "$f" .json)
+            mkdir -p "manifest-fragments/$base"
+            cp "$f" "manifest-fragments/$base/latest.json"
+          done
+          node scripts/merge-latest-json.js \
+            --in manifest-fragments \
+            --out "${{ steps.channel.outputs.manifest }}"
+          gh release upload "${{ steps.tag.outputs.name }}" \
+            "${{ steps.channel.outputs.manifest }}" \
+            --clobber --repo "${{ github.repository }}"

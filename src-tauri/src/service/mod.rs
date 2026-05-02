@@ -24,6 +24,7 @@ pub mod cron;
 pub mod pty_lifecycle;
 pub mod general_agent;
 pub mod sync_watcher;
+pub mod agent_restart;
 #[cfg(test)]
 mod tests;
 
@@ -57,6 +58,7 @@ pub struct ServiceContext {
     pub report_store: ReportStoreState,
     pub agent_registry: Arc<AgentRegistry>,
     pub mem: Arc<crate::mem::MemManager>,
+    pub mem_supervisor: Arc<crate::mem::supervisor::Supervisor>,
     pub activity: Arc<crate::mem::activity::ActivityRing>,
     pub workers: Arc<crate::mem::workers::GraphWorkerRegistry>,
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
@@ -74,6 +76,8 @@ pub struct ServiceContext {
     pub bridge_outbound_rx: Arc<parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<crate::bridge::manager::OutboundMessage>>>>,
     /// Handle to the running bridge task — aborted on restart.
     pub bridge_task: Arc<parking_lot::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
+    /// Per-pane last-restart timestamp for `agent_restart` rate limiting.
+    pub restart_tracker: agent_restart::RestartTracker,
 }
 
 pub type ServiceState = Arc<ServiceContext>;

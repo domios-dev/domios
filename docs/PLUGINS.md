@@ -191,8 +191,8 @@ in `src-tauri/src/service/mod.rs`, which publish the following two variants:
 Other `SystemEvent` variants (`PaneFocused`, `PaneClosed`,
 `AgentStarted`, `AgentIdle`, `ConfigChanged`, `Generic`) are **defined but not
 yet emitted** anywhere in core. Subscribing to them today is valid but you will
-receive nothing. They will be filled in as Phase C progresses — see
-`plans/architecture-evolution.md`.
+receive nothing. They will be filled in as the plugin host work progresses — see
+`plans/plugin-architecture.md`.
 
 If you need an event that does not yet exist, publish a
 `SystemEvent::Generic { event_type, data }` from core and subscribe to it by
@@ -227,6 +227,4 @@ exist in the code today**. Do not build plugins that depend on them:
   describes it but the Rust side does not know about it.
 
 For the full target design, see
-[`plans/plugin-architecture.md`](plans/plugin-architecture.md). For the phase
-rollout and what has landed on `feat/plugin-prep`, see
-[`plans/architecture-evolution.md`](plans/architecture-evolution.md).
+[`plans/plugin-architecture.md`](plans/plugin-architecture.md).

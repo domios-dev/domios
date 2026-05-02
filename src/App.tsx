@@ -4,7 +4,7 @@ import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SplitContainer } from "./components/Terminal/SplitContainer";
 import { NotificationToastContainer } from "./components/Notifications/NotificationToast";
-import { SettingsPanel } from "./components/Settings/SettingsPanel";
+import { SettingsPanel, type SectionId } from "./components/Settings/SettingsPanel";
 import { CronPanel } from "./components/CronPanel/CronPanel";
 import { Onboarding } from "./components/Onboarding/Onboarding";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
@@ -57,6 +57,7 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
 function AppInner() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "cron">("workspace");
+  const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   const [cronInitialId, setCronInitialId] = useState<string | undefined>(undefined);
   const [activeCronId, setActiveCronId] = useState<string | undefined>(undefined);
@@ -245,7 +246,7 @@ function AppInner() {
             })
             .catch(() => {});
         },
-        openSettings: () => setSettingsOpen(true),
+        openSettings: () => { setSettingsSection(undefined); setSettingsOpen(true); },
         toggleSidebar: () => setSidebarOpen((v) => !v),
         spawnClaude: async () => {
           let folder: string | null;
@@ -507,6 +508,7 @@ function AppInner() {
         workspaceName={activeWs?.name}
         tabTitle={activeTab?.title}
         theme={theme}
+        onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
       />
 
       <div className="flex flex-1 min-h-0">
@@ -538,7 +540,8 @@ function AppInner() {
               <SettingsPanel
                 config={config}
                 onUpdateConfig={updateConfig}
-                onClose={() => setSettingsOpen(false)}
+                onClose={() => { setSettingsSection(undefined); setSettingsOpen(false); }}
+                initialSection={settingsSection}
               />
             </div>
           )}
