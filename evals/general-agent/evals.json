@@ -233,6 +233,19 @@
         "Does NOT write to `~/.claude/CLAUDE.md` or any global Claude config",
         "Does NOT rely on editing any .md file via Write/Edit — mem is the cross-provider source of truth"
       ]
+    },
+    {
+      "id": 21,
+      "name": "forward-orchestrator-report-to-telegram",
+      "prompt": "[Telegram: 186809246 msg_id=42] заведи в codeterm-репе небольшой docs review таск, потом репортни как закончит\n\n... (later, after the agent has spawned an orchestrator and the orchestrator finishes) ...\n\n[Report from 7a3f2c91] docs review DONE: PR #99 opened, 3 fixes committed.",
+      "expected_output": "Agent forwards the orchestrator's final report back to the Telegram user IMMEDIATELY when the [Report from ...] arrives — without waiting for the user to ask 'is it done?'.",
+      "expectations": [
+        "The instant `[Report from 7a3f2c91]` arrives, agent calls `codeterm bridge send --to 186809246 --service telegram \"...\"` with a concise summary of the report (PR #99 + key info)",
+        "Does NOT ignore the report and wait silently",
+        "Does NOT only print the report content into its own pane",
+        "Does NOT wait for a follow-up prompt from the user before forwarding",
+        "Tracks that the originating channel was Telegram (USER_ID=186809246) — owes a report-back there because the prefix said so"
+      ]
     }
   ]
 }
