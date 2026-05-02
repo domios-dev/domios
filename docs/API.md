@@ -378,6 +378,8 @@ The config is saved to disk and a `config-changed` Tauri event is emitted.
 |--------|------|------|-------------|
 | GET | `/api/update/check` | `?force=true` | Check for available updates on the active channel. Cached for 1 hour unless `force=true`. |
 | POST | `/api/update/install` | `?method=auto&manifest_url=...` | Install the pending update. Without `method=auto`, returns either an OS install command or opens the download URL in the browser. With `method=auto`, runs the full Tauri-plugin-updater flow (download, signature verify, install, restart). |
+| POST | `/api/update/self_apply` | `?channel=...` | Script-orchestrated self-update with rollback. Downloads the asset, schedules a platform script (`schtasks` on Windows), sends a Telegram "starting" message via the bridge, then graceful-shuts-down. The next-boot daemon reads `upgrade-result.json` and posts the outcome. See `docs/release/SELF-UPDATE.md`. |
+| POST | `/api/update/rollback` | — | Restore the previous binary from `.bak` and restart. Same orchestrator pattern in reverse. |
 | GET | `/api/update/channel` | — | Returns `{"channel": "stable" \| "rc" \| "nightly"}` |
 | POST | `/api/update/channel` | `{channel}` | Set the active channel. Persists to `[updater] channel = "..."` in `config.toml` and updates the in-memory state. |
 
@@ -913,4 +915,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->
