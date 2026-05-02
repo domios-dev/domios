@@ -49,6 +49,40 @@ pub fn is_tailscale_ip(ip: &str) -> bool {
     }
 }
 
+/// RFC1918 private LAN ranges: 10/8, 172.16/12, 192.168/16, plus loopback 127/8.
+/// Tailscale CGNAT is intentionally NOT included here — it has its own tier.
+pub fn is_lan_private_ip(ip: &str) -> bool {
+    let Ok(addr) = ip.parse::<std::net::Ipv4Addr>() else { return false; };
+    let o = addr.octets();
+    if o[0] == 10 { return true; }
+    if o[0] == 192 && o[1] == 168 { return true; }
+    if o[0] == 172 && (16..32).contains(&o[1]) { return true; }
+    if o[0] == 127 { return true; }
+    false
+}
+
+/// Address selection tier: lower = preferred. Tailscale is best (encrypted +
+/// stable across networks), then LAN private (fast, no internet hop), then
+/// anything else (treated as last-resort public).
+pub fn address_tier(addr: &PeerAddress) -> u8 {
+    if addr.is_tailscale { 0 }
+    else if is_lan_private_ip(&addr.ip) { 1 }
+    else { 2 }
+}
+
+// ── Live address announce ───────────────────────────────────────────
+
+/// Sent by a peer to tell us its current addresses changed (network swap,
+/// new Tailscale lease, etc.). Receiver replaces the cached list for the
+/// sender's instance_id wholesale — stale entries must die.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerAnnounce {
+    pub instance_id: String,
+    pub instance_name: String,
+    pub addresses: Vec<PeerAddress>,
+    pub api_port: u16,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredPeer {
     pub instance_id: String,
@@ -263,4 +297,51 @@ pub struct RevocationList {
     pub revoked: Vec<String>,
     /// Instance IDs blocked from sending pairing requests.
     pub blocked: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tailscale_cgnat_recognized() {
+        assert!(is_tailscale_ip("100.64.0.1"));
+        assert!(is_tailscale_ip("100.64.10.1"));
+        assert!(is_tailscale_ip("100.127.255.254"));
+        assert!(!is_tailscale_ip("100.63.255.255"));
+        assert!(!is_tailscale_ip("100.128.0.0"));
+    }
+
+    #[test]
+    fn lan_private_ranges() {
+        assert!(is_lan_private_ip("10.0.0.1"));
+        assert!(is_lan_private_ip("172.16.0.1"));
+        assert!(is_lan_private_ip("172.31.255.255"));
+        assert!(is_lan_private_ip("192.168.1.1"));
+        assert!(is_lan_private_ip("127.0.0.1"));
+        assert!(!is_lan_private_ip("172.15.0.1"));
+        assert!(!is_lan_private_ip("172.32.0.1"));
+        assert!(!is_lan_private_ip("8.8.8.8"));
+        assert!(!is_lan_private_ip("100.84.0.1")); // tailscale not LAN
+    }
+
+    #[test]
+    fn address_tier_orders_tailscale_first_then_lan_then_public() {
+        let ts = PeerAddress { ip: "100.84.1.2".into(), is_tailscale: true };
+        let lan = PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false };
+        let pub_ip = PeerAddress { ip: "8.8.8.8".into(), is_tailscale: false };
+        assert!(address_tier(&ts) < address_tier(&lan));
+        assert!(address_tier(&lan) < address_tier(&pub_ip));
+    }
+
+    #[test]
+    fn address_tier_min_picks_tailscale() {
+        let addrs = vec![
+            PeerAddress { ip: "8.8.8.8".into(), is_tailscale: false },
+            PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false },
+            PeerAddress { ip: "100.84.1.2".into(), is_tailscale: true },
+        ];
+        let pick = addrs.iter().min_by_key(|a| address_tier(a)).unwrap();
+        assert_eq!(pick.ip, "100.84.1.2");
+    }
 }
