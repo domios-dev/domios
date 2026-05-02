@@ -33,7 +33,7 @@ fn strip_ansi(s: &str) -> String {
     }
     out
 }
-pub use mesh_cli::MeshAction;
+pub use mesh_cli::{MeshAction, MeshPeerAction};
 
 /// Determine the CodeTerm data directory.
 /// Dev instances use `~/.codeterm-dev/`, prod uses `~/.codeterm/`.
@@ -2586,6 +2586,126 @@ fn main() {
                     }
                     return;
                 }
+                MeshAction::Refresh => {
+                    match http.post(format!("{}/api/mesh/refresh", base)).send() {
+                        Ok(resp) if resp.status().is_success() => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                let ts = val.get("tailscale_ip").and_then(|v| v.as_str()).unwrap_or("(none)");
+                                let lan = val.get("local_ip").and_then(|v| v.as_str()).unwrap_or("(none)");
+                                println!("Local addresses re-detected:");
+                                println!("  tailscale: {}", ts);
+                                println!("  lan:       {}", lan);
+                                if let Some(rep) = val.get("announce") {
+                                    let sent = rep.get("sent").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    let ok = rep.get("ok").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    println!("Announced to {}/{} paired peers", ok, sent);
+                                    if let Some(stale) = rep.get("stale_peers").and_then(|v| v.as_array()) {
+                                        if !stale.is_empty() {
+                                            println!("Stale peers (need manual update — too old to recognize announce):");
+                                            for s in stale { println!("  - {}", s.as_str().unwrap_or("?")); }
+                                        }
+                                    }
+                                    if let Some(errs) = rep.get("errors").and_then(|v| v.as_array()) {
+                                        if !errs.is_empty() {
+                                            println!("Errors:");
+                                            for e in errs { println!("  - {}", e.as_str().unwrap_or("?")); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let body = resp.text().unwrap_or_default();
+                            eprintln!("Error ({}): {}", status, body);
+                            std::process::exit(1);
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Announce { to } => {
+                    let url = match to {
+                        Some(t) => format!("{}/api/mesh/announce/all?to={}", base, urlencoding::encode(&t)),
+                        None => format!("{}/api/mesh/announce/all", base),
+                    };
+                    match http.post(&url).send() {
+                        Ok(resp) if resp.status().is_success() => {
+                            let val: serde_json::Value = resp.json().unwrap_or_default();
+                            if cli.json {
+                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            } else {
+                                let rep = val.get("report").cloned().unwrap_or(serde_json::Value::Null);
+                                let sent = rep.get("sent").and_then(|v| v.as_u64()).unwrap_or(0);
+                                let ok = rep.get("ok").and_then(|v| v.as_u64()).unwrap_or(0);
+                                println!("Announced to {}/{} paired peers", ok, sent);
+                                if let Some(stale) = rep.get("stale_peers").and_then(|v| v.as_array()) {
+                                    if !stale.is_empty() {
+                                        println!("Stale peers (need manual update):");
+                                        for s in stale { println!("  - {}", s.as_str().unwrap_or("?")); }
+                                    }
+                                }
+                                if let Some(errs) = rep.get("errors").and_then(|v| v.as_array()) {
+                                    if !errs.is_empty() {
+                                        println!("Errors:");
+                                        for e in errs { println!("  - {}", e.as_str().unwrap_or("?")); }
+                                    }
+                                }
+                            }
+                        }
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let body = resp.text().unwrap_or_default();
+                            eprintln!("Error ({}): {}", status, body);
+                            std::process::exit(1);
+                        }
+                        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    }
+                    return;
+                }
+                MeshAction::Peer { action } => match action {
+                    MeshPeerAction::SetAddr { peer, addr } => {
+                        let (ip, port) = mesh_cli::parse_ip_port(&addr);
+                        if ip.is_empty() {
+                            eprintln!("Error: invalid address '{}'", addr);
+                            std::process::exit(1);
+                        }
+                        let mut body = serde_json::json!({"ip": ip});
+                        if let Some(p) = port { body["port"] = serde_json::json!(p); }
+                        let url = format!("{}/api/mesh/peers/{}/addr", base, urlencoding::encode(&peer));
+                        match http.post(&url).json(&body).send() {
+                            Ok(resp) if resp.status().is_success() => {
+                                let val: serde_json::Value = resp.json().unwrap_or_default();
+                                if cli.json {
+                                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                                } else {
+                                    let prev = val.get("previous").and_then(|v| v.as_array())
+                                        .map(|a| a.iter().filter_map(|x| x.get("ip").and_then(|v| v.as_str())).collect::<Vec<_>>().join(", "))
+                                        .unwrap_or_default();
+                                    println!("Set {} → {}{}",
+                                        peer,
+                                        ip,
+                                        port.map(|p| format!(":{}", p)).unwrap_or_default()
+                                    );
+                                    if !prev.is_empty() {
+                                        println!("  was: {}", prev);
+                                    }
+                                }
+                            }
+                            Ok(resp) => {
+                                let status = resp.status();
+                                let body = resp.text().unwrap_or_default();
+                                eprintln!("Error ({}): {}", status, body);
+                                std::process::exit(1);
+                            }
+                            Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                        }
+                        return;
+                    }
+                },
             }
         }
         Commands::Mem { action } => {
