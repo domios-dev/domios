@@ -1,6 +1,6 @@
 use clap::Subcommand;
 
-use super::Commands;
+use super::{Commands, UpdateAction};
 
 #[derive(Subcommand)]
 pub enum MeshAction {
@@ -116,10 +116,203 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
     let (base, token) = super::read_api_config();
     let http = super::build_http(&token);
 
+    // Update --apply over mesh needs check-then-install in sequence.
+    if let Commands::Update { action, check, apply, channel, manifest_url } = &cli.command {
+        let resolved = resolve_update_action(action.as_ref(), *check, *apply, channel.clone(), manifest_url.clone());
+        if let UpdateAction::Install { auto: true, manifest_url } = &resolved {
+            run_update_apply_via_mesh(&http, &base, &token, target, manifest_url.as_deref(), cli.json);
+            return;
+        }
+    }
+
     // Map CLI command to API path + method + body
     let (method, path, body) = cli_command_to_api(&cli.command);
 
     mesh_relay_generic(&http, &base, &token, target, &method, &path, body.as_deref(), cli.json);
+}
+
+/// Resolve update flag shortcuts (--check, --apply, --channel) to a concrete UpdateAction.
+/// Same logic as the local CLI dispatch in main.rs.
+fn resolve_update_action(
+    action: Option<&UpdateAction>,
+    check: bool,
+    apply: bool,
+    channel: Option<String>,
+    manifest_url: Option<String>,
+) -> UpdateAction {
+    if let Some(ch) = channel {
+        UpdateAction::Channel {
+            channel: if ch.is_empty() { None } else { Some(ch) },
+        }
+    } else if apply {
+        UpdateAction::Install { auto: true, manifest_url }
+    } else if check {
+        UpdateAction::Check { force: false }
+    } else {
+        match action {
+            Some(UpdateAction::Check { force }) => UpdateAction::Check { force: *force },
+            Some(UpdateAction::Install { auto, manifest_url }) => UpdateAction::Install {
+                auto: *auto,
+                manifest_url: manifest_url.clone(),
+            },
+            Some(UpdateAction::Channel { channel }) => UpdateAction::Channel { channel: channel.clone() },
+            None => UpdateAction::Check { force: false },
+        }
+    }
+}
+
+/// Two-step update apply over mesh: force-check (populates peer's last_check
+/// cache), then install if an update is available. Prints a one-line status
+/// per step. The peer's install endpoint requires a prior check call.
+fn run_update_apply_via_mesh(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    token: &Option<String>,
+    target: &str,
+    manifest_url: Option<&str>,
+    json_mode: bool,
+) {
+    let Some(peer_url) = resolve_peer_url(http, base, token, target) else {
+        eprintln!("Peer '{}' not found", target);
+        std::process::exit(1);
+    };
+
+    let signed = token.as_deref().unwrap_or("");
+
+    // Step 1: force-check on peer.
+    let check_resp = relay_call(http, &peer_url, signed, "GET", "/api/update/check?force=true", None);
+    let check_data = match check_resp {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("[{}] check failed: {}", target, e);
+            std::process::exit(1);
+        }
+    };
+    let status = check_data.get("status").and_then(|v| v.as_u64()).unwrap_or(0);
+    if status == 404 {
+        eprintln!(
+            "Peer '{}' is running an older CodeTerm without remote-update support.\n\
+             Bootstrap manually one last time, then this command will work going forward.",
+            target
+        );
+        std::process::exit(2);
+    }
+    if !check_data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let err = check_data.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+        eprintln!("[{}] check failed: {} (HTTP {})", target, err, status);
+        std::process::exit(1);
+    }
+    let info = check_data.get("data").cloned().unwrap_or(serde_json::Value::Null);
+    let current = info.get("current_version").and_then(|v| v.as_str()).unwrap_or("?");
+    let latest = info.get("latest_version").and_then(|v| v.as_str()).unwrap_or("?");
+    let available = info.get("update_available").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    if json_mode {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+            "step": "check",
+            "peer": target,
+            "data": info,
+        })).unwrap_or_default());
+    } else {
+        println!(
+            "[{}] checking…  current v{}, latest v{} — {}",
+            target, current, latest,
+            if available { "update available" } else { "up to date" }
+        );
+    }
+
+    if !available {
+        return;
+    }
+
+    // Step 2: install on peer.
+    let mut install_path = String::from("/api/update/install?method=auto");
+    if let Some(m) = manifest_url {
+        install_path.push_str(&format!("&manifest_url={}", urlencoding::encode(m)));
+    }
+    let install_resp = relay_call(http, &peer_url, signed, "POST", &install_path, None);
+    let install_data = match install_resp {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("[{}] install relay failed: {}", target, e);
+            std::process::exit(1);
+        }
+    };
+    let status = install_data.get("status").and_then(|v| v.as_u64()).unwrap_or(0);
+    if status == 403 {
+        let err = install_data.get("data").and_then(|d| d.get("error")).and_then(|v| v.as_str())
+            .or_else(|| install_data.get("error").and_then(|v| v.as_str()))
+            .unwrap_or("forbidden");
+        eprintln!("[{}] install rejected: {}", target, err);
+        std::process::exit(3);
+    }
+    if status == 404 {
+        eprintln!(
+            "Peer '{}' is running an older CodeTerm without remote-update support.\n\
+             Bootstrap manually one last time, then this command will work going forward.",
+            target
+        );
+        std::process::exit(2);
+    }
+    if !install_data.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let err = install_data.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+        eprintln!("[{}] install failed: {} (HTTP {})", target, err, status);
+        std::process::exit(1);
+    }
+    let inner = install_data.get("data").cloned().unwrap_or(serde_json::Value::Null);
+    if json_mode {
+        println!("{}", serde_json::to_string_pretty(&serde_json::json!({
+            "step": "install",
+            "peer": target,
+            "data": inner,
+        })).unwrap_or_default());
+    } else {
+        let s = inner.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+        let msg = inner.get("message").and_then(|v| v.as_str()).unwrap_or("");
+        println!("[{}] applying…  status={} {}", target, s, msg);
+    }
+}
+
+/// Resolve a peer's API URL by name or instance_id via the local /api/mesh/peers.
+fn resolve_peer_url(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    token: &Option<String>,
+    target: &str,
+) -> Option<String> {
+    let peers_resp = http.get(format!("{}/api/mesh/peers", base))
+        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+        .send().ok().and_then(|r| r.json::<serde_json::Value>().ok())?;
+    let paired = peers_resp.get("paired").and_then(|v| v.as_array())?;
+    let peer = paired.iter().find(|p| {
+        p.get("instance_name").and_then(|v| v.as_str()) == Some(target)
+            || p.get("instance_id").and_then(|v| v.as_str()) == Some(target)
+    })?;
+    let ip = peer.get("addresses").and_then(|v| v.as_array())
+        .and_then(|a| a.first()).and_then(|a| a.get("ip")).and_then(|v| v.as_str()).unwrap_or("127.0.0.1");
+    let port = peer.get("api_port").and_then(|v| v.as_u64()).unwrap_or(7685);
+    Some(format!("http://{}:{}", ip, port))
+}
+
+/// Send a relay envelope to a peer's /api/mesh/relay and return the parsed JSON response.
+fn relay_call(
+    http: &reqwest::blocking::Client,
+    peer_url: &str,
+    signed_token: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let relay = serde_json::json!({
+        "method": method,
+        "path": path,
+        "body": body.and_then(|b| serde_json::from_str::<serde_json::Value>(b).ok()).unwrap_or(serde_json::json!(null)),
+    });
+    let resp = http.post(format!("{}/api/mesh/relay", peer_url))
+        .header("Authorization", format!("Bearer {}", signed_token))
+        .json(&relay).send()
+        .map_err(|e| e.to_string())?;
+    resp.json::<serde_json::Value>().map_err(|e| e.to_string())
 }
 
 /// Map a CLI command to its corresponding API call.
@@ -232,7 +425,35 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("PATCH".into(), "/api/config".into(), Some(serde_json::json!({"key": key, "value": v}).to_string()))
             }
         },
-        Commands::Update { .. } => ("GET".into(), "/api/update/check".into(), None),
+        Commands::Update { action, check, apply, channel, manifest_url } => {
+            let resolved = resolve_update_action(action.as_ref(), *check, *apply, channel.clone(), manifest_url.clone());
+            match resolved {
+                UpdateAction::Check { force } => {
+                    let path = if force { "/api/update/check?force=true" } else { "/api/update/check" };
+                    ("GET".into(), path.into(), None)
+                }
+                UpdateAction::Install { auto, manifest_url } => {
+                    let mut qs = String::new();
+                    if auto {
+                        qs.push_str("?method=auto");
+                    }
+                    if let Some(m) = manifest_url {
+                        if qs.is_empty() {
+                            qs.push('?');
+                        } else {
+                            qs.push('&');
+                        }
+                        qs.push_str(&format!("manifest_url={}", urlencoding::encode(&m)));
+                    }
+                    ("POST".into(), format!("/api/update/install{}", qs), None)
+                }
+                UpdateAction::Channel { channel } => match channel {
+                    None => ("GET".into(), "/api/update/channel".into(), None),
+                    Some(name) => ("POST".into(), "/api/update/channel".into(),
+                        Some(serde_json::json!({"channel": name}).to_string())),
+                },
+            }
+        }
         // Mesh subcommands — management commands are local-only (not relayable)
         Commands::Mesh { action } => match action {
             MeshAction::Status => ("GET".into(), "/api/mesh/status".into(), None),
@@ -373,5 +594,80 @@ pub fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &
             }
         }
         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Commands, UpdateAction};
+
+    fn update_cmd(
+        action: Option<UpdateAction>,
+        check: bool,
+        apply: bool,
+        channel: Option<String>,
+        manifest_url: Option<String>,
+    ) -> Commands {
+        Commands::Update { action, check, apply, channel, manifest_url }
+    }
+
+    #[test]
+    fn check_maps_to_get_check() {
+        let (m, p, b) = cli_command_to_api(&update_cmd(None, true, false, None, None));
+        assert_eq!(m, "GET");
+        assert_eq!(p, "/api/update/check");
+        assert!(b.is_none());
+    }
+
+    #[test]
+    fn check_force_maps_to_query_param() {
+        let (m, p, _) = cli_command_to_api(&update_cmd(
+            Some(UpdateAction::Check { force: true }),
+            false, false, None, None,
+        ));
+        assert_eq!(m, "GET");
+        assert_eq!(p, "/api/update/check?force=true");
+    }
+
+    #[test]
+    fn apply_maps_to_install_auto() {
+        let (m, p, b) = cli_command_to_api(&update_cmd(None, false, true, None, None));
+        assert_eq!(m, "POST");
+        assert_eq!(p, "/api/update/install?method=auto");
+        assert!(b.is_none());
+    }
+
+    #[test]
+    fn apply_with_manifest_url_appends_query() {
+        let (m, p, _) = cli_command_to_api(&update_cmd(
+            None, false, true, None,
+            Some("http://localhost:9999/latest.json".to_string()),
+        ));
+        assert_eq!(m, "POST");
+        assert!(p.starts_with("/api/update/install?method=auto&manifest_url="));
+        assert!(p.contains("localhost%3A9999"));
+    }
+
+    #[test]
+    fn channel_get_maps_to_get_channel() {
+        let (m, p, b) = cli_command_to_api(&update_cmd(
+            None, false, false, Some(String::new()), None,
+        ));
+        assert_eq!(m, "GET");
+        assert_eq!(p, "/api/update/channel");
+        assert!(b.is_none());
+    }
+
+    #[test]
+    fn channel_set_maps_to_post_channel_with_body() {
+        let (m, p, b) = cli_command_to_api(&update_cmd(
+            None, false, false, Some("rc".to_string()), None,
+        ));
+        assert_eq!(m, "POST");
+        assert_eq!(p, "/api/update/channel");
+        let body = b.expect("body");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["channel"], "rc");
     }
 }
