@@ -6,7 +6,9 @@ tags: [release, github, macos, windows, notarize, brew, mesh]
 
 # End-to-end CodeTerm release to GitHub
 
-Full pipeline: bump version → build signed+notarized macOS (arm64+x86_64) → build Windows via mesh peer → publish to GitHub release → update Homebrew cask.
+Full pipeline: bump version on develop → merge to master → tag → checkout tag → build signed+notarized macOS (arm64+x86_64) → build Windows via mesh → upload to GitHub release → update Homebrew cask.
+
+**Golden rule: all builds happen from the tagged commit on master. Never build release artifacts from develop.**
 
 ## When to use
 
@@ -38,33 +40,56 @@ Rust builds share the target dir — concurrent `tauri build` + `tauri dev` figh
 ./build.sh kill
 ```
 
-### 1. Bump version in all four files (one commit)
+### 1. Bump version on develop (one commit)
 
 ```bash
-VER=1.0.1  # new
-OLD=1.0.0  # previous
-sd "version = \"$OLD\"" "version = \"$VER\"" src-tauri/Cargo.toml
-sd "\"version\": \"$OLD\"" "\"version\": \"$VER\"" src-tauri/tauri.conf.json package.json
-./build.sh check                      # refreshes Cargo.lock too
+git checkout develop
+VER=1.2.0  # new
+OLD=1.1.2  # previous
+sed -i '' "s/^version = \"$OLD\"/version = \"$VER\"/" src-tauri/Cargo.toml
+sed -i '' "s/\"version\": \"$OLD\"/\"version\": \"$VER\"/g" src-tauri/tauri.conf.json package.json
+./build.sh check                      # refreshes Cargo.lock
 git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json package.json
 git commit -m "release: v$VER"
+git push origin develop
 ```
 
-If `sd` isn't installed, use `sed -i '' 's|…|…|g' <file>` (BSD sed on mac needs the empty `-i ''`).
-
-### 2. Merge to master + tag
+### 2. Merge to master + tag + checkout tag
 
 ```bash
-git push origin <feature-branch>
-git checkout develop && git merge --no-ff <feature-branch> -m "merge: … into develop"
-git push origin develop
-git checkout master && git merge --no-ff develop -m "merge: v$VER from develop"
+git checkout master
+git pull origin master --no-rebase
+git merge --no-ff develop -m "merge: v$VER from develop"
 git tag -a v$VER -m "v$VER — <one-liner summary>"
 git push origin master
 git push origin v$VER
 ```
 
-### 3. Build arm64 + notarize + staple
+If push to master is rejected (non-fast-forward), always `git pull origin master --no-rebase --no-edit` first, then push again.
+
+### 3. Create GitHub release (draft)
+
+```bash
+gh release create v$VER --title "v$VER" --draft --notes "$(cat <<'NOTES'
+## Changes
+- ...
+NOTES
+)"
+```
+
+Create as draft first. Publish after all assets are uploaded.
+
+### 4. Checkout tag for building
+
+**Critical: build from the tag, not from a branch.**
+
+```bash
+git checkout v$VER
+```
+
+You're now in detached HEAD on the exact tagged commit. All builds below use this tree.
+
+### 5. Build arm64 + notarize + staple
 
 `./build.sh build` signs the inner `.app` and notarizes it, but **does NOT notarize the DMG wrapper itself**. Staple the DMG manually:
 
@@ -76,7 +101,7 @@ xcrun stapler staple "$ARM"
 spctl -a -t open --context context:primary-signature -vv "$ARM"  # must print "accepted, Notarized Developer ID"
 ```
 
-### 4. Build x86_64 (full script handles notarize+staple)
+### 6. Build x86_64 (full script handles notarize+staple)
 
 ```bash
 bash scripts/release-macos-x86_64.sh
@@ -86,7 +111,13 @@ spctl -a -t open --context context:primary-signature -vv "$X64"   # must print a
 
 Cross-compile detail (why this script exists): `macos-x86_64-release` skill.
 
-### 5. Kick Windows build on BLACKSTAR via mesh
+### 7. Upload macOS DMGs
+
+```bash
+gh release upload v$VER "$ARM" "$X64" --clobber
+```
+
+### 8. Kick Windows build on BLACKSTAR via mesh
 
 Spawn a claude agent in BLACKSTAR's `codeterm` workspace and let it pull the tag, build, and upload:
 
@@ -111,19 +142,24 @@ Steps:
 If pnpm install fails with 'UNKNOWN package.json' on Windows, rm -rf node_modules && pnpm install."
 ```
 
-Alternative (what actually happened in v1.0.1): devops agent on dev machine SSH'd into BLACKSTAR and did the build directly via ssh + scp. Either works — mesh-spawn is more hands-off, SSH is more debuggable.
+Alternative: devops agent on dev machine SSH'd into BLACKSTAR and did the build directly via ssh + scp. Either works — mesh-spawn is more hands-off, SSH is more debuggable.
 
-### 6. Upload macOS DMGs + publish release
+### 9. Publish release + verify
 
 ```bash
-gh release upload v$VER "$ARM" "$X64" --clobber
 gh release edit v$VER --draft=false --latest
 gh release view v$VER --json assets --jq '.assets[] | "\(.name)  \(.size)B"'
 ```
 
 Expect 3 assets: `CodeTerm_${VER}_aarch64.dmg`, `CodeTerm_${VER}_x64.dmg`, `CodeTerm_${VER}_x64-setup.exe`.
 
-### 7. Bump Homebrew cask
+### 10. Return to develop
+
+```bash
+git checkout develop
+```
+
+### 11. Bump Homebrew cask (optional, repos still private)
 
 ```bash
 gh api repos/rollacode/codeterm/releases/tags/v$VER --jq '.assets[] | select(.name|endswith(".dmg")) | "\(.name) \(.digest)"'
@@ -140,24 +176,16 @@ git commit -m "codeterm: bump to $VER"
 git push origin main
 ```
 
-Both repos are currently PRIVATE — `brew install codeterm` still won't work for the public (GitHub returns 404 for unauthenticated download URLs on private repos). Bumping the cask keeps the tap self-consistent for when repos go public.
-
-### 8. Verify download URLs (private caveat)
-
-```bash
-gh release download v$VER --pattern "*" -D /tmp/v$VER_verify
-ls -la /tmp/v$VER_verify/
-```
-
-`gh` uses the auth token so this works. Plain `curl` on the public URL returns 404 while the repo is private — that's expected, not a release problem.
+Both repos are currently PRIVATE — `brew install codeterm` still won't work for the public. Bumping the cask keeps the tap self-consistent for when repos go public.
 
 ## Failure modes seen in the wild
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `tauri build` ends with no DMG, no error | `build.sh dev` still running, Cargo target dir contention | `./build.sh kill` first |
-| DMG `spctl` → "rejected, Unnotarized Developer ID" | tauri signed the `.app` but left the DMG wrapper unsigned notarization | Run `xcrun notarytool submit … --wait && xcrun stapler staple …` manually |
+| DMG `spctl` → "rejected, Unnotarized Developer ID" | tauri signed the `.app` but left the DMG wrapper unsigned | Run `xcrun notarytool submit … --wait && xcrun stapler staple …` manually |
 | `notarytool store-credentials` → HTTP 401 | keychain creds expired OR used `APPLE_PASSWORD` instead of `APPLE_APP_SPECIFIC_PASSWORD` | source the env file, use correct var name |
+| `git push origin master` → non-fast-forward | master diverged (e.g. previous release merged differently) | `git pull origin master --no-rebase --no-edit` then push again |
 | BLACKSTAR build: `UNKNOWN error opening node_modules/sigma/package.json` | Windows filesystem race on freshly added dep | `rm -rf node_modules && pnpm install` on BLACKSTAR |
 | SSH to BLACKSTAR: `cd /c/…` fails | `bash -lc` runs a login shell that re-homes | use `bash -c` (non-login) |
 | `scp User@blackstar:/c/…` fails | remote shell is cmd.exe, doesn't grok the path | stage the file to `C:\Users\dev\` on BLACKSTAR first, then `scp User@blackstar:filename` |
@@ -165,6 +193,6 @@ ls -la /tmp/v$VER_verify/
 
 ## Known gaps (fix opportunistically)
 
-- `./build.sh build` should staple the DMG wrapper automatically — currently manual step in §3. Worth patching `build.sh` to mirror what `scripts/release-macos-x86_64.sh` already does.
-- No CI release workflow — everything's local. A GitHub Action on tag push would replace §§3-6.
+- `./build.sh build` should staple the DMG wrapper automatically — currently manual step in §5. Worth patching `build.sh` to mirror what `scripts/release-macos-x86_64.sh` already does.
+- No CI release workflow — everything's local. A GitHub Action on tag push would replace §§5-8.
 - Brew tap bump is manual — a `scripts/release-bump-brew.sh` could read the release JSON and rewrite the cask in one shot.
