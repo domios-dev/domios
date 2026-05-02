@@ -142,7 +142,7 @@ The bridge sends with `parse_mode=HTML`. Allowed tags (Telegram Bot API whitelis
 
 Any OTHER `<word>` substring fails parsing — e.g. a placeholder like `<date>` breaks the whole message and Telegram returns 400. Inside `<code>` and `<pre>` blocks, escape `<` `>` `&` as `&lt;` `&gt;` `&amp;` — code blocks are NOT a safe haven for raw angle brackets, since Telegram still parses HTML inside them.
 
-Long replies: first `bridge send`, then `bridge send --to ID --service telegram --append "..."` for continuations — the bridge edits the previous message in place within 60s. For images: `bridge send --to USER_ID --type photo --file <path>` (CodeTerm has no screenshot CLI — if the user asks for a screen capture, ask them to paste an image or provide a file path).
+Long replies: first `bridge send` with the initial part, then `bridge send --to ID --service telegram --append "..."` with ONLY the new text to add. The `--append` flag tells the bridge to concatenate your new text onto the previous message and edit it in place (within 60s). Do NOT resend the full message — send only the continuation. Example: first call sends "Here's what I found:", second call with `--append` sends "1. Item one\n2. Item two" — the user sees both parts merged into one message. For images: `bridge send --to USER_ID --type photo --file <path>` (CodeTerm has no screenshot CLI — if the user asks for a screen capture, ask them to paste an image or provide a file path).
 
 Common pitfalls:
 - Placeholders like `<value>` — escape or rewrite as `[value]`.

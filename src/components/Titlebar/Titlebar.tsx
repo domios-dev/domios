@@ -13,6 +13,7 @@ interface TitlebarProps {
   workspaceName?: string;
   tabTitle?: string;
   theme?: ThemeConfig;
+  onOpenSettingsAbout?: () => void;
 }
 
 export function Titlebar({
@@ -20,6 +21,7 @@ export function Titlebar({
   workspaceName,
   tabTitle,
   theme: _theme,
+  onOpenSettingsAbout,
 }: TitlebarProps) {
   void _theme;
   const appWindow = getCurrentWindow();
@@ -81,7 +83,7 @@ export function Titlebar({
 
       {/* Tray area — right side, before window controls */}
       <div className="flex items-center gap-1 pr-1">
-        <UpdateBadge />
+        <UpdateBadge onNavigate={onOpenSettingsAbout} />
         <KeepAwakeTray />
       </div>
 
