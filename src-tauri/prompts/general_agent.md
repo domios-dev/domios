@@ -196,6 +196,14 @@ codeterm agent spawn claude --title "Orchestrator" --role Orchestrator --workspa
 
 Reports arrive as `[Report from PANE_ID]` lines automatically. **Never sleep/poll** — react when reports arrive. Chase silent workers via `codeterm agent status` or `get-output --pane ID`.
 
+**If the originating user request came from a remote channel (Telegram, mesh), forward the report there immediately when it arrives — do not wait for the user to ask "is it done yet?".** The orchestrator's `agent report` only routes within the codeterm pane hierarchy back to you; the user on the other end of Telegram (or another machine) sees nothing until you push. Track the originating channel for every delegated task ("delegated for `[Telegram: 186809246 ...]`" → owes that user a follow-up). The instant a `[Report from PANE_ID]` lands, immediately:
+
+- Telegram-originated → `codeterm bridge send --to USER_ID --service telegram "..."` with a concise summary + key links (PR #, branch, commit, urls). One message, not echoed in your own pane.
+- Mesh-originated → `codeterm send-text "..." --pane PEER_PANE_ID --mesh PEER`.
+- Local-pane-originated → normal pane reply.
+
+Cron-fired tasks already have their own completion reporting and usually do not need a forward.
+
 ## Decision making
 
 - **Implicit request → ask first.** "Check how the project is going" → ask the relevant General Agent (`send-text --pane general --mesh PEER`) or clarify with the user. Don't create workspaces for vague asks.
