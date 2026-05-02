@@ -275,16 +275,23 @@ impl PtyManager {
             .sessions
             .remove(pty_id)
             .ok_or_else(|| format!("PTY {} not found", pty_id))?;
-        // Drop alone is unreliable on Windows: closing the Child handle does not
-        // always TerminateProcess. Send the signal explicitly, then reap.
         match session.child.lock() {
-            Ok(mut child) => {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
+            Ok(mut child) => { let _ = child.kill(); }
             Err(e) => log::warn!("PTY {} child mutex poisoned during kill: {}", pty_id, e),
         }
-        log::info!("Killed PTY {} (child terminated)", pty_id);
+        // Reap in background — wait() can block indefinitely if descendants
+        // ignore SIGKILL or zombie isn't reaped promptly. Move session
+        // ownership to background thread so PTY lock is released immediately.
+        let id = pty_id.to_string();
+        std::thread::spawn(move || {
+            match session.child.lock() {
+                Ok(mut c) => { let _ = c.wait(); }
+                Err(_) => {}
+            }
+            drop(session);
+            log::info!("PTY {} child reaped", id);
+        });
+        log::info!("Killed PTY {} (SIGKILL sent, reaping in background)", pty_id);
         Ok(())
     }
 

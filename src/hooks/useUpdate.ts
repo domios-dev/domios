@@ -162,6 +162,9 @@ export function useUpdate() {
     mountedRef.current = true;
     void refresh(false);
     void fetchChannel();
+
+    const interval = setInterval(() => void refresh(false), 30 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [refresh, fetchChannel]);
 
   useEffect(() => {
