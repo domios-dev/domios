@@ -39,6 +39,10 @@ pub struct MeshManager {
     pub mdns_daemon: Option<mdns_sd::ServiceDaemon>,
     pub mdns_service_fullname: Option<String>,
     pub udp_started: bool,
+    /// When false, `save()` is a no-op. Used by unit tests that mutate state
+    /// in-memory and would otherwise pollute the real `~/.codeterm/mesh/`
+    /// directory. Production code never sets this.
+    pub disk_persist: bool,
 }
 
 impl MeshManager {
@@ -70,6 +74,7 @@ impl MeshManager {
             mdns_daemon: None,
             mdns_service_fullname: None,
             udp_started: false,
+            disk_persist: true,
         }
     }
 
@@ -77,6 +82,9 @@ impl MeshManager {
 
     /// Persist paired peers to disk.
     pub fn save(&self) -> Result<(), String> {
+        if !self.disk_persist {
+            return Ok(());
+        }
         peers::save_peers(&self.paired_peers)?;
         peers::save_revocation_list(&self.revocation_list)?;
         Ok(())
@@ -244,11 +252,104 @@ impl MeshManager {
     pub fn client_for(&self, peer_id: &str) -> Option<transport::PeerClient> {
         let peer = self.paired_peers.get(peer_id)?;
         let addr = peer.addresses.iter()
-            .find(|a| a.is_tailscale)
-            .or_else(|| peer.addresses.first())?;
+            .min_by_key(|a| types::address_tier(a))?;
         let token = self.sign_request().ok()?;
         Some(transport::PeerClient::new_signed(&addr.ip, peer.api_port, &token))
     }
+
+    /// Build the address list we want to announce to peers. Includes
+    /// Tailscale (when present) and LAN private (when present); skips public
+    /// IPs intentionally.
+    pub fn local_announce_addresses(&self) -> Vec<types::PeerAddress> {
+        let mut out = Vec::new();
+        if let Some(ip) = &self.tailscale_ip {
+            if !ip.is_empty() {
+                out.push(types::PeerAddress { ip: ip.clone(), is_tailscale: true });
+            }
+        }
+        if let Some(ip) = &self.local_ip {
+            if !ip.is_empty() && types::is_lan_private_ip(ip) {
+                out.push(types::PeerAddress { ip: ip.clone(), is_tailscale: false });
+            }
+        }
+        out
+    }
+
+    /// Build a PeerAnnounce describing this instance's current addressing.
+    pub fn build_announce(&self) -> types::PeerAnnounce {
+        types::PeerAnnounce {
+            instance_id: self.ident.identity.instance_id.clone(),
+            instance_name: self.ident.instance_name.clone(),
+            addresses: self.local_announce_addresses(),
+            api_port: self.api_port,
+        }
+    }
+
+    /// Apply an incoming announce: replace `paired_peers[sender].addresses`
+    /// and `api_port` with the values from the payload. Returns the previous
+    /// address list when something actually changed (for logging), or None
+    /// when nothing meaningful to do.
+    ///
+    /// Refuses if `sender_id` (from the auth token) does not match
+    /// `ann.instance_id` — a paired peer cannot rewrite addresses for a
+    /// different peer.
+    pub fn apply_announce(
+        &mut self,
+        sender_id: &str,
+        ann: &types::PeerAnnounce,
+    ) -> Result<Option<Vec<types::PeerAddress>>, String> {
+        if sender_id != ann.instance_id {
+            return Err(format!(
+                "Sender {} cannot announce addresses for {}",
+                sender_id, ann.instance_id
+            ));
+        }
+        if ann.addresses.is_empty() {
+            // Treat empty list as no-op — keep existing cached addresses.
+            return Ok(None);
+        }
+        let prev = {
+            let peer = self.paired_peers.get_mut(&ann.instance_id)
+                .ok_or_else(|| format!("Peer {} not paired", ann.instance_id))?;
+            let prev = peer.addresses.clone();
+            peer.addresses = ann.addresses.clone();
+            peer.api_port = ann.api_port;
+            if !ann.instance_name.is_empty() {
+                peer.instance_name = ann.instance_name.clone();
+            }
+            prev
+        };
+        let _ = self.save();
+        if prev_addrs_equal(&prev, &ann.addresses) {
+            Ok(None)
+        } else {
+            Ok(Some(prev))
+        }
+    }
+
+    /// Manual override: replace cached addresses for one paired peer with a
+    /// single explicit ip[:port]. Returns the previous list for logging.
+    pub fn set_peer_addr_override(
+        &mut self,
+        peer_id: &str,
+        ip: &str,
+        port: Option<u16>,
+    ) -> Result<Vec<types::PeerAddress>, String> {
+        let peer = self.paired_peers.get_mut(peer_id)
+            .ok_or_else(|| format!("Peer {} not paired", peer_id))?;
+        let prev = peer.addresses.clone();
+        peer.addresses = vec![types::PeerAddress::from_ip(ip)];
+        if let Some(p) = port {
+            peer.api_port = p;
+        }
+        let _ = self.save();
+        Ok(prev)
+    }
+}
+
+fn prev_addrs_equal(a: &[types::PeerAddress], b: &[types::PeerAddress]) -> bool {
+    if a.len() != b.len() { return false; }
+    a.iter().zip(b.iter()).all(|(x, y)| x.ip == y.ip && x.is_tailscale == y.is_tailscale)
 }
 
 // ── Free functions (async, need mesh Arc) ───────────────────────────
@@ -342,5 +443,251 @@ pub async fn broadcast_introductions(
                 Err(e) => log::warn!("[mesh/introduce] {} → {} error: {}", existing.instance_name, new_peer.instance_name, e),
             }
         }
+    }
+}
+
+/// Result summary of a `broadcast_announce` call.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct AnnounceReport {
+    pub sent: usize,
+    pub ok: usize,
+    pub stale_peers: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+/// Push our current address list to all paired peers (or one named peer when
+/// `target` is Some). Stale peers (404 — too old to recognize the verb) are
+/// reported back so the caller can surface a 'manual update needed' hint.
+pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> AnnounceReport {
+    let mut report = AnnounceReport::default();
+    let (announce, clients) = {
+        let m = mesh.lock();
+        let announce = m.build_announce();
+        let token = match m.sign_request() {
+            Ok(t) => t,
+            Err(e) => {
+                report.errors.push(format!("sign: {}", e));
+                return report;
+            }
+        };
+        let clients: Vec<_> = m.paired_peers.values()
+            .filter(|p| target.map(|t| t == p.instance_id.as_str() || t == p.instance_name.as_str()).unwrap_or(true))
+            .filter_map(|p| {
+                let addr = p.addresses.iter().min_by_key(|a| types::address_tier(a))?;
+                Some((addr.ip.clone(), p.api_port, token.clone(), p.instance_id.clone(), p.instance_name.clone()))
+            }).collect();
+        (announce, clients)
+    };
+
+    if clients.is_empty() {
+        return report;
+    }
+
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
+    for (ip, port, token, peer_id, peer_name) in &clients {
+        report.sent += 1;
+        let url = format!("http://{}:{}/api/mesh/announce", ip, port);
+        match http.post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&announce).send().await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                report.ok += 1;
+                log::info!("[mesh/announce] sent to {} ({}) addrs={:?}",
+                    peer_name, peer_id, announce.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>());
+            }
+            Ok(resp) if resp.status().as_u16() == 404 => {
+                log::warn!("[mesh/announce] peer {} ({}) too old — no /api/mesh/announce", peer_name, peer_id);
+                report.stale_peers.push(peer_id.clone());
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                log::warn!("[mesh/announce] {} rejected by {}: {}", status, peer_id, body);
+                report.errors.push(format!("{}: HTTP {}", peer_id, status.as_u16()));
+            }
+            Err(e) => {
+                log::warn!("[mesh/announce] {} send failed: {}", peer_id, e);
+                report.errors.push(format!("{}: {}", peer_id, e));
+            }
+        }
+    }
+    report
+}
+
+/// Re-detect local addresses (Tailscale + LAN). Logs old → new for diff.
+pub fn refresh_local_addresses(mesh: &MeshState) {
+    let prev_ts = mesh.lock().tailscale_ip.clone();
+    let prev_lan = mesh.lock().local_ip.clone();
+
+    discovery::detect_tailscale(mesh);
+    discovery::detect_local_ip(mesh);
+
+    let new_ts = mesh.lock().tailscale_ip.clone();
+    let new_lan = mesh.lock().local_ip.clone();
+    log::info!(
+        "[mesh/refresh] local addrs: tailscale {:?} -> {:?}, lan {:?} -> {:?}",
+        prev_ts, new_ts, prev_lan, new_lan
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{PairedPeer, PeerAddress, PeerAnnounce};
+
+    fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
+        let mut m = MeshManager::new("test-host".into(), 7685);
+        m.disk_persist = false;
+        let peer = PairedPeer {
+            instance_id: peer_id.into(),
+            instance_name: "TestPeer".into(),
+            addresses: addrs.into_iter().map(PeerAddress::from_ip).collect(),
+            api_port: 7685,
+            public_key: String::new(),
+            paired_at: chrono::Utc::now().to_rfc3339(),
+            last_seen: None,
+            online: true,
+            is_primary: false,
+            access_level: types::AccessLevel::Full,
+            version: None,
+        };
+        m.paired_peers.insert(peer_id.into(), peer);
+        m
+    }
+
+    #[test]
+    fn apply_announce_replaces_address_list_wholesale() {
+        let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
+        let ann = PeerAnnounce {
+            instance_id: "peer-A".into(),
+            instance_name: "TestPeer".into(),
+            addresses: vec![PeerAddress::from_ip("100.99.99.99")],
+            api_port: 7777,
+        };
+        let prev = m.apply_announce("peer-A", &ann).expect("ok").expect("changed");
+        assert_eq!(prev.len(), 2, "old list returned for logging");
+        let after = &m.paired_peers["peer-A"];
+        assert_eq!(after.addresses.len(), 1, "list fully replaced, not merged");
+        assert_eq!(after.addresses[0].ip, "100.99.99.99");
+        assert_eq!(after.api_port, 7777);
+    }
+
+    #[test]
+    fn apply_announce_rejects_spoofed_sender() {
+        let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
+        let ann = PeerAnnounce {
+            instance_id: "peer-A".into(),
+            instance_name: "TestPeer".into(),
+            addresses: vec![PeerAddress::from_ip("100.99.99.99")],
+            api_port: 7685,
+        };
+        // Sender token says "peer-B" but body says "peer-A" — reject.
+        let err = m.apply_announce("peer-B", &ann).unwrap_err();
+        assert!(err.contains("cannot announce"), "got: {}", err);
+        assert_eq!(m.paired_peers["peer-A"].addresses[0].ip, "192.168.1.5", "untouched");
+    }
+
+    #[test]
+    fn apply_announce_empty_list_is_noop() {
+        let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
+        let ann = PeerAnnounce {
+            instance_id: "peer-A".into(),
+            instance_name: "TestPeer".into(),
+            addresses: vec![],
+            api_port: 7685,
+        };
+        let res = m.apply_announce("peer-A", &ann).expect("ok");
+        assert!(res.is_none(), "empty list does not clear cache");
+        assert_eq!(m.paired_peers["peer-A"].addresses.len(), 1);
+    }
+
+    #[test]
+    fn apply_announce_same_addrs_returns_no_change() {
+        let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
+        let ann = PeerAnnounce {
+            instance_id: "peer-A".into(),
+            instance_name: "TestPeer".into(),
+            addresses: vec![PeerAddress::from_ip("100.64.0.5")],
+            api_port: 7685,
+        };
+        let res = m.apply_announce("peer-A", &ann).expect("ok");
+        assert!(res.is_none(), "identical list reports no change");
+    }
+
+    #[test]
+    fn set_peer_addr_override_replaces_with_single_entry() {
+        let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
+        let prev = m.set_peer_addr_override("peer-A", "10.0.0.99", Some(8888)).expect("ok");
+        assert_eq!(prev.len(), 2);
+        let after = &m.paired_peers["peer-A"];
+        assert_eq!(after.addresses.len(), 1);
+        assert_eq!(after.addresses[0].ip, "10.0.0.99");
+        assert_eq!(after.api_port, 8888);
+    }
+
+    #[test]
+    fn set_peer_addr_override_unknown_peer_errors() {
+        let mut m = MeshManager::new("test-host".into(), 7685);
+        m.disk_persist = false;
+        let err = m.set_peer_addr_override("ghost", "10.0.0.1", None).unwrap_err();
+        assert!(err.contains("not paired"), "got: {}", err);
+    }
+
+    #[test]
+    fn build_announce_includes_tailscale_and_lan() {
+        let mut m = MeshManager::new("test-host".into(), 7685);
+        m.disk_persist = false;
+        m.tailscale_ip = Some("100.84.1.2".into());
+        m.local_ip = Some("192.168.1.5".into());
+        let ann = m.build_announce();
+        assert_eq!(ann.addresses.len(), 2);
+        assert!(ann.addresses[0].is_tailscale, "tailscale first");
+        assert_eq!(ann.addresses[0].ip, "100.84.1.2");
+        assert_eq!(ann.addresses[1].ip, "192.168.1.5");
+        assert!(!ann.addresses[1].is_tailscale);
+        assert_eq!(ann.api_port, 7685);
+    }
+
+    #[test]
+    fn build_announce_skips_public_local_ip() {
+        let mut m = MeshManager::new("test-host".into(), 7685);
+        m.disk_persist = false;
+        m.tailscale_ip = None;
+        m.local_ip = Some("8.8.8.8".into()); // not LAN private
+        let ann = m.build_announce();
+        assert!(ann.addresses.is_empty(), "public IPs are not advertised");
+    }
+
+    #[test]
+    fn client_for_picks_tailscale_via_tier_ranking() {
+        let mut m = MeshManager::new("test-host".into(), 7685);
+        m.disk_persist = false;
+        // Stub a paired peer with public listed first, tailscale last.
+        let peer = PairedPeer {
+            instance_id: "peer-A".into(),
+            instance_name: "TestPeer".into(),
+            addresses: vec![
+                PeerAddress { ip: "8.8.8.8".into(), is_tailscale: false },
+                PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false },
+                PeerAddress { ip: "100.84.1.2".into(), is_tailscale: true },
+            ],
+            api_port: 7685,
+            public_key: String::new(),
+            paired_at: chrono::Utc::now().to_rfc3339(),
+            last_seen: None,
+            online: true,
+            is_primary: false,
+            access_level: types::AccessLevel::Full,
+            version: None,
+        };
+        m.paired_peers.insert("peer-A".into(), peer);
+
+        // We can't easily inspect PeerClient's URL — but we can verify the
+        // address selection by reading addresses directly.
+        let picked = m.paired_peers["peer-A"].addresses.iter()
+            .min_by_key(|a| types::address_tier(a)).unwrap();
+        assert_eq!(picked.ip, "100.84.1.2");
     }
 }
