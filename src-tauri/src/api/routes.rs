@@ -124,6 +124,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/broadcast/stop", post(super::mesh_routes::mesh_stop_broadcast))
         .route("/api/mesh/relay", post(super::mesh_routes::mesh_relay))
         .route("/api/mesh/peers/{id}", axum::routing::delete(super::mesh_routes::mesh_unpair))
+        // Hot-reload: refresh re-detects local addrs + announces; announce
+        // pushes addrs without re-detect; per-peer addr override is local-only.
+        .route("/api/mesh/refresh", post(super::mesh_routes::mesh_refresh))
+        .route("/api/mesh/announce", post(super::mesh_routes::mesh_announce_inbound))
+        .route("/api/mesh/announce/all", post(super::mesh_routes::mesh_announce_all))
+        .route("/api/mesh/peers/{id}/addr", post(super::mesh_routes::mesh_set_peer_addr))
         // Mem — unified memory store
         .route("/api/mem/search", get(super::mem_routes::mem_search))
         .route("/api/mem/items", post(super::mem_routes::mem_save))

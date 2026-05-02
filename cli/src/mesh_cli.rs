@@ -68,6 +68,38 @@ pub enum MeshAction {
     /// Stop broadcasting immediately
     #[clap(name = "stop-broadcast")]
     StopBroadcast,
+    /// Re-detect local addresses (Tailscale + LAN) and announce them to all
+    /// paired peers. Use after a network swap so peers update their cache
+    /// without restarting CodeTerm.
+    Refresh,
+    /// Push our current address list to paired peers without re-detecting
+    /// locally. Use --to to limit to one peer.
+    Announce {
+        /// Optional target peer (instance_id or name). Omit for all peers.
+        #[arg(long)]
+        to: Option<String>,
+    },
+    /// Per-peer address management.
+    Peer {
+        #[command(subcommand)]
+        action: MeshPeerAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MeshPeerAction {
+    /// Manually override our cached address for a paired peer. Useful when
+    /// auto-detection is wrong or you want to point at a specific interface.
+    /// Format: ip[:port]. Examples:
+    ///   codeterm mesh peer set-addr BLACKSTAR 100.64.10.1
+    ///   codeterm mesh peer set-addr BLACKSTAR 192.168.1.42:7685
+    #[clap(name = "set-addr")]
+    SetAddr {
+        /// Target peer (instance_id or name)
+        peer: String,
+        /// New address as ip[:port]
+        addr: String,
+    },
 }
 
 /// Sign a mesh request with Ed25519 (same as server-side peer auth).
@@ -105,11 +137,12 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         match action {
             MeshAction::Connect { .. } | MeshAction::Approve { .. } |
             MeshAction::Reject { .. } | MeshAction::Disconnect { .. } |
-            MeshAction::Discover | MeshAction::Broadcast | MeshAction::StopBroadcast => {
+            MeshAction::Discover | MeshAction::Broadcast | MeshAction::StopBroadcast |
+            MeshAction::Peer { .. } => {
                 eprintln!("Error: mesh management commands are local-only and cannot be relayed via --mesh");
                 std::process::exit(1);
             }
-            _ => {} // Status, Peers, Exec, Send, Output, Panes — relayable
+            _ => {} // Status, Peers, Exec, Send, Output, Panes, Refresh, Announce — relayable
         }
     }
 
@@ -469,6 +502,25 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 Some(serde_json::json!({"instance_id": instance_id}).to_string())),
             MeshAction::Broadcast => ("POST".into(), "/api/mesh/broadcast/start".into(), None),
             MeshAction::StopBroadcast => ("POST".into(), "/api/mesh/broadcast/stop".into(), None),
+            MeshAction::Refresh => ("POST".into(), "/api/mesh/refresh".into(), None),
+            MeshAction::Announce { to } => {
+                let path = match to {
+                    Some(t) => format!("/api/mesh/announce/all?to={}", urlencoding::encode(t)),
+                    None => "/api/mesh/announce/all".into(),
+                };
+                ("POST".into(), path, None)
+            }
+            // peer set-addr is local-only — relay path is meaningless. Map
+            // to the local endpoint so it errors clearly if relayed.
+            MeshAction::Peer { action } => match action {
+                MeshPeerAction::SetAddr { peer, addr } => {
+                    let (ip, port) = parse_ip_port(addr);
+                    let mut body = serde_json::json!({"ip": ip});
+                    if let Some(p) = port { body["port"] = serde_json::json!(p); }
+                    ("POST".into(), format!("/api/mesh/peers/{}/addr", urlencoding::encode(peer)),
+                        Some(body.to_string()))
+                }
+            },
             // Remote relay commands — these map to generic API calls
             _ => ("GET".into(), "/api/mesh/status".into(), None),
         },
@@ -613,6 +665,34 @@ pub fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &
     }
 }
 
+/// Split an "ip[:port]" string into (ip, optional port). Best-effort —
+/// IPv6 with brackets is supported, plain IPv4 with optional ":port" is
+/// the typical case.
+pub fn parse_ip_port(input: &str) -> (String, Option<u16>) {
+    let s = input.trim();
+    // [ipv6]:port form
+    if let Some(rest) = s.strip_prefix('[') {
+        if let Some(end) = rest.find(']') {
+            let ip = rest[..end].to_string();
+            let tail = &rest[end + 1..];
+            let port = tail.strip_prefix(':').and_then(|p| p.parse::<u16>().ok());
+            return (ip, port);
+        }
+    }
+    // ipv4[:port] — split on the LAST colon to avoid breaking bare ipv6
+    if let Some(idx) = s.rfind(':') {
+        let (ip, port_str) = s.split_at(idx);
+        let port_str = &port_str[1..];
+        if !ip.contains(':') {
+            // Plain ipv4 with port
+            if let Ok(p) = port_str.parse::<u16>() {
+                return (ip.to_string(), Some(p));
+            }
+        }
+    }
+    (s.to_string(), None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -723,5 +803,89 @@ mod tests {
         });
         assert_eq!(m, "POST");
         assert_eq!(p, "/api/update/rollback");
+    }
+
+    #[test]
+    fn mesh_refresh_maps_to_post_refresh() {
+        let (m, p, b) = cli_command_to_api(&Commands::Mesh { action: MeshAction::Refresh });
+        assert_eq!(m, "POST");
+        assert_eq!(p, "/api/mesh/refresh");
+        assert!(b.is_none());
+    }
+
+    #[test]
+    fn mesh_announce_no_target_maps_to_announce_all() {
+        let (m, p, b) = cli_command_to_api(&Commands::Mesh {
+            action: MeshAction::Announce { to: None },
+        });
+        assert_eq!(m, "POST");
+        assert_eq!(p, "/api/mesh/announce/all");
+        assert!(b.is_none());
+    }
+
+    #[test]
+    fn mesh_announce_to_target_appends_query_param() {
+        let (m, p, _) = cli_command_to_api(&Commands::Mesh {
+            action: MeshAction::Announce { to: Some("BLACKSTAR".into()) },
+        });
+        assert_eq!(m, "POST");
+        assert_eq!(p, "/api/mesh/announce/all?to=BLACKSTAR");
+    }
+
+    #[test]
+    fn parse_ip_port_plain_ipv4() {
+        assert_eq!(parse_ip_port("192.168.1.1"), ("192.168.1.1".to_string(), None));
+    }
+
+    #[test]
+    fn parse_ip_port_ipv4_with_port() {
+        assert_eq!(parse_ip_port("100.84.1.2:7685"), ("100.84.1.2".to_string(), Some(7685)));
+    }
+
+    #[test]
+    fn parse_ip_port_ipv6_bracketed_with_port() {
+        let (ip, port) = parse_ip_port("[fe80::1]:7685");
+        assert_eq!(ip, "fe80::1");
+        assert_eq!(port, Some(7685));
+    }
+
+    #[test]
+    fn parse_ip_port_bare_ipv6_no_port() {
+        let (ip, port) = parse_ip_port("fe80::1");
+        assert_eq!(ip, "fe80::1");
+        assert_eq!(port, None);
+    }
+
+    #[test]
+    fn mesh_peer_set_addr_serializes_body_with_port() {
+        let (m, p, b) = cli_command_to_api(&Commands::Mesh {
+            action: MeshAction::Peer {
+                action: MeshPeerAction::SetAddr {
+                    peer: "BLACKSTAR".into(),
+                    addr: "100.64.10.1:7685".into(),
+                },
+            },
+        });
+        assert_eq!(m, "POST");
+        assert_eq!(p, "/api/mesh/peers/BLACKSTAR/addr");
+        let body = b.expect("body");
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["ip"], "100.64.10.1");
+        assert_eq!(v["port"], 7685);
+    }
+
+    #[test]
+    fn mesh_peer_set_addr_omits_port_when_absent() {
+        let (_, _, b) = cli_command_to_api(&Commands::Mesh {
+            action: MeshAction::Peer {
+                action: MeshPeerAction::SetAddr {
+                    peer: "X".into(),
+                    addr: "10.0.0.1".into(),
+                },
+            },
+        });
+        let v: serde_json::Value = serde_json::from_str(&b.unwrap()).unwrap();
+        assert_eq!(v["ip"], "10.0.0.1");
+        assert!(v.get("port").is_none());
     }
 }
