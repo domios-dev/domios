@@ -142,7 +142,9 @@ shared_areas_blacklist = []              # e.g. ["_dreams"] if user opts out
 embedding_model = "all-MiniLM-L6-v2"     # pinned, validated on handshake
 ```
 
-**Auto detection (self-organizing election)**: on `broadcast_announce`, peer inspects every paired peer's reported `dream_role`. If any peer reports `Primary`, this peer becomes `Follower`. If no peer reports `Primary` (because all are `Auto` and we are the first to announce, or the existing primary is offline), this peer becomes `Primary`. First-online wins. Re-elections happen only when the resolved-Primary disconnects (announce timeout) AND a Follower's `Auto` boots up — no churn while everyone is healthy. No hardware introspection.
+**Auto detection (self-organizing election)**: on `broadcast_announce`, peer inspects every paired peer's reported `dream_role`. If any peer reports `Primary`, this peer becomes `Follower`. If no peer reports `Primary` (because all are `Auto` and we are the first to announce, or the existing primary is offline), this peer becomes `Primary`. First-online wins. No hardware introspection.
+
+Election re-runs on every announce — there is no separate re-election mechanism. While Primary is healthy, every Auto-Follower's announce cycle confirms its Follower status (sees Primary, stays Follower). When Primary disappears (announce timeout >60s), each Auto-Follower's next announce resolves to Primary; the multi-primary safeguard then alphabetical-instance-id-tiebreaks down to one. No churn while healthy because every inspection produces the same result; failure recovery is the single moment a Follower flips to Primary.
 
 The `Auto`-resolved value is cached per session in memory; explicit `Primary` / `Follower` literal config values bypass election entirely. Andrey can pin either side at any time by writing the literal value into config.
 
