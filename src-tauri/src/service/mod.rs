@@ -29,6 +29,7 @@ pub mod agent_restart;
 mod tests;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Serialize;
 use tauri::Emitter;
@@ -80,6 +81,8 @@ pub struct ServiceContext {
     pub restart_tracker: agent_restart::RestartTracker,
     /// Active secret-store backend (mock in Phase 1; bitwarden lands in Phase 2).
     pub secrets: crate::secrets::SecretStoreState,
+    /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
+    pub mux_emit_pending: Arc<AtomicBool>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;
@@ -89,8 +92,15 @@ impl ServiceContext {
 
     pub(crate) fn emit_state_changed(&self) {
         self.events.publish(crate::api::events::SystemEvent::MuxStateChanged);
+        // Coalesce frontend emits to ≤1/50ms — output.rs fires this 4× per PTY chunk.
+        if self.mux_emit_pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
         let handle = self.app_handle.clone();
+        let pending = self.mux_emit_pending.clone();
         std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            pending.store(false, Ordering::Release);
             let _ = handle.emit("mux-state-changed", ());
         });
     }

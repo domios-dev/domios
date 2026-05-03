@@ -239,14 +239,26 @@ export function Sidebar({
     return () => clearTimeout(timer);
   }, [appearingTabs]);
 
-  // Wrap closeTab to animate
+  // Fire backend PTY-kill immediately so it runs in parallel with the visual
+  // exit animation; defer the local state dispatch (which removes the tab)
+  // until the 350ms animation completes so the pill doesn't disappear mid-fade.
   const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
+    const ws = state.workspaces.find((w) => w.id === wsId);
+    const tab = ws?.tabs.find((t) => t.id === tabId);
+    if (tab) {
+      const collectPaneIdsLocal = (node: typeof tab.split_tree): string[] => {
+        if (node.type === "Leaf") return [node.pane_id];
+        return node.children.flatMap(collectPaneIdsLocal);
+      };
+      for (const pid of collectPaneIdsLocal(tab.split_tree)) {
+        invoke("mux_close_pane", { paneId: pid }).catch(() => {});
+      }
+    }
     setClosingTabs((prev) => {
       const next = new Map(prev);
       next.set(tabId, { wsId });
       return next;
     });
-    // Phase 1: visual exit (150ms), then Phase 2: height collapse (200ms)
     setTimeout(() => {
       closeTab(wsId, tabId);
       setClosingTabs((prev) => {
@@ -255,7 +267,7 @@ export function Sidebar({
         return next;
       });
     }, 350);
-  }, [closeTab]);
+  }, [closeTab, state.workspaces]);
 
   return (
     <>
