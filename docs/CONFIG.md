@@ -94,6 +94,11 @@ discord_enabled = false
 discord_allowed_users = []
 webhook_enabled = false
 webhook_port = 7687
+
+[integrations.secrets]
+backend = "bitwarden"            # "bitwarden" (default) or "mock" (dev only)
+default_organization = ""        # Bitwarden organization id for new items (empty = personal vault)
+default_collection = ""          # Bitwarden collection id for new items
 ```
 
 ## Config API
@@ -180,6 +185,27 @@ discord_allowed_users = []
 webhook_enabled = false
 webhook_port = 7687
 ```
+
+### Secrets
+
+Pluggable secret store for the `codeterm mem secret` command family. Configure the active backend and (for Bitwarden) the default org/collection that new items land in.
+
+```toml
+[integrations.secrets]
+backend = "bitwarden"            # "bitwarden" (default) or "mock"
+default_organization = ""        # Bitwarden org id, empty = personal vault
+default_collection = ""          # Bitwarden collection id
+```
+
+Backends:
+- `bitwarden` — shells out to the official `bw` CLI. Install with `brew install bitwarden-cli` (macOS), `npm i -g @bitwarden/cli` (Linux/cross-platform), or `scoop install bitwarden-cli` (Windows). When `bw` is missing the Settings → Secrets page shows the install hint and the CLI returns exit code 6 (backend unavailable).
+- `mock` — in-memory only. Anything you save is lost on daemon restart. Use for dev / screenshots / tests.
+
+The unlocked Bitwarden session token is stored in the OS keychain (macOS Security framework, Windows Credential Manager, Linux libsecret) under service `codeterm.secrets.bitwarden`. The master password is never persisted. On Linux without libsecret the adapter degrades to in-process storage only and the Settings UI shows `(transient)` on the status badge — every daemon restart needs a fresh unlock in that mode.
+
+**Secrets do not cross the mesh.** `codeterm --mesh PEER mem secret …` exits with code 7 and a clear error. The vault is local to the machine that holds the keychain.
+
+Settings UI: Settings > Secrets — backend picker, login (password or API key), default scope, recently saved items, lock / sign-out.
 
 ## OS Autostart
 
@@ -319,4 +345,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
