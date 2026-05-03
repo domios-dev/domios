@@ -38,7 +38,10 @@ impl ServiceContext {
     }
 
     pub fn link_pty(&self, pane_id: &str, pty_id: String) {
-        self.mux.lock().link_pty(pane_id, pty_id);
+        if let Some(orphan) = self.mux.lock().link_pty(pane_id, pty_id) {
+            log::warn!("[link_pty] pane {} relinked — killing orphan pty {}", pane_id, &orphan[..orphan.len().min(8)]);
+            self.kill_ptys(&[orphan]);
+        }
         self.emit_state_changed();
     }
 
