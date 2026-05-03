@@ -16,7 +16,8 @@ You manage builds, releases, CI/CD pipelines, and deployment for CodeTerm. You c
 
 ## Project Info
 
-- **Repo:** `rollacode/codeterm` (PRIVATE, GitHub)
+- **Source repo:** `rollacode/codeterm` (PRIVATE, GitHub) — code, issues, CI, draft releases
+- **Public release mirror:** `rollacode/codeterm-releases` (PUBLIC) — distribution-only repo holding binaries + signed `latest.json`. The auto-updater endpoint resolves here so clients never need a token to download.
 - **Stack:** Tauri v2 (Rust) + React 19 / TypeScript + xterm.js
 - **GitHub account:** `rollacode`
 - **Package manager:** pnpm (version in `package.json` `packageManager` field)
@@ -79,26 +80,51 @@ ssh User@blackstar "cd C:\Developer\codeterm && git pull && build.sh build"
 
 Or just skip Windows for now — users build from source on BLACKSTAR.
 
-### Step 5 — Create GitHub Release and upload
+### Step 5 — Create GitHub Release and upload (DUAL: source + mirror)
+
+Every artifact lands in BOTH repos: `rollacode/codeterm` (private, gives the source-side tag a payload for tooling that pulls from there) and `rollacode/codeterm-releases` (public, what end users + the auto-updater actually consume). Upload to the mirror is mandatory — a private-repo asset returns 404 to anonymous `curl` and breaks downloads.
 
 ```bash
-# Create draft release
-gh release create vX.Y.Z --draft --title "CodeTerm vX.Y.Z" --notes "..."
+# Create draft release on BOTH repos for the same tag
+gh release create vX.Y.Z --repo rollacode/codeterm           --draft --title "CodeTerm vX.Y.Z" --notes "..."
+gh release create vX.Y.Z --repo rollacode/codeterm-releases  --draft --title "CodeTerm vX.Y.Z" --notes "..."
 
-# Upload macOS artifacts
-gh release upload vX.Y.Z src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-gh release upload vX.Y.Z src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+# Upload artifacts to BOTH (--clobber so re-runs are idempotent)
+ARTIFACTS=(
+  "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/CodeTerm_X.Y.Z_aarch64.dmg"
+  "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/CodeTerm_X.Y.Z_x64.dmg"
+  "src-tauri/target/release/bundle/nsis/CodeTerm_X.Y.Z_x64-setup.exe"   # Windows, built on BLACKSTAR
+  "codeterm-cli-macos-aarch64"
+  "codeterm-cli-macos-x86_64"
+)
+for f in "${ARTIFACTS[@]}"; do
+  gh release upload vX.Y.Z "$f" --clobber --repo rollacode/codeterm
+  gh release upload vX.Y.Z "$f" --clobber --repo rollacode/codeterm-releases
+done
 
-# Upload CLI binaries
-gh release upload vX.Y.Z codeterm-cli-macos-aarch64
-gh release upload vX.Y.Z codeterm-cli-macos-x86_64
-
-# Upload Windows artifacts (if built)
-# gh release upload vX.Y.Z CodeTerm_X.Y.Z_x64-setup.exe
-
-# Publish
-gh release edit vX.Y.Z --draft=false
+# Publish on both
+gh release edit vX.Y.Z --draft=false --latest --repo rollacode/codeterm
+gh release edit vX.Y.Z --draft=false --latest --repo rollacode/codeterm-releases
 ```
+
+### Step 5b — Sign + publish updater manifest (mirror only)
+
+Auto-update consumers fetch `latest.json` from the public mirror and verify it against the ed25519/minisign pubkey baked into `tauri.conf.json::plugins.updater.pubkey`. After every artifact upload:
+
+```bash
+# minisign-sign each platform asset, producing .sig files
+for f in CodeTerm_X.Y.Z_aarch64.dmg CodeTerm_X.Y.Z_x64.dmg CodeTerm_X.Y.Z_x64-setup.exe; do
+  minisign -Sm "$f" -s ~/.tauri/codeterm.key
+  gh release upload vX.Y.Z "$f.sig" --clobber --repo rollacode/codeterm-releases
+done
+
+# Generate latest.json with per-platform entries (windows-x86_64, darwin-aarch64, darwin-x86_64)
+# referencing the mirror download URLs and the inline minisign signatures, then upload it.
+# scripts/build-latest-json.sh exists for this — see that file for the canonical shape.
+gh release upload vX.Y.Z latest.json --clobber --repo rollacode/codeterm-releases
+```
+
+If you only build one platform locally (e.g. BLACKSTAR builds Windows, MacBook builds macOS), upload from each machine and stitch `latest.json` last on whichever box has the minisign signing key — usually MacBook.
 
 ### Step 6 — Update Homebrew tap
 
@@ -153,13 +179,20 @@ The `sed` patterns for sha256 must use `[0-9a-f]\{64\}` to match only hash lines
 
 ## Auto-Update Flow
 
-Built binaries have `UPDATER_TOKEN` baked in. Users update via:
+Endpoint in `tauri.conf.json::plugins.updater.endpoints` resolves to `rollacode/codeterm-releases/releases/latest/download/latest.json` — anonymous, no token required. Each release publishes:
+
+- platform binary (NSIS .exe / .dmg / .AppImage)
+- minisign `.sig` next to it
+- `latest.json` with per-platform `{ url, signature }` entries, signed against `pubkey`
+
+Users update via:
 ```bash
-codeterm update check              # check for new version
-codeterm update install --auto     # download + install + restart
+codeterm update check              # GitHub API check (custom checker, separate from Tauri updater)
+codeterm update install --auto     # tauri-plugin-updater path: fetch latest.json → verify sig → download → install → restart
+codeterm self-update --apply       # codeterm's own kill+swap+verify+rollback flow (PR #11)
 ```
 
-This uses the Tauri built-in updater → downloads from private GitHub releases → verifies signature → installs → restarts app → CLI auto-updates from bundle on next startup.
+The legacy `UPDATER_TOKEN` baked into the binary was needed when releases lived only in the private repo. With the public mirror it's deprecated — leave it in `.env` for older clients but new builds shouldn't depend on it for download.
 
 ## Version Strategy
 
