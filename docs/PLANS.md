@@ -6,6 +6,7 @@
 - [Plugin Authoring Guide](PLUGINS.md) — how to author a plugin given what exists in code today (manifest, `Plugin` trait, lifecycle, events)
 - [Browser Improvements](plans/browser_improvements.md) — WebView2/WKWebView, CDP control, agent screenshots
 - [Whiteboard Plugin](plans/whiteboard-plugin.md) — tldraw canvas, agents draw/read diagrams, MCP tools
+- [Secret Store](plans/secrets-store.md) — pluggable backend (Bitwarden default), OS-keychain persistence, `codeterm mem secret` CLI
 - [Naming Research](plans/naming-research.md) — rebrand candidates, trademark checks, available names
 
 ---
