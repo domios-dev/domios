@@ -96,9 +96,13 @@ webhook_enabled = false
 webhook_port = 7687
 
 [integrations.secrets]
-backend = "bitwarden"            # "bitwarden" (default) or "mock" (dev only)
-default_organization = ""        # Bitwarden organization id for new items (empty = personal vault)
-default_collection = ""          # Bitwarden collection id for new items
+backend = "local"                # "local" (default), "bitwarden", or "mock" (dev only)
+default_organization = ""        # Default org id for new items (Bitwarden); empty = personal vault
+default_collection = ""          # Default collection id for new items (Bitwarden)
+
+[integrations.secrets.bitwarden]
+server_url = "https://vault.bitwarden.com"   # Public vault, or self-hosted Vaultwarden URL
+persist_master_password = false              # Save master password in OS keychain on unlock (auto-unlock after restart). Off by default.
 ```
 
 ## Config API
@@ -188,24 +192,31 @@ webhook_port = 7687
 
 ### Secrets
 
-Pluggable secret store for the `codeterm mem secret` command family. Configure the active backend and (for Bitwarden) the default org/collection that new items land in.
+Pluggable secret store for the `codeterm mem secret` command family and the Settings → Secrets UI. Configure the active backend, (for Bitwarden) the default org/collection that new items land in, and (for Bitwarden) the server URL plus optional auto-unlock.
 
 ```toml
 [integrations.secrets]
-backend = "bitwarden"            # "bitwarden" (default) or "mock"
-default_organization = ""        # Bitwarden org id, empty = personal vault
-default_collection = ""          # Bitwarden collection id
+backend = "local"                # "local" (default), "bitwarden", or "mock"
+default_organization = ""        # Default org id for new items (Bitwarden); empty = personal vault
+default_collection = ""          # Default collection id for new items (Bitwarden)
+
+[integrations.secrets.bitwarden]
+server_url = "https://vault.bitwarden.com"   # Public vault, or self-hosted Vaultwarden URL
+persist_master_password = false              # Auto-unlock after daemon restart by saving the master password in the keychain alongside the session token. Off by default.
 ```
 
 Backends:
-- `bitwarden` — shells out to the official `bw` CLI. Install with `brew install bitwarden-cli` (macOS), `npm i -g @bitwarden/cli` (Linux/cross-platform), or `scoop install bitwarden-cli` (Windows). When `bw` is missing the Settings → Secrets page shows the install hint and the CLI returns exit code 6 (backend unavailable).
+- `local` (default) — one entry per secret in the OS keychain (macOS Keychain / libsecret / Windows Credential Manager) under service `codeterm-secrets`. A non-secret index of names + ids + folders + timestamps lives at `~/.codeterm/secrets/local-index.json`; values are never written there. Offline, no external service.
+- `bitwarden` — shells out to the official `bw` CLI. Install with `brew install bitwarden-cli` (macOS), `npm i -g @bitwarden/cli` (Linux/cross-platform), or `scoop install bitwarden-cli` (Windows). When `bw` is missing the Settings → Secrets page shows the install hint, an "Install Bitwarden CLI" button, and the CLI returns exit code 6 (backend unavailable). Supports `vault.bitwarden.com` and self-hosted Vaultwarden via `server_url`.
 - `mock` — in-memory only. Anything you save is lost on daemon restart. Use for dev / screenshots / tests.
 
-The unlocked Bitwarden session token is stored in the OS keychain (macOS Security framework, Windows Credential Manager, Linux libsecret) under service `codeterm.secrets.bitwarden`. The master password is never persisted. On Linux without libsecret the adapter degrades to in-process storage only and the Settings UI shows `(transient)` on the status badge — every daemon restart needs a fresh unlock in that mode.
+The unlocked Bitwarden session token is stored in the keychain under service `codeterm.secrets.bitwarden` (account `session`). With `persist_master_password = true`, the master password lives in the same keychain (account `master_password`) so the daemon can auto-unlock after a restart — opt-in trade-off because that's one more secret on the same disk surface as the session. In dev builds the "keychain" is a `0600` JSON file at `~/.codeterm-dev/keychain/<service>.json` (signed-binary-changes-on-rebuild make the OS keychain unusable); release builds use the real OS keychain. On Linux without libsecret the keychain probe fails and the backend reports `Unavailable` — we never silently fall back to plaintext on disk in production builds.
 
 **Secrets do not cross the mesh.** `codeterm --mesh PEER mem secret …` exits with code 7 and a clear error. The vault is local to the machine that holds the keychain.
 
-Settings UI: Settings > Secrets — backend picker, login (password or API key), default scope, recently saved items, lock / sign-out.
+Full reference: `docs/SECRETS.md` (CLI, storage internals, error mapping, plugin guide for adding new backends).
+
+Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), Remember-master-password toggle, default scope, recently saved items, lock / sign-out.
 
 ## OS Autostart
 
@@ -345,4 +356,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
