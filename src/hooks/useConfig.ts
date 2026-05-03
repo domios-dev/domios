@@ -109,7 +109,7 @@ const DEFAULT_CONFIG: AppConfig = {
     webhook_enabled: false,
     webhook_port: 9090,
     secrets: {
-      backend: "mock",
+      backend: "bitwarden",
       default_organization: "",
       default_collection: "",
     },

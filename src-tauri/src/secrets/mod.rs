@@ -10,6 +10,8 @@
 //! single handle. Switching backends in Settings swaps the box atomically.
 
 pub mod api;
+pub mod bitwarden;
+pub mod keychain;
 pub mod mock;
 
 use std::fmt;
@@ -171,6 +173,7 @@ pub struct SecretRef {
 /// Returned from `get` — includes the actual plaintext value. Only the
 /// reveal endpoint (`POST /api/secrets/items/{name}/value`) and the explicit
 /// CLI `mem secret get` response should produce one of these.
+#[derive(Debug)]
 pub struct SecretValue {
     pub item_id: String,
     pub name: String,
@@ -288,15 +291,7 @@ pub type SecretStoreState = std::sync::Arc<RwLock<Box<dyn SecretStore>>>;
 pub fn build_active_store(backend: &str) -> Box<dyn SecretStore> {
     match backend {
         "mock" => Box::new(mock::MockStore::new()),
-        "bitwarden" => {
-            log::info!(
-                "[secrets] bitwarden backend not yet implemented (Phase 2); \
-                 falling back to mock"
-            );
-            Box::new(mock::MockStore::new_unavailable(
-                "bitwarden adapter ships in Phase 2",
-            ))
-        }
+        "bitwarden" => Box::new(bitwarden::BitwardenStore::detect_and_build()),
         other => {
             log::warn!(
                 "[secrets] unknown backend '{}', falling back to mock",
@@ -383,8 +378,8 @@ mod tests {
     }
 
     #[test]
-    fn build_active_store_bitwarden_returns_unavailable_placeholder() {
+    fn build_active_store_bitwarden_returns_real_adapter() {
         let store = build_active_store("bitwarden");
-        assert_eq!(store.id(), "mock");
+        assert_eq!(store.id(), "bitwarden");
     }
 }

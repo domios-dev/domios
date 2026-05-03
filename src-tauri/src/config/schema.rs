@@ -421,14 +421,14 @@ impl Default for IntegrationsConfig {
 }
 
 fn default_secrets_backend() -> String {
-    "mock".to_string()
+    "bitwarden".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SecretsConfig {
-    /// Active backend id. Built-in: `"mock"` (in-memory, dev only),
-    /// `"bitwarden"` (Phase 2).
+    /// Active backend id. Built-in: `"bitwarden"` (default — uses the
+    /// Bitwarden CLI), `"mock"` (in-memory, dev only).
     #[serde(default = "default_secrets_backend")]
     pub backend: String,
     /// Default Bitwarden organization id for new items. Empty = personal vault.
