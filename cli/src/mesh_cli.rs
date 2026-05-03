@@ -210,10 +210,19 @@ fn run_update_apply_via_mesh(
         std::process::exit(1);
     };
 
-    let signed = token.as_deref().unwrap_or("");
+    let signed = match super::read_mesh_signed_token() {
+        Some(t) => t,
+        None => {
+            eprintln!(
+                "Error: cannot sign mesh request — no identity at {:?}.",
+                dirs::home_dir().unwrap_or_default().join(super::data_dir_name()).join("mesh/identity.json")
+            );
+            std::process::exit(1);
+        }
+    };
 
     // Step 1: force-check on peer.
-    let check_resp = relay_call(http, &peer_url, signed, "GET", "/api/update/check?force=true", None);
+    let check_resp = relay_call(http, &peer_url, &signed, "GET", "/api/update/check?force=true", None);
     let check_data = match check_resp {
         Ok(v) => v,
         Err(e) => {
@@ -263,7 +272,7 @@ fn run_update_apply_via_mesh(
     if let Some(m) = manifest_url {
         install_path.push_str(&format!("&manifest_url={}", urlencoding::encode(m)));
     }
-    let install_resp = relay_call(http, &peer_url, signed, "POST", &install_path, None);
+    let install_resp = relay_call(http, &peer_url, &signed, "POST", &install_path, None);
     let install_data = match install_resp {
         Ok(v) => v,
         Err(e) => {
@@ -345,7 +354,12 @@ fn relay_call(
         .header("Authorization", format!("Bearer {}", signed_token))
         .json(&relay).send()
         .map_err(|e| e.to_string())?;
-    resp.json::<serde_json::Value>().map_err(|e| e.to_string())
+    let status = resp.status();
+    let bytes = resp.bytes().map_err(|e| e.to_string())?;
+    serde_json::from_slice::<serde_json::Value>(&bytes).map_err(|_| {
+        let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(256)]);
+        format!("HTTP {} {}: {}", status.as_u16(), status.canonical_reason().unwrap_or(""), preview.trim())
+    })
 }
 
 /// Map a CLI command to its corresponding API call.
@@ -629,8 +643,19 @@ pub fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &
     let port = peer.get("api_port").and_then(|v| v.as_u64()).unwrap_or(7685);
     let peer_url = format!("http://{}:{}", ip, port);
 
-    // Sign with our identity for auth
-    let signed_token = token.as_deref().unwrap_or("");
+    // Outbound peer call — must use a freshly signed Ed25519 token from our
+    // mesh identity. The local CODETERM_API_TOKEN env var (set in CodeTerm
+    // panes) is meaningless to a paired peer's verifier and will get a 401.
+    let signed_token = match super::read_mesh_signed_token() {
+        Some(t) => t,
+        None => {
+            eprintln!(
+                "Error: cannot sign mesh request — no identity at {:?}.",
+                dirs::home_dir().unwrap_or_default().join(super::data_dir_name()).join("mesh/identity.json")
+            );
+            std::process::exit(1);
+        }
+    };
 
     let relay = serde_json::json!({
         "method": method,
@@ -642,23 +667,31 @@ pub fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &
         .header("Authorization", format!("Bearer {}", signed_token))
         .json(&relay).send() {
         Ok(resp) => {
-            let val: serde_json::Value = resp.json().unwrap_or_default();
+            let status = resp.status();
+            let bytes = resp.bytes().unwrap_or_default();
+            let val: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_default();
+
+            if !status.is_success() && val.is_null() {
+                let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
+                eprintln!("Error: peer returned HTTP {} ({}): {}", status.as_u16(), peer_url, preview.trim());
+                std::process::exit(1);
+            }
+
             if json_mode {
                 println!("{}", serde_json::to_string_pretty(&val).unwrap());
             } else if let Some(data) = val.get("data") {
                 if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
                     print!("{}", text); // raw output for output command
-                } else if let Some(pane_text) = data.get("text").and_then(|v| v.as_str()) {
-                    for line in pane_text.lines() {
-                        if !line.trim().is_empty() {
-                            println!("{}", line);
-                        }
-                    }
                 } else {
                     println!("{}", serde_json::to_string_pretty(data).unwrap());
                 }
             } else if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
                 eprintln!("Error: {}", err);
+                std::process::exit(1);
+            } else {
+                let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
+                eprintln!("Error: unexpected response from peer (HTTP {}): {}", status.as_u16(), preview.trim());
+                std::process::exit(1);
             }
         }
         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
