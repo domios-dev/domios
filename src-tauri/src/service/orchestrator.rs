@@ -161,6 +161,10 @@ pub struct SpawnAgentParams {
     /// Skip permissions flag — default true for backward compat.
     /// Set false to spawn agent that asks for permission (for testing approval flow).
     pub skip_permissions: Option<bool>,
+    /// Pane id of the caller that ran `agent spawn` (CODETERM_PANE_ID).
+    /// Recorded on the spawned pane independent of `parent_pane_id` so reports
+    /// from top-level orchestrators flow back to the agent that asked for them.
+    pub spawned_by_pane_id: Option<String>,
 }
 
 impl SpawnAgentParams {
@@ -187,6 +191,7 @@ impl SpawnAgentParams {
             force_tab: params.get("force_tab").and_then(|v| v.as_bool()),
             report_target_pane_id: json_str(params, "report_target_pane_id"),
             skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
+            spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
         })
     }
 }
@@ -317,6 +322,15 @@ impl ServiceContext {
             if let Some(ref rtid) = params.report_target_pane_id {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.report_target_pane_id = Some(rtid.clone());
+                }
+            }
+            // Record the spawning agent for report routing fallback,
+            // independent of explicit --parent / role hierarchy.
+            if let Some(ref sb) = params.spawned_by_pane_id {
+                if !sb.is_empty() {
+                    if let Some(pane) = mux.get_pane_mut(&result.1) {
+                        pane.spawned_by_pane_id = Some(sb.clone());
+                    }
                 }
             }
             result
@@ -450,9 +464,15 @@ pub(crate) fn launch_agent_in_background(
             }
         }
 
-        // 3. Send launch command
-        if let Err(e) = svc.send_text(&pane_id, &launch_cmd, true) {
-            log::error!("launch_agent: failed to send launch cmd: {}", e);
+        // 3. Send launch command. Address the PTY directly — pane.pty_id may
+        //    be raced/overwritten by a frontend `mux_link_pty` that lands
+        //    after the deadline-fallback spawn, pointing at a pty_id whose
+        //    `register_session` is still in flight.
+        if let Err(e) = svc.send_text_to_pty(&pty_id, &launch_cmd, true) {
+            log::error!(
+                "launch_agent: failed to send launch cmd for pane {} (pty {}): {}",
+                pane_id, pty_id, e
+            );
             return;
         }
 
@@ -461,7 +481,13 @@ pub(crate) fn launch_agent_in_background(
         if is_pty_input {
             if let Some(ref task_text) = task {
                 std::thread::sleep(std::time::Duration::from_millis(500));
-                let _ = svc.send_text(&pane_id, task_text, true);
+                if let Err(e) = svc.send_text_to_pty(&pty_id, task_text, true) {
+                    log::error!(
+                        "launch_agent: failed to send task for pane {} (pty {}): {}",
+                        pane_id, pty_id, e
+                    );
+                    return;
+                }
             }
         }
 
@@ -512,6 +538,7 @@ mod tests {
             force_tab: None,
             report_target_pane_id: None,
             skip_permissions: None,
+            spawned_by_pane_id: None,
         }
     }
 

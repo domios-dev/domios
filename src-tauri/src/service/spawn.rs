@@ -68,6 +68,8 @@ pub struct AgentSpawnSpec {
     pub extra_env: HashMap<String, String>,
     #[serde(default)]
     pub task_preamble: Option<String>,
+    #[serde(default)]
+    pub spawned_by_pane_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -108,6 +110,7 @@ impl SpawnPaneSpec {
                 extra_env: Default::default(),
                 task_preamble: None,
                 spawned_by: None,
+                spawned_by_pane_id: params.spawned_by_pane_id.clone(),
             }),
         }
     }
@@ -138,6 +141,7 @@ impl SpawnPaneSpec {
             force_tab: None,
             report_target_pane_id: agent.report_target_pane_id.clone(),
             skip_permissions: Some(agent.auto_approve),
+            spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
         })
     }
 }
@@ -223,6 +227,13 @@ impl ServiceContext {
             if let Some(ref rtid) = agent.report_target_pane_id {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.report_target_pane_id = Some(rtid.clone());
+                }
+            }
+            if let Some(ref sb) = agent.spawned_by_pane_id {
+                if !sb.is_empty() {
+                    if let Some(pane) = mux.get_pane_mut(&result.1) {
+                        pane.spawned_by_pane_id = Some(sb.clone());
+                    }
                 }
             }
             if let Some(ref wid) = agent.worker_id {
@@ -476,6 +487,11 @@ impl ServiceContext {
                 }
                 if let Some(ref rtid) = agent.report_target_pane_id {
                     pane.report_target_pane_id = Some(rtid.clone());
+                }
+                if let Some(ref sb) = agent.spawned_by_pane_id {
+                    if !sb.is_empty() {
+                        pane.spawned_by_pane_id = Some(sb.clone());
+                    }
                 }
             }
             result
