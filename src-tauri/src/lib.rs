@@ -18,6 +18,7 @@ pub mod paths;
 pub mod plugin;
 pub mod prompts;
 pub mod pty;
+pub mod secrets;
 pub mod service;
 pub mod shell;
 pub mod session;
@@ -1120,6 +1121,9 @@ pub fn run() {
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_task: Arc::new(Mutex::new(None)),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
+                secrets: crate::secrets::new_state(
+                    &states.config.lock().integrations.secrets.backend,
+                ),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());

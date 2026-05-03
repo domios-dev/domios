@@ -587,6 +587,77 @@ pub enum MemAction {
         #[arg(long)]
         db_path: Option<String>,
     },
+    /// Pluggable secret store: save / get / search / list / delete.
+    /// Backend is selected in Settings (default: bitwarden once shipped;
+    /// `mock` in Phase 1 builds).
+    Secret {
+        #[command(subcommand)]
+        action: MemSecretAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemSecretAction {
+    /// Save a secret. Value comes from --value or stdin (preferred — keeps
+    /// the value out of shell history).
+    Save {
+        #[arg(long)]
+        name: String,
+        /// Plaintext value. Omit and pipe via stdin instead.
+        #[arg(long)]
+        value: Option<String>,
+        #[arg(long)]
+        folder: Option<String>,
+        #[arg(long)]
+        org: Option<String>,
+        #[arg(long)]
+        collection: Option<String>,
+        #[arg(long)]
+        notes: Option<String>,
+        /// Allow replacing an existing secret with the same name.
+        #[arg(long)]
+        overwrite: bool,
+    },
+    /// Resolve and print a secret. Default = raw value to stdout (no
+    /// trailing newline). Use --json for {name, value, notes}.
+    Get {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Free-text search over saved secret metadata.
+    Search { query: String },
+    /// List saved secrets (metadata only — never values).
+    List {
+        #[arg(long)]
+        org: Option<String>,
+        #[arg(long)]
+        folder: Option<String>,
+        #[arg(long)]
+        limit: Option<usize>,
+    },
+    /// Delete by name.
+    Delete {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Show backend + auth status.
+    Status,
+    /// Unlock the active backend with a master password (read from stdin if
+    /// --password is omitted, never from argv).
+    Unlock {
+        #[arg(long)]
+        email: Option<String>,
+        #[arg(long)]
+        password: Option<String>,
+    },
+    /// Lock the active backend (in-process session is dropped).
+    Lock,
+    /// Sign out — also drops persisted creds (OS keychain entry).
+    Logout,
 }
 
 #[derive(Subcommand)]
@@ -1267,6 +1338,15 @@ fn main() {
 
     // --mesh TARGET: proxy entire command to a remote peer via relay
     if let Some(ref mesh_target) = cli.mesh {
+        // Secrets are local-only — refuse to proxy them across the mesh.
+        // Cross-mesh secret access needs a trust model we haven't designed yet.
+        if matches!(cli.command, Commands::Mem { action: MemAction::Secret { .. } }) {
+            eprintln!(
+                "Error: secrets do not cross the mesh. Run on the local machine \
+                 (vault peer), or design a trust model first."
+            );
+            std::process::exit(7);
+        }
         mesh_cli::run_via_mesh(&cli, mesh_target);
         return;
     }
@@ -3306,6 +3386,9 @@ fn handle_mem(json_mode: bool, action: MemAction) {
             }
         }
         MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
+        MemAction::Secret { action } => {
+            return handle_mem_secret(json_mode, &http, &base, action);
+        }
     };
 
     // Wake-up returns plain text in `text` field — print it directly.
@@ -3316,6 +3399,209 @@ fn handle_mem(json_mode: bool, action: MemAction) {
         }
     }
     handle_result(json_mode, result);
+}
+
+/// Run a `codeterm mem secret …` subcommand. Talks to `/api/secrets/*` on
+/// the daemon. Exit codes are tuned for scripting: `3` = locked, `4` =
+/// logged-out, `5` = not found, `6` = backend unavailable.
+fn handle_mem_secret(
+    json_mode: bool,
+    http: &reqwest::blocking::Client,
+    base: &str,
+    action: MemSecretAction,
+) {
+    use std::io::{Read, Write};
+
+    let send_request = |req: reqwest::blocking::RequestBuilder| -> (u16, serde_json::Value) {
+        match req.send() {
+            Ok(r) => {
+                let status = r.status().as_u16();
+                let body: serde_json::Value = r.json().unwrap_or(serde_json::Value::Null);
+                (status, body)
+            }
+            Err(e) => (0, serde_json::json!({"error": {"kind": "backend", "message": e.to_string()}})),
+        }
+    };
+
+    let exit_for_status = |status: u16| -> Option<i32> {
+        match status {
+            200 | 201 | 204 => None,
+            401 => Some(4), // LoggedOut
+            423 => Some(3), // Locked
+            404 => Some(5), // NotFound
+            503 => Some(6), // Backend unavailable
+            0 => Some(6),   // network failure
+            _ => Some(1),
+        }
+    };
+
+    let print_or_exit = |status: u16, body: serde_json::Value| -> ! {
+        if let Some(code) = exit_for_status(status) {
+            if json_mode {
+                eprintln!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+            } else if let Some(err) = body.get("error") {
+                let kind = err.get("kind").and_then(|k| k.as_str()).unwrap_or("error");
+                let msg = err
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or(match kind {
+                        "logged_out" => "secret store: logged out — run `codeterm mem secret unlock`",
+                        "locked" => "secret store: vault locked — run `codeterm mem secret unlock`",
+                        "not_found" => "secret store: not found",
+                        "already_exists" => "secret store: already exists (use --overwrite to replace)",
+                        _ => "secret store: error",
+                    });
+                eprintln!("Error: {}", msg);
+            } else {
+                eprintln!("Error: HTTP {}", status);
+            }
+            std::process::exit(code);
+        }
+        if json_mode {
+            println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+        } else {
+            print_human(&body);
+        }
+        std::process::exit(0);
+    };
+
+    match action {
+        MemSecretAction::Status => {
+            let (status, body) = send_request(http.get(format!("{}/api/secrets/status", base)));
+            print_or_exit(status, body);
+        }
+        MemSecretAction::Save {
+            name,
+            value,
+            folder,
+            org,
+            collection,
+            notes,
+            overwrite,
+        } => {
+            let resolved_value = match value {
+                Some(v) => v,
+                None => {
+                    let mut s = String::new();
+                    if std::io::stdin().read_to_string(&mut s).is_err() || s.is_empty() {
+                        eprintln!("Error: no value provided (pass --value or pipe to stdin)");
+                        std::process::exit(2);
+                    }
+                    s.trim_end_matches('\n').to_string()
+                }
+            };
+            let payload = serde_json::json!({
+                "name": name,
+                "value": resolved_value,
+                "folder": folder,
+                "organization": org,
+                "collection": collection,
+                "notes": notes,
+                "overwrite": overwrite,
+            });
+            let (status, body) = send_request(
+                http.post(format!("{}/api/secrets/items", base))
+                    .json(&payload),
+            );
+            print_or_exit(status, body);
+        }
+        MemSecretAction::Get { name, json } => {
+            let url = format!(
+                "{}/api/secrets/items/{}/value",
+                base,
+                urlencoding::encode(&name)
+            );
+            let (status, body) = send_request(http.post(url));
+            if exit_for_status(status).is_some() {
+                print_or_exit(status, body);
+            }
+            if json || json_mode {
+                println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+            } else {
+                let value = body
+                    .get("value")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let _ = std::io::stdout().write_all(value.as_bytes());
+            }
+        }
+        MemSecretAction::Search { query } => {
+            let url = format!("{}/api/secrets/items?q={}", base, urlencoding::encode(&query));
+            let (status, body) = send_request(http.get(url));
+            print_or_exit(status, body);
+        }
+        MemSecretAction::List { org, folder, limit } => {
+            let mut url = format!("{}/api/secrets/items", base);
+            let mut sep = '?';
+            if let Some(o) = &org {
+                url.push_str(&format!("{}organization={}", sep, urlencoding::encode(o)));
+                sep = '&';
+            }
+            if let Some(f) = &folder {
+                url.push_str(&format!("{}folder={}", sep, urlencoding::encode(f)));
+                sep = '&';
+            }
+            if let Some(l) = limit {
+                url.push_str(&format!("{}limit={}", sep, l));
+            }
+            let (status, body) = send_request(http.get(url));
+            print_or_exit(status, body);
+        }
+        MemSecretAction::Delete { name, yes } => {
+            if !yes {
+                eprint!("Delete secret '{}'? [y/N] ", name);
+                let _ = std::io::stderr().flush();
+                let mut answer = String::new();
+                if std::io::stdin().read_line(&mut answer).is_err() {
+                    eprintln!("Aborted.");
+                    std::process::exit(1);
+                }
+                if !answer.trim().eq_ignore_ascii_case("y") {
+                    eprintln!("Aborted.");
+                    std::process::exit(1);
+                }
+            }
+            let url = format!("{}/api/secrets/items/{}", base, urlencoding::encode(&name));
+            let (status, body) = send_request(http.delete(url));
+            print_or_exit(status, body);
+        }
+        MemSecretAction::Unlock { email, password } => {
+            let resolved = match password {
+                Some(p) => p,
+                None => {
+                    let mut s = String::new();
+                    if std::io::stdin().read_to_string(&mut s).is_err() || s.is_empty() {
+                        eprintln!(
+                            "Error: no master password (pass --password or pipe to stdin)"
+                        );
+                        std::process::exit(2);
+                    }
+                    s.trim_end_matches('\n').to_string()
+                }
+            };
+            let payload = serde_json::json!({
+                "master_password": resolved,
+                "email": email,
+            });
+            let (status, body) = send_request(
+                http.post(format!("{}/api/secrets/unlock", base))
+                    .json(&payload),
+            );
+            print_or_exit(status, body);
+        }
+        MemSecretAction::Lock => {
+            let (status, body) =
+                send_request(http.post(format!("{}/api/secrets/lock", base)).json(&serde_json::json!({})));
+            print_or_exit(status, body);
+        }
+        MemSecretAction::Logout => {
+            let (status, body) = send_request(
+                http.post(format!("{}/api/secrets/logout", base))
+                    .json(&serde_json::json!({})),
+            );
+            print_or_exit(status, body);
+        }
+    }
 }
 
 fn handle_result(json: bool, result: Result<serde_json::Value, String>) {
