@@ -1179,6 +1179,7 @@ pub fn run() {
                     drop(cfg_guard);
                     crate::secrets::new_state(&cfg)
                 },
+                mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());

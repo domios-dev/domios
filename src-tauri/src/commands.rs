@@ -48,27 +48,29 @@ pub async fn install_app_update(
 
 #[tauri::command]
 pub fn get_windows_build_number() -> u32 {
-    #[cfg(target_os = "windows")]
-    {
-        // Parse build number from Windows registry or ver command
-        use std::process::Command;
-        if let Ok(output) = Command::new("cmd").args(["/c", "ver"]).output() {
-            let ver = String::from_utf8_lossy(&output.stdout);
-            // Format: "Microsoft Windows [Version 10.0.26200.5570]"
-            if let Some(start) = ver.rfind('.') {
-                // Get the part before last dot: "10.0.XXXXX"
-                let before_last = &ver[..start];
-                if let Some(build_start) = before_last.rfind('.') {
-                    if let Ok(n) = before_last[build_start + 1..].trim().parse::<u32>() {
-                        return n;
+    // Build number is constant for the OS lifetime — cache to avoid spawning
+    // cmd.exe on every TerminalPane mount (~1s on Win11 with Defender).
+    static CACHED: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *CACHED.get_or_init(|| {
+        #[cfg(target_os = "windows")]
+        {
+            use std::process::Command;
+            if let Ok(output) = Command::new("cmd").args(["/c", "ver"]).output() {
+                let ver = String::from_utf8_lossy(&output.stdout);
+                if let Some(start) = ver.rfind('.') {
+                    let before_last = &ver[..start];
+                    if let Some(build_start) = before_last.rfind('.') {
+                        if let Ok(n) = before_last[build_start + 1..].trim().parse::<u32>() {
+                            return n;
+                        }
                     }
                 }
             }
+            19041
         }
-        19041 // fallback
-    }
-    #[cfg(not(target_os = "windows"))]
-    { 0 }
+        #[cfg(not(target_os = "windows"))]
+        { 0 }
+    })
 }
 
 #[tauri::command]
