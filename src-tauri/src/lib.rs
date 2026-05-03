@@ -18,6 +18,7 @@ pub mod paths;
 pub mod plugin;
 pub mod prompts;
 pub mod pty;
+pub mod secrets;
 pub mod service;
 pub mod shell;
 pub mod session;
@@ -636,6 +637,12 @@ fn start_servers(
             let port = api_config.port;
             // Set CODETERM_API_PORT so PTY children (and Claude hooks) know the correct port
             std::env::set_var("CODETERM_API_PORT", port.to_string());
+            // Capture the secrets handle so we can run any one-time
+            // async init (e.g. Bitwarden auto-unlock from stored master
+            // password) BEFORE the listener accepts connections. Without
+            // this gate, /api/secrets/status would briefly serve a stale
+            // "Locked" while init was still running on a parallel task.
+            let secrets_for_init = service_state.secrets.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Builder::new_multi_thread()
                     .worker_threads(4)
@@ -643,6 +650,15 @@ fn start_servers(
                     .build()
                     .expect("Failed to create Tokio runtime for REST API");
                 rt.block_on(async move {
+                    let init_started = std::time::Instant::now();
+                    if let Err(e) = secrets_for_init.read().await.init().await {
+                        log::warn!("[secrets] init failed: {}", e);
+                    } else {
+                        log::info!(
+                            "[secrets] init done in {}ms",
+                            init_started.elapsed().as_millis()
+                        );
+                    }
                     let bind_addr = format!("{}:{}", host, port);
                     match tokio::net::TcpListener::bind(&bind_addr).await {
                         Ok(listener) => {
@@ -1120,9 +1136,19 @@ pub fn run() {
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_task: Arc::new(Mutex::new(None)),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
+                secrets: {
+                    let cfg_guard = states.config.lock();
+                    let cfg = cfg_guard.integrations.secrets.clone();
+                    drop(cfg_guard);
+                    crate::secrets::new_state(&cfg)
+                },
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
+
+            // SecretStore::init() runs inside start_servers BEFORE the
+            // API listener binds — see start_servers below. That's the
+            // single race-free seam for "wait until secrets are ready".
 
             // Librarian: hourly file-sync + skill-folder scan, run as a
             // subprocess via the supervisor so a panic / OOM cannot take
