@@ -4241,3 +4241,64 @@ fn librarian_remove_tag(conn: &rusqlite::Connection, item_id: &str, tag: &str) -
     Ok(())
 }
 
+#[cfg(test)]
+mod subcommand_contract_tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    fn mem_subcommand() -> clap::Command {
+        Cli::command()
+            .find_subcommand("mem")
+            .expect("Cli must expose `mem` subcommand")
+            .clone()
+    }
+
+    #[test]
+    fn mem_run_worker_subcommand_exists() {
+        let mem = mem_subcommand();
+        let run_worker = mem
+            .find_subcommand("run-worker")
+            .expect("`mem run-worker` MUST exist — supervisor.rs spawns it");
+
+        let kind_arg = run_worker
+            .get_arguments()
+            .find(|a| a.get_id() == "kind")
+            .expect("`mem run-worker` MUST take a positional <kind> arg");
+        assert!(
+            kind_arg.is_required_set(),
+            "<kind> must stay required so supervisor.rs args[2] is meaningful"
+        );
+
+        let db_path = run_worker
+            .get_arguments()
+            .find(|a| a.get_id() == "db_path")
+            .expect("`mem run-worker` MUST take --db-path");
+        let long = db_path
+            .get_long()
+            .expect("--db-path must remain a long flag");
+        assert_eq!(
+            long, "db-path",
+            "supervisor.rs hardcodes `--db-path`; renaming this flag breaks the daemon at runtime"
+        );
+    }
+
+    #[test]
+    fn mem_run_worker_accepts_all_three_kinds() {
+        for kind in ["dreaming-light", "dreaming-deep", "librarian-once"] {
+            let res = Cli::try_parse_from([
+                "codeterm",
+                "mem",
+                "run-worker",
+                kind,
+                "--db-path",
+                "/tmp/x.db",
+            ]);
+            assert!(
+                res.is_ok(),
+                "`mem run-worker {}` MUST parse cleanly — supervisor.rs sends this exact arg list ({:?})",
+                kind,
+                res.err()
+            );
+        }
+    }
+}
