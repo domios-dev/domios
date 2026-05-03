@@ -301,6 +301,11 @@ export interface SecretsConfig {
   backend: string;
   default_organization: string;
   default_collection: string;
+  bitwarden?: BitwardenSettings;
+}
+
+export interface BitwardenSettings {
+  server_url: string;
 }
 
 export interface MeshConfig {

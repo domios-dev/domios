@@ -192,7 +192,8 @@ pub fn create_router(state: AppState) -> Router {
             "/api/secrets/organizations",
             get(crate::secrets::api::organizations),
         )
-        .route("/api/secrets/collections", get(crate::secrets::api::collections));
+        .route("/api/secrets/collections", get(crate::secrets::api::collections))
+        .route("/api/secrets/backend", post(crate::secrets::api::switch_backend));
 
 
     router

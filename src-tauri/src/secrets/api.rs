@@ -19,7 +19,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::routes::{check_auth, AppState};
 use crate::secrets::{
-    ListFilter, SaveRequest, SecretError, SecretRef, SecretString, UnlockCredentials,
+    BackendOptions, ListFilter, SaveRequest, SecretError, SecretRef, SecretString,
+    UnlockCredentials,
 };
 
 // ── Error mapping ───────────────────────────────────────────────────
@@ -294,6 +295,79 @@ pub async fn collections(
     Ok(Json(serde_json::json!({"collections": colls})))
 }
 
+#[derive(Deserialize)]
+pub struct SwitchBackendBody {
+    pub backend: String,
+    /// Optional Bitwarden / Vaultwarden server URL — only honored when
+    /// `backend == "bitwarden"`.
+    #[serde(default)]
+    pub bitwarden_server_url: Option<String>,
+}
+
+/// Atomic backend swap. Persists the choice to config IMMEDIATELY (no
+/// "Save" step) and reconstructs the active store. The previous backend's
+/// in-process state is dropped — but persisted creds (e.g. Bitwarden
+/// session in OS keychain) are kept so switching back is seamless.
+pub async fn switch_backend(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SwitchBackendBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
+
+    let known = matches!(body.backend.as_str(), "local" | "bitwarden" | "mock");
+    if !known {
+        return Err(map_error(SecretError::BadRequest {
+            message: format!("unknown backend: {}", body.backend),
+        }));
+    }
+
+    if body.backend == "bitwarden" {
+        if let Some(url) = body.bitwarden_server_url.as_deref() {
+            if !crate::secrets::bitwarden::is_valid_http_url(url) {
+                return Err(map_error(SecretError::BadRequest {
+                    message: format!("invalid server URL: {}", url),
+                }));
+            }
+        }
+    }
+
+    // Persist to config first — if the daemon dies right after the swap
+    // we still want the new choice to stick.
+    {
+        let mut cfg = crate::config::load_config();
+        cfg.integrations.secrets.backend = body.backend.clone();
+        if let Some(url) = body.bitwarden_server_url.as_ref() {
+            cfg.integrations.secrets.bitwarden.server_url = url.clone();
+        }
+        if let Err(e) = crate::config::save_config_pub(&cfg) {
+            return Err(map_error(SecretError::Backend {
+                message: format!("save config: {}", e),
+            }));
+        }
+    }
+
+    // Build the new backend with the new options, then atomically swap.
+    let cfg = crate::config::load_config();
+    let opts = BackendOptions::from_config(&cfg.integrations.secrets);
+    let new_store = crate::secrets::build_active_store_with_options(&body.backend, opts);
+    {
+        let mut guard = state.svc.secrets.write().await;
+        *guard = new_store;
+    }
+
+    // Read the new status so the caller can update its UI in one round-trip.
+    let store = state.svc.secrets.read().await;
+    let st = store.status().await;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "backend": store.id(),
+        "status": st,
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,9 +412,11 @@ mod tests {
         let s = StoreStatus::Unlocked {
             user: Some("a@b.com".into()),
             transient: false,
+            endpoint: Some("https://vault.bitwarden.com".into()),
         };
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(v["status"], "unlocked");
         assert_eq!(v["user"], "a@b.com");
+        assert_eq!(v["endpoint"], "https://vault.bitwarden.com");
     }
 }

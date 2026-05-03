@@ -1379,7 +1379,13 @@ function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K
   );
 }
 
-type SecretsBackend = "bitwarden" | "mock";
+type SecretsBackend = "local" | "bitwarden" | "mock";
+
+const BACKEND_LABELS: Record<SecretsBackend, string> = {
+  local: "Local secret storage",
+  bitwarden: "Bitwarden",
+  mock: "Mock (testing only)",
+};
 
 interface SecretsStatus {
   backend: string;
@@ -1387,6 +1393,7 @@ interface SecretsStatus {
     status: "logged_out" | "locked" | "unlocked" | "unavailable";
     user?: string | null;
     transient?: boolean;
+    endpoint?: string | null;
     reason?: string;
   };
 }
@@ -1415,11 +1422,15 @@ function SecretsTab({
   const jsonHeaders: HeadersInit = { "Content-Type": "application/json", ...apiHeaders };
 
   const cfg = config.integrations?.secrets ?? {
-    backend: "bitwarden",
+    backend: "local",
     default_organization: "",
     default_collection: "",
+    bitwarden: { server_url: "https://vault.bitwarden.com" },
   };
-  const backend = (cfg.backend || "bitwarden") as SecretsBackend;
+  const backend = (cfg.backend || "local") as SecretsBackend;
+  const bitwardenServerUrl =
+    (cfg as { bitwarden?: { server_url?: string } }).bitwarden?.server_url ||
+    "https://vault.bitwarden.com";
 
   const [status, setStatus] = useState<SecretsStatus | null>(null);
   const [statusBusy, setStatusBusy] = useState(false);
@@ -1428,6 +1439,8 @@ function SecretsTab({
   const [colls, setColls] = useState<{ id: string; name: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"password" | "apikey">("password");
+  const [toast, setToast] = useState<string | null>(null);
+  const [serverUrlInput, setServerUrlInput] = useState(bitwardenServerUrl);
 
   // Login form state — never persisted in component state past submission.
   const [email, setEmail] = useState("");
@@ -1501,6 +1514,10 @@ function SecretsTab({
   }, [refreshStatus, backend]);
 
   useEffect(() => {
+    setServerUrlInput(bitwardenServerUrl);
+  }, [bitwardenServerUrl]);
+
+  useEffect(() => {
     if (status?.status?.status === "unlocked") {
       refreshItems();
       refreshOrgs();
@@ -1513,17 +1530,99 @@ function SecretsTab({
   }, [status?.status?.status, refreshItems, refreshOrgs, refreshColls, cfg.default_organization]);
 
   const setBackend = useCallback(
-    (next: SecretsBackend) => {
+    async (next: SecretsBackend) => {
+      setError(null);
+      // Optimistically update the local config so the dropdown reflects
+      // the new choice; the swap endpoint persists it for real on disk.
       onUpdate("integrations", {
         secrets: {
           backend: next,
           default_organization: cfg.default_organization,
           default_collection: cfg.default_collection,
+          bitwarden: { server_url: bitwardenServerUrl },
         },
       });
+      // Drop stale UI state from the previous backend before the swap.
+      setItems([]);
+      setOrgs([]);
+      setColls([]);
+      setStatus(null);
+      try {
+        const r = await fetch(`${apiBase}/api/secrets/backend`, {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            backend: next,
+            bitwarden_server_url: next === "bitwarden" ? bitwardenServerUrl : undefined,
+          }),
+        });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          setError(d?.error?.message || `switch failed (HTTP ${r.status})`);
+          return;
+        }
+        const d = await r.json();
+        setStatus({ backend: d.backend, status: d.status });
+        setToast(`Switched to ${BACKEND_LABELS[next]}`);
+        setTimeout(() => setToast(null), 2500);
+      } catch (e) {
+        setError(String(e));
+      }
     },
-    [onUpdate, cfg.default_organization, cfg.default_collection],
+    [
+      apiBase,
+      jsonHeaders,
+      onUpdate,
+      cfg.default_organization,
+      cfg.default_collection,
+      bitwardenServerUrl,
+    ],
   );
+
+  const saveServerUrl = useCallback(async () => {
+    setError(null);
+    const url = serverUrlInput.trim();
+    if (!/^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(url)) {
+      setError("Server URL must start with http:// or https://");
+      return;
+    }
+    onUpdate("integrations", {
+      secrets: {
+        backend: cfg.backend,
+        default_organization: cfg.default_organization,
+        default_collection: cfg.default_collection,
+        bitwarden: { server_url: url },
+      },
+    });
+    // Re-trigger the backend swap so the running daemon picks up the new
+    // server URL. The backend itself decides whether to force a re-login.
+    try {
+      const r = await fetch(`${apiBase}/api/secrets/backend`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({ backend: "bitwarden", bitwarden_server_url: url }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setError(d?.error?.message || `apply failed (HTTP ${r.status})`);
+        return;
+      }
+      const d = await r.json();
+      setStatus({ backend: d.backend, status: d.status });
+      setToast(`Server URL applied — sign in again`);
+      setTimeout(() => setToast(null), 2500);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [
+    apiBase,
+    jsonHeaders,
+    onUpdate,
+    cfg.backend,
+    cfg.default_organization,
+    cfg.default_collection,
+    serverUrlInput,
+  ]);
 
   const setDefaultOrg = useCallback(
     (orgId: string) => {
@@ -1629,7 +1728,10 @@ function SecretsTab({
     switch (s.status) {
       case "unlocked":
         return (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">
+          <span
+            className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]"
+            title={s.endpoint || ""}
+          >
             unlocked{s.user ? ` as ${s.user}` : ""}{s.transient ? " (transient)" : ""}
           </span>
         );
@@ -1682,13 +1784,56 @@ function SecretsTab({
           <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Backend</div>
           <select
             value={backend}
-            onChange={(e) => setBackend(e.target.value as SecretsBackend)}
+            onChange={(e) => void setBackend(e.target.value as SecretsBackend)}
             className={inputClass}
           >
+            <option value="local">Local secret storage</option>
             <option value="bitwarden">Bitwarden</option>
-            <option value="mock">Mock (in-memory, dev only)</option>
+            <option value="mock">Mock (testing only)</option>
           </select>
+          <div className="text-[10px] text-[var(--ct-muted-fg)]">
+            {backend === "local"
+              ? "Persisted in the OS keychain (macOS Keychain / libsecret / Windows Credential Manager). Offline, no external service."
+              : backend === "bitwarden"
+                ? "Vault accessed via the bw CLI. Supports vault.bitwarden.com and self-hosted Vaultwarden."
+                : "In-memory only. Data is wiped on daemon restart — for tests and local dev."}
+          </div>
         </div>
+
+        {backend === "bitwarden" && (
+          <div className="space-y-1">
+            <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">
+              Server URL
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={serverUrlInput}
+                onChange={(e) => setServerUrlInput(e.target.value)}
+                placeholder="https://vault.bitwarden.com"
+                className={inputClass}
+                spellCheck={false}
+              />
+              <button
+                onClick={() => void saveServerUrl()}
+                disabled={serverUrlInput.trim() === bitwardenServerUrl}
+                className="text-xs px-3 py-1.5 rounded border border-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Apply
+              </button>
+            </div>
+            <div className="text-[10px] text-[var(--ct-muted-fg)]">
+              Self-hosted Vaultwarden? Point to{" "}
+              <code className="font-mono">https://your-host.example</code>. Changing the URL forces a re-login.
+            </div>
+          </div>
+        )}
+
+        {toast && (
+          <div className="text-[11px] rounded border border-[var(--ct-green)]/40 bg-[var(--ct-green)]/10 p-2 text-[var(--ct-green)]">
+            {toast}
+          </div>
+        )}
 
         {status?.status?.status === "unavailable" && (
           <div className="text-[11px] rounded border border-[var(--ct-red)]/40 bg-[var(--ct-red)]/10 p-3 text-[var(--ct-red)]">
@@ -1832,9 +1977,10 @@ function SecretsTab({
       {/* Mock backend has no real auth — just an "unlock" button to flip the flag. */}
       {backend === "mock" && status?.status?.status !== "unlocked" && (
         <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2">
-          <div className="text-sm font-medium text-[var(--ct-fg)]">Mock backend</div>
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Mock backend (testing only)</div>
           <div className="text-xs text-[var(--ct-muted-fg)]">
-            In-memory store, no auth. Anything you "save" lives until the daemon restarts.
+            In-memory store, no auth. Anything you "save" lives until the daemon restarts. Use{" "}
+            <strong>Local secret storage</strong> for real secrets.
           </div>
           <button
             onClick={() => {
@@ -1852,42 +1998,55 @@ function SecretsTab({
       {status?.status?.status === "unlocked" && (
         <>
           <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
-            <div className="text-sm font-medium text-[var(--ct-fg)]">Default scope</div>
-            <div className="text-xs text-[var(--ct-muted-fg)]">
-              Where new secrets land when no <code className="font-mono">--org</code> /{" "}
-              <code className="font-mono">--collection</code> is given.
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium text-[var(--ct-fg)]">
+                {backend === "bitwarden" ? "Default scope" : "Connected"}
+              </div>
+              {status.status.endpoint && (
+                <span className="text-[10px] font-mono text-[var(--ct-muted-fg)]">
+                  {status.status.endpoint}
+                </span>
+              )}
             </div>
-            <div className="space-y-1">
-              <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Organization</div>
-              <select
-                value={cfg.default_organization}
-                onChange={(e) => setDefaultOrg(e.target.value)}
-                className={inputClass}
-              >
-                <option value="">Personal vault</option>
-                {orgs.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Collection</div>
-              <select
-                value={cfg.default_collection}
-                onChange={(e) => setDefaultColl(e.target.value)}
-                className={inputClass}
-                disabled={!colls.length}
-              >
-                <option value="">(none)</option>
-                {colls.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {backend === "bitwarden" && (
+              <>
+                <div className="text-xs text-[var(--ct-muted-fg)]">
+                  Where new secrets land when no <code className="font-mono">--org</code> /{" "}
+                  <code className="font-mono">--collection</code> is given.
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Organization</div>
+                  <select
+                    value={cfg.default_organization}
+                    onChange={(e) => setDefaultOrg(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Personal vault</option>
+                    {orgs.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Collection</div>
+                  <select
+                    value={cfg.default_collection}
+                    onChange={(e) => setDefaultColl(e.target.value)}
+                    className={inputClass}
+                    disabled={!colls.length}
+                  >
+                    <option value="">(none)</option>
+                    {colls.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
             <div className="flex gap-2 pt-1">
               <button
                 onClick={lock}
