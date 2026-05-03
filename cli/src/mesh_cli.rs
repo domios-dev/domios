@@ -152,7 +152,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
     // Update --apply over mesh needs check-then-install in sequence.
     if let Commands::Update { action, check, apply, channel, manifest_url } = &cli.command {
         let resolved = resolve_update_action(action.as_ref(), *check, *apply, channel.clone(), manifest_url.clone());
-        if let UpdateAction::Install { auto: true, manifest_url } = &resolved {
+        if let UpdateAction::Install { auto: true, manifest_url, from_file: _, continue_prompt: _, continue_pane: _ } = &resolved {
             run_update_apply_via_mesh(&http, &base, &token, target, manifest_url.as_deref(), cli.json);
             return;
         }
@@ -178,15 +178,24 @@ fn resolve_update_action(
             channel: if ch.is_empty() { None } else { Some(ch) },
         }
     } else if apply {
-        UpdateAction::Install { auto: true, manifest_url }
+        UpdateAction::Install {
+            auto: true,
+            manifest_url,
+            from_file: None,
+            continue_prompt: None,
+            continue_pane: None,
+        }
     } else if check {
         UpdateAction::Check { force: false }
     } else {
         match action {
             Some(UpdateAction::Check { force }) => UpdateAction::Check { force: *force },
-            Some(UpdateAction::Install { auto, manifest_url }) => UpdateAction::Install {
+            Some(UpdateAction::Install { auto, manifest_url, from_file, continue_prompt, continue_pane }) => UpdateAction::Install {
                 auto: *auto,
                 manifest_url: manifest_url.clone(),
+                from_file: from_file.clone(),
+                continue_prompt: continue_prompt.clone(),
+                continue_pane: continue_pane.clone(),
             },
             Some(UpdateAction::Channel { channel }) => UpdateAction::Channel { channel: channel.clone() },
             None => UpdateAction::Check { force: false },
@@ -371,11 +380,16 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             let p = pane.as_deref().unwrap_or("general");
             ("GET".into(), format!("/api/panes/{}/output?lines={}&strip_ansi=true", p, lines), None)
         }
-        Commands::SendText { text, pane } => {
+        Commands::SendText { text, pane, from_file } => {
             let p = pane.as_deref().unwrap_or("general");
             let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
+            let body_text = match from_file.as_ref() {
+                Some(path) => std::fs::read_to_string(path)
+                    .unwrap_or_else(|_| text.clone()),
+                None => text.clone(),
+            };
             ("POST".into(), format!("/api/panes/{}/send", p),
-                Some(serde_json::json!({"text": text, "enter": true, "source_pane": source}).to_string()))
+                Some(serde_json::json!({"text": body_text, "enter": true, "source_pane": source}).to_string()))
         }
         Commands::Notify { title, body, level } => {
             ("POST".into(), "/api/notifications".into(),
@@ -479,7 +493,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     let path = if force { "/api/update/check?force=true" } else { "/api/update/check" };
                     ("GET".into(), path.into(), None)
                 }
-                UpdateAction::Install { auto, manifest_url } => {
+                UpdateAction::Install { auto, manifest_url, from_file: _, continue_prompt: _, continue_pane: _ } => {
                     let mut qs = String::new();
                     if auto {
                         qs.push_str("?method=auto");
