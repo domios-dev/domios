@@ -456,6 +456,16 @@ fn start_background_tasks(
     }
 }
 
+/// Compute hex-encoded sha256 of a file. Returns `None` on I/O error.
+fn file_sha256(path: &std::path::Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher).ok()?;
+    let bytes = hasher.finalize();
+    Some(bytes.iter().map(|b| format!("{:02x}", b)).collect())
+}
+
 /// Install bundled CLI binary to ~/.codeterm/bin/ on startup (runs in background).
 fn install_bundled_cli(app: &tauri::App) {
     let bin_name = if cfg!(windows) { "codeterm.exe" } else { "codeterm" };
@@ -481,12 +491,31 @@ fn install_bundled_cli(app: &tauri::App) {
         let dest_dir = home.join(".codeterm").join("bin");
         let dest = dest_dir.join(bin_name);
 
-        // Skip if already installed with same size
+        // Skip iff destination already matches the bundle by content (sha256), not size.
+        // Two different release builds can produce same-sized binaries with different
+        // content; size-only check silently leaves a stale CLI in PATH (the v1.1.5→1.1.6
+        // incident: same 7334912 bytes, different hashes, mesh signing broke).
         if dest.exists() {
-            let src_size = std::fs::metadata(&src).map(|m| m.len()).unwrap_or(0);
-            let dest_size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
-            if src_size == dest_size && src_size > 0 {
-                return;
+            match (file_sha256(&src), file_sha256(&dest)) {
+                (Some(src_hash), Some(dest_hash)) if src_hash == dest_hash => {
+                    log::debug!(
+                        "[cli-install] CLI already up-to-date (sha256={}), skipping",
+                        &src_hash[..12]
+                    );
+                    return;
+                }
+                (Some(src_hash), Some(dest_hash)) => {
+                    log::info!(
+                        "[cli-install] CLI hash mismatch — overwriting (src={}, dest={})",
+                        &src_hash[..12],
+                        &dest_hash[..12]
+                    );
+                }
+                _ => {
+                    log::warn!(
+                        "[cli-install] Could not hash existing CLI — proceeding with copy"
+                    );
+                }
             }
         }
 
@@ -497,7 +526,15 @@ fn install_bundled_cli(app: &tauri::App) {
 
         match std::fs::copy(&src, &dest) {
             Ok(bytes) => {
-                log::info!("[cli-install] Installed CLI ({} bytes) to {}", bytes, dest.display());
+                let hash_short = file_sha256(&dest)
+                    .map(|h| h[..12].to_string())
+                    .unwrap_or_else(|| "?".into());
+                log::info!(
+                    "[cli-install] Installed CLI ({} bytes, sha256={}) to {}",
+                    bytes,
+                    hash_short,
+                    dest.display()
+                );
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -1231,4 +1268,46 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod cli_install_tests {
+    use super::file_sha256;
+    use std::io::Write;
+
+    #[test]
+    fn hash_distinguishes_same_size_different_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.bin");
+        let b = dir.path().join("b.bin");
+        // Two files of identical length but different content — exactly the v1.1.5/1.1.6
+        // failure mode that defeated the old size-only skip.
+        std::fs::File::create(&a).unwrap().write_all(&[0u8; 64]).unwrap();
+        std::fs::File::create(&b).unwrap().write_all(&[1u8; 64]).unwrap();
+        let ha = file_sha256(&a).expect("hash a");
+        let hb = file_sha256(&b).expect("hash b");
+        assert_eq!(
+            std::fs::metadata(&a).unwrap().len(),
+            std::fs::metadata(&b).unwrap().len()
+        );
+        assert_ne!(ha, hb, "same-size files with different content must hash differently");
+    }
+
+    #[test]
+    fn hash_is_deterministic_for_same_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("c.bin");
+        std::fs::File::create(&p)
+            .unwrap()
+            .write_all(b"codeterm-cli-fixture")
+            .unwrap();
+        assert_eq!(file_sha256(&p).unwrap(), file_sha256(&p).unwrap());
+    }
+
+    #[test]
+    fn hash_returns_none_on_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("does-not-exist.bin");
+        assert!(file_sha256(&missing).is_none());
+    }
 }
