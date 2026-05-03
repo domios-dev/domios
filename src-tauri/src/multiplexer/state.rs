@@ -71,6 +71,7 @@ impl MultiplexerState {
             can_spawn: true,
             depth: 1,
             report_target_pane_id: None,
+            spawned_by_pane_id: None,
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
@@ -456,6 +457,7 @@ impl MultiplexerState {
             can_spawn: false,
             depth: 0,
             report_target_pane_id: None,
+            spawned_by_pane_id: None,
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
@@ -488,6 +490,7 @@ impl MultiplexerState {
             can_spawn: false,
             depth: 0,
             report_target_pane_id: None,
+            spawned_by_pane_id: None,
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
@@ -874,6 +877,16 @@ impl MultiplexerState {
         }
     }
 
+    /// Record the pane id of the caller that ran `agent spawn` for this pane.
+    /// Independent of `parent_pane_id` — Orchestrators clear `parent_pane_id`
+    /// but still need a route back to the agent that asked for them.
+    pub fn set_spawned_by(&mut self, pane_id: &str, spawned_by: &str) -> Result<(), String> {
+        let pane = self.panes.get_mut(pane_id)
+            .ok_or(format!("Pane {} not found", pane_id))?;
+        pane.spawned_by_pane_id = Some(spawned_by.to_string());
+        Ok(())
+    }
+
     /// Get IDs of direct children of a pane.
     pub fn get_children_ids(&self, pane_id: &str) -> Vec<String> {
         self.panes.values()
@@ -1031,6 +1044,7 @@ impl MultiplexerState {
                         can_spawn: *can_spawn,
                         depth: *depth,
                         report_target_pane_id: None,
+                        spawned_by_pane_id: None,
                         title_level: restored_level,
                         chat_view: false,
                         pending_prompt: None,
