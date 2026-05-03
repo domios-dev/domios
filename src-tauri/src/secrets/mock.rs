@@ -162,14 +162,15 @@ impl SecretStore for MockStore {
         }
         let g = self.inner.lock();
         if !g.logged_in {
-            return StoreStatus::LoggedOut;
+            return StoreStatus::LoggedOut { endpoint: None };
         }
         if g.locked {
-            return StoreStatus::Locked;
+            return StoreStatus::Locked { endpoint: None };
         }
         StoreStatus::Unlocked {
             user: g.user.clone(),
             transient: true,
+            endpoint: None,
         }
     }
 
@@ -464,7 +465,7 @@ mod tests {
         store.save(req("k", "v")).await.unwrap();
         store.logout().await.unwrap();
         assert!(matches!(store.get("k").await, Err(SecretError::LoggedOut)));
-        assert!(matches!(store.status().await, StoreStatus::LoggedOut));
+        assert!(matches!(store.status().await, StoreStatus::LoggedOut { .. }));
     }
 
     #[tokio::test]

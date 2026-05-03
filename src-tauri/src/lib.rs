@@ -1121,9 +1121,15 @@ pub fn run() {
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_task: Arc::new(Mutex::new(None)),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
-                secrets: crate::secrets::new_state(
-                    &states.config.lock().integrations.secrets.backend,
-                ),
+                secrets: {
+                    let cfg_guard = states.config.lock();
+                    let backend = cfg_guard.integrations.secrets.backend.clone();
+                    let opts = crate::secrets::BackendOptions::from_config(
+                        &cfg_guard.integrations.secrets,
+                    );
+                    drop(cfg_guard);
+                    crate::secrets::new_state_with_options(&backend, opts)
+                },
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());

@@ -421,14 +421,20 @@ impl Default for IntegrationsConfig {
 }
 
 fn default_secrets_backend() -> String {
-    "bitwarden".to_string()
+    "local".to_string()
+}
+
+fn default_bitwarden_server_url() -> String {
+    "https://vault.bitwarden.com".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SecretsConfig {
-    /// Active backend id. Built-in: `"bitwarden"` (default — uses the
-    /// Bitwarden CLI), `"mock"` (in-memory, dev only).
+    /// Active backend id. Built-in:
+    /// - `"local"` (default — secrets persisted in the OS keychain)
+    /// - `"bitwarden"` (shells out to the Bitwarden CLI)
+    /// - `"mock"` (in-memory, tests and dev only)
     #[serde(default = "default_secrets_backend")]
     pub backend: String,
     /// Default Bitwarden organization id for new items. Empty = personal vault.
@@ -437,6 +443,29 @@ pub struct SecretsConfig {
     /// Default Bitwarden collection id for new items.
     #[serde(default)]
     pub default_collection: String,
+    /// Bitwarden adapter settings. Held in a sub-struct so future per-backend
+    /// settings (e.g. `local.index_path`) can sit alongside without growing
+    /// this top-level struct.
+    #[serde(default)]
+    pub bitwarden: BitwardenSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BitwardenSettings {
+    /// Bitwarden / Vaultwarden server URL. Default
+    /// `https://vault.bitwarden.com`. Self-hosted users override this. The
+    /// adapter runs `bw config server <URL>` before login.
+    #[serde(default = "default_bitwarden_server_url")]
+    pub server_url: String,
+}
+
+impl Default for BitwardenSettings {
+    fn default() -> Self {
+        Self {
+            server_url: default_bitwarden_server_url(),
+        }
+    }
 }
 
 impl Default for SecretsConfig {
@@ -445,6 +474,7 @@ impl Default for SecretsConfig {
             backend: default_secrets_backend(),
             default_organization: String::new(),
             default_collection: String::new(),
+            bitwarden: BitwardenSettings::default(),
         }
     }
 }
