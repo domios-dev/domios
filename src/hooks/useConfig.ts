@@ -108,6 +108,11 @@ const DEFAULT_CONFIG: AppConfig = {
     discord_allowed_users: [],
     webhook_enabled: false,
     webhook_port: 9090,
+    secrets: {
+      backend: "mock",
+      default_organization: "",
+      default_collection: "",
+    },
   },
   mesh: {
     enabled: false,

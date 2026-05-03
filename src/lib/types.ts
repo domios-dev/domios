@@ -294,6 +294,13 @@ export interface IntegrationsConfig {
   discord_allowed_users: string[];
   webhook_enabled: boolean;
   webhook_port: number;
+  secrets: SecretsConfig;
+}
+
+export interface SecretsConfig {
+  backend: string;
+  default_organization: string;
+  default_collection: string;
 }
 
 export interface MeshConfig {

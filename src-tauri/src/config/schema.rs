@@ -402,6 +402,7 @@ pub struct IntegrationsConfig {
     pub webhook_enabled: bool,
     pub webhook_port: u16,
     pub voice_transcribe: VoiceTranscribeConfig,
+    pub secrets: SecretsConfig,
 }
 
 impl Default for IntegrationsConfig {
@@ -414,6 +415,36 @@ impl Default for IntegrationsConfig {
             webhook_enabled: false,
             webhook_port: 7687,
             voice_transcribe: VoiceTranscribeConfig::default(),
+            secrets: SecretsConfig::default(),
+        }
+    }
+}
+
+fn default_secrets_backend() -> String {
+    "mock".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecretsConfig {
+    /// Active backend id. Built-in: `"mock"` (in-memory, dev only),
+    /// `"bitwarden"` (Phase 2).
+    #[serde(default = "default_secrets_backend")]
+    pub backend: String,
+    /// Default Bitwarden organization id for new items. Empty = personal vault.
+    #[serde(default)]
+    pub default_organization: String,
+    /// Default Bitwarden collection id for new items.
+    #[serde(default)]
+    pub default_collection: String,
+}
+
+impl Default for SecretsConfig {
+    fn default() -> Self {
+        Self {
+            backend: default_secrets_backend(),
+            default_organization: String::new(),
+            default_collection: String::new(),
         }
     }
 }

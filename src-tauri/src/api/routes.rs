@@ -170,7 +170,29 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/workers/{id}/report", post(super::mem_routes::workers_report))
         .route("/api/mem/workers/{id}/log", get(super::mem_routes::workers_log))
         .route("/api/mem/sync", post(super::mem_routes::mem_sync))
-        .route("/api/mem/sync/status", get(super::mem_routes::mem_sync_status));
+        .route("/api/mem/sync/status", get(super::mem_routes::mem_sync_status))
+        // Secrets — pluggable secret store (Phase 1: mock backend only)
+        .route("/api/secrets/status", get(crate::secrets::api::status))
+        .route("/api/secrets/unlock", post(crate::secrets::api::unlock))
+        .route("/api/secrets/lock", post(crate::secrets::api::lock))
+        .route("/api/secrets/logout", post(crate::secrets::api::logout))
+        .route(
+            "/api/secrets/items",
+            get(crate::secrets::api::list_items).post(crate::secrets::api::save_item),
+        )
+        .route(
+            "/api/secrets/items/{name}",
+            get(crate::secrets::api::get_item_metadata).delete(crate::secrets::api::delete_item),
+        )
+        .route(
+            "/api/secrets/items/{name}/value",
+            post(crate::secrets::api::reveal_value),
+        )
+        .route(
+            "/api/secrets/organizations",
+            get(crate::secrets::api::organizations),
+        )
+        .route("/api/secrets/collections", get(crate::secrets::api::collections));
 
 
     router
