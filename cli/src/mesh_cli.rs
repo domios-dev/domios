@@ -571,6 +571,22 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             _ => ("GET".into(), "/api/keepawake".into(), None),
         },
+        Commands::SelfUpdate { check, rollback, channel, .. } => {
+            if *check {
+                ("GET".into(), "/api/update/check".into(), None)
+            } else if *rollback {
+                ("POST".into(), "/api/update/rollback".into(), None)
+            } else {
+                let path = match channel {
+                    Some(c) if !c.is_empty() => format!(
+                        "/api/update/self_apply?channel={}",
+                        urlencoding::encode(c)
+                    ),
+                    _ => "/api/update/self_apply".to_string(),
+                };
+                ("POST".into(), path, None)
+            }
+        }
     }
 }
 
@@ -749,6 +765,44 @@ mod tests {
         let body = b.expect("body");
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(v["channel"], "rc");
+    }
+
+    #[test]
+    fn self_update_apply_maps_to_post_self_apply() {
+        let (m, p, b) = cli_command_to_api(&Commands::SelfUpdate {
+            check: false, apply: true, rollback: false, channel: None,
+        });
+        assert_eq!(m, "POST");
+        assert_eq!(p, "/api/update/self_apply");
+        assert!(b.is_none());
+    }
+
+    #[test]
+    fn self_update_apply_with_channel_appends_query() {
+        let (m, p, _) = cli_command_to_api(&Commands::SelfUpdate {
+            check: false, apply: true, rollback: false,
+            channel: Some("rc".to_string()),
+        });
+        assert_eq!(m, "POST");
+        assert_eq!(p, "/api/update/self_apply?channel=rc");
+    }
+
+    #[test]
+    fn self_update_check_maps_to_check_endpoint() {
+        let (m, p, _) = cli_command_to_api(&Commands::SelfUpdate {
+            check: true, apply: false, rollback: false, channel: None,
+        });
+        assert_eq!(m, "GET");
+        assert_eq!(p, "/api/update/check");
+    }
+
+    #[test]
+    fn self_update_rollback_maps_to_rollback_endpoint() {
+        let (m, p, _) = cli_command_to_api(&Commands::SelfUpdate {
+            check: false, apply: false, rollback: true, channel: None,
+        });
+        assert_eq!(m, "POST");
+        assert_eq!(p, "/api/update/rollback");
     }
 
     #[test]

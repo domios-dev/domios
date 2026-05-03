@@ -1,16 +1,19 @@
 ---
 title: End-to-end GitHub release for CodeTerm
 area: deploy
-tags: [release, github, macos, windows, notarize, brew, mesh, mirror]
+tags: [release, github, macos, windows, notarize, brew, mesh]
 ---
 
 # End-to-end CodeTerm release to GitHub
 
-Full pipeline: bump version on develop → merge to master → tag → checkout tag → build signed+notarized macOS (arm64+x86_64) → build Windows via mesh → upload to BOTH the private source repo AND the public release mirror → sign + publish updater manifest → update Homebrew cask.
+Full pipeline: bump version on develop → merge to master → tag → checkout tag → build signed+notarized macOS (arm64+x86_64) → build Windows via mesh → upload to private repo (source) → mirror artifacts + signed manifest to public repo (so GUI updater works) → update Homebrew cask.
 
 **Golden rule: all builds happen from the tagged commit on master. Never build release artifacts from develop.**
 
-**Two-repo invariant: every artifact and the signed `latest.json` MUST land in `rollacode/codeterm-releases` (PUBLIC mirror) or anonymous downloads will 404 and the auto-updater will silently fail. The private `rollacode/codeterm` source repo gets the same payload for tooling that pulls from there, but the mirror is the one users actually consume.**
+## Two-repo layout (since 2026-05-03)
+
+- **`rollacode/codeterm`** — private source repo. Releases here for archive only; the GUI updater can't reach private-repo assets anonymously.
+- **`rollacode/codeterm-releases`** — public mirror, artifacts + `latest.json` only. The Tauri-plugin-updater endpoint baked into `tauri.conf.json` points here. Without this mirror, `update --apply` from the GUI hangs/404s.
 
 ## When to use
 
@@ -69,19 +72,17 @@ git push origin v$VER
 
 If push to master is rejected (non-fast-forward), always `git pull origin master --no-rebase --no-edit` first, then push again.
 
-### 3. Create GitHub release (draft, on BOTH repos)
+### 3. Create GitHub release (draft)
 
 ```bash
-NOTES_BODY="$(cat <<'NOTES'
+gh release create v$VER --title "v$VER" --draft --notes "$(cat <<'NOTES'
 ## Changes
 - ...
 NOTES
 )"
-gh release create v$VER --repo rollacode/codeterm           --title "v$VER" --draft --notes "$NOTES_BODY"
-gh release create v$VER --repo rollacode/codeterm-releases  --title "v$VER" --draft --notes "$NOTES_BODY"
 ```
 
-Create as draft on both. Publish after all assets are uploaded and the updater manifest is signed.
+Create as draft first. Publish after all assets are uploaded.
 
 ### 4. Checkout tag for building
 
@@ -115,14 +116,80 @@ spctl -a -t open --context context:primary-signature -vv "$X64"   # must print a
 
 Cross-compile detail (why this script exists): `macos-x86_64-release` skill.
 
-### 7. Upload macOS DMGs (BOTH repos)
+### 7. Upload macOS DMGs to the private (source) repo
 
 ```bash
-for f in "$ARM" "$X64"; do
-  gh release upload v$VER "$f" --clobber --repo rollacode/codeterm
-  gh release upload v$VER "$f" --clobber --repo rollacode/codeterm-releases
-done
+gh release upload v$VER "$ARM" "$X64" --clobber
 ```
+
+### 7b. Sign DMGs + build `latest.json` + mirror to public repo
+
+The GUI updater fetches `latest.json` anonymously, so the manifest plus the DMG copies live in `rollacode/codeterm-releases`. Same files, separate repo.
+
+```bash
+WORK=/tmp/codeterm-${VER}-mirror
+mkdir -p "$WORK" && cp "$ARM" "$X64" "$WORK/"
+
+# Sign each DMG with the same minisign key whose pubkey is baked into
+# tauri.conf.json. Key file lives at ~/.tauri/codeterm.key (base64-encoded
+# minisign secret key, password is empty for the local-dev key).
+KEY_B64=$(cat ~/.tauri/codeterm.key | tr -d '\n')
+for dmg in "$WORK"/CodeTerm_${VER}_aarch64.dmg "$WORK"/CodeTerm_${VER}_x64.dmg; do
+  TAURI_SIGNING_PRIVATE_KEY="$KEY_B64" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
+    npx --yes @tauri-apps/cli signer sign "$dmg"
+done
+
+# Optional verify (requires `brew install minisign`):
+# base64 -D < "$WORK"/CodeTerm_${VER}_aarch64.dmg.sig > /tmp/check.minisig
+# echo "<pubkey base64 from tauri.conf.json>" | base64 -D > /tmp/check.pub
+# minisign -V -p /tmp/check.pub -m "$WORK"/CodeTerm_${VER}_aarch64.dmg
+
+# Build the manifest. Schema = standard tauri-plugin-updater shape.
+ARM_SIG=$(cat "$WORK/CodeTerm_${VER}_aarch64.dmg.sig" | tr -d '\n')
+X64_SIG=$(cat "$WORK/CodeTerm_${VER}_x64.dmg.sig"   | tr -d '\n')
+PUB_DATE=$(gh release view v$VER --json publishedAt --jq '.publishedAt')
+NOTES=$(gh release view v$VER --json body --jq '.body')
+cat > "$WORK/latest.json" <<JSON
+{
+  "version": "$VER",
+  "notes": $(printf '%s' "$NOTES" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'),
+  "pub_date": "$PUB_DATE",
+  "platforms": {
+    "darwin-aarch64": {
+      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_${VER}_aarch64.dmg",
+      "signature": "$ARM_SIG"
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_${VER}_x64.dmg",
+      "signature": "$X64_SIG"
+    },
+    "windows-x86_64": {
+      "url": "https://github.com/rollacode/codeterm-releases/releases/latest/download/CodeTerm_${VER}_x64-setup.exe",
+      "signature": "<fill after BLACKSTAR signs the .exe>"
+    }
+  }
+}
+JSON
+python3 -m json.tool "$WORK/latest.json" >/dev/null  # validate
+
+# Publish on the public mirror.
+gh release create v$VER \
+  --repo rollacode/codeterm-releases \
+  --title "v$VER" --target main \
+  --notes "Release artifacts for CodeTerm v$VER. Source: https://github.com/rollacode/codeterm/releases/tag/v$VER (private)." \
+  --latest \
+  "$WORK/CodeTerm_${VER}_aarch64.dmg" \
+  "$WORK/CodeTerm_${VER}_x64.dmg" \
+  "$WORK/CodeTerm_${VER}_aarch64.dmg.sig" \
+  "$WORK/CodeTerm_${VER}_x64.dmg.sig" \
+  "$WORK/latest.json"
+
+# Verify anon access (smoke):
+curl -sIL https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json \
+  | grep -E '^HTTP' | tail -1     # → HTTP/2 200
+```
+
+If the Windows build is still pending when you mirror, leave the `windows-x86_64.signature` placeholder and update the manifest after BLACKSTAR uploads its signed `.exe.sig` (re-upload `latest.json` with `--clobber`).
 
 ### 8. Kick Windows build on BLACKSTAR via mesh
 
@@ -143,9 +210,7 @@ Steps:
 2. pnpm install (if deps changed)
 3. .\\build.sh build   (or ./build.sh build under bash)
 4. NSIS exe lands at src-tauri\\target\\release\\bundle\\nsis\\CodeTerm_${VER}_x64-setup.exe
-5. Upload to BOTH repos:
-   gh release upload v$VER <exe> --clobber --repo rollacode/codeterm
-   gh release upload v$VER <exe> --clobber --repo rollacode/codeterm-releases
+5. gh release upload v$VER <exe> --clobber
 6. codeterm agent report STATUS/ASSETS/ISSUES
 
 If pnpm install fails with 'UNKNOWN package.json' on Windows, rm -rf node_modules && pnpm install."
@@ -153,42 +218,18 @@ If pnpm install fails with 'UNKNOWN package.json' on Windows, rm -rf node_module
 
 Alternative: devops agent on dev machine SSH'd into BLACKSTAR and did the build directly via ssh + scp. Either works — mesh-spawn is more hands-off, SSH is more debuggable.
 
-### 8b. Sign each asset with minisign + publish updater manifest (mirror only)
-
-The auto-updater fetches `latest.json` from the public mirror and verifies it against the ed25519/minisign pubkey baked into `tauri.conf.json::plugins.updater.pubkey`. Sign every platform asset and upload the `.sig` files + a per-platform `latest.json` to the mirror:
+### 9. Publish release + verify
 
 ```bash
-# Sign each artifact
-for f in "$ARM" "$X64" "CodeTerm_${VER}_x64-setup.exe"; do
-  minisign -Sm "$f" -s ~/.tauri/codeterm.key
-  gh release upload v$VER "$f.sig" --clobber --repo rollacode/codeterm-releases
-done
+# Private source repo:
+gh release edit v$VER --draft=false --latest
+gh release view v$VER --json assets --jq '.assets[] | "\(.name)  \(.size)B"'
+# Expect 3 assets here: aarch64.dmg, x64.dmg, x64-setup.exe.
 
-# Build latest.json with windows-x86_64, darwin-aarch64, darwin-x86_64 entries pointing
-# at the mirror URLs and the inline minisign signatures, then upload.
-# scripts/build-latest-json.sh is the canonical generator.
-bash scripts/build-latest-json.sh v$VER > latest.json
-gh release upload v$VER latest.json --clobber --repo rollacode/codeterm-releases
+# Public mirror — once Windows .exe arrives, also update its sig in latest.json
+# and re-upload --clobber. Verify GUI updater can resolve anonymously:
+curl -sIL https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json | grep '^HTTP' | tail -1
 ```
-
-`latest.json` lives ONLY in the mirror. The private repo doesn't need it because the updater endpoint resolves to the mirror.
-
-### 9. Publish release + verify (BOTH repos)
-
-```bash
-gh release edit v$VER --draft=false --latest --repo rollacode/codeterm
-gh release edit v$VER --draft=false --latest --repo rollacode/codeterm-releases
-
-# Verify mirror — anonymous curl must succeed without auth
-curl -sS -o /dev/null -w "%{http_code}\n" \
-  https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json   # 200
-curl -sS -o /dev/null -w "%{http_code}\n" \
-  https://github.com/rollacode/codeterm-releases/releases/download/v$VER/CodeTerm_${VER}_x64-setup.exe   # 302 → 200
-
-gh release view v$VER --repo rollacode/codeterm-releases --json assets --jq '.assets[] | "\(.name)  \(.size)B"'
-```
-
-Expect on the mirror: 3 binaries (`CodeTerm_${VER}_aarch64.dmg`, `CodeTerm_${VER}_x64.dmg`, `CodeTerm_${VER}_x64-setup.exe`), 3 `.sig` files, plus `latest.json`. The private source repo holds the same 3 binaries (no .sig, no latest.json — those live only on the mirror).
 
 ### 10. Return to develop
 
