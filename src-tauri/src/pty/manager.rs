@@ -319,8 +319,17 @@ impl PtyManager {
 fn detect_default_shell() -> String {
     #[cfg(target_os = "windows")]
     {
-        // PowerShell 7 (pwsh.exe) cold-starts ~10x faster than Windows PowerShell 5.1
-        // and doesn't block on AMSI during PSReadLine autoload. Prefer it when available.
+        // Avoid the WindowsApps stub for pwsh.exe — Store loader serialises
+        // ConPTY spawns for 10–30s. Prefer real installs.
+        let candidates = [
+            r"C:\Program Files\PowerShell\7\pwsh.exe",
+            r"C:\Program Files (x86)\PowerShell\7\pwsh.exe",
+        ];
+        for c in candidates.iter() {
+            if std::path::Path::new(c).is_file() {
+                return (*c).to_string();
+            }
+        }
         if let Some(path) = which_exe("pwsh.exe") {
             return path;
         }
@@ -341,6 +350,10 @@ fn which_exe(name: &str) -> Option<String> {
     let path = std::env::var("PATH").ok()?;
     for dir in path.split(';') {
         if dir.is_empty() { continue; }
+        // Skip WindowsApps App Execution Alias dir — see detect_default_shell.
+        if dir.to_ascii_lowercase().contains(r"\microsoft\windowsapps") {
+            continue;
+        }
         let full = std::path::Path::new(dir).join(name);
         if full.is_file() {
             return Some(full.to_string_lossy().into_owned());
