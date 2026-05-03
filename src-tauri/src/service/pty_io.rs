@@ -9,23 +9,29 @@ impl ServiceContext {
     /// Prevents special chars from being interpreted as commands.
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(pane_id)?;
-        // Bracket paste: ESC[200~ text ESC[201~
+        self.send_text_to_pty(&pty_id, text, enter)
+    }
+
+    /// Same as [`send_text`] but takes a PTY id directly, skipping pane→pty
+    /// resolution. Use this when the caller already holds a verified pty_id
+    /// and must not race against `link_pty` overwrites swapping `pane.pty_id`
+    /// out from under the send.
+    pub fn send_text_to_pty(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
         let paste = format!("\x1b[200~{}\x1b[201~", text);
-        self.pty.lock().write(&pty_id, paste.as_bytes()).map_err(|e| e.to_string())?;
+        self.pty.lock().write(pty_id, paste.as_bytes())?;
 
         if enter {
             // Send \r as a separate raw write after a short delay.
             // TUI apps (Claude Code/ink) process bracket paste asynchronously —
             // \r concatenated with paste end or sent immediately is swallowed.
             let pty = self.pty.clone();
-            let pty_id = pty_id.clone();
+            let pty_id = pty_id.to_string();
             if tokio::runtime::Handle::try_current().is_ok() {
                 tokio::spawn(async move {
                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                     let _ = pty.lock().write(&pty_id, b"\r");
                 });
             } else {
-                // Called outside tokio (socket API, cron, std::thread) — blocking fallback
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(500));
                     let _ = pty.lock().write(&pty_id, b"\r");
