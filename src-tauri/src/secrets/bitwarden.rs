@@ -159,9 +159,96 @@ impl SubprocessBwExec {
         Self { bw_path }
     }
 
+    /// Resolve the `bw` binary. Tauri apps launched from Finder/launchd
+    /// inherit a minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`) — Homebrew,
+    /// npm-global, scoop, and friends are NOT in it, so `which::which`
+    /// alone returns `None` even when `bw` is installed. We therefore fall
+    /// back to a platform-specific list of well-known install paths.
     pub fn detect() -> Option<Self> {
-        which::which("bw").ok().map(Self::new)
+        first_executable(detection_candidates()).map(Self::new)
     }
+}
+
+/// Iterator of `bw` binary candidates, most-likely-correct first.
+/// Order: process PATH (cheapest, honors user override) → platform
+/// fallbacks (covers Tauri's inherited-PATH gap).
+fn detection_candidates() -> Vec<std::path::PathBuf> {
+    let mut out = Vec::with_capacity(8);
+    if let Ok(p) = which::which("bw") {
+        out.push(p);
+    }
+    out.extend(fallback_bw_paths());
+    out
+}
+
+/// Platform-specific install locations to probe when `bw` isn't on PATH.
+fn fallback_bw_paths() -> Vec<std::path::PathBuf> {
+    let mut paths: Vec<std::path::PathBuf> = Vec::new();
+    let home = dirs::home_dir();
+
+    #[cfg(target_os = "macos")]
+    {
+        paths.push(std::path::PathBuf::from("/opt/homebrew/bin/bw"));
+        paths.push(std::path::PathBuf::from("/usr/local/bin/bw"));
+        paths.push(std::path::PathBuf::from(
+            "/opt/homebrew/opt/bitwarden-cli/bin/bw",
+        ));
+        if let Some(h) = home.as_ref() {
+            paths.push(h.join(".local/bin/bw"));
+            paths.push(h.join(".npm-global/bin/bw"));
+            paths.push(h.join(".bun/bin/bw"));
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        paths.push(std::path::PathBuf::from("/usr/local/bin/bw"));
+        paths.push(std::path::PathBuf::from("/usr/bin/bw"));
+        paths.push(std::path::PathBuf::from("/snap/bin/bw"));
+        if let Some(h) = home.as_ref() {
+            paths.push(h.join(".local/bin/bw"));
+            paths.push(h.join(".npm-global/bin/bw"));
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(la) = std::env::var("LOCALAPPDATA") {
+            paths.push(std::path::PathBuf::from(la).join("Programs\\Bitwarden CLI\\bw.exe"));
+        }
+        if let Ok(pf) = std::env::var("ProgramFiles") {
+            paths.push(std::path::PathBuf::from(pf).join("Bitwarden CLI\\bw.exe"));
+        }
+        if let Ok(ad) = std::env::var("APPDATA") {
+            paths.push(std::path::PathBuf::from(ad).join("npm\\bw.cmd"));
+        }
+        if let Ok(up) = std::env::var("USERPROFILE") {
+            paths.push(
+                std::path::PathBuf::from(up)
+                    .join("scoop\\apps\\bitwarden-cli\\current\\bw.exe"),
+            );
+        }
+        let _ = home;
+    }
+    paths
+}
+
+fn first_executable<I: IntoIterator<Item = std::path::PathBuf>>(
+    candidates: I,
+) -> Option<std::path::PathBuf> {
+    candidates.into_iter().find(|p| is_executable_file(p))
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    match path.metadata() {
+        Ok(md) => md.is_file() && md.permissions().mode() & 0o111 != 0,
+        Err(_) => false,
+    }
+}
+
+#[cfg(windows)]
+fn is_executable_file(path: &std::path::Path) -> bool {
+    path.is_file()
 }
 
 #[async_trait]
@@ -1678,6 +1765,49 @@ mod tests {
             }
             other => panic!("expected Locked with endpoint, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn first_executable_returns_none_for_no_candidates() {
+        assert!(first_executable(Vec::<std::path::PathBuf>::new()).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn first_executable_skips_missing_and_non_exec_then_finds_exec() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("nope");
+        let plain = tmp.path().join("plain");
+        fs::write(&plain, b"#!/bin/sh\necho hi\n").unwrap();
+        fs::set_permissions(&plain, fs::Permissions::from_mode(0o644)).unwrap();
+        let exe = tmp.path().join("bw");
+        fs::write(&exe, b"#!/bin/sh\necho hi\n").unwrap();
+        fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let found = first_executable(vec![missing, plain, exe.clone()]);
+        assert_eq!(found.as_ref(), Some(&exe));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn is_executable_file_rejects_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(!is_executable_file(tmp.path()));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn fallback_paths_include_known_macos_locations() {
+        let paths = fallback_bw_paths();
+        let strs: Vec<String> = paths
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+        assert!(strs.contains(&"/opt/homebrew/bin/bw".to_string()));
+        assert!(strs.contains(&"/usr/local/bin/bw".to_string()));
     }
 
     #[tokio::test]
