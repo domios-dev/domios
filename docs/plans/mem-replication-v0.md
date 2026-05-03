@@ -48,6 +48,18 @@ Existing rows backfill cleanly: `uid = mem_items.uid WHERE mem_items.id = item_i
 
 Both layers write to the same `mem_item_history` rows; peers dedup on `(uid, parent_uid_hash, change_type)` so receiving the same event twice is a no-op.
 
+Cursor state lives in a small dedicated table:
+
+```sql
+CREATE TABLE mem_replication_cursors (
+  peer_id           TEXT PRIMARY KEY,        -- mesh-paired peer id
+  cursor_history_id INTEGER NOT NULL,        -- last applied mem_item_history.id from peer
+  updated_at        TEXT NOT NULL            -- RFC3339, last successful pull or live-apply
+);
+```
+
+One row per paired peer. Live-apply advances `cursor_history_id` to the just-applied event's `id`; reconnect fetches `/api/mem/replicate/since/{cursor_history_id}` to catch up. New pairing inserts a row at bootstrap completion with `cursor_history_id = bootstrap_snapshot.last_history_id`.
+
 ### D4 — Deterministic `uid` for regex-extracted items
 
 `mem/extract.rs` regex auto-extraction stays per-machine (deterministic + cheap), but the extracted child `uid` is computed from `(parent_uid, pattern_name, match_position)` instead of a fresh ULID. Same input on both peers → same `uid` → no duplicate item, no conflict-detection noise.
@@ -77,7 +89,25 @@ fn slugify_lossy(s: &str) -> String {
 }
 ```
 
-Migration: one-off pass on schema upgrade scans `entities`, computes the canonical id, updates `relations.from_id`/`to_id` atomically, marks superseded entries via `entity_aliases`.
+Add `entities.merged_into_id` (nullable TEXT, FK back to entities.id). When the migration discovers two existing entities normalise to the same canonical id, the loser keeps its row but gets `merged_into_id = winner.id` so any cached caller references still resolve via a single lookup hop. New entities created post-migration always go through `deterministic_entity_id`, so collisions can only happen on legacy rows.
+
+```diff
+ CREATE TABLE IF NOT EXISTS entities (
+   id TEXT PRIMARY KEY,
+   uid TEXT UNIQUE,
+   entity_type TEXT NOT NULL,
+   scope TEXT NOT NULL,
+   properties_json TEXT,
++  merged_into_id TEXT REFERENCES entities(id),  -- legacy dedup pointer, NULL = canonical
+   created_at TEXT NOT NULL,
+   updated_at TEXT NOT NULL
+ );
++CREATE INDEX idx_entities_merged_into ON entities(merged_into_id) WHERE merged_into_id IS NOT NULL;
+```
+
+Cleaner than a separate `entity_aliases` table: one fewer table to migrate, intent is explicit ("this entity was merged into that one"), and aliases are still expressible by adding multiple legacy rows pointing at the same canonical.
+
+Migration: one-off pass on schema upgrade scans `entities`, computes canonical ids, updates `relations.from_id`/`to_id` atomically to point at canonical, sets `merged_into_id` on losers.
 
 ### D6 — Per-relation conflict detection (P0)
 
@@ -106,12 +136,15 @@ Same fastembed model + same body = deterministic vector. Receiver re-vectorizes 
 
 ```toml
 [integrations.mem]
-dream_role = "auto"   # Primary | Follower | Auto (default)
-shared_areas_blacklist = []   # e.g. ["_dreams"] if user opts out
-embedding_model = "all-MiniLM-L6-v2"   # pinned, validated on handshake
+replication_enabled = false              # Default off; flip to true once both peers on compatible schema_version
+dream_role = "auto"                      # Primary | Follower | Auto (default)
+shared_areas_blacklist = []              # e.g. ["_dreams"] if user opts out
+embedding_model = "all-MiniLM-L6-v2"     # pinned, validated on handshake
 ```
 
-**Auto detection**: workstation-class machines (BLACKSTAR) default to Primary; laptop-class default to Follower. Andrey's override is the literal config value.
+**Auto detection (self-organizing election)**: on `broadcast_announce`, peer inspects every paired peer's reported `dream_role`. If any peer reports `Primary`, this peer becomes `Follower`. If no peer reports `Primary` (because all are `Auto` and we are the first to announce, or the existing primary is offline), this peer becomes `Primary`. First-online wins. Re-elections happen only when the resolved-Primary disconnects (announce timeout) AND a Follower's `Auto` boots up — no churn while everyone is healthy. No hardware introspection.
+
+The `Auto`-resolved value is cached per session in memory; explicit `Primary` / `Follower` literal config values bypass election entirely. Andrey can pin either side at any time by writing the literal value into config.
 
 **Determinism rule** (refined): gate by trigger model + cost.
 
@@ -128,7 +161,9 @@ So:
 * `dreaming.rs` (cron) — primary-only (current SQL impl is deterministic, but cycle-savings + history-noise hygiene wins).
 * User-typed `mem save` — wherever the user typed it.
 
-**Multi-primary safeguard**: peers exchange resolved `dream_role` on every mesh announce. Two primaries detected → log-warn + first-by-instance-id wins. Soft hint, not enforcement; surfaces misconfig.
+**Multi-primary safeguard**: peers exchange resolved `dream_role` on every mesh announce. Two primaries detected → log-warn + first-by-instance-id (alphabetical) wins, the loser auto-demotes to Follower for the rest of the session. Soft hint, not enforcement; surfaces misconfig.
+
+**Embedding-model mismatch on inbound events**: when a replicated event's `embedding_model` (advertised on announce) differs from the receiver's, the receiver drops the event with a `mem.replication.model_mismatch` notification rather than applying it with a stale vector. Cursor does NOT advance. Once both peers upgrade to the matching model, the next cursor pull catches up the dropped events. This avoids per-peer vector drift while keeping the recovery story trivially "upgrade and re-pull".
 
 ### D10 — Bootstrap not replay
 
@@ -146,16 +181,20 @@ Streaming format (NDJSON):
 
 Receiver streams-applies in transaction batches of ~500 rows. ~30s for 50K rows on local network.
 
+**Bootstrap requires `access_level = Full` on the requesting peer**; lower levels (`ReadOnly`, `Limited`) get HTTP 403. Implicit mesh-signing isn't enough — pairing as ReadOnly is a deliberate operator choice and shouldn't be silently bypassed by a snapshot dump of the whole mem.
+
 ## New endpoints
 
 ```
-POST /api/mem/events                     — apply replicated event (mesh-only, X-Mesh-Sender header signed)
-POST /api/mem/replicate/bootstrap        — accept NDJSON snapshot stream
+POST /api/mem/events                     — apply replicated event (mesh-only, signed)
+POST /api/mem/replicate/bootstrap        — accept NDJSON snapshot stream (access_level=Full only, 403 otherwise)
 GET  /api/mem/replicate/since/{cursor}   — return events since cursor (NDJSON)
 GET  /api/mem/blob/{sha}                 — content-addressed blob fetch
 ```
 
-All four require `X-Mesh-Sender` + signature, validated against paired-peer registry. The relay path at `/api/mesh/relay` already does this for inbound; we expose the same guard at the route level so internal callers can't bypass.
+All four routes are guarded by a new `mesh_auth_middleware` extracted from the existing `check_mesh_relay_auth` (`mesh_routes.rs:638`) and applied to the `/api/mem/*` route group. The middleware verifies `X-Mesh-Sender` + Ed25519 signature against the paired-peer registry, sets the request extension to the resolved peer id, and rejects unauthenticated requests with 401. Individual handlers don't re-implement the check; they just pull the peer id from the request extension.
+
+`access_level` is checked at the handler level (only bootstrap cares today), since requirements differ per route.
 
 ## New `SystemEvent` variants
 
