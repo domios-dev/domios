@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { AppConfig, ProviderConfig } from "../../lib/types";
 import { MeshSection } from "./MeshSection";
@@ -16,6 +16,7 @@ import {
   Plug,
   Network,
   Info,
+  KeyRound,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -35,6 +36,7 @@ export type SectionId =
   | "agents"
   | "notifications"
   | "integrations"
+  | "secrets"
   | "mesh"
   | "about";
 
@@ -49,6 +51,7 @@ const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   agents: Bot,
   notifications: Bell,
   integrations: Plug,
+  secrets: KeyRound,
   mesh: Network,
   about: Info,
 };
@@ -59,6 +62,7 @@ const SECTIONS: { id: SectionId; label: string; desc: string }[] = [
   { id: "agents", label: "Agents", desc: "General Agent and per-provider config" },
   { id: "notifications", label: "Notifications", desc: "Desktop, sound, in-app toasts" },
   { id: "integrations", label: "Integrations", desc: "Telegram, Discord, external bridges" },
+  { id: "secrets", label: "Secrets", desc: "Bitwarden, Keychain — pluggable secret store" },
   { id: "mesh", label: "Mesh", desc: "Peer discovery, network API reference" },
   { id: "about", label: "About", desc: "Version, updates, creator" },
 ];
@@ -433,6 +437,12 @@ export function SettingsPanel({
             {top.kind === "section" && top.id === "integrations" && (
               <div className="max-w-2xl mx-auto">
                 <IntegrationsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
+              </div>
+            )}
+
+            {top.kind === "section" && top.id === "secrets" && (
+              <div className="max-w-2xl mx-auto">
+                <SecretsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
               </div>
             )}
 
@@ -1365,6 +1375,567 @@ function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K
           Connect a Discord bot to interact with your General Agent.
         </div>
       </div>
+    </div>
+  );
+}
+
+type SecretsBackend = "bitwarden" | "mock";
+
+interface SecretsStatus {
+  backend: string;
+  status: {
+    status: "logged_out" | "locked" | "unlocked" | "unavailable";
+    user?: string | null;
+    transient?: boolean;
+    reason?: string;
+  };
+}
+
+interface SecretListItem {
+  item_id: string;
+  name: string;
+  folder?: string | null;
+  organization?: string | null;
+  collection?: string | null;
+  last_modified?: number | null;
+}
+
+function SecretsTab({
+  config,
+  onUpdate,
+}: {
+  config: AppConfig;
+  onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
+}) {
+  const api = config.api;
+  const apiBase = api ? `http://${api.host === "0.0.0.0" ? "127.0.0.1" : api.host}:${api.port}` : "";
+  const apiHeaders: HeadersInit = api?.token
+    ? { Authorization: `Bearer ${api.token}` }
+    : {};
+  const jsonHeaders: HeadersInit = { "Content-Type": "application/json", ...apiHeaders };
+
+  const cfg = config.integrations?.secrets ?? {
+    backend: "bitwarden",
+    default_organization: "",
+    default_collection: "",
+  };
+  const backend = (cfg.backend || "bitwarden") as SecretsBackend;
+
+  const [status, setStatus] = useState<SecretsStatus | null>(null);
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [items, setItems] = useState<SecretListItem[]>([]);
+  const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
+  const [colls, setColls] = useState<{ id: string; name: string }[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"password" | "apikey">("password");
+
+  // Login form state — never persisted in component state past submission.
+  const [email, setEmail] = useState("");
+  const [masterPassword, setMasterPassword] = useState("");
+  const [twoFactor, setTwoFactor] = useState("");
+  const [apiClientId, setApiClientId] = useState("");
+  const [apiClientSecret, setApiClientSecret] = useState("");
+
+  const refreshStatus = useCallback(async () => {
+    if (!apiBase) return;
+    setStatusBusy(true);
+    try {
+      const r = await fetch(`${apiBase}/api/secrets/status`, { headers: apiHeaders });
+      if (r.ok) setStatus(await r.json());
+    } catch (e) {
+      console.warn("secrets status failed:", e);
+    } finally {
+      setStatusBusy(false);
+    }
+  }, [apiBase]);
+
+  const refreshItems = useCallback(async () => {
+    if (!apiBase) return;
+    try {
+      const r = await fetch(`${apiBase}/api/secrets/items?limit=10`, { headers: apiHeaders });
+      if (r.ok) {
+        const d = await r.json();
+        setItems(d.items ?? []);
+      } else {
+        setItems([]);
+      }
+    } catch {
+      setItems([]);
+    }
+  }, [apiBase]);
+
+  const refreshOrgs = useCallback(async () => {
+    if (!apiBase) return;
+    try {
+      const r = await fetch(`${apiBase}/api/secrets/organizations`, { headers: apiHeaders });
+      if (r.ok) {
+        const d = await r.json();
+        setOrgs(d.organizations ?? []);
+      }
+    } catch {
+      // ignore
+    }
+  }, [apiBase]);
+
+  const refreshColls = useCallback(
+    async (orgId: string) => {
+      if (!apiBase) return;
+      const url = orgId
+        ? `${apiBase}/api/secrets/collections?organization=${encodeURIComponent(orgId)}`
+        : `${apiBase}/api/secrets/collections`;
+      try {
+        const r = await fetch(url, { headers: apiHeaders });
+        if (r.ok) {
+          const d = await r.json();
+          setColls(d.collections ?? []);
+        }
+      } catch {
+        // ignore
+      }
+    },
+    [apiBase],
+  );
+
+  useEffect(() => {
+    refreshStatus();
+  }, [refreshStatus, backend]);
+
+  useEffect(() => {
+    if (status?.status?.status === "unlocked") {
+      refreshItems();
+      refreshOrgs();
+      refreshColls(cfg.default_organization);
+    } else {
+      setItems([]);
+      setOrgs([]);
+      setColls([]);
+    }
+  }, [status?.status?.status, refreshItems, refreshOrgs, refreshColls, cfg.default_organization]);
+
+  const setBackend = useCallback(
+    (next: SecretsBackend) => {
+      onUpdate("integrations", {
+        secrets: {
+          backend: next,
+          default_organization: cfg.default_organization,
+          default_collection: cfg.default_collection,
+        },
+      });
+    },
+    [onUpdate, cfg.default_organization, cfg.default_collection],
+  );
+
+  const setDefaultOrg = useCallback(
+    (orgId: string) => {
+      onUpdate("integrations", {
+        secrets: {
+          backend: cfg.backend,
+          default_organization: orgId,
+          default_collection: "", // reset collection when org changes
+        },
+      });
+    },
+    [onUpdate, cfg.backend],
+  );
+
+  const setDefaultColl = useCallback(
+    (collId: string) => {
+      onUpdate("integrations", {
+        secrets: {
+          backend: cfg.backend,
+          default_organization: cfg.default_organization,
+          default_collection: collId,
+        },
+      });
+    },
+    [onUpdate, cfg.backend, cfg.default_organization],
+  );
+
+  const submitPasswordLogin = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setError(null);
+      try {
+        const r = await fetch(`${apiBase}/api/secrets/unlock`, {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            master_password: masterPassword,
+            email: email || undefined,
+            two_factor_token: twoFactor || undefined,
+          }),
+        });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          setError(d?.error?.message || `unlock failed (HTTP ${r.status})`);
+          return;
+        }
+        // Wipe form state — password lifetime ends here.
+        setMasterPassword("");
+        setTwoFactor("");
+        await refreshStatus();
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    [apiBase, jsonHeaders, masterPassword, email, twoFactor, refreshStatus],
+  );
+
+  const submitApiKeyLogin = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setError(null);
+      try {
+        const r = await fetch(`${apiBase}/api/secrets/unlock`, {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            master_password: masterPassword,
+            api_key_client_id: apiClientId,
+            api_key_client_secret: apiClientSecret,
+          }),
+        });
+        if (!r.ok) {
+          const d = await r.json().catch(() => ({}));
+          setError(d?.error?.message || `unlock failed (HTTP ${r.status})`);
+          return;
+        }
+        setMasterPassword("");
+        setApiClientSecret("");
+        await refreshStatus();
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    [apiBase, jsonHeaders, masterPassword, apiClientId, apiClientSecret, refreshStatus],
+  );
+
+  const lock = useCallback(async () => {
+    setError(null);
+    await fetch(`${apiBase}/api/secrets/lock`, { method: "POST", headers: jsonHeaders, body: "{}" });
+    await refreshStatus();
+  }, [apiBase, jsonHeaders, refreshStatus]);
+
+  const logout = useCallback(async () => {
+    if (!confirm("Sign out and delete the stored session token from your OS keychain?")) return;
+    setError(null);
+    await fetch(`${apiBase}/api/secrets/logout`, { method: "POST", headers: jsonHeaders, body: "{}" });
+    await refreshStatus();
+  }, [apiBase, jsonHeaders, refreshStatus]);
+
+  const statusBadge = useMemo(() => {
+    if (!status) return null;
+    const s = status.status;
+    switch (s.status) {
+      case "unlocked":
+        return (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">
+            unlocked{s.user ? ` as ${s.user}` : ""}{s.transient ? " (transient)" : ""}
+          </span>
+        );
+      case "locked":
+        return (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]">
+            locked
+          </span>
+        );
+      case "logged_out":
+        return (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--ct-border)] text-[var(--ct-muted-fg)]">
+            logged out
+          </span>
+        );
+      case "unavailable":
+        return (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--ct-red)]/20 text-[var(--ct-red)]">
+            unavailable
+          </span>
+        );
+    }
+  }, [status]);
+
+  const inputClass =
+    "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Secret store</div>
+          <div className="flex items-center gap-2">
+            {statusBadge}
+            <button
+              onClick={refreshStatus}
+              disabled={statusBusy}
+              className="text-[10px] px-2 py-0.5 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] disabled:opacity-50"
+            >
+              refresh
+            </button>
+          </div>
+        </div>
+        <div className="text-xs text-[var(--ct-muted-fg)]">
+          Pluggable backend for the <code className="font-mono">codeterm mem secret</code> command family.
+          Secrets do not cross the mesh — only the local machine's vault is reachable.
+        </div>
+
+        <div className="space-y-1">
+          <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Backend</div>
+          <select
+            value={backend}
+            onChange={(e) => setBackend(e.target.value as SecretsBackend)}
+            className={inputClass}
+          >
+            <option value="bitwarden">Bitwarden</option>
+            <option value="mock">Mock (in-memory, dev only)</option>
+          </select>
+        </div>
+
+        {status?.status?.status === "unavailable" && (
+          <div className="text-[11px] rounded border border-[var(--ct-red)]/40 bg-[var(--ct-red)]/10 p-3 text-[var(--ct-red)]">
+            <div className="font-medium mb-1">Backend unavailable</div>
+            <div className="text-[var(--ct-fg)]">{status.status.reason}</div>
+            {backend === "bitwarden" && (
+              <div className="mt-2 space-y-0.5 text-[var(--ct-muted-fg)]">
+                <div>Install the Bitwarden CLI:</div>
+                <div className="font-mono">macOS: <code>brew install bitwarden-cli</code></div>
+                <div className="font-mono">Linux: <code>npm i -g @bitwarden/cli</code></div>
+                <div className="font-mono">Windows: <code>scoop install bitwarden-cli</code></div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {error && (
+          <div className="text-[11px] rounded border border-[var(--ct-red)]/40 bg-[var(--ct-red)]/10 p-2 text-[var(--ct-red)]">
+            {error}
+          </div>
+        )}
+      </div>
+
+      {/* Login forms — only when logged out. */}
+      {status?.status?.status === "logged_out" && backend === "bitwarden" && (
+        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Sign in to Bitwarden</div>
+          <div className="flex gap-1 text-[11px]">
+            <button
+              onClick={() => setActiveTab("password")}
+              className={`px-2.5 py-1 rounded border ${activeTab === "password" ? "bg-[var(--ct-accent)] text-[var(--ct-bg)] border-[var(--ct-accent)]" : "bg-transparent text-[var(--ct-muted-fg)] border-[var(--ct-border)]"}`}
+            >
+              Password
+            </button>
+            <button
+              onClick={() => setActiveTab("apikey")}
+              className={`px-2.5 py-1 rounded border ${activeTab === "apikey" ? "bg-[var(--ct-accent)] text-[var(--ct-bg)] border-[var(--ct-accent)]" : "bg-transparent text-[var(--ct-muted-fg)] border-[var(--ct-border)]"}`}
+            >
+              API key
+            </button>
+          </div>
+          {activeTab === "password" ? (
+            <form onSubmit={submitPasswordLogin} className="space-y-2">
+              <input
+                type="email"
+                placeholder="email"
+                autoComplete="username"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className={inputClass}
+                required
+              />
+              <input
+                type="password"
+                placeholder="master password (never persisted)"
+                autoComplete="current-password"
+                value={masterPassword}
+                onChange={(e) => setMasterPassword(e.target.value)}
+                className={inputClass}
+                required
+              />
+              <input
+                type="text"
+                placeholder="2FA code (optional)"
+                value={twoFactor}
+                onChange={(e) => setTwoFactor(e.target.value)}
+                className={inputClass}
+              />
+              <button
+                type="submit"
+                className="text-xs px-3 py-1.5 rounded bg-[var(--ct-accent)] text-[var(--ct-bg)] hover:opacity-90"
+              >
+                Sign in
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={submitApiKeyLogin} className="space-y-2">
+              <div className="text-[10px] text-[var(--ct-muted-fg)]">
+                Create a personal API key at vault.bitwarden.com → Security → Keys.
+              </div>
+              <input
+                type="text"
+                placeholder="client_id"
+                value={apiClientId}
+                onChange={(e) => setApiClientId(e.target.value)}
+                className={inputClass}
+                required
+              />
+              <input
+                type="password"
+                placeholder="client_secret"
+                value={apiClientSecret}
+                onChange={(e) => setApiClientSecret(e.target.value)}
+                className={inputClass}
+                required
+              />
+              <input
+                type="password"
+                placeholder="master password (still required to unlock)"
+                autoComplete="current-password"
+                value={masterPassword}
+                onChange={(e) => setMasterPassword(e.target.value)}
+                className={inputClass}
+                required
+              />
+              <button
+                type="submit"
+                className="text-xs px-3 py-1.5 rounded bg-[var(--ct-accent)] text-[var(--ct-bg)] hover:opacity-90"
+              >
+                Sign in with API key
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+
+      {/* Locked → just need password. */}
+      {status?.status?.status === "locked" && backend === "bitwarden" && (
+        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Unlock vault</div>
+          <form onSubmit={submitPasswordLogin} className="space-y-2">
+            <input
+              type="password"
+              placeholder="master password"
+              autoComplete="current-password"
+              value={masterPassword}
+              onChange={(e) => setMasterPassword(e.target.value)}
+              className={inputClass}
+              required
+            />
+            <button
+              type="submit"
+              className="text-xs px-3 py-1.5 rounded bg-[var(--ct-accent)] text-[var(--ct-bg)] hover:opacity-90"
+            >
+              Unlock
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Mock backend has no real auth — just an "unlock" button to flip the flag. */}
+      {backend === "mock" && status?.status?.status !== "unlocked" && (
+        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2">
+          <div className="text-sm font-medium text-[var(--ct-fg)]">Mock backend</div>
+          <div className="text-xs text-[var(--ct-muted-fg)]">
+            In-memory store, no auth. Anything you "save" lives until the daemon restarts.
+          </div>
+          <button
+            onClick={() => {
+              setMasterPassword("dev-only");
+              submitPasswordLogin(new Event("submit") as unknown as React.FormEvent);
+            }}
+            className="text-xs px-3 py-1.5 rounded bg-[var(--ct-accent)] text-[var(--ct-bg)] hover:opacity-90"
+          >
+            Activate mock store
+          </button>
+        </div>
+      )}
+
+      {/* Default scope + recent items, only shown when unlocked. */}
+      {status?.status?.status === "unlocked" && (
+        <>
+          <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+            <div className="text-sm font-medium text-[var(--ct-fg)]">Default scope</div>
+            <div className="text-xs text-[var(--ct-muted-fg)]">
+              Where new secrets land when no <code className="font-mono">--org</code> /{" "}
+              <code className="font-mono">--collection</code> is given.
+            </div>
+            <div className="space-y-1">
+              <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Organization</div>
+              <select
+                value={cfg.default_organization}
+                onChange={(e) => setDefaultOrg(e.target.value)}
+                className={inputClass}
+              >
+                <option value="">Personal vault</option>
+                {orgs.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Collection</div>
+              <select
+                value={cfg.default_collection}
+                onChange={(e) => setDefaultColl(e.target.value)}
+                className={inputClass}
+                disabled={!colls.length}
+              >
+                <option value="">(none)</option>
+                {colls.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={lock}
+                className="text-xs px-3 py-1.5 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+              >
+                Lock
+              </button>
+              <button
+                onClick={logout}
+                className="text-xs px-3 py-1.5 rounded border border-[var(--ct-red)]/40 text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10"
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium text-[var(--ct-fg)]">Recently saved</div>
+              <button
+                onClick={refreshItems}
+                className="text-[10px] px-2 py-0.5 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+              >
+                refresh
+              </button>
+            </div>
+            {items.length === 0 ? (
+              <div className="text-[11px] text-[var(--ct-muted-fg)]">
+                No secrets saved yet. Use{" "}
+                <code className="font-mono text-[var(--ct-fg)]">codeterm mem secret save --name X</code>{" "}
+                from any pane.
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {items.map((it) => (
+                  <div key={it.item_id} className="flex items-center justify-between text-[11px] font-mono">
+                    <span className="text-[var(--ct-fg)] truncate">{it.name}</span>
+                    <span className="text-[var(--ct-muted)] truncate ml-3">
+                      {it.folder ? `folder:${it.folder.slice(0, 8)} ` : ""}
+                      {it.organization ? `org:${it.organization.slice(0, 8)}` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
