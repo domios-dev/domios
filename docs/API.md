@@ -299,6 +299,37 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 
 **Extraction concurrency:** `ServiceContext::extract_semaphore` caps auto-extraction at **4 concurrent workers** across the whole process. Every `mem_save` (except items tagged `auto-extracted`, sourced from `extracted_from:*`, or sent with `skip_extract: true`) schedules an extraction task that acquires a permit from this semaphore before spawning a hidden extraction pane. Additional graph routes (`/api/mem/graph/*`), learnings, dreaming, and worker endpoints exist but are not documented here — read `src-tauri/src/api/mem_routes.rs` for the full surface.
 
+#### Secrets
+
+Pluggable secret-store layer. Active backend is selected by `integrations.secrets.backend` in `config.toml`; built-in backends are `local` (OS keychain, default), `bitwarden` (Bitwarden CLI, optional Vaultwarden server), and `mock` (in-memory, dev only). All endpoints require the standard Bearer token. **Local-only by design** — secret routes are never relayed across the mesh; the CLI rejects `--mesh` on `mem secret` subcommands with exit code 7.
+
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET  | `/api/secrets/status` | — | `{backend, status:{status: "logged_out"\|"locked"\|"unlocked"\|"unavailable", user?, transient?, endpoint?, reason?}}` |
+| POST | `/api/secrets/unlock` | `{master_password, email?, two_factor_token?, api_key_client_id?, api_key_client_secret?}` | Unlock the active backend. Master password is consumed and dropped immediately. |
+| POST | `/api/secrets/lock` | — | Drop in-process session; persisted creds (OS keychain) are kept. |
+| POST | `/api/secrets/logout` | — | Drop session AND every persisted credential. |
+| POST | `/api/secrets/auto-unlock` | — | Re-run the active backend's `init` — for Bitwarden, attempt unlock from the master password persisted on the previous successful login (only when `bitwarden.persist_master_password = true`). Returns `{ok: bool, backend, status}`; `ok=false` means nothing was stored to restore from. No-op for backends without persisted creds. |
+| POST | `/api/secrets/sync` | — | Pull latest from the remote vault. Bitwarden runs `bw sync`. No-op for `local` and `mock`. |
+| POST | `/api/secrets/backend` | `{backend, bitwarden_server_url?}` | Atomic backend swap. Persists the choice to `config.toml` immediately, runs `init()` on the new store, and replaces the active store. `bitwarden_server_url` is honored only when `backend == "bitwarden"`. Returns the new `{ok, backend, status}`. |
+| GET  | `/api/secrets/items` | `?q=...&folder=...&organization=...&collection=...&limit=N` | List or search items. With `q` runs a search; without it lists everything matching the filter. Returns metadata only — never the value. |
+| GET  | `/api/secrets/items/{name}` | — | Item metadata by name (or backend item id). |
+| POST | `/api/secrets/items/{name}/value` | — | **Reveal endpoint.** Returns `{item_id, name, value, notes}`. POST not GET so the item name doesn't land in URL access logs. |
+| POST | `/api/secrets/items` | `{name, value, folder?, organization?, collection?, notes?, overwrite?}` | Save a secret. `overwrite: false` (default) errors with HTTP 409 if `name` exists. When `organization` / `collection` are omitted, defaults from `integrations.secrets.default_organization` / `default_collection` are applied. |
+| DELETE | `/api/secrets/items/{name}` | — | Delete by name. Permanent — no trash. |
+| GET  | `/api/secrets/organizations` | — | List Bitwarden organizations the signed-in user belongs to. Empty for `local` / `mock`. |
+| GET  | `/api/secrets/collections` | `?organization=ORG_ID` | List collections, optionally scoped to one organization. Empty for `local` / `mock`. |
+
+**Status codes:** `200/201/204` success, `400` bad input, `401` logged out, `404` not found, `409` ambiguous match or already-exists, `423` vault locked, `503` backend unavailable (e.g. `bw` not installed).
+
+**Error body** (every non-2xx from these endpoints):
+```json
+{"error": {"kind": {"kind": "locked"}, "message": "vault is locked"}}
+```
+`kind` is the `SecretError` JSON (snake_case `kind` discriminator: `logged_out`, `locked`, `not_found`, `ambiguous`, `already_exists`, `bad_request`, `backend`; payload fields where present — `candidates` for `ambiguous`, `message` for `bad_request` / `backend`). `message` is a human string with C0 control characters stripped (defends against ANSI/OSC injection when the CLI prints the error verbatim).
+
+**Logging discipline:** the daemon never logs the value field, the master password, or session tokens. The reveal endpoint is the only path that emits plaintext.
+
 #### Past Agent Sessions
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -801,6 +832,23 @@ codeterm update --channel                      # Print current channel
 codeterm update --channel <stable|rc|nightly>  # Switch channel (persists to config.toml)
 codeterm update --apply --manifest-url URL     # Override manifest URL (dev/test only; release builds reject non-https)
 
+# Secrets — pluggable secret store (local OS keychain / Bitwarden / mock / future backends)
+codeterm mem secret status                     # Show backend + auth status (json with --json)
+codeterm mem secret sync                       # Pull latest from remote vault (Bitwarden); no-op for local/mock
+codeterm mem secret unlock --email u@x.com     # Read master password from stdin (preferred), or pass --password
+codeterm mem secret unlock                     # No input → server-side auto-unlock if persist_master_password is on
+codeterm mem secret lock                       # Drop in-process session; OS-keychain creds kept
+codeterm mem secret logout                     # Drop session AND every persisted credential
+codeterm mem secret save --name openai-prod    # Read value from stdin: echo -n "$VALUE" | codeterm mem secret save --name openai-prod
+codeterm mem secret save --name K --value V    # Inline (visible in shell history — prefer stdin)
+codeterm mem secret save --name K --value V --folder work --org ORG_ID --collection COLL_ID --notes "..." --overwrite
+codeterm mem secret get --name openai-prod     # Raw value to stdout, no trailing newline
+codeterm mem secret get --name openai-prod --json   # {item_id, name, value, notes}
+codeterm mem secret search "openai"            # Positional query; metadata-only search
+codeterm mem secret list --org ORG_ID --folder work --limit 20
+codeterm mem secret delete --name openai-prod  # Interactive y/N prompt; --yes skips
+                                               # --mesh PEER on any secret subcommand exits 7 (local-only)
+
 # Bridge (Telegram / External Services)
 codeterm bridge send --to CHAT_ID --service telegram "message text"
                                                # Send message to Telegram user/chat
@@ -915,4 +963,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 33 -->
+<!-- revision: 35 -->

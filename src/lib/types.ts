@@ -294,6 +294,19 @@ export interface IntegrationsConfig {
   discord_allowed_users: string[];
   webhook_enabled: boolean;
   webhook_port: number;
+  secrets: SecretsConfig;
+}
+
+export interface SecretsConfig {
+  backend: string;
+  default_organization: string;
+  default_collection: string;
+  bitwarden?: BitwardenSettings;
+}
+
+export interface BitwardenSettings {
+  server_url: string;
+  persist_master_password: boolean;
 }
 
 export interface MeshConfig {

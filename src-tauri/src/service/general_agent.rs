@@ -511,10 +511,11 @@ pub fn start_general_agent(
         }
     };
 
-    // Send launch command via bracket paste (single attempt — watchdog handles retries)
+    // No bracket-paste: zsh ZLE binds the handler only after the first
+    // interactive cycle, so the markers leak as literal text on launch.
     log::info!("[general-agent] Launching on PTY {}: {}", pty_id, cmd);
-    let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
-    if let Err(e) = pty.lock().write(&pty_id, paste.as_bytes()) {
+    let payload = format!("{}\r", cmd);
+    if let Err(e) = pty.lock().write(&pty_id, payload.as_bytes()) {
         log::error!("[general-agent] Failed to write launch command: {}", e);
         return;
     }

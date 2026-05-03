@@ -78,6 +78,8 @@ pub struct ServiceContext {
     pub bridge_task: Arc<parking_lot::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
     /// Per-pane last-restart timestamp for `agent_restart` rate limiting.
     pub restart_tracker: agent_restart::RestartTracker,
+    /// Active secret-store backend (mock in Phase 1; bitwarden lands in Phase 2).
+    pub secrets: crate::secrets::SecretStoreState,
 }
 
 pub type ServiceState = Arc<ServiceContext>;
