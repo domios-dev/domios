@@ -4755,7 +4755,12 @@ fn run_install_from_file(
 }
 
 #[cfg(not(target_os = "windows"))]
-fn run_install_from_file(_installer_path: &str, _json_output: bool) {
+fn run_install_from_file(
+    _installer_path: &str,
+    _json_output: bool,
+    _continue_prompt: Option<&str>,
+    _continue_pane: Option<&str>,
+) {
     eprintln!("--from-file is currently Windows-only");
     std::process::exit(2);
 }
