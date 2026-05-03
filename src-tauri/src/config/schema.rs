@@ -402,6 +402,7 @@ pub struct IntegrationsConfig {
     pub webhook_enabled: bool,
     pub webhook_port: u16,
     pub voice_transcribe: VoiceTranscribeConfig,
+    pub secrets: SecretsConfig,
 }
 
 impl Default for IntegrationsConfig {
@@ -414,6 +415,69 @@ impl Default for IntegrationsConfig {
             webhook_enabled: false,
             webhook_port: 7687,
             voice_transcribe: VoiceTranscribeConfig::default(),
+            secrets: SecretsConfig::default(),
+        }
+    }
+}
+
+fn default_secrets_backend() -> String {
+    "local".to_string()
+}
+
+fn default_bitwarden_server_url() -> String {
+    "https://vault.bitwarden.com".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SecretsConfig {
+    /// Active backend id. The `SecretBackendFactory` registry knows the
+    /// full list. Built-in: `"local"` (default), `"bitwarden"`, `"mock"`.
+    #[serde(default = "default_secrets_backend")]
+    pub backend: String,
+    /// Default org id for new items (Bitwarden). Empty = personal vault.
+    #[serde(default)]
+    pub default_organization: String,
+    /// Default collection id for new items (Bitwarden).
+    #[serde(default)]
+    pub default_collection: String,
+    /// Bitwarden-specific settings. New per-backend structs go alongside
+    /// (e.g. `vault: VaultSettings`) — never grow this struct in-place.
+    #[serde(default)]
+    pub bitwarden: BitwardenSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BitwardenSettings {
+    /// Bitwarden / Vaultwarden server URL. Default `https://vault.bitwarden.com`.
+    #[serde(default = "default_bitwarden_server_url")]
+    pub server_url: String,
+    /// When true, the master password is saved in the OS keychain on
+    /// successful unlock so the daemon can auto-unlock after restart.
+    /// Default false (user re-types each fresh daemon). Trade-off:
+    /// convenient + no surprise prompts vs. plaintext-on-disk in dev
+    /// builds where the keychain is a 0600 JSON file.
+    #[serde(default)]
+    pub persist_master_password: bool,
+}
+
+impl Default for BitwardenSettings {
+    fn default() -> Self {
+        Self {
+            server_url: default_bitwarden_server_url(),
+            persist_master_password: false,
+        }
+    }
+}
+
+impl Default for SecretsConfig {
+    fn default() -> Self {
+        Self {
+            backend: default_secrets_backend(),
+            default_organization: String::new(),
+            default_collection: String::new(),
+            bitwarden: BitwardenSettings::default(),
         }
     }
 }
