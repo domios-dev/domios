@@ -33,6 +33,7 @@ use serde_json::json;
 use tokio::process::Command;
 use tokio::sync::RwLock;
 
+use super::factory::SecretBackendFactory;
 use super::{
     validate_name, CollectionRef, ListFilter, OrganizationRef, SaveRequest, SecretError,
     SecretRef, SecretStore, SecretString, SecretValue, StoreStatus, UnlockCredentials,
@@ -41,10 +42,41 @@ use super::keychain::Keychain;
 #[cfg(test)]
 use super::keychain::KeychainError;
 
+pub struct BitwardenFactory;
+
+impl SecretBackendFactory for BitwardenFactory {
+    fn id(&self) -> &'static str {
+        "bitwarden"
+    }
+    fn label(&self) -> &'static str {
+        "Bitwarden"
+    }
+    fn description(&self) -> &'static str {
+        "Vault accessed via the bw CLI. Supports vault.bitwarden.com and self-hosted Vaultwarden."
+    }
+    fn build(&self, cfg: &serde_json::Value) -> Box<dyn SecretStore> {
+        let parsed: crate::config::schema::BitwardenSettings =
+            serde_json::from_value(cfg.clone()).unwrap_or_default();
+        let server = if parsed.server_url.trim().is_empty() {
+            DEFAULT_BW_SERVER.to_string()
+        } else {
+            parsed.server_url
+        };
+        let mut store = BitwardenStore::detect_and_build_with_server(server);
+        store.persist_master_password = parsed.persist_master_password;
+        Box::new(store)
+    }
+}
+
 const BW_KEYRING_SERVICE: &str = "codeterm.secrets.bitwarden";
 const BW_KEYRING_SESSION: &str = "session";
 const BW_KEYRING_API_CLIENT_ID: &str = "apikey:client_id";
 const BW_KEYRING_API_CLIENT_SECRET: &str = "apikey:client_secret";
+/// Persisted master password for auto-unlock after daemon restart or
+/// session expiry. Lives in the same keychain as the session token (file
+/// in dev, OS keychain in release).
+const BW_KEYRING_MASTER_PW: &str = "master_password";
+const BW_KEYRING_LOGIN_EMAIL: &str = "login_email";
 
 /// Default Bitwarden server URL — public hosted vault.
 pub const DEFAULT_BW_SERVER: &str = "https://vault.bitwarden.com";
@@ -137,6 +169,7 @@ impl BwExec for SubprocessBwExec {
     async fn run(&self, ctx: BwRunCtx<'_>) -> Result<BwResponse, String> {
         use tokio::io::AsyncWriteExt;
 
+        let cmd_label = ctx.args.first().copied().unwrap_or("?").to_string();
         let mut cmd = Command::new(&self.bw_path);
         cmd.args(&ctx.args);
         cmd.arg("--nointeraction").arg("--response");
@@ -168,16 +201,32 @@ impl BwExec for SubprocessBwExec {
         // Backend error so the caller sees something useful instead of
         // silently treating it as success.
         if let Ok(resp) = serde_json::from_str::<BwResponse>(stdout.trim()) {
+            if !resp.success {
+                log::warn!(
+                    "[secrets/bw] {} failed: msg={:?} errorCode={:?} stderr={}",
+                    cmd_label,
+                    resp.message,
+                    resp.error_code,
+                    stderr.trim()
+                );
+            }
             return Ok(resp);
         }
 
         let combined = if !stderr.is_empty() {
-            stderr
+            stderr.clone()
         } else if !stdout.is_empty() {
-            stdout
+            stdout.clone()
         } else {
             format!("bw exited with {}", output.status)
         };
+        log::warn!(
+            "[secrets/bw] {} produced unparseable output: status={} stdout={} stderr={}",
+            cmd_label,
+            output.status,
+            stdout.trim(),
+            stderr.trim()
+        );
         Ok(BwResponse {
             success: false,
             data: serde_json::Value::Null,
@@ -192,17 +241,14 @@ impl BwExec for SubprocessBwExec {
 pub struct BitwardenStore {
     exec: Arc<dyn BwExec>,
     keychain: Keychain,
-    /// Active session token (`BW_SESSION`). `None` ⇒ locked.
     session: RwLock<Option<SecretString>>,
-    /// `Some(_)` if the underlying tooling is missing — every CRUD call
-    /// short-circuits to `SecretError::Backend { message: <reason> }`.
     unavailable_reason: Option<String>,
-    /// User-facing identity for status (`bw status` userEmail, when known).
     user: Mutex<Option<String>>,
-    /// Bitwarden / Vaultwarden server URL the bw CLI is pointed at. The
-    /// adapter runs `bw config server <URL>` before login when the URL
-    /// differs from the current setting (vendor-stable command).
     server_url: Mutex<String>,
+    /// When true, master password is saved on successful unlock so the
+    /// daemon can auto-unlock after restart. Off by default — opt-in via
+    /// `integrations.secrets.providers.bitwarden.persist_master_password`.
+    pub persist_master_password: bool,
 }
 
 impl BitwardenStore {
@@ -246,6 +292,7 @@ impl BitwardenStore {
             unavailable_reason: None,
             user: Mutex::new(None),
             server_url: Mutex::new(server_url),
+            persist_master_password: false,
         }
     }
 
@@ -257,6 +304,7 @@ impl BitwardenStore {
             unavailable_reason: Some(reason.into()),
             user: Mutex::new(None),
             server_url: Mutex::new(DEFAULT_BW_SERVER.to_string()),
+            persist_master_password: false,
         }
     }
 
@@ -276,6 +324,40 @@ impl BitwardenStore {
         } else {
             *g = new_url;
             true
+        }
+    }
+
+    /// Try to restore an unlocked session from persisted credentials.
+    /// Called once at construction. Silent — failures here just leave
+    /// the store in its current state (typically Locked or LoggedOut),
+    /// and the user can `unlock` manually to re-establish.
+    pub async fn auto_unlock_from_keychain(&self) {
+        if self.unavailable_reason.is_some() {
+            return;
+        }
+        // If we already have a session AND bw_status agrees we're
+        // unlocked, nothing to do. We treat any other state as "try
+        // re-unlock" — sessions can expire silently.
+        if let Ok(s) = self.bw_status().await {
+            if s.status == "unlocked" {
+                return;
+            }
+        }
+        let master = match self.keychain.get(BW_KEYRING_MASTER_PW) {
+            Ok(v) if !v.is_empty() => v,
+            _ => return,
+        };
+        let email = self.keychain.get(BW_KEYRING_LOGIN_EMAIL).ok();
+        let creds = UnlockCredentials {
+            master_password: SecretString::from(master),
+            two_factor_token: None,
+            email,
+            api_key_client_id: None,
+            api_key_client_secret: None,
+        };
+        match self.unlock(creds).await {
+            Ok(()) => log::info!("[secrets/bw] auto-unlocked from stored master password"),
+            Err(e) => log::warn!("[secrets/bw] auto-unlock failed: {}", e),
         }
     }
 
@@ -357,7 +439,11 @@ impl BitwardenStore {
             .await
             .map_err(|e| SecretError::Backend { message: e })?;
         let data = resp.into_data()?;
-        serde_json::from_value(data).map_err(|e| SecretError::Backend {
+        // bw status --response wraps the real payload in
+        // { "object": "template", "template": { status, serverUrl, … } }
+        // (modern) or returns it flat (legacy). The shared envelope
+        // helper handles both shapes plus the {data: ...} list wrapper.
+        serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| SecretError::Backend {
             message: format!("parse bw status: {}", e),
         })
     }
@@ -371,6 +457,20 @@ struct BwStatusJson {
     user_email: Option<String>,
     #[serde(default, rename = "serverUrl")]
     server_url: Option<String>,
+}
+
+/// Unwrap the `{object: "list", data: [...]}` envelope that modern bw
+/// versions wrap their `list` / `get` responses in. Falls back to the raw
+/// value if no envelope is present (older bw or single-item endpoints).
+fn unwrap_data_envelope(value: serde_json::Value) -> serde_json::Value {
+    if let Some(inner) = value.get("data") {
+        // {object:"list", data: [...]}  /  {object:"item", data: {...}}
+        return inner.clone();
+    }
+    if let Some(inner) = value.get("template") {
+        return inner.clone();
+    }
+    value
 }
 
 /// Validate a Bitwarden server URL. Only http(s) schemes allowed; this
@@ -495,10 +595,22 @@ impl SecretStore for BitwardenStore {
             *self.session.write().await = None;
             let _ = self.keychain.delete(BW_KEYRING_SESSION);
         }
-        // Apply the server config — bw config server <URL>
-        let _ = self
-            .run_no_session(vec!["config", "server", &server], None, HashMap::new())
-            .await;
+        // Apply the server config only when it actually changes. bw
+        // refuses to update the server while logged in to it ("Logout
+        // required before server config update"), so re-running config
+        // server with the same URL is both pointless AND breaks the
+        // common no-op login flow.
+        if current_server != server {
+            if let Err(e) = self
+                .run_no_session(vec!["config", "server", &server], None, HashMap::new())
+                .await
+            {
+                log::warn!("[secrets/bw] config server '{}' failed: {}", server, e);
+                return Err(SecretError::Backend {
+                    message: format!("could not point bw at {}: {}", server, e),
+                });
+            }
+        }
 
         // Re-read login state after potential logout above.
         let status = self.bw_status().await.ok();
@@ -508,43 +620,60 @@ impl SecretStore for BitwardenStore {
             .unwrap_or(false);
 
         if !is_logged_in {
-            // Need to log in first.
-            if let (Some(client_id), Some(client_secret)) =
-                (&creds.api_key_client_id, &creds.api_key_client_secret)
-            {
-                let mut env = HashMap::new();
-                env.insert("BW_CLIENTID".into(), client_id.expose_secret().into());
-                env.insert(
-                    "BW_CLIENTSECRET".into(),
-                    client_secret.expose_secret().into(),
-                );
-                self.run_no_session(vec!["login", "--apikey"], None, env)
-                    .await?;
-                // Persist API-key creds so the next daemon restart can re-login.
-                let _ = self
-                    .keychain
-                    .set(BW_KEYRING_API_CLIENT_ID, client_id.expose_secret());
-                let _ = self
-                    .keychain
-                    .set(BW_KEYRING_API_CLIENT_SECRET, client_secret.expose_secret());
-            } else if let Some(email) = creds.email.as_deref() {
-                let mut env = HashMap::new();
-                env.insert(
-                    "BW_PASSWORD".into(),
-                    creds.master_password.expose_secret().to_string(),
-                );
-                let mut args: Vec<&str> = vec!["login", email, "--passwordenv", "BW_PASSWORD"];
-                if let Some(tok) = creds.two_factor_token.as_ref() {
-                    args.push("--method");
-                    args.push("0");
-                    args.push("--code");
-                    args.push(tok.expose_secret());
+            // Need to log in first. "You are already logged in" is bw's
+            // way of saying "skip the login step" — treat as soft success
+            // so we proceed to unlock with the existing session.
+            let login_result: Result<serde_json::Value, SecretError> =
+                if let (Some(client_id), Some(client_secret)) =
+                    (&creds.api_key_client_id, &creds.api_key_client_secret)
+                {
+                    let mut env = HashMap::new();
+                    env.insert("BW_CLIENTID".into(), client_id.expose_secret().into());
+                    env.insert(
+                        "BW_CLIENTSECRET".into(),
+                        client_secret.expose_secret().into(),
+                    );
+                    let r = self.run_no_session(vec!["login", "--apikey"], None, env).await;
+                    if r.is_ok() {
+                        let _ = self
+                            .keychain
+                            .set(BW_KEYRING_API_CLIENT_ID, client_id.expose_secret());
+                        let _ = self
+                            .keychain
+                            .set(BW_KEYRING_API_CLIENT_SECRET, client_secret.expose_secret());
+                    }
+                    r
+                } else if let Some(email) = creds.email.as_deref() {
+                    let mut env = HashMap::new();
+                    env.insert(
+                        "BW_PASSWORD".into(),
+                        creds.master_password.expose_secret().to_string(),
+                    );
+                    let mut args: Vec<&str> =
+                        vec!["login", email, "--passwordenv", "BW_PASSWORD"];
+                    if let Some(tok) = creds.two_factor_token.as_ref() {
+                        args.push("--method");
+                        args.push("0");
+                        args.push("--code");
+                        args.push(tok.expose_secret());
+                    }
+                    self.run_no_session(args, None, env).await
+                } else {
+                    return Err(SecretError::BadRequest {
+                        message: "either email + master_password or api_key_* required".into(),
+                    });
+                };
+
+            if let Err(SecretError::Backend { message }) = &login_result {
+                if message.to_lowercase().contains("already logged in") {
+                    log::info!(
+                        "[secrets/bw] login skipped — bw reports already logged in"
+                    );
+                } else {
+                    return Err(SecretError::Backend { message: message.clone() });
                 }
-                self.run_no_session(args, None, env).await?;
-            } else {
-                return Err(SecretError::BadRequest {
-                    message: "either email + master_password or api_key_* required".into(),
-                });
+            } else if let Err(other) = login_result {
+                return Err(other);
             }
         }
 
@@ -562,13 +691,33 @@ impl SecretStore for BitwardenStore {
             )
             .await?;
 
-        let token = unlock_data
+        // bw unlock --raw output shape varies by version:
+        //   modern: { "object": "unlock", "raw": "<token>", ... }
+        //   modern wrapped: { "template": { "raw": "<token>" } }
+        //   legacy: just the raw token string at the top level
+        let token_owned: String = unlock_data
             .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| {
+                unlock_data
+                    .get("raw")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .or_else(|| {
+                unlock_data
+                    .get("template")
+                    .and_then(|t| t.get("raw"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
             .ok_or_else(|| SecretError::Backend {
-                message: "bw unlock returned non-string data".into(),
-            })?
-            .trim()
-            .to_string();
+                message: format!(
+                    "bw unlock returned unexpected payload shape: {}",
+                    unlock_data
+                ),
+            })?;
+        let token = token_owned.trim().to_string();
         if token.is_empty() {
             return Err(SecretError::Backend {
                 message: "bw unlock returned empty session".into(),
@@ -577,6 +726,19 @@ impl SecretStore for BitwardenStore {
 
         *self.session.write().await = Some(SecretString::from(token.clone()));
         let _ = self.keychain.set(BW_KEYRING_SESSION, &token);
+        // Master password persistence is gated by config so the user
+        // explicitly opts into the trade-off (convenient auto-unlock vs.
+        // plaintext-on-disk in dev / key-encrypted-at-rest in release).
+        // API-key flow already persists its own client creds, so the
+        // password is never needed for that path.
+        if self.persist_master_password && creds.api_key_client_id.is_none() {
+            let _ = self
+                .keychain
+                .set(BW_KEYRING_MASTER_PW, creds.master_password.expose_secret());
+            if let Some(email) = creds.email.as_deref() {
+                let _ = self.keychain.set(BW_KEYRING_LOGIN_EMAIL, email);
+            }
+        }
         Ok(())
     }
 
@@ -585,6 +747,7 @@ impl SecretStore for BitwardenStore {
         let _ = self.run_no_session(vec!["lock"], None, HashMap::new()).await;
         *self.session.write().await = None;
         let _ = self.keychain.delete(BW_KEYRING_SESSION);
+        // Master password stays — unlock without prompting again.
         Ok(())
     }
 
@@ -598,6 +761,8 @@ impl SecretStore for BitwardenStore {
         let _ = self.keychain.delete(BW_KEYRING_SESSION);
         let _ = self.keychain.delete(BW_KEYRING_API_CLIENT_ID);
         let _ = self.keychain.delete(BW_KEYRING_API_CLIENT_SECRET);
+        let _ = self.keychain.delete(BW_KEYRING_MASTER_PW);
+        let _ = self.keychain.delete(BW_KEYRING_LOGIN_EMAIL);
         Ok(())
     }
 
@@ -644,8 +809,8 @@ impl SecretStore for BitwardenStore {
         // Sync so subsequent list/get see the change without a manual sync.
         let _ = self.run_with_session(vec!["sync"], None).await;
 
-        let saved: BwCipher =
-            serde_json::from_value(data).map_err(|e| SecretError::Backend {
+        let saved: BwCipher = serde_json::from_value(unwrap_data_envelope(data))
+            .map_err(|e| SecretError::Backend {
                 message: format!("parse saved item: {}", e),
             })?;
         Ok(saved.into_ref())
@@ -682,7 +847,7 @@ impl SecretStore for BitwardenStore {
         let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
         let data = self.run_with_session(arg_refs, None).await?;
         let mut items: Vec<BwCipher> =
-            serde_json::from_value(data).map_err(|e| SecretError::Backend {
+            serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| SecretError::Backend {
                 message: format!("parse list: {}", e),
             })?;
         if let Some(folder) = &filter.folder {
@@ -709,7 +874,7 @@ impl SecretStore for BitwardenStore {
             .run_with_session(vec!["list", "items", "--search", q], None)
             .await?;
         let items: Vec<BwCipher> =
-            serde_json::from_value(data).map_err(|e| SecretError::Backend {
+            serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| SecretError::Backend {
                 message: format!("parse search: {}", e),
             })?;
         Ok(items
@@ -735,7 +900,7 @@ impl SecretStore for BitwardenStore {
             .run_with_session(vec!["list", "organizations"], None)
             .await?;
         let raw: Vec<serde_json::Value> =
-            serde_json::from_value(data).map_err(|e| SecretError::Backend {
+            serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| SecretError::Backend {
                 message: format!("parse orgs: {}", e),
             })?;
         Ok(raw
@@ -749,6 +914,19 @@ impl SecretStore for BitwardenStore {
             .collect())
     }
 
+    async fn sync(&self) -> Result<(), SecretError> {
+        // bw sync requires an unlocked session. We surface failures so
+        // callers can tell the difference between "synced ok" and "vault
+        // is locked" (which would silently leave stale data).
+        self.run_with_session(vec!["sync"], None).await?;
+        Ok(())
+    }
+
+    async fn init(&self) -> Result<(), SecretError> {
+        self.auto_unlock_from_keychain().await;
+        Ok(())
+    }
+
     async fn collections(
         &self,
         organization_id: Option<&str>,
@@ -760,7 +938,7 @@ impl SecretStore for BitwardenStore {
         }
         let data = self.run_with_session(args, None).await?;
         let raw: Vec<serde_json::Value> =
-            serde_json::from_value(data).map_err(|e| SecretError::Backend {
+            serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| SecretError::Backend {
                 message: format!("parse collections: {}", e),
             })?;
         Ok(raw
@@ -786,7 +964,7 @@ impl BitwardenStore {
         let data = self
             .run_with_session(vec!["get", "item", name_or_id], None)
             .await?;
-        serde_json::from_value(data).map_err(|e| SecretError::Backend {
+        serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| SecretError::Backend {
             message: format!("parse item: {}", e),
         })
     }
@@ -796,7 +974,7 @@ impl BitwardenStore {
             .run_with_session(vec!["list", "items", "--search", name], None)
             .await?;
         let items: Vec<BwCipher> =
-            serde_json::from_value(data).map_err(|e| SecretError::Backend {
+            serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| SecretError::Backend {
                 message: format!("parse list: {}", e),
             })?;
         let exact: Vec<BwCipher> = items
@@ -818,7 +996,7 @@ impl BitwardenStore {
         }
         let data = self.run_with_session(vec!["list", "folders"], None).await?;
         let folders: Vec<serde_json::Value> =
-            serde_json::from_value(data).map_err(|e| SecretError::Backend {
+            serde_json::from_value(unwrap_data_envelope(data)).map_err(|e| SecretError::Backend {
                 message: format!("parse folders: {}", e),
             })?;
         Ok(folders
@@ -844,7 +1022,9 @@ impl BitwardenStore {
         let data = self
             .run_with_session(vec!["create", "folder", &encoded], None)
             .await?;
-        data.get("id")
+        let inner = unwrap_data_envelope(data);
+        inner
+            .get("id")
             .and_then(|i| i.as_str())
             .map(String::from)
             .ok_or_else(|| SecretError::Backend {
@@ -1289,6 +1469,25 @@ mod tests {
     }
 
     #[test]
+    fn unwrap_data_envelope_handles_known_shapes() {
+        // {object: "list", data: [...]}  → returns the array
+        let listed = json!({ "object": "list", "data": [{"id": "1"}] });
+        let inner = unwrap_data_envelope(listed);
+        assert!(inner.is_array());
+        assert_eq!(inner[0]["id"], "1");
+
+        // {object: "template", template: {status: "..."}}  → returns the object
+        let wrapped_status = json!({ "object": "template", "template": {"status": "locked"} });
+        let inner = unwrap_data_envelope(wrapped_status);
+        assert_eq!(inner["status"], "locked");
+
+        // Flat (legacy) → returned as-is
+        let flat = json!({ "status": "locked" });
+        let inner = unwrap_data_envelope(flat);
+        assert_eq!(inner["status"], "locked");
+    }
+
+    #[test]
     fn is_valid_http_url_accepts_known_shapes() {
         assert!(is_valid_http_url("https://vault.bitwarden.com"));
         assert!(is_valid_http_url("http://vaultwarden.local:8080"));
@@ -1340,6 +1539,66 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unlock_extracts_token_from_modern_wrapper() {
+        // status (locked) → config server → status (locked) → unlock returns wrapper
+        let (store, _) = build_store(vec![
+            ok_data(json!({ "status": "locked", "userEmail": "u@x.com" })),
+            ok_data(json!({ "object": "message" })), // config server
+            ok_data(json!({ "status": "locked", "userEmail": "u@x.com" })),
+            ok_data(json!({ "object": "unlock", "raw": "session-from-wrapper" })),
+        ]);
+        store
+            .unlock(UnlockCredentials::with_password(SecretString::from("pw")))
+            .await
+            .unwrap();
+        assert_eq!(
+            store.session.read().await.as_ref().map(|s| s.expose_secret().to_string()),
+            Some("session-from-wrapper".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn unlock_extracts_token_from_template_wrapper() {
+        let (store, _) = build_store(vec![
+            ok_data(json!({ "status": "locked", "userEmail": "u@x.com" })),
+            ok_data(json!({ "object": "message" })),
+            ok_data(json!({ "status": "locked", "userEmail": "u@x.com" })),
+            ok_data(json!({ "template": { "raw": "session-from-template" } })),
+        ]);
+        store
+            .unlock(UnlockCredentials::with_password(SecretString::from("pw")))
+            .await
+            .unwrap();
+        assert_eq!(
+            store.session.read().await.as_ref().map(|s| s.expose_secret().to_string()),
+            Some("session-from-template".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn login_already_logged_in_is_treated_as_success() {
+        // Status reports unauthenticated → triggers login → bw returns
+        // "already logged in" → we should soft-succeed and proceed to unlock.
+        let (store, _) = build_store(vec![
+            ok_data(json!({ "status": "unauthenticated" })),
+            ok_data(json!({ "object": "message" })),
+            ok_data(json!({ "status": "unauthenticated" })),
+            err("You are already logged in as u@x.com."),
+            ok_data(json!("session-after-already")),
+        ]);
+        store
+            .unlock(UnlockCredentials {
+                master_password: SecretString::from("pw"),
+                two_factor_token: None,
+                email: Some("u@x.com".into()),
+                api_key_client_id: None,
+                api_key_client_secret: None,
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
     async fn unlock_forces_logout_when_server_changed() {
         // status (logged in to old) → logout → config server (new) → status (logged out) → login → unlock
         let (store, exec) = build_store(vec![
@@ -1377,6 +1636,33 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, SecretError::BadRequest { .. }));
+    }
+
+    #[tokio::test]
+    async fn bw_status_unwraps_template_envelope() {
+        // Modern bw wraps the real payload in {object, template, ...}.
+        let (store, _) = build_store(vec![ok_data(json!({
+            "object": "template",
+            "template": {
+                "status": "unauthenticated",
+                "serverUrl": "https://vault.example.com"
+            }
+        }))]);
+        let s = store.bw_status().await.unwrap();
+        assert_eq!(s.status, "unauthenticated");
+        assert_eq!(s.server_url.as_deref(), Some("https://vault.example.com"));
+    }
+
+    #[tokio::test]
+    async fn bw_status_falls_back_to_legacy_flat_shape() {
+        // Older bw returned status fields at the top level.
+        let (store, _) = build_store(vec![ok_data(json!({
+            "status": "locked",
+            "userEmail": "u@x.com"
+        }))]);
+        let s = store.bw_status().await.unwrap();
+        assert_eq!(s.status, "locked");
+        assert_eq!(s.user_email.as_deref(), Some("u@x.com"));
     }
 
     #[tokio::test]

@@ -1,24 +1,3 @@
-//! Local SecretStore — persists secrets in the OS keychain via the `keyring`
-//! crate. macOS Keychain on darwin, libsecret on Linux, Windows Credential
-//! Manager on Windows. This is the user-facing default backend ("Local
-//! secret storage"); Bitwarden remains opt-in.
-//!
-//! Storage layout:
-//! - Secret values: one keychain entry per secret. Service name is
-//!   `codeterm-secrets`; account name is the lowercased secret name.
-//!   Entry password holds the JSON-serialized `LocalEntry` blob (value +
-//!   notes).
-//! - Index: a metadata-only JSON file at
-//!   `~/.codeterm/secrets/local-index.json`. Contains *only* names + ids +
-//!   timestamps + folder/org/collection — never the secret material. The
-//!   index lets `list` / `search` work without enumerating the OS keychain
-//!   (which has no portable enumeration API).
-//!
-//! Threat model: an attacker with disk access cannot recover secrets from
-//! the index alone — the actual bytes only exist in the OS keychain. If
-//! the keychain is locked, every CRUD call returns `SecretError::Locked`
-//! rather than panicking.
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -27,11 +6,29 @@ use async_trait::async_trait;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
+use super::factory::SecretBackendFactory;
 use super::keychain::{Keychain, KeychainError};
 use super::{
     validate_name, ListFilter, SaveRequest, SecretError, SecretRef, SecretStore, SecretString,
     SecretValue, StoreStatus, UnlockCredentials,
 };
+
+pub struct LocalFactory;
+
+impl SecretBackendFactory for LocalFactory {
+    fn id(&self) -> &'static str {
+        "local"
+    }
+    fn label(&self) -> &'static str {
+        "Local secret storage"
+    }
+    fn description(&self) -> &'static str {
+        "Persisted in the OS keychain (macOS Keychain / libsecret / Windows Credential Manager). Offline, no external service."
+    }
+    fn build(&self, _cfg: &serde_json::Value) -> Box<dyn SecretStore> {
+        Box::new(LocalStore::detect_and_build())
+    }
+}
 
 const KEYCHAIN_SERVICE: &str = "codeterm-secrets";
 

@@ -646,6 +646,9 @@ pub enum MemSecretAction {
     },
     /// Show backend + auth status.
     Status,
+    /// Pull latest from the remote vault. No-op for backends with no
+    /// remote (Local OS-keychain, Mock). Bitwarden runs `bw sync`.
+    Sync,
     /// Unlock the active backend with a master password (read from stdin if
     /// --password is omitted, never from argv).
     Unlock {
@@ -3470,6 +3473,10 @@ fn handle_mem_secret(
             let (status, body) = send_request(http.get(format!("{}/api/secrets/status", base)));
             print_or_exit(status, body);
         }
+        MemSecretAction::Sync => {
+            let (status, body) = send_request(http.post(format!("{}/api/secrets/sync", base)));
+            print_or_exit(status, body);
+        }
         MemSecretAction::Save {
             name,
             value,
@@ -3566,28 +3573,59 @@ fn handle_mem_secret(
             print_or_exit(status, body);
         }
         MemSecretAction::Unlock { email, password } => {
-            let resolved = match password {
-                Some(p) => p,
+            // Master password resolution order:
+            //   1. --password flag (worst — visible to other users via `ps`)
+            //   2. stdin (preferred for scripted use)
+            //   3. neither — try server-side auto-unlock from the master
+            //      password persisted on previous successful login
+            let resolved: Option<String> = match password {
+                Some(p) => Some(p),
                 None => {
-                    let mut s = String::new();
-                    if std::io::stdin().read_to_string(&mut s).is_err() || s.is_empty() {
-                        eprintln!(
-                            "Error: no master password (pass --password or pipe to stdin)"
-                        );
-                        std::process::exit(2);
+                    use std::io::IsTerminal;
+                    if std::io::stdin().is_terminal() {
+                        // Interactive shell — don't block waiting for stdin
+                        // bytes that the user never piped. Fall through to
+                        // server-side auto-unlock attempt.
+                        None
+                    } else {
+                        let mut s = String::new();
+                        if std::io::stdin().read_to_string(&mut s).is_err() || s.trim().is_empty() {
+                            None
+                        } else {
+                            Some(s.trim_end_matches('\n').to_string())
+                        }
                     }
-                    s.trim_end_matches('\n').to_string()
                 }
             };
-            let payload = serde_json::json!({
-                "master_password": resolved,
-                "email": email,
-            });
-            let (status, body) = send_request(
-                http.post(format!("{}/api/secrets/unlock", base))
-                    .json(&payload),
-            );
-            print_or_exit(status, body);
+            if let Some(pwd) = resolved {
+                let payload = serde_json::json!({
+                    "master_password": pwd,
+                    "email": email,
+                });
+                let (status, body) = send_request(
+                    http.post(format!("{}/api/secrets/unlock", base)).json(&payload),
+                );
+                print_or_exit(status, body);
+            } else {
+                // Auto-unlock with stored creds. Daemon returns ok=false if
+                // nothing's stored — surface that as a clear error.
+                let (status, body) = send_request(
+                    http.post(format!("{}/api/secrets/auto-unlock", base))
+                        .json(&serde_json::json!({})),
+                );
+                if status == 200
+                    && body.get("ok").and_then(|v| v.as_bool()) == Some(true)
+                {
+                    print_or_exit(status, body);
+                } else if status == 200 {
+                    eprintln!(
+                        "Error: no stored master password — pass --password or pipe to stdin"
+                    );
+                    std::process::exit(2);
+                } else {
+                    print_or_exit(status, body);
+                }
+            }
         }
         MemSecretAction::Lock => {
             let (status, body) =

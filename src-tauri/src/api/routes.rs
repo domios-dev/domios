@@ -193,7 +193,9 @@ pub fn create_router(state: AppState) -> Router {
             get(crate::secrets::api::organizations),
         )
         .route("/api/secrets/collections", get(crate::secrets::api::collections))
-        .route("/api/secrets/backend", post(crate::secrets::api::switch_backend));
+        .route("/api/secrets/backend", post(crate::secrets::api::switch_backend))
+        .route("/api/secrets/sync", post(crate::secrets::api::sync))
+        .route("/api/secrets/auto-unlock", post(crate::secrets::api::auto_unlock));
 
 
     router
