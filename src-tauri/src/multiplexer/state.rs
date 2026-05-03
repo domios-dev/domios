@@ -733,16 +733,21 @@ impl MultiplexerState {
         self.pty_to_pane.get(pty_id).cloned()
     }
 
-    /// Link a pane to a PTY instance.
-    pub fn link_pty(&mut self, pane_id: &str, pty_id: String) {
-        if let Some(pane) = self.panes.get_mut(pane_id) {
-            // Remove old mapping if pane already had a pty_id
-            if let Some(old_pty_id) = &pane.pty_id {
-                self.pty_to_pane.remove(old_pty_id);
-            }
-            pane.pty_id = Some(pty_id.clone());
-            self.pty_to_pane.insert(pty_id, pane_id.to_string());
+    /// Link a pane to a PTY. Returns the displaced pty_id so callers can kill
+    /// the orphan; `None` means no-op (pane absent or same pty_id).
+    pub fn link_pty(&mut self, pane_id: &str, pty_id: String) -> Option<String> {
+        let pane = self.panes.get_mut(pane_id)?;
+        let displaced = match pane.pty_id.as_ref() {
+            Some(old) if old == &pty_id => return None, // already linked, no-op
+            Some(old) => Some(old.clone()),
+            None => None,
+        };
+        if let Some(ref old_pty_id) = displaced {
+            self.pty_to_pane.remove(old_pty_id);
         }
+        pane.pty_id = Some(pty_id.clone());
+        self.pty_to_pane.insert(pty_id, pane_id.to_string());
+        displaced
     }
 
     // ── Pane Alias Registry ──────────────────────────────────────────

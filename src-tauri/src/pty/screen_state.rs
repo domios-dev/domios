@@ -133,19 +133,35 @@ impl ScreenState {
 }
 
 /// Heuristic: does the last non-empty line of screen text look like a shell prompt?
+///
+/// Rejects PowerShell continuation prompts (`>>`, `>>>`) which are NOT
+/// ready-for-input — they appear when the previous command was incomplete
+/// (unclosed quote, mid-pipe, etc). Sending a launch command into that state
+/// dumps the literal text as further input instead of starting the agent.
 pub fn screen_has_shell_prompt(screen_text: &str) -> bool {
     let last_line = screen_text.lines().rev().find(|l| !l.trim().is_empty());
     match last_line {
         None => false,
         Some(line) => {
             let trimmed = line.trim_end();
+            // PowerShell continuation: `>>`, `>> `, `>>>`, etc. NEVER ready.
+            if trimmed.trim_start().chars().all(|c| c == '>') {
+                return false;
+            }
+            // Bare `>` alone is also a continuation indicator (cmd.exe / sh heredoc); reject.
+            if trimmed == ">" || trimmed == "> " {
+                return false;
+            }
             trimmed.ends_with("$ ")
                 || trimmed.ends_with('$')
                 || trimmed.ends_with("% ")
                 || trimmed.ends_with('%')
-                || trimmed.ends_with("> ")
-                || trimmed.ends_with('>')
+                // PowerShell ready prompt: starts with "PS " and ends with ">".
                 || (trimmed.starts_with("PS ") && trimmed.ends_with('>'))
+                // Generic `name>` form (cmd.exe `C:\path>`, fish `name>`, etc).
+                // Must contain non-`>` content before the trailing `>` so we don't
+                // accept bare-arrow continuation lines.
+                || (trimmed.ends_with('>') && trimmed.chars().any(|c| c != '>' && !c.is_whitespace()))
         }
     }
 }
@@ -153,6 +169,31 @@ pub fn screen_has_shell_prompt(screen_text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn powershell_continuation_is_not_a_ready_prompt() {
+        // The `>>` continuation indicator appears when the previous command was
+        // incomplete (unclosed quote, mid-pipe). NEVER treat as ready — the
+        // launch_cmd would just become more input on the broken line.
+        assert!(!screen_has_shell_prompt(">>"));
+        assert!(!screen_has_shell_prompt(">> "));
+        assert!(!screen_has_shell_prompt(">>>"));
+        assert!(!screen_has_shell_prompt(">"));
+        assert!(!screen_has_shell_prompt("> "));
+    }
+
+    #[test]
+    fn powershell_ready_prompt_is_recognized() {
+        assert!(screen_has_shell_prompt("PS C:\\Users\\User>"));
+        assert!(screen_has_shell_prompt("PS C:\\Developer\\codeterm> "));
+    }
+
+    #[test]
+    fn cmd_and_unix_prompts_are_recognized() {
+        assert!(screen_has_shell_prompt("C:\\Users\\User>"));
+        assert!(screen_has_shell_prompt("user@host:~$ "));
+        assert!(screen_has_shell_prompt("user@host:~%"));
+    }
 
     #[test]
     fn test_empty_state_returns_none() {

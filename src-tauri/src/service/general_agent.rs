@@ -407,13 +407,16 @@ pub fn start_general_agent(
         }
     };
 
-    // Link PTY to pane
-    {
+    let displaced = {
         let mut m = mux.lock();
-        m.link_pty(&pane_id, pty_id.clone());
+        let d = m.link_pty(&pane_id, pty_id.clone());
         if let Some(pane) = m.get_pane_mut(&pane_id) {
             pane.auto_approve = true;
         }
+        d
+    };
+    if let Some(orphan) = displaced {
+        svc.kill_ptys(&[orphan]);
     }
     // Set agent type immediately
     svc.set_pane_agent_type(&pane_id, Some(provider_name.to_string()));
