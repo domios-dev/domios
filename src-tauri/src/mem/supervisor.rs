@@ -18,6 +18,17 @@ const WORKER_TIMEOUT: Duration = Duration::from_secs(300);
 const FAILURE_WINDOW: Duration = Duration::from_secs(60);
 const FAILURE_THRESHOLD: usize = 3;
 
+/// CLI subcommand wiring. Both halves (daemon-side spawn, cli-side handler)
+/// MUST stay in sync. `cli_source_still_declares_run_worker` below pins the
+/// CLI source via `include_str!`, and `cli/src/main.rs::subcommand_contract_tests`
+/// pins the clap parser. Drift breaks `cargo test --lib` immediately.
+pub const MEM_PARENT_SUBCMD: &str = "mem";
+pub const RUN_WORKER_SUBCMD: &str = "run-worker";
+pub const KIND_DREAMING_LIGHT: &str = "dreaming-light";
+pub const KIND_DREAMING_DEEP: &str = "dreaming-deep";
+pub const KIND_LIBRARIAN_ONCE: &str = "librarian-once";
+pub const DB_PATH_FLAG: &str = "--db-path";
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum WorkerKind {
     DreamingLight,
@@ -26,12 +37,16 @@ pub enum WorkerKind {
 }
 
 impl WorkerKind {
-    fn as_arg(&self) -> &'static str {
+    pub fn as_arg(&self) -> &'static str {
         match self {
-            Self::DreamingLight => "dreaming-light",
-            Self::DreamingDeep => "dreaming-deep",
-            Self::LibrarianOnce => "librarian-once",
+            Self::DreamingLight => KIND_DREAMING_LIGHT,
+            Self::DreamingDeep => KIND_DREAMING_DEEP,
+            Self::LibrarianOnce => KIND_LIBRARIAN_ONCE,
         }
+    }
+
+    pub fn all() -> [WorkerKind; 3] {
+        [Self::DreamingLight, Self::DreamingDeep, Self::LibrarianOnce]
     }
 }
 
@@ -137,26 +152,31 @@ impl Supervisor {
     async fn spawn_and_wait(&self, kind: WorkerKind) -> Result<serde_json::Value, String> {
         let mut cmd = Command::new(&self.cli_path);
         cmd.args([
-            "mem",
-            "run-worker",
+            MEM_PARENT_SUBCMD,
+            RUN_WORKER_SUBCMD,
             kind.as_arg(),
-            "--db-path",
+            DB_PATH_FLAG,
             &self.db_path.to_string_lossy(),
         ]);
         cmd.kill_on_drop(true);
 
         let output = match tokio::time::timeout(WORKER_TIMEOUT, cmd.output()).await {
             Ok(Ok(out)) => out,
-            Ok(Err(e)) => return Err(format!("spawn: {}", e)),
-            Err(_) => return Err(format!("timeout after {}s", WORKER_TIMEOUT.as_secs())),
+            Ok(Err(e)) => return Err(format!("spawn {}: {}", self.cli_path.display(), e)),
+            Err(_) => return Err(format!(
+                "timeout after {}s (cli={})",
+                WORKER_TIMEOUT.as_secs(),
+                self.cli_path.display(),
+            )),
         };
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
             return Err(format!(
-                "exit {}: stderr={} stdout={}",
+                "exit {} (cli={}): stderr={} stdout={}",
                 output.status.code().unwrap_or(-1),
+                self.cli_path.display(),
                 stderr.trim(),
                 stdout.trim(),
             ));
@@ -417,5 +437,45 @@ mod tests {
         let data_dir = dir.path().join("data");
         let resolved = resolve_cli_path_inner(&data_dir, None, None, None);
         assert_eq!(resolved, data_dir.join("bin").join(cli_filename()));
+    }
+
+    /// Pin the wire contract with the CLI. If any of these strings change here,
+    /// `cli/src/main.rs::subcommand_contract_tests` must change in lockstep —
+    /// both halves are read together by the developer and grep-able.
+    #[test]
+    fn cli_subcommand_strings_are_pinned() {
+        assert_eq!(MEM_PARENT_SUBCMD, "mem");
+        assert_eq!(RUN_WORKER_SUBCMD, "run-worker");
+        assert_eq!(KIND_DREAMING_LIGHT, "dreaming-light");
+        assert_eq!(KIND_DREAMING_DEEP, "dreaming-deep");
+        assert_eq!(KIND_LIBRARIAN_ONCE, "librarian-once");
+        assert_eq!(DB_PATH_FLAG, "--db-path");
+
+        assert_eq!(WorkerKind::DreamingLight.as_arg(), KIND_DREAMING_LIGHT);
+        assert_eq!(WorkerKind::DreamingDeep.as_arg(), KIND_DREAMING_DEEP);
+        assert_eq!(WorkerKind::LibrarianOnce.as_arg(), KIND_LIBRARIAN_ONCE);
+    }
+
+    /// Cross-crate sanity check: the CLI source still contains the literal
+    /// `#[clap(name = "run-worker")]` attribute and accepts the three kind
+    /// strings in its doc comment. clap's `#[clap(name = ...)]` requires a
+    /// literal so we can't share a const directly — this string-search keeps
+    /// the two halves wired together at `cargo test --lib` time without
+    /// needing the CLI binary to be built first.
+    #[test]
+    fn cli_source_still_declares_run_worker() {
+        let cli_src = include_str!("../../../cli/src/main.rs");
+        assert!(
+            cli_src.contains(r#"#[clap(name = "run-worker")]"#),
+            "cli/src/main.rs no longer declares `#[clap(name = \"run-worker\")]` — \
+             supervisor.rs spawns this exact subcommand. Fix one or the other."
+        );
+        for kind in [KIND_DREAMING_LIGHT, KIND_DREAMING_DEEP, KIND_LIBRARIAN_ONCE] {
+            assert!(
+                cli_src.contains(&format!("\"{}\"", kind)),
+                "cli/src/main.rs no longer references kind {:?} — supervisor.rs spawns it.",
+                kind
+            );
+        }
     }
 }
