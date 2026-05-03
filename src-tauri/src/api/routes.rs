@@ -999,6 +999,9 @@ struct SpawnAgentBody {
     /// Report target pane ID — for cron agents to report without joining hierarchy
     report_target_pane_id: Option<String>,
     skip_permissions: Option<bool>,
+    /// Pane id of the caller that ran `agent spawn` (CODETERM_PANE_ID).
+    /// Recorded on the spawned pane for report routing fallback.
+    spawned_by_pane_id: Option<String>,
 }
 
 async fn spawn_agent(
@@ -1020,7 +1023,8 @@ async fn spawn_agent(
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
         report_target_pane_id: body.report_target_pane_id,
-            skip_permissions: body.skip_permissions,
+        skip_permissions: body.skip_permissions,
+        spawned_by_pane_id: body.spawned_by_pane_id,
     };
     let result = state.svc.spawn_agent(params).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -1670,6 +1674,7 @@ async fn resume_session_api(
         force_tab: None,
         report_target_pane_id: None,
         skip_permissions: Some(true),
+        spawned_by_pane_id: None,
     };
     // DO NOT set pane.agent_session_id before spawn — commands.rs::spawn_pty's
     // auto-resume path fires on any saved session_id and would inject its own

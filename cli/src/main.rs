@@ -42,7 +42,7 @@ pub use mesh_cli::{MeshAction, MeshPeerAction};
 ///   2. CODETERM_API_PORT == 7686 (dev's port — useful when calling CLI from
 ///      outside a dev pane, e.g. tests)
 ///   3. Default: prod
-fn data_dir_name() -> &'static str {
+pub fn data_dir_name() -> &'static str {
     if let Ok(sp) = std::env::var("CODETERM_SOCKET_PATH") {
         if sp.contains("codeterm-dev") {
             return ".codeterm-dev";
@@ -81,14 +81,7 @@ pub fn read_api_config() -> (String, Option<String>) {
     }
 
     // Try Ed25519 signed token first, fall back to simple API token from config
-    let identity_path = config_dir.join("mesh").join("identity.json");
-    let signed_token = std::fs::read_to_string(&identity_path).ok()
-        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
-        .and_then(|id| {
-            let pk = id.get("private_key")?.as_str()?;
-            let iid = id.get("instance_id")?.as_str()?;
-            mesh_cli::sign_request(pk, iid).ok()
-        });
+    let signed_token = read_mesh_signed_token();
 
     // Highest priority: explicit CODETERM_API_TOKEN env override.
     // Useful for hitting dev (port 7686) from outside its PTY without the
@@ -104,6 +97,23 @@ pub fn read_api_config() -> (String, Option<String>) {
         });
 
     (format!("http://{}:{}", host, port), token)
+}
+
+/// Produce a fresh Ed25519 signed token from this machine's mesh identity.
+///
+/// Distinct from `read_api_config().1`: peer auth requires the signed token
+/// regardless of `CODETERM_API_TOKEN` env override. The env token is the
+/// LOCAL plain API token — paired peers don't recognise it, so using it for
+/// outbound mesh calls produces a silent 401 with a `text/plain` body that
+/// the JSON parser swallows.
+pub fn read_mesh_signed_token() -> Option<String> {
+    let config_dir = dirs::home_dir()?.join(data_dir_name());
+    let identity_path = config_dir.join("mesh").join("identity.json");
+    let content = std::fs::read_to_string(&identity_path).ok()?;
+    let id: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let pk = id.get("private_key")?.as_str()?;
+    let iid = id.get("instance_id")?.as_str()?;
+    mesh_cli::sign_request(pk, iid).ok()
 }
 
 /// Build HTTP client with auth header
@@ -1994,6 +2004,15 @@ fn main() {
                     if let Some(t) = task { body["task"] = serde_json::json!(t); }
                     if let Some(a) = args { body["args"] = serde_json::json!(a); }
                     if let Some(w) = workspace { body["workspace_id"] = serde_json::json!(w); }
+                    // Always record the spawning agent's pane (when this CLI runs
+                    // inside a CodeTerm PTY). Independent of --parent, so a
+                    // top-level Orchestrator (no parent in the role hierarchy)
+                    // still has a route back for `agent report`.
+                    if let Ok(spawner) = std::env::var("CODETERM_PANE_ID") {
+                        if !spawner.is_empty() {
+                            body["spawned_by_pane_id"] = serde_json::json!(spawner);
+                        }
+                    }
                     // Use socket API (not REST) — avoids tokio runtime contention
                     match client.call("agent.spawn", Some(body)) {
                         Ok(val) => {
@@ -4555,3 +4574,64 @@ fn librarian_remove_tag(conn: &rusqlite::Connection, item_id: &str, tag: &str) -
     Ok(())
 }
 
+#[cfg(test)]
+mod subcommand_contract_tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    fn mem_subcommand() -> clap::Command {
+        Cli::command()
+            .find_subcommand("mem")
+            .expect("Cli must expose `mem` subcommand")
+            .clone()
+    }
+
+    #[test]
+    fn mem_run_worker_subcommand_exists() {
+        let mem = mem_subcommand();
+        let run_worker = mem
+            .find_subcommand("run-worker")
+            .expect("`mem run-worker` MUST exist — supervisor.rs spawns it");
+
+        let kind_arg = run_worker
+            .get_arguments()
+            .find(|a| a.get_id() == "kind")
+            .expect("`mem run-worker` MUST take a positional <kind> arg");
+        assert!(
+            kind_arg.is_required_set(),
+            "<kind> must stay required so supervisor.rs args[2] is meaningful"
+        );
+
+        let db_path = run_worker
+            .get_arguments()
+            .find(|a| a.get_id() == "db_path")
+            .expect("`mem run-worker` MUST take --db-path");
+        let long = db_path
+            .get_long()
+            .expect("--db-path must remain a long flag");
+        assert_eq!(
+            long, "db-path",
+            "supervisor.rs hardcodes `--db-path`; renaming this flag breaks the daemon at runtime"
+        );
+    }
+
+    #[test]
+    fn mem_run_worker_accepts_all_three_kinds() {
+        for kind in ["dreaming-light", "dreaming-deep", "librarian-once"] {
+            let res = Cli::try_parse_from([
+                "codeterm",
+                "mem",
+                "run-worker",
+                kind,
+                "--db-path",
+                "/tmp/x.db",
+            ]);
+            assert!(
+                res.is_ok(),
+                "`mem run-worker {}` MUST parse cleanly — supervisor.rs sends this exact arg list ({:?})",
+                kind,
+                res.err()
+            );
+        }
+    }
+}
