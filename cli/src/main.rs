@@ -1921,6 +1921,15 @@ fn main() {
                     if let Some(t) = task { body["task"] = serde_json::json!(t); }
                     if let Some(a) = args { body["args"] = serde_json::json!(a); }
                     if let Some(w) = workspace { body["workspace_id"] = serde_json::json!(w); }
+                    // Always record the spawning agent's pane (when this CLI runs
+                    // inside a CodeTerm PTY). Independent of --parent, so a
+                    // top-level Orchestrator (no parent in the role hierarchy)
+                    // still has a route back for `agent report`.
+                    if let Ok(spawner) = std::env::var("CODETERM_PANE_ID") {
+                        if !spawner.is_empty() {
+                            body["spawned_by_pane_id"] = serde_json::json!(spawner);
+                        }
+                    }
                     // Use socket API (not REST) — avoids tokio runtime contention
                     match client.call("agent.spawn", Some(body)) {
                         Ok(val) => {

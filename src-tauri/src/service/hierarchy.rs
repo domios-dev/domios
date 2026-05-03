@@ -40,49 +40,54 @@ impl ServiceContext {
         Ok(())
     }
 
-    /// Send report to direct parent (not orchestrator). This enables cascade reporting:
-    /// Worker → Lead → Orchestrator.
+    /// Send report to the resolved target. Routing priority:
+    /// `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`
+    /// → global system inbox. NEVER routes back to the reporter's own pane.
     pub fn submit_report(&self, pane_id: &str, message: &str) -> Result<ReportResult, String> {
-        let (from_title, target_id) = {
+        let (from_title, target_opt) = {
             let mux = self.mux.lock();
             resolve_report_target(&mux, pane_id)?
         };
 
+        let storage_key = target_opt
+            .clone()
+            .unwrap_or_else(|| SYSTEM_INBOX_PANE_ID.to_string());
         let report = self
             .report_store
             .lock()
-            .add(&target_id, pane_id, &from_title, message);
+            .add(&storage_key, pane_id, &from_title, message);
 
-        // Broadcast webhook + Tauri event
         self.events.broadcast(
             "agent.report",
             serde_json::json!({
-                "target_pane_id": target_id,
+                "target_pane_id": storage_key,
                 "report": report,
             }),
         );
         let _ = self.app_handle.emit(
             "agent-report",
             serde_json::json!({
-                "target_pane_id": target_id,
+                "target_pane_id": storage_key,
                 "from_pane_id": pane_id,
                 "from_title": from_title,
                 "message": message,
             }),
         );
 
-        // Auto-push report into parent's PTY so Claude sees it immediately.
-        // Route through send_text (bracket paste + delayed Enter) — same path
-        // Telegram/Mesh injection uses. Raw `\r` writes get swallowed by
-        // Claude/Codex TUIs while they're still processing the paste buffer.
-        {
-            let notify_msg = format!("[Report from {}] {}", from_title, message);
-            let _ = self.send_text(&target_id, &notify_msg, true);
+        // Inject into the target PTY only when the target is a real pane
+        // (parent / report_target / spawner). The system inbox has no PTY,
+        // and bouncing back to the reporter's own pane is the bug we just
+        // fixed — guard against that explicitly.
+        if let Some(ref target_id) = target_opt {
+            if target_id != pane_id {
+                let notify_msg = format!("[Report from {}] {}", from_title, message);
+                let _ = self.send_text(target_id, &notify_msg, true);
+            }
         }
 
         Ok(ReportResult {
             report_id: report.id,
-            orchestrator_pane_id: target_id,
+            orchestrator_pane_id: storage_key,
         })
     }
 
@@ -221,48 +226,40 @@ impl ServiceContext {
     }
 }
 
-/// Walk parent chain to find an orchestrator. Max 3 hops.
-fn find_orchestrator(
-    mux: &crate::multiplexer::state::MultiplexerState,
-    start_pane_id: &str,
-) -> Result<String, String> {
-    let mut current_id = start_pane_id.to_string();
-    for _ in 0..3 {
-        let pane = mux.get_pane(&current_id);
-        match pane {
-            Some(p) if p.role == Some(AgentRole::Orchestrator) => return Ok(current_id),
-            Some(p) if p.parent_pane_id.is_some() => {
-                current_id = p.parent_pane_id.clone().unwrap();
-            }
-            _ => break,
-        }
-    }
-    Err("No orchestrator found in hierarchy".to_string())
-}
+/// Storage key used when a report cannot be routed to any specific pane
+/// (no parent, no report_target, no spawner). Reachable via
+/// `agent reports --pane __system__` and via the agent-report event stream.
+pub const SYSTEM_INBOX_PANE_ID: &str = "__system__";
 
 /// Resolve where a report from `pane_id` should be delivered.
 ///
-/// Returns `(from_title, target_pane_id)`. The target is — in order —
-/// the reporter's direct parent, an explicit `report_target_pane_id`
-/// (used by cron / mem worker spawns that don't join the role hierarchy),
-/// or the nearest orchestrator walking up the parent chain.
+/// Returns `(from_title, Some(target_pane_id))` when a real target exists,
+/// or `(from_title, None)` when the report should land in the global system
+/// inbox. The resolution order is:
 ///
-/// Extracted from [`ServiceContext::submit_report`] so the resolution
-/// rules are testable without a live ServiceContext / Tauri AppHandle.
+/// 1. `parent_pane_id` — direct parent in the role hierarchy (cascades up)
+/// 2. `report_target_pane_id` — cron / mem worker non-hierarchy target
+/// 3. `spawned_by_pane_id` — agent that ran `agent spawn`, even when no
+///    role parent (top-level Orchestrator spawned by another agent)
+///
+/// The reporter's own pane id is filtered out at every level: a pane must
+/// never resolve to itself, otherwise reports get injected into the
+/// reporter's own buffer and never reach the spawning agent.
 pub fn resolve_report_target(
     mux: &crate::multiplexer::state::MultiplexerState,
     pane_id: &str,
-) -> Result<(String, String), String> {
+) -> Result<(String, Option<String>), String> {
     let pane = mux.get_pane(pane_id).ok_or("Pane not found")?;
     let title = pane.title.clone();
-    let target = pane
-        .parent_pane_id
-        .clone()
-        .or_else(|| pane.report_target_pane_id.clone())
-        .unwrap_or_else(|| find_orchestrator(mux, pane_id).unwrap_or_default());
-    if target.is_empty() {
-        return Err("No parent or orchestrator found".to_string());
-    }
+    let target = [
+        pane.parent_pane_id.as_deref(),
+        pane.report_target_pane_id.as_deref(),
+        pane.spawned_by_pane_id.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|candidate| !candidate.is_empty() && *candidate != pane_id)
+    .map(str::to_string);
     Ok((title, target))
 }
 
@@ -316,6 +313,7 @@ mod tests {
 
         let (from_title, target_id) =
             resolve_report_target(&mux, &worker).expect("resolve target");
+        let target_id = target_id.expect("worker has a parent target");
         assert_eq!(target_id, orch, "worker reports to its direct parent");
         assert_eq!(from_title, "Worker-1");
 
@@ -339,6 +337,7 @@ mod tests {
 
         let (from_title, storage_key) =
             resolve_report_target(&mux, &worker).expect("resolve target");
+        let storage_key = storage_key.expect("worker has a parent target");
         store.add(&storage_key, &worker, &from_title, "msg");
 
         let query_key = &orch;
@@ -362,6 +361,7 @@ mod tests {
         mux.rename_pane(&worker, "Worker-Sub").unwrap();
 
         let (_, target) = resolve_report_target(&mux, &worker).unwrap();
+        let target = target.expect("worker has a Lead parent");
         assert_eq!(
             target, lead,
             "worker reports to direct parent (Lead) for cascade reporting"
@@ -388,17 +388,94 @@ mod tests {
         mux.rename_pane(&cron_pane, "cron-task").unwrap();
 
         let (from_title, target) = resolve_report_target(&mux, &cron_pane).unwrap();
-        assert_eq!(target, orch);
+        assert_eq!(target.as_deref(), Some(orch.as_str()));
         assert_eq!(from_title, "cron-task");
     }
 
     #[test]
-    fn orchestrator_self_report_uses_own_pane_id() {
-        let (mux, orch) = MultiplexerState::new();
+    fn parent_pane_id_takes_priority_over_other_targets() {
+        let (mut mux, orch, worker) = build_orchestrator_with_worker("Worker-Pri");
+        let other = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
+        let spawner = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
+        if let Some(pane) = mux.get_pane_mut(&worker) {
+            pane.report_target_pane_id = Some(other.clone());
+            pane.spawned_by_pane_id = Some(spawner.clone());
+        }
+
+        let (_, target) = resolve_report_target(&mux, &worker).unwrap();
+        assert_eq!(
+            target.as_deref(),
+            Some(orch.as_str()),
+            "explicit parent_pane_id wins over report_target and spawned_by"
+        );
+    }
+
+    #[test]
+    fn orchestrator_falls_back_to_spawned_by_when_no_parent() {
+        let (mut mux, orch) = MultiplexerState::new();
+        // Simulate the spawning agent — it lives in its own pane elsewhere.
+        let spawner = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
+        // Top-level orchestrator has no parent and no report_target,
+        // but `agent spawn` recorded who asked for it.
+        if let Some(pane) = mux.get_pane_mut(&orch) {
+            pane.spawned_by_pane_id = Some(spawner.clone());
+        }
+
         let (_, target) = resolve_report_target(&mux, &orch).unwrap();
         assert_eq!(
-            target, orch,
-            "an orchestrator without a parent reports to itself, surfacing summaries on its own pane"
+            target.as_deref(),
+            Some(spawner.as_str()),
+            "top-level orchestrator routes its report to whoever spawned it"
+        );
+    }
+
+    #[test]
+    fn never_routes_back_to_self_when_all_targets_unset() {
+        // Top-level orchestrator with no parent / no report_target / no spawner.
+        // The previous implementation walked the parent chain and returned the
+        // pane's own id, so reports got injected into the orchestrator's own
+        // PTY and `agent reports` against the spawning agent stayed empty.
+        let (mux, orch) = MultiplexerState::new();
+        let (_, target) = resolve_report_target(&mux, &orch).unwrap();
+        assert!(
+            target.is_none(),
+            "orphan orchestrator must NOT resolve to itself; got {:?}",
+            target
+        );
+    }
+
+    #[test]
+    fn never_routes_back_to_self_even_when_targets_point_at_self() {
+        // Defensive: if any field accidentally points at the reporter itself,
+        // that field is skipped — reports should never bounce.
+        let (mut mux, orch) = MultiplexerState::new();
+        if let Some(pane) = mux.get_pane_mut(&orch) {
+            pane.parent_pane_id = Some(orch.clone());
+            pane.report_target_pane_id = Some(orch.clone());
+            pane.spawned_by_pane_id = Some(orch.clone());
+        }
+        let (_, target) = resolve_report_target(&mux, &orch).unwrap();
+        assert!(
+            target.is_none(),
+            "self-referential targets must be filtered out; got {:?}",
+            target
+        );
+    }
+
+    #[test]
+    fn spawned_by_used_only_when_parent_and_report_target_missing() {
+        let (mut mux, orch) = MultiplexerState::new();
+        let spawner = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
+        let report_target = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
+        if let Some(pane) = mux.get_pane_mut(&orch) {
+            pane.report_target_pane_id = Some(report_target.clone());
+            pane.spawned_by_pane_id = Some(spawner.clone());
+        }
+        let (_, target) = resolve_report_target(&mux, &orch).unwrap();
+        assert_eq!(
+            target.as_deref(),
+            Some(report_target.as_str()),
+            "report_target_pane_id wins over spawned_by_pane_id"
         );
     }
 

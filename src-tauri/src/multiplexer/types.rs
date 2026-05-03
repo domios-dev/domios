@@ -206,6 +206,12 @@ pub struct Pane {
     /// Report target pane ID — for cron agents that report without joining hierarchy.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub report_target_pane_id: Option<String>,
+    /// Pane id of the caller that ran `agent spawn` (CODETERM_PANE_ID at spawn time).
+    /// Independent of `parent_pane_id` (which controls the role hierarchy and is
+    /// forbidden for Orchestrators). Used as a final fallback by report routing
+    /// so a top-level orchestrator's report still reaches its spawning agent.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub spawned_by_pane_id: Option<String>,
     /// Title naming priority level.
     #[serde(default)]
     pub title_level: TitleLevel,

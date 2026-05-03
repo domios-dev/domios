@@ -161,6 +161,10 @@ pub struct SpawnAgentParams {
     /// Skip permissions flag — default true for backward compat.
     /// Set false to spawn agent that asks for permission (for testing approval flow).
     pub skip_permissions: Option<bool>,
+    /// Pane id of the caller that ran `agent spawn` (CODETERM_PANE_ID).
+    /// Recorded on the spawned pane independent of `parent_pane_id` so reports
+    /// from top-level orchestrators flow back to the agent that asked for them.
+    pub spawned_by_pane_id: Option<String>,
 }
 
 impl SpawnAgentParams {
@@ -187,6 +191,7 @@ impl SpawnAgentParams {
             force_tab: params.get("force_tab").and_then(|v| v.as_bool()),
             report_target_pane_id: json_str(params, "report_target_pane_id"),
             skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
+            spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
         })
     }
 }
@@ -317,6 +322,15 @@ impl ServiceContext {
             if let Some(ref rtid) = params.report_target_pane_id {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.report_target_pane_id = Some(rtid.clone());
+                }
+            }
+            // Record the spawning agent for report routing fallback,
+            // independent of explicit --parent / role hierarchy.
+            if let Some(ref sb) = params.spawned_by_pane_id {
+                if !sb.is_empty() {
+                    if let Some(pane) = mux.get_pane_mut(&result.1) {
+                        pane.spawned_by_pane_id = Some(sb.clone());
+                    }
                 }
             }
             result
@@ -524,6 +538,7 @@ mod tests {
             force_tab: None,
             report_target_pane_id: None,
             skip_permissions: None,
+            spawned_by_pane_id: None,
         }
     }
 
