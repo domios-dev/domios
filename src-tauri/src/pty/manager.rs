@@ -391,4 +391,25 @@ mod tests {
         let result = manager.kill("nonexistent-pty-id");
         assert!(result.is_err(), "kill on unknown id must return Err");
     }
+
+    /// `launch_agent_in_background` relies on `write` returning `Err("PTY not
+    /// found: <id>")` so the success log is gated and the misleading "agent
+    /// launched" line never fires when the PTY lookup races and misses.
+    #[test]
+    fn write_returns_err_for_unknown_pty() {
+        let manager = PtyManager::new();
+        let err = manager
+            .write("missing-pty-id", b"hello")
+            .expect_err("write on unknown id must return Err");
+        assert!(
+            err.contains("PTY not found"),
+            "error must signal missing PTY (got {:?})",
+            err
+        );
+        assert!(
+            err.contains("missing-pty-id"),
+            "error must include the offending id (got {:?})",
+            err
+        );
+    }
 }

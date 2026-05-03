@@ -450,9 +450,15 @@ pub(crate) fn launch_agent_in_background(
             }
         }
 
-        // 3. Send launch command
-        if let Err(e) = svc.send_text(&pane_id, &launch_cmd, true) {
-            log::error!("launch_agent: failed to send launch cmd: {}", e);
+        // 3. Send launch command. Address the PTY directly — pane.pty_id may
+        //    be raced/overwritten by a frontend `mux_link_pty` that lands
+        //    after the deadline-fallback spawn, pointing at a pty_id whose
+        //    `register_session` is still in flight.
+        if let Err(e) = svc.send_text_to_pty(&pty_id, &launch_cmd, true) {
+            log::error!(
+                "launch_agent: failed to send launch cmd for pane {} (pty {}): {}",
+                pane_id, pty_id, e
+            );
             return;
         }
 
@@ -461,7 +467,13 @@ pub(crate) fn launch_agent_in_background(
         if is_pty_input {
             if let Some(ref task_text) = task {
                 std::thread::sleep(std::time::Duration::from_millis(500));
-                let _ = svc.send_text(&pane_id, task_text, true);
+                if let Err(e) = svc.send_text_to_pty(&pty_id, task_text, true) {
+                    log::error!(
+                        "launch_agent: failed to send task for pane {} (pty {}): {}",
+                        pane_id, pty_id, e
+                    );
+                    return;
+                }
             }
         }
 
