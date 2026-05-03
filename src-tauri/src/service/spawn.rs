@@ -399,7 +399,9 @@ impl ServiceContext {
             pty.spawn(None, resolved_cwd, 120, 40, env_vars)
                 .map(|(id, _)| id)?
         };
-        self.mux.lock().link_pty(&pane_id, pty_id.clone());
+        if let Some(orphan) = self.mux.lock().link_pty(&pane_id, pty_id.clone()) {
+            self.kill_ptys(&[orphan]);
+        }
         self.emit_state_changed();
 
         let svc_reader = std::sync::Arc::new(self.clone());
@@ -530,7 +532,9 @@ impl ServiceContext {
                 .map(|(id, _)| id)?
         };
 
-        self.mux.lock().link_pty(&pane_id, pty_id.clone());
+        if let Some(orphan) = self.mux.lock().link_pty(&pane_id, pty_id.clone()) {
+            self.kill_ptys(&[orphan]);
+        }
         self.agent_run_pty_map
             .lock()
             .insert(pane_id.clone(), pty_id.clone());

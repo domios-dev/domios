@@ -419,7 +419,9 @@ pub(crate) fn launch_agent_in_background(
                 }
                 match svc.pty.lock().spawn(None, cwd, 120, 40, env_vars) {
                     Ok((pid, _)) => {
-                        svc.mux.lock().link_pty(&pane_id, pid.clone());
+                        if let Some(orphan) = svc.mux.lock().link_pty(&pane_id, pid.clone()) {
+                            svc.kill_ptys(&[orphan]);
+                        }
                         // Start backend reader
                         let svc_arc = std::sync::Arc::new(svc.clone());
                         let pid2 = pid.clone();
