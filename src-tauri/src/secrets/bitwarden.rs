@@ -46,6 +46,9 @@ const BW_KEYRING_SESSION: &str = "session";
 const BW_KEYRING_API_CLIENT_ID: &str = "apikey:client_id";
 const BW_KEYRING_API_CLIENT_SECRET: &str = "apikey:client_secret";
 
+/// Default Bitwarden server URL — public hosted vault.
+pub const DEFAULT_BW_SERVER: &str = "https://vault.bitwarden.com";
+
 /// One execution of `bw <args>`. Tests stub this to feed canned JSON
 /// without spawning a process.
 #[async_trait]
@@ -196,6 +199,10 @@ pub struct BitwardenStore {
     unavailable_reason: Option<String>,
     /// User-facing identity for status (`bw status` userEmail, when known).
     user: Mutex<Option<String>>,
+    /// Bitwarden / Vaultwarden server URL the bw CLI is pointed at. The
+    /// adapter runs `bw config server <URL>` before login when the URL
+    /// differs from the current setting (vendor-stable command).
+    server_url: Mutex<String>,
 }
 
 impl BitwardenStore {
@@ -203,10 +210,14 @@ impl BitwardenStore {
     /// any persisted session token. Falls back to an "Unavailable" store
     /// when `bw` is missing — every call returns `SecretError::Backend`.
     pub fn detect_and_build() -> Self {
+        Self::detect_and_build_with_server(DEFAULT_BW_SERVER.to_string())
+    }
+
+    pub fn detect_and_build_with_server(server_url: String) -> Self {
         match SubprocessBwExec::detect() {
             Some(exec) => {
                 let keychain = Keychain::new(BW_KEYRING_SERVICE);
-                Self::new(Arc::new(exec), keychain)
+                Self::new_with_server(Arc::new(exec), keychain, server_url)
             }
             None => Self::new_unavailable(
                 "bw not found on PATH — install Bitwarden CLI \
@@ -216,6 +227,14 @@ impl BitwardenStore {
     }
 
     pub fn new(exec: Arc<dyn BwExec>, keychain: Keychain) -> Self {
+        Self::new_with_server(exec, keychain, DEFAULT_BW_SERVER.to_string())
+    }
+
+    pub fn new_with_server(
+        exec: Arc<dyn BwExec>,
+        keychain: Keychain,
+        server_url: String,
+    ) -> Self {
         let session = keychain
             .get(BW_KEYRING_SESSION)
             .ok()
@@ -226,6 +245,7 @@ impl BitwardenStore {
             session: RwLock::new(session),
             unavailable_reason: None,
             user: Mutex::new(None),
+            server_url: Mutex::new(server_url),
         }
     }
 
@@ -236,6 +256,26 @@ impl BitwardenStore {
             session: RwLock::new(None),
             unavailable_reason: Some(reason.into()),
             user: Mutex::new(None),
+            server_url: Mutex::new(DEFAULT_BW_SERVER.to_string()),
+        }
+    }
+
+    /// Returns the configured server URL (defaults to public vault).
+    pub fn server_url(&self) -> String {
+        self.server_url.lock().clone()
+    }
+
+    /// Update the Bitwarden server URL. If the new URL differs from the
+    /// previous one and there is an active session, the caller is
+    /// responsible for forcing a re-login (logout → login). The URL is
+    /// applied to the bw CLI on the next unlock via `bw config server`.
+    pub fn set_server_url(&self, new_url: String) -> bool {
+        let mut g = self.server_url.lock();
+        if *g == new_url {
+            false
+        } else {
+            *g = new_url;
+            true
         }
     }
 
@@ -329,6 +369,33 @@ struct BwStatusJson {
     status: String,
     #[serde(default, rename = "userEmail")]
     user_email: Option<String>,
+    #[serde(default, rename = "serverUrl")]
+    server_url: Option<String>,
+}
+
+/// Validate a Bitwarden server URL. Only http(s) schemes allowed; this
+/// guards against accidental injection of arbitrary scheme handlers
+/// before the URL reaches `bw config server`.
+pub fn is_valid_http_url(s: &str) -> bool {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let lower = trimmed.to_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return false;
+    }
+    // Reject obviously malformed (no host part).
+    let after_scheme = trimmed
+        .splitn(2, "://")
+        .nth(1)
+        .unwrap_or("")
+        .trim_start_matches('/');
+    let host = after_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("");
+    !host.is_empty()
 }
 
 // Sentinel exec used when bw is not on PATH — every call errors with the
@@ -356,6 +423,7 @@ impl SecretStore for BitwardenStore {
                 reason: reason.clone(),
             };
         }
+        let endpoint = Some(self.server_url.lock().clone());
         match self.bw_status().await {
             Ok(s) => match s.status.as_str() {
                 "unlocked" => {
@@ -365,16 +433,17 @@ impl SecretStore for BitwardenStore {
                     StoreStatus::Unlocked {
                         user: self.user.lock().clone(),
                         transient: !self.keychain.is_available(),
+                        endpoint: s.server_url.or(endpoint),
                     }
                 }
-                "locked" => StoreStatus::Locked,
-                _ => StoreStatus::LoggedOut,
+                "locked" => StoreStatus::Locked { endpoint },
+                _ => StoreStatus::LoggedOut { endpoint },
             },
             Err(SecretError::Backend { message }) => StoreStatus::Unavailable {
                 reason: message,
             },
-            Err(SecretError::Locked) => StoreStatus::Locked,
-            Err(SecretError::LoggedOut) => StoreStatus::LoggedOut,
+            Err(SecretError::Locked) => StoreStatus::Locked { endpoint },
+            Err(SecretError::LoggedOut) => StoreStatus::LoggedOut { endpoint },
             Err(other) => StoreStatus::Unavailable {
                 reason: other.to_string(),
             },
@@ -391,6 +460,47 @@ impl SecretStore for BitwardenStore {
             });
         }
 
+        // Validate server URL — guard against malformed config that would
+        // otherwise be passed verbatim to `bw config server`.
+        let server = self.server_url.lock().clone();
+        if !is_valid_http_url(&server) {
+            return Err(SecretError::BadRequest {
+                message: format!("invalid bitwarden server URL: {}", server),
+            });
+        }
+
+        let status = self.bw_status().await.ok();
+        let is_logged_in = status
+            .as_ref()
+            .map(|s| s.status != "unauthenticated")
+            .unwrap_or(false);
+
+        // Point bw at the configured server BEFORE any login. Safe to
+        // re-run on every unlock — bw treats it as idempotent. If the URL
+        // differs from a logged-in server, force a logout first so login
+        // talks to the right host.
+        let current_server = status
+            .as_ref()
+            .and_then(|s| s.server_url.clone())
+            .unwrap_or_default();
+        if is_logged_in && !current_server.is_empty() && current_server != server {
+            log::info!(
+                "[secrets/bw] server URL changed ({} -> {}), forcing logout",
+                current_server,
+                server
+            );
+            let _ = self
+                .run_no_session(vec!["logout"], None, HashMap::new())
+                .await;
+            *self.session.write().await = None;
+            let _ = self.keychain.delete(BW_KEYRING_SESSION);
+        }
+        // Apply the server config — bw config server <URL>
+        let _ = self
+            .run_no_session(vec!["config", "server", &server], None, HashMap::new())
+            .await;
+
+        // Re-read login state after potential logout above.
         let status = self.bw_status().await.ok();
         let is_logged_in = status
             .as_ref()
@@ -930,8 +1040,10 @@ mod tests {
 
     #[tokio::test]
     async fn unlock_password_path_stores_session() {
-        // Order: status (unauthenticated) → login → unlock.
+        // Order: status (unauthenticated) → config server → status → login → unlock.
         let (store, exec) = build_store(vec![
+            ok_data(json!({ "status": "unauthenticated" })),
+            ok_data(json!({ "object": "message" })), // config server
             ok_data(json!({ "status": "unauthenticated" })),
             ok_data(json!({ "object": "message", "title": "logged in" })),
             ok_data(json!("session-abc123")),
@@ -957,18 +1069,21 @@ mod tests {
         );
 
         let calls = exec.call_args();
-        // First call: status
         assert_eq!(calls[0], vec!["status"]);
-        // Second: login by email
-        assert_eq!(calls[1][0], "login");
-        assert!(calls[1].contains(&"--passwordenv".to_string()));
+        assert_eq!(calls[1][0], "config");
+        // Login lives at index 3.
+        assert_eq!(calls[3][0], "login");
+        assert!(calls[3].contains(&"--passwordenv".to_string()));
         // Master password must NEVER appear in argv.
         assert!(calls.iter().all(|c| !c.iter().any(|a| a == "pw")));
     }
 
     #[tokio::test]
     async fn unlock_when_already_logged_in_skips_login_step() {
+        // status (locked) → config server → status (locked) → unlock.
         let (store, exec) = build_store(vec![
+            ok_data(json!({ "status": "locked", "userEmail": "u@x.com" })),
+            ok_data(json!({ "object": "message" })),
             ok_data(json!({ "status": "locked", "userEmail": "u@x.com" })),
             ok_data(json!("session-xyz")),
         ]);
@@ -977,16 +1092,20 @@ mod tests {
             .await
             .unwrap();
         let calls = exec.call_args();
-        assert_eq!(calls.len(), 2, "expected status+unlock, got {:?}", calls);
-        assert_eq!(calls[1][0], "unlock");
+        assert_eq!(calls.len(), 4, "got {:?}", calls);
+        // No login call — only status, config, status, unlock.
+        assert!(!calls.iter().any(|c| c[0] == "login"));
+        assert_eq!(calls[3][0], "unlock");
     }
 
     #[tokio::test]
     async fn unlock_api_key_flow_persists_creds() {
         let (store, _exec) = build_store(vec![
             ok_data(json!({ "status": "unauthenticated" })),
-            ok_data(json!({ "object": "message" })),
-            ok_data(json!("session-api-1")),
+            ok_data(json!({ "object": "message" })), // config server
+            ok_data(json!({ "status": "unauthenticated" })),
+            ok_data(json!({ "object": "message" })), // login
+            ok_data(json!("session-api-1")),         // unlock
         ]);
         store
             .unlock(UnlockCredentials {
@@ -1167,6 +1286,112 @@ mod tests {
         *store.session.write().await = Some(SecretString::from("test-session"));
         let err = store.get("anything").await.unwrap_err();
         assert!(matches!(err, SecretError::Locked));
+    }
+
+    #[test]
+    fn is_valid_http_url_accepts_known_shapes() {
+        assert!(is_valid_http_url("https://vault.bitwarden.com"));
+        assert!(is_valid_http_url("http://vaultwarden.local:8080"));
+        assert!(is_valid_http_url("https://vault.example.org/path"));
+    }
+
+    #[test]
+    fn is_valid_http_url_rejects_garbage() {
+        assert!(!is_valid_http_url(""));
+        assert!(!is_valid_http_url("ftp://vault.example.com"));
+        assert!(!is_valid_http_url("javascript:alert(1)"));
+        assert!(!is_valid_http_url("https://"));
+        assert!(!is_valid_http_url("vault.example.com"));
+    }
+
+    #[tokio::test]
+    async fn set_server_url_returns_true_on_change_only() {
+        let store = BitwardenStore::new(Arc::new(NoopBwExec), Keychain::in_memory("t"));
+        assert!(store.set_server_url("https://example.com".into()));
+        assert!(!store.set_server_url("https://example.com".into()));
+        assert!(store.set_server_url("https://other.com".into()));
+        assert_eq!(store.server_url(), "https://other.com");
+    }
+
+    #[tokio::test]
+    async fn unlock_runs_config_server_before_login() {
+        let (store, exec) = build_store(vec![
+            ok_data(json!({ "status": "unauthenticated" })),
+            ok_data(json!({ "object": "message" })), // config server
+            ok_data(json!({ "status": "unauthenticated" })),
+            ok_data(json!({ "object": "message" })), // login
+            ok_data(json!("session-server")),
+        ]);
+        store.set_server_url("https://vault.example.com".into());
+        store
+            .unlock(UnlockCredentials {
+                master_password: SecretString::from("pw"),
+                two_factor_token: None,
+                email: Some("u@x.com".into()),
+                api_key_client_id: None,
+                api_key_client_secret: None,
+            })
+            .await
+            .unwrap();
+        let calls = exec.call_args();
+        assert_eq!(calls[1][0], "config");
+        assert_eq!(calls[1][1], "server");
+        assert_eq!(calls[1][2], "https://vault.example.com");
+    }
+
+    #[tokio::test]
+    async fn unlock_forces_logout_when_server_changed() {
+        // status (logged in to old) → logout → config server (new) → status (logged out) → login → unlock
+        let (store, exec) = build_store(vec![
+            ok_data(json!({ "status": "locked", "serverUrl": "https://old.example" })),
+            ok_data(json!({ "object": "message" })), // logout
+            ok_data(json!({ "object": "message" })), // config server
+            ok_data(json!({ "status": "unauthenticated" })),
+            ok_data(json!({ "object": "message" })), // login
+            ok_data(json!("session-after-switch")),
+        ]);
+        store.set_server_url("https://new.example".into());
+        store
+            .unlock(UnlockCredentials {
+                master_password: SecretString::from("pw"),
+                two_factor_token: None,
+                email: Some("u@x.com".into()),
+                api_key_client_id: None,
+                api_key_client_secret: None,
+            })
+            .await
+            .unwrap();
+        let calls = exec.call_args();
+        // logout call appears before config server.
+        let pos_logout = calls.iter().position(|c| c[0] == "logout").unwrap();
+        let pos_config = calls.iter().position(|c| c[0] == "config").unwrap();
+        assert!(pos_logout < pos_config, "logout must precede config server");
+    }
+
+    #[tokio::test]
+    async fn unlock_rejects_invalid_server_url() {
+        let store = BitwardenStore::new(Arc::new(NoopBwExec), Keychain::in_memory("t"));
+        store.set_server_url("ftp://bad".into());
+        let err = store
+            .unlock(UnlockCredentials::with_password(SecretString::from("pw")))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, SecretError::BadRequest { .. }));
+    }
+
+    #[tokio::test]
+    async fn status_includes_server_endpoint() {
+        let (store, _exec) = build_store(vec![
+            ok_data(json!({ "status": "locked", "userEmail": "u@x.com",
+                            "serverUrl": "https://self.host" })),
+        ]);
+        store.set_server_url("https://self.host".into());
+        match store.status().await {
+            StoreStatus::Locked { endpoint } => {
+                assert_eq!(endpoint.as_deref(), Some("https://self.host"));
+            }
+            other => panic!("expected Locked with endpoint, got {:?}", other),
+        }
     }
 
     #[tokio::test]
