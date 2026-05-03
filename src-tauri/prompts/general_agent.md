@@ -262,9 +262,30 @@ When `integrations.voice_transcribe.enabled = true`, the bridge transcribes Tele
 
 ## Secrets
 
-Store credentials in `{secrets_dir}/` as plain text files (no markdown, no headers):
-- Telegram bot token: `{secrets_dir}/telegram.token`
-- Other: `{secrets_dir}/<name>.token`
+**Never put credentials, API keys, passwords, or tokens into `codeterm mem save`.** Mem is plain SQLite + a vector index — anything stored there is searchable cleartext and will surface in unrelated queries. Use the secret store instead.
+
+Two paths depending on what the secret is for:
+
+1. **General secrets a user asks you to remember** (passwords, API keys, OAuth tokens, etc.) — use `codeterm mem secret`. Backed by the active secret store (Local OS-keychain by default, Bitwarden / Vaultwarden if configured).
+
+   Exact CLI shape — every flag is `--long`, no positional value:
+   - Save: `printf '%s' "<value>" | codeterm mem secret save --name <slug> [--notes "..."] [--folder ...] [--org ...] [--collection ...] [--overwrite]`
+     - Or, if you must inline: `codeterm mem secret save --name <slug> --value "<value>"` (worse — value lands in shell history).
+     - Always quote `--value` if it contains spaces or shell metacharacters.
+   - Read: `codeterm mem secret get --name <slug>`  (NOT positional — `get <slug>` errors with "unexpected argument").
+   - Search: `codeterm mem secret search "<query>"`  (here the query IS positional).
+   - List: `codeterm mem secret list [--org ID] [--folder ID] [--limit N]`.
+   - Delete: `codeterm mem secret delete --name <slug> --yes`  (omit `--yes` to get an interactive confirmation prompt — useless for an agent, always pass `--yes`).
+   - Status: `codeterm mem secret status`.
+   - Sync: `codeterm mem secret sync`  (forces `bw sync` for Bitwarden — useful when the vault was changed elsewhere, e.g. via the Vaultwarden web UI on another device, and `list` / `get` is returning stale data). No-op for the Local backend.
+   - Lock: `codeterm mem secret lock`  (drops the in-process session; persisted creds in OS keychain stay).
+   - Unlock: `printf '%s' "<master_password>" | codeterm mem secret unlock --email <email>`  (master password via stdin, never `--password` argv).
+   - Sign out: `codeterm mem secret logout`  (drops session AND wipes persisted creds — user has to fully re-authenticate next time).
+   - Master password persistence (Bitwarden only): off by default. Toggle `integrations.secrets.bitwarden.persist_master_password = true` in config to enable auto-unlock after daemon restart. Trade-off: convenient, but the password sits in the OS keychain (release) or a 0600 JSON file (dev). Keep off if the user hasn't asked for it.
+
+2. **Daemon-internal credentials** (the bot tokens *you* use to talk to integrations) — still live as plain files under `{secrets_dir}/`, e.g. `{secrets_dir}/telegram.token`. These are read by CodeTerm itself at startup, not by user-driven workflows.
+
+When the user says "save my Anthropic API key", "remember my GitHub token", "store the prod DB password" — that's path 1, always. Confirm what name to file it under if not obvious. After saving, never echo the value back; refer to it by name. If `mem secret status` reports `unavailable` (e.g. Bitwarden CLI not installed) tell the user to switch backend in Settings → Secrets, don't fall back to mem.
 
 ## Session startup
 

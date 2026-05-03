@@ -11,9 +11,12 @@
 
 pub mod api;
 pub mod bitwarden;
+pub mod factory;
 pub mod keychain;
 pub mod local;
 pub mod mock;
+
+pub use factory::{factory as get_factory, list as list_factories, SecretBackendFactory};
 
 use std::fmt;
 
@@ -293,64 +296,51 @@ pub trait SecretStore: Send + Sync {
     ) -> Result<Vec<CollectionRef>, SecretError> {
         Ok(Vec::new())
     }
+
+    /// Pull the latest state from the remote vault. Useful after changes
+    /// made via another client (Bitwarden web, mobile app, another
+    /// CodeTerm machine). Default: no-op for backends with no remote
+    /// (Local OS-keychain, Mock).
+    async fn sync(&self) -> Result<(), SecretError> {
+        Ok(())
+    }
+
+    /// One-time async work after construction: e.g. Bitwarden tries to
+    /// auto-unlock from a stored master password so the user does not
+    /// have to re-type after every daemon restart. Default: no-op.
+    /// Returning an error is non-fatal (the store stays in its current
+    /// state) but the caller can surface it for UX feedback.
+    async fn init(&self) -> Result<(), SecretError> {
+        Ok(())
+    }
 }
 
 /// Shared handle held in `ServiceContext.secrets`. The `RwLock` lets us swap
 /// the inner box atomically when the user changes backend in Settings.
 pub type SecretStoreState = std::sync::Arc<RwLock<Box<dyn SecretStore>>>;
 
-/// Per-backend tuning extracted from `IntegrationsConfig.secrets`.
-#[derive(Debug, Clone, Default)]
-pub struct BackendOptions {
-    pub bitwarden_server_url: Option<String>,
+/// Build the active backend from a full config snapshot. Each factory
+/// extracts its own typed slice (`SecretsConfig.bitwarden` etc.) — callers
+/// don't need to know which fields belong to which backend.
+pub fn build_active_store(cfg: &crate::config::schema::SecretsConfig) -> Box<dyn SecretStore> {
+    let provider_cfg = provider_config_for(cfg);
+    factory::build_active(&cfg.backend, &provider_cfg)
 }
 
-impl BackendOptions {
-    pub fn from_config(cfg: &crate::config::schema::SecretsConfig) -> Self {
-        Self {
-            bitwarden_server_url: Some(cfg.bitwarden.server_url.clone()),
-        }
-    }
-}
-
-/// Construct the active backend from config. The default `"local"` backend
-/// persists each secret in the OS keychain (macOS Keychain / libsecret /
-/// Windows Credential Manager). `"bitwarden"` shells out to the bw CLI.
-/// `"mock"` is in-memory and meant for tests / dev.
-pub fn build_active_store(backend: &str) -> Box<dyn SecretStore> {
-    build_active_store_with_options(backend, BackendOptions::default())
-}
-
-pub fn build_active_store_with_options(
-    backend: &str,
-    options: BackendOptions,
-) -> Box<dyn SecretStore> {
-    match backend {
-        "local" => Box::new(local::LocalStore::detect_and_build()),
-        "mock" => Box::new(mock::MockStore::new()),
-        "bitwarden" => {
-            let server = options
-                .bitwarden_server_url
-                .unwrap_or_else(|| bitwarden::DEFAULT_BW_SERVER.to_string());
-            Box::new(bitwarden::BitwardenStore::detect_and_build_with_server(server))
-        }
-        other => {
-            log::warn!(
-                "[secrets] unknown backend '{}', falling back to local",
-                other
-            );
-            Box::new(local::LocalStore::detect_and_build())
-        }
-    }
+fn provider_config_for(
+    cfg: &crate::config::schema::SecretsConfig,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let mut map = std::collections::HashMap::new();
+    map.insert(
+        "bitwarden".into(),
+        serde_json::to_value(&cfg.bitwarden).unwrap_or(serde_json::Value::Null),
+    );
+    map
 }
 
 /// Build the initial `SecretStoreState` from current config.
-pub fn new_state(backend: &str) -> SecretStoreState {
-    std::sync::Arc::new(RwLock::new(build_active_store(backend)))
-}
-
-pub fn new_state_with_options(backend: &str, options: BackendOptions) -> SecretStoreState {
-    std::sync::Arc::new(RwLock::new(build_active_store_with_options(backend, options)))
+pub fn new_state(cfg: &crate::config::schema::SecretsConfig) -> SecretStoreState {
+    std::sync::Arc::new(RwLock::new(build_active_store(cfg)))
 }
 
 /// Validate a secret name — used by every adapter to keep behaviour uniform.
@@ -417,27 +407,30 @@ mod tests {
         ));
     }
 
+    fn cfg_with(backend: &str) -> crate::config::schema::SecretsConfig {
+        crate::config::schema::SecretsConfig {
+            backend: backend.to_string(),
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn build_active_store_falls_back_to_local_for_unknown_backend() {
-        let store = build_active_store("garbage-backend");
-        assert_eq!(store.id(), "local");
+        assert_eq!(build_active_store(&cfg_with("garbage")).id(), "local");
     }
 
     #[test]
     fn build_active_store_bitwarden_returns_real_adapter() {
-        let store = build_active_store("bitwarden");
-        assert_eq!(store.id(), "bitwarden");
+        assert_eq!(build_active_store(&cfg_with("bitwarden")).id(), "bitwarden");
     }
 
     #[test]
     fn build_active_store_local_is_default() {
-        let store = build_active_store("local");
-        assert_eq!(store.id(), "local");
+        assert_eq!(build_active_store(&cfg_with("local")).id(), "local");
     }
 
     #[test]
     fn build_active_store_mock_still_available_for_tests() {
-        let store = build_active_store("mock");
-        assert_eq!(store.id(), "mock");
+        assert_eq!(build_active_store(&cfg_with("mock")).id(), "mock");
     }
 }

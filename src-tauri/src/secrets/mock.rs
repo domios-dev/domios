@@ -8,10 +8,28 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use async_trait::async_trait;
 use parking_lot::Mutex;
 
+use super::factory::SecretBackendFactory;
 use super::{
     validate_name, ListFilter, SaveRequest, SecretError, SecretRef, SecretStore, SecretString,
     SecretValue, StoreStatus, UnlockCredentials,
 };
+
+pub struct MockFactory;
+
+impl SecretBackendFactory for MockFactory {
+    fn id(&self) -> &'static str {
+        "mock"
+    }
+    fn label(&self) -> &'static str {
+        "Mock (testing only)"
+    }
+    fn description(&self) -> &'static str {
+        "In-memory only. Data wiped on daemon restart — for tests and local dev."
+    }
+    fn build(&self, _cfg: &serde_json::Value) -> Box<dyn SecretStore> {
+        Box::new(MockStore::new())
+    }
+}
 
 #[derive(Clone)]
 struct MockEntry {

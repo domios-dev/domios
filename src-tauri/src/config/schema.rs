@@ -431,21 +431,18 @@ fn default_bitwarden_server_url() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SecretsConfig {
-    /// Active backend id. Built-in:
-    /// - `"local"` (default — secrets persisted in the OS keychain)
-    /// - `"bitwarden"` (shells out to the Bitwarden CLI)
-    /// - `"mock"` (in-memory, tests and dev only)
+    /// Active backend id. The `SecretBackendFactory` registry knows the
+    /// full list. Built-in: `"local"` (default), `"bitwarden"`, `"mock"`.
     #[serde(default = "default_secrets_backend")]
     pub backend: String,
-    /// Default Bitwarden organization id for new items. Empty = personal vault.
+    /// Default org id for new items (Bitwarden). Empty = personal vault.
     #[serde(default)]
     pub default_organization: String,
-    /// Default Bitwarden collection id for new items.
+    /// Default collection id for new items (Bitwarden).
     #[serde(default)]
     pub default_collection: String,
-    /// Bitwarden adapter settings. Held in a sub-struct so future per-backend
-    /// settings (e.g. `local.index_path`) can sit alongside without growing
-    /// this top-level struct.
+    /// Bitwarden-specific settings. New per-backend structs go alongside
+    /// (e.g. `vault: VaultSettings`) — never grow this struct in-place.
     #[serde(default)]
     pub bitwarden: BitwardenSettings,
 }
@@ -453,17 +450,23 @@ pub struct SecretsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BitwardenSettings {
-    /// Bitwarden / Vaultwarden server URL. Default
-    /// `https://vault.bitwarden.com`. Self-hosted users override this. The
-    /// adapter runs `bw config server <URL>` before login.
+    /// Bitwarden / Vaultwarden server URL. Default `https://vault.bitwarden.com`.
     #[serde(default = "default_bitwarden_server_url")]
     pub server_url: String,
+    /// When true, the master password is saved in the OS keychain on
+    /// successful unlock so the daemon can auto-unlock after restart.
+    /// Default false (user re-types each fresh daemon). Trade-off:
+    /// convenient + no surprise prompts vs. plaintext-on-disk in dev
+    /// builds where the keychain is a 0600 JSON file.
+    #[serde(default)]
+    pub persist_master_password: bool,
 }
 
 impl Default for BitwardenSettings {
     fn default() -> Self {
         Self {
             server_url: default_bitwarden_server_url(),
+            persist_master_password: false,
         }
     }
 }

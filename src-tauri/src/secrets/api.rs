@@ -19,11 +19,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::routes::{check_auth, AppState};
 use crate::secrets::{
-    BackendOptions, ListFilter, SaveRequest, SecretError, SecretRef, SecretString,
-    UnlockCredentials,
+    ListFilter, SaveRequest, SecretError, SecretRef, SecretString, UnlockCredentials,
 };
 
 // ── Error mapping ───────────────────────────────────────────────────
+
+/// Strip C0 control characters (0x00..0x1F) and DEL (0x7F) so an attacker
+/// who controls config/CLI input can't inject ANSI/OSC escapes that would
+/// rewrite the user's terminal title or move the cursor when the CLI
+/// prints the error message verbatim.
+fn sanitize_echoed(s: &str) -> String {
+    s.chars()
+        .filter(|c| {
+            let v = *c as u32;
+            !(v < 0x20 || v == 0x7f)
+        })
+        .collect()
+}
 
 fn map_error(e: SecretError) -> (StatusCode, Json<serde_json::Value>) {
     let status = match &e {
@@ -35,8 +47,24 @@ fn map_error(e: SecretError) -> (StatusCode, Json<serde_json::Value>) {
         SecretError::BadRequest { .. } => StatusCode::BAD_REQUEST,
         SecretError::Backend { .. } => StatusCode::SERVICE_UNAVAILABLE,
     };
+    // `message` may interpolate user-controlled strings (server URL, bw
+    // stderr); scrub control chars before the CLI prints them.
+    let message = match &e {
+        SecretError::LoggedOut => "logged out — sign in again".to_string(),
+        SecretError::Locked => "vault is locked".to_string(),
+        SecretError::NotFound => "not found".to_string(),
+        SecretError::Ambiguous { candidates } => {
+            format!("ambiguous match ({} candidates)", candidates.len())
+        }
+        SecretError::AlreadyExists => "already exists".to_string(),
+        SecretError::BadRequest { message } => sanitize_echoed(message),
+        SecretError::Backend { message } => sanitize_echoed(message),
+    };
     let body = serde_json::json!({
-        "error": e,
+        "error": {
+            "kind": e,
+            "message": message,
+        }
     });
     (status, Json(body))
 }
@@ -113,6 +141,45 @@ pub async fn logout(
     let store = state.svc.secrets.read().await;
     store.logout().await.map_err(map_error)?;
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Re-run the active backend's `init` — for Bitwarden this attempts an
+/// auto-unlock using the master password persisted in the OS keychain on
+/// the previous successful login. No-op for backends without persisted
+/// creds. Used by the CLI `mem secret unlock` (no-password form) and by
+/// the UI when it wants to re-sync session state without prompting.
+pub async fn auto_unlock(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
+    let store = state.svc.secrets.read().await;
+    if let Err(e) = store.init().await {
+        return Err(map_error(e));
+    }
+    let st = store.status().await;
+    let unlocked = matches!(st, crate::secrets::StoreStatus::Unlocked { .. });
+    Ok(Json(serde_json::json!({
+        "ok": unlocked,
+        "backend": store.id(),
+        "status": st,
+    })))
+}
+
+/// Pull latest from the remote vault. No-op for backends with no remote
+/// (Local OS-keychain, Mock). Bitwarden runs `bw sync`.
+pub async fn sync(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
+    let store = state.svc.secrets.read().await;
+    store.sync().await.map_err(map_error)?;
+    Ok(Json(serde_json::json!({"ok": true, "backend": store.id()})))
 }
 
 // ── CRUD ────────────────────────────────────────────────────────────
@@ -235,17 +302,36 @@ pub async fn save_item(
         return Err((s, Json(serde_json::json!({"error": m}))));
     }
     let store = state.svc.secrets.read().await;
+
+    // Fill in default organization / collection from config when the
+    // caller did not specify one explicitly. An empty string in config
+    // means "personal vault" — leave it as None so the backend doesn't
+    // try to attach to a non-existent org.
+    let cfg = crate::config::load_config();
+    let default_org = some_if_nonempty(&cfg.integrations.secrets.default_organization);
+    let default_coll = some_if_nonempty(&cfg.integrations.secrets.default_collection);
+    let organization = body.organization.or(default_org);
+    let collection = body.collection.or(default_coll);
+
     let req = SaveRequest {
         name: body.name,
         value: SecretString::from(body.value),
         notes: body.notes,
         folder: body.folder,
-        organization: body.organization,
-        collection: body.collection,
+        organization,
+        collection,
         overwrite: body.overwrite,
     };
     let r = store.save(req).await.map_err(map_error)?;
     Ok(Json(r))
+}
+
+fn some_if_nonempty(s: &str) -> Option<String> {
+    if s.trim().is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
 }
 
 pub async fn delete_item(
@@ -317,8 +403,7 @@ pub async fn switch_backend(
         return Err((s, Json(serde_json::json!({"error": m}))));
     }
 
-    let known = matches!(body.backend.as_str(), "local" | "bitwarden" | "mock");
-    if !known {
+    if crate::secrets::get_factory(&body.backend).is_none() {
         return Err(map_error(SecretError::BadRequest {
             message: format!("unknown backend: {}", body.backend),
         }));
@@ -349,10 +434,14 @@ pub async fn switch_backend(
         }
     }
 
-    // Build the new backend with the new options, then atomically swap.
+    // Build the new backend, run init, then atomically swap. Init
+    // failures are surfaced — the caller asked to switch and deserves
+    // to know whether the new backend is actually usable.
     let cfg = crate::config::load_config();
-    let opts = BackendOptions::from_config(&cfg.integrations.secrets);
-    let new_store = crate::secrets::build_active_store_with_options(&body.backend, opts);
+    let new_store = crate::secrets::build_active_store(&cfg.integrations.secrets);
+    if let Err(e) = new_store.init().await {
+        log::warn!("[secrets] init on swap to '{}' failed: {}", body.backend, e);
+    }
     {
         let mut guard = state.svc.secrets.write().await;
         *guard = new_store;
@@ -405,6 +494,28 @@ mod tests {
             let (got, _) = map_error(e);
             assert_eq!(got, expected);
         }
+    }
+
+    #[test]
+    fn sanitize_echoed_strips_control_chars() {
+        // ANSI title-set: "\x1b]0;NEW TITLE\x07"
+        let evil = "url \x1b]0;PWNED\x07 here";
+        let cleaned = sanitize_echoed(evil);
+        assert!(!cleaned.contains('\x1b'));
+        assert!(!cleaned.contains('\x07'));
+        assert!(cleaned.contains("url "));
+        assert!(cleaned.contains(" here"));
+    }
+
+    #[test]
+    fn sanitize_echoed_keeps_normal_text() {
+        let s = "normal message — with unicode 🔐";
+        assert_eq!(sanitize_echoed(s), s);
+    }
+
+    #[test]
+    fn sanitize_echoed_drops_del_byte() {
+        assert_eq!(sanitize_echoed("a\x7fb"), "ab");
     }
 
     #[test]

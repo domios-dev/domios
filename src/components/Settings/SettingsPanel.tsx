@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { AppConfig, ProviderConfig } from "../../lib/types";
+import type { AppConfig, ProviderConfig, SecretsConfig } from "../../lib/types";
 import { MeshSection } from "./MeshSection";
 import { CloseXIcon, CheckIcon, CopyIcon } from "../Icons";
 import { isMac } from "../../lib/keybindings";
@@ -8,6 +8,8 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { useUpdate } from "../../hooks/useUpdate";
 import type { UpdateChannel } from "../../hooks/useUpdate";
+import { useMultiplexer } from "../../store/multiplexer";
+import { setPendingCommand } from "../../lib/pendingCommands";
 import {
   Sliders,
   Database,
@@ -442,7 +444,11 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "secrets" && (
               <div className="max-w-2xl mx-auto">
-                <SecretsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
+                <SecretsTab
+                  config={localConfig}
+                  onUpdate={(section, patch) => update(section, patch)}
+                  onCloseSettings={onClose}
+                />
               </div>
             )}
 
@@ -1410,9 +1416,11 @@ interface SecretListItem {
 function SecretsTab({
   config,
   onUpdate,
+  onCloseSettings,
 }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
+  onCloseSettings?: () => void;
 }) {
   const api = config.api;
   const apiBase = api ? `http://${api.host === "0.0.0.0" ? "127.0.0.1" : api.host}:${api.port}` : "";
@@ -1420,6 +1428,35 @@ function SecretsTab({
     ? { Authorization: `Bearer ${api.token}` }
     : {};
   const jsonHeaders: HeadersInit = { "Content-Type": "application/json", ...apiHeaders };
+
+  const { state: muxState } = useMultiplexer();
+  const installBitwardenCli = useCallback(async () => {
+    const platform = navigator.platform.toLowerCase();
+    const cmd = platform.includes("mac")
+      ? "brew install bitwarden-cli"
+      : platform.includes("win")
+        ? "scoop install bitwarden-cli"
+        : "npm i -g @bitwarden/cli";
+
+    const ws =
+      muxState.workspaces.find((w) => w.id === muxState.active_workspace_id) ||
+      muxState.workspaces[0];
+    if (!ws) return;
+    try {
+      const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>(
+        "mux_create_tab",
+        { workspaceId: ws.id },
+      );
+      setPendingCommand(tabInfo.pane_id, cmd);
+      await invoke("mux_set_active_workspace", { workspaceId: ws.id });
+      await invoke("mux_set_active_tab", { workspaceId: ws.id, tabId: tabInfo.id });
+      // Tell the host UI to switch back to the workspace view (away from
+      // Settings) so the user actually sees the install running.
+      onCloseSettings?.();
+    } catch (e) {
+      console.error("Failed to spawn install tab:", e);
+    }
+  }, [muxState, onCloseSettings]);
 
   const cfg = config.integrations?.secrets ?? {
     backend: "local",
@@ -1529,19 +1566,34 @@ function SecretsTab({
     }
   }, [status?.status?.status, refreshItems, refreshOrgs, refreshColls, cfg.default_organization]);
 
+  // Single seam for "merge a partial change into integrations.secrets
+  // without clobbering siblings". Every settings handler funnels through
+  // here so we cannot accidentally drop a field (we hit that bug twice).
+  const patchSecrets = useCallback(
+    (patch: Partial<SecretsConfig>) => {
+      const merged: SecretsConfig = {
+        backend: cfg.backend,
+        default_organization: cfg.default_organization,
+        default_collection: cfg.default_collection,
+        bitwarden: cfg.bitwarden ?? { server_url: bitwardenServerUrl, persist_master_password: false },
+        ...patch,
+      };
+      onUpdate("integrations", { secrets: merged });
+    },
+    [
+      onUpdate,
+      cfg.backend,
+      cfg.default_organization,
+      cfg.default_collection,
+      cfg.bitwarden,
+      bitwardenServerUrl,
+    ],
+  );
+
   const setBackend = useCallback(
     async (next: SecretsBackend) => {
       setError(null);
-      // Optimistically update the local config so the dropdown reflects
-      // the new choice; the swap endpoint persists it for real on disk.
-      onUpdate("integrations", {
-        secrets: {
-          backend: next,
-          default_organization: cfg.default_organization,
-          default_collection: cfg.default_collection,
-          bitwarden: { server_url: bitwardenServerUrl },
-        },
-      });
+      patchSecrets({ backend: next });
       // Drop stale UI state from the previous backend before the swap.
       setItems([]);
       setOrgs([]);
@@ -1569,14 +1621,7 @@ function SecretsTab({
         setError(String(e));
       }
     },
-    [
-      apiBase,
-      jsonHeaders,
-      onUpdate,
-      cfg.default_organization,
-      cfg.default_collection,
-      bitwardenServerUrl,
-    ],
+    [apiBase, jsonHeaders, patchSecrets, bitwardenServerUrl],
   );
 
   const saveServerUrl = useCallback(async () => {
@@ -1586,16 +1631,9 @@ function SecretsTab({
       setError("Server URL must start with http:// or https://");
       return;
     }
-    onUpdate("integrations", {
-      secrets: {
-        backend: cfg.backend,
-        default_organization: cfg.default_organization,
-        default_collection: cfg.default_collection,
-        bitwarden: { server_url: url },
-      },
+    patchSecrets({
+      bitwarden: { ...(cfg.bitwarden ?? { persist_master_password: false }), server_url: url },
     });
-    // Re-trigger the backend swap so the running daemon picks up the new
-    // server URL. The backend itself decides whether to force a re-login.
     try {
       const r = await fetch(`${apiBase}/api/secrets/backend`, {
         method: "POST",
@@ -1614,40 +1652,32 @@ function SecretsTab({
     } catch (e) {
       setError(String(e));
     }
-  }, [
-    apiBase,
-    jsonHeaders,
-    onUpdate,
-    cfg.backend,
-    cfg.default_organization,
-    cfg.default_collection,
-    serverUrlInput,
-  ]);
+  }, [apiBase, jsonHeaders, patchSecrets, cfg.bitwarden, serverUrlInput]);
 
   const setDefaultOrg = useCallback(
     (orgId: string) => {
-      onUpdate("integrations", {
-        secrets: {
-          backend: cfg.backend,
-          default_organization: orgId,
-          default_collection: "", // reset collection when org changes
-        },
-      });
+      patchSecrets({ default_organization: orgId, default_collection: "" });
     },
-    [onUpdate, cfg.backend],
+    [patchSecrets],
   );
 
   const setDefaultColl = useCallback(
     (collId: string) => {
-      onUpdate("integrations", {
-        secrets: {
-          backend: cfg.backend,
-          default_organization: cfg.default_organization,
-          default_collection: collId,
+      patchSecrets({ default_collection: collId });
+    },
+    [patchSecrets],
+  );
+
+  const setPersistMasterPassword = useCallback(
+    (next: boolean) => {
+      patchSecrets({
+        bitwarden: {
+          ...(cfg.bitwarden ?? { server_url: bitwardenServerUrl }),
+          persist_master_password: next,
         },
       });
     },
-    [onUpdate, cfg.backend, cfg.default_organization],
+    [patchSecrets, cfg.bitwarden, bitwardenServerUrl],
   );
 
   const submitPasswordLogin = useCallback(
@@ -1826,6 +1856,20 @@ function SecretsTab({
               Self-hosted Vaultwarden? Point to{" "}
               <code className="font-mono">https://your-host.example</code>. Changing the URL forces a re-login.
             </div>
+            <label className="flex items-center gap-2 cursor-pointer pt-1">
+              <input
+                type="checkbox"
+                checked={cfg.bitwarden?.persist_master_password ?? false}
+                onChange={(e) => setPersistMasterPassword(e.target.checked)}
+                className="cursor-pointer"
+              />
+              <span className="text-[11px] text-[var(--ct-fg)]">
+                Remember master password (auto-unlock after restart)
+              </span>
+            </label>
+            <div className="text-[10px] text-[var(--ct-muted-fg)] pl-5">
+              Stored in the OS keychain. Useful if you don't want to re-type the password on every daemon restart. Off by default.
+            </div>
           </div>
         )}
 
@@ -1835,16 +1879,40 @@ function SecretsTab({
           </div>
         )}
 
+        {backend === "bitwarden" &&
+          status?.status?.status &&
+          status.status.status !== "unavailable" &&
+          status.status.status !== "unlocked" && (
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                onClick={logout}
+                className="text-[11px] px-3 py-1.5 rounded border border-[var(--ct-red)]/40 text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10"
+              >
+                Sign out / clear stored session
+              </button>
+              <span className="text-[10px] text-[var(--ct-muted-fg)]">
+                Wipes the bw session token from your keychain.
+              </span>
+            </div>
+          )}
+
         {status?.status?.status === "unavailable" && (
-          <div className="text-[11px] rounded border border-[var(--ct-red)]/40 bg-[var(--ct-red)]/10 p-3 text-[var(--ct-red)]">
-            <div className="font-medium mb-1">Backend unavailable</div>
-            <div className="text-[var(--ct-fg)]">{status.status.reason}</div>
+          <div className="text-[11px] rounded border border-[var(--ct-red)]/40 bg-[var(--ct-red)]/10 p-3 text-[var(--ct-red)] space-y-2">
+            <div>
+              <div className="font-medium mb-1">Backend unavailable</div>
+              <div className="text-[var(--ct-fg)]">{status.status.reason}</div>
+            </div>
             {backend === "bitwarden" && (
-              <div className="mt-2 space-y-0.5 text-[var(--ct-muted-fg)]">
-                <div>Install the Bitwarden CLI:</div>
-                <div className="font-mono">macOS: <code>brew install bitwarden-cli</code></div>
-                <div className="font-mono">Linux: <code>npm i -g @bitwarden/cli</code></div>
-                <div className="font-mono">Windows: <code>scoop install bitwarden-cli</code></div>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={() => void installBitwardenCli()}
+                  className="text-xs px-3 py-1.5 rounded bg-[var(--ct-accent)] text-[var(--ct-bg)] hover:opacity-90 font-medium"
+                >
+                  Install Bitwarden CLI
+                </button>
+                <span className="text-[10px] text-[var(--ct-muted-fg)]">
+                  Opens a new tab and runs the right install command for your platform.
+                </span>
               </div>
             )}
           </div>
