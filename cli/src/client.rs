@@ -172,6 +172,32 @@ fn normalize_socket_path(path: &str) -> String {
     }
 }
 
+/// Whether the caller wants the dev instance.
+///
+/// Mirrors `read_api_config()`: when CODETERM_API_PORT=7686, the user is
+/// targeting the dev daemon. Auto-discovery should then prefer the dev
+/// socket pipe over any prod pipe alphabetically encountered first.
+fn prefers_dev_socket() -> bool {
+    std::env::var("CODETERM_API_PORT")
+        .map(|v| v.trim() == "7686")
+        .unwrap_or(false)
+}
+
+/// Pick the best socket name from a candidate list given the current preference.
+///
+/// Pure function — split out so it can be unit-tested without touching the
+/// filesystem.
+fn pick_preferred_socket(candidates: &[String], prefer_dev: bool) -> Option<String> {
+    let is_dev = |name: &str| name.contains("dev");
+
+    // 1. Prefer matching the requested instance.
+    if let Some(hit) = candidates.iter().find(|n| is_dev(n) == prefer_dev) {
+        return Some(hit.clone());
+    }
+    // 2. Fall back to anything we found rather than erroring out.
+    candidates.first().cloned()
+}
+
 #[cfg(target_os = "windows")]
 fn discover_windows_pipe() -> Result<String, String> {
     // Scan \\.\pipe\ directory for codeterm-* pipes
@@ -179,12 +205,14 @@ fn discover_windows_pipe() -> Result<String, String> {
     let pipe_dir = "\\\\.\\pipe";
     match fs::read_dir(pipe_dir) {
         Ok(entries) => {
-            for entry in entries.flatten() {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.starts_with("codeterm-") {
-                        return Ok(name.to_string());
-                    }
-                }
+            let mut candidates: Vec<String> = entries
+                .flatten()
+                .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
+                .filter(|n| n.starts_with("codeterm-"))
+                .collect();
+            candidates.sort();
+            if let Some(name) = pick_preferred_socket(&candidates, prefers_dev_socket()) {
+                return Ok(name);
             }
             Err("No CodeTerm socket found. Is CodeTerm running?".to_string())
         }
@@ -204,12 +232,14 @@ fn discover_unix_socket() -> Result<String, String> {
     // Scan /tmp for codeterm-*.sock files and return the bare name
     // (GenericNamespaced will prepend /tmp/ when connecting)
     if let Ok(entries) = fs::read_dir("/tmp") {
-        for entry in entries.flatten() {
-            if let Some(name) = entry.file_name().to_str() {
-                if name.starts_with("codeterm-") && name.ends_with(".sock") {
-                    return Ok(name.to_string());
-                }
-            }
+        let mut candidates: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
+            .filter(|n| n.starts_with("codeterm-") && n.ends_with(".sock"))
+            .collect();
+        candidates.sort();
+        if let Some(name) = pick_preferred_socket(&candidates, prefers_dev_socket()) {
+            return Ok(name);
         }
     }
 
@@ -233,4 +263,49 @@ fn discover_unix_socket() -> Result<String, String> {
     }
 
     Err("No CodeTerm socket found. Is CodeTerm running?".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picks_dev_when_dev_preferred() {
+        let candidates = vec![
+            "codeterm-1234".to_string(),
+            "codeterm-dev.sock".to_string(),
+        ];
+        assert_eq!(
+            pick_preferred_socket(&candidates, true),
+            Some("codeterm-dev.sock".to_string())
+        );
+    }
+
+    #[test]
+    fn picks_prod_when_dev_not_preferred() {
+        let candidates = vec![
+            "codeterm-1234".to_string(),
+            "codeterm-dev.sock".to_string(),
+        ];
+        assert_eq!(
+            pick_preferred_socket(&candidates, false),
+            Some("codeterm-1234".to_string())
+        );
+    }
+
+    #[test]
+    fn falls_back_when_only_other_kind_present() {
+        let candidates = vec!["codeterm-1234".to_string()];
+        assert_eq!(
+            pick_preferred_socket(&candidates, true),
+            Some("codeterm-1234".to_string())
+        );
+    }
+
+    #[test]
+    fn returns_none_when_nothing_found() {
+        let candidates: Vec<String> = vec![];
+        assert_eq!(pick_preferred_socket(&candidates, true), None);
+        assert_eq!(pick_preferred_socket(&candidates, false), None);
+    }
 }

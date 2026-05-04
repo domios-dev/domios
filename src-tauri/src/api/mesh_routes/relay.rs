@@ -18,6 +18,14 @@ pub async fn mesh_sync(
         (s, e.to_string())
     })?;
 
+    // Identify the gossip sender so we can record them as a voucher on
+    // every peer they tell us about. The auth_middleware already accepted
+    // the bearer token; re-verify here only to recover the sender_id —
+    // that's the only authoritative way to know which paired peer is
+    // talking to us. Fall through silently if it doesn't parse so we don't
+    // break gossip on auth-token format changes.
+    let sender_id = sender_id_from_headers(&state, &headers);
+
     let mut mesh = state.mesh.lock();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
@@ -25,6 +33,21 @@ pub async fn mesh_sync(
         if peer_info.instance_id == mesh.ident.identity.instance_id { continue; }
         if mesh.paired_peers.contains_key(&peer_info.instance_id) { continue; }
         let clean_addrs = crate::mesh::types::sanitize_addresses(&peer_info.addresses);
+
+        // Merge vouchers: keep prior vouched_by entries, add this sender,
+        // dedupe + sort. Stable order keeps the UI from flicker-rerendering.
+        let mut vouched_by = mesh.discovered_peers
+            .get(&peer_info.instance_id)
+            .map(|p| p.vouched_by.clone())
+            .unwrap_or_default();
+        if let Some(ref sid) = sender_id {
+            if !vouched_by.contains(sid) {
+                vouched_by.push(sid.clone());
+            }
+        }
+        vouched_by.sort();
+        vouched_by.dedup();
+
         mesh.discovered_peers.insert(peer_info.instance_id.clone(), crate::mesh::types::DiscoveredPeer {
             instance_id: peer_info.instance_id.clone(),
             instance_name: peer_info.instance_name.clone(),
@@ -32,6 +55,7 @@ pub async fn mesh_sync(
             api_port: peer_info.api_port,
             discovery_method: crate::mesh::types::DiscoveryMethod::Gossip,
             last_seen: now, dev: peer_info.dev, mesh_id: None,
+            vouched_by,
         });
         log::info!("[mesh/gossip] Learned about peer {} ({})", peer_info.instance_name, peer_info.instance_id);
     }
@@ -41,6 +65,22 @@ pub async fn mesh_sync(
     let our_payload = mesh.build_sync_payload();
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
     Ok(Json(serde_json::to_value(our_payload).unwrap()))
+}
+
+/// Decode the Authorization bearer token and return the signed sender's
+/// instance_id, or None if the header is absent / unsigned / unverifiable.
+/// Used by mesh_sync to attribute gossip vouches; auth_middleware has
+/// already gated whether the request runs at all.
+fn sender_id_from_headers(state: &AppState, headers: &HeaderMap) -> Option<String> {
+    let auth = headers.get("authorization").and_then(|v| v.to_str().ok())?;
+    let token = auth.strip_prefix("Bearer ").unwrap_or("");
+    if token.is_empty() { return None; }
+    let mesh = state.mesh.lock();
+    let mut known_keys = mesh.known_public_keys();
+    if let Some(ref pk) = mesh.ident.identity.public_key {
+        known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
+    }
+    crate::mesh::crown::verify_signed_request(token, &known_keys).ok()
 }
 
 /// Sensitive relay paths that mutate the peer (install update, change channel).
