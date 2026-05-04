@@ -101,6 +101,14 @@ impl MeshManager {
     // ── Status & peers ──────────────────────────────────────────────
 
     pub fn status(&self) -> MeshStatus {
+        // discovered_count must match peers_response().discovered.len() —
+        // both filter out peers that are also in paired_peers, otherwise
+        // status reports N "discovered" but peers list only shows M<N
+        // (and operators chasing the discrepancy waste time on a
+        // diagnostic-only mismatch).
+        let discovered_count = self.discovered_peers.values()
+            .filter(|d| !self.paired_peers.contains_key(&d.instance_id))
+            .count();
         MeshStatus {
             enabled: true,
             instance_id: self.ident.identity.instance_id.clone(),
@@ -113,7 +121,7 @@ impl MeshManager {
             local_ip: self.local_ip.clone(),
             api_port: self.api_port,
             paired_count: self.paired_peers.len(),
-            discovered_count: self.discovered_peers.len(),
+            discovered_count,
         }
     }
 
@@ -304,15 +312,19 @@ impl MeshManager {
                 sender_id, ann.instance_id
             ));
         }
-        if ann.addresses.is_empty() {
-            // Treat empty list as no-op — keep existing cached addresses.
+        // Strip unparseable IPs (release/1.1.9 sanitize-on-ingest).
+        // If a v1.1.8 peer announces a poisoned address list and ALL entries
+        // fail to parse, treat as a no-op rather than blanking the cache —
+        // we'd rather keep stale-but-valid addresses than commit nothing.
+        let clean = types::sanitize_addresses(&ann.addresses);
+        if clean.is_empty() {
             return Ok(None);
         }
         let prev = {
             let peer = self.paired_peers.get_mut(&ann.instance_id)
                 .ok_or_else(|| format!("Peer {} not paired", ann.instance_id))?;
             let prev = peer.addresses.clone();
-            peer.addresses = ann.addresses.clone();
+            peer.addresses = clean.clone();
             peer.api_port = ann.api_port;
             if !ann.instance_name.is_empty() {
                 peer.instance_name = ann.instance_name.clone();
@@ -320,7 +332,7 @@ impl MeshManager {
             prev
         };
         let _ = self.save();
-        if prev_addrs_equal(&prev, &ann.addresses) {
+        if prev_addrs_equal(&prev, &clean) {
             Ok(None)
         } else {
             Ok(Some(prev))
