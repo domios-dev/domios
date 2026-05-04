@@ -7,15 +7,30 @@
 //! - Linux: text/uri-list (TODO)
 
 #[tauri::command]
-pub async fn read_clipboard_files() -> Result<Vec<String>, String> {
+pub async fn read_clipboard_files(
+    #[cfg(target_os = "macos")] app: tauri::AppHandle,
+) -> Result<Vec<String>, String> {
     #[cfg(target_os = "windows")]
     let paths = read_windows();
     #[cfg(target_os = "macos")]
-    let paths = read_macos();
+    let paths = read_macos_on_main(&app)?;
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     let paths: Vec<String> = Vec::new();
 
     Ok(paths.into_iter().map(sanitize_path).collect())
+}
+
+/// Hop to main thread before touching NSPasteboard — AppKit pasteboard APIs
+/// are not thread-safe and racing against WebKit's paste path corrupts the
+/// type cache (`__NSArrayM insertObject:atIndex:` → SIGABRT). See issue #34.
+#[cfg(target_os = "macos")]
+fn read_macos_on_main(app: &tauri::AppHandle) -> Result<Vec<String>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(read_macos());
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv().map_err(|e| e.to_string())
 }
 
 /// Strip control characters — prevents newline injection from triggering auto-submit.

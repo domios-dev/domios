@@ -14,12 +14,13 @@ export async function sendFilePathsToPty(ptyId: string, paths: string[]): Promis
 
 /** Read clipboard via web API + native file-ref fallback, route to PTY. */
 export async function pasteClipboardToPty(ptyId: string, opts: PasteOptions = {}): Promise<boolean> {
+  const skipText = opts.skipText ?? false;
   const nativePaths = await readNativeClipboardFiles();
   if (nativePaths.length > 0) {
     return sendFilePathsToPty(ptyId, nativePaths);
   }
 
-  const web = await readWebClipboard(opts.skipText ?? false);
+  const web = await readWebClipboard(skipText);
   if (web.text !== null) {
     await invoke("write_pty_string", { ptyId, data: web.text });
   }
@@ -28,6 +29,10 @@ export async function pasteClipboardToPty(ptyId: string, opts: PasteOptions = {}
   }
   if (web.text !== null || web.paths.length > 0) return true;
 
+  // When skipText is requested (Cmd+V path on macOS) the caller relies on
+  // xterm's native paste to deliver text — falling back to readText here
+  // would write the same text a second time. See issue #35.
+  if (skipText) return false;
   return fallbackReadText(ptyId);
 }
 
