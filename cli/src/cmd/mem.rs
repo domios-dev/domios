@@ -61,9 +61,10 @@ fn mem_post_request(
 ) -> Result<serde_json::Value, String> {
     let resp = http.post(url).json(body).send().map_err(|e| e.to_string())?;
     let status = resp.status();
-    let val: serde_json::Value = resp.json().unwrap_or_default();
+    let text = resp.text().unwrap_or_default();
+    let val: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
     if !status.is_success() {
-        return Err(val.to_string());
+        return Err(if text.is_empty() { val.to_string() } else { text });
     }
     Ok(val)
 }
