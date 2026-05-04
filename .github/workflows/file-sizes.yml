@@ -1,0 +1,27 @@
+name: file-sizes
+
+# Source-file size discipline: scripts/check-file-sizes.sh.
+# Phase 1 = warn-only so legacy >800 files don't break the build while we
+# drain the backlog. Flip to --fail once the allowlist is empty.
+
+on:
+  pull_request:
+    paths:
+      - '**/*.rs'
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '**/*.py'
+      - '**/*.swift'
+      - 'scripts/file-size-allowlist.txt'
+      - 'scripts/check-file-sizes.sh'
+      - '.github/workflows/file-sizes.yml'
+  push:
+    branches: [develop, master]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run file-size discipline check
+        run: bash scripts/check-file-sizes.sh --fail
