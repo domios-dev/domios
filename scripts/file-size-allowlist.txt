@@ -10,7 +10,6 @@
 cli/src/main.rs	4828
 src-tauri/src/api/routes.rs	2414
 src/components/Settings/SettingsPanel.tsx	2328
-src-tauri/src/secrets/bitwarden.rs	1834
 src-tauri/src/multiplexer/state.rs	1809
 src-tauri/src/mem/store.rs	1786
 src-tauri/src/commands.rs	1649
