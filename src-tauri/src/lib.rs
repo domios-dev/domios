@@ -539,11 +539,46 @@ fn install_bundled_cli(app: &tauri::App) {
                 {
                     use std::os::unix::fs::PermissionsExt;
                     let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
-                    // Symlink to ~/.local/bin/ for PATH access (user-local, no sudo)
+                    // Symlink to ~/.local/bin/ for PATH access (user-local, no sudo).
+                    // If a symlink already exists but points elsewhere (typically
+                    // the .app launcher from a Homebrew cask or older install),
+                    // repair it — otherwise `codeterm <subcommand>` from PATH
+                    // hits the launcher, which boots the daemon and exits 0
+                    // without parsing the subcommand. See repo issue #30.
                     let local_bin = home.join(".local").join("bin");
                     let _ = std::fs::create_dir_all(&local_bin);
                     let link = local_bin.join("codeterm");
-                    if !link.exists() {
+                    let needs_create = match std::fs::symlink_metadata(&link) {
+                        Ok(meta) if meta.file_type().is_symlink() => {
+                            match std::fs::read_link(&link) {
+                                Ok(target) if target == dest => false,
+                                Ok(stale) => {
+                                    log::warn!(
+                                        "[cli-install] Replacing stale symlink {} -> {}",
+                                        link.display(),
+                                        stale.display()
+                                    );
+                                    let _ = std::fs::remove_file(&link);
+                                    true
+                                }
+                                Err(_) => {
+                                    let _ = std::fs::remove_file(&link);
+                                    true
+                                }
+                            }
+                        }
+                        Ok(_) => {
+                            // Regular file or directory — user/installer placed
+                            // a real binary here. Don't clobber; log and skip.
+                            log::warn!(
+                                "[cli-install] {} exists and is not a symlink; refusing to replace",
+                                link.display()
+                            );
+                            false
+                        }
+                        Err(_) => true,
+                    };
+                    if needs_create {
                         if let Err(e) = std::os::unix::fs::symlink(&dest, &link) {
                             log::debug!("[cli-install] Symlink to ~/.local/bin failed: {}", e);
                         }
