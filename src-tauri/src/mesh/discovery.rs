@@ -8,6 +8,12 @@ use super::MeshManager;
 
 const SERVICE_TYPE: &str = "_codeterm._tcp.local.";
 const PEER_TTL_SECS: u64 = 300;
+/// How often the background loop actively pulls gossip from each paired
+/// peer to refresh discovered_peers' last_seen. Must stay strictly below
+/// PEER_TTL_SECS so that discovered peers known only via gossip aren't
+/// pruned between pushes. 60s gives ~5x safety margin against the 300s
+/// TTL and matches the existing 15s health-loop cadence (every 4th tick).
+pub const PROACTIVE_SYNC_INTERVAL_SECS: u64 = 60;
 const BROADCAST_INTERVAL_SECS: u64 = 30;
 const BROADCAST_MAGIC: &[u8] = b"CODETERM1";
 

@@ -94,6 +94,36 @@ pub fn sanitize_addresses(addresses: &[PeerAddress]) -> Vec<PeerAddress> {
         .collect()
 }
 
+/// Decide whether the periodic background loop should send_sync to a paired
+/// peer this iteration. We sync on every offline→online transition (so
+/// reconnects refresh the gossip view immediately) AND periodically while
+/// the peer stays online, so that gossip-discovered peers known only via
+/// this paired peer don't decay past PEER_TTL_SECS in cleanup_stale_peers.
+///
+/// Without periodic sync, a discovered peer's last_seen is only refreshed
+/// when its mediator pushes gossip to us (mesh_sync inbound), the cadence
+/// of which we don't control. Observed in the wild: paired peers sync at
+/// ~5–10 min intervals, but PEER_TTL_SECS = 300 — so any gossip-discovered
+/// peer falls out of `mesh peers` between pushes.
+pub fn should_proactive_sync(
+    online: bool,
+    was_online: bool,
+    now_secs: u64,
+    last_sync_secs: Option<u64>,
+    interval_secs: u64,
+) -> bool {
+    if !online {
+        return false;
+    }
+    if !was_online {
+        return true;
+    }
+    match last_sync_secs {
+        None => true,
+        Some(t) => now_secs.saturating_sub(t) >= interval_secs,
+    }
+}
+
 // ── Live address announce ───────────────────────────────────────────
 
 /// Sent by a peer to tell us its current addresses changed (network swap,
@@ -406,5 +436,54 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].ip, "100.84.1.2");
         assert_eq!(out[1].ip, "192.168.1.2");
+    }
+
+    #[test]
+    fn proactive_sync_skips_when_offline() {
+        // Offline peer — never sync, regardless of last_sync state.
+        assert!(!should_proactive_sync(false, false, 1000, None, 60));
+        assert!(!should_proactive_sync(false, true, 1000, Some(0), 60));
+        assert!(!should_proactive_sync(false, true, 10_000, Some(0), 60));
+    }
+
+    #[test]
+    fn proactive_sync_fires_on_reconnect_regardless_of_last_sync() {
+        // offline→online transition always triggers sync to refresh gossip
+        // immediately; previous last_sync timestamp is irrelevant.
+        assert!(should_proactive_sync(true, false, 1000, None, 60));
+        assert!(should_proactive_sync(true, false, 1000, Some(999), 60));
+        assert!(should_proactive_sync(true, false, 1000, Some(0), 60));
+    }
+
+    #[test]
+    fn proactive_sync_fires_when_last_sync_unknown_for_steady_online_peer() {
+        // First iteration after a state where peer was already online but
+        // we have no record of having synced — must sync to populate the map.
+        assert!(should_proactive_sync(true, true, 1000, None, 60));
+    }
+
+    #[test]
+    fn proactive_sync_fires_when_interval_elapsed() {
+        // Peer steady online and last_sync ≥ interval ago → sync to refresh
+        // gossip-discovered peers' last_seen before TTL eviction.
+        assert!(should_proactive_sync(true, true, 1060, Some(1000), 60));
+        assert!(should_proactive_sync(true, true, 1500, Some(1000), 60));
+    }
+
+    #[test]
+    fn proactive_sync_skips_when_recently_synced() {
+        // Peer steady online and last_sync < interval ago → skip to avoid
+        // hammering paired peers. Network traffic stays bounded.
+        assert!(!should_proactive_sync(true, true, 1059, Some(1000), 60));
+        assert!(!should_proactive_sync(true, true, 1001, Some(1000), 60));
+        assert!(!should_proactive_sync(true, true, 1000, Some(1000), 60));
+    }
+
+    #[test]
+    fn proactive_sync_handles_clock_skew_via_saturating_sub() {
+        // If now < last_sync (clock went backwards from system update or
+        // similar), saturating_sub yields 0 — interval comparison fails,
+        // we skip. Sane behavior: don't blast sync requests after clock skew.
+        assert!(!should_proactive_sync(true, true, 500, Some(1000), 60));
     }
 }
