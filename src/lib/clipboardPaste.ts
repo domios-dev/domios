@@ -20,7 +20,14 @@ export async function pasteClipboardToPty(ptyId: string, opts: PasteOptions = {}
     return sendFilePathsToPty(ptyId, nativePaths);
   }
 
-  const web = await readWebClipboard(skipText);
+  // Cmd+V terminal path: skip the WebKit clipboard read entirely.
+  // `navigator.clipboard.read()` triggers the macOS Sequoia "Paste from X"
+  // confirmation bubble that interrupts the workflow. Plain text reaches
+  // the PTY via xterm.onData; image-on-clipboard via terminal Cmd+V is not
+  // supported by design (use the chat input field for that).
+  if (skipText) return false;
+
+  const web = await readWebClipboard(false);
   if (web.text !== null) {
     await invoke("write_pty_string", { ptyId, data: web.text });
   }
@@ -29,10 +36,6 @@ export async function pasteClipboardToPty(ptyId: string, opts: PasteOptions = {}
   }
   if (web.text !== null || web.paths.length > 0) return true;
 
-  // When skipText is requested (Cmd+V path on macOS) the caller relies on
-  // xterm's native paste to deliver text — falling back to readText here
-  // would write the same text a second time. See issue #35.
-  if (skipText) return false;
   return fallbackReadText(ptyId);
 }
 

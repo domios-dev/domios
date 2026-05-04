@@ -78,11 +78,17 @@ impl OpenCodeProvider {
         // Be liberal with errors — schema drift in newer opencode versions
         // shouldn't blow up the codeterm daemon. If the query fails, fall
         // through to the legacy filesystem walk.
+        // Filter on `time_created` (not `time_updated`) so that resuming an
+        // older session — which bumps `time_updated` to now — doesn't make it
+        // re-eligible for the next fresh pane in the same directory. Each
+        // newly-spawned opencode pane should pick up only sessions that were
+        // *created* during this detection window. Order by `time_created DESC`
+        // for the same reason.
         let mut stmt = conn
             .prepare(
-                "SELECT id, time_updated FROM session \
+                "SELECT id, time_created FROM session \
                  WHERE directory = ?1 AND time_archived IS NULL \
-                 ORDER BY time_updated DESC LIMIT 50",
+                 ORDER BY time_created DESC LIMIT 50",
             )
             .ok()?;
         let now_ms = std::time::SystemTime::now()
@@ -96,12 +102,12 @@ impl OpenCodeProvider {
             })
             .ok()?;
         for row in rows.flatten() {
-            let (id, updated_ms) = row;
+            let (id, created_ms) = row;
             if exclude.contains(&id) {
                 continue;
             }
             if let Some(cut) = cutoff_ms {
-                if updated_ms < cut {
+                if created_ms < cut {
                     continue;
                 }
             }

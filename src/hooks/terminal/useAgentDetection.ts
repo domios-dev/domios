@@ -22,7 +22,7 @@ function pollSessionId(
   getPanes: () => Record<string, { agent_session_id?: string | null; cwd?: string | null } | undefined>,
   attempt = 0,
 ) {
-  const MAX_ATTEMPTS = 20; // 20 × 3s ≈ 60s budget
+  const MAX_ATTEMPTS = 60; // 60 × 3s ≈ 180s budget — slow providers (github-copilot, auth flows) can take >1 min
   if (attempt > MAX_ATTEMPTS) return;
   const panes = getPanes();
   const pane = panes[paneId];
@@ -36,10 +36,14 @@ function pollSessionId(
     setTimeout(() => pollSessionId(paneId, providerId, getPanes, attempt + 1), 2000);
     return;
   }
+  // Cap detection window to 5 min (matches backend `kick_off_session_detection`).
+  // Without a cutoff, any stale session in the same cwd from a prior pane
+  // gets pinned to a fresh one — see opencode/codex multi-pane spawn race.
   invoke<string | null>("detect_pane_session_id", {
     providerId,
     cwd: paneCwd,
     exclude: excludeIds,
+    maxAgeSecs: 300,
   })
     .then((sessionId) => {
       if (sessionId) {
