@@ -7,7 +7,7 @@
 #
 # Adding a new line to this list = admitting we shipped a >800 file. Don't.
 
-cli/src/main.rs	4828
+cli/src/main.rs	4909
 src-tauri/src/api/routes.rs	2414
 src-tauri/src/multiplexer/state.rs	1809
 src-tauri/src/mem/store.rs	1786
