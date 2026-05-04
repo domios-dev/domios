@@ -25,6 +25,11 @@ pub enum DiscoveryMethod {
     Tailscale,
     Udp,
     Manual,
+    /// Learned about this peer via a gossip-sync push from another paired
+    /// peer (mesh_sync handler). Distinct from Mdns/Udp because the local
+    /// daemon never directly observed the announcement — diagnostically
+    /// important when tracking down poisoned-address propagation.
+    Gossip,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +73,25 @@ pub fn address_tier(addr: &PeerAddress) -> u8 {
     if addr.is_tailscale { 0 }
     else if is_lan_private_ip(&addr.ip) { 1 }
     else { 2 }
+}
+
+/// Drop addresses whose `ip` field doesn't parse as a real IpAddr.
+///
+/// Pre-v1.1.9 daemons could publish unparseable error-string IPs into
+/// peer records when `tailscale ip -4` failed via the GUI bridge — see
+/// commit f0ff692 / release/1.1.9 issue #28. The validate-before-cache
+/// fix only protects fresh pairs; existing peers.json records and any
+/// gossip from still-running v1.1.8 peers carry the poison forward.
+///
+/// Apply this on every inbound address path (load_peers on startup,
+/// mesh_sync ingest, mesh_introduce, mesh_announce_inbound) so a single
+/// poisoned peer can't keep re-poisoning the network.
+pub fn sanitize_addresses(addresses: &[PeerAddress]) -> Vec<PeerAddress> {
+    addresses
+        .iter()
+        .filter(|a| a.ip.parse::<std::net::IpAddr>().is_ok())
+        .cloned()
+        .collect()
 }
 
 // ── Live address announce ───────────────────────────────────────────
@@ -343,5 +367,44 @@ mod tests {
         ];
         let pick = addrs.iter().min_by_key(|a| address_tier(a)).unwrap();
         assert_eq!(pick.ip, "100.84.1.2");
+    }
+
+    #[test]
+    fn sanitize_addresses_passes_clean_ips_through() {
+        let addrs = vec![
+            PeerAddress { ip: "100.84.1.2".into(), is_tailscale: true },
+            PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false },
+            PeerAddress { ip: "::1".into(), is_tailscale: false },
+        ];
+        let out = sanitize_addresses(&addrs);
+        assert_eq!(out.len(), 3);
+    }
+
+    #[test]
+    fn sanitize_addresses_drops_unparseable_strings() {
+        // The actual poison strings observed in the wild from a broken
+        // `tailscale ip -4` GUI bridge: error text on stdout instead of an IP.
+        let poisoned = vec![
+            PeerAddress { ip: "Tailscale daemon is not running.".into(), is_tailscale: false },
+            PeerAddress { ip: "failed to connect to local backend".into(), is_tailscale: false },
+            PeerAddress { ip: "".into(), is_tailscale: false },
+            PeerAddress { ip: "not-an-ip".into(), is_tailscale: false },
+        ];
+        let out = sanitize_addresses(&poisoned);
+        assert!(out.is_empty(), "all entries should be dropped, got: {:?}", out);
+    }
+
+    #[test]
+    fn sanitize_addresses_preserves_clean_drops_poisoned_in_mixed_list() {
+        let mixed = vec![
+            PeerAddress { ip: "100.84.1.2".into(), is_tailscale: true },
+            PeerAddress { ip: "Tailscale daemon is not running.".into(), is_tailscale: false },
+            PeerAddress { ip: "192.168.1.2".into(), is_tailscale: false },
+            PeerAddress { ip: "garbage".into(), is_tailscale: false },
+        ];
+        let out = sanitize_addresses(&mixed);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].ip, "100.84.1.2");
+        assert_eq!(out[1].ip, "192.168.1.2");
     }
 }

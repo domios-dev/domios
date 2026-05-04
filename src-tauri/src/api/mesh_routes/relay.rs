@@ -24,12 +24,13 @@ pub async fn mesh_sync(
     for peer_info in &payload.peers {
         if peer_info.instance_id == mesh.ident.identity.instance_id { continue; }
         if mesh.paired_peers.contains_key(&peer_info.instance_id) { continue; }
+        let clean_addrs = crate::mesh::types::sanitize_addresses(&peer_info.addresses);
         mesh.discovered_peers.insert(peer_info.instance_id.clone(), crate::mesh::types::DiscoveredPeer {
             instance_id: peer_info.instance_id.clone(),
             instance_name: peer_info.instance_name.clone(),
-            addresses: peer_info.addresses.clone(),
+            addresses: clean_addrs,
             api_port: peer_info.api_port,
-            discovery_method: crate::mesh::types::DiscoveryMethod::Mdns,
+            discovery_method: crate::mesh::types::DiscoveryMethod::Gossip,
             last_seen: now, dev: peer_info.dev, mesh_id: None,
         });
         log::info!("[mesh/gossip] Learned about peer {} ({})", peer_info.instance_name, peer_info.instance_id);

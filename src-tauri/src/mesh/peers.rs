@@ -98,6 +98,12 @@ struct PairedPeerDisk {
 }
 
 /// Load all paired peers from disk.
+///
+/// Runs `sanitize_addresses` on each peer's address list to strip
+/// unparseable IPs that pre-v1.1.9 daemons may have published into the
+/// record (release/1.1.9 issue #28 / commit f0ff692 background). If
+/// anything was filtered, persists the cleaned state immediately so
+/// subsequent loads are no-ops. Idempotent.
 pub fn load_peers() -> HashMap<String, PairedPeer> {
     let path = peers_path();
     let data = match std::fs::read_to_string(&path) {
@@ -111,11 +117,15 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
             return HashMap::new();
         }
     };
-    file.peers.into_iter().map(|(id, d)| {
+    let mut scrubbed = 0usize;
+    let peers: HashMap<String, PairedPeer> = file.peers.into_iter().map(|(id, d)| {
+        let before = d.addresses.len();
+        let clean = crate::mesh::types::sanitize_addresses(&d.addresses);
+        scrubbed += before - clean.len();
         (id, PairedPeer {
             instance_id: d.instance_id,
             instance_name: d.instance_name,
-            addresses: d.addresses,
+            addresses: clean,
             api_port: d.api_port,
             public_key: d.public_key,
             paired_at: d.paired_at,
@@ -125,7 +135,14 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
             access_level: d.access_level,
             version: d.version,
         })
-    }).collect()
+    }).collect();
+    if scrubbed > 0 {
+        log::info!("[mesh/migrate] Scrubbed {} unparseable IP entries from peers.json", scrubbed);
+        if let Err(e) = save_peers(&peers) {
+            log::warn!("[mesh/migrate] Failed to persist scrubbed peers.json: {}", e);
+        }
+    }
+    peers
 }
 
 /// Save all paired peers to disk.
