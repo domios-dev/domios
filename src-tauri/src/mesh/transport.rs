@@ -1,6 +1,61 @@
 //! HTTP transport for peer-to-peer communication.
 //! All authenticated requests use Ed25519 signed JWTs.
 
+use super::types::{address_tier, PeerAddress};
+
+/// Outcome of one attempt against a peer address.
+///
+/// `Retry` means the address failed at the network layer (timeout, refused,
+/// DNS, etc.) and the next address in priority order should be tried.
+/// `Stop` means the peer responded authoritatively (HTTP 4xx/5xx, parse
+/// error) so retrying a different address would just rejection the same
+/// way — return the error immediately.
+pub enum TryNext<T> {
+    Success(T),
+    Retry(String),
+    Stop(String),
+}
+
+/// Walk a peer's addresses in priority order (Tailscale → LAN → public),
+/// invoking `op` against each and returning the first success.
+///
+/// Each address gets its own attempt; connection-class errors fall through
+/// to the next, while authoritative responses short-circuit. When every
+/// address fails the joined error trail is returned so the caller can log
+/// what happened on each route.
+pub async fn try_peer<T, F, Fut>(
+    addresses: &[PeerAddress],
+    op: F,
+) -> Result<T, String>
+where
+    F: Fn(&PeerAddress) -> Fut,
+    Fut: std::future::Future<Output = TryNext<T>>,
+{
+    if addresses.is_empty() {
+        return Err("no addresses".to_string());
+    }
+    let mut sorted: Vec<&PeerAddress> = addresses.iter().collect();
+    sorted.sort_by_key(|a| address_tier(a));
+    let mut errors: Vec<String> = Vec::new();
+    for (idx, addr) in sorted.iter().enumerate() {
+        match op(addr).await {
+            TryNext::Success(v) => {
+                if idx > 0 {
+                    log::info!(
+                        "[mesh/transport] fell back to {} after {} prior failure(s)",
+                        addr.ip,
+                        idx
+                    );
+                }
+                return Ok(v);
+            }
+            TryNext::Stop(e) => return Err(e),
+            TryNext::Retry(e) => errors.push(format!("{}: {}", addr.ip, e)),
+        }
+    }
+    Err(format!("all addresses failed: {}", errors.join("; ")))
+}
+
 /// HTTP client for communicating with a paired peer.
 pub struct PeerClient {
     client: reqwest::Client,

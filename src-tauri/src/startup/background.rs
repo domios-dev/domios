@@ -159,6 +159,47 @@ pub(crate) fn start_background_tasks(
         }
     }
 
+    // Periodic announce — push our current addresses to every paired peer
+    // so cached records stay fresh as networks shuffle (Tailscale lease,
+    // VPN toggle, LAN-to-WiFi swap, etc.). Loop fires every ~90s with
+    // jitter so peers don't synchronize their announce clocks.
+    {
+        let mesh = states.mesh.clone();
+        let mesh_enabled = states.config.lock().mesh.enabled;
+        if mesh_enabled {
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(20));
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Failed to create mesh announce runtime");
+                rt.block_on(async {
+                    use std::time::Duration;
+                    loop {
+                        // 90s base + 0..30s random jitter — keeps peers from
+                        // all hitting the network simultaneously.
+                        let jitter = (std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .subsec_nanos() % 30) as u64;
+                        tokio::time::sleep(Duration::from_secs(90 + jitter)).await;
+                        // Refresh local addrs first so the announce reflects the
+                        // current network state, not a snapshot from boot.
+                        mesh::refresh_local_addresses(&mesh);
+                        let report = mesh::broadcast_announce(&mesh, None).await;
+                        if report.sent > 0 {
+                            log::debug!(
+                                "[mesh/announce.periodic] sent={} ok={} stale={} errors={}",
+                                report.sent, report.ok,
+                                report.stale_peers.len(), report.errors.len()
+                            );
+                        }
+                    }
+                });
+            });
+        }
+    }
+
     // Background update check (5s delay to not slow startup)
     {
         let update_st = states.update.clone();

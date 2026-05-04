@@ -372,10 +372,9 @@ pub async fn broadcast_sync(mesh: &MeshState) {
         let m = mesh.lock();
         let payload = m.build_sync_payload();
         let clients: Vec<_> = m.paired_peers.values().filter_map(|p| {
-            let addr = p.addresses.iter().find(|a| a.is_tailscale)
-                .or_else(|| p.addresses.first())?;
+            if p.addresses.is_empty() { return None; }
             let token = m.sign_request().ok()?;
-            Some((addr.ip.clone(), p.api_port, token, p.instance_id.clone()))
+            Some((p.addresses.clone(), p.api_port, token, p.instance_id.clone()))
         }).collect();
         (payload, clients)
     };
@@ -383,19 +382,29 @@ pub async fn broadcast_sync(mesh: &MeshState) {
     if clients.is_empty() { return; }
     let http = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
-    for (ip, port, token, peer_id) in &clients {
-        let url = format!("http://{}:{}/api/mesh/sync", ip, port);
-        match http.post(&url)
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&payload)
-            .send().await
-        {
-            Ok(resp) if resp.status().is_success() =>
-                log::info!("[mesh/broadcast] Synced to {}", peer_id),
-            Ok(resp) => {
-                let body = resp.text().await.unwrap_or_default();
-                log::warn!("[mesh/broadcast] Sync rejected by {}: {}", peer_id, body);
+    for (addresses, port, token, peer_id) in &clients {
+        let result = transport::try_peer(addresses, |addr| {
+            let url = format!("http://{}:{}/api/mesh/sync", addr.ip, port);
+            let http = http.clone();
+            let token = token.clone();
+            let payload = payload.clone();
+            async move {
+                match http.post(&url)
+                    .header("Authorization", format!("Bearer {}", token))
+                    .json(&payload).send().await
+                {
+                    Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let body = resp.text().await.unwrap_or_default();
+                        transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
+                    }
+                    Err(e) => transport::TryNext::Retry(e.to_string()),
+                }
             }
+        }).await;
+        match result {
+            Ok(()) => log::info!("[mesh/broadcast] Synced to {}", peer_id),
             Err(e) => log::warn!("[mesh/broadcast] Sync failed for {}: {}", peer_id, e),
         }
     }
@@ -485,8 +494,8 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
         let clients: Vec<_> = m.paired_peers.values()
             .filter(|p| target.map(|t| t == p.instance_id.as_str() || t == p.instance_name.as_str()).unwrap_or(true))
             .filter_map(|p| {
-                let addr = p.addresses.iter().min_by_key(|a| types::address_tier(a))?;
-                Some((addr.ip.clone(), p.api_port, token.clone(), p.instance_id.clone(), p.instance_name.clone()))
+                if p.addresses.is_empty() { return None; }
+                Some((p.addresses.clone(), p.api_port, token.clone(), p.instance_id.clone(), p.instance_name.clone()))
             }).collect();
         (announce, clients)
     };
@@ -497,27 +506,46 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
 
     let http = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
-    for (ip, port, token, peer_id, peer_name) in &clients {
+    for (addresses, port, token, peer_id, peer_name) in &clients {
         report.sent += 1;
-        let url = format!("http://{}:{}/api/mesh/announce", ip, port);
-        match http.post(&url)
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&announce).send().await
-        {
-            Ok(resp) if resp.status().is_success() => {
+        // STALE peer signal (404) is authoritative — short-circuit so we
+        // record it once instead of asking three IPs the same question.
+        let stale_marker: std::sync::Arc<parking_lot::Mutex<bool>> =
+            std::sync::Arc::new(parking_lot::Mutex::new(false));
+        let result = transport::try_peer(addresses, |addr| {
+            let url = format!("http://{}:{}/api/mesh/announce", addr.ip, port);
+            let http = http.clone();
+            let token = token.clone();
+            let announce = announce.clone();
+            let stale_marker = stale_marker.clone();
+            async move {
+                match http.post(&url)
+                    .header("Authorization", format!("Bearer {}", token))
+                    .json(&announce).send().await
+                {
+                    Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
+                    Ok(resp) if resp.status().as_u16() == 404 => {
+                        *stale_marker.lock() = true;
+                        transport::TryNext::Stop("404 (too old)".to_string())
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let body = resp.text().await.unwrap_or_default();
+                        transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
+                    }
+                    Err(e) => transport::TryNext::Retry(e.to_string()),
+                }
+            }
+        }).await;
+        match result {
+            Ok(()) => {
                 report.ok += 1;
                 log::info!("[mesh/announce] sent to {} ({}) addrs={:?}",
                     peer_name, peer_id, announce.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>());
             }
-            Ok(resp) if resp.status().as_u16() == 404 => {
+            Err(e) if *stale_marker.lock() => {
                 log::warn!("[mesh/announce] peer {} ({}) too old — no /api/mesh/announce", peer_name, peer_id);
                 report.stale_peers.push(peer_id.clone());
-            }
-            Ok(resp) => {
-                let status = resp.status();
-                let body = resp.text().await.unwrap_or_default();
-                log::warn!("[mesh/announce] {} rejected by {}: {}", status, peer_id, body);
-                report.errors.push(format!("{}: HTTP {}", peer_id, status.as_u16()));
             }
             Err(e) => {
                 log::warn!("[mesh/announce] {} send failed: {}", peer_id, e);

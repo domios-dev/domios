@@ -21,10 +21,11 @@ pub fn no_window_std(cmd: &mut std::process::Command) {
 #[inline]
 pub fn no_window_std(_cmd: &mut std::process::Command) {}
 
-/// Same idea for `tokio::process::Command`.
+/// Same idea for `tokio::process::Command`. tokio exposes
+/// `creation_flags` as an inherent method on Windows, so no trait
+/// import is needed here.
 #[cfg(windows)]
 pub fn no_window_tokio(cmd: &mut tokio::process::Command) {
-    use std::os::windows::process::CommandExt;
     cmd.creation_flags(CREATE_NO_WINDOW);
 }
 
