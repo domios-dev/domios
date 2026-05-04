@@ -33,7 +33,30 @@ pub async fn spawn_pty(
     // hasn't gotten there yet, briefly wait — GA's lifecycle starts within
     // a couple seconds of daemon boot.
     if let Some(ref pid) = pane_id {
-        let is_protected = mux_state.lock().get_pane(pid).map(|p| p.protected).unwrap_or(false);
+        let (is_protected, existing) = {
+            let m = mux_state.lock();
+            let p = m.get_pane(pid);
+            (
+                p.map(|p| p.protected).unwrap_or(false),
+                p.and_then(|p| p.pty_id.clone()),
+            )
+        };
+        // If the pane already has a live PTY, reuse it instead of spawning a
+        // second one. Without this, frontend re-mounts of the terminal
+        // component (tab clicks, navigation) tear down the running agent
+        // and trigger an unwanted resume from the auto-detected session id.
+        // Protected panes additionally get a brief wait so the backend GA
+        // lifecycle has a chance to spawn the PTY first.
+        if let Some(existing) = existing {
+            let alive = state.lock().get_session(&existing).is_some();
+            if alive {
+                log::info!(
+                    "[spawn_pty] pane {} already has live pty {} — reusing",
+                    pid, existing,
+                );
+                return Ok(existing);
+            }
+        }
         if is_protected {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             loop {

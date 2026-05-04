@@ -118,6 +118,14 @@ impl MultiplexerState {
             .collect()
     }
 
+    /// Pane IDs currently holding the given agent session id (typically 0 or 1).
+    pub fn pane_ids_with_session(&self, session_id: &str) -> Vec<String> {
+        self.panes.values()
+            .filter(|p| p.agent_session_id.as_deref() == Some(session_id))
+            .map(|p| p.id.clone())
+            .collect()
+    }
+
     pub fn get_pane_mut(&mut self, id: &str) -> Option<&mut Pane> {
         self.panes.get_mut(id)
     }
