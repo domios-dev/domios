@@ -11,10 +11,17 @@ impl ServiceContext {
     }
 
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
+        let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.lock().close_pane(pane_id)?;
+        let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.prompt_detector.lock().remove_pane(pane_id);
         self.emit_state_changed();
+        if pre_focus != post_focus {
+            if let Some(new) = post_focus {
+                self.emit_pane_focus_changed(&new);
+            }
+        }
         Ok(())
     }
 
@@ -27,7 +34,7 @@ impl ServiceContext {
 
     pub fn focus_pane(&self, pane_id: &str) -> Result<(), String> {
         self.mux.lock().set_focused_pane(pane_id)?;
-        self.emit_state_changed();
+        self.emit_pane_focus_changed(pane_id);
         Ok(())
     }
 

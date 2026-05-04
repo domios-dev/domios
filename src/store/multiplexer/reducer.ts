@@ -110,11 +110,15 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           });
         }
       }
+      // `focused_pane_id` is intentionally omitted from the spread — focus
+      // is propagated via the dedicated `pane-focused` event from backend, NOT
+      // via blind merging of every state snapshot. Otherwise any background
+      // emit (PTY chunk, worker spawn) would steal the user's selection.
       return {
         ...state,
-        ...action.state,
         workspaces: mergedWorkspaces,
         panes: mergedPanes,
+        active_workspace_id: action.state.active_workspace_id,
         toasts: [...state.toasts, ...newToasts],
       };
     }
@@ -125,7 +129,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         workspaces: [...state.workspaces, action.workspace],
         panes: { ...state.panes, [action.pane.id]: action.pane },
         active_workspace_id: action.workspace.id,
-        focused_pane_id: action.pane.id,
       };
     }
 
@@ -144,6 +147,9 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         delete newStatuses[pid];
       }
       const remaining = state.workspaces.filter((w) => w.id !== action.id);
+      // focused_pane_id intentionally untouched — backend's close_workspace
+      // emits `pane-focused` with the General fallback target, which the
+      // listener applies separately. If we nulled here we'd flicker.
       return {
         ...state,
         workspaces: remaining,
@@ -153,9 +159,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           state.active_workspace_id === action.id
             ? (remaining[0]?.id ?? null)
             : state.active_workspace_id,
-        focused_pane_id: removedPaneIds.includes(state.focused_pane_id ?? "")
-          ? null
-          : state.focused_pane_id,
       };
     }
 
@@ -200,6 +203,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "ADD_TAB": {
+      // No auto-focus on tab creation. The createTab caller decides whether to
+      // focus the new tab (user-initiated UI clicks do, background spawns don't).
       return {
         ...state,
         workspaces: state.workspaces.map((ws) =>
@@ -208,7 +213,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             : ws,
         ),
         panes: { ...state.panes, [action.pane.id]: action.pane },
-        focused_pane_id: action.pane.id,
       };
     }
 
@@ -219,6 +223,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         delete newPanes[pid];
         delete newStatuses[pid];
       }
+      // focused_pane_id intentionally untouched — see CLOSE_WORKSPACE comment.
       return {
         ...state,
         workspaces: state.workspaces.map((ws) => {
@@ -235,11 +240,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         }),
         panes: newPanes,
         paneStatuses: newStatuses,
-        focused_pane_id: action.removedPaneIds.includes(
-          state.focused_pane_id ?? "",
-        )
-          ? null
-          : state.focused_pane_id,
       };
     }
 
@@ -254,6 +254,8 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       };
 
     case "SPLIT_PANE": {
+      // Split UX is removed in the current build, but the reducer case stays
+      // as a defense — focus is no longer auto-moved here either.
       return {
         ...state,
         workspaces: state.workspaces.map((ws) => {
@@ -275,7 +277,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           };
         }),
         panes: { ...state.panes, [action.newPane.id]: action.newPane },
-        focused_pane_id: action.newPane.id,
       };
     }
 
@@ -284,6 +285,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       delete newPanes[action.paneId];
       const newStatuses = { ...state.paneStatuses };
       delete newStatuses[action.paneId];
+      // focused_pane_id intentionally untouched — see CLOSE_WORKSPACE comment.
       return {
         ...state,
         workspaces: state.workspaces.map((ws) => {
@@ -302,14 +304,14 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         }),
         panes: newPanes,
         paneStatuses: newStatuses,
-        focused_pane_id:
-          state.focused_pane_id === action.paneId
-            ? null
-            : state.focused_pane_id,
       };
     }
 
     case "SET_FOCUSED_PANE":
+      // Defense-in-depth: ignore focus changes targeting a pane we don't know
+      // about (race window between backend `pane-focused` event and the
+      // structural state catching up). Listener also retries once after 100 ms.
+      if (action.paneId && !state.panes[action.paneId]) return state;
       return { ...state, focused_pane_id: action.paneId };
 
     case "SET_PANE_PTY": {

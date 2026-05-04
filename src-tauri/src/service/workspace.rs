@@ -78,9 +78,16 @@ impl ServiceContext {
     }
 
     pub fn close_workspace(&self, id: &str) -> Result<(), String> {
+        let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.lock().close_workspace(id)?;
+        let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.emit_state_changed();
+        if pre_focus != post_focus {
+            if let Some(new) = post_focus {
+                self.emit_pane_focus_changed(&new);
+            }
+        }
         Ok(())
     }
 
@@ -115,9 +122,16 @@ impl ServiceContext {
     }
 
     pub fn close_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
+        let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.lock().close_tab(workspace_id, tab_id)?;
+        let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.emit_state_changed();
+        if pre_focus != post_focus {
+            if let Some(new) = post_focus {
+                self.emit_pane_focus_changed(&new);
+            }
+        }
         Ok(())
     }
 

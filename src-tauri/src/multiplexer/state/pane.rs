@@ -138,6 +138,22 @@ impl MultiplexerState {
         self.focused_pane_id.as_deref()
     }
 
+    /// Resolve the General orchestrator pane (alias `"general"`, registered by
+    /// `service::general_agent::workspace::ensure_general_workspace`) and set
+    /// focus to it. Returns the new focused pane id, or `None` if the alias is
+    /// not registered (in which case focus is left untouched — preferable to
+    /// silently nulling, which is what surfaced the original "deselect to
+    /// nothing" UX bug). Callers in service-layer close paths should compare
+    /// pre/post focus and emit `pane-focused` if it actually changed.
+    pub fn fallback_focus_to_general(&mut self) -> Option<String> {
+        // Hard-coded alias mirrors `service::general_agent::GENERAL_ALIAS`.
+        // Kept as a string literal to avoid pulling a service-layer constant
+        // into the state layer; if the alias name ever changes, update both.
+        let target = self.resolve_pane_id("general")?;
+        self.focused_pane_id = Some(target.clone());
+        Some(target)
+    }
+
     /// Rename a pane and its containing tab. Pins the title to block OSC auto-rename.
     /// Rename a pane at User level (highest priority).
     pub fn rename_pane(&mut self, pane_id: &str, title: &str) -> Result<(), String> {
@@ -241,6 +257,7 @@ impl MultiplexerState {
 
         if self.focused_pane_id.as_deref() == Some(pane_id) {
             self.focused_pane_id = None;
+            self.fallback_focus_to_general();
         }
 
         for cid in child_ids {
