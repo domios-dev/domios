@@ -48,6 +48,7 @@ EXCLUDE_PATHS='(/target/|/node_modules/|/dist/|/build/|/gen/|/references/|/vendo
 # (otherwise `[ "$lines" -gt "$baseline" ]` aborts with
 #  `integer expression expected` because baseline carries a \r).
 declare -A ALLOW
+allow_count=0
 if [ -f "$ALLOWLIST" ]; then
     while IFS=$'\t' read -r path baseline; do
         path="${path%$'\r'}"
@@ -55,6 +56,7 @@ if [ -f "$ALLOWLIST" ]; then
         [ -z "${path:-}" ] && continue
         case "$path" in '#'*) continue ;; esac
         ALLOW["$path"]="$baseline"
+        allow_count=$((allow_count + 1))
     done < "$ALLOWLIST"
 fi
 
@@ -134,7 +136,7 @@ if [ ${#mod_rs_violations[@]} -gt 0 ]; then
 fi
 
 if [ ${#new_violations[@]} -eq 0 ] && [ ${#regressions[@]} -eq 0 ]; then
-    echo "✅ file-size discipline: ${#ALLOW[@]} allowlisted, no new violations, no regressions"
+    echo "✅ file-size discipline: ${allow_count} allowlisted, no new violations, no regressions"
 fi
 
 exit $exit_code
