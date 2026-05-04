@@ -14,7 +14,6 @@ src/components/Sidebar/Sidebar.tsx	1274
 src-tauri/src/plugin/agent_claude/provider.rs	1177
 src/store/multiplexer.tsx	1117
 src-tauri/src/cron/store.rs	1005
-src-tauri/src/mem/mod.rs	997
 src-tauri/src/socket/server.rs	942
 src-tauri/src/service/general_agent.rs	834
 evals/seeds/loaded.py	886
