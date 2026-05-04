@@ -56,6 +56,7 @@ impl ServiceContext {
                 force_tab: None,
                 report_target_pane_id: None,
                 spawned_by_pane_id: None,
+                model: None,
             };
             if let Err(e) = svc.spawn_agent_sync(params) {
                 log::error!("[workspace] Failed to auto-spawn agent: {}", e);

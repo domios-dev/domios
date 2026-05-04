@@ -158,6 +158,7 @@ pub async fn resume_session_api(
         report_target_pane_id: None,
         skip_permissions: Some(true),
         spawned_by_pane_id: None,
+        model: None,
     };
     // DO NOT set pane.agent_session_id before spawn — commands.rs::spawn_pty's
     // auto-resume path fires on any saved session_id and would inject its own
