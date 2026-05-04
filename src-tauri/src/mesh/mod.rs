@@ -411,6 +411,10 @@ pub async fn broadcast_sync(mesh: &MeshState) {
 }
 
 /// Send bidirectional introductions between a new peer and all existing peers.
+///
+/// Each direction walks the receiver's address list with `try_peer` so a
+/// stale Tailscale or LAN entry doesn't drop the introduction; whichever
+/// route still works wins.
 pub async fn broadcast_introductions(
     new_peer: types::PairedPeer,
     existing_peers: Vec<types::PairedPeer>,
@@ -421,7 +425,7 @@ pub async fn broadcast_introductions(
         .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
     for existing in &existing_peers {
         // new → existing
-        if let Some(addr) = existing.addresses.first() {
+        if !existing.addresses.is_empty() {
             let intro = types::PeerIntroduction {
                 instance_id: new_peer.instance_id.clone(),
                 instance_name: new_peer.instance_name.clone(),
@@ -430,20 +434,32 @@ pub async fn broadcast_introductions(
                 public_key: new_peer.public_key.clone(),
                 introduced_by: our_id.clone(),
             };
-            let url = format!("http://{}:{}/api/mesh/introduce", addr.ip, existing.api_port);
-            match http.post(&url).header("Authorization", format!("Bearer {}", token))
-                .json(&intro).send().await {
-                Ok(resp) if resp.status().is_success() =>
-                    log::info!("[mesh/introduce] {} → {}", new_peer.instance_name, existing.instance_name),
-                Ok(resp) => {
-                    let body = resp.text().await.unwrap_or_default();
-                    log::warn!("[mesh/introduce] {} → {} rejected: {}", new_peer.instance_name, existing.instance_name, body);
+            let result = transport::try_peer(&existing.addresses, |addr| {
+                let url = format!("http://{}:{}/api/mesh/introduce", addr.ip, existing.api_port);
+                let http = http.clone();
+                let token = token.clone();
+                let intro = intro.clone();
+                async move {
+                    match http.post(&url).header("Authorization", format!("Bearer {}", token))
+                        .json(&intro).send().await
+                    {
+                        Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let body = resp.text().await.unwrap_or_default();
+                            transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
+                        }
+                        Err(e) => transport::TryNext::Retry(e.to_string()),
+                    }
                 }
-                Err(e) => log::warn!("[mesh/introduce] {} → {} error: {}", new_peer.instance_name, existing.instance_name, e),
+            }).await;
+            match result {
+                Ok(()) => log::info!("[mesh/introduce] {} → {}", new_peer.instance_name, existing.instance_name),
+                Err(e) => log::warn!("[mesh/introduce] {} → {} failed: {}", new_peer.instance_name, existing.instance_name, e),
             }
         }
         // existing → new
-        if let Some(addr) = new_peer.addresses.first() {
+        if !new_peer.addresses.is_empty() {
             let intro = types::PeerIntroduction {
                 instance_id: existing.instance_id.clone(),
                 instance_name: existing.instance_name.clone(),
@@ -452,16 +468,28 @@ pub async fn broadcast_introductions(
                 public_key: existing.public_key.clone(),
                 introduced_by: our_id.clone(),
             };
-            let url = format!("http://{}:{}/api/mesh/introduce", addr.ip, new_peer.api_port);
-            match http.post(&url).header("Authorization", format!("Bearer {}", token))
-                .json(&intro).send().await {
-                Ok(resp) if resp.status().is_success() =>
-                    log::info!("[mesh/introduce] {} → {}", existing.instance_name, new_peer.instance_name),
-                Ok(resp) => {
-                    let body = resp.text().await.unwrap_or_default();
-                    log::warn!("[mesh/introduce] {} → {} rejected: {}", existing.instance_name, new_peer.instance_name, body);
+            let result = transport::try_peer(&new_peer.addresses, |addr| {
+                let url = format!("http://{}:{}/api/mesh/introduce", addr.ip, new_peer.api_port);
+                let http = http.clone();
+                let token = token.clone();
+                let intro = intro.clone();
+                async move {
+                    match http.post(&url).header("Authorization", format!("Bearer {}", token))
+                        .json(&intro).send().await
+                    {
+                        Ok(resp) if resp.status().is_success() => transport::TryNext::Success(()),
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let body = resp.text().await.unwrap_or_default();
+                            transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
+                        }
+                        Err(e) => transport::TryNext::Retry(e.to_string()),
+                    }
                 }
-                Err(e) => log::warn!("[mesh/introduce] {} → {} error: {}", existing.instance_name, new_peer.instance_name, e),
+            }).await;
+            match result {
+                Ok(()) => log::info!("[mesh/introduce] {} → {}", existing.instance_name, new_peer.instance_name),
+                Err(e) => log::warn!("[mesh/introduce] {} → {} failed: {}", existing.instance_name, new_peer.instance_name, e),
             }
         }
     }
@@ -556,8 +584,11 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
     report
 }
 
-/// Re-detect local addresses (Tailscale + LAN). Logs old → new for diff.
-pub fn refresh_local_addresses(mesh: &MeshState) {
+/// Re-detect local addresses (Tailscale + LAN). Logs old → new for diff and
+/// returns `true` when at least one of the two changed — callers use that
+/// signal to fire an immediate announce instead of waiting for the periodic
+/// tick when the network actually moved (Tailscale up/down, LAN swap).
+pub fn refresh_local_addresses(mesh: &MeshState) -> bool {
     let prev_ts = mesh.lock().tailscale_ip.clone();
     let prev_lan = mesh.lock().local_ip.clone();
 
@@ -566,10 +597,13 @@ pub fn refresh_local_addresses(mesh: &MeshState) {
 
     let new_ts = mesh.lock().tailscale_ip.clone();
     let new_lan = mesh.lock().local_ip.clone();
+    let changed = prev_ts != new_ts || prev_lan != new_lan;
     log::info!(
-        "[mesh/refresh] local addrs: tailscale {:?} -> {:?}, lan {:?} -> {:?}",
-        prev_ts, new_ts, prev_lan, new_lan
+        "[mesh/refresh] local addrs: tailscale {:?} -> {:?}, lan {:?} -> {:?}{}",
+        prev_ts, new_ts, prev_lan, new_lan,
+        if changed { " (CHANGED)" } else { "" }
     );
+    changed
 }
 
 #[cfg(test)]

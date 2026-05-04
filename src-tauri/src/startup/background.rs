@@ -67,16 +67,35 @@ pub(crate) fn start_background_tasks(
                         };
                         let mut changed = false;
                         for peer in &peers {
-                            let addr = peer.addresses.iter()
-                                .find(|a| a.is_tailscale)
-                                .or_else(|| peer.addresses.first());
-                            let Some(addr) = addr else { continue };
-                            let client = if let Some(ref tok) = signed_token {
-                                mesh::transport::PeerClient::new_signed(&addr.ip, peer.api_port, tok)
-                            } else {
-                                mesh::transport::PeerClient::new_unauthenticated(&addr.ip, peer.api_port)
+                            if peer.addresses.is_empty() { continue; }
+                            // Multi-address ping: peer is online if ANY of its
+                            // cached addresses responds. A single Tailscale
+                            // glitch shouldn't flip the peer to offline when
+                            // LAN is still alive (and vice versa).
+                            let ping_result = mesh::transport::try_peer(
+                                &peer.addresses,
+                                |addr| {
+                                    let signed_token = signed_token.clone();
+                                    let port = peer.api_port;
+                                    let ip = addr.ip.clone();
+                                    async move {
+                                        let client = if let Some(ref tok) = signed_token {
+                                            mesh::transport::PeerClient::new_signed(&ip, port, tok)
+                                        } else {
+                                            mesh::transport::PeerClient::new_unauthenticated(&ip, port)
+                                        };
+                                        if client.ping().await {
+                                            mesh::transport::TryNext::Success(client)
+                                        } else {
+                                            mesh::transport::TryNext::Retry("ping failed".to_string())
+                                        }
+                                    }
+                                },
+                            ).await;
+                            let (online, client) = match ping_result {
+                                Ok(c) => (true, Some(c)),
+                                Err(_) => (false, None),
                             };
-                                let online = client.ping().await;
                                 let was_online = {
                                     let mut m = mesh.lock();
                                     if let Some(p) = m.paired_peers.get_mut(&peer.instance_id) {
@@ -106,6 +125,7 @@ pub(crate) fn start_background_tasks(
                                 if should_sync {
                                     let reason = if !was_online { "reconnected" } else { "periodic refresh" };
                                     log::info!("[mesh] Peer {} {} — syncing", peer.instance_name, reason);
+                                    let Some(client) = client else { continue };
                                     if let Ok(their_payload) = client.send_sync(&sync_payload).await {
                                         last_sync_secs.insert(peer.instance_id.clone(), now_secs);
                                         let voucher = peer.instance_id.clone();
@@ -159,38 +179,65 @@ pub(crate) fn start_background_tasks(
         }
     }
 
-    // Periodic announce — push our current addresses to every paired peer
-    // so cached records stay fresh as networks shuffle (Tailscale lease,
-    // VPN toggle, LAN-to-WiFi swap, etc.). Loop fires every ~90s with
-    // jitter so peers don't synchronize their announce clocks.
+    // Periodic + event-driven announce — push our current addresses to every
+    // paired peer so cached records stay fresh as networks shuffle.
+    //
+    // Two layers:
+    //   1. Startup burst (~10s after boot) so peers learn our fresh IPs
+    //      before any of the periodic timers tick. Without this, a peer
+    //      that came online while we were rebooting would have to wait
+    //      out the first 90s heartbeat before discovering us.
+    //   2. Detection loop on a short cadence (15s) — if Tailscale or LAN
+    //      changed since the previous tick, announce immediately
+    //      (Tailscale up/down, VPN toggle, LAN-to-WiFi swap). Otherwise a
+    //      heartbeat announce fires every ~90s so a peer that joined
+    //      while we were quiet catches up without needing a real network
+    //      move to dislodge our cache on their side.
     {
         let mesh = states.mesh.clone();
         let mesh_enabled = states.config.lock().mesh.enabled;
         if mesh_enabled {
             std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(20));
+                std::thread::sleep(std::time::Duration::from_secs(10));
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                     .expect("Failed to create mesh announce runtime");
                 rt.block_on(async {
                     use std::time::Duration;
+                    // Startup burst.
+                    let _ = mesh::refresh_local_addresses(&mesh);
+                    let report = mesh::broadcast_announce(&mesh, None).await;
+                    log::info!(
+                        "[mesh/announce.startup] sent={} ok={} stale={} errors={}",
+                        report.sent, report.ok,
+                        report.stale_peers.len(), report.errors.len()
+                    );
+
+                    let mut last_heartbeat = std::time::Instant::now();
                     loop {
-                        // 90s base + 0..30s random jitter — keeps peers from
-                        // all hitting the network simultaneously.
+                        // 15s base + 0..5s jitter — fast enough to feel
+                        // realtime when Tailscale comes back up, slow
+                        // enough not to thrash the discovery CLI.
                         let jitter = (std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
-                            .subsec_nanos() % 30) as u64;
-                        tokio::time::sleep(Duration::from_secs(90 + jitter)).await;
-                        // Refresh local addrs first so the announce reflects the
-                        // current network state, not a snapshot from boot.
-                        mesh::refresh_local_addresses(&mesh);
+                            .subsec_nanos() % 5) as u64;
+                        tokio::time::sleep(Duration::from_secs(15 + jitter)).await;
+
+                        let changed = mesh::refresh_local_addresses(&mesh);
+                        let heartbeat_due =
+                            last_heartbeat.elapsed() >= Duration::from_secs(90);
+                        if !changed && !heartbeat_due {
+                            continue;
+                        }
                         let report = mesh::broadcast_announce(&mesh, None).await;
+                        last_heartbeat = std::time::Instant::now();
+                        let kind = if changed { "addr-change" } else { "heartbeat" };
                         if report.sent > 0 {
-                            log::debug!(
-                                "[mesh/announce.periodic] sent={} ok={} stale={} errors={}",
-                                report.sent, report.ok,
+                            log::info!(
+                                "[mesh/announce.{}] sent={} ok={} stale={} errors={}",
+                                kind, report.sent, report.ok,
                                 report.stale_peers.len(), report.errors.len()
                             );
                         }
