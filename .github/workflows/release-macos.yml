@@ -130,9 +130,15 @@ jobs:
           # If the signing key is encrypted, add TAURI_KEY_PASSWORD to
           # repo secrets — this evaluates to an empty string otherwise.
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # TODO(release-ci): Apple notarization disabled. The configured
+          # APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID secrets fail with HTTP 401
+          # against the Apple notary service ("Invalid credentials"). Until the
+          # app-specific password is rotated, builds are codesigned but NOT
+          # notarized — Gatekeeper will require a manual right-click "Open"
+          # on first launch. See docs/release/CI.md for the unblock steps.
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -143,23 +149,38 @@ jobs:
           releaseBody: 'See the assets to download this version and install. Auto-update users will be offered this build via the configured channel.'
           releaseDraft: true
           prerelease: ${{ steps.channel.outputs.prerelease }}
+          # tauri-action's own updater-JSON path silently skips when its
+          # internal sig matcher cannot pair an artifact with a signature.
+          # We build the fragment ourselves below.
           includeUpdaterJson: false
           args: --target ${{ matrix.target }}
 
       - name: Publish per-platform updater fragment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+          REPO: ${{ github.repository }}
+          PLATFORM_KEY: ${{ matrix.target == 'aarch64-apple-darwin' && 'darwin-aarch64' || 'darwin-x86_64' }}
         shell: bash
         run: |
-          fragment=$(find "src-tauri/target/${{ matrix.target }}/release/bundle" -name latest.json | head -n1)
-          if [ -z "$fragment" ]; then
-            echo "::error::No latest.json fragment produced by tauri-action"
-            exit 1
-          fi
-          out="updater-${{ matrix.target }}.json"
-          cp "$fragment" "$out"
-          gh release upload "${{ steps.tag.outputs.name }}" "$out" \
-            --clobber --repo "${{ github.repository }}"
+          set -euo pipefail
+          BUNDLE_ROOT="src-tauri/target/${{ matrix.target }}/release/bundle"
+          echo "::group::bundle directory listing"
+          find "$BUNDLE_ROOT" -maxdepth 3 -type f | sort || true
+          echo "::endgroup::"
+          UPDATER_SIG=$(find "$BUNDLE_ROOT/macos" -name '*.app.tar.gz.sig' 2>/dev/null | head -n1)
+          [ -n "$UPDATER_SIG" ] || { echo "::error::No .app.tar.gz signature under $BUNDLE_ROOT/macos"; exit 1; }
+          UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
+          [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
+
+          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$REPO"
+
+          OUT="updater-${{ matrix.target }}.json"
+          UPDATER_BUNDLE="$UPDATER_BUNDLE" \
+          UPDATER_SIG="$UPDATER_SIG" \
+          OUT="$OUT" \
+            python3 .github/workflows/build-updater-fragment.py
+          gh release upload "$TAG" "$OUT" --clobber --repo "$REPO"
 
       - name: Refresh merged channel manifest
         env:

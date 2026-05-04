@@ -7,23 +7,3 @@
 #
 # Adding a new line to this list = admitting we shipped a >800 file. Don't.
 
-cli/src/main.rs	4828
-src-tauri/src/api/routes.rs	2414
-src/components/Settings/SettingsPanel.tsx	2328
-src-tauri/src/secrets/bitwarden.rs	1834
-src-tauri/src/multiplexer/state.rs	1809
-src-tauri/src/mem/store.rs	1786
-src-tauri/src/commands.rs	1649
-src-tauri/src/lib.rs	1314
-src/components/Sidebar/Sidebar.tsx	1274
-src-tauri/src/api/mem_routes.rs	1221
-src-tauri/src/plugin/agent_claude/provider.rs	1177
-src/store/multiplexer.tsx	1117
-src-tauri/src/cron/store.rs	1005
-src-tauri/src/mem/mod.rs	997
-src-tauri/src/socket/server.rs	942
-cli/src/mesh_cli.rs	938
-src-tauri/src/api/mesh_routes.rs	902
-src-tauri/src/service/general_agent.rs	834
-evals/seeds/loaded.py	886
-

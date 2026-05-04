@@ -464,12 +464,15 @@ mod tests {
     /// needing the CLI binary to be built first.
     #[test]
     fn cli_source_still_declares_run_worker() {
-        let cli_src = include_str!("../../../cli/src/main.rs");
+        // Clap derives live in cli/src/args/mem.rs (extracted in PR 99f4948 / a624ae7);
+        // dispatch logic + kind strings still live in cli/src/main.rs.
+        let args_src = include_str!("../../../cli/src/args/mem.rs");
         assert!(
-            cli_src.contains(r#"#[clap(name = "run-worker")]"#),
-            "cli/src/main.rs no longer declares `#[clap(name = \"run-worker\")]` — \
+            args_src.contains(r#"#[clap(name = "run-worker")]"#),
+            "cli/src/args/mem.rs no longer declares `#[clap(name = \"run-worker\")]` — \
              supervisor.rs spawns this exact subcommand. Fix one or the other."
         );
+        let cli_src = include_str!("../../../cli/src/main.rs");
         for kind in [KIND_DREAMING_LIGHT, KIND_DREAMING_DEEP, KIND_LIBRARIAN_ONCE] {
             assert!(
                 cli_src.contains(&format!("\"{}\"", kind)),

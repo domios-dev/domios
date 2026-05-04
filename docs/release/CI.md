@@ -8,7 +8,7 @@ maintain the channel updater manifest. They live under
 | ----------------------------- | ------------------------ | ------------------------------------------------------ |
 | `release-windows.yml`         | `windows-latest`         | `x86_64-pc-windows-msvc`                               |
 | `release-macos.yml`           | `macos-13`, `macos-14`   | `x86_64-apple-darwin`, `aarch64-apple-darwin`          |
-| `release-linux.yml`           | `ubuntu-22.04`           | `x86_64-unknown-linux-gnu` (AppImage + .deb)           |
+| `release-linux.yml`           | `ubuntu-24.04`           | `x86_64-unknown-linux-gnu` (AppImage + .deb)           |
 
 Each workflow is **fully self-contained** — checkout, toolchains, build,
 sign (where applicable), bundle upload, manifest refresh — and uploads
@@ -89,6 +89,34 @@ no entry for a platform that hasn't been built yet.
 | `APPLE_TEAM_ID`              | macOS               | 10-char Apple Developer team ID. |
 | `APPLE_SIGNING_IDENTITY`     | macOS               | `Developer ID Application: …` Common Name. |
 
+## Apple notarization disabled (TODO)
+
+The macOS workflow currently builds and **codesigns** bundles but does
+**not notarize** them. The Apple notarization credentials in repo
+secrets (`APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID`) fail with
+HTTP 401 against the Apple notary service:
+
+```
+failed to notarize app: Error: HTTP status code: 401.
+Invalid credentials. Username or password is incorrect.
+```
+
+The `APPLE_PASSWORD` is an app-specific password that has either expired
+or been revoked. Until it is rotated, those three env vars are
+commented out in `release-macos.yml` so that builds still produce
+signed `.app` / `.dmg` bundles. Gatekeeper will require a manual
+right-click → Open on first launch.
+
+To unblock notarization:
+
+1. Sign in to <https://appleid.apple.com> as the team's Apple ID.
+2. Generate a new app-specific password (or pull a fresh API key from
+   App Store Connect → Users and Access → Keys, if switching to
+   `APPLE_API_KEY` / `APPLE_API_KEY_ID` / `APPLE_API_ISSUER`).
+3. Update the `APPLE_PASSWORD` repo secret.
+4. Uncomment the `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` env
+   block in `release-macos.yml` and remove this section.
+
 ## Out of scope (future work)
 
 - Shared composite action for the duplicated build/sign/upload steps —
@@ -99,4 +127,4 @@ no entry for a platform that hasn't been built yet.
   inline merge is sufficient for the current release cadence.
 - Cross-compiling Linux ARM (`aarch64-unknown-linux-gnu`).
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

@@ -106,6 +106,9 @@ jobs:
           releaseBody: 'See the assets to download this version and install. Auto-update users will be offered this build via the configured channel.'
           releaseDraft: true
           prerelease: ${{ steps.channel.outputs.prerelease }}
+          # tauri-action's own updater-JSON path silently skips when its
+          # internal sig matcher cannot pair an artifact with a signature.
+          # We build the fragment ourselves below.
           includeUpdaterJson: false
           updaterJsonPreferNsis: true
           args: --target ${{ env.TARGET }}
@@ -113,17 +116,31 @@ jobs:
       - name: Publish per-platform updater fragment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+          REPO: ${{ github.repository }}
+          PLATFORM_KEY: windows-x86_64
         shell: bash
         run: |
-          fragment=$(find "src-tauri/target/${TARGET}/release/bundle" -name latest.json | head -n1)
-          if [ -z "$fragment" ]; then
-            echo "::error::No latest.json fragment produced by tauri-action"
-            exit 1
-          fi
-          out="updater-${TARGET}.json"
-          cp "$fragment" "$out"
-          gh release upload "${{ steps.tag.outputs.name }}" "$out" \
-            --clobber --repo "${{ github.repository }}"
+          set -euo pipefail
+          BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
+          echo "::group::bundle directory listing"
+          find "$BUNDLE_ROOT" -maxdepth 3 -type f | sort || true
+          echo "::endgroup::"
+          UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*.nsis.zip.sig' 2>/dev/null | head -n1)
+          [ -n "$UPDATER_SIG" ] || { echo "::error::No NSIS signature under $BUNDLE_ROOT/nsis"; exit 1; }
+          UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
+          [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
+
+          # The .nsis.zip + .sig are not uploaded by tauri-action, so push
+          # them ourselves — the updater URL must resolve to a real asset.
+          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$REPO"
+
+          OUT="updater-${TARGET}.json"
+          UPDATER_BUNDLE="$UPDATER_BUNDLE" \
+          UPDATER_SIG="$UPDATER_SIG" \
+          OUT="$OUT" \
+            python3 .github/workflows/build-updater-fragment.py
+          gh release upload "$TAG" "$OUT" --clobber --repo "$REPO"
 
       - name: Refresh merged channel manifest
         env:

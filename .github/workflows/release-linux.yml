@@ -1,7 +1,12 @@
 name: release-linux
 
-# Builds the Linux bundles (AppImage + .deb) on ubuntu-22.04, uploads to
+# Builds the Linux bundles (AppImage + .deb) on ubuntu-24.04, uploads to
 # the GitHub release, then refreshes the channel updater manifest.
+#
+# Runner choice: ubuntu-24.04 ships glibc 2.39, which is required by the
+# pyke/ort prebuilt onnxruntime static library — it references symbols
+# such as __isoc23_strtoll that only exist in glibc >= 2.38. Building on
+# ubuntu-22.04 (glibc 2.35) fails the link step.
 #
 # Triggers:
 #   - push of a tag matching v*  (fires alongside Windows / macOS workflows)
@@ -32,7 +37,7 @@ jobs:
   build:
     name: build (x86_64-unknown-linux-gnu)
     if: ${{ vars.RELEASE_LINUX_ENABLED != 'false' }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     env:
       TARGET: x86_64-unknown-linux-gnu
     steps:
@@ -118,23 +123,44 @@ jobs:
           releaseBody: 'See the assets to download this version and install. Auto-update users will be offered this build via the configured channel.'
           releaseDraft: true
           prerelease: ${{ steps.channel.outputs.prerelease }}
+          # tauri-action's own updater-JSON path silently skips when its
+          # internal sig matcher cannot pair an artifact with a signature.
+          # We build the fragment ourselves below.
           includeUpdaterJson: false
           args: --target ${{ env.TARGET }} --bundles appimage,deb
 
       - name: Publish per-platform updater fragment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+          REPO: ${{ github.repository }}
+          PLATFORM_KEY: linux-x86_64
         shell: bash
         run: |
-          fragment=$(find "src-tauri/target/${TARGET}/release/bundle" -name latest.json | head -n1)
-          if [ -z "$fragment" ]; then
-            echo "::error::No latest.json fragment produced by tauri-action"
-            exit 1
+          set -euo pipefail
+          BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
+          echo "::group::bundle directory listing"
+          find "$BUNDLE_ROOT" -maxdepth 3 -type f | sort || true
+          echo "::endgroup::"
+          # Prefer the v1-compatible .AppImage.tar.gz updater bundle if Tauri
+          # produced one; otherwise fall back to the direct .AppImage that
+          # Tauri 2 uses by default.
+          UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.tar.gz.sig' 2>/dev/null | head -n1)
+          if [ -z "$UPDATER_SIG" ]; then
+            UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.sig' 2>/dev/null | head -n1)
           fi
-          out="updater-${TARGET}.json"
-          cp "$fragment" "$out"
-          gh release upload "${{ steps.tag.outputs.name }}" "$out" \
-            --clobber --repo "${{ github.repository }}"
+          [ -n "$UPDATER_SIG" ] || { echo "::error::No AppImage signature under $BUNDLE_ROOT/appimage"; exit 1; }
+          UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
+          [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
+
+          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$REPO"
+
+          OUT="updater-${TARGET}.json"
+          UPDATER_BUNDLE="$UPDATER_BUNDLE" \
+          UPDATER_SIG="$UPDATER_SIG" \
+          OUT="$OUT" \
+            python3 .github/workflows/build-updater-fragment.py
+          gh release upload "$TAG" "$OUT" --clobber --repo "$REPO"
 
       - name: Refresh merged channel manifest
         env:
