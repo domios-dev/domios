@@ -56,10 +56,16 @@ pub async fn mesh_pair_accept(
     log::info!("[mesh] Paired (requester) with {}", accept.from_instance_id);
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
 
+    // Mirror of mesh_approve_peer: announce our full address list to the
+    // newly-paired peer so their pair-time single-IP stub gets replaced
+    // immediately (issue #9). broadcast_sync still follows for gossip
+    // about other peers in our mesh.
     {
         let mesh_state = state.mesh.clone();
+        let new_peer_id = accept.from_instance_id.clone();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let _ = crate::mesh::broadcast_announce(&mesh_state, Some(&new_peer_id)).await;
             crate::mesh::broadcast_sync(&mesh_state).await;
         });
     }

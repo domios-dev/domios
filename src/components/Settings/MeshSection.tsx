@@ -309,6 +309,10 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
             {peers?.discovered.map((peer) => {
               const isPending = connecting === peer.instance_id;
               const elapsed = pendingTimers[peer.instance_id] ?? 0;
+              const voucherNames = (peer.vouched_by ?? [])
+                .map((id) => peers?.paired.find((p) => p.instance_id === id)?.instance_name)
+                .filter((n): n is string => Boolean(n));
+              const hasVouchers = voucherNames.length > 0;
               return (
                 <div key={peer.instance_id} className="p-3">
                   <div className="flex items-center justify-between">
@@ -319,7 +323,13 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                       {peer.dev && (
                         <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]">dev</span>
                       )}
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-border)] text-[var(--ct-muted)]">discovered</span>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                        hasVouchers
+                          ? "bg-[var(--ct-green)]/20 text-[var(--ct-green)]"
+                          : "bg-[var(--ct-border)] text-[var(--ct-muted)]"
+                      }`}>
+                        {hasVouchers ? "vouched" : "discovered"}
+                      </span>
                     </div>
                     {isPending ? (
                       <div className="flex items-center gap-2">
@@ -330,10 +340,15 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
                       <button onClick={() => handleConnect(peer.instance_id)}
                         disabled={connecting !== null}
                         className="text-[10px] px-3 py-1 rounded bg-[var(--ct-accent)]/20 text-[var(--ct-accent)] hover:bg-[var(--ct-accent)]/30 transition-all disabled:opacity-50">
-                        {hasPeers ? "Add to Mesh" : "Connect"}
+                        {hasVouchers ? "Pair too?" : hasPeers ? "Add to Mesh" : "Connect"}
                       </button>
                     )}
                   </div>
+                  {hasVouchers && !isPending && (
+                    <div className="mt-1.5 text-[10px] text-[var(--ct-muted-fg)]">
+                      Vouched by {voucherNames.join(", ")}
+                    </div>
+                  )}
                   {isPending && (
                     <div className="mt-1.5 text-[10px] text-[var(--ct-muted)]">
                       Accept the pairing request on {peer.instance_name}
