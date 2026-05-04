@@ -1,0 +1,39 @@
+import { createContext, useContext } from "react";
+import { TitleLevel } from "../../lib/types";
+import type { Notification, PaneStatus } from "../../lib/types";
+import type { ExtendedState } from "./tree";
+
+export interface MultiplexerContextType {
+  state: ExtendedState;
+  createWorkspace: (name: string, cwd?: string) => void;
+  setActiveWorkspace: (id: string) => void;
+  closeWorkspace: (id: string) => void;
+  renameWorkspace: (id: string, name: string) => void;
+  moveTab: (tabId: string, fromWorkspaceId: string, toWorkspaceId: string) => void;
+  createTab: (workspaceId: string, cwd?: string) => void;
+  closeTab: (workspaceId: string, tabId: string) => void;
+  setActiveTab: (workspaceId: string, tabId: string) => void;
+  closePane: (paneId: string) => void;
+  setFocusedPane: (paneId: string) => void;
+  openBrowser: (url: string) => void;
+  setPanePty: (paneId: string, ptyId: string) => void;
+  updateSplitRatio: (workspaceId: string, tabId: string, path: number[], ratio: number) => void;
+  addNotification: (notif: Omit<Notification, "id" | "timestamp" | "read">) => void;
+  markRead: (id: string) => void;
+  markAllRead: () => void;
+  clearNotifications: () => void;
+  dismissToast: (id: string) => void;
+  setPaneTitle: (paneId: string, title: string, level?: TitleLevel) => void;
+  setAgentType: (paneId: string, agentType: string | null) => void;
+  updatePaneStatus: (paneId: string, status: PaneStatus) => void;
+  spawnClaudeTab: (workspaceId: string, skipPermissions: boolean, cwd?: string) => void;
+  spawnAgentTab: (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => void;
+}
+
+export const MultiplexerContext = createContext<MultiplexerContextType | null>(null);
+
+export function useMultiplexer(): MultiplexerContextType {
+  const ctx = useContext(MultiplexerContext);
+  if (!ctx) throw new Error("useMultiplexer must be used within MultiplexerProvider");
+  return ctx;
+}
