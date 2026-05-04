@@ -7,7 +7,6 @@
 #
 # Adding a new line to this list = admitting we shipped a >800 file. Don't.
 
-src-tauri/src/commands.rs	1649
 src-tauri/src/lib.rs	1349
 src/components/Sidebar/Sidebar.tsx	1274
 src/store/multiplexer.tsx	1117
