@@ -394,8 +394,26 @@ pub async fn resize_pty(
 #[tauri::command]
 pub async fn kill_pty(
     state: tauri::State<'_, PtyState>,
+    mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
     pty_id: String,
 ) -> Result<(), String> {
+    // Protected panes (General Agent) own their PTY from the backend. The
+    // frontend pty-connection effect calls kill_pty if the React component
+    // dispose-races a `spawn_pty` that returned the backend's existing PTY,
+    // which would tear down GA mid-launch. Refuse to kill those.
+    let owned_by_protected = {
+        let mux = mux_state.lock();
+        mux.pane_id_for_pty(&pty_id)
+            .and_then(|pid| mux.get_pane(&pid).map(|p| p.protected))
+            .unwrap_or(false)
+    };
+    if owned_by_protected {
+        log::info!(
+            "[kill_pty] {} is owned by a protected pane — ignoring frontend kill",
+            pty_id,
+        );
+        return Ok(());
+    }
     let mut manager = state.lock();
     manager.remove(&pty_id);
     Ok(())
