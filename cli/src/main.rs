@@ -1687,25 +1687,36 @@ fn main() {
         }
 
         Commands::SendText { pane, text, from_file, from_stdin } => {
-            let resolved_text = if from_stdin {
+            let (resolved_text, source) = if from_stdin {
                 use std::io::Read;
                 let mut buf = String::new();
                 if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
                     eprintln!("Error: failed to read --from-stdin: {}", e);
                     std::process::exit(1);
                 }
-                buf
+                (buf, "--from-stdin")
             } else if let Some(path) = from_file {
                 match std::fs::read_to_string(&path) {
-                    Ok(s) => s,
+                    Ok(s) => (s, "--from-file"),
                     Err(e) => {
                         eprintln!("Error: failed to read --from-file {}: {}", path, e);
                         std::process::exit(1);
                     }
                 }
             } else {
-                text
+                (text, "positional")
             };
+            // Reject empty payloads loudly. Silent zero-byte sends were the
+            // bug behind several "mesh sent but recipient saw empty" reports
+            // (shell heredoc dropped, --from-file pointed at empty file,
+            // positional swallowed by command substitution that returned empty).
+            if resolved_text.trim().is_empty() {
+                eprintln!("Error: send-text payload is empty (source: {})", source);
+                eprintln!("hint: if using --from-stdin, ensure the heredoc actually delivered content;");
+                eprintln!("      if --from-file, verify the path exists and isn't 0 bytes;");
+                eprintln!("      if positional, your shell may have eaten the content.");
+                std::process::exit(2);
+            }
             if let Err(msg) = guard_against_shell_mangle(&resolved_text) {
                 eprintln!("Error: {}", msg);
                 eprintln!("hint: your shell expanded a command-substitution before codeterm-CLI received it.");
