@@ -1,0 +1,241 @@
+use super::*;
+
+fn temp_store() -> CronStore {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("crons.json");
+    let path_clone = path.clone();
+    std::mem::forget(dir);
+    CronStore::new_with_path(path_clone)
+}
+
+fn make_params(name: &str, ws: &str, schedule: &str) -> CronCreateParams {
+    CronCreateParams {
+        name: name.to_string(),
+        workspace_id: ws.to_string(),
+        schedule: schedule.to_string(),
+        task: "test task".to_string(),
+        description: None,
+        agent: Some("claude".to_string()),
+        model: None,
+        cwd: None,
+        role: None,
+        creator_pane_id: None,
+        enabled: None,
+        max_history: None,
+        oneshot: None,
+        jitter_max_ms: Some(0),
+    }
+}
+
+#[test]
+fn record_failure_increments_counter_and_backs_off() {
+    let mut store = temp_store();
+    let job = store.create(make_params("Test", "ws", "0 * * * *")).unwrap();
+    let initial_next = job.next_run.unwrap();
+
+    store.record_run(&job.id, CronRunInfo {
+        run_id: "r1".into(),
+        started_at: 0,
+        finished_at: Some(0),
+        status: CronRunStatus::Failed,
+        pane_id: None,
+        tab_id: None,
+    }).unwrap();
+
+    let after = store.get(&job.id).unwrap();
+    assert_eq!(after.consecutive_failures, 1);
+    let _ = initial_next;
+}
+
+#[test]
+fn record_5_failures_auto_disables_job() {
+    let mut store = temp_store();
+    let job = store.create(make_params("Test", "ws", "0 * * * *")).unwrap();
+    for i in 0..MAX_CONSECUTIVE_FAILURES {
+        store.record_run(&job.id, CronRunInfo {
+            run_id: format!("r{}", i),
+            started_at: 0,
+            finished_at: Some(0),
+            status: CronRunStatus::Failed,
+            pane_id: None,
+            tab_id: None,
+        }).unwrap();
+    }
+    let after = store.get(&job.id).unwrap();
+    assert!(!after.enabled, "should auto-disable after {} failures", MAX_CONSECUTIVE_FAILURES);
+    assert_eq!(after.consecutive_failures, MAX_CONSECUTIVE_FAILURES);
+}
+
+#[test]
+fn success_resets_failure_counter() {
+    let mut store = temp_store();
+    let job = store.create(make_params("Test", "ws", "0 * * * *")).unwrap();
+    for i in 0..3 {
+        store.record_run(&job.id, CronRunInfo {
+            run_id: format!("f{}", i),
+            started_at: 0,
+            finished_at: Some(0),
+            status: CronRunStatus::Failed,
+            pane_id: None,
+            tab_id: None,
+        }).unwrap();
+    }
+    store.record_run(&job.id, CronRunInfo {
+        run_id: "ok".into(),
+        started_at: 0,
+        finished_at: Some(0),
+        status: CronRunStatus::Success,
+        pane_id: None,
+        tab_id: None,
+    }).unwrap();
+    let after = store.get(&job.id).unwrap();
+    assert_eq!(after.consecutive_failures, 0);
+    assert!(after.enabled);
+}
+
+#[test]
+fn test_cron_crud() {
+    let mut store = temp_store();
+
+    let job = store.create(make_params("Test Cron", "ws-1", "*/30 * * * *")).unwrap();
+    assert_eq!(job.name, "Test Cron");
+    assert_eq!(job.agent, "claude");
+    assert!(job.enabled);
+    assert!(job.next_run.is_some());
+
+    let fetched = store.get(&job.id).unwrap();
+    assert_eq!(fetched.name, "Test Cron");
+
+    let updated = store
+        .update(
+            &job.id,
+            CronUpdateParams {
+                name: Some("Renamed".to_string()),
+                description: None,
+                schedule: None,
+                task: None,
+                cwd: None,
+                role: None,
+                enabled: None,
+                max_history: None,
+                agent: None,
+                model: None,
+                jitter_max_ms: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(updated.name, "Renamed");
+
+    store.delete(&job.id).unwrap();
+    assert!(store.get(&job.id).is_none());
+}
+
+#[test]
+fn is_job_running_tracks_registered_panes() {
+    let mut store = temp_store();
+    let job = store.create(make_params("Runner", "ws-1", "0 * * * *")).unwrap();
+    assert!(!store.is_job_running(&job.id));
+
+    store.register_pane("pane-A", &job.id, "run-1");
+    assert!(store.is_job_running(&job.id));
+
+    store.register_pane("pane-B", &job.id, "run-2");
+    assert!(store.is_job_running(&job.id));
+
+    store.unregister_pane("pane-A");
+    assert!(store.is_job_running(&job.id));
+
+    store.unregister_pane("pane-B");
+    assert!(!store.is_job_running(&job.id));
+}
+
+#[test]
+fn test_list_for_workspace() {
+    let mut store = temp_store();
+    store.create(make_params("Job A", "ws-1", "0 * * * *")).unwrap();
+    store.create(make_params("Job B", "ws-2", "0 * * * *")).unwrap();
+    store.create(make_params("Job C", "ws-1", "0 * * * *")).unwrap();
+
+    assert_eq!(store.list_for_workspace("ws-1").len(), 2);
+    assert_eq!(store.list_for_workspace("ws-2").len(), 1);
+    assert_eq!(store.list_for_workspace("ws-3").len(), 0);
+}
+
+#[test]
+fn test_record_run_history() {
+    let mut store = temp_store();
+    let job = store
+        .create(CronCreateParams {
+            max_history: Some(3),
+            ..make_params("Job", "ws-1", "0 * * * *")
+        })
+        .unwrap();
+
+    for i in 0..5 {
+        store
+            .record_run(
+                &job.id,
+                CronRunInfo {
+                    run_id: format!("run-{}", i),
+                    started_at: 1000 + i,
+                    finished_at: Some(2000 + i),
+                    status: CronRunStatus::Success,
+                    pane_id: None,
+                    tab_id: None,
+                },
+            )
+            .unwrap();
+    }
+
+    let history = store.get_history(&job.id);
+    assert_eq!(history.len(), 3); // max_history eviction
+    assert_eq!(history[0].run_id, "run-2"); // oldest kept
+    assert_eq!(history[2].run_id, "run-4"); // newest
+
+    let j = store.get(&job.id).unwrap();
+    assert_eq!(j.last_run.as_ref().unwrap().run_id, "run-4");
+}
+
+#[test]
+fn test_persistence() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("crons.json");
+
+    {
+        let mut store = CronStore::new_with_path(path.clone());
+        store.create(make_params("Persistent", "ws-1", "0 9 * * *")).unwrap();
+    }
+
+    {
+        let store = CronStore::new_with_path(path);
+        assert_eq!(store.list().len(), 1);
+        assert_eq!(store.list()[0].name, "Persistent");
+    }
+}
+
+#[test]
+fn test_oneshot_create_and_record_run() {
+    let mut store = temp_store();
+
+    let job = store.create(CronCreateParams {
+        oneshot: Some(true),
+        ..make_params("Once", "ws-1", "in 10m")
+    }).unwrap();
+
+    assert!(job.oneshot);
+    assert!(job.enabled);
+    assert!(job.next_run.is_some());
+
+    store.record_run(&job.id, CronRunInfo {
+        run_id: "run-1".into(),
+        started_at: 1000,
+        finished_at: Some(2000),
+        status: CronRunStatus::Success,
+        pane_id: None,
+        tab_id: None,
+    }).unwrap();
+
+    let j = store.get(&job.id).unwrap();
+    assert!(!j.enabled);
+    assert!(j.next_run.is_none());
+}
