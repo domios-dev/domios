@@ -18,7 +18,7 @@ Designed jointly by BLACKSTAR (Rollo) and Mac (Rollo) over a brainstorming + res
 
 ### D2 — `mem_item_history` is the event log, not a new table
 
-`mem_item_history` (`store.rs:371`) is already append-only with `INTEGER PRIMARY KEY AUTOINCREMENT`. Add three columns and we have ~80% of the event log for free:
+`mem_item_history` (`store.rs:371`) is already append-only with `INTEGER PRIMARY KEY AUTOINCREMENT`. Add two columns and we have ~80% of the event log for free:
 
 ```diff
  CREATE TABLE IF NOT EXISTS mem_item_history (
@@ -27,19 +27,26 @@ Designed jointly by BLACKSTAR (Rollo) and Mac (Rollo) over a brainstorming + res
 +  uid             TEXT,                 -- cross-machine canonical key (NULL = legacy pre-replication)
    changed_at      TEXT NOT NULL,
    changed_by      TEXT NOT NULL,        -- semantic only: "user", "librarian", "dream", "agent:<id>"
-+  origin_machine_id TEXT,               -- peer that originated; NULL = legacy
++  origin_machine_id TEXT,               -- peer that originated; NULL = legacy pre-replication
 +  parent_uid_hash TEXT,                 -- sha256(uid + previous changed_at) for divergence detection
-+  replicated      INTEGER NOT NULL DEFAULT 0,  -- 1 = mesh fanout target; 0 = legacy or local-only audit
    change_type     TEXT NOT NULL,
    old_title, new_title, old_body, new_body, old_importance, new_importance, old_kind, new_kind, reason
  );
  CREATE INDEX idx_history_item ON mem_item_history(item_id, changed_at DESC);
  CREATE INDEX idx_history_changed_by ON mem_item_history(changed_by);
 +CREATE INDEX idx_history_uid_changed ON mem_item_history(uid, changed_at DESC);
-+CREATE INDEX idx_history_replicated ON mem_item_history(replicated, id) WHERE replicated = 1;
++CREATE INDEX idx_history_origin_id ON mem_item_history(origin_machine_id, id) WHERE origin_machine_id IS NOT NULL;
 ```
 
-Existing rows backfill cleanly: `uid = mem_items.uid WHERE mem_items.id = item_id`, `origin_machine_id = NULL`, `replicated = 0`. New helper `history_log_replicated()` writes fatal (returns `Result`) so replication-relevant rows are guaranteed-or-aborted; legacy `history_log()` stays best-effort for non-replicated audits.
+`uid` already exists on `mem_items` (ULID at `store.rs:300`); we are not adding it to `mem_items`, only propagating it into history rows so events survive slug renames and form a stable cross-machine key.
+
+Existing rows backfill cleanly: `uid = mem_items.uid WHERE mem_items.id = item_id`, `origin_machine_id = NULL` (= legacy pre-replication, never fanned out).
+
+**Fan-out criterion** (no separate flag needed): a history row is mesh-fanout-eligible iff `origin_machine_id = our_machine_id`. Rows from peers (`origin_machine_id != ours`) are received-state and must NOT be re-fanned out — that's the stop condition. NULL rows are legacy and likewise skipped. The replicator task's query is `WHERE origin_machine_id = ? AND id > ?` against our own machine id and the per-peer cursor.
+
+Two helpers wrap the underlying insert:
+- `history_log()` — legacy best-effort path; `origin_machine_id = NULL`. Used for pre-replication audit, won't fan out.
+- `history_log_originated(machine_id)` — fatal path (returns `Result`); always sets `origin_machine_id`. Used for every mutation that should reach peers, both locally-initiated and received-via-mesh (in which case `machine_id` is the originating peer's, not ours).
 
 ### D3 — Two-tier replication transport
 
