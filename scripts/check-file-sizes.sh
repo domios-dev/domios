@@ -43,10 +43,15 @@ esac
 EXCLUDE_PATHS='(/target/|/node_modules/|/dist/|/build/|/gen/|/references/|/vendor/|/pty-fork/|/\.git/)'
 
 # Read the allowlist into an associative array: path -> baseline line count.
-# Lines starting with # are comments; blank lines ignored.
+# Lines starting with # are comments; blank lines ignored. Strip trailing \r
+# so CRLF-checked-out allowlists on Windows still parse to integers
+# (otherwise `[ "$lines" -gt "$baseline" ]` aborts with
+#  `integer expression expected` because baseline carries a \r).
 declare -A ALLOW
 if [ -f "$ALLOWLIST" ]; then
     while IFS=$'\t' read -r path baseline; do
+        path="${path%$'\r'}"
+        baseline="${baseline%$'\r'}"
         [ -z "${path:-}" ] && continue
         case "$path" in '#'*) continue ;; esac
         ALLOW["$path"]="$baseline"
