@@ -98,7 +98,7 @@ mod tests {
         assert_eq!(stable.len(), 1);
         assert_eq!(
             stable[0],
-            "https://github.com/rollacode/codeterm/releases/latest/download/latest.json"
+            "https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json"
         );
 
         let rc = default_endpoints(Channel::Rc);

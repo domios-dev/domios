@@ -1,8 +1,14 @@
 use serde::{Deserialize, Serialize};
 use super::InstallMethod;
 
-const GITHUB_API: &str = "https://api.github.com/repos/rollacode/codeterm/releases/latest";
-pub(super) const GITHUB_REPO: &str = "rollacode/codeterm";
+// Public mirror — anonymous-readable, no PAT required. Was previously
+// pointed at rollacode/codeterm (private) with an embedded UPDATER_TOKEN
+// baked into the binary at compile time via option_env!. That coupled
+// CLI `update --check` to a token that (a) leaked into every shipped
+// binary and (b) wasn't usable by anonymous downloaders following the
+// returned download_url — they hit 404 on the private repo.
+const GITHUB_API: &str = "https://api.github.com/repos/rollacode/codeterm-releases/releases/latest";
+pub(super) const GITHUB_REPO: &str = "rollacode/codeterm-releases";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateInfo {
@@ -27,13 +33,9 @@ pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateIn
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut req = client.get(GITHUB_API);
-    if let Some(token) = option_env!("UPDATER_TOKEN") {
-        if !token.is_empty() {
-            req = req.header("Authorization", format!("token {}", token));
-        }
-    }
-    let resp: serde_json::Value = req
+    // Anonymous fetch — public mirror is anon-readable, no Authorization header.
+    let resp: serde_json::Value = client
+        .get(GITHUB_API)
         .send()
         .await
         .map_err(|e| format!("Failed to fetch release: {}", e))?
