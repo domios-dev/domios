@@ -47,10 +47,12 @@ impl AgentProvider for CodexProvider {
             parts.push("--skip-git-repo-check".to_string());
             parts.push(ShellSyntax::quote(task));
         } else {
-            // Interactive session
+            // Interactive session. Codex CLI removed `--full-auto` in late
+            // 2026; the surviving skip-approvals flag is the same one `codex
+            // exec` takes — `--dangerously-bypass-approvals-and-sandbox`.
             parts.push("codex".to_string());
             if params.skip_permissions {
-                parts.push("--full-auto".to_string());
+                parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
             }
         }
 
@@ -322,7 +324,7 @@ impl AgentProvider for CodexProvider {
         vec![
             provider::session_resume_section(
                 "Automatically resume Codex sessions when CodeTerm restarts.",
-                "--full-auto",
+                "--dangerously-bypass-approvals-and-sandbox",
             ),
             provider::model_select_section(
                 "Default model for new Codex sessions.",
@@ -553,7 +555,9 @@ mod tests {
             headless: false,
             session_id: None,
         });
-        assert_eq!(cmd, "codex --full-auto");
+        // Codex CLI removed --full-auto; the surviving skip-approvals flag is
+        // --dangerously-bypass-approvals-and-sandbox (same one codex exec uses).
+        assert_eq!(cmd, "codex --dangerously-bypass-approvals-and-sandbox");
     }
 
     #[test]
