@@ -353,10 +353,12 @@ export interface DiscoveredPeer {
   instance_name: string;
   addresses: PeerAddress[];
   api_port: number;
-  discovery_method: "mdns" | "tailscale" | "udp" | "manual";
+  discovery_method: "mdns" | "tailscale" | "udp" | "gossip" | "manual";
   last_seen: number;
   dev: boolean;
   mesh_id: string | null;
+  /** instance_ids of paired peers who told us about this peer via gossip. */
+  vouched_by: string[];
 }
 
 export interface MeshPairingRequest {

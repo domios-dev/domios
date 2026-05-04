@@ -94,6 +94,7 @@ pub fn init_mdns_daemon(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                         last_seen: now_secs(),
                         dev: false,
                         mesh_id: None,
+                        vouched_by: Vec::new(),
                     };
                     log::debug!("[mesh/mdns] Discovered: {} ({})", name, id);
                     mesh_clone.lock().discovered_peers.insert(id, peer);
@@ -381,6 +382,7 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                         last_seen: now_secs(),
                         dev: beacon.dev,
                         mesh_id: beacon.mesh_id.clone(),
+                        vouched_by: Vec::new(),
                     };
                     let mut m = mesh_clone.lock();
                     let is_new = !m.discovered_peers.contains_key(&beacon.id);

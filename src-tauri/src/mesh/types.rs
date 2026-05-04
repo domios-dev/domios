@@ -152,6 +152,12 @@ pub struct DiscoveredPeer {
     /// Mesh ID this peer belongs to (if any).
     #[serde(default)]
     pub mesh_id: Option<String>,
+    /// Paired peers who told us about this peer via gossip
+    /// (instance_ids of vouchers, deduped, sorted). Empty for mDNS/UDP
+    /// direct discoveries. UI uses this to surface a "vouched by …, pair?"
+    /// affordance instead of a generic Add to Mesh on transitively-known peers.
+    #[serde(default)]
+    pub vouched_by: Vec<String>,
 }
 
 // ── Paired peers ───────────────────────────────────────────────────
