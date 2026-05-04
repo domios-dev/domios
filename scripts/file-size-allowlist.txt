@@ -13,7 +13,6 @@ src-tauri/src/mem/store.rs	1786
 src-tauri/src/commands.rs	1649
 src-tauri/src/lib.rs	1349
 src/components/Sidebar/Sidebar.tsx	1274
-src-tauri/src/api/mem_routes.rs	1221
 src-tauri/src/plugin/agent_claude/provider.rs	1177
 src/store/multiplexer.tsx	1117
 src-tauri/src/cron/store.rs	1005
