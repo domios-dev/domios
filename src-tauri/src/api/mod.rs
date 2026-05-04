@@ -1,6 +1,20 @@
 pub mod auth;
 pub mod events;
 pub mod routes;
-pub mod mesh_routes;
+
+pub mod agent_routes;
+pub mod config_routes;
+pub mod cron_routes;
+pub mod health_routes;
+pub mod hook_routes;
 pub mod mem_routes;
+pub mod mesh_routes;
+pub mod network_routes;
+pub mod notification_routes;
+pub mod os_notify;
+pub mod pane_routes;
+pub mod session_routes;
+pub mod theme_routes;
 pub mod updater_routes;
+pub mod webhook_routes;
+pub mod workspace_routes;
