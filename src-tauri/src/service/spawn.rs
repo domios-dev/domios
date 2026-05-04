@@ -122,11 +122,7 @@ impl SpawnPaneSpec {
                 return Err("to_agent_params called on Shell spec".into());
             }
         };
-        let mut args = agent.extra_args.clone();
-        if let Some(ref model) = agent.model {
-            args.push(format!("--model"));
-            args.push(model.clone());
-        }
+        let args = agent.extra_args.clone();
         Ok(SpawnAgentParams {
             agent: Some(agent.provider.clone()),
             agent_name: agent.agent_name.clone(),
@@ -142,6 +138,7 @@ impl SpawnPaneSpec {
             report_target_pane_id: agent.report_target_pane_id.clone(),
             skip_permissions: Some(agent.auto_approve),
             spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
+            model: agent.model.clone(),
         })
     }
 }
@@ -738,7 +735,11 @@ mod tests {
     }
 
     #[test]
-    fn to_agent_params_carries_model_through_args() {
+    fn to_agent_params_carries_model_as_dedicated_field() {
+        // Model travels as a dedicated `model` field through SpawnAgentParams,
+        // not as `--model X` baked into args. `build_agent_command` then asks
+        // the provider via `model_launch_args` to render the correct flag
+        // syntax (`-m X` for codex/opencode, `--model X` for claude).
         let mut spec = agent_spec("claude");
         if let PaneCommand::Agent(ref mut a) = spec.command {
             a.model = Some("opus".into());
@@ -747,9 +748,9 @@ mod tests {
         let params = spec.to_agent_params().unwrap();
         assert_eq!(params.agent.as_deref(), Some("claude"));
         assert_eq!(params.task.as_deref(), Some("count files"));
-        let args = params.args.unwrap();
-        assert!(args.iter().any(|a| a == "--model"));
-        assert!(args.iter().any(|a| a == "opus"));
+        assert_eq!(params.model.as_deref(), Some("opus"));
+        let args = params.args.unwrap_or_default();
+        assert!(!args.iter().any(|a| a == "--model"), "model must not leak into args");
     }
 
     #[test]

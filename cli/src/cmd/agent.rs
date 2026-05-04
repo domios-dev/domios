@@ -245,7 +245,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
             }
         }
-        AgentAction::Spawn { agent, title, cwd, role, parent, can_spawn, task, args, workspace } => {
+        AgentAction::Spawn { agent, title, cwd, role, parent, can_spawn, task, args, workspace, model } => {
             let mut body = serde_json::json!({
                 "agent": agent,
             });
@@ -257,6 +257,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(t) = task { body["task"] = serde_json::json!(t); }
             if let Some(a) = args { body["args"] = serde_json::json!(a); }
             if let Some(w) = workspace { body["workspace_id"] = serde_json::json!(w); }
+            if let Some(m) = model { body["model"] = serde_json::json!(m); }
             // Always record the spawning agent's pane (when this CLI runs
             // inside a CodeTerm PTY). Independent of --parent, so a
             // top-level Orchestrator (no parent in the role hierarchy)

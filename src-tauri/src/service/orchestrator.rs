@@ -165,6 +165,10 @@ pub struct SpawnAgentParams {
     /// Recorded on the spawned pane independent of `parent_pane_id` so reports
     /// from top-level orchestrators flow back to the agent that asked for them.
     pub spawned_by_pane_id: Option<String>,
+    /// Model selector — provider decides flag syntax via
+    /// `AgentProvider::model_launch_args` (e.g. claude → `--model X`,
+    /// codex/opencode → `-m X`). Caller passes the model string opaque.
+    pub model: Option<String>,
 }
 
 impl SpawnAgentParams {
@@ -192,6 +196,7 @@ impl SpawnAgentParams {
             report_target_pane_id: json_str(params, "report_target_pane_id"),
             skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
             spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
+            model: json_str(params, "model"),
         })
     }
 }
@@ -511,10 +516,24 @@ pub(crate) fn launch_agent_in_background(
 /// Build a single shell command that launches the agent.
 /// Uses the AgentRegistry for known providers; falls back to simple command for unknown agents.
 pub(crate) fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<&str>, registry: &AgentRegistry) -> String {
+    // Combine user --args with provider-specific --model flags. Each provider
+    // knows its own flag syntax (`-m X` vs `--model X`) via
+    // `model_launch_args`, so callers pass the model string opaque and the
+    // right flag is applied automatically.
+    let mut args: Vec<String> = params.args.clone().unwrap_or_default();
+    if let Some(ref model) = params.model {
+        if !model.is_empty() {
+            let model_args = registry
+                .with_provider(agent_cmd, |p| p.model_launch_args(model))
+                .unwrap_or_else(|| vec!["--model".into(), model.clone()]);
+            args.extend(model_args);
+        }
+    }
+
     let launch_params = AgentLaunchParams {
         agent_name: params.agent_name.clone(),
         task: task.map(|t| t.to_string()),
-        args: params.args.clone(),
+        args: if args.is_empty() { None } else { Some(args.clone()) },
         skip_permissions: params.skip_permissions.unwrap_or(true),
         headless: false,
         session_id: None,
@@ -523,9 +542,7 @@ pub(crate) fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, ta
         .unwrap_or_else(|| {
             // Generic agent: just command + args
             let mut parts: Vec<String> = vec![agent_cmd.to_string()];
-            if let Some(ref extra) = params.args {
-                parts.extend(extra.iter().cloned());
-            }
+            parts.extend(args.iter().cloned());
             parts.join(" ")
         })
 }
@@ -551,6 +568,7 @@ mod tests {
             report_target_pane_id: None,
             skip_permissions: None,
             spawned_by_pane_id: None,
+            model: None,
         }
     }
 
@@ -690,6 +708,31 @@ mod tests {
         assert!(cmd.contains("--verbose"));
         assert!(cmd.contains("--no-cache"));
         assert!(cmd.ends_with("--verbose --no-cache"));
+    }
+
+    #[test]
+    fn test_build_with_model_uses_provider_specific_flag() {
+        // claude → `--model X`, codex/opencode → `-m X`. The CLI flag is
+        // provider-agnostic; the right syntax comes from `model_launch_args`.
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+        reg.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
+        reg.register_provider(Box::new(crate::plugin::agent_opencode::OpenCodeProvider::new()));
+
+        let mut p = make_params("claude", None);
+        p.model = Some("opus".into());
+        let cmd = build_agent_command("claude", &p, None, &reg);
+        assert!(cmd.contains("--model opus"), "claude expected --model X: {}", cmd);
+
+        let mut p = make_params("codex", None);
+        p.model = Some("gpt-5.4-mini".into());
+        let cmd = build_agent_command("codex", &p, None, &reg);
+        assert!(cmd.contains("-m gpt-5.4-mini"), "codex expected -m X: {}", cmd);
+
+        let mut p = make_params("opencode", None);
+        p.model = Some("github-copilot/claude-haiku-4.5".into());
+        let cmd = build_agent_command("opencode", &p, None, &reg);
+        assert!(cmd.contains("-m github-copilot/claude-haiku-4.5"), "opencode expected -m X: {}", cmd);
     }
 
     #[test]

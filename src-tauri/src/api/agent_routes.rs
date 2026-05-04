@@ -28,6 +28,9 @@ pub(crate) struct SpawnAgentBody {
     /// Pane id of the caller that ran `agent spawn` (CODETERM_PANE_ID).
     /// Recorded on the spawned pane for report routing fallback.
     spawned_by_pane_id: Option<String>,
+    /// Model selector — provider decides flag syntax via
+    /// AgentProvider::model_launch_args.
+    model: Option<String>,
 }
 
 pub async fn spawn_agent(
@@ -51,6 +54,7 @@ pub async fn spawn_agent(
         report_target_pane_id: body.report_target_pane_id,
         skip_permissions: body.skip_permissions,
         spawned_by_pane_id: body.spawned_by_pane_id,
+        model: body.model,
     };
     let result = state.svc.spawn_agent(params).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;

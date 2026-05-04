@@ -99,6 +99,16 @@ impl ServiceContext {
         let svc = self.clone();
         let pane_id = pane_id.to_string();
         let agent_id = agent_id.to_string();
+        // Wall-clock floor for session matches. Sessions created BEFORE this
+        // detection thread spawned are never the right answer for a fresh
+        // pane — they belong to whatever pane was running before. Without
+        // this floor, a fresh pane in a busy cwd would happily claim a
+        // session created seconds earlier by a sibling/rehydrated pane.
+        let detection_started = std::time::SystemTime::now();
+        // Tiny grace so a session created a hair before set_pane_agent_type
+        // (e.g. provider TUI starts ~ms before our agent_type write lands)
+        // still matches.
+        let grace = std::time::Duration::from_secs(2);
         std::thread::spawn(move || {
             // Total budget: 180s. Step: 3s. Stop early if a session_id was
             // already written by another path (e.g. session-id injection
@@ -122,12 +132,15 @@ impl ServiceContext {
                     return;
                 }
                 let Some(cwd) = cwd else { continue };
-                // 5 minutes — generous enough that a slow agent CLI startup
-                // (provider sign-in, model download, etc.) still gets its
-                // brand-new session matched, but tight enough that stale
-                // sessions in the same cwd from prior pane lifecycles don't
-                // bleed into a fresh pane's detection.
-                let max_age = Some(std::time::Duration::from_secs(300));
+                // Dynamic max_age: only consider sessions created since this
+                // detection thread spawned (plus a small grace). As the
+                // thread ages, the window grows naturally — any session the
+                // matching CLI process is going to create will fall in it,
+                // anything older won't.
+                let elapsed = std::time::SystemTime::now()
+                    .duration_since(detection_started)
+                    .unwrap_or(std::time::Duration::ZERO);
+                let max_age = Some(elapsed + grace);
                 let sid = svc
                     .agent_registry
                     .with_provider(&agent_id, |p| p.detect_session_id(&cwd, &exclude, max_age))
@@ -170,9 +183,10 @@ impl ServiceContext {
                     }
                 }
             }
+            let total_secs = max_attempts as u64 * step.as_secs();
             log::warn!(
-                "[session-detect] gave up after 60s for pane {} (provider={})",
-                pane_id, agent_id,
+                "[session-detect] gave up after {}s for pane {} (provider={})",
+                total_secs, pane_id, agent_id,
             );
         });
     }
