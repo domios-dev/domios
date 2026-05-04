@@ -18,14 +18,28 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             let p = pane.as_deref().unwrap_or("general");
             ("GET".into(), format!("/api/panes/{}/output?lines={}&strip_ansi=true", p, lines), None)
         }
-        Commands::SendText { text, pane, from_file, from_stdin: _ } => {
+        Commands::SendText { text, pane, from_file, from_stdin } => {
             let p = pane.as_deref().unwrap_or("general");
             let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
-            let body_text = match from_file.as_ref() {
-                Some(path) => std::fs::read_to_string(path)
-                    .unwrap_or_else(|_| text.clone()),
-                None => text.clone(),
+            let body_text = if *from_stdin {
+                use std::io::Read;
+                let mut buf = String::new();
+                if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
+                    eprintln!("Error: failed to read --from-stdin: {}", e);
+                    std::process::exit(1);
+                }
+                buf
+            } else if let Some(path) = from_file.as_ref() {
+                std::fs::read_to_string(path).unwrap_or_else(|_| text.clone())
+            } else {
+                text.clone()
             };
+            if body_text.trim().is_empty() {
+                eprintln!("Error: send-text payload is empty (mesh path)");
+                eprintln!("hint: --from-stdin via heredoc may have dropped under your shell wrapper;");
+                eprintln!("      try --from-file <path> with a real tempfile.");
+                std::process::exit(2);
+            }
             ("POST".into(), format!("/api/panes/{}/send", p),
                 Some(serde_json::json!({"text": body_text, "enter": true, "source_pane": source}).to_string()))
         }
