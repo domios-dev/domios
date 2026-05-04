@@ -1,0 +1,205 @@
+//! Cron job store — types, persistence, and per-concern impl modules.
+//!
+//! Layout:
+//!   - [`schedule`] — pure schedule parsing/validation/computation
+//!   - [`crud`]     — CronStore CRUD + run history recording
+//!   - [`panes`]    — pane-ownership tracking + per-job log persistence
+//!
+//! Public surface: types + the `CronStore` constructors / save below, with the
+//! schedule helpers re-exported so callers keep using `cron::store::compute_next_run`
+//! (and friends) unchanged.
+
+mod crud;
+mod panes;
+mod schedule;
+#[cfg(test)]
+mod tests;
+
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
+pub use schedule::{
+    compute_backoff, compute_next_run, compute_next_run_jittered, parse_oneshot_schedule,
+    to_6field, validate_schedule, MAX_CONSECUTIVE_FAILURES,
+};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum CronRunStatus {
+    Running,
+    Success,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CronRunInfo {
+    pub run_id: String,
+    pub started_at: u64,
+    pub finished_at: Option<u64>,
+    pub status: CronRunStatus,
+    pub pane_id: Option<String>,
+    pub tab_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CronJob {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub workspace_id: String,
+    pub schedule: String,
+    pub enabled: bool,
+    pub agent: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub task: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub creator_pane_id: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub oneshot: bool,
+    #[serde(default = "default_max_history")]
+    pub max_history: usize,
+    pub created_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_run: Option<CronRunInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_run: Option<u64>,
+    /// None → 10% of interval clamped to [1m, 30m]. Some(0) → off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jitter_max_ms: Option<u64>,
+    /// Auto-disables at >= 5.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub consecutive_failures: u32,
+    /// Protected crons cannot be deleted, only toggled.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub protected: bool,
+}
+
+fn is_zero_u32(v: &u32) -> bool { *v == 0 }
+
+fn default_max_history() -> usize {
+    100
+}
+
+fn is_false(v: &bool) -> bool {
+    !v
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CronFile {
+    version: String,
+    jobs: Vec<CronJob>,
+    history: HashMap<String, Vec<CronRunInfo>>,
+}
+
+impl Default for CronFile {
+    fn default() -> Self {
+        Self {
+            version: "1".to_string(),
+            jobs: Vec::new(),
+            history: HashMap::new(),
+        }
+    }
+}
+
+pub struct CronStore {
+    file: CronFile,
+    file_path: PathBuf,
+    pane_owners: HashMap<String, (String, String)>,
+}
+
+impl CronStore {
+    pub fn new() -> Self {
+        let dir = crate::paths::data_dir();
+        let file_path = dir.join("crons.json");
+        let file = if file_path.exists() {
+            match fs::read_to_string(&file_path) {
+                Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
+                Err(_) => CronFile::default(),
+            }
+        } else {
+            CronFile::default()
+        };
+        Self { file, file_path, pane_owners: HashMap::new() }
+    }
+
+    #[cfg(test)]
+    pub fn new_with_path(path: PathBuf) -> Self {
+        let file = if path.exists() {
+            match fs::read_to_string(&path) {
+                Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
+                Err(_) => CronFile::default(),
+            }
+        } else {
+            CronFile::default()
+        };
+        Self { file, file_path: path, pane_owners: HashMap::new() }
+    }
+
+    pub fn save(&self) -> Result<(), String> {
+        let json = serde_json::to_string_pretty(&self.file).map_err(|e| e.to_string())?;
+        fs::write(&self.file_path, json).map_err(|e| e.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CronCreateParams {
+    pub name: String,
+    pub workspace_id: String,
+    pub schedule: String,
+    pub task: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub creator_pane_id: Option<String>,
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub max_history: Option<usize>,
+    #[serde(default)]
+    pub oneshot: Option<bool>,
+    #[serde(default)]
+    pub jitter_max_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CronUpdateParams {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub schedule: Option<String>,
+    #[serde(default)]
+    pub task: Option<String>,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub max_history: Option<usize>,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub jitter_max_ms: Option<u64>,
+}
