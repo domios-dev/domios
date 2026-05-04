@@ -251,6 +251,13 @@ impl ServiceContext {
             }
             result
         };
+        // Pin agent_type on the pane up-front. Codex/OpenCode TUIs don't emit
+        // OSC titles and only trip `detect_from_output` on permission prompts —
+        // without this proactive tag they stay agent_type=None forever and the
+        // session-id poller (in `set_pane_agent_type`) never starts, so resume
+        // after restart silently fails. The orchestrator-side spawn path also
+        // needs the same call (see `service/orchestrator.rs::spawn_agent`).
+        self.set_pane_agent_type(&pane_id, Some(agent_cmd.clone()));
         self.emit_state_changed();
 
         let role_suffixed_task = agent.task.as_ref().map(|t| {

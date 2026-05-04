@@ -309,6 +309,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         setPendingCwd(tabInfo.pane_id, cwd);
         await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd });
       }
+      // Mark the pane with its agent_type up front. Codex / OpenCode don't
+      // emit OSC terminal titles and only show their `detect_from_output`
+      // markers when a permission prompt comes up — without an early tag
+      // their session_id is never saved, and resume after restart silently
+      // bails. Setting agent_type here also kicks off the backend's
+      // session-detection polling loop in `set_pane_agent_type`.
+      invoke("mux_set_pane_agent_type", { paneId: tabInfo.pane_id, agentType: agentId }).catch(() => {});
       const cmd = await invoke<string>("build_agent_launch_command", { agentId, skipPermissions });
       setPendingCommand(tabInfo.pane_id, cmd);
       await invoke("mux_set_active_tab", { workspaceId, tabId: tabInfo.id });

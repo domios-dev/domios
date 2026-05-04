@@ -21,6 +21,41 @@ pub async fn spawn_pty(
     predicted_id: Option<String>,
     pane_id: Option<String>,
 ) -> Result<String, String> {
+    // Protected panes (General Agent) own their lifecycle from the backend —
+    // `service::general_agent::lifecycle` spawns its OWN PTY, links it, and
+    // reads from it. If the frontend also fires spawn_pty during rehydrate,
+    // we get TWO PTYs racing for the same pane: link_pty then orphan-kills
+    // the backend one, the GA reader is left holding a dead PTY, and GA
+    // hangs 60s on `poll_shell_prompt` before the watchdog gives up.
+    //
+    // Resolution: when a protected pane already has a backend-spawned PTY,
+    // return that pty_id instead of spawning a second one. When the backend
+    // hasn't gotten there yet, briefly wait — GA's lifecycle starts within
+    // a couple seconds of daemon boot.
+    if let Some(ref pid) = pane_id {
+        let is_protected = mux_state.lock().get_pane(pid).map(|p| p.protected).unwrap_or(false);
+        if is_protected {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                if let Some(existing) = mux_state.lock().get_pane(pid).and_then(|p| p.pty_id.clone()) {
+                    log::info!(
+                        "[spawn_pty] protected pane {} already has backend pty {} — reusing",
+                        pid, existing,
+                    );
+                    return Ok(existing);
+                }
+                if std::time::Instant::now() > deadline {
+                    log::warn!(
+                        "[spawn_pty] protected pane {} still has no backend pty after 5s — falling through",
+                        pid,
+                    );
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+    }
+
     let mut env_vars: HashMap<String, String> = HashMap::new();
     if let Some(ref pid) = pane_id {
         env_vars.insert("CODETERM_PANE_ID".to_string(), pid.clone());
