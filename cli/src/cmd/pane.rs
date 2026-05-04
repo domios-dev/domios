@@ -1,0 +1,126 @@
+use crate::client::SocketClient;
+use crate::cmd::print::handle_result;
+use crate::{build_http, read_api_config, resolve_pane, PaneAction};
+
+pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
+    match action {
+        PaneAction::List => {
+            let result = client.call("pane.list", None);
+            handle_result(json, result);
+        }
+        PaneAction::Current { last } => {
+            let result = client.call("pane.list", None);
+            match result {
+                Ok(value) => {
+                    if let Some(arr) = value.as_array() {
+                        let pane = if last {
+                            arr.last()
+                        } else {
+                            arr.iter()
+                                .find(|p| p.get("focused").and_then(|v| v.as_bool()).unwrap_or(false))
+                                .or_else(|| arr.first())
+                        };
+                        if let Some(id) = pane.and_then(|p| p.get("id").and_then(|v| v.as_str())) {
+                            println!("{}", id);
+                        }
+                    }
+                }
+                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+            }
+        }
+        PaneAction::Focus { id } => {
+            let result = client.call("pane.focus", Some(serde_json::json!({ "pane_id": id })));
+            handle_result(json, result);
+        }
+        PaneAction::Close { id } => {
+            let result = client.call("pane.close", Some(serde_json::json!({ "pane_id": id })));
+            handle_result(json, result);
+        }
+        PaneAction::Rename { pane, title } => {
+            let pane_id = resolve_pane(client, pane);
+            let result = client.call(
+                "pane.rename",
+                Some(serde_json::json!({ "pane_id": pane_id, "title": title })),
+            );
+            handle_result(json, result);
+        }
+        PaneAction::GetText { pane, formatted } => {
+            let pane_id = resolve_pane(client, pane);
+            let (api_url, api_token) = read_api_config();
+            let http = build_http(&api_token);
+            let url = format!("{}/api/panes/{}/text?formatted={}", api_url, pane_id, formatted);
+            match http.get(url).send() {
+                Ok(resp) => {
+                    if let Ok(val) = resp.json::<serde_json::Value>() {
+                        if let Some(text) = val.get("text").and_then(|v| v.as_str()) {
+                            if formatted {
+                                print!("{}", text);
+                            } else {
+                                for line in text.lines() {
+                                    if !line.trim().is_empty() {
+                                        println!("{}", line);
+                                    }
+                                }
+                            }
+                            return;
+                        }
+                    }
+                    eprintln!("No pane text");
+                    std::process::exit(1);
+                }
+                Err(e) => { eprintln!("Get-text request failed: {}", e); std::process::exit(1); }
+            }
+        }
+        PaneAction::Exec { pane, command, timeout } => {
+            let pane_id = resolve_pane(client, pane);
+            let (api_url, api_token) = read_api_config();
+            let http = build_http(&api_token);
+            match http.post(format!("{}/api/panes/{}/exec", api_url, pane_id))
+                .json(&serde_json::json!({
+                    "command": command,
+                    "timeout_ms": timeout,
+                    "strip_ansi": true,
+                }))
+                .send()
+            {
+                Ok(resp) => {
+                    if let Ok(val) = resp.json::<serde_json::Value>() {
+                        if let Some(output) = val.get("output").and_then(|v| v.as_str()) {
+                            print!("{}", output);
+                            return;
+                        }
+                    }
+                    eprintln!("Exec failed");
+                    std::process::exit(1);
+                }
+                Err(e) => { eprintln!("Exec request failed: {}", e); std::process::exit(1); }
+            }
+        }
+        PaneAction::Status { pane } => {
+            let pane_id = resolve_pane(client, pane);
+            let (api_url, api_token) = read_api_config();
+            let http = build_http(&api_token);
+            match http.get(format!("{}/api/panes", api_url)).send() {
+                Ok(resp) => {
+                    if let Ok(panes) = resp.json::<Vec<serde_json::Value>>() {
+                        if let Some(p) = panes.iter().find(|p| p.get("id").and_then(|v| v.as_str()) == Some(&pane_id)) {
+                            let at = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
+                            let sid = p.get("agent_session_id").and_then(|v| v.as_str()).unwrap_or("-");
+                            let pp = if p.get("pending_prompt").is_some() { "yes" } else { "no" };
+                            let cv = p.get("chat_view").and_then(|v| v.as_bool()).unwrap_or(false);
+                            println!("pane:    {}", pane_id);
+                            println!("agent:   {}", at);
+                            println!("session: {}", sid);
+                            println!("prompt:  {}", pp);
+                            println!("chat:    {}", cv);
+                            return;
+                        }
+                    }
+                    eprintln!("Pane not found");
+                    std::process::exit(1);
+                }
+                Err(e) => { eprintln!("Status request failed: {}", e); std::process::exit(1); }
+            }
+        }
+    }
+}
