@@ -17,7 +17,6 @@ src/store/multiplexer.tsx	1117
 src-tauri/src/cron/store.rs	1005
 src-tauri/src/mem/mod.rs	997
 src-tauri/src/socket/server.rs	942
-src-tauri/src/api/mesh_routes.rs	902
 src-tauri/src/service/general_agent.rs	834
 evals/seeds/loaded.py	886
 
