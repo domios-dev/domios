@@ -120,6 +120,7 @@ impl MultiplexerState {
         if let Some(ref focused) = self.focused_pane_id {
             if pane_ids.contains(focused) {
                 self.focused_pane_id = None;
+                self.fallback_focus_to_general();
             }
         }
 
