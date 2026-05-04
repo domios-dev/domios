@@ -212,7 +212,7 @@ pub enum Commands {
 
     /// Send text to a pane (default: current pane)
     SendText {
-        /// Text to send (positional, or omit and use --from-file)
+        /// Text to send (positional, or omit and use --from-file/--from-stdin)
         #[arg(default_value = "")]
         text: String,
 
@@ -224,6 +224,14 @@ pub enum Commands {
         /// pass payloads that would otherwise be eaten by shell quoting.
         #[arg(long, value_name = "PATH")]
         from_file: Option<String>,
+
+        /// Read text from stdin. Pair with a single-quoted heredoc to bypass
+        /// the shell entirely:
+        ///   codeterm send-text --pane X --from-stdin <<'EOF'
+        ///   any `backticks`, $vars, etc — zero interpolation
+        ///   EOF
+        #[arg(long)]
+        from_stdin: bool,
     },
 
     /// Open a canvas panel (localhost, data URLs, HTML visualizations)
@@ -1327,6 +1335,34 @@ pub enum CronAction {
     },
 }
 
+/// Detect content that's almost certainly the result of bash command-substitution
+/// eating the agent's intended text — e.g. unquoted `mesh peers` inside a
+/// double-quoted argv string causes bash to execute `mesh peers` and splice the
+/// resulting "command not found" stderr into the payload before send-text sees
+/// any of it.
+///
+/// Returns Err(reason) if the text matches a known mangled-shell pattern. The
+/// caller surfaces a hint pointing at --from-file / --from-stdin.
+fn guard_against_shell_mangle(text: &str) -> Result<(), String> {
+    // Patterns that virtually never appear in legitimate user-typed messages
+    // but do appear when bash's "command not found" stderr leaks into stdin.
+    const SUSPICIOUS: &[&str] = &[
+        ": command not found",
+        "/usr/bin/bash: line ",
+        "bash: line ",
+        "syntax error near unexpected token",
+    ];
+    for needle in SUSPICIOUS {
+        if text.contains(needle) {
+            return Err(format!(
+                "send-text payload looks shell-mangled (matched marker: {:?})",
+                needle
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
 ///
 /// When running inside CodeTerm, $CODETERM_PANE_ID is set automatically by the PTY.
@@ -1650,17 +1686,32 @@ fn main() {
             }
         }
 
-        Commands::SendText { pane, text, from_file } => {
-            let resolved_text = match from_file {
-                Some(path) => match std::fs::read_to_string(&path) {
+        Commands::SendText { pane, text, from_file, from_stdin } => {
+            let resolved_text = if from_stdin {
+                use std::io::Read;
+                let mut buf = String::new();
+                if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
+                    eprintln!("Error: failed to read --from-stdin: {}", e);
+                    std::process::exit(1);
+                }
+                buf
+            } else if let Some(path) = from_file {
+                match std::fs::read_to_string(&path) {
                     Ok(s) => s,
                     Err(e) => {
                         eprintln!("Error: failed to read --from-file {}: {}", path, e);
                         std::process::exit(1);
                     }
-                },
-                None => text,
+                }
+            } else {
+                text
             };
+            if let Err(msg) = guard_against_shell_mangle(&resolved_text) {
+                eprintln!("Error: {}", msg);
+                eprintln!("hint: your shell expanded a command-substitution before codeterm-CLI received it.");
+                eprintln!("      Use --from-file <path> or --from-stdin <<'EOF' ... EOF for content with backticks/$/code.");
+                std::process::exit(2);
+            }
             let pane_id = resolve_pane(&mut client, pane);
             client.call(
                 "pane.send_text",
@@ -4763,6 +4814,36 @@ fn run_install_from_file(
 ) {
     eprintln!("--from-file is currently Windows-only");
     std::process::exit(2);
+}
+
+#[cfg(test)]
+mod send_text_guard_tests {
+    use super::guard_against_shell_mangle;
+
+    #[test]
+    fn legitimate_text_passes() {
+        assert!(guard_against_shell_mangle("hello world").is_ok());
+        assert!(guard_against_shell_mangle("PR #28 — looks fine").is_ok());
+        assert!(guard_against_shell_mangle("status code: 200").is_ok());
+    }
+
+    #[test]
+    fn bash_command_not_found_rejected() {
+        let payload = "/usr/bin/bash: line 3: mesh: command not found\nactual content";
+        assert!(guard_against_shell_mangle(payload).is_err());
+    }
+
+    #[test]
+    fn bare_command_not_found_rejected() {
+        let payload = "mesh: command not found\nfollowed by intended message";
+        assert!(guard_against_shell_mangle(payload).is_err());
+    }
+
+    #[test]
+    fn syntax_error_rejected() {
+        let payload = "bash: -c: line 1: syntax error near unexpected token `('";
+        assert!(guard_against_shell_mangle(payload).is_err());
+    }
 }
 
 #[cfg(test)]
