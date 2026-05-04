@@ -211,12 +211,27 @@ pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
     ];
     for cmd in &candidates {
         if let Ok(output) = std::process::Command::new(cmd).args(["ip", "-4"]).output() {
+            // `tailscale ip -4` on macOS through the Tailscale.app GUI bridge
+            // can exit 0 and write an error string ("The Tailscale GUI failed
+            // to start: …") to stdout. Validate the output parses as an IPv4
+            // before accepting it; otherwise the error string ends up cached
+            // as our tailscale_ip and gets announced to peers.
             if output.status.success() {
-                let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !ip.is_empty() {
+                let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if let Some(ip) = raw.lines().find_map(|line| {
+                    let candidate = line.trim();
+                    candidate.parse::<std::net::IpAddr>().ok().map(|_| candidate.to_string())
+                }) {
                     log::info!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
                     mesh.lock().tailscale_ip = Some(ip);
                     return;
+                }
+                if !raw.is_empty() {
+                    log::warn!(
+                        "[mesh] {} ip -4 returned non-IP output (likely Tailscale GUI bridge error): {}",
+                        cmd,
+                        raw.lines().next().unwrap_or("").chars().take(120).collect::<String>()
+                    );
                 }
             }
         }
