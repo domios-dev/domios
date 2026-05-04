@@ -94,12 +94,19 @@ pub(crate) fn start_background_tasks(
                                         for p in their_payload.peers {
                                             if p.instance_id == m.ident.identity.instance_id { continue; }
                                             if m.paired_peers.contains_key(&p.instance_id) { continue; }
+                                            // Sanitize addresses on this 4th ingest path — sync-poll
+                                            // response from a paired peer can carry pre-fix poisoned
+                                            // entries (the v1.1.9 sanitize-on-ingest covered the
+                                            // mesh_sync inbound handler, mesh_introduce, and
+                                            // apply_announce, but missed this background-poll path).
+                                            // Same bug class as v1.1.9 issue #28 / commit f0ff692.
+                                            let clean_addrs = mesh::types::sanitize_addresses(&p.addresses);
                                             m.discovered_peers.insert(p.instance_id.clone(), mesh::types::DiscoveredPeer {
                                                 instance_id: p.instance_id,
                                                 instance_name: p.instance_name,
-                                                addresses: p.addresses,
+                                                addresses: clean_addrs,
                                                 api_port: p.api_port,
-                                                discovery_method: mesh::types::DiscoveryMethod::Udp,
+                                                discovery_method: mesh::types::DiscoveryMethod::Gossip,
                                                 last_seen: now,
                                                 dev: p.dev, mesh_id: None,
                                             });
