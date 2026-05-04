@@ -10,6 +10,5 @@
 src-tauri/src/lib.rs	1349
 src/components/Sidebar/Sidebar.tsx	1274
 src/store/multiplexer.tsx	1117
-src-tauri/src/service/general_agent.rs	834
 evals/seeds/loaded.py	886
 
