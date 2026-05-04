@@ -73,10 +73,10 @@ pub fn local_ip_address() -> Option<String> {
 }
 
 pub fn detect_tailscale_ip() -> Option<String> {
-    let output = std::process::Command::new("tailscale")
-        .args(["ip", "-4"])
-        .output()
-        .ok()?;
+    let mut cmd = std::process::Command::new("tailscale");
+    cmd.args(["ip", "-4"]);
+    crate::process_util::no_window_std(&mut cmd);
+    let output = cmd.output().ok()?;
     if output.status.success() {
         let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !ip.is_empty() { return Some(ip); }

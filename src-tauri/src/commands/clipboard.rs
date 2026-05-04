@@ -62,8 +62,10 @@ pub async fn copy_image_to_clipboard(path: String) -> Result<(), String> {
             "#
         );
         log::debug!("[clipboard] copying image to clipboard: {}", path);
-        let output = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-STA", "-Command", &ps_script])
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-STA", "-Command", &ps_script]);
+        crate::process_util::no_window_std(&mut cmd);
+        let output = cmd
             .output()
             .map_err(|e| format!("PowerShell launch failed: {}", e))?;
         if !output.status.success() {
