@@ -16,6 +16,38 @@ CodeTerm is a **distributed OS for AI agents**. The CLI and APIs are the "spinal
   aggressively. When in doubt, rewrite rather than patch. The only user
   is the developer.
 
+## Source file size discipline
+
+**Hard limit: 800 lines per source file** (`.rs`, `.ts`, `.tsx`, `.py`,
+`.swift`). When a file approaches this, split by responsibility before
+adding new code — never add lines that push it past the limit. If a
+single concern legitimately needs more than 800 lines, your concern is
+two concerns wearing a trenchcoat.
+
+- **`mod.rs` files target <300 lines** — facade only: `pub mod`
+  declarations, re-exports, module-level trait definitions. Logic
+  belongs in concrete files inside the module.
+- **Test extraction**: when splitting a file with inline `#[cfg(test)]
+  mod tests`, keep the `mod tests;` declaration in source and move the
+  body to `<name>/tests.rs` or `<name>_tests.rs`.
+- **Comment cleanup during splits**: when in doubt, DELETE rather than
+  extract to `docs/`. Stale narrative is usually wrong by the time you
+  read it. Only preserve as docs/ if it is load-bearing design rationale
+  future-you will need; default move is delete, trust the code.
+- **Excluded from the limit**: build artifacts (`target/`,
+  `node_modules/`, `dist/`, `build/`), generated bindings (`gen/`,
+  tauri auto-gen), vendored sources (`references/`, `vendor/`,
+  `src-tauri/pty-fork/`), and data formats (`*.sql`, `*.json`,
+  `*.toml`).
+
+**Enforcement**: `scripts/check-file-sizes.sh` walks the tree and is
+wired into CI (`.github/workflows/file-sizes.yml`) plus an optional
+pre-commit hook (`scripts/pre-commit-file-sizes.sh`).
+`scripts/file-size-allowlist.txt` lists pre-existing >800 files that
+predate this rule — each baseline-locked, must shrink not grow. As
+files in the allowlist drop under the limit, remove them from the list
+(the script reports candidates).
+
 ## Running dev & tests
 
 All commands go through `build.sh` — one script for all platforms. Safe on Windows: never kills production CodeTerm, only dev instance (port 7686).

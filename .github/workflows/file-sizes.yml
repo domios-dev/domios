@@ -1,0 +1,29 @@
+name: file-sizes
+
+# Source-file size discipline: scripts/check-file-sizes.sh.
+# Runs in --fail mode from day one. Legacy >800 files are baselined in
+# scripts/file-size-allowlist.txt and only fail CI if they grow past
+# their baseline. Phase 2 drains the allowlist; once empty, the rule
+# bites unconditionally on every file.
+
+on:
+  pull_request:
+    paths:
+      - '**/*.rs'
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '**/*.py'
+      - '**/*.swift'
+      - 'scripts/file-size-allowlist.txt'
+      - 'scripts/check-file-sizes.sh'
+      - '.github/workflows/file-sizes.yml'
+  push:
+    branches: [develop, master]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run file-size discipline check
+        run: bash scripts/check-file-sizes.sh --fail
