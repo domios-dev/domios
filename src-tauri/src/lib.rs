@@ -294,6 +294,15 @@ pub fn run() {
                 plugin_manager.activate(plugin::agent_codex::PLUGIN_ID)
                     .expect("agent-codex plugin activation failed");
             }
+            {
+                use plugin::agent_opencode::AgentOpenCodePlugin;
+                let manifest = AgentOpenCodePlugin::manifest();
+                plugin_manager.register(manifest);
+                plugin_manager.attach_native(Box::new(AgentOpenCodePlugin::new()))
+                    .expect("agent-opencode plugin attach failed");
+                plugin_manager.activate(plugin::agent_opencode::PLUGIN_ID)
+                    .expect("agent-opencode plugin activation failed");
+            }
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
 
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));

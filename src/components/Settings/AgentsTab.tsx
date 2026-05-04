@@ -165,6 +165,9 @@ export function AgentProviderScreen({
     return null;
   }
 
+  const providerCfg = fullConfig.agents?.[provider.id] ?? {};
+  const visibleInMenu = providerCfg.visible_in_menu !== false;
+
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3 pb-2">
@@ -174,6 +177,19 @@ export function AgentProviderScreen({
         <div className="min-w-0">
           <div className="text-sm font-medium text-[var(--ct-fg)]">{provider.display_name}</div>
           <div className="text-[11px] text-[var(--ct-muted-fg)]">{provider.id}</div>
+        </div>
+      </div>
+      {/* CodeTerm-wide policy: hide this provider from the per-workspace
+          'New ... Session' menu. Lives outside the plugin schema because
+          it's a host-side filter, not a per-plugin setting. */}
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4">
+        <Toggle
+          label="Show in workspace menu"
+          checked={visibleInMenu}
+          onChange={(v) => onProviderConfigChange(provider.id, { visible_in_menu: v })}
+        />
+        <div className="text-[10px] text-[var(--ct-muted)] mt-1">
+          When off, the "New {provider.display_name} Session" entry is hidden from workspace context menus. Spawning via CLI / agent hierarchy still works.
         </div>
       </div>
       <SchemaRenderer

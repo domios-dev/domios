@@ -383,6 +383,9 @@ export interface ProviderConfig {
   resume_sessions?: boolean;
   resume_skip_permissions?: boolean;
   default_model?: string;
+  /// When false, the provider is hidden from the per-workspace
+  /// "New <Provider> Session" menu. Defaults to true (visible).
+  visible_in_menu?: boolean;
   // Additional plugin-declared fields land in this map (TOML #[serde(flatten)]).
   [key: string]: unknown;
 }

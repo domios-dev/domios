@@ -105,7 +105,7 @@ pub enum AgentAction {
     },
     /// Spawn a new agent (creates tab in workspace, linked in hierarchy)
     Spawn {
-        /// Agent to run: claude, aider, goose, or any command
+        /// Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude.
         #[arg(default_value = "claude")]
         agent: String,
         /// Tab title
