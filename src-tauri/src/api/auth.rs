@@ -44,8 +44,15 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
     let own_id = mesh.ident.identity.instance_id.clone();
-    if let Some(ref pk) = mesh.ident.identity.public_key {
-        known_keys.insert(own_id.clone(), pk.clone());
+    // Always register self as a known key. Prefer the cached pubkey, but fall
+    // back to deriving it from the private key on the fly — covers identities
+    // serialized before public_key was added to MeshIdentity, which otherwise
+    // 401 every CLI call from outside a PTY (issue #1 from 1.1.9 SMOKE).
+    let self_pubkey = mesh.ident.identity.public_key.clone()
+        .or_else(|| mesh.ident.identity.private_key.as_ref()
+            .and_then(|sk| crate::mesh::crown::public_key_from_private(sk).ok()));
+    if let Some(pk) = self_pubkey {
+        known_keys.insert(own_id.clone(), pk);
     }
     let paired_peers = mesh.paired_peers.clone();
     drop(mesh);

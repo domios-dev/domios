@@ -108,6 +108,7 @@ pub(crate) fn start_background_tasks(
                                     log::info!("[mesh] Peer {} {} — syncing", peer.instance_name, reason);
                                     if let Ok(their_payload) = client.send_sync(&sync_payload).await {
                                         last_sync_secs.insert(peer.instance_id.clone(), now_secs);
+                                        let voucher = peer.instance_id.clone();
                                         let mut m = mesh.lock();
                                         for p in their_payload.peers {
                                             if p.instance_id == m.ident.identity.instance_id { continue; }
@@ -119,6 +120,16 @@ pub(crate) fn start_background_tasks(
                                             // apply_announce, but missed this background-poll path).
                                             // Same bug class as v1.1.9 issue #28 / commit f0ff692.
                                             let clean_addrs = mesh::types::sanitize_addresses(&p.addresses);
+                                            // Merge transitive-trust voucher entry for the polled peer.
+                                            let mut vouched_by = m.discovered_peers
+                                                .get(&p.instance_id)
+                                                .map(|dp| dp.vouched_by.clone())
+                                                .unwrap_or_default();
+                                            if !vouched_by.contains(&voucher) {
+                                                vouched_by.push(voucher.clone());
+                                            }
+                                            vouched_by.sort();
+                                            vouched_by.dedup();
                                             m.discovered_peers.insert(p.instance_id.clone(), mesh::types::DiscoveredPeer {
                                                 instance_id: p.instance_id,
                                                 instance_name: p.instance_name,
@@ -127,6 +138,7 @@ pub(crate) fn start_background_tasks(
                                                 discovery_method: mesh::types::DiscoveryMethod::Gossip,
                                                 last_seen: now_secs,
                                                 dev: p.dev, mesh_id: None,
+                                                vouched_by,
                                             });
                                         }
                                         changed = true;

@@ -320,6 +320,7 @@ pub fn mesh_add_manual(
         last_seen: now,
         dev: false,
         mesh_id: None,
+        vouched_by: Vec::new(),
     };
     mesh.lock()
         .discovered_peers

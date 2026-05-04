@@ -135,9 +135,17 @@ pub async fn mesh_approve_peer(
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
     log::info!("[mesh/api] Pairing approved for request {}", request_id);
 
+    // Pair-time peer records on both sides only contain the single observed
+    // address from the request packet — that asymmetry persisted in
+    // peers.json on both ends until a third broadcast eventually realigned
+    // it (issue #9 from 1.1.9 SMOKE). Push our authoritative full address
+    // list to the new peer right away so apply_announce on their side
+    // replaces the single-address stub with the complete record.
     let mesh_state = state.mesh.clone();
+    let new_peer_id = request.from_instance_id.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let _ = crate::mesh::broadcast_announce(&mesh_state, Some(&new_peer_id)).await;
         crate::mesh::broadcast_sync(&mesh_state).await;
     });
 
@@ -179,17 +187,29 @@ pub async fn mesh_disconnect_peer(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let instance_id = body["instance_id"].as_str()
+    let arg = body["instance_id"].as_str()
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing instance_id".to_string()))?
         .to_string();
 
-    let (peer, signed_token, our_id) = {
+    // Accept either a UUID (paired_peers map key) or an instance_name.
+    // CLI users typically copy names from `mesh peers` output; resolving
+    // here keeps the API forgiving without bloating the CLI.
+    let (instance_id, peer, signed_token, our_id) = {
         let m = state.mesh.lock();
-        let peer = m.paired_peers.get(&instance_id).cloned();
+        let peer = m.paired_peers.get(&arg).cloned().or_else(|| {
+            m.paired_peers.values()
+                .find(|p| p.instance_name == arg)
+                .cloned()
+        });
+        let resolved_id = peer.as_ref().map(|p| p.instance_id.clone()).unwrap_or(arg);
         let token = m.sign_request().ok();
         let id = m.ident.identity.instance_id.clone();
-        (peer, token, id)
+        (resolved_id, peer, token, id)
     };
+
+    if peer.is_none() {
+        return Err((StatusCode::NOT_FOUND, format!("No paired peer matches '{}'", instance_id)));
+    }
 
     if let (Some(peer), Some(token)) = (peer, signed_token.clone()) {
         let addr = peer.addresses.iter()
