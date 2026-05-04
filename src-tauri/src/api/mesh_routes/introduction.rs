@@ -59,7 +59,7 @@ pub async fn mesh_introduce(
     let peer = crate::mesh::types::PairedPeer {
         instance_id: intro.instance_id.clone(),
         instance_name: intro.instance_name.clone(),
-        addresses: intro.addresses.clone(),
+        addresses: crate::mesh::types::sanitize_addresses(&intro.addresses),
         api_port: intro.api_port,
         public_key: intro.public_key.clone(),
         paired_at: chrono::Utc::now().to_rfc3339(),
