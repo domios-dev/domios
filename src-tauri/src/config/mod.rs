@@ -359,6 +359,7 @@ pub async fn get_config(state: tauri::State<'_, ConfigState>) -> Result<AppConfi
 #[tauri::command]
 pub async fn update_config(
     state: tauri::State<'_, ConfigState>,
+    mesh_state: tauri::State<'_, crate::MeshStateHandle>,
     app: AppHandle,
     config: AppConfig,
 ) -> Result<(), String> {
@@ -378,8 +379,36 @@ pub async fn update_config(
         resolve_theme(&mut resolved);
     }
 
+    // Detect rename so we can sync mesh state + push the new name to peers
+    // immediately instead of waiting for the next periodic announce. Without
+    // this, paired peers stay on the old instance_name forever (the
+    // alias-propagation bug ROG hit on the Mac-Air rename).
+    let prev_name = state.lock().mesh.instance_name.clone();
+    let new_name = resolved.mesh.instance_name.clone();
+    let renamed = !new_name.is_empty() && new_name != prev_name;
+
     save_config(&resolved)?;
     *state.lock() = resolved.clone();
+
+    if renamed {
+        let mesh_arc = mesh_state.inner().clone();
+        {
+            let mut m = mesh_arc.lock();
+            m.ident.instance_name = new_name.clone();
+        }
+        log::info!(
+            "[mesh] instance renamed: {:?} -> {}, broadcasting announce",
+            prev_name, new_name
+        );
+        tauri::async_runtime::spawn(async move {
+            let report = crate::mesh::broadcast_announce(&mesh_arc, None).await;
+            log::info!(
+                "[mesh] post-rename announce sent={} ok={} stale={} errors={}",
+                report.sent, report.ok, report.stale_peers.len(), report.errors.len()
+            );
+        });
+    }
+
     // Emit config-changed event for live reload
     app.emit("config-changed", &resolved)
         .map_err(|e| format!("Failed to emit config-changed: {}", e))?;
