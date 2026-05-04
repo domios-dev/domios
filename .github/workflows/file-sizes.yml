@@ -1,8 +1,10 @@
 name: file-sizes
 
 # Source-file size discipline: scripts/check-file-sizes.sh.
-# Phase 1 = warn-only so legacy >800 files don't break the build while we
-# drain the backlog. Flip to --fail once the allowlist is empty.
+# Runs in --fail mode from day one. Legacy >800 files are baselined in
+# scripts/file-size-allowlist.txt and only fail CI if they grow past
+# their baseline. Phase 2 drains the allowlist; once empty, the rule
+# bites unconditionally on every file.
 
 on:
   pull_request:

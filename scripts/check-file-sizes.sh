@@ -34,7 +34,10 @@ esac
 
 # Include-list: only these extensions count as "source files" for the discipline.
 # Data, configs, lockfiles, generated bindings are explicitly out of scope.
-INCLUDE_EXT='\.(rs|ts|tsx|py|swift)$'
+# Listed here for documentation; the actual filter uses POSIX-portable
+# `-name` alternation in the find call below so BSD find (macOS) and GNU
+# find (Linux/CI) both work — `-regextype` is GNU-only and silently scans
+# zero files on macOS.
 
 # Path-based exclusions for build artifacts, vendored sources, generated code.
 EXCLUDE_PATHS='(/target/|/node_modules/|/dist/|/build/|/gen/|/references/|/vendor/|/pty-fork/|/\.git/)'
@@ -84,8 +87,13 @@ while IFS= read -r file; do
         new_violations+=("${rel}|${lines}")
     fi
 done < <(
-    find "$ROOT" -type f -regextype posix-extended -regex ".*${INCLUDE_EXT}" \
-        | grep -Ev "$EXCLUDE_PATHS"
+    find "$ROOT" -type f \( \
+        -name '*.rs' -o \
+        -name '*.ts' -o \
+        -name '*.tsx' -o \
+        -name '*.py' -o \
+        -name '*.swift' \
+    \) | grep -Ev "$EXCLUDE_PATHS"
 )
 
 # Reporting
