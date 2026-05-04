@@ -480,4 +480,10 @@ export interface ProviderDescriptor {
   supports_lazy_skills: boolean;
   has_hooks: boolean;
   preserves_context_on_resume: boolean;
+  /// Binary name to probe via `which` when checking installation. Optional —
+  /// providers without a CLI dependency leave this null.
+  cli_binary?: string | null;
+  /// Shell command that installs the CLI for the current platform. Used by
+  /// the Install card on the per-provider Settings screen.
+  install_command?: string | null;
 }

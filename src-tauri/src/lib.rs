@@ -175,6 +175,7 @@ pub fn run() {
             multiplexer::commands::detect_pane_session_id,
             multiplexer::commands::mux_set_claude_session_id,
             commands::check_cli_installed,
+            commands::install_provider_in_pane,
             multiplexer::commands::build_agent_launch_command,
             multiplexer::commands::mux_set_pane_role,
             multiplexer::commands::mux_clear_pane_role,

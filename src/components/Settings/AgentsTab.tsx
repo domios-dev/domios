@@ -4,6 +4,7 @@ import { ChevronRight } from "lucide-react";
 import type { AppConfig, ProviderConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
+import { ProviderInstallCard } from "./ProviderInstallCard";
 import { Toggle } from "./shared";
 
 export function AgentsOverview({
@@ -192,6 +193,7 @@ export function AgentProviderScreen({
           When off, the "New {provider.display_name} Session" entry is hidden from workspace context menus. Spawning via CLI / agent hierarchy still works.
         </div>
       </div>
+      <ProviderInstallCard provider={provider} />
       <SchemaRenderer
         schema={provider.settings_schema}
         providerId={provider.id}

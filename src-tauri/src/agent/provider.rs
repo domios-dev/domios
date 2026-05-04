@@ -630,7 +630,7 @@ pub trait AgentProvider: Send + Sync {
 }
 
 /// Normalised platform tag used by `install_command(platform)`.
-fn current_platform_tag() -> &'static str {
+pub fn current_platform_tag() -> &'static str {
     match std::env::consts::OS {
         "macos" => "macos",
         "linux" => "linux",
