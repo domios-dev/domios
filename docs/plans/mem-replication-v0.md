@@ -67,6 +67,23 @@ CREATE TABLE mem_replication_cursors (
 
 One row per paired peer. Live-apply advances `cursor_history_id` to the just-applied event's `id`; reconnect fetches `/api/mem/replicate/since/{cursor_history_id}` to catch up. New pairing inserts a row at bootstrap completion with `cursor_history_id = bootstrap_snapshot.last_history_id`.
 
+`cursor_history_id` is the **originating peer's** `mem_item_history.id`, not the receiver's local row id. Each replicated event therefore carries `origin_history_id` (the row id on the sender) alongside `uid`, `parent_uid_hash`, `change_type`, and the diff payload, so the receiver knows what value to advance the cursor to.
+
+Event payload schema:
+
+```json
+{
+  "uid": "01KQ...",
+  "origin_history_id": 12345,
+  "origin_machine_id": "blackstar",
+  "parent_uid_hash": "sha256:...",
+  "change_type": "create" | "update" | "delete" | "merge" | "promote" | "invalidate",
+  "changed_at": "2026-05-04T12:34:56Z",
+  "changed_by": "user",
+  "diff": { "old_title": "...", "new_title": "...", ... }
+}
+```
+
 ### D4 — Deterministic `uid` for regex-extracted items
 
 `mem/extract.rs` regex auto-extraction stays per-machine (deterministic + cheap), but the extracted child `uid` is computed from `(parent_uid, pattern_name, match_position)` instead of a fresh ULID. Same input on both peers → same `uid` → no duplicate item, no conflict-detection noise.
