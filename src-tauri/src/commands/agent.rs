@@ -36,6 +36,34 @@ pub fn install_project_rules() -> Result<(), String> {
     Ok(())
 }
 
+/// Probe PATH for a CLI binary. Used by the per-provider Installation card
+/// in Settings → Agents to render the install/missing badge. Returns
+/// `Ok(true)` when the binary is found, `Ok(false)` when missing — never
+/// errors. Frontend treats either result as authoritative; transient PATH
+/// changes are handled by re-fetching when the user reopens the panel.
+#[tauri::command]
+pub fn check_cli_installed(binary: String) -> Result<bool, String> {
+    if binary.is_empty() {
+        return Ok(false);
+    }
+    // Reject anything that looks like a shell metacharacter — `binary` comes
+    // from a frontend-supplied provider id and we don't want it interpreted
+    // as a path traversal or compound command.
+    if binary.chars().any(|c| matches!(c, '/' | '\\' | ' ' | ';' | '|' | '&' | '$' | '`' | '<' | '>' | '\n')) {
+        return Ok(false);
+    }
+    let cmd = if cfg!(target_os = "windows") { "where" } else { "which" };
+    let output = std::process::Command::new(cmd).arg(&binary).output();
+    match output {
+        Ok(out) if out.status.success() && !out.stdout.is_empty() => Ok(true),
+        Ok(_) => Ok(false),
+        // PATH probe failed at the OS level (e.g. `which` itself missing) —
+        // surface as "not installed" so the UI offers Install rather than
+        // hanging on an error toast.
+        Err(_) => Ok(false),
+    }
+}
+
 #[tauri::command]
 pub fn check_rule_installed() -> Result<RuleStatus, String> {
     let path = dirs::home_dir()

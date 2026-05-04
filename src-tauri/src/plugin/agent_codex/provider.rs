@@ -284,6 +284,17 @@ impl AgentProvider for CodexProvider {
         Some("◆")
     }
 
+    fn cli_binary(&self) -> Option<&str> {
+        Some("codex")
+    }
+
+    fn install_command(&self, platform: &str) -> Option<String> {
+        match platform {
+            "macos" | "linux" | "windows" => Some("npm install -g @openai/codex".into()),
+            _ => None,
+        }
+    }
+
     fn available_models(&self) -> Vec<ModelInfo> {
         vec![
             ModelInfo {
