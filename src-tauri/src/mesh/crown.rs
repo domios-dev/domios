@@ -40,6 +40,22 @@ pub fn generate_peer_keypair() -> (String, String) {
     (B64.encode(signing_key.to_bytes()), B64.encode(verifying_key.to_bytes()))
 }
 
+/// Derive the Ed25519 public key from a base64-encoded private key.
+///
+/// Used as a fallback in auth: an identity persisted before MeshIdentity
+/// stored `public_key` may load with private_key=Some / public_key=None.
+/// Without this, the CLI's mesh-signed token from outside a PTY would 401.
+pub fn public_key_from_private(private_key_b64: &str) -> Result<String, String> {
+    let bytes = B64.decode(private_key_b64).map_err(|e| e.to_string())?;
+    if bytes.len() != 32 {
+        return Err("Invalid private key length".to_string());
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&bytes);
+    let signing_key = SigningKey::from_bytes(&arr);
+    Ok(B64.encode(signing_key.verifying_key().to_bytes()))
+}
+
 /// Sign a mesh request with this peer's private key.
 /// Returns "Authorization: MeshJWT <signed_token>" value.
 pub fn sign_request(private_key_b64: &str, instance_id: &str) -> Result<String, String> {
@@ -153,5 +169,18 @@ mod tests {
 
         let known = std::collections::HashMap::new();
         assert!(verify_signed_request(&token, &known).is_err());
+    }
+
+    #[test]
+    fn public_key_from_private_matches_keypair_pub() {
+        let (priv_key, pub_key) = generate_peer_keypair();
+        let derived = public_key_from_private(&priv_key).unwrap();
+        assert_eq!(derived, pub_key);
+    }
+
+    #[test]
+    fn public_key_from_private_rejects_garbage() {
+        assert!(public_key_from_private("not-base64!").is_err());
+        assert!(public_key_from_private(&B64.encode([0u8; 16])).is_err());
     }
 }
