@@ -17,6 +17,7 @@ mod notification;
 pub mod paths;
 pub mod plugin;
 pub mod prompts;
+pub mod process_util;
 pub mod pty;
 pub mod secrets;
 pub mod service;

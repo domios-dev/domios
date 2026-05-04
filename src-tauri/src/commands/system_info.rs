@@ -9,7 +9,10 @@ pub fn get_windows_build_number() -> u32 {
         #[cfg(target_os = "windows")]
         {
             use std::process::Command;
-            if let Ok(output) = Command::new("cmd").args(["/c", "ver"]).output() {
+            let mut cmd = Command::new("cmd");
+            cmd.args(["/c", "ver"]);
+            crate::process_util::no_window_std(&mut cmd);
+            if let Ok(output) = cmd.output() {
                 let ver = String::from_utf8_lossy(&output.stdout);
                 if let Some(start) = ver.rfind('.') {
                     let before_last = &ver[..start];
