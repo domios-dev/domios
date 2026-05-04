@@ -104,3 +104,17 @@ registerAgentProvider({
   icon: "\u25C6",  // ◆
   iconColor: "#10a37f",
 });
+
+// Register OpenCode provider (sst/opencode)
+registerAgentProvider({
+  id: "opencode",
+  displayName: "OpenCode",
+  titlePattern: /opencode/i,
+  supportsChatView: false,
+  supportsResume: true,
+  noisePatterns: [
+    /^[\s─━═█▀▄▌▐]+$/,
+  ],
+  icon: "\u25C7",  // ◇
+  iconColor: "#5eead4",
+});

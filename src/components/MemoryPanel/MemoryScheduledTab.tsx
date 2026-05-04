@@ -126,11 +126,19 @@ function MemoryScheduledTabImpl({ api }: Props) {
 
   const [memCfg, setMemCfg] = useState<MemoryConfig | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [defaultProvider, setDefaultProvider] = useState<string>("claude");
 
   useEffect(() => {
     fetch(`${baseUrl(api)}/api/config?key=memory`, { headers: authHeaders(api) })
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d?.value && mountedRef.current) setMemCfg(d.value); })
+      .catch(() => {});
+    fetch(`${baseUrl(api)}/api/config?key=general_agent`, { headers: authHeaders(api) })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        const p = d?.value?.agent_provider;
+        if (p && mountedRef.current) setDefaultProvider(p);
+      })
       .catch(() => {});
     fetch(`${baseUrl(api)}/api/agents/providers`, { headers: authHeaders(api) })
       .then((r) => r.ok ? r.json() : [])
@@ -317,13 +325,18 @@ function MemoryScheduledTabImpl({ api }: Props) {
                     onChange={(e) => patchMemConfig({ dreaming_agent: e.target.value })}
                     className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-1.5 py-0.5 text-[10px] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                   >
-                    <option value="">Default provider</option>
+                    <option value="">Default ({providers.find((p) => p.id === defaultProvider)?.display_name ?? defaultProvider})</option>
                     {providers.map((p) => (
                       <option key={p.id} value={p.id}>{p.display_name}</option>
                     ))}
                   </select>
                   {(() => {
-                    const prov = providers.find((p) => p.id === (memCfg.dreaming_agent || providers[0]?.id));
+                    // Filter models to the resolved provider — when "Default" is
+                    // selected, fall through to the configured general_agent
+                    // provider, NOT providers[0] (which silently picked the
+                    // first registered plugin alphabetically).
+                    const resolvedProviderId = memCfg.dreaming_agent || defaultProvider;
+                    const prov = providers.find((p) => p.id === resolvedProviderId);
                     const models = prov?.available_models ?? [];
                     return models.length > 0 ? (
                       <select
