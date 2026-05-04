@@ -62,21 +62,14 @@ pub async fn install_update(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 
-    let us = state.update_state.lock();
-    let info = us
-        .last_check
-        .as_ref()
-        .ok_or((StatusCode::BAD_REQUEST, "Run check first"))?
-        .clone();
-    drop(us);
-
-    if !info.update_available {
-        return Ok(Json(serde_json::json!({"status": "up_to_date"})));
-    }
-
+    // For the auto path the embedded tauri-plugin-updater always re-fetches
+    // the manifest before download/install — going through it directly avoids
+    // the daemon's cached `last_check` short-circuiting "up_to_date" right
+    // after a release lands but before the 1h check cache expires. The cache
+    // remains useful for the badge polling and the manual download/browser
+    // fallback paths below.
     if q.method.as_deref() == Some("auto") {
         let app = state.svc.app_handle.clone();
-        let latest = info.latest_version.clone();
         let channel = state.update_state.lock().channel;
         let manifest_url = q.manifest_url.clone();
         std::thread::spawn(move || {
@@ -93,9 +86,23 @@ pub async fn install_update(
         });
         return Ok(Json(serde_json::json!({
             "status": "updating",
-            "version": latest,
-            "message": format!("Downloading and installing v{}. App will restart.", latest)
+            "message": "Checking for the latest version. App will restart if an update is available."
         })));
+    }
+
+    // Non-auto paths still need the resolved info (download URL, install
+    // command). Fall back on the cached check; if it's missing, ask the
+    // caller to poll /check first.
+    let us = state.update_state.lock();
+    let info = us
+        .last_check
+        .as_ref()
+        .ok_or((StatusCode::BAD_REQUEST, "Run check first"))?
+        .clone();
+    drop(us);
+
+    if !info.update_available {
+        return Ok(Json(serde_json::json!({"status": "up_to_date"})));
     }
 
     match info.update_command {

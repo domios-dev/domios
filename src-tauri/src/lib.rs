@@ -444,5 +444,22 @@ pub fn run() {
                     }
                 }
             }
+
+            // On any clean process exit (tray-Quit, Cmd+Q after window close,
+            // SIGTERM caught by Tauri), checkpoint+truncate the mem WAL so a
+            // stale ~4MB log doesn't survive into the next run. The updater's
+            // graceful_shutdown already does this on the in-place upgrade
+            // path; this catches every other shutdown route.
+            if let tauri::RunEvent::Exit = _event {
+                if let Some(svc) = _app.try_state::<service::ServiceState>() {
+                    match svc.mem.checkpoint_and_close() {
+                        Ok((busy, log_frames, checkpointed)) => log::info!(
+                            "[shutdown] mem WAL checkpointed busy={} log_frames={} checkpointed={}",
+                            busy, log_frames, checkpointed
+                        ),
+                        Err(e) => log::warn!("[shutdown] mem WAL checkpoint failed: {}", e),
+                    }
+                }
+            }
         });
 }
