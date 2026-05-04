@@ -380,7 +380,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             let p = pane.as_deref().unwrap_or("general");
             ("GET".into(), format!("/api/panes/{}/output?lines={}&strip_ansi=true", p, lines), None)
         }
-        Commands::SendText { text, pane, from_file } => {
+        Commands::SendText { text, pane, from_file, from_stdin: _ } => {
             let p = pane.as_deref().unwrap_or("general");
             let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
             let body_text = match from_file.as_ref() {
