@@ -45,6 +45,12 @@ pub(crate) fn start_background_tasks(
                     .build()
                     .expect("Failed to create mesh health runtime");
                 rt.block_on(async {
+                    // Per-peer last successful sync timestamp (Unix secs).
+                    // Used by should_proactive_sync to decide when to refresh
+                    // gossip view from a still-online paired peer. Lives across
+                    // loop iterations so periodic sync interval is honored.
+                    let mut last_sync_secs: std::collections::HashMap<String, u64> =
+                        std::collections::HashMap::new();
                     loop {
                         tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                         // Clean up stale discovered peers
@@ -82,15 +88,27 @@ pub(crate) fn start_background_tasks(
                                         was
                                     } else { false }
                                 };
-                                // Peer came back online → sync
-                                if online && !was_online {
-                                    log::info!("[mesh] Peer {} reconnected — syncing", peer.instance_name);
+                                let now_secs = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs();
+                                // Sync on reconnect (offline→online) AND
+                                // periodically while online so gossip-discovered
+                                // peers' last_seen stays fresh against the 300s
+                                // PEER_TTL_SECS eviction in cleanup_stale_peers.
+                                let should_sync = mesh::types::should_proactive_sync(
+                                    online,
+                                    was_online,
+                                    now_secs,
+                                    last_sync_secs.get(&peer.instance_id).copied(),
+                                    mesh::discovery::PROACTIVE_SYNC_INTERVAL_SECS,
+                                );
+                                if should_sync {
+                                    let reason = if !was_online { "reconnected" } else { "periodic refresh" };
+                                    log::info!("[mesh] Peer {} {} — syncing", peer.instance_name, reason);
                                     if let Ok(their_payload) = client.send_sync(&sync_payload).await {
+                                        last_sync_secs.insert(peer.instance_id.clone(), now_secs);
                                         let mut m = mesh.lock();
-                                        let now = std::time::SystemTime::now()
-                                            .duration_since(std::time::UNIX_EPOCH)
-                                            .unwrap_or_default()
-                                            .as_secs();
                                         for p in their_payload.peers {
                                             if p.instance_id == m.ident.identity.instance_id { continue; }
                                             if m.paired_peers.contains_key(&p.instance_id) { continue; }
@@ -107,7 +125,7 @@ pub(crate) fn start_background_tasks(
                                                 addresses: clean_addrs,
                                                 api_port: p.api_port,
                                                 discovery_method: mesh::types::DiscoveryMethod::Gossip,
-                                                last_seen: now,
+                                                last_seen: now_secs,
                                                 dev: p.dev, mesh_id: None,
                                             });
                                         }
@@ -115,6 +133,11 @@ pub(crate) fn start_background_tasks(
                                     }
                                 }
                         }
+                        // Drop last_sync entries for peers no longer paired so the
+                        // map doesn't accumulate stale instance_ids forever.
+                        let paired_ids: std::collections::HashSet<String> =
+                            peers.iter().map(|p| p.instance_id.clone()).collect();
+                        last_sync_secs.retain(|id, _| paired_ids.contains(id));
                         if changed {
                             let _ = app_h.emit("mesh-state-changed", ());
                         }
