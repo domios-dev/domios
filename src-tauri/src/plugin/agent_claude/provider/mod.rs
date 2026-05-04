@@ -145,6 +145,18 @@ impl AgentProvider for ClaudeProvider {
         Some("✳")
     }
 
+    fn cli_binary(&self) -> Option<&str> {
+        Some("claude")
+    }
+
+    fn install_command(&self, platform: &str) -> Option<String> {
+        match platform {
+            "macos" | "linux" => Some("npm install -g @anthropic-ai/claude-code".into()),
+            "windows" => Some("npm install -g @anthropic-ai/claude-code".into()),
+            _ => None,
+        }
+    }
+
     fn available_models(&self) -> Vec<ModelInfo> {
         schemas::available_models()
     }

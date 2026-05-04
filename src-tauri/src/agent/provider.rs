@@ -350,10 +350,20 @@ pub struct ProviderDescriptor {
     pub supports_lazy_skills: bool,
     pub has_hooks: bool,
     pub preserves_context_on_resume: bool,
+    /// CLI binary name the provider expects on PATH (e.g. `claude`, `codex`,
+    /// `opencode`). When present, the frontend renders an "Installation"
+    /// section that polls `which <binary>` and offers an Install button.
+    /// Resolved per-platform on the backend at describe-time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_binary: Option<String>,
+    /// Shell command for installing the CLI on the current platform. Frontend
+    /// pipes it into a fresh terminal pane when the user clicks Install.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_command: Option<String>,
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 1;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 2;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 pub trait AgentProvider: Send + Sync {
@@ -554,6 +564,22 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Name of the binary the provider's launch commands invoke (e.g. `claude`,
+    /// `codex`, `opencode`). When `Some`, CodeTerm checks PATH availability so
+    /// the Settings UI can render an "install" affordance for missing CLIs.
+    /// Default `None` — provider opts out of installation tracking.
+    fn cli_binary(&self) -> Option<&str> {
+        None
+    }
+
+    /// Per-platform install command run inside a fresh terminal pane when the
+    /// user clicks "Install" in Settings. `platform` is one of `"macos"`,
+    /// `"linux"`, `"windows"`. Return `None` for platforms where you don't ship
+    /// an installer recipe.
+    fn install_command(&self, _platform: &str) -> Option<String> {
+        None
+    }
+
     /// Declarative settings panel for the per-provider Settings → Agents tab.
     /// Frontend renders generically via `<SchemaRenderer />`.
     fn settings_schema(&self) -> Vec<SettingField> {
@@ -584,6 +610,7 @@ pub trait AgentProvider: Send + Sync {
     /// impl just assembles the other metadata methods — providers
     /// rarely need to override it.
     fn describe(&self) -> ProviderDescriptor {
+        let platform = current_platform_tag();
         ProviderDescriptor {
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             id: self.id().to_string(),
@@ -596,7 +623,19 @@ pub trait AgentProvider: Send + Sync {
             supports_lazy_skills: self.supports_lazy_skills(),
             has_hooks: self.has_hooks(),
             preserves_context_on_resume: self.preserves_context_on_resume(),
+            cli_binary: self.cli_binary().map(|s| s.to_string()),
+            install_command: self.install_command(platform),
         }
+    }
+}
+
+/// Normalised platform tag used by `install_command(platform)`.
+fn current_platform_tag() -> &'static str {
+    match std::env::consts::OS {
+        "macos" => "macos",
+        "linux" => "linux",
+        "windows" => "windows",
+        other => other,
     }
 }
 
@@ -672,6 +711,8 @@ mod tests {
             supports_lazy_skills: true,
             has_hooks: true,
             preserves_context_on_resume: true,
+            cli_binary: Some("testcli".into()),
+            install_command: Some("npm i -g testcli".into()),
         };
 
         let json = serde_json::to_string(&original).expect("serialize");

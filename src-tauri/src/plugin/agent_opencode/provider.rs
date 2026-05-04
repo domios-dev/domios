@@ -411,6 +411,25 @@ impl AgentProvider for OpenCodeProvider {
         Some("◇")
     }
 
+    fn cli_binary(&self) -> Option<&str> {
+        Some("opencode")
+    }
+
+    fn install_command(&self, platform: &str) -> Option<String> {
+        match platform {
+            // The official one-liner from opencode.ai/install — works on macOS
+            // and Linux. Pulls a static binary into ~/.opencode/bin/.
+            "macos" | "linux" => {
+                Some("curl -fsSL https://opencode.ai/install | bash".into())
+            }
+            // Windows install script lives at the same domain with .ps1 ext.
+            "windows" => Some(
+                "powershell -Command \"irm https://opencode.ai/install.ps1 | iex\"".into(),
+            ),
+            _ => None,
+        }
+    }
+
     fn available_models(&self) -> Vec<ModelInfo> {
         // OpenCode auths into many backends (Anthropic, OpenAI, GitHub Copilot,
         // OpenRouter, OpenCode-hosted, …) — the live list depends on what the

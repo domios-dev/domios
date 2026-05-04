@@ -66,7 +66,15 @@ export function useAgentDetection({
             setTimeout(tryDetectSession, 2000);
             return;
           }
-          invoke<string | null>("detect_claude_session_id", { cwd: paneCwd, exclude: excludeIds })
+          // Provider-agnostic — registry dispatches to the right plugin's
+          // detect_session_id impl. Old detect_claude_session_id only worked
+          // for claude; codex/opencode panes silently never got a saved
+          // session_id and therefore never resumed on restart.
+          invoke<string | null>("detect_pane_session_id", {
+            providerId: detectedAgent,
+            cwd: paneCwd,
+            exclude: excludeIds,
+          })
             .then((sessionId) => {
               if (sessionId) {
                 invoke("mux_set_claude_session_id", { paneId, sessionId }).catch(() => {});

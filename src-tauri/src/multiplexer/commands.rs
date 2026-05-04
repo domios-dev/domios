@@ -203,6 +203,21 @@ pub fn detect_claude_session_id(
     detect_agent_session_id(&svc.agent_registry, "claude", &cwd, exclude, max_age_secs)
 }
 
+/// Provider-agnostic version of `detect_claude_session_id`. Frontend calls
+/// this for codex / opencode / future providers — the registry dispatches
+/// to the right `AgentProvider::detect_session_id` impl, so adding a new
+/// plugin Just Works without touching the tauri command surface.
+#[tauri::command]
+pub fn detect_pane_session_id(
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+    cwd: String,
+    exclude: Option<Vec<String>>,
+    max_age_secs: Option<u64>,
+) -> Result<Option<String>, String> {
+    detect_agent_session_id(&svc.agent_registry, &provider_id, &cwd, exclude, max_age_secs)
+}
+
 /// Generic agent session detection — delegates to provider from registry.
 pub fn detect_agent_session_id(
     registry: &crate::agent::registry::AgentRegistry,
