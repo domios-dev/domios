@@ -6,4 +6,5 @@ pub mod mem_secret;
 pub mod mesh;
 pub mod print;
 pub mod sessions;
+pub mod update;
 pub mod worker;
