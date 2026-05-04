@@ -59,12 +59,86 @@ impl ServiceContext {
     }
 
     pub fn set_pane_agent_type(&self, pane_id: &str, agent_type: Option<String>) {
-        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
+        // Apply the state change first; clone the resulting `(prev, new)` so we
+        // can decide post-lock whether to kick off session-id polling.
+        let transition = {
+            let mut mux = self.mux.lock();
+            let Some(pane) = mux.get_pane_mut(pane_id) else { return };
+            let prev = pane.agent_type.clone();
             if agent_type.is_some() {
                 pane.agent_set_at = Some(std::time::Instant::now());
             }
-            pane.agent_type = agent_type;
+            pane.agent_type = agent_type.clone();
+            (prev, agent_type)
+        };
+        log::info!(
+            "[set_pane_agent_type] pane={} prev={:?} new={:?}",
+            pane_id, transition.0, transition.1,
+        );
+        // Trigger session polling on every fresh None→Some OR Some→Some(diff)
+        // transition so codex/opencode panes (no OSC title emit, never trip
+        // the xterm-based frontend detection) still get an agent_session_id
+        // saved without depending on each provider hitting a permission prompt
+        // before their `detect_from_output` patterns can match.
+        let (prev, next) = transition;
+        if let Some(new_type) = next {
+            if prev.as_deref() != Some(new_type.as_str()) {
+                self.kick_off_session_detection(pane_id, &new_type);
+            }
         }
+    }
+
+    /// Background loop that calls `detect_session_id` until it returns Some
+    /// or the budget expires. Provider plugins are responsible for the actual
+    /// filesystem walk; this wrapper just retries with backoff because the
+    /// session file is written *after* the agent CLI accepts its first prompt.
+    fn kick_off_session_detection(&self, pane_id: &str, agent_id: &str) {
+        if pane_id.is_empty() || agent_id.is_empty() {
+            return;
+        }
+        let svc = self.clone();
+        let pane_id = pane_id.to_string();
+        let agent_id = agent_id.to_string();
+        std::thread::spawn(move || {
+            // Total budget: 60s. Step: 3s. Stop early if a session_id was
+            // already written by another path (e.g. session-id injection
+            // during launch for claude --session-id flow).
+            let max_attempts = 20u32;
+            let step = std::time::Duration::from_secs(3);
+            for _ in 0..max_attempts {
+                std::thread::sleep(step);
+                let (cwd, sid_already, exclude) = {
+                    let mux = svc.mux.lock();
+                    let Some(p) = mux.get_pane(&pane_id) else { return };
+                    if p.agent_type.as_deref() != Some(agent_id.as_str()) {
+                        return; // user/system swapped agent, abort
+                    }
+                    (p.cwd.clone(), p.agent_session_id.clone(), mux.other_session_ids(&pane_id))
+                };
+                if sid_already.is_some() {
+                    return;
+                }
+                let Some(cwd) = cwd else { continue };
+                let max_age = Some(std::time::Duration::from_secs(86400));
+                let sid = svc
+                    .agent_registry
+                    .with_provider(&agent_id, |p| p.detect_session_id(&cwd, &exclude, max_age))
+                    .flatten();
+                if let Some(sid) = sid {
+                    log::info!(
+                        "[session-detect] auto-saved {} for pane {} (provider={})",
+                        sid, pane_id, agent_id,
+                    );
+                    svc.set_agent_session_id(&pane_id, Some(sid));
+                    svc.emit_state_changed();
+                    return;
+                }
+            }
+            log::warn!(
+                "[session-detect] gave up after 60s for pane {} (provider={})",
+                pane_id, agent_id,
+            );
+        });
     }
 
     /// Set agent session ID on a pane. Kept as `set_agent_session_id`.

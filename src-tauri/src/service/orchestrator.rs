@@ -358,6 +358,16 @@ impl ServiceContext {
         // 4. Rename pane immediately (metadata only)
         self.rename_pane(&pane_id, title)?;
 
+        // 4b. Pin agent_type up-front. Codex / OpenCode TUIs don't emit OSC
+        //     terminal-title sequences and their `detect_from_output` patterns
+        //     only match permission prompts — without an early tag the pane
+        //     stays agent_type=None and `set_pane_agent_type`'s session-id
+        //     poller never starts, so we silently lose the session_id and
+        //     the pane fails to resume after restart. Setting it here covers
+        //     the CLI/socket spawn path; the frontend menu spawn fires the
+        //     same `mux_set_pane_agent_type` from `spawnAgentTab`.
+        self.set_pane_agent_type(&pane_id, Some(agent_cmd.to_string()));
+
         // 5. Launch agent in background thread
         let bg_task = params.task.as_ref().map(|t| {
             match params.role.as_deref() {

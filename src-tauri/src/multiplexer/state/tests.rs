@@ -585,12 +585,44 @@ fn test_session_snapshot_roundtrip() {
 
     let pane = restored.get_pane(&pane_id).unwrap();
     assert_eq!(pane.cwd.as_deref(), Some("/test/path"));
-    // agent_type is NOT restored (re-detected from PTY output to prevent false positives)
+    // agent_type is dropped when no session_id was saved — without resume
+    // there's no agent to attribute, so re-detect from PTY output instead.
     assert_eq!(pane.agent_type, None);
     assert_eq!(pane.role, Some(AgentRole::Orchestrator));
     assert_eq!(pane.depth, 1);
     assert!(pane.can_spawn);
     assert!(pane.pty_id.is_none());
+}
+
+#[test]
+fn test_session_snapshot_preserves_agent_type_with_session_id() {
+    // Regression: codex/opencode panes silently failed to resume on app
+    // restart because agent_type was always dropped, so the resume launcher
+    // fell back to default_agent_provider (claude) and tried to claude-resume
+    // a non-claude session uuid → session_exists() bailed → resume cleared.
+    for provider in ["claude", "codex", "opencode"] {
+        let (mut state, pane_id) = MultiplexerState::new();
+        if let Some(pane) = state.get_pane_mut(&pane_id) {
+            pane.cwd = Some("/work".to_string());
+            pane.agent_type = Some(provider.to_string());
+            pane.agent_session_id = Some(format!("session-{}", provider));
+        }
+
+        let snap = state.to_session_snapshot();
+        let restored = MultiplexerState::from_session_snapshot(&snap);
+        let pane = restored.get_pane(&pane_id).unwrap();
+
+        assert_eq!(
+            pane.agent_type.as_deref(),
+            Some(provider),
+            "agent_type must survive snapshot roundtrip when session_id is present (provider={})",
+            provider,
+        );
+        assert_eq!(
+            pane.agent_session_id.as_deref(),
+            Some(format!("session-{}", provider).as_str()),
+        );
+    }
 }
 
 #[test]

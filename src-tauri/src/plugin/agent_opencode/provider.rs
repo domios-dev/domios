@@ -31,6 +31,9 @@ impl OpenCodeProvider {
     }
 
     /// Root sessions directory: ~/.local/share/opencode/storage/session/
+    /// Used by older opencode installs that still wrote per-session JSON files
+    /// here. Modern opencode (≥0.x with sqlite migration) keeps everything in
+    /// `opencode.db` and only writes diff/cache artifacts under storage/.
     fn sessions_root() -> Option<PathBuf> {
         let base = data_dir()?;
         Some(base.join("opencode").join("storage").join("session"))
@@ -46,6 +49,84 @@ impl OpenCodeProvider {
     fn parts_root() -> Option<PathBuf> {
         let base = data_dir()?;
         Some(base.join("opencode").join("storage").join("part"))
+    }
+
+    /// Path to the modern opencode SQLite store (`opencode.db`). Returns
+    /// `None` when opencode hasn't been run yet on this machine.
+    fn db_path() -> Option<PathBuf> {
+        let base = data_dir()?;
+        let p = base.join("opencode").join("opencode.db");
+        if p.exists() { Some(p) } else { None }
+    }
+
+    /// Query the sqlite store for the most recent non-archived session
+    /// rooted at `cwd`, skipping ids in `exclude`. `max_age` filters by
+    /// `time_updated` (epoch ms in the schema). Returns Some(session_id)
+    /// or None when nothing matches / db missing.
+    fn db_latest_session(
+        cwd: &str,
+        exclude: &[String],
+        max_age: Option<Duration>,
+    ) -> Option<String> {
+        let path = Self::db_path()?;
+        // Read-only — opencode is the writer; we just observe.
+        let conn = rusqlite::Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .ok()?;
+        // Be liberal with errors — schema drift in newer opencode versions
+        // shouldn't blow up the codeterm daemon. If the query fails, fall
+        // through to the legacy filesystem walk.
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, time_updated FROM session \
+                 WHERE directory = ?1 AND time_archived IS NULL \
+                 ORDER BY time_updated DESC LIMIT 50",
+            )
+            .ok()?;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let cutoff_ms = max_age.map(|d| now_ms - d.as_millis() as i64);
+        let rows = stmt
+            .query_map(rusqlite::params![cwd], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })
+            .ok()?;
+        for row in rows.flatten() {
+            let (id, updated_ms) = row;
+            if exclude.contains(&id) {
+                continue;
+            }
+            if let Some(cut) = cutoff_ms {
+                if updated_ms < cut {
+                    continue;
+                }
+            }
+            return Some(id);
+        }
+        None
+    }
+
+    /// Check the sqlite store for an exact session id. Used by
+    /// `session_exists` to validate before resume — if the user wiped the
+    /// db between runs the old id stops being resumable.
+    fn db_session_exists(session_id: &str) -> bool {
+        let Some(path) = Self::db_path() else { return false };
+        let Ok(conn) = rusqlite::Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ) else {
+            return false;
+        };
+        conn.query_row(
+            "SELECT 1 FROM session WHERE id = ?1 LIMIT 1",
+            rusqlite::params![session_id],
+            |_| Ok(()),
+        )
+        .is_ok()
     }
 }
 
@@ -114,10 +195,24 @@ impl AgentProvider for OpenCodeProvider {
 
     fn session_file_path(&self, _cwd: &str, session_id: &str) -> Option<PathBuf> {
         // session_id is `ses_XXXXXXXX...`. Walk projectID subdirs and find
-        // <projectID>/<session_id>.json.
+        // <projectID>/<session_id>.json. Returns None on modern opencode
+        // installs where sessions live only in `opencode.db` — the runtime
+        // never calls `session_file_path` for those (we override
+        // `session_exists` to check the db directly).
         let root = Self::sessions_root()?;
         let target = format!("{}.json", session_id);
         find_file_by_name(&root, &target, 0)
+    }
+
+    fn session_exists(&self, _cwd: &str, session_id: &str) -> bool {
+        // Modern opencode: db is authoritative.
+        if Self::db_session_exists(session_id) {
+            return true;
+        }
+        // Legacy fallback for pre-sqlite installs.
+        self.session_file_path(_cwd, session_id)
+            .map(|p| p.exists())
+            .unwrap_or(false)
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
@@ -282,6 +377,14 @@ impl AgentProvider for OpenCodeProvider {
         exclude: &[String],
         max_age: Option<Duration>,
     ) -> Option<String> {
+        // Modern opencode (≥0.x with sqlite migration) keeps sessions in
+        // `opencode.db`. Try that first — when the db exists it's the
+        // authoritative store; the fs walk below is dead data on those
+        // installs.
+        if let Some(id) = Self::db_latest_session(cwd, exclude, max_age) {
+            return Some(id);
+        }
+
         let root = Self::sessions_root()?;
         if !root.exists() {
             return None;
