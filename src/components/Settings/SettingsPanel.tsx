@@ -103,6 +103,7 @@ export function SettingsPanel({
   const [themes, setThemes] = useState<string[]>([]);
   const [configPath, setConfigPath] = useState<string>("");
   const [themesDir, setThemesDir] = useState<string>("");
+  const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
 
   const builtinThemes = ["github-dark", "dracula", "catppuccin-mocha", "one-dark", "nord", "github-light", "solarized-light", "pip-boy"];
 
@@ -118,6 +119,22 @@ export function SettingsPanel({
     refreshThemes();
     invoke<string>("get_config_path").then(setConfigPath).catch(() => {});
     invoke<string>("get_themes_dir").then(setThemesDir).catch(() => {});
+    invoke<boolean>("get_autostart_enabled")
+      .then(setAutostartEnabled)
+      .catch(() => setAutostartEnabled(false));
+  }, []);
+
+  const handleAutostartToggle = useCallback(async (v: boolean) => {
+    setAutostartEnabled(v);
+    try {
+      await invoke("set_autostart_enabled", { enabled: v });
+    } catch (e) {
+      console.error("set_autostart_enabled failed", e);
+      // Re-read actual state so the toggle reflects truth on failure.
+      invoke<boolean>("get_autostart_enabled")
+        .then(setAutostartEnabled)
+        .catch(() => {});
+    }
   }, []);
 
   const update = useCallback(
@@ -349,6 +366,18 @@ export function SettingsPanel({
                     checked={localConfig.terminal.copy_on_select}
                     onChange={(v) => update("terminal", { copy_on_select: v })}
                   />
+                </Group>
+
+                <Group title="Startup">
+                  <Toggle
+                    label="Launch CodeTerm on system start"
+                    checked={autostartEnabled ?? false}
+                    onChange={handleAutostartToggle}
+                  />
+                  <p className="text-[10px] text-[var(--ct-muted-fg)] -mt-0.5">
+                    Adds CodeTerm to the OS login items so the daemon, mesh,
+                    and crons resume without you opening the app manually.
+                  </p>
                 </Group>
 
                 <KeybindGroup title="Tabs" bindings={[
