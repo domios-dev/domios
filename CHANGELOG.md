@@ -7,6 +7,28 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.1.14] — 2026-05-05
+
+Patch: stop the periodic console-window flash users were seeing on
+Windows every ~15 seconds. Mesh discovery was shelling out to
+`tailscale.exe ip -4` to learn its CGNAT IP, and each spawn briefly
+attached a fresh `conhost` window before the GUI app got control back.
+
+### Fixed
+
+- **No more console flashing on Windows** — replaced the periodic
+  `tailscale.exe` invocation in mesh discovery with a programmatic
+  scan of local network interfaces (`if-addrs`) filtering for the
+  Tailscale CGNAT range `100.64.0.0/10`. Same result, no subprocess,
+  no flicker. The `/api/network` endpoint that exposed the same probe
+  now reuses the helper.
+- **Audited every other external-binary spawn** for the same
+  conhost-flash failure mode and routed each through the existing
+  `process_util::no_window_std` / `no_window_tokio` helper:
+  `schtasks` (self-update + orchestrator), `reg` (PATH install),
+  `where`/`which` (CLI probe), `opencode` (model list), and the
+  `codeterm mem run-worker` subprocess.
+
 ## [1.1.1] — 2026-04-29
 
 Patch: nightly memory dreamer was being marked Failed in cron history
