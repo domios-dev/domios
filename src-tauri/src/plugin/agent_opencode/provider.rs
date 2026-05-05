@@ -520,6 +520,17 @@ impl AgentProvider for OpenCodeProvider {
         Some("◇")
     }
 
+    fn icon_svg(&self) -> Option<&str> {
+        // sst/opencode favicon — pixel-art letter "O" stencil. Outer rect
+        // + inner rect with evenodd fill produces the frame-with-cutout
+        // shape from their official favicon.svg.
+        Some("<svg viewBox=\"0 0 24 24\" fill=\"currentColor\" fill-rule=\"evenodd\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M5 3 H19 V21 H5 Z M9 7 H15 V17 H9 Z\"/></svg>")
+    }
+
+    fn icon_color(&self) -> Option<&str> {
+        Some("var(--ct-fg)")
+    }
+
     fn cli_binary(&self) -> Option<&str> {
         Some("opencode")
     }

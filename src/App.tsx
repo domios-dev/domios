@@ -14,6 +14,7 @@ import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
+import { useAgentProviders } from "./hooks/useAgentProviders";
 import {
   MultiplexerProvider,
   useMultiplexer,
@@ -55,6 +56,10 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
 
 
 function AppInner() {
+  // Prime the agent descriptor cache early so AgentIcon (used in tabs,
+  // sidebar, settings) has SVG markup ready on first paint instead of
+  // waiting for any specific consumer (Settings, WorkspaceItem) to mount.
+  useAgentProviders();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "cron">("workspace");
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);

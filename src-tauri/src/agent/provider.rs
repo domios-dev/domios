@@ -335,6 +335,14 @@ pub struct ProviderDescriptor {
     pub display_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_hint: Option<String>,
+    /// Inline SVG markup for the provider's brand mark (see trait docs).
+    /// Frontend renders via `dangerouslySetInnerHTML`; safe because plugins
+    /// are local Rust code, not user-supplied data.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_svg: Option<String>,
+    /// CSS color for the brand mark (hex, CSS var, or `currentColor`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_color: Option<String>,
     pub available_models: Vec<ModelInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
@@ -363,7 +371,7 @@ pub struct ProviderDescriptor {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 2;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 3;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 pub trait AgentProvider: Send + Sync {
@@ -560,7 +568,27 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// Optional icon hint (emoji or single character) for the provider tab.
+    /// Used as a textual fallback when the frontend can't render `icon_svg`.
     fn icon_hint(&self) -> Option<&str> {
+        None
+    }
+
+    /// Optional inline SVG markup (full `<svg>...</svg>`) rendered as the
+    /// provider's brand mark in tabs, the workspace menu, and Settings.
+    /// The frontend renders this via `dangerouslySetInnerHTML`, so plugins
+    /// own their visual identity without any host-side hardcoding.
+    ///
+    /// Recommended: `viewBox="0 0 24 24"`, `fill="currentColor"` (or
+    /// `stroke="currentColor"`). Width/height are overridden by the host
+    /// to `1em`. Return `None` to fall back to `icon_hint`.
+    fn icon_svg(&self) -> Option<&str> {
+        None
+    }
+
+    /// Optional CSS color string applied to the brand mark — hex
+    /// (`#d97757`), CSS variable (`var(--ct-fg)`), `currentColor`, etc.
+    /// `None` lets the host pick a sensible default (theme foreground).
+    fn icon_color(&self) -> Option<&str> {
         None
     }
 
@@ -616,6 +644,8 @@ pub trait AgentProvider: Send + Sync {
             id: self.id().to_string(),
             display_name: self.display_name().to_string(),
             icon_hint: self.icon_hint().map(|s| s.to_string()),
+            icon_svg: self.icon_svg().map(|s| s.to_string()),
+            icon_color: self.icon_color().map(|s| s.to_string()),
             available_models: self.available_models(),
             default_model: self.default_model().map(|s| s.to_string()),
             settings_schema: self.settings_schema(),
@@ -653,6 +683,8 @@ mod tests {
             id: "test".into(),
             display_name: "Test Provider".into(),
             icon_hint: Some("T".into()),
+            icon_svg: Some("<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"6\"/></svg>".into()),
+            icon_color: Some("#abcdef".into()),
             available_models: vec![ModelInfo {
                 id: "model-1".into(),
                 display_name: "Model One".into(),
