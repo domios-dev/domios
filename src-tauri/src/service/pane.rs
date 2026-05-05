@@ -11,10 +11,17 @@ impl ServiceContext {
     }
 
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
+        let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.lock().close_pane(pane_id)?;
+        let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.prompt_detector.lock().remove_pane(pane_id);
         self.emit_state_changed();
+        if pre_focus != post_focus {
+            if let Some(new) = post_focus {
+                self.emit_pane_focus_changed(&new);
+            }
+        }
         Ok(())
     }
 
@@ -27,7 +34,7 @@ impl ServiceContext {
 
     pub fn focus_pane(&self, pane_id: &str) -> Result<(), String> {
         self.mux.lock().set_focused_pane(pane_id)?;
-        self.emit_state_changed();
+        self.emit_pane_focus_changed(pane_id);
         Ok(())
     }
 
@@ -52,17 +59,167 @@ impl ServiceContext {
     }
 
     pub fn set_pane_agent_type(&self, pane_id: &str, agent_type: Option<String>) {
-        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
+        // Apply the state change first; clone the resulting `(prev, new)` so we
+        // can decide post-lock whether to kick off session-id polling.
+        let transition = {
+            let mut mux = self.mux.lock();
+            let Some(pane) = mux.get_pane_mut(pane_id) else { return };
+            let prev = pane.agent_type.clone();
             if agent_type.is_some() {
                 pane.agent_set_at = Some(std::time::Instant::now());
             }
-            pane.agent_type = agent_type;
+            pane.agent_type = agent_type.clone();
+            (prev, agent_type)
+        };
+        log::info!(
+            "[set_pane_agent_type] pane={} prev={:?} new={:?}",
+            pane_id, transition.0, transition.1,
+        );
+        // Trigger session polling on every fresh None→Some OR Some→Some(diff)
+        // transition so codex/opencode panes (no OSC title emit, never trip
+        // the xterm-based frontend detection) still get an agent_session_id
+        // saved without depending on each provider hitting a permission prompt
+        // before their `detect_from_output` patterns can match.
+        let (prev, next) = transition;
+        if let Some(new_type) = next {
+            if prev.as_deref() != Some(new_type.as_str()) {
+                self.kick_off_session_detection(pane_id, &new_type);
+            }
         }
     }
 
+    /// Background loop that calls `detect_session_id` until it returns Some
+    /// or the budget expires. Provider plugins are responsible for the actual
+    /// filesystem walk; this wrapper just retries with backoff because the
+    /// session file is written *after* the agent CLI accepts its first prompt.
+    fn kick_off_session_detection(&self, pane_id: &str, agent_id: &str) {
+        if pane_id.is_empty() || agent_id.is_empty() {
+            return;
+        }
+        let svc = self.clone();
+        let pane_id = pane_id.to_string();
+        let agent_id = agent_id.to_string();
+        // Wall-clock floor for session matches. Sessions created BEFORE this
+        // detection thread spawned are never the right answer for a fresh
+        // pane — they belong to whatever pane was running before. Without
+        // this floor, a fresh pane in a busy cwd would happily claim a
+        // session created seconds earlier by a sibling/rehydrated pane.
+        let detection_started = std::time::SystemTime::now();
+        // Tiny grace so a session created a hair before set_pane_agent_type
+        // (e.g. provider TUI starts ~ms before our agent_type write lands)
+        // still matches.
+        let grace = std::time::Duration::from_secs(2);
+        std::thread::spawn(move || {
+            // 15min budget — codex writes its rollout only on first user message.
+            let max_attempts = 300u32;
+            let step = std::time::Duration::from_secs(3);
+            for _ in 0..max_attempts {
+                std::thread::sleep(step);
+                let (cwd, sid_already, exclude) = {
+                    let mux = svc.mux.lock();
+                    let Some(p) = mux.get_pane(&pane_id) else { return };
+                    if p.agent_type.as_deref() != Some(agent_id.as_str()) {
+                        return; // user/system swapped agent, abort
+                    }
+                    (p.cwd.clone(), p.agent_session_id.clone(), mux.other_session_ids(&pane_id))
+                };
+                if sid_already.is_some() {
+                    return;
+                }
+                let Some(cwd) = cwd else { continue };
+                // Dynamic max_age: only consider sessions created since this
+                // detection thread spawned (plus a small grace). As the
+                // thread ages, the window grows naturally — any session the
+                // matching CLI process is going to create will fall in it,
+                // anything older won't.
+                let elapsed = std::time::SystemTime::now()
+                    .duration_since(detection_started)
+                    .unwrap_or(std::time::Duration::ZERO);
+                let max_age = Some(elapsed + grace);
+                let sid = svc
+                    .agent_registry
+                    .with_provider(&agent_id, |p| p.detect_session_id(&cwd, &exclude, max_age))
+                    .flatten();
+                if let Some(sid) = sid {
+                    // Atomic claim under the mux lock — between releasing the
+                    // lock above and detection returning, another pane's
+                    // detector may have already saved the same sid (it shows
+                    // up in `other_session_ids` only after the save). Re-check
+                    // and skip if claimed; otherwise commit.
+                    enum ClaimOutcome { Wrote, AlreadySet, LostRace, PaneGone }
+                    let outcome = {
+                        let mut mux = svc.mux.lock();
+                        if mux.other_session_ids(&pane_id).contains(&sid) {
+                            ClaimOutcome::LostRace
+                        } else if let Some(p) = mux.get_pane_mut(&pane_id) {
+                            if p.agent_session_id.is_none() {
+                                p.agent_session_id = Some(sid.clone());
+                                ClaimOutcome::Wrote
+                            } else {
+                                ClaimOutcome::AlreadySet
+                            }
+                        } else {
+                            ClaimOutcome::PaneGone
+                        }
+                    };
+                    match outcome {
+                        ClaimOutcome::Wrote => {
+                            log::info!(
+                                "[session-detect] auto-saved {} for pane {} (provider={})",
+                                sid, pane_id, agent_id,
+                            );
+                            svc.emit_state_changed();
+                            return;
+                        }
+                        ClaimOutcome::AlreadySet => {
+                            log::debug!(
+                                "[session-detect] pane {} already had a session_id from another path — exiting",
+                                pane_id,
+                            );
+                            return;
+                        }
+                        ClaimOutcome::PaneGone => return,
+                        ClaimOutcome::LostRace => {
+                            log::info!(
+                                "[session-detect] candidate {} already claimed by another pane — retrying for pane {}",
+                                sid, pane_id,
+                            );
+                        }
+                    }
+                }
+            }
+            let total_secs = max_attempts as u64 * step.as_secs();
+            log::warn!(
+                "[session-detect] gave up after {}s for pane {} (provider={})",
+                total_secs, pane_id, agent_id,
+            );
+        });
+    }
+
     /// Set agent session ID on a pane. Kept as `set_agent_session_id`.
+    ///
+    /// Rejects assignments where the same session_id is already claimed by a
+    /// different pane — opencode/codex can have multiple panes detecting in
+    /// the same cwd in parallel and the cheap "exclude list" race lets two
+    /// of them lock onto the same fresh session unless we deduplicate
+    /// atomically. Resume/snapshot rehydrate paths intentionally re-set the
+    /// same id on the same pane and are unaffected.
     pub fn set_agent_session_id(&self, pane_id: &str, session_id: Option<String>) {
-        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
+        let mut mux = self.mux.lock();
+        if let Some(ref new_sid) = session_id {
+            let conflict = mux
+                .pane_ids_with_session(new_sid)
+                .into_iter()
+                .any(|other| other != pane_id);
+            if conflict {
+                log::info!(
+                    "[set_agent_session_id] rejecting duplicate sid {} for pane {} (claimed elsewhere)",
+                    new_sid, pane_id,
+                );
+                return;
+            }
+        }
+        if let Some(pane) = mux.get_pane_mut(pane_id) {
             pane.agent_session_id = session_id;
         }
     }

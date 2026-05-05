@@ -21,6 +21,64 @@ pub async fn spawn_pty(
     predicted_id: Option<String>,
     pane_id: Option<String>,
 ) -> Result<String, String> {
+    // Protected panes (General Agent) own their lifecycle from the backend —
+    // `service::general_agent::lifecycle` spawns its OWN PTY, links it, and
+    // reads from it. If the frontend also fires spawn_pty during rehydrate,
+    // we get TWO PTYs racing for the same pane: link_pty then orphan-kills
+    // the backend one, the GA reader is left holding a dead PTY, and GA
+    // hangs 60s on `poll_shell_prompt` before the watchdog gives up.
+    //
+    // Resolution: when a protected pane already has a backend-spawned PTY,
+    // return that pty_id instead of spawning a second one. When the backend
+    // hasn't gotten there yet, briefly wait — GA's lifecycle starts within
+    // a couple seconds of daemon boot.
+    if let Some(ref pid) = pane_id {
+        let (is_protected, existing) = {
+            let m = mux_state.lock();
+            let p = m.get_pane(pid);
+            (
+                p.map(|p| p.protected).unwrap_or(false),
+                p.and_then(|p| p.pty_id.clone()),
+            )
+        };
+        // If the pane already has a live PTY, reuse it instead of spawning a
+        // second one. Without this, frontend re-mounts of the terminal
+        // component (tab clicks, navigation) tear down the running agent
+        // and trigger an unwanted resume from the auto-detected session id.
+        // Protected panes additionally get a brief wait so the backend GA
+        // lifecycle has a chance to spawn the PTY first.
+        if let Some(existing) = existing {
+            let alive = state.lock().get_session(&existing).is_some();
+            if alive {
+                log::info!(
+                    "[spawn_pty] pane {} already has live pty {} — reusing",
+                    pid, existing,
+                );
+                return Ok(existing);
+            }
+        }
+        if is_protected {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                if let Some(existing) = mux_state.lock().get_pane(pid).and_then(|p| p.pty_id.clone()) {
+                    log::info!(
+                        "[spawn_pty] protected pane {} already has backend pty {} — reusing",
+                        pid, existing,
+                    );
+                    return Ok(existing);
+                }
+                if std::time::Instant::now() > deadline {
+                    log::warn!(
+                        "[spawn_pty] protected pane {} still has no backend pty after 5s — falling through",
+                        pid,
+                    );
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        }
+    }
+
     let mut env_vars: HashMap<String, String> = HashMap::new();
     if let Some(ref pid) = pane_id {
         env_vars.insert("CODETERM_PANE_ID".to_string(), pid.clone());
@@ -359,8 +417,26 @@ pub async fn resize_pty(
 #[tauri::command]
 pub async fn kill_pty(
     state: tauri::State<'_, PtyState>,
+    mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
     pty_id: String,
 ) -> Result<(), String> {
+    // Protected panes (General Agent) own their PTY from the backend. The
+    // frontend pty-connection effect calls kill_pty if the React component
+    // dispose-races a `spawn_pty` that returned the backend's existing PTY,
+    // which would tear down GA mid-launch. Refuse to kill those.
+    let owned_by_protected = {
+        let mux = mux_state.lock();
+        mux.pane_id_for_pty(&pty_id)
+            .and_then(|pid| mux.get_pane(&pid).map(|p| p.protected))
+            .unwrap_or(false)
+    };
+    if owned_by_protected {
+        log::info!(
+            "[kill_pty] {} is owned by a protected pane — ignoring frontend kill",
+            pty_id,
+        );
+        return Ok(());
+    }
     let mut manager = state.lock();
     manager.remove(&pty_id);
     Ok(())

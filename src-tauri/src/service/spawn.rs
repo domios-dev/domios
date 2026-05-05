@@ -70,6 +70,8 @@ pub struct AgentSpawnSpec {
     pub task_preamble: Option<String>,
     #[serde(default)]
     pub spawned_by_pane_id: Option<String>,
+    #[serde(default)]
+    pub resume_session_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -98,7 +100,7 @@ impl SpawnPaneSpec {
             visibility: PaneVisibility::Visible,
             command: PaneCommand::Agent(AgentSpawnSpec {
                 provider: params.agent.clone().unwrap_or_default(),
-                model: None,
+                model: params.model.clone(),
                 task: params.task.clone(),
                 agent_name: params.agent_name.clone(),
                 extra_args: params.args.clone().unwrap_or_default(),
@@ -111,6 +113,7 @@ impl SpawnPaneSpec {
                 task_preamble: None,
                 spawned_by: None,
                 spawned_by_pane_id: params.spawned_by_pane_id.clone(),
+                resume_session_id: params.resume_session_id.clone(),
             }),
         }
     }
@@ -122,11 +125,7 @@ impl SpawnPaneSpec {
                 return Err("to_agent_params called on Shell spec".into());
             }
         };
-        let mut args = agent.extra_args.clone();
-        if let Some(ref model) = agent.model {
-            args.push(format!("--model"));
-            args.push(model.clone());
-        }
+        let args = agent.extra_args.clone();
         Ok(SpawnAgentParams {
             agent: Some(agent.provider.clone()),
             agent_name: agent.agent_name.clone(),
@@ -142,6 +141,8 @@ impl SpawnPaneSpec {
             report_target_pane_id: agent.report_target_pane_id.clone(),
             skip_permissions: Some(agent.auto_approve),
             spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
+            model: agent.model.clone(),
+            resume_session_id: agent.resume_session_id.clone(),
         })
     }
 }
@@ -251,6 +252,16 @@ impl ServiceContext {
             }
             result
         };
+        // Pin agent_type on the pane up-front. Codex/OpenCode TUIs don't emit
+        // OSC titles and only trip `detect_from_output` on permission prompts —
+        // without this proactive tag they stay agent_type=None forever and the
+        // session-id poller (in `set_pane_agent_type`) never starts, so resume
+        // after restart silently fails. The orchestrator-side spawn path also
+        // needs the same call (see `service/orchestrator.rs::spawn_agent`).
+        self.set_pane_agent_type(&pane_id, Some(agent_cmd.clone()));
+        if let Some(ref sid) = agent.resume_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        }
         self.emit_state_changed();
 
         let role_suffixed_task = agent.task.as_ref().map(|t| {
@@ -731,7 +742,38 @@ mod tests {
     }
 
     #[test]
-    fn to_agent_params_carries_model_through_args() {
+    fn from_agent_params_carries_model_into_spec() {
+        let params = SpawnAgentParams {
+            agent: Some("codex".into()),
+            agent_name: None,
+            args: None,
+            cwd: None,
+            title: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: None,
+            task: None,
+            workspace_id: None,
+            force_tab: None,
+            report_target_pane_id: None,
+            skip_permissions: None,
+            spawned_by_pane_id: None,
+            model: Some("gpt-5.4-mini".into()),
+            resume_session_id: None,
+        };
+        let spec = SpawnPaneSpec::from_agent_params(params);
+        match spec.command {
+            PaneCommand::Agent(a) => assert_eq!(a.model.as_deref(), Some("gpt-5.4-mini")),
+            _ => panic!("expected Agent"),
+        }
+    }
+
+    #[test]
+    fn to_agent_params_carries_model_as_dedicated_field() {
+        // Model travels as a dedicated `model` field through SpawnAgentParams,
+        // not as `--model X` baked into args. `build_agent_command` then asks
+        // the provider via `model_launch_args` to render the correct flag
+        // syntax (`-m X` for codex/opencode, `--model X` for claude).
         let mut spec = agent_spec("claude");
         if let PaneCommand::Agent(ref mut a) = spec.command {
             a.model = Some("opus".into());
@@ -740,9 +782,9 @@ mod tests {
         let params = spec.to_agent_params().unwrap();
         assert_eq!(params.agent.as_deref(), Some("claude"));
         assert_eq!(params.task.as_deref(), Some("count files"));
-        let args = params.args.unwrap();
-        assert!(args.iter().any(|a| a == "--model"));
-        assert!(args.iter().any(|a| a == "opus"));
+        assert_eq!(params.model.as_deref(), Some("opus"));
+        let args = params.args.unwrap_or_default();
+        assert!(!args.iter().any(|a| a == "--model"), "model must not leak into args");
     }
 
     #[test]

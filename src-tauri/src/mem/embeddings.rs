@@ -77,12 +77,7 @@ pub mod inner {
             cmd.stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit());
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                const CREATE_NO_WINDOW: u32 = 0x08000000;
-                cmd.creation_flags(CREATE_NO_WINDOW);
-            }
+            crate::process_util::no_window_std(&mut cmd);
             let mut child = cmd
                 .spawn()
                 .map_err(|e| format!("spawn {}: {}", exe.display(), e))?;

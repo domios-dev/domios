@@ -97,7 +97,7 @@ impl MultiplexerState {
 
         fn snapshot_to_split(node: &SplitNodeSnapshot, panes: &mut HashMap<String, Pane>) -> SplitNode {
             match node {
-                SplitNodeSnapshot::Leaf { pane_id, cwd, title, title_level, agent_type: _agent_type, claude_session_id, role, parent_pane_id, can_spawn, depth } => {
+                SplitNodeSnapshot::Leaf { pane_id, cwd, title, title_level, agent_type, claude_session_id, role, parent_pane_id, can_spawn, depth } => {
                     let parsed_role = role.as_deref().and_then(|r| match r {
                         "Orchestrator" | "Conductor" => Some(crate::multiplexer::types::AgentRole::Orchestrator),
                         "Lead" => Some(crate::multiplexer::types::AgentRole::Lead),
@@ -111,6 +111,28 @@ impl MultiplexerState {
                         Some("Auto") => TitleLevel::Auto,
                         _ => if role.is_some() { TitleLevel::User } else { TitleLevel::Default },
                     };
+                    // Deduplicate session_id: only the first pane claiming it wins.
+                    // Calculated up front so agent_type can mirror its presence.
+                    let restored_session_id = claude_session_id.as_ref().and_then(|sid| {
+                        if panes.values().any(|p| p.agent_session_id.as_deref() == Some(sid.as_str())) {
+                            None
+                        } else {
+                            Some(sid.clone())
+                        }
+                    });
+                    // Restore agent_type ONLY when a session_id survived. Without
+                    // a session there's no resume, so leaving agent_type set
+                    // would lie about a non-running agent. With a session, the
+                    // resume launcher needs the type to dispatch to the right
+                    // provider — claude/codex/opencode all have different CLIs.
+                    // Pre-fix, agent_type was always dropped → codex/opencode
+                    // panes silently resumed via claude (the default provider)
+                    // and bailed at session_exists.
+                    let restored_agent_type = if restored_session_id.is_some() {
+                        agent_type.clone()
+                    } else {
+                        None
+                    };
                     panes.insert(pane_id.clone(), Pane {
                         id: pane_id.clone(),
                         pty_id: None,
@@ -118,17 +140,8 @@ impl MultiplexerState {
                         title: restored_title,
                         cwd: cwd.clone(),
                         url: None,
-                        // Don't restore agent_type — let backend detect from PTY output.
-                        // Restoring it causes false positives when Claude isn't running.
-                        agent_type: None,
-                        // Deduplicate: only assign session_id if no other pane already has it
-                        agent_session_id: claude_session_id.as_ref().and_then(|sid| {
-                            if panes.values().any(|p| p.agent_session_id.as_deref() == Some(sid.as_str())) {
-                                None
-                            } else {
-                                Some(sid.clone())
-                            }
-                        }),
+                        agent_type: restored_agent_type,
+                        agent_session_id: restored_session_id,
                         role: parsed_role,
                         parent_pane_id: parent_pane_id.clone(),
                         can_spawn: *can_spawn,

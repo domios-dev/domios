@@ -436,15 +436,18 @@ fn schedule_powershell_rollback(script_path: &std::path::Path) -> Result<PathBuf
         "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -NoProfile -File \"{}\"",
         script_path.display()
     );
-    let _ = Command::new("schtasks")
-        .args(["/Delete", "/TN", task_name, "/F"])
-        .output();
-    let create = Command::new("schtasks")
-        .args([
-            "/Create", "/TN", task_name, "/TR", &ps_args,
-            "/SC", "ONCE", "/ST", &st, "/SD", &sd,
-            "/Z", "/F", "/RL", "LIMITED",
-        ])
+    let mut del = Command::new("schtasks");
+    del.args(["/Delete", "/TN", task_name, "/F"]);
+    crate::process_util::no_window_std(&mut del);
+    let _ = del.output();
+    let mut create_cmd = Command::new("schtasks");
+    create_cmd.args([
+        "/Create", "/TN", task_name, "/TR", &ps_args,
+        "/SC", "ONCE", "/ST", &st, "/SD", &sd,
+        "/Z", "/F", "/RL", "LIMITED",
+    ]);
+    crate::process_util::no_window_std(&mut create_cmd);
+    let create = create_cmd
         .output()
         .map_err(|e| format!("schtasks /Create: {}", e))?;
     if !create.status.success() {
@@ -453,8 +456,10 @@ fn schedule_powershell_rollback(script_path: &std::path::Path) -> Result<PathBuf
             String::from_utf8_lossy(&create.stderr)
         ));
     }
-    let run = Command::new("schtasks")
-        .args(["/Run", "/TN", task_name])
+    let mut run_cmd = Command::new("schtasks");
+    run_cmd.args(["/Run", "/TN", task_name]);
+    crate::process_util::no_window_std(&mut run_cmd);
+    let run = run_cmd
         .output()
         .map_err(|e| format!("schtasks /Run: {}", e))?;
     if !run.status.success() {

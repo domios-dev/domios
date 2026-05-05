@@ -4,7 +4,9 @@ import { ChevronRight } from "lucide-react";
 import type { AppConfig, ProviderConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
+import { ProviderInstallCard } from "./ProviderInstallCard";
 import { Toggle } from "./shared";
+import { AgentIcon } from "../AgentIcon";
 
 export function AgentsOverview({
   config,
@@ -108,8 +110,8 @@ export function AgentsOverview({
               onClick={() => onOpenProvider(p.id)}
               className="flex items-center gap-3 p-3.5 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-left"
             >
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-base shrink-0">
-                {p.icon_hint || p.display_name.slice(0, 1).toUpperCase()}
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-[18px] shrink-0">
+                <AgentIcon providerId={p.id} title={p.display_name} />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-medium text-[var(--ct-fg)]">{p.display_name}</div>
@@ -165,17 +167,34 @@ export function AgentProviderScreen({
     return null;
   }
 
+  const providerCfg = fullConfig.agents?.[provider.id] ?? {};
+  const visibleInMenu = providerCfg.visible_in_menu !== false;
+
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3 pb-2">
-        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-lg shrink-0">
-          {provider.icon_hint || provider.display_name.slice(0, 1).toUpperCase()}
+        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-[22px] shrink-0">
+          <AgentIcon providerId={provider.id} title={provider.display_name} />
         </div>
         <div className="min-w-0">
           <div className="text-sm font-medium text-[var(--ct-fg)]">{provider.display_name}</div>
           <div className="text-[11px] text-[var(--ct-muted-fg)]">{provider.id}</div>
         </div>
       </div>
+      {/* CodeTerm-wide policy: hide this provider from the per-workspace
+          'New ... Session' menu. Lives outside the plugin schema because
+          it's a host-side filter, not a per-plugin setting. */}
+      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4">
+        <Toggle
+          label="Show in workspace menu"
+          checked={visibleInMenu}
+          onChange={(v) => onProviderConfigChange(provider.id, { visible_in_menu: v })}
+        />
+        <div className="text-[10px] text-[var(--ct-muted)] mt-1">
+          When off, the "New {provider.display_name} Session" entry is hidden from workspace context menus. Spawning via CLI / agent hierarchy still works.
+        </div>
+      </div>
+      <ProviderInstallCard provider={provider} />
       <SchemaRenderer
         schema={provider.settings_schema}
         providerId={provider.id}

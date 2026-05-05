@@ -142,9 +142,10 @@ pub(crate) fn install_bundled_cli(app: &tauri::App) {
 #[cfg(windows)]
 fn add_to_user_path(dir: &std::path::Path) {
     let dir_str = dir.to_string_lossy().replace('/', "\\");
-    let output = std::process::Command::new("reg")
-        .args(["query", "HKCU\\Environment", "/v", "Path"])
-        .output();
+    let mut q = std::process::Command::new("reg");
+    q.args(["query", "HKCU\\Environment", "/v", "Path"]);
+    crate::process_util::no_window_std(&mut q);
+    let output = q.output();
     let current = match output {
         Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
         Err(_) => String::new(),
@@ -162,9 +163,10 @@ fn add_to_user_path(dir: &std::path::Path) {
     } else {
         format!("{};{}", current_val, dir_str)
     };
-    let result = std::process::Command::new("reg")
-        .args(["add", "HKCU\\Environment", "/v", "Path", "/t", "REG_EXPAND_SZ", "/d", &new_val, "/f"])
-        .output();
+    let mut a = std::process::Command::new("reg");
+    a.args(["add", "HKCU\\Environment", "/v", "Path", "/t", "REG_EXPAND_SZ", "/d", &new_val, "/f"]);
+    crate::process_util::no_window_std(&mut a);
+    let result = a.output();
     if let Ok(o) = result {
         if o.status.success() {
             log::info!("[cli-install] Added {} to User PATH", dir_str);

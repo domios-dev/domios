@@ -473,13 +473,15 @@ fn call_claude_cli(
     hits: &[SearchHit],
 ) -> Result<Vec<String>, String> {
     let prompt = build_rerank_prompt(query, hits);
-    let output = std::process::Command::new(binary)
-        .arg("--bare")
+    let mut cmd = std::process::Command::new(binary);
+    cmd.arg("--bare")
         .arg("--print")
         .arg("--model").arg(model)
         .arg("--output-format").arg("json")
         .arg(&prompt)
-        .stdin(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null());
+    crate::process_util::no_window_std(&mut cmd);
+    let output = cmd
         .output()
         .map_err(|e| format!("spawn claude: {}", e))?;
     if !output.status.success() {
@@ -533,11 +535,13 @@ fn call_codex_cli(
     hits: &[SearchHit],
 ) -> Result<Vec<String>, String> {
     let prompt = build_rerank_prompt(query, hits);
-    let output = std::process::Command::new(binary)
-        .arg("exec")
+    let mut cmd = std::process::Command::new(binary);
+    cmd.arg("exec")
         .arg("--model").arg(model)
         .arg(&prompt)
-        .stdin(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null());
+    crate::process_util::no_window_std(&mut cmd);
+    let output = cmd
         .output()
         .map_err(|e| format!("spawn codex: {}", e))?;
     if !output.status.success() {

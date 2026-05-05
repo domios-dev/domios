@@ -56,6 +56,8 @@ impl ServiceContext {
                 force_tab: None,
                 report_target_pane_id: None,
                 spawned_by_pane_id: None,
+                model: None,
+                resume_session_id: None,
             };
             if let Err(e) = svc.spawn_agent_sync(params) {
                 log::error!("[workspace] Failed to auto-spawn agent: {}", e);
@@ -78,9 +80,16 @@ impl ServiceContext {
     }
 
     pub fn close_workspace(&self, id: &str) -> Result<(), String> {
+        let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.lock().close_workspace(id)?;
+        let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.emit_state_changed();
+        if pre_focus != post_focus {
+            if let Some(new) = post_focus {
+                self.emit_pane_focus_changed(&new);
+            }
+        }
         Ok(())
     }
 
@@ -115,9 +124,16 @@ impl ServiceContext {
     }
 
     pub fn close_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
+        let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.lock().close_tab(workspace_id, tab_id)?;
+        let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.emit_state_changed();
+        if pre_focus != post_focus {
+            if let Some(new) = post_focus {
+                self.emit_pane_focus_changed(&new);
+            }
+        }
         Ok(())
     }
 

@@ -210,40 +210,31 @@ pub fn unregister_mdns_service(mesh: &Arc<Mutex<MeshManager>>) {
 // ── Tailscale / Local IP ───────────────────────────────────────────────
 
 pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
-    let candidates = [
-        "tailscale".to_string(),
-        "/Applications/Tailscale.app/Contents/MacOS/Tailscale".to_string(),
-        "/usr/bin/tailscale".to_string(),
-        "/usr/local/bin/tailscale".to_string(),
-    ];
-    for cmd in &candidates {
-        if let Ok(output) = std::process::Command::new(cmd).args(["ip", "-4"]).output() {
-            // `tailscale ip -4` on macOS through the Tailscale.app GUI bridge
-            // can exit 0 and write an error string ("The Tailscale GUI failed
-            // to start: …") to stdout. Validate the output parses as an IPv4
-            // before accepting it; otherwise the error string ends up cached
-            // as our tailscale_ip and gets announced to peers.
-            if output.status.success() {
-                let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if let Some(ip) = raw.lines().find_map(|line| {
-                    let candidate = line.trim();
-                    candidate.parse::<std::net::IpAddr>().ok().map(|_| candidate.to_string())
-                }) {
-                    log::info!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
-                    mesh.lock().tailscale_ip = Some(ip);
-                    return;
-                }
-                if !raw.is_empty() {
-                    log::warn!(
-                        "[mesh] {} ip -4 returned non-IP output (likely Tailscale GUI bridge error): {}",
-                        cmd,
-                        raw.lines().next().unwrap_or("").chars().take(120).collect::<String>()
-                    );
-                }
+    if let Some(ip) = find_tailscale_ip() {
+        log::info!("[mesh] Tailscale IP detected via interface scan: {}", ip);
+        mesh.lock().tailscale_ip = Some(ip);
+        return;
+    }
+    log::debug!("[mesh] Tailscale not available");
+}
+
+/// Scan local network interfaces for an IPv4 address in the Tailscale
+/// CGNAT range (100.64.0.0/10). Avoids spawning the `tailscale` CLI,
+/// which on Windows briefly flashes a console window every time it runs.
+pub fn find_tailscale_ip() -> Option<String> {
+    let ifs = if_addrs::get_if_addrs().ok()?;
+    for iface in ifs {
+        if iface.is_loopback() {
+            continue;
+        }
+        if let if_addrs::IfAddr::V4(v4) = iface.addr {
+            let o = v4.ip.octets();
+            if o[0] == 100 && (64..=127).contains(&o[1]) {
+                return Some(v4.ip.to_string());
             }
         }
     }
-    log::debug!("[mesh] Tailscale not available");
+    None
 }
 
 pub fn detect_local_ip(mesh: &Arc<Mutex<MeshManager>>) {

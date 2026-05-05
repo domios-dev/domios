@@ -9,6 +9,16 @@ export interface ImageSendStrategy {
   pasteKeystroke?: string;
 }
 
+/**
+ * Frontend-only per-provider config: things that can't be expressed
+ * declaratively in a backend descriptor (title-detection regex, parser
+ * functions, TUI noise filters, image-send strategy).
+ *
+ * Brand visuals (icon SVG, color, hint glyph, displayName) come from the
+ * backend `ProviderDescriptor` and are read via `useAgentDescriptor` /
+ * `getAgentDescriptor`. New plugins are zero-touch on this file unless
+ * they need a custom title regex or chat parser.
+ */
 export interface AgentProviderConfig {
   id: string;
   displayName: string;
@@ -21,8 +31,6 @@ export interface AgentProviderConfig {
   noisePatterns?: RegExp[];
   /** How to send images to this agent. Default: path-based. */
   imageSend?: ImageSendStrategy;
-  icon: string;
-  iconColor: string;
 }
 
 /** Check if text is TUI noise for a given provider */
@@ -86,10 +94,7 @@ registerAgentProvider({
   imageSend: {
     method: 'clipboard-paste',
     pasteKeystroke: '\x16',  // Ctrl+V — Claude Code reads clipboard on this signal
-  },
-  icon: "\u2733",  // ✳
-  iconColor: "#f0883e",
-});
+  },});
 
 // Register Codex provider
 registerAgentProvider({
@@ -100,7 +105,15 @@ registerAgentProvider({
   supportsResume: true,
   noisePatterns: [
     /^[\s─━═]+$/,
-  ],
-  icon: "\u25C6",  // ◆
-  iconColor: "#10a37f",
-});
+  ],});
+
+// Register OpenCode provider (sst/opencode)
+registerAgentProvider({
+  id: "opencode",
+  displayName: "OpenCode",
+  titlePattern: /opencode/i,
+  supportsChatView: false,
+  supportsResume: true,
+  noisePatterns: [
+    /^[\s─━═█▀▄▌▐]+$/,
+  ],});
