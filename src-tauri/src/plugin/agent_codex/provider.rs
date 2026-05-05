@@ -416,7 +416,8 @@ fn collect_jsonl_files(
         }
 
         let stem = name.trim_end_matches(".jsonl");
-        if exclude.contains(&stem.to_string()) {
+        let candidate_uuid = extract_session_uuid(stem).unwrap_or(stem);
+        if exclude.iter().any(|e| e == candidate_uuid || e == stem) {
             continue;
         }
 

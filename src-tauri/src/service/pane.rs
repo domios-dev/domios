@@ -146,35 +146,45 @@ impl ServiceContext {
                     // detector may have already saved the same sid (it shows
                     // up in `other_session_ids` only after the save). Re-check
                     // and skip if claimed; otherwise commit.
-                    let claimed = {
+                    enum ClaimOutcome { Wrote, AlreadySet, LostRace, PaneGone }
+                    let outcome = {
                         let mut mux = svc.mux.lock();
-                        let already_claimed = mux.other_session_ids(&pane_id).contains(&sid);
-                        if already_claimed {
-                            false
+                        if mux.other_session_ids(&pane_id).contains(&sid) {
+                            ClaimOutcome::LostRace
                         } else if let Some(p) = mux.get_pane_mut(&pane_id) {
                             if p.agent_session_id.is_none() {
                                 p.agent_session_id = Some(sid.clone());
-                                true
+                                ClaimOutcome::Wrote
                             } else {
-                                true // someone else (or same) already set it
+                                ClaimOutcome::AlreadySet
                             }
                         } else {
-                            false
+                            ClaimOutcome::PaneGone
                         }
                     };
-                    if claimed {
-                        log::info!(
-                            "[session-detect] auto-saved {} for pane {} (provider={})",
-                            sid, pane_id, agent_id,
-                        );
-                        svc.emit_state_changed();
-                        return;
-                    } else {
-                        log::info!(
-                            "[session-detect] candidate {} already claimed by another pane — retrying for pane {}",
-                            sid, pane_id,
-                        );
-                        // Fall through to next iteration with updated exclude.
+                    match outcome {
+                        ClaimOutcome::Wrote => {
+                            log::info!(
+                                "[session-detect] auto-saved {} for pane {} (provider={})",
+                                sid, pane_id, agent_id,
+                            );
+                            svc.emit_state_changed();
+                            return;
+                        }
+                        ClaimOutcome::AlreadySet => {
+                            log::debug!(
+                                "[session-detect] pane {} already had a session_id from another path — exiting",
+                                pane_id,
+                            );
+                            return;
+                        }
+                        ClaimOutcome::PaneGone => return,
+                        ClaimOutcome::LostRace => {
+                            log::info!(
+                                "[session-detect] candidate {} already claimed by another pane — retrying for pane {}",
+                                sid, pane_id,
+                            );
+                        }
                     }
                 }
             }
