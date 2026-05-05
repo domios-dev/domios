@@ -93,6 +93,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/crons/{id}/history", get(cron_routes::cron_history))
         .route("/api/config", get(config_routes::get_config_api).patch(config_routes::patch_config_api))
         .route("/api/update/check", get(updater_routes::check_update))
+        .route("/api/update/status", get(updater_routes::update_status))
         .route("/api/update/install", post(updater_routes::install_update))
         .route("/api/update/self_apply", post(updater_routes::self_update_apply))
         .route("/api/update/rollback", post(updater_routes::self_update_rollback))
