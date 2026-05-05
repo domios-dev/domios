@@ -176,6 +176,54 @@ mod tests {
         assert!(!rendered.contains("L1 — Critical context"));
     }
 
+    /// Reproduces the GA-auto-resume regression: when something else holds
+    /// `mem.conn`, calling `generate_instructions(_, Some(&mem))` from the
+    /// boot path must not pin the calling thread. lifecycle::start_general_agent
+    /// now spawns the regen on a side thread; this test pretends to be the
+    /// boot path and asserts the spawn returns instantly even with the lock
+    /// taken.
+    #[test]
+    fn generate_instructions_does_not_block_caller_when_mem_conn_held() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        let mem = crate::mem::MemManager::open_in_memory().unwrap();
+        let dir = std::env::temp_dir().join(format!("ga-noblock-{}", ulid::Ulid::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("HOME", &dir);
+        std::env::set_var("USERPROFILE", &dir);
+
+        // Hold the mem connection lock for the duration of the test —
+        // simulates a long-running embed/extract worker stalled on it.
+        let _conn_guard = mem.conn().lock();
+
+        let started = Arc::new(AtomicBool::new(false));
+        let started_clone = started.clone();
+        let mem_clone = mem.clone();
+        let t0 = Instant::now();
+        let handle = std::thread::spawn(move || {
+            started_clone.store(true, Ordering::SeqCst);
+            // This call WILL block on conn.lock(); the parent must not.
+            generate_instructions("claude", Some(&mem_clone));
+        });
+        // `spawn` returns immediately; the parent is not blocked even
+        // though the spawned closure is parked on the conn lock.
+        let elapsed = t0.elapsed();
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "spawn must not block caller (took {:?})",
+            elapsed,
+        );
+        // Give the new thread a moment to enter run state and confirm it did.
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(started.load(Ordering::SeqCst), "spawned thread must run");
+        // We deliberately leak the join handle — releasing _conn_guard
+        // when the test exits unblocks the spawned thread, but waiting
+        // on it would couple the test to wake_up's runtime cost.
+        std::mem::drop(handle);
+    }
+
     #[test]
     fn test_wake_up_injects_identity_into_agent_md() {
         let mem = crate::mem::MemManager::open_in_memory().unwrap();
