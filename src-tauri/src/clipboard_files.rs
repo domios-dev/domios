@@ -51,7 +51,7 @@ fn read_windows() -> Vec<String> {
 
     match get_clipboard::<Vec<String>, _>(FileList) {
         Ok(files) => {
-            log::info!("[clipboard] files (win) → {} items", files.len());
+            log::info!("[clipboard] files (win) → {} items: {:?}", files.len(), files);
             files
         }
         Err(e) => {
@@ -79,7 +79,7 @@ fn read_macos() -> Vec<String> {
             paths.push(path);
         }
     }
-    log::info!("[clipboard] files (mac) → {} items", paths.len());
+    log::info!("[clipboard] files (mac) → {} items: {:?}", paths.len(), paths);
     paths
 }
 
