@@ -75,8 +75,11 @@ fn read_macos() -> Vec<String> {
     for item in items.iter() {
         let url_str = unsafe { item.stringForType(&NSPasteboardTypeFileURL) };
         let Some(url_str) = url_str else { continue };
-        if let Some(path) = file_url_to_path(&url_str.to_string()) {
+        let raw = url_str.to_string();
+        if let Some(path) = file_url_to_path(&raw) {
             paths.push(path);
+        } else {
+            log::warn!("[clipboard] dropped unparseable file url: {:?}", raw);
         }
     }
     log::info!("[clipboard] files (mac) → {} items: {:?}", paths.len(), paths);
@@ -85,35 +88,18 @@ fn read_macos() -> Vec<String> {
 
 #[cfg(target_os = "macos")]
 fn file_url_to_path(url: &str) -> Option<String> {
-    let trimmed = url.strip_prefix("file://")?;
-    Some(percent_decode(trimmed))
-}
-
-#[cfg(target_os = "macos")]
-fn percent_decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hi = (bytes[i + 1] as char).to_digit(16);
-            let lo = (bytes[i + 2] as char).to_digit(16);
-            if let (Some(h), Some(l)) = (hi, lo) {
-                out.push((h * 16 + l) as u8);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
+    use objc2_foundation::{NSString, NSURL};
+    let ns = NSString::from_str(url);
+    let nsurl = unsafe { NSURL::URLWithString(&ns) }?;
+    let resolved = unsafe { nsurl.filePathURL() }.unwrap_or(nsurl);
+    let path = unsafe { resolved.path() }?;
+    Some(path.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     #[cfg(target_os = "macos")]
-    use super::{file_url_to_path, percent_decode};
+    use super::file_url_to_path;
 
     #[cfg(target_os = "macos")]
     #[test]
@@ -135,10 +121,11 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn percent_decode_passthrough() {
-        assert_eq!(percent_decode("plain"), "plain");
-        assert_eq!(percent_decode("%20"), " ");
-        assert_eq!(percent_decode("a%2Fb"), "a/b");
-        assert_eq!(percent_decode("unfinished%2"), "unfinished%2");
+    fn file_url_handles_cyrillic() {
+        let url = "file:///Users/me/%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA.png";
+        assert_eq!(
+            file_url_to_path(url),
+            Some("/Users/me/Снимок.png".into())
+        );
     }
 }
