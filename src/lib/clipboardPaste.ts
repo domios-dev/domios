@@ -26,14 +26,9 @@ export async function pasteClipboardToPty(ptyId: string, opts: PasteOptions = {}
     return sendFilePathsToPty(ptyId, nativePaths);
   }
 
-  // Cmd+V terminal path: skip the WebKit clipboard read entirely.
-  // `navigator.clipboard.read()` triggers the macOS Sequoia "Paste from X"
-  // confirmation bubble that interrupts the workflow. Plain text reaches
-  // the PTY via xterm.onData; image-on-clipboard via terminal Cmd+V is not
-  // supported by design (use the chat input field for that).
-  if (skipText) return false;
-
-  const web = await readWebClipboard(false);
+  // skipText: xterm.onData already delivers text from a Cmd+V / Ctrl+V; only
+  // images and saved files need our handling.
+  const web = await readWebClipboard(skipText);
   if (web.text !== null) {
     await invoke("write_pty_string", { ptyId, data: web.text });
   }
@@ -42,6 +37,7 @@ export async function pasteClipboardToPty(ptyId: string, opts: PasteOptions = {}
   }
   if (web.text !== null || web.paths.length > 0) return true;
 
+  if (skipText) return false;
   return fallbackReadText(ptyId);
 }
 
