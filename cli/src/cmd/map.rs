@@ -11,7 +11,7 @@ use crate::data_dir_name;
 
 use budget::{rank, score_no_query, score_query, truncate_to_budget, ScoredTag};
 use cache::{default_cache_path, mtime_epoch, Cache};
-use extract::{extract_rust, Tag};
+use extract::{extract, Lang, Tag};
 
 pub fn handle_map(args: MapArgs) {
     let cwd = match std::env::current_dir() {
@@ -55,13 +55,17 @@ pub fn scan_workspace(
     args: &MapArgs,
     cache: Option<&Cache>,
 ) -> Vec<ScoredTag> {
-    let files = walk::rust_files(root, &args.paths);
+    let files = walk::source_files(root, &args.paths);
     let query = args.query.clone().unwrap_or_default();
     let mut scored: Vec<ScoredTag> = Vec::new();
     for path in files {
+        let lang = match Lang::from_path(&path) {
+            Some(l) => l,
+            None => continue,
+        };
         let rel = relativize(root, &path);
         let mtime = mtime_epoch(&path).unwrap_or(0);
-        let tags = load_tags(&path, workspace_key, &rel, mtime, args.refresh, cache);
+        let tags = load_tags(&path, lang, workspace_key, &rel, mtime, args.refresh, cache);
         for tag in tags {
             let score = if query.trim().is_empty() {
                 score_no_query(&tag.name)
@@ -84,6 +88,7 @@ pub fn scan_workspace(
 
 fn load_tags(
     path: &Path,
+    lang: Lang,
     workspace_key: &str,
     rel: &str,
     mtime: i64,
@@ -98,7 +103,7 @@ fn load_tags(
         }
     }
     let source = std::fs::read_to_string(path).unwrap_or_default();
-    let tags = extract_rust(&source);
+    let tags = extract(&source, lang);
     if let Some(c) = cache {
         let _ = c.put(workspace_key, rel, mtime, &tags);
     }
@@ -106,9 +111,11 @@ fn load_tags(
 }
 
 pub fn dump_single_file(path: &Path) -> Result<String, String> {
+    let lang = Lang::from_path(path)
+        .ok_or_else(|| format!("unsupported language for {}", path.display()))?;
     let source = std::fs::read_to_string(path)
         .map_err(|e| format!("read {}: {}", path.display(), e))?;
-    let tags = extract_rust(&source);
+    let tags = extract(&source, lang);
     let display = path
         .file_name()
         .and_then(|s| s.to_str())

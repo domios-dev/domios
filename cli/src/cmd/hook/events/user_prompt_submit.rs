@@ -122,10 +122,7 @@ fn resolve_path(raw: &str, cwd: Option<&Path>) -> PathBuf {
 }
 
 fn is_supported_source(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|s| s.to_str()),
-        Some("rs")
-    )
+    crate::cmd::map::extract::Lang::from_path(path).is_some()
 }
 
 pub fn pick_tip(entries: &[TranscriptEntry]) -> Option<&'static str> {

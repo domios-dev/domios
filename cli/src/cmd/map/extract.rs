@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tree_sitter::{Node, Parser};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -7,6 +8,44 @@ pub struct Tag {
     pub kind: String,
     pub line: u32,
     pub signature: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lang {
+    Rust,
+    TypeScript,
+    Tsx,
+    JavaScript,
+}
+
+impl Lang {
+    pub fn from_path(p: &Path) -> Option<Lang> {
+        match p.extension().and_then(|s| s.to_str()) {
+            Some("rs") => Some(Lang::Rust),
+            Some("ts") => Some(Lang::TypeScript),
+            Some("tsx") => Some(Lang::Tsx),
+            Some("js") | Some("mjs") | Some("cjs") | Some("jsx") => Some(Lang::JavaScript),
+            _ => None,
+        }
+    }
+
+    pub fn extensions() -> &'static [&'static str] {
+        // Drives the walker's file-extension filter. Keep aligned with
+        // `Lang::from_path` so we don't crawl files we can't extract.
+        &["rs", "ts", "tsx", "js", "mjs", "cjs", "jsx"]
+    }
+}
+
+/// Dispatch on language. Returns `Vec<Tag>` ordered by tree-walk
+/// pre-order — callers that need a stable order should sort by
+/// `(line, name)`.
+pub fn extract(source: &str, lang: Lang) -> Vec<Tag> {
+    match lang {
+        Lang::Rust => extract_rust(source),
+        Lang::TypeScript => extract_ts_family(source, tree_sitter_typescript::language_typescript()),
+        Lang::Tsx => extract_ts_family(source, tree_sitter_typescript::language_tsx()),
+        Lang::JavaScript => extract_ts_family(source, tree_sitter_javascript::language()),
+    }
 }
 
 pub fn extract_rust(source: &str) -> Vec<Tag> {
@@ -20,21 +59,52 @@ pub fn extract_rust(source: &str) -> Vec<Tag> {
     };
     let bytes = source.as_bytes();
     let mut out = Vec::new();
-    walk(tree.root_node(), bytes, source, &mut out);
+    walk_rust(tree.root_node(), bytes, source, &mut out);
     out
 }
 
-fn walk<'a>(node: Node<'a>, bytes: &'a [u8], source: &str, out: &mut Vec<Tag>) {
-    if let Some(tag) = node_to_tag(node, bytes, source) {
+/// Shared extractor for the JS/TS/TSX family. They share the bulk of
+/// node kinds (`function_declaration`, `class_declaration`,
+/// `method_definition`) — TypeScript and TSX add `interface_declaration`,
+/// `type_alias_declaration`, and an `enum_declaration` that maps to
+/// `enum`. The dispatch table is per-grammar so node kinds match what
+/// the actual parser emits, avoiding silent kind drift between languages.
+fn extract_ts_family(source: &str, language: tree_sitter::Language) -> Vec<Tag> {
+    let mut parser = Parser::new();
+    if parser.set_language(&language).is_err() {
+        return Vec::new();
+    }
+    let tree = match parser.parse(source, None) {
+        Some(t) => t,
+        None => return Vec::new(),
+    };
+    let bytes = source.as_bytes();
+    let mut out = Vec::new();
+    walk_ts(tree.root_node(), bytes, source, &mut out);
+    out
+}
+
+fn walk_rust<'a>(node: Node<'a>, bytes: &'a [u8], source: &str, out: &mut Vec<Tag>) {
+    if let Some(tag) = rust_node_to_tag(node, bytes, source) {
         out.push(tag);
     }
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        walk(child, bytes, source, out);
+        walk_rust(child, bytes, source, out);
     }
 }
 
-fn node_to_tag(node: Node<'_>, bytes: &[u8], source: &str) -> Option<Tag> {
+fn walk_ts<'a>(node: Node<'a>, bytes: &'a [u8], source: &str, out: &mut Vec<Tag>) {
+    if let Some(tag) = ts_node_to_tag(node, bytes, source) {
+        out.push(tag);
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        walk_ts(child, bytes, source, out);
+    }
+}
+
+fn rust_node_to_tag(node: Node<'_>, bytes: &[u8], source: &str) -> Option<Tag> {
     let kind = match node.kind() {
         "function_item" | "function_signature_item" => "fn",
         "struct_item" => "struct",
@@ -45,6 +115,28 @@ fn node_to_tag(node: Node<'_>, bytes: &[u8], source: &str) -> Option<Tag> {
         _ => return None,
     };
     let name = identifier_for(node, kind, bytes)?;
+    let line = (node.start_position().row as u32) + 1;
+    let signature = signature_line(node, source);
+    Some(Tag {
+        name,
+        kind: kind.to_string(),
+        line,
+        signature,
+    })
+}
+
+fn ts_node_to_tag(node: Node<'_>, bytes: &[u8], source: &str) -> Option<Tag> {
+    let kind = match node.kind() {
+        "function_declaration" | "generator_function_declaration" => "fn",
+        "method_definition" => "method",
+        "class_declaration" | "abstract_class_declaration" => "class",
+        "interface_declaration" => "interface",
+        "type_alias_declaration" => "type",
+        "enum_declaration" => "enum",
+        _ => return None,
+    };
+    let name_node = node.child_by_field_name("name")?;
+    let name = name_node.utf8_text(bytes).ok()?.to_string();
     let line = (node.start_position().row as u32) + 1;
     let signature = signature_line(node, source);
     Some(Tag {
@@ -227,6 +319,71 @@ trait T {}
         assert_eq!(kinds_count("fn"), 2);
         assert_eq!(kinds_count("enum"), 1);
         assert_eq!(kinds_count("trait"), 1);
+    }
+
+    #[test]
+    fn lang_from_path_recognizes_known_extensions() {
+        use std::path::Path;
+        assert_eq!(Lang::from_path(Path::new("a.rs")), Some(Lang::Rust));
+        assert_eq!(Lang::from_path(Path::new("a.ts")), Some(Lang::TypeScript));
+        assert_eq!(Lang::from_path(Path::new("a.tsx")), Some(Lang::Tsx));
+        assert_eq!(Lang::from_path(Path::new("a.js")), Some(Lang::JavaScript));
+        assert_eq!(Lang::from_path(Path::new("a.mjs")), Some(Lang::JavaScript));
+        assert_eq!(Lang::from_path(Path::new("a.cjs")), Some(Lang::JavaScript));
+        assert_eq!(Lang::from_path(Path::new("a.jsx")), Some(Lang::JavaScript));
+        assert_eq!(Lang::from_path(Path::new("README.md")), None);
+        assert_eq!(Lang::from_path(Path::new("Cargo.toml")), None);
+    }
+
+    #[test]
+    fn extract_typescript_function_and_class() {
+        let src = "export function greet(name: string): string {\n  return `hi ${name}`;\n}\nexport class User {\n  id: number;\n}\n";
+        let tags = extract(src, Lang::TypeScript);
+        let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"greet"));
+        assert!(names.contains(&"User"));
+        let g = tags.iter().find(|t| t.name == "greet").unwrap();
+        assert_eq!(g.kind, "fn");
+        assert!(g.signature.contains("greet"));
+        let u = tags.iter().find(|t| t.name == "User").unwrap();
+        assert_eq!(u.kind, "class");
+    }
+
+    #[test]
+    fn extract_typescript_interface_type_enum() {
+        let src = "interface Shape { area(): number }\ntype ID = string | number;\nenum Color { Red, Blue }\n";
+        let tags = extract(src, Lang::TypeScript);
+        let kind_for = |name: &str| tags.iter().find(|t| t.name == name).map(|t| t.kind.as_str());
+        assert_eq!(kind_for("Shape"), Some("interface"));
+        assert_eq!(kind_for("ID"), Some("type"));
+        assert_eq!(kind_for("Color"), Some("enum"));
+    }
+
+    #[test]
+    fn extract_tsx_jsx_components() {
+        let src = "export function Button(props: { label: string }) { return <button>{props.label}</button>; }\n";
+        let tags = extract(src, Lang::Tsx);
+        assert!(tags.iter().any(|t| t.name == "Button" && t.kind == "fn"));
+    }
+
+    #[test]
+    fn extract_javascript_function_class_method() {
+        let src = "function add(a, b) { return a + b; }\nclass Box {\n  open() { return true; }\n}\n";
+        let tags = extract(src, Lang::JavaScript);
+        let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"add"));
+        assert!(names.contains(&"Box"));
+        assert!(names.contains(&"open"));
+        assert_eq!(
+            tags.iter().find(|t| t.name == "open").unwrap().kind,
+            "method"
+        );
+    }
+
+    #[test]
+    fn extract_invalid_typescript_does_not_panic() {
+        let src = "function ((( broken";
+        let _ = extract(src, Lang::TypeScript);
     }
 
     #[test]

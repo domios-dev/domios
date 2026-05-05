@@ -1,7 +1,13 @@
 use ignore::WalkBuilder;
 use std::path::{Path, PathBuf};
 
-pub fn rust_files(root: &Path, paths: &[String]) -> Vec<PathBuf> {
+use super::extract::Lang;
+
+/// Walk supported source files (every extension `Lang::extensions()`
+/// covers) under `root`, filtered by `paths` if non-empty. Honors
+/// `.gitignore` / `.ignore` via the `ignore` crate's `standard_filters`.
+pub fn source_files(root: &Path, paths: &[String]) -> Vec<PathBuf> {
+    let exts = Lang::extensions();
     let scan_roots = scan_roots(root, paths);
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -20,7 +26,11 @@ pub fn rust_files(root: &Path, paths: &[String]) -> Vec<PathBuf> {
             if !p.is_file() {
                 continue;
             }
-            if p.extension().and_then(|s| s.to_str()) != Some("rs") {
+            let ext = match p.extension().and_then(|s| s.to_str()) {
+                Some(e) => e,
+                None => continue,
+            };
+            if !exts.iter().any(|e| *e == ext) {
                 continue;
             }
             let canonical = p.to_path_buf();
@@ -32,6 +42,7 @@ pub fn rust_files(root: &Path, paths: &[String]) -> Vec<PathBuf> {
     out.sort();
     out
 }
+
 
 fn scan_roots(root: &Path, paths: &[String]) -> Vec<PathBuf> {
     if paths.is_empty() {
@@ -62,7 +73,7 @@ mod tests {
         fs::write(dir.path().join("a.rs"), "fn a() {}").unwrap();
         fs::write(dir.path().join("b.rs"), "fn b() {}").unwrap();
         fs::write(dir.path().join("c.txt"), "ignore me").unwrap();
-        let files = rust_files(dir.path(), &[]);
+        let files = source_files(dir.path(), &[]);
         assert_eq!(files.len(), 2);
         assert!(files.iter().all(|p| p.extension().unwrap() == "rs"));
     }
@@ -73,7 +84,7 @@ mod tests {
         fs::create_dir_all(dir.path().join("src/sub")).unwrap();
         fs::write(dir.path().join("src/sub/x.rs"), "fn x() {}").unwrap();
         fs::write(dir.path().join("src/y.rs"), "fn y() {}").unwrap();
-        let files = rust_files(dir.path(), &[]);
+        let files = source_files(dir.path(), &[]);
         assert_eq!(files.len(), 2);
     }
 
@@ -86,7 +97,7 @@ mod tests {
         fs::write(dir.path().join("api/a.rs"), "fn a() {}").unwrap();
         fs::write(dir.path().join("db/b.rs"), "fn b() {}").unwrap();
         fs::write(dir.path().join("ui/c.rs"), "fn c() {}").unwrap();
-        let files = rust_files(
+        let files = source_files(
             dir.path(),
             &["api".to_string(), "db".to_string()],
         );
@@ -102,7 +113,7 @@ mod tests {
         fs::create_dir_all(dir.path().join("target")).unwrap();
         fs::write(dir.path().join("target/x.rs"), "fn x() {}").unwrap();
         fs::write(dir.path().join("ok.rs"), "fn ok() {}").unwrap();
-        let files = rust_files(dir.path(), &[]);
+        let files = source_files(dir.path(), &[]);
         let names: Vec<&str> = files
             .iter()
             .map(|p| p.file_name().unwrap().to_str().unwrap())
@@ -114,11 +125,31 @@ mod tests {
     #[test]
     fn returns_empty_for_nonexistent_path() {
         let dir = tempdir().unwrap();
-        let files = rust_files(
+        let files = source_files(
             dir.path(),
             &["does_not_exist".to_string()],
         );
         assert!(files.is_empty());
+    }
+
+    #[test]
+    fn picks_up_typescript_and_javascript_extensions() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.ts"), "export function a() {}").unwrap();
+        fs::write(dir.path().join("b.tsx"), "export const B = () => null;").unwrap();
+        fs::write(dir.path().join("c.js"), "function c() {}").unwrap();
+        fs::write(dir.path().join("d.mjs"), "export function d() {}").unwrap();
+        fs::write(dir.path().join("e.go"), "package main").unwrap();
+        let files = source_files(dir.path(), &[]);
+        let names: Vec<String> = files
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&"a.ts".to_string()));
+        assert!(names.contains(&"b.tsx".to_string()));
+        assert!(names.contains(&"c.js".to_string()));
+        assert!(names.contains(&"d.mjs".to_string()));
+        assert!(!names.iter().any(|n| n.ends_with(".go")));
     }
 
     #[test]
@@ -128,7 +159,7 @@ mod tests {
         fs::create_dir_all(dir.path().join("a")).unwrap();
         fs::write(dir.path().join("z/file.rs"), "fn z() {}").unwrap();
         fs::write(dir.path().join("a/file.rs"), "fn a() {}").unwrap();
-        let files = rust_files(
+        let files = source_files(
             dir.path(),
             &["a".to_string(), "z".to_string(), "a".to_string()],
         );

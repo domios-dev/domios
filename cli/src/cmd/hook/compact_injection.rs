@@ -389,9 +389,9 @@ pub fn build_read_files_section(paths: &[String], cwd: Option<&Path>) -> Option<
         block.push_str("### ");
         block.push_str(raw);
         block.push('\n');
-        if is_rust_path(&resolved) {
+        if let Some(lang) = crate::cmd::map::extract::Lang::from_path(&resolved) {
             if let Ok(source) = std::fs::read_to_string(&resolved) {
-                let mut tags = crate::cmd::map::extract::extract_rust(&source);
+                let mut tags = crate::cmd::map::extract::extract(&source, lang);
                 tags.sort_by_key(|t| t.line);
                 for t in tags {
                     block.push_str(raw);
@@ -427,10 +427,6 @@ fn resolve_read_path(raw: &str, cwd: Option<&Path>) -> std::path::PathBuf {
         Some(c) => c.join(pb),
         None => pb,
     }
-}
-
-fn is_rust_path(p: &Path) -> bool {
-    matches!(p.extension().and_then(|s| s.to_str()), Some("rs"))
 }
 
 /// Fire `codeterm mem wake-up` and return its stdout. Returns `None` if
