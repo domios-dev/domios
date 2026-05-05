@@ -55,7 +55,7 @@ pub struct AgentSpawnSpec {
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
-    pub can_spawn: bool,
+    pub can_spawn: Option<bool>,
     #[serde(default = "default_true")]
     pub auto_approve: bool,
     #[serde(default)]
@@ -105,7 +105,7 @@ impl SpawnPaneSpec {
                 agent_name: params.agent_name.clone(),
                 extra_args: params.args.clone().unwrap_or_default(),
                 role: params.role.clone(),
-                can_spawn: params.can_spawn.unwrap_or(false),
+                can_spawn: params.can_spawn,
                 auto_approve: params.skip_permissions.unwrap_or(true),
                 report_target_pane_id: params.report_target_pane_id.clone(),
                 worker_id: None,
@@ -134,7 +134,7 @@ impl SpawnPaneSpec {
             title: self.title.clone(),
             role: agent.role.clone(),
             parent_pane_id: self.parent_pane_id.clone(),
-            can_spawn: Some(agent.can_spawn),
+            can_spawn: agent.can_spawn,
             task: agent.task.clone(),
             workspace_id: self.workspace_id.clone(),
             force_tab: None,
@@ -218,13 +218,6 @@ impl ServiceContext {
                     pane.cwd = Some(dir.clone());
                 }
             }
-            if let Some(ref role_str) = agent.role {
-                let role = Self::parse_role(role_str)?;
-                mux.set_pane_role(&result.1, role, spec.parent_pane_id.as_deref())?;
-                if let Err(e) = mux.set_can_spawn(&result.1, agent.can_spawn) {
-                    log::warn!("[spawn] set_can_spawn failed: {}", e);
-                }
-            }
             if let Some(ref rtid) = agent.report_target_pane_id {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.report_target_pane_id = Some(rtid.clone());
@@ -250,8 +243,30 @@ impl ServiceContext {
             if let Err(e) = mux.rename_pane(&result.1, &title) {
                 log::warn!("[spawn] rename_pane failed: {}", e);
             }
+            // User-initiated spawns (no role) activate the new tab so the
+            // frontend mounts its terminal and creates a PTY. Hierarchy
+            // spawns stay in the background — the parent agent keeps focus.
+            if agent.role.is_none() {
+                let _ = mux.set_active_tab(&ws_id, &result.0);
+            }
             result
         };
+
+        // Apply role + can_spawn after the tab is created. Done outside the
+        // create-tab lock so set_pane_role's full validation runs and
+        // emits state changes; `can_spawn` is only forced when the caller
+        // explicitly passed --can-spawn (Some), preserving role defaults
+        // (Orchestrator/Lead default true, Worker default false).
+        if let Some(ref role_str) = agent.role {
+            if let Err(e) = self.set_pane_role(
+                &pane_id,
+                role_str,
+                spec.parent_pane_id.as_deref(),
+                agent.can_spawn,
+            ) {
+                log::warn!("[spawn] set_pane_role({}, {}) failed: {}", pane_id, role_str, e);
+            }
+        }
         // Pin agent_type on the pane up-front. Codex/OpenCode TUIs don't emit
         // OSC titles and only trip `detect_from_output` on permission prompts —
         // without this proactive tag they stay agent_type=None forever and the
@@ -718,7 +733,7 @@ mod tests {
                 model: Some("opus".into()),
                 task: Some("hello".into()),
                 role: Some("Worker".into()),
-                can_spawn: false,
+                can_spawn: Some(false),
                 auto_approve: true,
                 worker_id: Some("w-123".into()),
                 ..Default::default()
@@ -793,7 +808,7 @@ mod tests {
         spec.parent_pane_id = Some("parent-1".into());
         if let PaneCommand::Agent(ref mut a) = spec.command {
             a.role = Some("Lead".into());
-            a.can_spawn = true;
+            a.can_spawn = Some(true);
             a.report_target_pane_id = Some("cron-host".into());
         }
         let params = spec.to_agent_params().unwrap();
@@ -808,5 +823,68 @@ mod tests {
         let spec = SpawnPaneSpec::default();
         let err = spec.to_agent_params().unwrap_err();
         assert!(err.contains("Shell"));
+    }
+
+    #[test]
+    fn can_spawn_none_round_trips_through_params() {
+        // Caller didn't pass --can-spawn → spec.can_spawn=None → params.can_spawn=None.
+        // This tells set_pane_role to keep the role's default (Orchestrator/Lead=true).
+        let mut spec = agent_spec("claude");
+        if let PaneCommand::Agent(ref mut a) = spec.command {
+            a.role = Some("Orchestrator".into());
+            a.can_spawn = None;
+        }
+        let params = spec.to_agent_params().unwrap();
+        assert_eq!(params.can_spawn, None);
+    }
+
+    #[test]
+    fn can_spawn_some_false_explicitly_overrides() {
+        let mut spec = agent_spec("claude");
+        if let PaneCommand::Agent(ref mut a) = spec.command {
+            a.role = Some("Lead".into());
+            a.can_spawn = Some(false);
+        }
+        let params = spec.to_agent_params().unwrap();
+        assert_eq!(params.can_spawn, Some(false));
+    }
+
+    #[test]
+    fn from_agent_params_preserves_can_spawn_option() {
+        // CLI/REST/socket pass `can_spawn: Option<bool>` straight through —
+        // None means "don't override the role's default", Some(b) means
+        // "user said --can-spawn=b explicitly". The spec must NOT collapse
+        // None → Some(false) (the pre-fix-#42 behavior that clobbered
+        // Orchestrator/Lead defaults to false on every spawn).
+        let mut p = SpawnAgentParams {
+            agent: Some("claude".into()),
+            agent_name: None,
+            args: None,
+            cwd: None,
+            title: None,
+            role: Some("Orchestrator".into()),
+            parent_pane_id: None,
+            can_spawn: None,
+            task: None,
+            workspace_id: None,
+            force_tab: None,
+            report_target_pane_id: None,
+            skip_permissions: None,
+            spawned_by_pane_id: None,
+            model: None,
+            resume_session_id: None,
+        };
+        let spec = SpawnPaneSpec::from_agent_params(p.clone());
+        match spec.command {
+            PaneCommand::Agent(a) => assert_eq!(a.can_spawn, None),
+            _ => panic!("expected Agent"),
+        }
+
+        p.can_spawn = Some(true);
+        let spec = SpawnPaneSpec::from_agent_params(p);
+        match spec.command {
+            PaneCommand::Agent(a) => assert_eq!(a.can_spawn, Some(true)),
+            _ => panic!("expected Agent"),
+        }
     }
 }

@@ -133,3 +133,93 @@ impl MultiplexerState {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fresh() -> (MultiplexerState, String) {
+        let (mut mux, root) = MultiplexerState::new();
+        let pane = mux
+            .split_pane(&root, crate::multiplexer::types::Orientation::Horizontal)
+            .expect("split pane for role test");
+        (mux, pane)
+    }
+
+    #[test]
+    fn orchestrator_defaults_can_spawn_true() {
+        let (mut mux, _root) = MultiplexerState::new();
+        let pane = mux.create_pane();
+        mux.set_pane_role(&pane, AgentRole::Orchestrator, None)
+            .expect("Orchestrator with no parent");
+        let p = mux.get_pane(&pane).unwrap();
+        assert_eq!(p.role, Some(AgentRole::Orchestrator));
+        assert!(p.can_spawn, "Orchestrator must default to can_spawn=true");
+        assert_eq!(p.depth, 1);
+    }
+
+    #[test]
+    fn orchestrator_rejects_parent() {
+        let (mut mux, _root) = MultiplexerState::new();
+        let parent = mux.create_pane();
+        let child = mux.create_pane();
+        let err = mux
+            .set_pane_role(&child, AgentRole::Orchestrator, Some(&parent))
+            .unwrap_err();
+        assert!(err.contains("Orchestrator"));
+    }
+
+    #[test]
+    fn lead_defaults_can_spawn_true_under_orchestrator() {
+        let (mut mux, root) = fresh();
+        mux.set_pane_role(&root, AgentRole::Orchestrator, None)
+            .unwrap();
+        let lead = mux.create_pane();
+        mux.set_pane_role(&lead, AgentRole::Lead, Some(&root))
+            .expect("Lead under Orchestrator");
+        let p = mux.get_pane(&lead).unwrap();
+        assert_eq!(p.role, Some(AgentRole::Lead));
+        assert!(p.can_spawn, "Lead must default to can_spawn=true");
+    }
+
+    #[test]
+    fn worker_defaults_can_spawn_false() {
+        let (mut mux, root) = fresh();
+        mux.set_pane_role(&root, AgentRole::Orchestrator, None)
+            .unwrap();
+        let worker = mux.create_pane();
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&root))
+            .expect("Worker under Orchestrator");
+        let p = mux.get_pane(&worker).unwrap();
+        assert!(!p.can_spawn, "Worker must default to can_spawn=false");
+    }
+
+    #[test]
+    fn explicit_set_can_spawn_after_role_does_not_clobber_role() {
+        // Pre-fix #42: callers chained set_pane_role + set_can_spawn(false)
+        // and accidentally reset Orchestrator's can_spawn to false on every
+        // spawn that didn't pass --can-spawn. The fix moves to Option<bool>
+        // so callers can skip the override; the mux primitive itself stays
+        // permissive — only the role/can_spawn fields are touched.
+        let (mut mux, _root) = MultiplexerState::new();
+        let pane = mux.create_pane();
+        mux.set_pane_role(&pane, AgentRole::Orchestrator, None)
+            .unwrap();
+        mux.set_can_spawn(&pane, false).unwrap();
+        let p = mux.get_pane(&pane).unwrap();
+        assert_eq!(p.role, Some(AgentRole::Orchestrator));
+        assert!(!p.can_spawn);
+    }
+
+    #[test]
+    fn worker_set_can_spawn_true_is_rejected() {
+        let (mut mux, root) = fresh();
+        mux.set_pane_role(&root, AgentRole::Orchestrator, None)
+            .unwrap();
+        let worker = mux.create_pane();
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&root))
+            .unwrap();
+        let err = mux.set_can_spawn(&worker, true).unwrap_err();
+        assert!(err.contains("Only Orchestrator or Lead"));
+    }
+}

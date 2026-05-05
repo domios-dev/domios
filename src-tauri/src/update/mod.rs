@@ -43,11 +43,105 @@ impl std::fmt::Display for InstallMethod {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdatePhase {
+    #[default]
+    Idle,
+    Checking,
+    Downloading,
+    Applying,
+    Success,
+    Error,
+}
+
+impl std::fmt::Display for UpdatePhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Idle => write!(f, "idle"),
+            Self::Checking => write!(f, "checking"),
+            Self::Downloading => write!(f, "downloading"),
+            Self::Applying => write!(f, "applying"),
+            Self::Success => write!(f, "success"),
+            Self::Error => write!(f, "error"),
+        }
+    }
+}
+
 pub struct UpdateState {
     pub install_method: InstallMethod,
     pub last_check: Option<checker::UpdateInfo>,
     pub last_check_time: Option<std::time::Instant>,
     pub channel: Channel,
+    pub phase: UpdatePhase,
+    pub last_error: Option<String>,
+    pub phase_changed_at: Option<std::time::Instant>,
+}
+
+impl UpdateState {
+    pub fn set_phase(&mut self, phase: UpdatePhase) {
+        self.phase = phase;
+        self.phase_changed_at = Some(std::time::Instant::now());
+    }
+
+    pub fn set_error(&mut self, msg: impl Into<String>) {
+        self.last_error = Some(msg.into());
+        self.phase = UpdatePhase::Error;
+        self.phase_changed_at = Some(std::time::Instant::now());
+    }
+
+    pub fn clear_error(&mut self) {
+        self.last_error = None;
+    }
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::*;
+
+    fn empty_state() -> UpdateState {
+        UpdateState {
+            install_method: InstallMethod::Unknown,
+            last_check: None,
+            last_check_time: None,
+            channel: Channel::Stable,
+            phase: UpdatePhase::Idle,
+            last_error: None,
+            phase_changed_at: None,
+        }
+    }
+
+    #[test]
+    fn set_error_marks_error_phase() {
+        let mut s = empty_state();
+        s.set_error("boom");
+        assert_eq!(s.phase, UpdatePhase::Error);
+        assert_eq!(s.last_error.as_deref(), Some("boom"));
+        assert!(s.phase_changed_at.is_some());
+    }
+
+    #[test]
+    fn set_phase_updates_timestamp() {
+        let mut s = empty_state();
+        s.set_phase(UpdatePhase::Checking);
+        assert_eq!(s.phase, UpdatePhase::Checking);
+        assert!(s.phase_changed_at.is_some());
+    }
+
+    #[test]
+    fn clear_error_does_not_change_phase() {
+        let mut s = empty_state();
+        s.set_error("nope");
+        s.clear_error();
+        assert!(s.last_error.is_none());
+        assert_eq!(s.phase, UpdatePhase::Error);
+    }
+
+    #[test]
+    fn phase_serializes_snake_case() {
+        let v = serde_json::to_string(&UpdatePhase::Downloading).unwrap();
+        assert_eq!(v, "\"downloading\"");
+    }
 }
 
 /// Detect how CodeTerm was installed based on executable path.

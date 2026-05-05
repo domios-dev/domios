@@ -75,17 +75,58 @@ impl ServiceContext {
             "[set_pane_agent_type] pane={} prev={:?} new={:?}",
             pane_id, transition.0, transition.1,
         );
+        let (prev, next) = transition;
+        if prev.is_none() && next.is_some() {
+            self.replay_inbound_buffer(pane_id, next.as_deref().unwrap_or(""));
+        }
         // Trigger session polling on every fresh None→Some OR Some→Some(diff)
         // transition so codex/opencode panes (no OSC title emit, never trip
         // the xterm-based frontend detection) still get an agent_session_id
         // saved without depending on each provider hitting a permission prompt
         // before their `detect_from_output` patterns can match.
-        let (prev, next) = transition;
         if let Some(new_type) = next {
             if prev.as_deref() != Some(new_type.as_str()) {
                 self.kick_off_session_detection(pane_id, &new_type);
             }
         }
+    }
+
+    fn replay_inbound_buffer(&self, pane_id: &str, new_type: &str) {
+        let queued = crate::bridge::inbound_buffer::drain(pane_id);
+        if queued.is_empty() {
+            return;
+        }
+        let pty_id = match self.resolve_pty_id(pane_id) {
+            Ok(id) => id,
+            Err(e) => {
+                log::warn!(
+                    "[bridge] cannot replay {} queued for pane={}: {}",
+                    queued.len(), pane_id, e,
+                );
+                for msg in queued {
+                    crate::bridge::inbound_buffer::push(pane_id, msg);
+                }
+                return;
+            }
+        };
+        log::info!(
+            "[bridge] replayed {} queued messages to pane={} after agent_type transition None -> Some({:?})",
+            queued.len(), pane_id, new_type,
+        );
+        let pty = self.pty.clone();
+        std::thread::spawn(move || {
+            for msg in queued {
+                let paste = format!("\x1b[200~{}\x1b[201~", msg);
+                if let Err(e) = pty.lock().write(&pty_id, paste.as_bytes()) {
+                    log::warn!("[bridge] replay write failed for pty={}: {}", pty_id, e);
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let _ = pty.lock().write(&pty_id, b"\r");
+                std::thread::sleep(std::time::Duration::from_millis(2000));
+                let _ = pty.lock().write(&pty_id, b"\r");
+            }
+        });
     }
 
     /// Background loop that calls `detect_session_id` until it returns Some

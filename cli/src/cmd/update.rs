@@ -1,5 +1,65 @@
+use std::time::{Duration, Instant};
+
 use crate::cmd::print::print_self_update_outcome;
 use crate::{build_http, read_api_config, UpdateAction};
+
+fn poll_update_status(http: &reqwest::blocking::Client, base_url: &str) {
+    let status_url = format!("{}/api/update/status", base_url);
+    let started = Instant::now();
+    let timeout = Duration::from_secs(300);
+    let mut last_phase = String::new();
+    let mut last_err = String::new();
+    let mut connect_failures: u32 = 0;
+    loop {
+        if started.elapsed() > timeout {
+            eprintln!("Timed out after {}s waiting for update to complete. Check ~/.codeterm/logs/codeterm.log for details.", timeout.as_secs());
+            std::process::exit(2);
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        match http.get(&status_url).timeout(Duration::from_secs(2)).send() {
+            Ok(resp) if resp.status().is_success() => {
+                connect_failures = 0;
+                let body: serde_json::Value = resp.json().unwrap_or_default();
+                let phase = body["phase"].as_str().unwrap_or("idle").to_string();
+                let err = body["last_error"].as_str().unwrap_or("").to_string();
+                if phase != last_phase {
+                    println!("phase: {}", phase);
+                    last_phase = phase.clone();
+                }
+                if !err.is_empty() && err != last_err {
+                    eprintln!("update error: {}", err);
+                    last_err = err.clone();
+                }
+                match phase.as_str() {
+                    "success" => {
+                        println!("Update applied. Daemon is restarting.");
+                        return;
+                    }
+                    "error" => {
+                        eprintln!(
+                            "Update failed: {}",
+                            if last_err.is_empty() { "(no detail)" } else { &last_err }
+                        );
+                        std::process::exit(1);
+                    }
+                    "idle" if started.elapsed() > Duration::from_secs(2) => {
+                        println!("No update available.");
+                        return;
+                    }
+                    _ => continue,
+                }
+            }
+            Ok(_) | Err(_) => {
+                connect_failures += 1;
+                if connect_failures >= 6 && last_phase == "applying" {
+                    println!("Daemon stopped responding while applying — assumed restart in progress.");
+                    return;
+                }
+                continue;
+            }
+        }
+    }
+}
 
 pub fn handle_update(
     json: bool,
@@ -100,25 +160,26 @@ pub fn handle_update(
                     let body: serde_json::Value = resp.json().unwrap_or_default();
                     if json {
                         println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
-                    } else {
-                        let status = body["status"].as_str().unwrap_or("unknown");
-                        match status {
-                            "up_to_date" => println!("Already up to date."),
-                            "command" => {
-                                if let Some(cmd) = body["command"].as_str() {
-                                    println!("{}", cmd);
-                                }
+                        return;
+                    }
+                    let status = body["status"].as_str().unwrap_or("unknown");
+                    match status {
+                        "up_to_date" => println!("Already up to date."),
+                        "command" => {
+                            if let Some(cmd) = body["command"].as_str() {
+                                println!("{}", cmd);
                             }
-                            "browser_opened" => {
-                                println!("Opened download page in browser.");
-                            }
-                            "updating" => {
-                                if let Some(msg) = body["message"].as_str() {
-                                    println!("{}", msg);
-                                }
-                            }
-                            _ => println!("{}", body),
                         }
+                        "browser_opened" => {
+                            println!("Opened download page in browser.");
+                        }
+                        "updating" => {
+                            if let Some(msg) = body["message"].as_str() {
+                                println!("{}", msg);
+                            }
+                            poll_update_status(&http, &base_url);
+                        }
+                        _ => println!("{}", body),
                     }
                 }
                 Ok(resp) => {
