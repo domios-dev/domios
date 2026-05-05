@@ -335,12 +335,8 @@ pub struct ProviderDescriptor {
     pub display_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_hint: Option<String>,
-    /// Inline SVG markup for the provider's brand mark (see trait docs).
-    /// Frontend renders via `dangerouslySetInnerHTML`; safe because plugins
-    /// are local Rust code, not user-supplied data.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_svg: Option<String>,
-    /// CSS color for the brand mark (hex, CSS var, or `currentColor`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_color: Option<String>,
     pub available_models: Vec<ModelInfo>,
@@ -567,27 +563,14 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Optional icon hint (emoji or single character) for the provider tab.
-    /// Used as a textual fallback when the frontend can't render `icon_svg`.
     fn icon_hint(&self) -> Option<&str> {
         None
     }
 
-    /// Optional inline SVG markup (full `<svg>...</svg>`) rendered as the
-    /// provider's brand mark in tabs, the workspace menu, and Settings.
-    /// The frontend renders this via `dangerouslySetInnerHTML`, so plugins
-    /// own their visual identity without any host-side hardcoding.
-    ///
-    /// Recommended: `viewBox="0 0 24 24"`, `fill="currentColor"` (or
-    /// `stroke="currentColor"`). Width/height are overridden by the host
-    /// to `1em`. Return `None` to fall back to `icon_hint`.
     fn icon_svg(&self) -> Option<&str> {
         None
     }
 
-    /// Optional CSS color string applied to the brand mark — hex
-    /// (`#d97757`), CSS variable (`var(--ct-fg)`), `currentColor`, etc.
-    /// `None` lets the host pick a sensible default (theme foreground).
     fn icon_color(&self) -> Option<&str> {
         None
     }

@@ -470,11 +470,7 @@ export interface ProviderDescriptor {
   id: string;
   display_name: string;
   icon_hint?: string;
-  /// Inline SVG markup for the provider's brand mark. Plugin-owned —
-  /// host renders generically via `dangerouslySetInnerHTML`. Width/height
-  /// are overridden to `1em`. Optional; falls back to icon_hint when absent.
   icon_svg?: string;
-  /// CSS color for the brand mark (hex, var(--ct-fg), currentColor, etc).
   icon_color?: string;
   available_models: ModelInfo[];
   default_model?: string;
