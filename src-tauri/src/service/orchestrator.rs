@@ -375,6 +375,12 @@ impl ServiceContext {
         //     same `mux_set_pane_agent_type` from `spawnAgentTab`.
         self.set_pane_agent_type(&pane_id, Some(agent_cmd.to_string()));
 
+        // 4c. Pin agent_session_id for resume up-front: we know the id from
+        //     the user's request, so don't wait for detect_session_id polling.
+        if let Some(ref sid) = params.resume_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        }
+
         // 5. Launch agent in background thread
         let bg_task = params.task.as_ref().map(|t| {
             match params.role.as_deref() {

@@ -70,6 +70,8 @@ pub struct AgentSpawnSpec {
     pub task_preamble: Option<String>,
     #[serde(default)]
     pub spawned_by_pane_id: Option<String>,
+    #[serde(default)]
+    pub resume_session_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -111,6 +113,7 @@ impl SpawnPaneSpec {
                 task_preamble: None,
                 spawned_by: None,
                 spawned_by_pane_id: params.spawned_by_pane_id.clone(),
+                resume_session_id: params.resume_session_id.clone(),
             }),
         }
     }
@@ -139,7 +142,7 @@ impl SpawnPaneSpec {
             skip_permissions: Some(agent.auto_approve),
             spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
             model: agent.model.clone(),
-            resume_session_id: None,
+            resume_session_id: agent.resume_session_id.clone(),
         })
     }
 }
@@ -256,6 +259,9 @@ impl ServiceContext {
         // after restart silently fails. The orchestrator-side spawn path also
         // needs the same call (see `service/orchestrator.rs::spawn_agent`).
         self.set_pane_agent_type(&pane_id, Some(agent_cmd.clone()));
+        if let Some(ref sid) = agent.resume_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        }
         self.emit_state_changed();
 
         let role_suffixed_task = agent.task.as_ref().map(|t| {
