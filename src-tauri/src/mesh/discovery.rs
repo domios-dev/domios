@@ -217,33 +217,100 @@ pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
         "/usr/local/bin/tailscale".to_string(),
     ];
     for cmd in &candidates {
-        if let Ok(output) = std::process::Command::new(cmd).args(["ip", "-4"]).output() {
-            // `tailscale ip -4` on macOS through the Tailscale.app GUI bridge
-            // can exit 0 and write an error string ("The Tailscale GUI failed
-            // to start: …") to stdout. Validate the output parses as an IPv4
-            // before accepting it; otherwise the error string ends up cached
-            // as our tailscale_ip and gets announced to peers.
-            if output.status.success() {
-                let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if let Some(ip) = raw.lines().find_map(|line| {
-                    let candidate = line.trim();
-                    candidate.parse::<std::net::IpAddr>().ok().map(|_| candidate.to_string())
-                }) {
-                    log::info!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
-                    mesh.lock().tailscale_ip = Some(ip);
-                    return;
-                }
-                if !raw.is_empty() {
-                    log::warn!(
-                        "[mesh] {} ip -4 returned non-IP output (likely Tailscale GUI bridge error): {}",
-                        cmd,
-                        raw.lines().next().unwrap_or("").chars().take(120).collect::<String>()
-                    );
-                }
+        // First try direct invocation. Works when Tailscale is installed
+        // as a CLI-only tool (brew, manual) and on Linux/Windows.
+        if let Some(ip) = try_tailscale_probe(cmd, false) {
+            log::info!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
+            mesh.lock().tailscale_ip = Some(ip);
+            return;
+        }
+        // On macOS the Tailscale.app GUI bridge can exit 0 and write
+        // "The Tailscale GUI failed to start: Tailscale.CLIError error 3."
+        // to stdout when invoked from a daemon subprocess that isn't
+        // attached to the user's GUI launchd session — the same command
+        // run from an interactive shell returns the IP fine. The fix is
+        // to re-invoke through `launchctl asuser <uid> ...` so the child
+        // inherits the user's bootstrap namespace and can resolve the
+        // app's XPC service. We only attempt this if the direct probe
+        // produced the GUI-bridge error string (otherwise the binary
+        // isn't on disk and there's nothing to retry).
+        #[cfg(target_os = "macos")]
+        if cmd.starts_with("/Applications/")
+            && std::path::Path::new(cmd).exists()
+        {
+            if let Some(ip) = try_tailscale_probe(cmd, true) {
+                log::info!(
+                    "[mesh] Tailscale IP detected via launchctl asuser {}: {}",
+                    cmd, ip
+                );
+                mesh.lock().tailscale_ip = Some(ip);
+                return;
             }
         }
     }
     log::debug!("[mesh] Tailscale not available");
+}
+
+/// Run `<cmd> ip -4` and return the first parseable IPv4 from stdout.
+///
+/// When `via_launchctl_asuser` is true on macOS, the command is wrapped in
+/// `/bin/launchctl asuser <uid> <cmd> ip -4` so the child runs inside the
+/// current user's GUI launchd session — required for the Tailscale.app
+/// CLI bridge to resolve its XPC service when invoked from a daemon
+/// subprocess context.
+fn try_tailscale_probe(cmd: &str, via_launchctl_asuser: bool) -> Option<String> {
+    let mut command = if via_launchctl_asuser {
+        #[cfg(target_os = "macos")]
+        {
+            let uid = current_uid()?;
+            let mut c = std::process::Command::new("/bin/launchctl");
+            c.args(["asuser", &uid, cmd, "ip", "-4"]);
+            c
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            return None;
+        }
+    } else {
+        let mut c = std::process::Command::new(cmd);
+        c.args(["ip", "-4"]);
+        c
+    };
+    let output = command.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if let Some(ip) = raw.lines().find_map(|line| {
+        let candidate = line.trim();
+        candidate.parse::<std::net::IpAddr>().ok().map(|_| candidate.to_string())
+    }) {
+        return Some(ip);
+    }
+    if !raw.is_empty() && !via_launchctl_asuser {
+        // Only log the GUI-bridge error from the direct probe. The
+        // launchctl-asuser fallback retries silently because surfacing
+        // the same warning twice per refresh tick is noise.
+        log::warn!(
+            "[mesh] {} ip -4 returned non-IP output (likely Tailscale GUI bridge error): {}",
+            cmd,
+            raw.lines().next().unwrap_or("").chars().take(120).collect::<String>()
+        );
+    }
+    None
+}
+
+/// Current real UID as a string, or None on non-Unix or if the lookup fails.
+/// Used by the launchctl-asuser fallback above. Calling `id -u` once per
+/// detection tick is fine — detect_tailscale runs at most every 15s.
+#[cfg(target_os = "macos")]
+fn current_uid() -> Option<String> {
+    let output = std::process::Command::new("/usr/bin/id").arg("-u").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if s.parse::<u32>().is_ok() { Some(s) } else { None }
 }
 
 pub fn detect_local_ip(mesh: &Arc<Mutex<MeshManager>>) {
