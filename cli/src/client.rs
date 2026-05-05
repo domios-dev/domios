@@ -121,20 +121,27 @@ impl SocketClient {
 
 /// Discover the CodeTerm socket path.
 ///
-/// 1. Check `CODETERM_SOCKET_PATH` env var
-/// 2. On Windows, scan `\\.\pipe\` for pipes matching `codeterm-*`
-/// 3. On Unix, scan `/tmp/` for `codeterm-*.sock`
+/// 1. Check `CODETERM_SOCKET_PATH` env var, but VERIFY the named pipe / socket
+///    is actually live before trusting it. After a daemon update_apply
+///    restart the parent's env var still points at the OLD pid's pipe; the
+///    new daemon listens on a fresh pid-suffixed pipe, so any subprocess
+///    that blindly trusts the env var ends up with `Failed to connect to
+///    'codeterm-{old-pid}.sock'` on every invocation.
+/// 2. On Windows, scan `\\.\pipe\` for pipes matching `codeterm-*`.
+/// 3. On Unix, scan `/tmp/` for `codeterm-*.sock`.
 pub fn discover_socket() -> Result<String, String> {
-    // Check env var first
     if let Ok(path) = std::env::var("CODETERM_SOCKET_PATH") {
         if !path.is_empty() {
-            // The env var contains the display path (e.g. \\.\pipe\codeterm-1234).
-            // We need to extract just the namespaced name for interprocess.
-            return Ok(normalize_socket_path(&path));
+            let normalized = normalize_socket_path(&path);
+            if socket_is_live(&normalized) {
+                return Ok(normalized);
+            }
+            // Pipe is dead — fall through to auto-discovery instead of
+            // failing immediately. Every CLI subprocess spawned from a
+            // restarted daemon would otherwise hit this.
         }
     }
 
-    // Auto-discovery
     #[cfg(target_os = "windows")]
     {
         discover_windows_pipe()
@@ -143,6 +150,32 @@ pub fn discover_socket() -> Result<String, String> {
     #[cfg(not(target_os = "windows"))]
     {
         discover_unix_socket()
+    }
+}
+
+/// Return true when the named socket exists and is reachable. Used by
+/// `discover_socket` to decide whether to trust `CODETERM_SOCKET_PATH`.
+fn socket_is_live(name: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        // Named pipes show up in the special \\.\pipe\ directory listing
+        // while their server is alive. Cheaper than attempting a full
+        // connect() handshake.
+        let pipe_dir = "\\\\.\\pipe";
+        if let Ok(entries) = std::fs::read_dir(pipe_dir) {
+            for e in entries.flatten() {
+                if e.file_name().to_string_lossy() == name {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let path = std::path::Path::new("/tmp").join(name);
+        path.exists()
     }
 }
 
