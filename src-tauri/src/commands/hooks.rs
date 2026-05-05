@@ -5,10 +5,11 @@
 //! pure adapter — every fn body delegates to the matching plugin
 //! module without holding state of its own.
 
-use crate::plugin::{agent_claude, agent_codex};
+use crate::plugin::{agent_claude, agent_codex, agent_opencode};
 
 pub use agent_claude::hooks::{ClaudeHooksStatus, ClaudeTokenHooksStatus};
 pub use agent_codex::hooks::CodexTokenHooksStatus;
+pub use agent_opencode::hooks::OpenCodeTokenHooksStatus;
 
 #[tauri::command]
 pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {
@@ -53,4 +54,19 @@ pub fn install_codex_token_hooks() -> Result<(), String> {
 #[tauri::command]
 pub fn uninstall_codex_token_hooks() -> Result<(), String> {
     agent_codex::hooks::uninstall_token_hooks()
+}
+
+#[tauri::command]
+pub fn check_opencode_token_hooks() -> Result<OpenCodeTokenHooksStatus, String> {
+    agent_opencode::hooks::check_token_hooks()
+}
+
+#[tauri::command]
+pub fn install_opencode_token_hooks() -> Result<(), String> {
+    agent_opencode::hooks::install_token_hooks()
+}
+
+#[tauri::command]
+pub fn uninstall_opencode_token_hooks() -> Result<(), String> {
+    agent_opencode::hooks::uninstall_token_hooks()
 }

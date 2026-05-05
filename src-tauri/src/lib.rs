@@ -208,6 +208,9 @@ pub fn run() {
             commands::check_codex_token_hooks,
             commands::install_codex_token_hooks,
             commands::uninstall_codex_token_hooks,
+            commands::check_opencode_token_hooks,
+            commands::install_opencode_token_hooks,
+            commands::uninstall_opencode_token_hooks,
             // Session commands
             session::save_session,
             session::save_session_named,

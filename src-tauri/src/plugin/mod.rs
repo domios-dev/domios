@@ -21,6 +21,7 @@ pub fn ensure_all_provider_hooks_installed() {
     agent_claude::hooks::ensure_v2_hooks_installed();
     agent_claude::hooks::ensure_token_hooks_installed();
     agent_codex::hooks::ensure_token_hooks_installed();
+    agent_opencode::hooks::ensure_token_hooks_installed();
 }
 
 use std::collections::HashMap;
