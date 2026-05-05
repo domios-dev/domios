@@ -546,12 +546,15 @@ pub(crate) fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, ta
         headless: false,
         session_id: None,
     };
-    registry.with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
+    let cmd = registry.with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
         .unwrap_or_else(|| {
             let mut parts: Vec<String> = vec![agent_cmd.to_string()];
             parts.extend(args.iter().cloned());
             parts.join(" ")
-        })
+        });
+    log::info!("[spawn] build_agent_command provider={} model={:?} resume={:?} cmd={}",
+        agent_cmd, params.model, params.resume_session_id, cmd);
+    cmd
 }
 
 #[cfg(test)]
