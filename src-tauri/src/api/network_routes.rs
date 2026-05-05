@@ -11,7 +11,11 @@ pub async fn network_info(
     AxumState(state): AxumState<AppState>,
 ) -> Json<serde_json::Value> {
     let local_ip = local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
-    let tailscale_ip = detect_tailscale_ip();
+    // Single source of truth: read the cached value populated by
+    // `mesh::discovery::detect_tailscale` from the periodic refresh loop.
+    // Avoids duplicating the probe logic (which previously lacked IP
+    // validation, the GUI-bridge fallback, and a timeout).
+    let tailscale_ip = state.mesh.lock().tailscale_ip.clone();
     let port = state.api_port;
 
     Json(serde_json::json!({
@@ -70,8 +74,4 @@ pub fn local_ip_address() -> Option<String> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("8.8.8.8:80").ok()?;
     socket.local_addr().ok().map(|a| a.ip().to_string())
-}
-
-pub fn detect_tailscale_ip() -> Option<String> {
-    crate::mesh::discovery::find_tailscale_ip()
 }
