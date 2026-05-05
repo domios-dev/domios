@@ -22,11 +22,21 @@ pub fn start_general_agent(
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
 
-    // Regenerate AGENT.md with the live mem snapshot injected. The bootstrap
-    // copy written from init_states had no mem yet (singleton not built);
-    // refreshing here guarantees the agent reads identity + L1 facts on
-    // every launch without having to call `codeterm mem wake-up` itself.
-    instructions::generate_instructions(provider_name, Some(&svc.mem));
+    // Regenerate AGENT.md with the live mem snapshot in a detached thread.
+    // mem.wake_up() locks the shared rusqlite connection and can stall
+    // arbitrarily long when other in-process workers (extraction, embed
+    // queue) hold it; blocking GA bootstrap on that means the resume
+    // command never gets written to the PTY and the General tab stays
+    // dead until the user intervenes. The bootstrap copy from
+    // init_states already wrote a usable AGENT.md without a snapshot, so
+    // a delayed regen still leaves the agent with a coherent file.
+    {
+        let mem = svc.mem.clone();
+        let provider_owned = provider_name.clone();
+        std::thread::spawn(move || {
+            instructions::generate_instructions(&provider_owned, Some(&mem));
+        });
+    }
 
     let general_cwd = general_dir().to_string_lossy().to_string();
 
@@ -361,10 +371,17 @@ pub fn restart_general_agent(
 
     std::thread::sleep(std::time::Duration::from_millis(500));
 
-    // Re-generate instructions for potentially new provider
-    // Clone to avoid holding the config lock (deadlock with start_general_agent)
-    let provider_name = config.lock().general_agent.agent_provider.clone();
-    instructions::generate_instructions(&provider_name, Some(&svc.mem));
+    // Re-generate instructions for potentially new provider in the background.
+    // Clone to avoid holding the config lock (deadlock with start_general_agent).
+    // Same rationale as the lifecycle::start_general_agent path: do not block
+    // restart on mem.wake_up().
+    {
+        let mem = svc.mem.clone();
+        let provider_name = config.lock().general_agent.agent_provider.clone();
+        std::thread::spawn(move || {
+            instructions::generate_instructions(&provider_name, Some(&mem));
+        });
+    }
 
     start_general_agent(svc, mux, pty, screen_state, config, app);
 }
