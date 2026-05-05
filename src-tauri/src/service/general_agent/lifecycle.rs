@@ -30,34 +30,61 @@ pub fn start_general_agent(
 
     let general_cwd = general_dir().to_string_lossy().to_string();
 
-    // Check if agent is already running with the CORRECT provider — don't spawn a new PTY
+    // Live PTY alone isn't enough: after snapshot rehydrate the frontend may race-spawn
+    // a bare shell into the pane while agent_type is cosmetically restored — verify with
+    // screen markers and tear down the bare shell if no agent is actually running.
     {
-        let m = mux.lock();
-        if let Some(pid) = m.resolve_pane_id(GENERAL_ALIAS) {
-            if let Some(pane) = m.get_pane(&pid) {
-                if let Some(ref current_agent) = pane.agent_type {
-                    if current_agent == provider_name {
-                        if let Some(ref pty_id) = pane.pty_id {
-                            if pty.lock().get_session(pty_id).is_some() {
-                                log::info!("[general-agent] Already running (pane={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
-                                return;
-                            }
+        let (pane_id_opt, current_agent, current_pty_id) = {
+            let m = mux.lock();
+            match m.resolve_pane_id(GENERAL_ALIAS) {
+                Some(pid) => {
+                    let pane = m.get_pane(&pid);
+                    let at = pane.and_then(|p| p.agent_type.clone());
+                    let pt = pane.and_then(|p| p.pty_id.clone());
+                    (Some(pid), at, pt)
+                }
+                None => (None, None, None),
+            }
+        };
+        if let (Some(pid), Some(current_agent)) = (pane_id_opt.clone(), current_agent.clone()) {
+            if &current_agent == provider_name {
+                if let Some(pty_id) = current_pty_id.clone() {
+                    let alive = pty.lock().get_session(&pty_id).is_some();
+                    if alive {
+                        let agent_visible = screen_state.try_lock()
+                            .and_then(|ss| ss.get_screen_text(&pty_id))
+                            .map(|screen| svc.agent_registry.detect_from_output(&screen).is_some())
+                            .unwrap_or(false);
+                        if agent_visible {
+                            log::info!("[general-agent] Already running (pane={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
+                            return;
                         }
-                    } else {
-                        // Wrong provider running — kill it so we can start the right one
-                        log::info!("[general-agent] Provider mismatch: running={}, wanted={} — restarting", current_agent, provider_name);
-                        if let Some(ref pty_id) = pane.pty_id {
-                            let _ = pty.lock().kill(pty_id);
-                        }
-                        drop(m);
+                        log::info!("[general-agent] Pane has live PTY {} but no agent markers — killing bare shell and relaunching", pty_id);
+                        let _ = pty.lock().kill(&pty_id);
                         svc.set_pane_agent_type(&pid, None);
-                        svc.set_agent_session_id(&pid, None);
                         if let Some(pane) = mux.lock().get_pane_mut(&pid) {
                             pane.pty_id = None;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(300));
+                    } else {
+                        // Stale pty_id pointing at a dead session — clear it so spawn proceeds cleanly.
+                        log::info!("[general-agent] Clearing stale pty_id {} (session not in PtyManager)", pty_id);
+                        if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+                            pane.pty_id = None;
+                        }
                     }
                 }
+            } else {
+                log::info!("[general-agent] Provider mismatch: running={}, wanted={} — restarting", current_agent, provider_name);
+                if let Some(pty_id) = current_pty_id {
+                    let _ = pty.lock().kill(&pty_id);
+                }
+                svc.set_pane_agent_type(&pid, None);
+                svc.set_agent_session_id(&pid, None);
+                if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+                    pane.pty_id = None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(300));
             }
         }
     }
