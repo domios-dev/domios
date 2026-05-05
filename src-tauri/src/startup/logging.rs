@@ -27,7 +27,7 @@ pub(crate) fn setup_logging() {
         log::LevelFilter::Info
     };
 
-    fern::Dispatch::new()
+    let mut dispatch = fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
                 "[{} {} {}] {}",
@@ -43,10 +43,28 @@ pub(crate) fn setup_logging() {
         .level_for("tungstenite", log::LevelFilter::Warn)
         .level_for("tokio", log::LevelFilter::Warn)
         .level_for("mdns_sd", log::LevelFilter::Warn)
-        .chain(std::io::stderr())
-        .chain(fern::log_file(&log_file).expect("Failed to open log file"))
-        .apply()
-        .expect("Failed to initialize logging");
+        .level_for("codeterm::update", log::LevelFilter::Info)
+        .level_for("codeterm::api::updater_routes", log::LevelFilter::Info)
+        .chain(std::io::stderr());
 
-    log::info!("Logging initialized: file={}, level={:?}", log_file.display(), level);
+    let mut file_open_err: Option<String> = None;
+    match fern::log_file(&log_file) {
+        Ok(f) => dispatch = dispatch.chain(f),
+        Err(e) => file_open_err = Some(format!("{}", e)),
+    }
+
+    if let Err(e) = dispatch.apply() {
+        eprintln!("Failed to initialize logging: {}", e);
+        return;
+    }
+
+    if let Some(e) = file_open_err {
+        log::warn!(
+            "Logging: failed to open file {} ({}). Falling back to stderr only.",
+            log_file.display(),
+            e
+        );
+    } else {
+        log::info!("Logging initialized: file={}, level={:?}", log_file.display(), level);
+    }
 }

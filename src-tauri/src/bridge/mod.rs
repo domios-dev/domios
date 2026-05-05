@@ -1,6 +1,7 @@
 //! Messaging bridge — routes external messages to the General Agent PTY.
 
 pub mod traits;
+pub mod inbound_buffer;
 pub mod manager;
 pub mod response;
 pub mod sanitize;
