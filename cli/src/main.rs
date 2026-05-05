@@ -245,6 +245,13 @@ fn main() {
             );
             std::process::exit(7);
         }
+        if matches!(cli.command, Commands::Map { .. }) {
+            eprintln!(
+                "Error: 'codeterm map' scans local files and cannot be \
+                 mesh-forwarded. Run it on the target peer directly."
+            );
+            std::process::exit(7);
+        }
         mesh_cli::run_via_mesh(&cli, mesh_target);
         return;
     }
@@ -689,6 +696,10 @@ fn main() {
         Commands::Hook { .. } => unreachable!(
             "hook short-circuits earlier in main.rs before discover_socket"
         ),
+        Commands::Map { args } => {
+            cmd::map::handle_map(args);
+            return;
+        }
     };
 
     handle_result(cli.json, result);

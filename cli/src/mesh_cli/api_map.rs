@@ -255,6 +255,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Hook { .. } => unreachable!(
             "hook is local-only; main.rs short-circuits with exit 7 before reaching mesh dispatch"
         ),
+        Commands::Map { .. } => unreachable!(
+            "map is local-only; main.rs short-circuits with exit 7 before reaching mesh dispatch"
+        ),
         Commands::SelfUpdate { check, rollback, channel, .. } => {
             if *check {
                 ("GET".into(), "/api/update/check".into(), None)

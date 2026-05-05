@@ -7,6 +7,7 @@ pub mod mesh;
 pub mod pane;
 pub mod print;
 pub mod hook;
+pub mod map;
 pub mod sessions;
 pub mod snip;
 pub mod update;

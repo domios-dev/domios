@@ -10,6 +10,7 @@ use super::misc::{
     ThemeAction, WorkspaceAction,
 };
 use super::hook::HookAction;
+use super::map::MapArgs;
 use super::sessions::SessionsAction;
 use super::update::UpdateAction;
 
@@ -228,5 +229,15 @@ pub enum Commands {
     Hook {
         #[command(subcommand)]
         action: HookAction,
+    },
+
+    /// Generate a ranked symbol map of the workspace — aider-style. Walks
+    /// gitignored-aware Rust files, extracts function/struct/enum/impl/
+    /// trait/mod headers via tree-sitter, scores by query substring match
+    /// (or identifier length when no query), and emits `path:line |
+    /// signature` lines that fit a token budget.
+    Map {
+        #[command(flatten)]
+        args: MapArgs,
     },
 }
