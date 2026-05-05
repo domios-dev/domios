@@ -41,7 +41,11 @@ mod tests {
 
     #[test]
     fn dispatch_returns_empty_for_session_start() {
+        // CODETERM_HOOK_NO_MEM forces the mem-wake-up subprocess off so the
+        // test is deterministic regardless of whether `codeterm` is on PATH.
+        std::env::set_var("CODETERM_HOOK_NO_MEM", "1");
         let out = events::session_start::handle(HookProvider::Claude, "{}");
+        std::env::remove_var("CODETERM_HOOK_NO_MEM");
         assert_eq!(out, "");
         // Tag the variant so this test fails if the enum drifts.
         let _ = HookAction::SessionStart;

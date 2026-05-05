@@ -46,6 +46,7 @@ pub struct InjectionBlock {
     pub first_user_message: Option<String>,
     pub command_blocks: Vec<String>,
     pub mem_wakeup: Option<String>,
+    pub read_files: Option<String>,
 }
 
 impl InjectionBlock {
@@ -55,6 +56,7 @@ impl InjectionBlock {
             && self.first_user_message.is_none()
             && self.command_blocks.is_empty()
             && self.mem_wakeup.is_none()
+            && self.read_files.is_none()
     }
 
     /// Render the block as a single text payload suitable for both
@@ -85,6 +87,12 @@ impl InjectionBlock {
         if let Some(mem) = &self.workspace_memory {
             sections.push(wrap_reminder("Workspace memory (.codeterm/repo.md)", mem));
         }
+        if let Some(read) = &self.read_files {
+            sections.push(wrap_reminder(
+                "Files this session has read (most recent first)",
+                read,
+            ));
+        }
         sections.join("\n\n")
     }
 }
@@ -109,6 +117,9 @@ pub fn build_block(sources: &InjectionSources) -> InjectionBlock {
         let entries = parse_transcript_jsonl(&text);
         block.first_user_message = extract_first_user_message(&entries);
         block.command_blocks = extract_all_command_blocks(&entries);
+        let read_paths = extract_read_file_paths(&entries);
+        let cwd_path = sources.cwd.as_deref().map(Path::new);
+        block.read_files = build_read_files_section(&read_paths, cwd_path);
     }
 
     if sources.include_mem_wakeup && std::env::var("CODETERM_HOOK_NO_MEM").is_err() {
@@ -306,6 +317,120 @@ fn find_command_blocks(haystack: &str, out: &mut Vec<String>) {
             i += 1;
         }
     }
+}
+
+/// Walk transcript entries and collect `Read` tool_use `file_path` inputs.
+/// Deduplicated, ordered most-recent-first. Mirrors roo-code's
+/// `generateFoldedFileContext` discovery step — the agent's "files I've
+/// looked at" list is the strongest signal of what to re-anchor after a
+/// context compact.
+pub fn extract_read_file_paths(entries: &[TranscriptEntry]) -> Vec<String> {
+    use std::collections::HashMap;
+    let mut last_pos: HashMap<String, usize> = HashMap::new();
+    let mut counter: usize = 0;
+    for e in entries {
+        if e.role != "assistant" {
+            continue;
+        }
+        let msg = e.raw.get("message").unwrap_or(&e.raw);
+        let blocks = match msg.get("content").and_then(Value::as_array) {
+            Some(b) => b,
+            None => continue,
+        };
+        for block in blocks {
+            let ty = block.get("type").and_then(Value::as_str).unwrap_or("");
+            if ty != "tool_use" {
+                continue;
+            }
+            let name = block.get("name").and_then(Value::as_str).unwrap_or("");
+            if name != "Read" {
+                continue;
+            }
+            if let Some(p) = block
+                .get("input")
+                .and_then(|i| i.get("file_path"))
+                .and_then(Value::as_str)
+            {
+                last_pos.insert(p.to_string(), counter);
+                counter += 1;
+            }
+        }
+    }
+    let mut indexed: Vec<(usize, String)> =
+        last_pos.into_iter().map(|(k, v)| (v, k)).collect();
+    indexed.sort_by(|a, b| b.0.cmp(&a.0));
+    indexed.into_iter().map(|(_, p)| p).collect()
+}
+
+/// Render the "Files this session has read" body. For each path we emit
+/// a `### <path>` header; for Rust files we also dump the per-symbol
+/// signature lines via `extract_rust` (same source the `codeterm map`
+/// command uses). Non-Rust files get the header only — agent at least
+/// remembers the file existed across compaction.
+///
+/// Caps: `MAX_FILES` distinct files, `MAX_BYTES` total body length. The
+/// caps are deliberately generous (matching roo-code's `foldedFileContext`
+/// behaviour) — better to overspend a few hundred tokens than to lose the
+/// "what was I looking at" anchor.
+pub fn build_read_files_section(paths: &[String], cwd: Option<&Path>) -> Option<String> {
+    const MAX_FILES: usize = 30;
+    const MAX_BYTES: usize = 32 * 1024;
+    if paths.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    let mut any = false;
+    for raw in paths.iter().take(MAX_FILES) {
+        let resolved = resolve_read_path(raw, cwd);
+        if !resolved.is_file() {
+            continue;
+        }
+        let mut block = String::new();
+        block.push_str("### ");
+        block.push_str(raw);
+        block.push('\n');
+        if is_rust_path(&resolved) {
+            if let Ok(source) = std::fs::read_to_string(&resolved) {
+                let mut tags = crate::cmd::map::extract::extract_rust(&source);
+                tags.sort_by_key(|t| t.line);
+                for t in tags {
+                    block.push_str(raw);
+                    block.push(':');
+                    block.push_str(&t.line.to_string());
+                    block.push_str(" | ");
+                    block.push_str(&t.signature);
+                    block.push('\n');
+                }
+            }
+        }
+        if out.len() + block.len() > MAX_BYTES {
+            break;
+        }
+        if any {
+            out.push('\n');
+        }
+        out.push_str(&block);
+        any = true;
+    }
+    if !any {
+        return None;
+    }
+    Some(out)
+}
+
+fn resolve_read_path(raw: &str, cwd: Option<&Path>) -> std::path::PathBuf {
+    let pb = std::path::PathBuf::from(raw);
+    if pb.is_absolute() {
+        return pb;
+    }
+    match cwd {
+        Some(c) => c.join(pb),
+        None => pb,
+    }
+}
+
+fn is_rust_path(p: &Path) -> bool {
+    matches!(p.extension().and_then(|s| s.to_str()), Some("rs"))
 }
 
 /// Fire `codeterm mem wake-up` and return its stdout. Returns `None` if
@@ -621,6 +746,7 @@ mod tests {
             first_user_message: Some("task".into()),
             command_blocks: vec!["<command>x</command>".into()],
             mem_wakeup: Some("identity".into()),
+            read_files: None,
         };
         let s = block.render();
         let id_pos = s.find("Identity").unwrap();
@@ -667,6 +793,150 @@ mod tests {
         let block = build_block(&sources);
         assert!(block.first_user_message.is_some());
         assert_eq!(block.command_blocks, vec!["<command>a</command>"]);
+    }
+
+    fn read_call_raw(file_path: &str) -> Value {
+        serde_json::json!({
+            "message": {
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "name": "Read",
+                    "input": {"file_path": file_path}
+                }]
+            }
+        })
+    }
+
+    fn assistant_entry(raw: Value) -> TranscriptEntry {
+        TranscriptEntry {
+            role: "assistant".to_string(),
+            text: String::new(),
+            raw,
+        }
+    }
+
+    #[test]
+    fn extract_read_paths_dedupes_and_orders_recent_first() {
+        let entries = vec![
+            assistant_entry(read_call_raw("/a.rs")),
+            assistant_entry(read_call_raw("/b.rs")),
+            assistant_entry(read_call_raw("/a.rs")),
+            assistant_entry(read_call_raw("/c.rs")),
+        ];
+        let paths = extract_read_file_paths(&entries);
+        assert_eq!(paths, vec!["/c.rs", "/a.rs", "/b.rs"]);
+    }
+
+    #[test]
+    fn extract_read_paths_ignores_non_read_tools() {
+        let entries = vec![assistant_entry(serde_json::json!({
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}},
+                    {"type": "tool_use", "name": "Read", "input": {"file_path": "/x.rs"}}
+                ]
+            }
+        }))];
+        assert_eq!(extract_read_file_paths(&entries), vec!["/x.rs"]);
+    }
+
+    #[test]
+    fn extract_read_paths_ignores_user_role() {
+        let entries = vec![TranscriptEntry {
+            role: "user".to_string(),
+            text: String::new(),
+            raw: read_call_raw("/x.rs"),
+        }];
+        assert!(extract_read_file_paths(&entries).is_empty());
+    }
+
+    #[test]
+    fn build_read_files_section_emits_signatures_for_rust() {
+        let dir = tempdir_with(&[("alpha.rs", "pub fn alpha() {}\npub struct Beta;\n")]);
+        let abs = dir.path().join("alpha.rs").to_string_lossy().into_owned();
+        let body = build_read_files_section(&[abs.clone()], None).unwrap();
+        assert!(body.contains("### "));
+        assert!(body.contains(&abs));
+        assert!(body.contains("alpha"));
+        assert!(body.contains("Beta"));
+    }
+
+    #[test]
+    fn build_read_files_section_resolves_relative_against_cwd() {
+        let dir = tempdir_with(&[("foo.rs", "pub fn foo() {}\n")]);
+        let body = build_read_files_section(&["foo.rs".into()], Some(dir.path())).unwrap();
+        assert!(body.contains("### foo.rs"));
+        assert!(body.contains("foo"));
+    }
+
+    #[test]
+    fn build_read_files_section_skips_missing_files() {
+        let body = build_read_files_section(&["/nonexistent/zzz.rs".into()], None);
+        assert!(body.is_none());
+    }
+
+    #[test]
+    fn build_read_files_section_emits_header_only_for_non_rust() {
+        let dir = tempdir_with(&[("README.md", "# heading\n")]);
+        let abs = dir.path().join("README.md").to_string_lossy().into_owned();
+        let body = build_read_files_section(&[abs.clone()], None).unwrap();
+        assert!(body.contains("### "));
+        assert!(body.contains(&abs));
+        assert!(!body.contains("|"));
+    }
+
+    #[test]
+    fn build_read_files_section_caps_total_files() {
+        let dir = tempdir_with(&[]);
+        let mut paths = Vec::new();
+        for i in 0..50 {
+            let name = format!("f{}.rs", i);
+            let p = dir.path().join(&name);
+            std::fs::write(&p, format!("pub fn f{}() {{}}\n", i)).unwrap();
+            paths.push(p.to_string_lossy().into_owned());
+        }
+        let body = build_read_files_section(&paths, None).unwrap();
+        let header_count = body.matches("### ").count();
+        assert!(header_count <= 30, "got {} headers", header_count);
+        assert!(header_count > 0);
+    }
+
+    #[test]
+    fn build_block_includes_read_files_section() {
+        let dir = tempdir_with(&[("zeta.rs", "pub fn zeta_fn() {}\n")]);
+        let transcript = dir.path().join("t.jsonl");
+        let abs = dir.path().join("zeta.rs").to_string_lossy().into_owned();
+        let body = format!(
+            r#"{{"role":"assistant","message":{{"role":"assistant","content":[{{"type":"tool_use","name":"Read","input":{{"file_path":"{}"}}}}]}}}}"#,
+            abs.replace('\\', "\\\\")
+        );
+        std::fs::write(&transcript, body).unwrap();
+        let sources = InjectionSources {
+            transcript_path: Some(transcript.to_string_lossy().into_owned()),
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let block = build_block(&sources);
+        assert!(block.read_files.is_some());
+        let rendered = block.render();
+        assert!(rendered.contains("Files this session has read"));
+        assert!(rendered.contains("zeta_fn"));
+    }
+
+    #[test]
+    fn render_places_read_files_after_workspace_memory() {
+        let block = InjectionBlock {
+            workspace_memory: Some("memory".into()),
+            read_files: Some("### foo.rs\nfoo.rs:1 | fn foo()".into()),
+            ..Default::default()
+        };
+        let s = block.render();
+        let mem_pos = s.find("Workspace memory").unwrap();
+        let read_pos = s.find("Files this session has read").unwrap();
+        assert!(mem_pos < read_pos);
+        assert!(s.contains("foo.rs"));
     }
 
     #[test]
