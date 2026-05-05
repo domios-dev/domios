@@ -209,11 +209,65 @@ pub fn unregister_mdns_service(mesh: &Arc<Mutex<MeshManager>>) {
 
 // ── Tailscale / Local IP ───────────────────────────────────────────────
 
+/// Hard cap on how long any single Tailscale CLI probe is allowed to run.
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+enum ProbeOutcome {
+    Found(String),
+    NoBinary,
+    GuiBridgeError,
+}
+
+/// Detect this machine's Tailnet IPv4 and cache it on `mesh.tailscale_ip`.
+///
+/// Two-stage strategy:
+///   1. Interface scan (`find_tailscale_ip`) — zero subprocesses, no console
+///      flash on Windows. Hits the common case (Tailscale daemon running with
+///      utun/wintun device) without ever spawning the CLI.
+///   2. CLI cascade fallback — only runs if the scan misses. Tries common
+///      binary paths and on macOS retries via `launchctl asuser <uid>` for
+///      GUI-bridge installs that need to attach to the user's launchd
+///      bootstrap to resolve XPC. All spawns go through `no_window_std` so
+///      the fallback path also stays console-flash free on Windows.
+///
+/// Each probe is bounded by `PROBE_TIMEOUT` (5s).
 pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
     if let Some(ip) = find_tailscale_ip() {
         log::info!("[mesh] Tailscale IP detected via interface scan: {}", ip);
         mesh.lock().tailscale_ip = Some(ip);
         return;
+    }
+    let candidates = [
+        "tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        "/opt/homebrew/bin/tailscale",
+        "/usr/local/bin/tailscale",
+        "/usr/bin/tailscale",
+    ];
+    for cmd in &candidates {
+        match try_tailscale_probe(cmd, ProbeMode::Direct) {
+            ProbeOutcome::Found(ip) => {
+                log::info!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
+                mesh.lock().tailscale_ip = Some(ip);
+                return;
+            }
+            ProbeOutcome::GuiBridgeError => {
+                #[cfg(target_os = "macos")]
+                {
+                    if let ProbeOutcome::Found(ip) =
+                        try_tailscale_probe(cmd, ProbeMode::LaunchctlAsuser)
+                    {
+                        log::info!(
+                            "[mesh] Tailscale IP detected via launchctl asuser {}: {}",
+                            cmd, ip
+                        );
+                        mesh.lock().tailscale_ip = Some(ip);
+                        return;
+                    }
+                }
+            }
+            ProbeOutcome::NoBinary => {}
+        }
     }
     log::debug!("[mesh] Tailscale not available");
 }
@@ -235,6 +289,136 @@ pub fn find_tailscale_ip() -> Option<String> {
         }
     }
     None
+}
+
+enum ProbeMode {
+    Direct,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    LaunchctlAsuser,
+}
+
+fn try_tailscale_probe(cmd: &str, mode: ProbeMode) -> ProbeOutcome {
+    let mut command = match mode {
+        ProbeMode::Direct => {
+            let mut c = std::process::Command::new(cmd);
+            c.args(["ip", "-4"]);
+            c
+        }
+        ProbeMode::LaunchctlAsuser => {
+            #[cfg(target_os = "macos")]
+            {
+                let uid = match current_uid() {
+                    Some(u) if u != "0" => u,
+                    Some(_) => {
+                        log::debug!(
+                            "[mesh] skipping launchctl asuser fallback for {}: running as uid 0",
+                            cmd
+                        );
+                        return ProbeOutcome::NoBinary;
+                    }
+                    None => {
+                        log::warn!(
+                            "[mesh] skipping launchctl asuser fallback for {}: cannot resolve current uid",
+                            cmd
+                        );
+                        return ProbeOutcome::NoBinary;
+                    }
+                };
+                let mut c = std::process::Command::new("/bin/launchctl");
+                c.args(["asuser", &uid, cmd, "ip", "-4"]);
+                c
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = cmd;
+                return ProbeOutcome::NoBinary;
+            }
+        }
+    };
+    crate::process_util::no_window_std(&mut command);
+    let raw = match run_with_timeout(&mut command, PROBE_TIMEOUT) {
+        Some((true, raw)) => raw,
+        _ => return ProbeOutcome::NoBinary,
+    };
+    if let Some(ip) = parse_first_ip(&raw) {
+        return ProbeOutcome::Found(ip);
+    }
+    if raw.trim().is_empty() {
+        return ProbeOutcome::NoBinary;
+    }
+    if matches!(mode, ProbeMode::Direct) {
+        log::warn!(
+            "[mesh] {} ip -4 returned non-IP output (likely Tailscale GUI bridge error): {}",
+            cmd,
+            raw.lines().next().unwrap_or("").chars().take(120).collect::<String>()
+        );
+    } else {
+        log::debug!(
+            "[mesh] launchctl asuser {} ip -4 still returned non-IP output: {}",
+            cmd,
+            raw.lines().next().unwrap_or("").chars().take(120).collect::<String>()
+        );
+    }
+    ProbeOutcome::GuiBridgeError
+}
+
+fn parse_first_ip(stdout: &str) -> Option<String> {
+    stdout.lines().find_map(|line| {
+        let candidate = line.trim();
+        candidate
+            .parse::<std::net::IpAddr>()
+            .ok()
+            .map(|_| candidate.to_string())
+    })
+}
+
+fn run_with_timeout(
+    cmd: &mut std::process::Command,
+    timeout: std::time::Duration,
+) -> Option<(bool, String)> {
+    use std::process::Stdio;
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .spawn()
+        .ok()?;
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait().ok()? {
+            Some(_status) => break,
+            None => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    log::warn!(
+                        "[mesh] tailscale probe timed out after {:?}, killed",
+                        timeout
+                    );
+                    return None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    }
+    let output = child.wait_with_output().ok()?;
+    Some((
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn current_uid() -> Option<String> {
+    let mut cmd = std::process::Command::new("/usr/bin/id");
+    cmd.arg("-u");
+    crate::process_util::no_window_std(&mut cmd);
+    let output = cmd.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if s.parse::<u32>().is_ok() { Some(s) } else { None }
 }
 
 pub fn detect_local_ip(mesh: &Arc<Mutex<MeshManager>>) {
@@ -468,4 +652,48 @@ pub fn stop_broadcast(mesh: &Arc<Mutex<MeshManager>>) {
     }
     unregister_mdns_service(mesh);
     log::info!("[mesh] Broadcast stopped manually");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_first_ip;
+
+    #[test]
+    fn parse_first_ip_happy_path() {
+        assert_eq!(parse_first_ip("100.110.3.12\n").as_deref(), Some("100.110.3.12"));
+    }
+
+    #[test]
+    fn parse_first_ip_trims_whitespace() {
+        assert_eq!(
+            parse_first_ip("   100.110.3.12   \n").as_deref(),
+            Some("100.110.3.12")
+        );
+    }
+
+    #[test]
+    fn parse_first_ip_picks_first_of_many() {
+        assert_eq!(
+            parse_first_ip("100.110.3.12\nfd7a:115c:a1e0::1\n").as_deref(),
+            Some("100.110.3.12")
+        );
+    }
+
+    #[test]
+    fn parse_first_ip_rejects_gui_bridge_error_string() {
+        let raw = "The Tailscale GUI failed to start: The operation couldn't be completed. (Tailscale.CLIError error 3.)\n";
+        assert_eq!(parse_first_ip(raw), None);
+    }
+
+    #[test]
+    fn parse_first_ip_rejects_empty() {
+        assert_eq!(parse_first_ip(""), None);
+        assert_eq!(parse_first_ip("\n\n"), None);
+    }
+
+    #[test]
+    fn parse_first_ip_rejects_non_address_text() {
+        assert_eq!(parse_first_ip("not an ip\n"), None);
+        assert_eq!(parse_first_ip("100.999.0.1\n"), None);
+    }
 }
