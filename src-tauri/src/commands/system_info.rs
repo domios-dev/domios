@@ -43,6 +43,10 @@ pub fn get_network_info(
     mesh: tauri::State<'_, crate::MeshStateHandle>,
 ) -> Result<serde_json::Value, String> {
     let local_ip = crate::api::routes::local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
+    // Single source of truth: read the cached value populated by
+    // `mesh::discovery::detect_tailscale` from the periodic refresh loop.
+    // Avoids duplicating the probe logic (which lacked IP validation,
+    // the GUI-bridge fallback, and a timeout).
     let tailscale_ip = mesh.lock().tailscale_ip.clone();
     let port = state.lock().api.port;
     Ok(serde_json::json!({
