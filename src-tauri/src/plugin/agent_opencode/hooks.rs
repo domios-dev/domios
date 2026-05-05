@@ -62,12 +62,17 @@ fn opencode_config_dir() -> Result<PathBuf, String> {
     }
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
     if cfg!(windows) {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            if !appdata.is_empty() {
-                return Ok(PathBuf::from(appdata).join("opencode"));
+        // xdg-basedir on Windows resolves config to %LOCALAPPDATA%
+        // (verified by reading the npm package source it ships).
+        // %APPDATA% (Roaming) is what dirs::config_dir() returns on
+        // Windows but disagrees with what OpenCode actually reads —
+        // writing there would silently never reach the agent.
+        if let Ok(local) = std::env::var("LOCALAPPDATA") {
+            if !local.is_empty() {
+                return Ok(PathBuf::from(local).join("opencode"));
             }
         }
-        return Ok(home.join("AppData").join("Roaming").join("opencode"));
+        return Ok(home.join("AppData").join("Local").join("opencode"));
     }
     Ok(home.join(".config").join("opencode"))
 }
@@ -103,21 +108,16 @@ fn plugin_spec(plugin_path: &std::path::Path) -> String {
 }
 
 fn render_plugin_js() -> String {
-    let cli = codeterm_cli_path();
-    // Bun runtime + ESM. The plugin shells out via `Bun.spawn` to keep
-    // dependencies zero (no `child_process` import; OpenCode plugins run
-    // under Bun where `Bun.spawn` is built in).
-    //
-    // Marker `@codeterm-hooks-token-v3` lives on its own comment line so
-    // the installer can sniff "is this our plugin file?" without parsing
-    // JS. Bumping the version invalidates older installs and forces an
-    // overwrite on next daemon start.
+    // Run the path through serde_json so quotes / backslashes / unicode
+    // in the home dir survive as a valid JS string literal — protects
+    // against pathological cases like `O"Hara` Windows usernames.
+    let cli_lit = serde_json::to_string(&codeterm_cli_path()).unwrap_or_else(|_| "\"codeterm\"".into());
     format!(
         r#"// {marker}
 // CodeTerm hook plugin for OpenCode. Auto-generated; safe to delete.
 // Re-installed on every CodeTerm daemon start.
 
-const CLI = "{cli}";
+const CLI = {cli_lit};
 
 async function run(event, payload) {{
   const proc = Bun.spawn([CLI, "hook", "--source", "opencode", event], {{
@@ -135,7 +135,7 @@ async function run(event, payload) {{
 
 export const id = "codeterm-hooks";
 
-export async function server() {{
+export async function server(_input, _options) {{
   return {{
     "tool.execute.before": async (input, output) => {{
       const tool = (input?.tool || "").toLowerCase();
@@ -156,7 +156,7 @@ export async function server() {{
 }}
 "#,
         marker = PLUGIN_BANNER_MARKER,
-        cli = cli,
+        cli_lit = cli_lit,
     )
 }
 

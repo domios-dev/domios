@@ -33,6 +33,18 @@ pub fn source_files(root: &Path, paths: &[String]) -> Vec<PathBuf> {
             if !exts.iter().any(|e| *e == ext) {
                 continue;
             }
+            // Skip TypeScript declaration files. They live alongside .ts
+            // sources, can be hundreds of KB each (npm types, generated
+            // ambient libs), produce thousands of empty interface tags,
+            // and dominate ranking output without carrying actual
+            // implementation detail.
+            if ext == "ts" {
+                if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+                    if name.ends_with(".d.ts") {
+                        continue;
+                    }
+                }
+            }
             let canonical = p.to_path_buf();
             if seen.insert(canonical.clone()) {
                 out.push(canonical);
@@ -130,6 +142,21 @@ mod tests {
             &["does_not_exist".to_string()],
         );
         assert!(files.is_empty());
+    }
+
+    #[test]
+    fn skips_d_ts_declaration_files() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.ts"), "export const a = 1;").unwrap();
+        fs::write(dir.path().join("a.d.ts"), "declare const a: number;").unwrap();
+        fs::write(dir.path().join("nested.d.ts"), "// types").unwrap();
+        let files = source_files(dir.path(), &[]);
+        let names: Vec<String> = files
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&"a.ts".to_string()));
+        assert!(!names.iter().any(|n| n.ends_with(".d.ts")));
     }
 
     #[test]

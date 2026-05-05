@@ -3,10 +3,11 @@
 //! `~/.codeterm/bin/codeterm` (Windows: `codeterm.exe`); falls back to
 //! `codeterm` on PATH if the home dir can't be resolved.
 //!
-//! Always returns forward slashes — `'C:/Users/.../codeterm.exe'` is the
-//! one form that survives both git-bash (Claude on Windows) and cmd.exe
-//! (Codex on Windows). Backslashes break git-bash quoting; OS-native
-//! separators on Unix are forward-slashed already so this is a no-op.
+//! Always returns forward slashes — backslashes break git-bash quoting
+//! and would otherwise need per-OS handling at every install site.
+//! Quoting around the path is each installer's responsibility (Claude
+//! single-quotes for git-bash on Windows; Codex double-quotes because
+//! cmd.exe treats single quotes as literals).
 
 pub fn codeterm_cli_path() -> String {
     if let Some(home) = dirs::home_dir() {

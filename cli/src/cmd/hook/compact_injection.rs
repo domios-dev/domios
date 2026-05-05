@@ -319,13 +319,15 @@ fn find_command_blocks(haystack: &str, out: &mut Vec<String>) {
     }
 }
 
-/// Walk transcript entries and collect `Read` tool_use `file_path` inputs.
+/// Walk transcript entries and collect file paths the agent had open.
+/// Counts every `Read` / `Edit` / `Write` / `MultiEdit` / `NotebookEdit`
+/// tool_use — anything that implies "the agent has this file's context."
 /// Deduplicated, ordered most-recent-first. Mirrors roo-code's
-/// `generateFoldedFileContext` discovery step — the agent's "files I've
-/// looked at" list is the strongest signal of what to re-anchor after a
-/// context compact.
+/// `generateFoldedFileContext` discovery step; the read+edit set is the
+/// strongest single signal of what to re-anchor after a context compact.
 pub fn extract_read_file_paths(entries: &[TranscriptEntry]) -> Vec<String> {
     use std::collections::HashMap;
+    const FILE_TOOLS: &[&str] = &["Read", "Edit", "Write", "MultiEdit", "NotebookEdit"];
     let mut last_pos: HashMap<String, usize> = HashMap::new();
     let mut counter: usize = 0;
     for e in entries {
@@ -343,14 +345,19 @@ pub fn extract_read_file_paths(entries: &[TranscriptEntry]) -> Vec<String> {
                 continue;
             }
             let name = block.get("name").and_then(Value::as_str).unwrap_or("");
-            if name != "Read" {
+            if !FILE_TOOLS.iter().any(|t| *t == name) {
                 continue;
             }
-            if let Some(p) = block
+            // NotebookEdit uses `notebook_path`; everything else uses
+            // `file_path`. Try both keys.
+            let path = block
                 .get("input")
-                .and_then(|i| i.get("file_path"))
-                .and_then(Value::as_str)
-            {
+                .and_then(|i| {
+                    i.get("file_path")
+                        .or_else(|| i.get("notebook_path"))
+                })
+                .and_then(Value::as_str);
+            if let Some(p) = path {
                 last_pos.insert(p.to_string(), counter);
                 counter += 1;
             }
@@ -810,6 +817,86 @@ mod tests {
             text: String::new(),
             raw,
         }
+    }
+
+    fn edit_call_raw(file_path: &str) -> Value {
+        serde_json::json!({
+            "message": {
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "name": "Edit",
+                    "input": {"file_path": file_path}
+                }]
+            }
+        })
+    }
+
+    fn write_call_raw(file_path: &str) -> Value {
+        serde_json::json!({
+            "message": {
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "name": "Write",
+                    "input": {"file_path": file_path}
+                }]
+            }
+        })
+    }
+
+    fn notebook_edit_call_raw(notebook_path: &str) -> Value {
+        serde_json::json!({
+            "message": {
+                "role": "assistant",
+                "content": [{
+                    "type": "tool_use",
+                    "name": "NotebookEdit",
+                    "input": {"notebook_path": notebook_path}
+                }]
+            }
+        })
+    }
+
+    #[test]
+    fn extract_read_paths_includes_edit_write_multiedit() {
+        let entries = vec![
+            assistant_entry(read_call_raw("/r.rs")),
+            assistant_entry(edit_call_raw("/e.rs")),
+            assistant_entry(write_call_raw("/w.rs")),
+        ];
+        let paths = extract_read_file_paths(&entries);
+        assert!(paths.contains(&"/r.rs".to_string()));
+        assert!(paths.contains(&"/e.rs".to_string()));
+        assert!(paths.contains(&"/w.rs".to_string()));
+    }
+
+    #[test]
+    fn extract_read_paths_includes_notebook_edit_via_notebook_path() {
+        let entries = vec![assistant_entry(notebook_edit_call_raw("/n.ipynb"))];
+        let paths = extract_read_file_paths(&entries);
+        assert_eq!(paths, vec!["/n.ipynb"]);
+    }
+
+    #[test]
+    fn extract_read_paths_two_reads_same_entry_keeps_last() {
+        // Two Read tool_uses inside one assistant message: counter
+        // advances per block, so the second occurrence sets the
+        // most-recent position. Lock the contract.
+        let entries = vec![assistant_entry(serde_json::json!({
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type":"tool_use","name":"Read","input":{"file_path":"/a.rs"}},
+                    {"type":"tool_use","name":"Read","input":{"file_path":"/b.rs"}},
+                    {"type":"tool_use","name":"Read","input":{"file_path":"/a.rs"}}
+                ]
+            }
+        }))];
+        let paths = extract_read_file_paths(&entries);
+        // /a.rs appears twice but dedupes; its last-seen position is
+        // after /b.rs, so /a.rs ranks first.
+        assert_eq!(paths, vec!["/a.rs", "/b.rs"]);
     }
 
     #[test]

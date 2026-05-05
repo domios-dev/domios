@@ -126,8 +126,53 @@ fn rust_node_to_tag(node: Node<'_>, bytes: &[u8], source: &str) -> Option<Tag> {
 }
 
 fn ts_node_to_tag(node: Node<'_>, bytes: &[u8], source: &str) -> Option<Tag> {
+    // `variable_declarator` with an arrow_function or function_expression
+    // value covers idiomatic React/TS code:
+    //
+    //     export const Button = (p: Props) => <div/>
+    //     const handleClick = useCallback(...)
+    //
+    // Without this branch the extractor misses the bulk of frontend code
+    // because `function_declaration` only matches `function foo() {}`.
+    if node.kind() == "variable_declarator" {
+        let value = node.child_by_field_name("value")?;
+        if !matches!(value.kind(), "arrow_function" | "function_expression") {
+            return None;
+        }
+        let name_node = node.child_by_field_name("name")?;
+        let name = name_node.utf8_text(bytes).ok()?.to_string();
+        let line = (node.start_position().row as u32) + 1;
+        // Render signature from the outermost ancestor that's still
+        // describing this declaration (`export_statement` →
+        // `lexical_declaration` → `variable_declarator`). Walking past
+        // `export_statement` keeps the `export` keyword in the rendered
+        // header.
+        let mut sig_node = node;
+        while let Some(p) = sig_node.parent() {
+            if matches!(p.kind(), "lexical_declaration" | "variable_declaration" | "export_statement") {
+                sig_node = p;
+            } else {
+                break;
+            }
+        }
+        let signature = signature_line_from(sig_node.start_byte(), source);
+        return Some(Tag {
+            name,
+            kind: "fn".into(),
+            line,
+            signature,
+        });
+    }
+
+    // `export default function () { ... }` parses as
+    // `export_statement → function_expression` (no name). Capture it
+    // so the file's principal symbol doesn't disappear from the map.
+    // Only when the immediate parent is `export_statement` — every
+    // other function_expression already gets surfaced via its
+    // surrounding variable_declarator.
     let kind = match node.kind() {
         "function_declaration" | "generator_function_declaration" => "fn",
+        "function_expression" if node.parent().map(|p| p.kind()) == Some("export_statement") => "fn",
         "method_definition" => "method",
         "class_declaration" | "abstract_class_declaration" => "class",
         "interface_declaration" => "interface",
@@ -135,8 +180,10 @@ fn ts_node_to_tag(node: Node<'_>, bytes: &[u8], source: &str) -> Option<Tag> {
         "enum_declaration" => "enum",
         _ => return None,
     };
-    let name_node = node.child_by_field_name("name")?;
-    let name = name_node.utf8_text(bytes).ok()?.to_string();
+    let name = match node.child_by_field_name("name") {
+        Some(n) => n.utf8_text(bytes).ok()?.to_string(),
+        None => "default".to_string(),
+    };
     let line = (node.start_position().row as u32) + 1;
     let signature = signature_line(node, source);
     Some(Tag {
@@ -167,7 +214,10 @@ fn impl_identifier(node: Node<'_>, bytes: &[u8]) -> Option<String> {
 }
 
 fn signature_line(node: Node<'_>, source: &str) -> String {
-    let start = node.start_byte();
+    signature_line_from(node.start_byte(), source)
+}
+
+fn signature_line_from(start: usize, source: &str) -> String {
     let bytes = source.as_bytes();
     let limit = bytes.len();
     let mut end = start;
@@ -384,6 +434,62 @@ trait T {}
     fn extract_invalid_typescript_does_not_panic() {
         let src = "function ((( broken";
         let _ = extract(src, Lang::TypeScript);
+    }
+
+    #[test]
+    fn extract_typescript_arrow_function_assigned_to_const() {
+        let src = "export const Button = (p: { label: string }) => p.label;\nconst handleClick = (e: Event) => { e.preventDefault(); };\n";
+        let tags = extract(src, Lang::TypeScript);
+        let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"Button"), "names: {:?}", names);
+        assert!(names.contains(&"handleClick"));
+        let b = tags.iter().find(|t| t.name == "Button").unwrap();
+        assert_eq!(b.kind, "fn");
+        assert!(
+            b.signature.starts_with("export const"),
+            "expected `export const` prefix in {:?}",
+            b.signature
+        );
+    }
+
+    #[test]
+    fn extract_tsx_arrow_component() {
+        let src = "export const Header: React.FC = () => <h1>hi</h1>;\n";
+        let tags = extract(src, Lang::Tsx);
+        assert!(tags.iter().any(|t| t.name == "Header" && t.kind == "fn"));
+    }
+
+    #[test]
+    fn extract_typescript_function_expression_assigned_to_const() {
+        let src = "const compute = function(x: number) { return x * 2; };\n";
+        let tags = extract(src, Lang::TypeScript);
+        assert!(tags.iter().any(|t| t.name == "compute" && t.kind == "fn"));
+    }
+
+    #[test]
+    fn extract_typescript_call_expression_initializer_skipped() {
+        // `const x = useCallback(...)` is technically also useful, but
+        // capturing every const-assigned call would inflate maps with
+        // generic identifiers. Lock the contract: only arrow / function
+        // expressions count as "fn".
+        let src = "const result = compute(1, 2);\nconst items = [1,2,3];\n";
+        let tags = extract(src, Lang::TypeScript);
+        assert!(
+            !tags.iter().any(|t| t.name == "result" || t.name == "items"),
+            "got {:?}",
+            tags
+        );
+    }
+
+    #[test]
+    fn extract_typescript_default_export_anonymous_function() {
+        let src = "export default function () { return 42; }\n";
+        let tags = extract(src, Lang::TypeScript);
+        assert!(
+            tags.iter().any(|t| t.name == "default" && t.kind == "fn"),
+            "expected `default`-named fn in {:?}",
+            tags
+        );
     }
 
     #[test]

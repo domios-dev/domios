@@ -123,24 +123,33 @@ pub fn install_token_hooks() -> Result<(), String> {
     let mut json = read_hooks_json(&path)?;
 
     let cli = codeterm_cli_path();
-    let make_entry = |matcher: &str, event: &str, timeout_sec: u64| -> Value {
-        // `--source codex` tells the CLI to dispatch the Codex JSON shape;
-        // the flag is cross-platform whereas a shell-level env prefix
-        // (`FOO=bar prog`) breaks under cmd.exe on Windows where Codex
-        // shells its hooks. Single-quoted forward-slash path is the
-        // common form that works in both sh and cmd.exe — cmd.exe treats
-        // the quotes as literal but accepts forward slashes; sh strips
-        // the quotes and accepts the resolved path.
-        let command = format!("'{cli}' hook --source codex {event}");
-        serde_json::json!({
-            "matcher": matcher,
+    let make_entry = |matcher: Option<&str>, event: &str, timeout_sec: u64| -> Value {
+        // Double-quoted CLI path is the form that works in BOTH /bin/sh
+        // (Codex on Unix uses `$SHELL -lc <cmd>`) AND cmd.exe (Codex on
+        // Windows uses `cmd.exe /C <cmd>`, verified in
+        // references/codex/codex-rs/hooks/src/engine/command_runner.rs).
+        // cmd.exe does NOT strip single quotes — it treats them as
+        // literal characters and the invocation fails. Double quotes
+        // work in both shells. `--source codex` overrides the CLI's env
+        // dispatch so we don't need a shell-level env prefix (which
+        // also breaks under cmd.exe).
+        let command = format!("\"{cli}\" hook --source codex {event}");
+        let mut entry = serde_json::json!({
             "hooks": [{
                 "type": "command",
                 "command": command,
                 "timeout": timeout_sec,
                 "_source": CODETERM_TOKEN_HOOK_MARKER,
             }]
-        })
+        });
+        // Codex's UserPromptSubmit / Stop dispatch ignores matchers
+        // (verified in HOOK_EVENT_NAMES_WITH_MATCHERS, codex-rs/hooks/src/lib.rs).
+        // Omit the field on those events so we don't carry inert
+        // configuration that future schema validators might reject.
+        if let Some(m) = matcher {
+            entry["matcher"] = Value::String(m.to_string());
+        }
+        entry
     };
 
     if json.get("hooks").is_none() {
@@ -161,18 +170,20 @@ pub fn install_token_hooks() -> Result<(), String> {
     // Codex matchers default to "match anything" when omitted; for
     // PreToolUse we restrict to Bash to mirror Claude's shape (regex —
     // "Bash" matches itself).
+    // PreToolUse matcher is a regex — anchor it so `Bash` doesn't
+    // accidentally match a future `BashTool` or similar.
     hooks["PreToolUse"]
         .as_array_mut()
         .unwrap()
-        .push(make_entry("Bash", "pre-tool-use", 5));
+        .push(make_entry(Some("^Bash$"), "pre-tool-use", 5));
     hooks["SessionStart"]
         .as_array_mut()
         .unwrap()
-        .push(make_entry("", "session-start", 5));
+        .push(make_entry(None, "session-start", 5));
     hooks["UserPromptSubmit"]
         .as_array_mut()
         .unwrap()
-        .push(make_entry("", "user-prompt-submit", 5));
+        .push(make_entry(None, "user-prompt-submit", 5));
 
     write_hooks_json(&path, &json)?;
     log::info!("Codex token-tool hooks installed at {:?}", path);
@@ -245,8 +256,7 @@ mod tests {
     #[test]
     fn marker_recognized_by_command_fallback() {
         let entry = serde_json::json!({
-            "matcher": "",
-            "hooks": [{"type":"command","command":"'/usr/bin/codeterm' hook --source codex session-start"}]
+            "hooks": [{"type":"command","command":"\"/usr/bin/codeterm\" hook --source codex session-start"}]
         });
         assert!(is_codeterm_hook(&entry));
     }
