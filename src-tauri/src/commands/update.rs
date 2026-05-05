@@ -29,12 +29,15 @@ pub async fn install_app_update(
     update_state: tauri::State<'_, UpdateStateHandle>,
 ) -> Result<(), String> {
     let channel = update_state.lock().channel;
+    let handle: UpdateStateHandle = update_state.inner().clone();
     crate::update::apply::check_and_apply(
         &app,
         crate::update::apply::ApplyOptions {
             channel,
             manifest_url: None,
         },
+        handle,
     )
     .await
+    .map(|_| ())
 }
