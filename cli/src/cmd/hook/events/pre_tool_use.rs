@@ -52,6 +52,9 @@ pub fn handle(provider: HookProvider, input: &str) -> String {
 /// Pure-function rewriter — exposed for testing without the JSON
 /// round-trip. Returns the (possibly modified) command string.
 pub fn wrap_command(command: &str) -> String {
+    if is_complex_shell(command) {
+        return command.to_string();
+    }
     if let Some(idx) = find_first_pipe(command) {
         let head = &command[..idx];
         let rest = &command[idx..];
@@ -59,6 +62,14 @@ pub fn wrap_command(command: &str) -> String {
         return format!("{}{}", wrapped_head, rest);
     }
     wrap_segment_chain(command)
+}
+
+fn is_complex_shell(s: &str) -> bool {
+    s.contains('\n')
+        || s.contains("$(")
+        || s.contains("`")
+        || s.contains("<<")
+        || s.contains("$\u{007B}")
 }
 
 /// Wrap every command segment in a top-level operator chain (`a && b ; c`).
@@ -263,9 +274,37 @@ mod tests {
 
     #[test]
     fn handles_unknown_tool_passthrough_wrap() {
-        // Unknown tool → snip will identity-passthrough, but wrap is still
-        // safe (gives no-op truncation, agent gets full output).
         assert_eq!(wrap_command("ruby -e 'puts 1'"), "codeterm snip ruby -e 'puts 1'");
+    }
+
+    #[test]
+    fn passthrough_for_command_substitution() {
+        let cmd = "TOKEN=$(cat /tmp/x.txt)";
+        assert_eq!(wrap_command(cmd), cmd);
+    }
+
+    #[test]
+    fn passthrough_for_backtick_substitution() {
+        let cmd = "echo `date`";
+        assert_eq!(wrap_command(cmd), cmd);
+    }
+
+    #[test]
+    fn passthrough_for_heredoc() {
+        let cmd = "cat <<EOF\nhi\nEOF";
+        assert_eq!(wrap_command(cmd), cmd);
+    }
+
+    #[test]
+    fn passthrough_for_multiline_script() {
+        let cmd = "cargo test\ncargo build";
+        assert_eq!(wrap_command(cmd), cmd);
+    }
+
+    #[test]
+    fn passthrough_for_brace_expansion() {
+        let cmd = "echo ${HOME}/x";
+        assert_eq!(wrap_command(cmd), cmd);
     }
 
     #[test]
