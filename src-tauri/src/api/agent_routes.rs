@@ -55,6 +55,7 @@ pub async fn spawn_agent(
         skip_permissions: body.skip_permissions,
         spawned_by_pane_id: body.spawned_by_pane_id,
         model: body.model,
+        resume_session_id: None,
     };
     let result = state.svc.spawn_agent(params).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;

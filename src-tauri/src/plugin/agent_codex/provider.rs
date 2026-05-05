@@ -443,10 +443,6 @@ fn collect_jsonl_files(
     }
 }
 
-/// Open a codex rollout JSONL, parse the first line, return whether it's a
-/// `session_meta` event whose `payload.cwd` matches the requested directory.
-/// Failures (missing file, bad JSON, no cwd field) → `false` so the candidate
-/// is skipped rather than incorrectly admitted.
 fn rollout_cwd_matches(path: &std::path::Path, cwd: &str) -> bool {
     use std::io::{BufRead, BufReader};
     let Ok(file) = std::fs::File::open(path) else { return false };
@@ -460,11 +456,26 @@ fn rollout_cwd_matches(path: &std::path::Path, cwd: &str) -> bool {
     if kind != "session_meta" {
         return false;
     }
-    val.get("payload")
-        .and_then(|p| p.get("cwd"))
-        .and_then(|c| c.as_str())
-        .map(|c| c == cwd)
-        .unwrap_or(false)
+    let recorded = match val.get("payload").and_then(|p| p.get("cwd")).and_then(|c| c.as_str()) {
+        Some(s) => s,
+        None => return false,
+    };
+    paths_equivalent(recorded, cwd)
+}
+
+fn paths_equivalent(a: &str, b: &str) -> bool {
+    let norm = |s: &str| -> String {
+        let trimmed = s.trim_end_matches('/');
+        let canon = std::fs::canonicalize(trimmed)
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| trimmed.to_string());
+        if cfg!(any(target_os = "macos", target_os = "windows")) {
+            canon.to_lowercase()
+        } else {
+            canon
+        }
+    };
+    norm(a) == norm(b)
 }
 
 /// Find a session file by UUID anywhere in the date-based tree.

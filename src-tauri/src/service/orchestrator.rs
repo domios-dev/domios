@@ -169,6 +169,7 @@ pub struct SpawnAgentParams {
     /// `AgentProvider::model_launch_args` (e.g. claude → `--model X`,
     /// codex/opencode → `-m X`). Caller passes the model string opaque.
     pub model: Option<String>,
+    pub resume_session_id: Option<String>,
 }
 
 impl SpawnAgentParams {
@@ -197,6 +198,7 @@ impl SpawnAgentParams {
             skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
             spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
             model: json_str(params, "model"),
+            resume_session_id: json_str(params, "resume_session_id"),
         })
     }
 }
@@ -516,10 +518,16 @@ pub(crate) fn launch_agent_in_background(
 /// Build a single shell command that launches the agent.
 /// Uses the AgentRegistry for known providers; falls back to simple command for unknown agents.
 pub(crate) fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<&str>, registry: &AgentRegistry) -> String {
-    // Combine user --args with provider-specific --model flags. Each provider
-    // knows its own flag syntax (`-m X` vs `--model X`) via
-    // `model_launch_args`, so callers pass the model string opaque and the
-    // right flag is applied automatically.
+    if let Some(ref sid) = params.resume_session_id {
+        let skip = params.skip_permissions.unwrap_or(true);
+        if let Some(cmd) = registry
+            .with_provider(agent_cmd, |p| p.build_resume_command(sid, skip))
+            .flatten()
+        {
+            return cmd;
+        }
+    }
+
     let mut args: Vec<String> = params.args.clone().unwrap_or_default();
     if let Some(ref model) = params.model {
         if !model.is_empty() {
@@ -540,7 +548,6 @@ pub(crate) fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, ta
     };
     registry.with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
         .unwrap_or_else(|| {
-            // Generic agent: just command + args
             let mut parts: Vec<String> = vec![agent_cmd.to_string()];
             parts.extend(args.iter().cloned());
             parts.join(" ")
@@ -569,6 +576,7 @@ mod tests {
             skip_permissions: None,
             spawned_by_pane_id: None,
             model: None,
+            resume_session_id: None,
         }
     }
 
@@ -733,6 +741,25 @@ mod tests {
         p.model = Some("github-copilot/claude-haiku-4.5".into());
         let cmd = build_agent_command("opencode", &p, None, &reg);
         assert!(cmd.contains("-m github-copilot/claude-haiku-4.5"), "opencode expected -m X: {}", cmd);
+    }
+
+    #[test]
+    fn test_build_with_resume_session_id_uses_provider_resume_form() {
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+        reg.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
+        reg.register_provider(Box::new(crate::plugin::agent_opencode::OpenCodeProvider::new()));
+
+        let mut p = make_params("claude", None);
+        p.resume_session_id = Some("abc-123".into());
+        let cmd = build_agent_command("claude", &p, None, &reg);
+        assert!(cmd.contains("--resume") && cmd.contains("abc-123"), "claude resume: {}", cmd);
+
+        let mut p = make_params("codex", None);
+        p.resume_session_id = Some("019df64f-d798-78c3-967a-d5deeb4896d9".into());
+        let cmd = build_agent_command("codex", &p, None, &reg);
+        assert!(cmd.starts_with("codex resume"), "codex resume must start `codex resume`: {}", cmd);
+        assert!(cmd.contains("019df64f-d798-78c3-967a-d5deeb4896d9"), "codex resume must include uuid: {}", cmd);
     }
 
     #[test]

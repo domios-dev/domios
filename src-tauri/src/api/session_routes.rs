@@ -109,15 +109,6 @@ pub async fn resume_session_api(
         .with_provider(&meta.provider, |p| p.build_resume_command(&meta.session_id, true))
         .flatten();
 
-    // Per-provider flag layout. Claude accepts `--resume <uuid>` appended
-    // to the normal launch flags; Codex needs `resume <uuid>` as a BARE
-    // subcommand with no `--full-auto` in front, so we use `exec` layout
-    // upstream and pass the resume form through args.
-    let args = match meta.provider.as_str() {
-        "claude" => Some(vec!["--resume".to_string(), meta.session_id.clone()]),
-        _ => None,
-    };
-
     let ws_id = match body.workspace_id {
         Some(id) => id,
         None => {
@@ -146,7 +137,7 @@ pub async fn resume_session_api(
     let spawn_params = crate::service::SpawnAgentParams {
         agent: Some(meta.provider.clone()),
         agent_name: None,
-        args,
+        args: None,
         cwd: Some(cwd.clone()),
         title: body.title.or_else(|| {
             meta.title.clone().or_else(|| Some(format!("resumed {}", &meta.session_id[..8])))
@@ -161,12 +152,8 @@ pub async fn resume_session_api(
         skip_permissions: Some(true),
         spawned_by_pane_id: None,
         model: body.model.clone(),
+        resume_session_id: Some(meta.session_id.clone()),
     };
-    // DO NOT set pane.agent_session_id before spawn — commands.rs::spawn_pty's
-    // auto-resume path fires on any saved session_id and would inject its own
-    // `--resume` command on top of the one we passed through `args`, producing
-    // two concatenated `claude --resume ...` strings in the shell. The
-    // SessionStart hook records the id as soon as claude starts.
     let spawned = state
         .svc
         .spawn_agent(spawn_params)

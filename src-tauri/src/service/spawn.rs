@@ -98,7 +98,7 @@ impl SpawnPaneSpec {
             visibility: PaneVisibility::Visible,
             command: PaneCommand::Agent(AgentSpawnSpec {
                 provider: params.agent.clone().unwrap_or_default(),
-                model: None,
+                model: params.model.clone(),
                 task: params.task.clone(),
                 agent_name: params.agent_name.clone(),
                 extra_args: params.args.clone().unwrap_or_default(),
@@ -139,6 +139,7 @@ impl SpawnPaneSpec {
             skip_permissions: Some(agent.auto_approve),
             spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
             model: agent.model.clone(),
+            resume_session_id: None,
         })
     }
 }
@@ -730,6 +731,33 @@ mod tests {
                 assert_eq!(a.worker_id.as_deref(), Some("w-123"));
                 assert!(a.auto_approve);
             }
+            _ => panic!("expected Agent"),
+        }
+    }
+
+    #[test]
+    fn from_agent_params_carries_model_into_spec() {
+        let params = SpawnAgentParams {
+            agent: Some("codex".into()),
+            agent_name: None,
+            args: None,
+            cwd: None,
+            title: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: None,
+            task: None,
+            workspace_id: None,
+            force_tab: None,
+            report_target_pane_id: None,
+            skip_permissions: None,
+            spawned_by_pane_id: None,
+            model: Some("gpt-5.4-mini".into()),
+            resume_session_id: None,
+        };
+        let spec = SpawnPaneSpec::from_agent_params(params);
+        match spec.command {
+            PaneCommand::Agent(a) => assert_eq!(a.model.as_deref(), Some("gpt-5.4-mini")),
             _ => panic!("expected Agent"),
         }
     }
