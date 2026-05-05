@@ -105,7 +105,7 @@ pub enum AgentAction {
     },
     /// Spawn a new agent (creates tab in workspace, linked in hierarchy)
     Spawn {
-        /// Agent to run: claude, aider, goose, or any command
+        /// Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude.
         #[arg(default_value = "claude")]
         agent: String,
         /// Tab title
@@ -132,5 +132,11 @@ pub enum AgentAction {
         /// Target workspace ID (default: parent's workspace or active workspace)
         #[arg(long)]
         workspace: Option<String>,
+        /// Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The
+        /// provider knows whether to emit `-m X` or `--model X` — caller passes
+        /// the model string opaque. Run `codeterm agent models <provider>` to
+        /// see what's available.
+        #[arg(long)]
+        model: Option<String>,
     },
 }

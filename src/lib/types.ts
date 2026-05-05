@@ -383,6 +383,9 @@ export interface ProviderConfig {
   resume_sessions?: boolean;
   resume_skip_permissions?: boolean;
   default_model?: string;
+  /// When false, the provider is hidden from the per-workspace
+  /// "New <Provider> Session" menu. Defaults to true (visible).
+  visible_in_menu?: boolean;
   // Additional plugin-declared fields land in this map (TOML #[serde(flatten)]).
   [key: string]: unknown;
 }
@@ -467,6 +470,8 @@ export interface ProviderDescriptor {
   id: string;
   display_name: string;
   icon_hint?: string;
+  icon_svg?: string;
+  icon_color?: string;
   available_models: ModelInfo[];
   default_model?: string;
   settings_schema: SettingField[];
@@ -477,4 +482,10 @@ export interface ProviderDescriptor {
   supports_lazy_skills: boolean;
   has_hooks: boolean;
   preserves_context_on_resume: boolean;
+  /// Binary name to probe via `which` when checking installation. Optional —
+  /// providers without a CLI dependency leave this null.
+  cli_binary?: string | null;
+  /// Shell command that installs the CLI for the current platform. Used by
+  /// the Install card on the per-provider Settings screen.
+  install_command?: string | null;
 }

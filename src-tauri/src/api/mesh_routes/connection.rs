@@ -212,28 +212,39 @@ pub async fn mesh_disconnect_peer(
     }
 
     if let (Some(peer), Some(token)) = (peer, signed_token.clone()) {
-        let addr = peer.addresses.iter()
-            .find(|a| a.is_tailscale).or_else(|| peer.addresses.first());
-        if let Some(addr) = addr {
-            let client = reqwest::Client::builder()
+        if !peer.addresses.is_empty() {
+            let http = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
-            let url = format!("http://{}:{}/api/mesh/peers/{}", addr.ip, peer.api_port, our_id);
-            match client.delete(&url)
-                .header("Authorization", format!("Bearer {}", token))
-                .send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    log::info!("[mesh/api] Notified {} about disconnect", instance_id);
+            let api_port = peer.api_port;
+            let our_id_for_call = our_id.clone();
+            let result = crate::mesh::transport::try_peer(&peer.addresses, |addr| {
+                let url = format!("http://{}:{}/api/mesh/peers/{}", addr.ip, api_port, our_id_for_call);
+                let http = http.clone();
+                let token = token.clone();
+                async move {
+                    match http.delete(&url)
+                        .header("Authorization", format!("Bearer {}", token))
+                        .send().await
+                    {
+                        Ok(resp) if resp.status().is_success() => crate::mesh::transport::TryNext::Success(()),
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let body = resp.text().await.unwrap_or_default();
+                            crate::mesh::transport::TryNext::Stop(format!("HTTP {}: {}", status, body))
+                        }
+                        Err(e) => crate::mesh::transport::TryNext::Retry(e.to_string()),
+                    }
                 }
-                Ok(resp) => {
-                    let body = resp.text().await.unwrap_or_default();
-                    log::warn!("[mesh/api] Disconnect notify rejected by {}: {}", instance_id, body);
-                }
+            }).await;
+            match result {
+                Ok(()) => log::info!("[mesh/api] Notified {} about disconnect", instance_id),
                 Err(e) => log::warn!("[mesh/api] Failed to notify {} about disconnect: {}", instance_id, e),
             }
         }
     }
 
-    // Cascade to remaining peers
+    // Cascade to remaining peers — tell each one we just unpaired the
+    // target so their mirror of paired_peers stays consistent.
     let (remaining_peers, broadcast_token) = {
         let m = state.mesh.lock();
         let peers: Vec<_> = m.paired_peers.values()
@@ -249,12 +260,27 @@ pub async fn mesh_disconnect_peer(
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5)).build().unwrap_or_default();
         for peer in &remaining_peers {
-            if let Some(addr) = peer.addresses.first() {
-                let url = format!("http://{}:{}/api/mesh/peers/{}", addr.ip, peer.api_port, instance_id);
-                let _ = http.delete(&url)
-                    .header("Authorization", format!("Bearer {}", token))
-                    .send().await;
-            }
+            if peer.addresses.is_empty() { continue; }
+            let api_port = peer.api_port;
+            let target = instance_id.clone();
+            let _ = crate::mesh::transport::try_peer(&peer.addresses, |addr| {
+                let url = format!("http://{}:{}/api/mesh/peers/{}", addr.ip, api_port, target);
+                let http = http.clone();
+                let token = token.clone();
+                async move {
+                    match http.delete(&url)
+                        .header("Authorization", format!("Bearer {}", token))
+                        .send().await
+                    {
+                        Ok(resp) if resp.status().is_success() => crate::mesh::transport::TryNext::Success(()),
+                        Ok(resp) => {
+                            let status = resp.status();
+                            crate::mesh::transport::TryNext::Stop(format!("HTTP {}", status))
+                        }
+                        Err(e) => crate::mesh::transport::TryNext::Retry(e.to_string()),
+                    }
+                }
+            }).await;
         }
     }
 

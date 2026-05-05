@@ -17,6 +17,7 @@ mod notification;
 pub mod paths;
 pub mod plugin;
 pub mod prompts;
+pub mod process_util;
 pub mod pty;
 pub mod secrets;
 pub mod service;
@@ -171,7 +172,10 @@ pub fn run() {
             multiplexer::commands::mux_set_pane_agent_type,
             multiplexer::commands::mux_set_chat_view,
             multiplexer::commands::detect_claude_session_id,
+            multiplexer::commands::detect_pane_session_id,
             multiplexer::commands::mux_set_claude_session_id,
+            commands::check_cli_installed,
+            commands::install_provider_in_pane,
             multiplexer::commands::build_agent_launch_command,
             multiplexer::commands::mux_set_pane_role,
             multiplexer::commands::mux_clear_pane_role,
@@ -292,6 +296,15 @@ pub fn run() {
                     .expect("agent-codex plugin attach failed");
                 plugin_manager.activate(plugin::agent_codex::PLUGIN_ID)
                     .expect("agent-codex plugin activation failed");
+            }
+            {
+                use plugin::agent_opencode::AgentOpenCodePlugin;
+                let manifest = AgentOpenCodePlugin::manifest();
+                plugin_manager.register(manifest);
+                plugin_manager.attach_native(Box::new(AgentOpenCodePlugin::new()))
+                    .expect("agent-opencode plugin attach failed");
+                plugin_manager.activate(plugin::agent_opencode::PLUGIN_ID)
+                    .expect("agent-opencode plugin activation failed");
             }
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
 

@@ -8,6 +8,7 @@ import { TitleLevel } from "../../lib/types";
 import type { Tab, SplitNode, PaneStatus, Pane } from "../../lib/types";
 import { Plus } from "lucide-react";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon } from "../Icons";
+import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
 import { CronSection } from "./CronSection";
@@ -335,7 +336,7 @@ export function Sidebar({
                             const agentPid = tabPaneIds.find((pid) => !!getAgentProvider(state.panes[pid]?.agent_type));
                             const tabProvider = agentPid ? getAgentProvider(state.panes[agentPid]?.agent_type) : undefined;
                             return tabProvider ? (
-                              <span className="text-[10px]" style={{ color: tabProvider.iconColor }}>{tabProvider.icon}</span>
+                              <AgentIcon providerId={tabProvider.id} className="text-[12px]" />
                             ) : (
                               <TerminalIcon size={11} />
                             );

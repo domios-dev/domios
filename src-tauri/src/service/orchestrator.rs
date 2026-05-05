@@ -165,6 +165,11 @@ pub struct SpawnAgentParams {
     /// Recorded on the spawned pane independent of `parent_pane_id` so reports
     /// from top-level orchestrators flow back to the agent that asked for them.
     pub spawned_by_pane_id: Option<String>,
+    /// Model selector — provider decides flag syntax via
+    /// `AgentProvider::model_launch_args` (e.g. claude → `--model X`,
+    /// codex/opencode → `-m X`). Caller passes the model string opaque.
+    pub model: Option<String>,
+    pub resume_session_id: Option<String>,
 }
 
 impl SpawnAgentParams {
@@ -192,6 +197,8 @@ impl SpawnAgentParams {
             report_target_pane_id: json_str(params, "report_target_pane_id"),
             skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
             spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
+            model: json_str(params, "model"),
+            resume_session_id: json_str(params, "resume_session_id"),
         })
     }
 }
@@ -358,6 +365,22 @@ impl ServiceContext {
         // 4. Rename pane immediately (metadata only)
         self.rename_pane(&pane_id, title)?;
 
+        // 4b. Pin agent_type up-front. Codex / OpenCode TUIs don't emit OSC
+        //     terminal-title sequences and their `detect_from_output` patterns
+        //     only match permission prompts — without an early tag the pane
+        //     stays agent_type=None and `set_pane_agent_type`'s session-id
+        //     poller never starts, so we silently lose the session_id and
+        //     the pane fails to resume after restart. Setting it here covers
+        //     the CLI/socket spawn path; the frontend menu spawn fires the
+        //     same `mux_set_pane_agent_type` from `spawnAgentTab`.
+        self.set_pane_agent_type(&pane_id, Some(agent_cmd.to_string()));
+
+        // 4c. Pin agent_session_id for resume up-front: we know the id from
+        //     the user's request, so don't wait for detect_session_id polling.
+        if let Some(ref sid) = params.resume_session_id {
+            self.set_agent_session_id(&pane_id, Some(sid.clone()));
+        }
+
         // 5. Launch agent in background thread
         let bg_task = params.task.as_ref().map(|t| {
             match params.role.as_deref() {
@@ -501,23 +524,43 @@ pub(crate) fn launch_agent_in_background(
 /// Build a single shell command that launches the agent.
 /// Uses the AgentRegistry for known providers; falls back to simple command for unknown agents.
 pub(crate) fn build_agent_command(agent_cmd: &str, params: &SpawnAgentParams, task: Option<&str>, registry: &AgentRegistry) -> String {
+    if let Some(ref sid) = params.resume_session_id {
+        let skip = params.skip_permissions.unwrap_or(true);
+        if let Some(cmd) = registry
+            .with_provider(agent_cmd, |p| p.build_resume_command(sid, skip))
+            .flatten()
+        {
+            return cmd;
+        }
+    }
+
+    let mut args: Vec<String> = params.args.clone().unwrap_or_default();
+    if let Some(ref model) = params.model {
+        if !model.is_empty() {
+            let model_args = registry
+                .with_provider(agent_cmd, |p| p.model_launch_args(model))
+                .unwrap_or_else(|| vec!["--model".into(), model.clone()]);
+            args.extend(model_args);
+        }
+    }
+
     let launch_params = AgentLaunchParams {
         agent_name: params.agent_name.clone(),
         task: task.map(|t| t.to_string()),
-        args: params.args.clone(),
+        args: if args.is_empty() { None } else { Some(args.clone()) },
         skip_permissions: params.skip_permissions.unwrap_or(true),
         headless: false,
         session_id: None,
     };
-    registry.with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
+    let cmd = registry.with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))
         .unwrap_or_else(|| {
-            // Generic agent: just command + args
             let mut parts: Vec<String> = vec![agent_cmd.to_string()];
-            if let Some(ref extra) = params.args {
-                parts.extend(extra.iter().cloned());
-            }
+            parts.extend(args.iter().cloned());
             parts.join(" ")
-        })
+        });
+    log::info!("[spawn] build_agent_command provider={} model={:?} resume={:?} cmd={}",
+        agent_cmd, params.model, params.resume_session_id, cmd);
+    cmd
 }
 
 #[cfg(test)]
@@ -541,6 +584,8 @@ mod tests {
             report_target_pane_id: None,
             skip_permissions: None,
             spawned_by_pane_id: None,
+            model: None,
+            resume_session_id: None,
         }
     }
 
@@ -680,6 +725,50 @@ mod tests {
         assert!(cmd.contains("--verbose"));
         assert!(cmd.contains("--no-cache"));
         assert!(cmd.ends_with("--verbose --no-cache"));
+    }
+
+    #[test]
+    fn test_build_with_model_uses_provider_specific_flag() {
+        // claude → `--model X`, codex/opencode → `-m X`. The CLI flag is
+        // provider-agnostic; the right syntax comes from `model_launch_args`.
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+        reg.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
+        reg.register_provider(Box::new(crate::plugin::agent_opencode::OpenCodeProvider::new()));
+
+        let mut p = make_params("claude", None);
+        p.model = Some("opus".into());
+        let cmd = build_agent_command("claude", &p, None, &reg);
+        assert!(cmd.contains("--model opus"), "claude expected --model X: {}", cmd);
+
+        let mut p = make_params("codex", None);
+        p.model = Some("gpt-5.4-mini".into());
+        let cmd = build_agent_command("codex", &p, None, &reg);
+        assert!(cmd.contains("-m gpt-5.4-mini"), "codex expected -m X: {}", cmd);
+
+        let mut p = make_params("opencode", None);
+        p.model = Some("github-copilot/claude-haiku-4.5".into());
+        let cmd = build_agent_command("opencode", &p, None, &reg);
+        assert!(cmd.contains("-m github-copilot/claude-haiku-4.5"), "opencode expected -m X: {}", cmd);
+    }
+
+    #[test]
+    fn test_build_with_resume_session_id_uses_provider_resume_form() {
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+        reg.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
+        reg.register_provider(Box::new(crate::plugin::agent_opencode::OpenCodeProvider::new()));
+
+        let mut p = make_params("claude", None);
+        p.resume_session_id = Some("abc-123".into());
+        let cmd = build_agent_command("claude", &p, None, &reg);
+        assert!(cmd.contains("--resume") && cmd.contains("abc-123"), "claude resume: {}", cmd);
+
+        let mut p = make_params("codex", None);
+        p.resume_session_id = Some("019df64f-d798-78c3-967a-d5deeb4896d9".into());
+        let cmd = build_agent_command("codex", &p, None, &reg);
+        assert!(cmd.starts_with("codex resume"), "codex resume must start `codex resume`: {}", cmd);
+        assert!(cmd.contains("019df64f-d798-78c3-967a-d5deeb4896d9"), "codex resume must include uuid: {}", cmd);
     }
 
     #[test]

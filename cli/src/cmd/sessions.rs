@@ -123,11 +123,12 @@ pub fn handle_sessions(
                 }
             }
         }
-        SessionsAction::Resume { session_id, title, workspace_id, workspace_name } => {
+        SessionsAction::Resume { session_id, title, workspace_id, workspace_name, model } => {
             let mut body = serde_json::Map::new();
             if let Some(t) = title { body.insert("title".into(), serde_json::Value::String(t)); }
             if let Some(w) = workspace_id { body.insert("workspace_id".into(), serde_json::Value::String(w)); }
             if let Some(n) = workspace_name { body.insert("workspace_name".into(), serde_json::Value::String(n)); }
+            if let Some(m) = model { body.insert("model".into(), serde_json::Value::String(m)); }
 
             let url = format!("{}/api/sessions/{}/resume", base, urlencoding::encode(&session_id));
             let mut req = http.post(&url).json(&serde_json::Value::Object(body));

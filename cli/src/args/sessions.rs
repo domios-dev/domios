@@ -42,6 +42,9 @@ pub enum SessionsAction {
         /// Custom name for the new workspace (default: basename of cwd).
         #[arg(long)]
         workspace_name: Option<String>,
+        /// Model override; translated to the provider's flag.
+        #[arg(long)]
+        model: Option<String>,
     },
     /// Print metadata for a past session (provider, cwd, file path, times).
     /// Read-only probe — use before `sessions resume` to verify the session

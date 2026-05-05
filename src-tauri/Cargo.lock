@@ -776,7 +776,7 @@ dependencies = [
 
 [[package]]
 name = "codeterm"
-version = "1.1.12"
+version = "1.1.14"
 dependencies = [
  "aes-gcm",
  "async-stream",
@@ -794,6 +794,7 @@ dependencies = [
  "futures-core",
  "git2",
  "hostname",
+ "if-addrs",
  "image",
  "interprocess",
  "keyring",

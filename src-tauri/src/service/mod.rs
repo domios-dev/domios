@@ -117,6 +117,23 @@ impl ServiceContext {
         });
     }
 
+    /// Emit a focus-change event to the frontend. Delayed 75 ms so it always
+    /// arrives AFTER the coalesced 50 ms `mux-state-changed` window — this way
+    /// the frontend's structural state is up to date before it tries to apply
+    /// focus to (potentially newly created) panes. Frontend listener also has a
+    /// short retry as defense-in-depth.
+    pub(crate) fn emit_pane_focus_changed(&self, pane_id: &str) {
+        self.events.publish(crate::api::events::SystemEvent::PaneFocused {
+            pane_id: pane_id.to_string(),
+        });
+        let handle = self.app_handle.clone();
+        let payload = serde_json::json!({"pane_id": pane_id});
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(75));
+            let _ = handle.emit("pane-focused", payload);
+        });
+    }
+
     pub(crate) fn kill_ptys(&self, pty_ids: &[String]) {
         let mut manager = self.pty.lock();
         for id in pty_ids {

@@ -9,10 +9,11 @@
  * Adding a new bundled or third-party agent plugin requires ZERO changes here —
  * the descriptor flows through automatically.
  */
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import type { ProviderDescriptor } from "../lib/types";
+import { setAgentDescriptors } from "../lib/agentDescriptorCache";
 import { useContributions } from "./useContributions";
 
 async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
@@ -31,5 +32,8 @@ export function useAgentProviders(): {
     "agent_provider",
     fetcher,
   );
+  useEffect(() => {
+    setAgentDescriptors(items);
+  }, [items]);
   return { providers: items, loading, error, refetch };
 }
