@@ -209,100 +209,220 @@ pub fn unregister_mdns_service(mesh: &Arc<Mutex<MeshManager>>) {
 
 // ── Tailscale / Local IP ───────────────────────────────────────────────
 
+/// Hard cap on how long any single Tailscale CLI probe is allowed to run.
+/// The GUI-bridge variant has been observed to occasionally hang instead
+/// of returning the error string; without a timeout that would block the
+/// caller (background heartbeat, /api/mesh/refresh handler).
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Outcome of a single Tailscale CLI probe.
+enum ProbeOutcome {
+    /// The probe returned a parseable IPv4.
+    Found(String),
+    /// The binary either doesn't exist, exited non-zero, timed out, or
+    /// produced no output. Trying a different candidate or fallback is
+    /// pointless — move on.
+    NoBinary,
+    /// macOS GUI-bridge error: exit 0, but stdout is the error-string
+    /// instead of an IP. Worth retrying via `launchctl asuser`.
+    GuiBridgeError,
+}
+
+/// Detect this machine's Tailnet IPv4 and cache it on `mesh.tailscale_ip`.
+///
+/// Tries a list of common Tailscale binary paths. For each candidate, runs
+/// `<candidate> ip -4` directly first; on macOS, if the candidate is the
+/// GUI-app bundle and the direct probe returned the GUI-bridge error, the
+/// command is re-attempted via `/bin/launchctl asuser <uid> ...` so that
+/// the child inherits the user's GUI launchd-session bootstrap (required
+/// for the CLI to resolve its XPC service when invoked from a daemon
+/// subprocess context — see PR #39 for the long-form repro).
+///
+/// Each probe is bounded by `PROBE_TIMEOUT` (5s) to keep a wedged GUI
+/// bridge from blocking the caller. The first successful probe wins;
+/// remaining candidates are not consulted.
 pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
     let candidates = [
-        "tailscale".to_string(),
-        "/Applications/Tailscale.app/Contents/MacOS/Tailscale".to_string(),
-        "/usr/bin/tailscale".to_string(),
-        "/usr/local/bin/tailscale".to_string(),
+        "tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        "/opt/homebrew/bin/tailscale",
+        "/usr/local/bin/tailscale",
+        "/usr/bin/tailscale",
     ];
     for cmd in &candidates {
-        // First try direct invocation. Works when Tailscale is installed
-        // as a CLI-only tool (brew, manual) and on Linux/Windows.
-        if let Some(ip) = try_tailscale_probe(cmd, false) {
-            log::info!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
-            mesh.lock().tailscale_ip = Some(ip);
-            return;
-        }
-        // On macOS the Tailscale.app GUI bridge can exit 0 and write
-        // "The Tailscale GUI failed to start: Tailscale.CLIError error 3."
-        // to stdout when invoked from a daemon subprocess that isn't
-        // attached to the user's GUI launchd session — the same command
-        // run from an interactive shell returns the IP fine. The fix is
-        // to re-invoke through `launchctl asuser <uid> ...` so the child
-        // inherits the user's bootstrap namespace and can resolve the
-        // app's XPC service. We only attempt this if the direct probe
-        // produced the GUI-bridge error string (otherwise the binary
-        // isn't on disk and there's nothing to retry).
-        #[cfg(target_os = "macos")]
-        if cmd.starts_with("/Applications/")
-            && std::path::Path::new(cmd).exists()
-        {
-            if let Some(ip) = try_tailscale_probe(cmd, true) {
-                log::info!(
-                    "[mesh] Tailscale IP detected via launchctl asuser {}: {}",
-                    cmd, ip
-                );
+        match try_tailscale_probe(cmd, ProbeMode::Direct) {
+            ProbeOutcome::Found(ip) => {
+                log::info!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
                 mesh.lock().tailscale_ip = Some(ip);
                 return;
             }
+            ProbeOutcome::GuiBridgeError => {
+                #[cfg(target_os = "macos")]
+                {
+                    if let ProbeOutcome::Found(ip) =
+                        try_tailscale_probe(cmd, ProbeMode::LaunchctlAsuser)
+                    {
+                        log::info!(
+                            "[mesh] Tailscale IP detected via launchctl asuser {}: {}",
+                            cmd, ip
+                        );
+                        mesh.lock().tailscale_ip = Some(ip);
+                        return;
+                    }
+                }
+            }
+            ProbeOutcome::NoBinary => {}
         }
     }
     log::debug!("[mesh] Tailscale not available");
 }
 
-/// Run `<cmd> ip -4` and return the first parseable IPv4 from stdout.
+/// Probe invocation strategy.
 ///
-/// When `via_launchctl_asuser` is true on macOS, the command is wrapped in
-/// `/bin/launchctl asuser <uid> <cmd> ip -4` so the child runs inside the
-/// current user's GUI launchd session — required for the Tailscale.app
-/// CLI bridge to resolve its XPC service when invoked from a daemon
-/// subprocess context.
-fn try_tailscale_probe(cmd: &str, via_launchctl_asuser: bool) -> Option<String> {
-    let mut command = if via_launchctl_asuser {
-        #[cfg(target_os = "macos")]
-        {
-            let uid = current_uid()?;
-            let mut c = std::process::Command::new("/bin/launchctl");
-            c.args(["asuser", &uid, cmd, "ip", "-4"]);
+/// `LaunchctlAsuser` only has effect on macOS; on other platforms the
+/// caller should never request it. The dispatch in `try_tailscale_probe`
+/// short-circuits if requested on a non-macos build.
+enum ProbeMode {
+    /// Run `<cmd> ip -4` directly.
+    Direct,
+    /// macOS: run via `/bin/launchctl asuser <uid> <cmd> ip -4`.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    LaunchctlAsuser,
+}
+
+fn try_tailscale_probe(cmd: &str, mode: ProbeMode) -> ProbeOutcome {
+    let mut command = match mode {
+        ProbeMode::Direct => {
+            let mut c = std::process::Command::new(cmd);
+            c.args(["ip", "-4"]);
             c
         }
-        #[cfg(not(target_os = "macos"))]
-        {
-            return None;
+        ProbeMode::LaunchctlAsuser => {
+            #[cfg(target_os = "macos")]
+            {
+                // Only attempt asuser when we have a real user GUI session
+                // to attach to — uid 0 (root) and missing /usr/bin/id both
+                // mean we'd produce nonsense.
+                let uid = match current_uid() {
+                    Some(u) if u != "0" => u,
+                    Some(_) => {
+                        log::debug!(
+                            "[mesh] skipping launchctl asuser fallback for {}: running as uid 0",
+                            cmd
+                        );
+                        return ProbeOutcome::NoBinary;
+                    }
+                    None => {
+                        log::warn!(
+                            "[mesh] skipping launchctl asuser fallback for {}: cannot resolve current uid",
+                            cmd
+                        );
+                        return ProbeOutcome::NoBinary;
+                    }
+                };
+                let mut c = std::process::Command::new("/bin/launchctl");
+                c.args(["asuser", &uid, cmd, "ip", "-4"]);
+                c
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = cmd;
+                return ProbeOutcome::NoBinary;
+            }
         }
-    } else {
-        let mut c = std::process::Command::new(cmd);
-        c.args(["ip", "-4"]);
-        c
     };
-    let output = command.output().ok()?;
-    if !output.status.success() {
-        return None;
+    let raw = match run_with_timeout(&mut command, PROBE_TIMEOUT) {
+        Some((true, raw)) => raw,
+        _ => return ProbeOutcome::NoBinary,
+    };
+    if let Some(ip) = parse_first_ip(&raw) {
+        return ProbeOutcome::Found(ip);
     }
-    let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if let Some(ip) = raw.lines().find_map(|line| {
-        let candidate = line.trim();
-        candidate.parse::<std::net::IpAddr>().ok().map(|_| candidate.to_string())
-    }) {
-        return Some(ip);
+    if raw.trim().is_empty() {
+        return ProbeOutcome::NoBinary;
     }
-    if !raw.is_empty() && !via_launchctl_asuser {
-        // Only log the GUI-bridge error from the direct probe. The
-        // launchctl-asuser fallback retries silently because surfacing
-        // the same warning twice per refresh tick is noise.
+    // Direct probe got non-IP stdout — almost certainly the GUI-bridge
+    // error on macOS. Log the raw at warn, but only on the direct pass;
+    // the asuser fallback retries quietly to avoid duplicate noise on
+    // every 15s heartbeat tick.
+    if matches!(mode, ProbeMode::Direct) {
         log::warn!(
             "[mesh] {} ip -4 returned non-IP output (likely Tailscale GUI bridge error): {}",
             cmd,
             raw.lines().next().unwrap_or("").chars().take(120).collect::<String>()
         );
+    } else {
+        log::debug!(
+            "[mesh] launchctl asuser {} ip -4 still returned non-IP output: {}",
+            cmd,
+            raw.lines().next().unwrap_or("").chars().take(120).collect::<String>()
+        );
     }
-    None
+    ProbeOutcome::GuiBridgeError
 }
 
-/// Current real UID as a string, or None on non-Unix or if the lookup fails.
-/// Used by the launchctl-asuser fallback above. Calling `id -u` once per
-/// detection tick is fine — detect_tailscale runs at most every 15s.
+/// Find the first parseable IPv4 line in stdout.
+///
+/// Tailscale CLI on success prints exactly one IPv4 followed by a newline,
+/// but we tolerate leading/trailing whitespace, trailing newlines, and
+/// multiple lines (in which case the first IP wins).
+fn parse_first_ip(stdout: &str) -> Option<String> {
+    stdout.lines().find_map(|line| {
+        let candidate = line.trim();
+        candidate
+            .parse::<std::net::IpAddr>()
+            .ok()
+            .map(|_| candidate.to_string())
+    })
+}
+
+/// Run a `Command` with a wall-clock timeout. Returns `Some((success,
+/// stdout))` if the child finished within the timeout, `None` otherwise.
+/// On timeout the child is killed and reaped.
+///
+/// std::process::Child has no built-in timeout API, and we deliberately
+/// avoid pulling in `wait-timeout` for one call site. The polling interval
+/// is small enough (50ms) that the latency floor on a fast probe is
+/// imperceptible while bounding worst-case to ~PROBE_TIMEOUT.
+fn run_with_timeout(
+    cmd: &mut std::process::Command,
+    timeout: std::time::Duration,
+) -> Option<(bool, String)> {
+    use std::process::Stdio;
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .spawn()
+        .ok()?;
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait().ok()? {
+            Some(_status) => break,
+            None => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    log::warn!(
+                        "[mesh] tailscale probe timed out after {:?}, killed",
+                        timeout
+                    );
+                    return None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    }
+    let output = child.wait_with_output().ok()?;
+    Some((
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout).to_string(),
+    ))
+}
+
+/// Current real UID as a string, or None if `/usr/bin/id` is missing or
+/// fails. Used by the launchctl-asuser fallback. Called at most once per
+/// detection tick (every 15s) so the extra subprocess is negligible.
 #[cfg(target_os = "macos")]
 fn current_uid() -> Option<String> {
     let output = std::process::Command::new("/usr/bin/id").arg("-u").output().ok()?;
@@ -544,4 +664,52 @@ pub fn stop_broadcast(mesh: &Arc<Mutex<MeshManager>>) {
     }
     unregister_mdns_service(mesh);
     log::info!("[mesh] Broadcast stopped manually");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_first_ip;
+
+    #[test]
+    fn parse_first_ip_happy_path() {
+        assert_eq!(parse_first_ip("100.110.3.12\n").as_deref(), Some("100.110.3.12"));
+    }
+
+    #[test]
+    fn parse_first_ip_trims_whitespace() {
+        assert_eq!(
+            parse_first_ip("   100.110.3.12   \n").as_deref(),
+            Some("100.110.3.12")
+        );
+    }
+
+    #[test]
+    fn parse_first_ip_picks_first_of_many() {
+        // Tailscale CLI may emit IPv4 then IPv6 on separate lines on
+        // some configs. We only care about the IPv4 here, but the
+        // helper is permissive and returns whichever line parses
+        // first as IpAddr — that's the v4 in this layout.
+        assert_eq!(
+            parse_first_ip("100.110.3.12\nfd7a:115c:a1e0::1\n").as_deref(),
+            Some("100.110.3.12")
+        );
+    }
+
+    #[test]
+    fn parse_first_ip_rejects_gui_bridge_error_string() {
+        let raw = "The Tailscale GUI failed to start: The operation couldn't be completed. (Tailscale.CLIError error 3.)\n";
+        assert_eq!(parse_first_ip(raw), None);
+    }
+
+    #[test]
+    fn parse_first_ip_rejects_empty() {
+        assert_eq!(parse_first_ip(""), None);
+        assert_eq!(parse_first_ip("\n\n"), None);
+    }
+
+    #[test]
+    fn parse_first_ip_rejects_non_address_text() {
+        assert_eq!(parse_first_ip("not an ip\n"), None);
+        assert_eq!(parse_first_ip("100.999.0.1\n"), None);
+    }
 }
