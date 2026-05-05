@@ -227,6 +227,13 @@ pub enum Commands {
     /// `user_prompt_submit` stays a stub until Phase 5 adds tip
     /// emission.
     Hook {
+        /// Override `CODETERM_HOOK_SOURCE`. Cross-platform safe: the env
+        /// prefix `FOO=bar prog` doesn't work under cmd.exe (where Codex
+        /// shells hooks on Windows), so installers pass the provider via
+        /// this flag instead. Values: `claude`, `opencode`, `codex`,
+        /// `generic`.
+        #[arg(long = "source", value_name = "PROVIDER", global = true)]
+        source: Option<String>,
         #[command(subcommand)]
         action: HookAction,
     },

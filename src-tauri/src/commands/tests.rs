@@ -1,4 +1,4 @@
-use super::hooks::CODETERM_HOOK_MARKER;
+use crate::plugin::agent_claude::hooks::CODETERM_HOOK_MARKER;
 use super::skills::extract_revision;
 use std::fs;
 

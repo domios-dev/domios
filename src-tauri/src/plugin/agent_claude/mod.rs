@@ -5,6 +5,7 @@
 //! session file layout, TUI noise, slash commands) lives in this module —
 //! core never references Claude directly.
 
+pub mod hooks;
 pub mod provider;
 
 pub use provider::ClaudeProvider;

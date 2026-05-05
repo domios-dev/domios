@@ -12,6 +12,16 @@
 pub mod agent_claude;
 pub mod agent_codex;
 pub mod agent_opencode;
+pub mod cli_path;
+
+/// Auto-install hooks contributed by every bundled provider plugin. Best-effort:
+/// a failure on one plugin must not block the others. Called from
+/// `lib.rs::setup` on every daemon start.
+pub fn ensure_all_provider_hooks_installed() {
+    agent_claude::hooks::ensure_v2_hooks_installed();
+    agent_claude::hooks::ensure_token_hooks_installed();
+    agent_codex::hooks::ensure_token_hooks_installed();
+}
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

@@ -15,25 +15,11 @@ pub struct RuleStatus {
     pub installed_revision: u32,
 }
 
-#[derive(serde::Serialize)]
-pub struct ClaudeHooksStatus {
-    pub settings_exists: bool,
-    pub hooks_installed: bool,
-    pub notification_hook: bool,
-    pub stop_hook: bool,
-    pub precompact_hook: bool,
-    pub session_start_hook: bool,
-}
-
-#[derive(serde::Serialize)]
-pub struct ClaudeTokenHooksStatus {
-    pub settings_exists: bool,
-    pub hooks_installed: bool,
-    pub pre_tool_use: bool,
-    pub session_start: bool,
-    pub user_prompt_submit: bool,
-    pub pre_compact: bool,
-}
+// `ClaudeHooksStatus`, `ClaudeTokenHooksStatus`, `CodexTokenHooksStatus`
+// now live in their owning plugin (`plugin/agent_<id>/hooks.rs`). The
+// thin Tauri shims in `commands/hooks.rs` re-export them so external
+// callers see the same wire shape without core knowing per-provider
+// details.
 
 mod agent;
 mod clipboard;

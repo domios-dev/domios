@@ -205,6 +205,9 @@ pub fn run() {
             commands::check_claude_token_hooks,
             commands::install_claude_token_hooks,
             commands::uninstall_claude_token_hooks,
+            commands::check_codex_token_hooks,
+            commands::install_codex_token_hooks,
+            commands::uninstall_codex_token_hooks,
             // Session commands
             session::save_session,
             session::save_session_named,
@@ -328,8 +331,7 @@ pub fn run() {
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
 
-            commands::ensure_claude_hooks_installed();
-            commands::ensure_claude_token_hooks_installed();
+            crate::plugin::ensure_all_provider_hooks_installed();
             if let Err(e) = commands::install_project_rules() {
                 log::warn!("[startup] failed to auto-install codeterm rule: {}", e);
             }

@@ -14,8 +14,11 @@ use std::io::{Read, Write};
 
 use crate::args::hook::{HookAction, HookProvider};
 
-pub fn handle_hook(action: HookAction) {
-    let provider = HookProvider::from_env();
+pub fn handle_hook(action: HookAction, source_override: Option<&str>) {
+    let provider = match source_override {
+        Some(s) => HookProvider::from_str(s),
+        None => HookProvider::from_env(),
+    };
 
     let mut input = String::new();
     if std::io::stdin().read_to_string(&mut input).is_err() {

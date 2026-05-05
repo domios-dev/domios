@@ -324,8 +324,8 @@ fn main() {
     // Hooks run as the agent's stdin→stdout filter. They never need the
     // daemon socket, and the cold-start latency budget is <50 ms — short
     // circuit before discover_socket / SocketClient::connect.
-    if let Commands::Hook { action } = cli.command {
-        cmd::hook::handle_hook(action);
+    if let Commands::Hook { action, source } = cli.command {
+        cmd::hook::handle_hook(action, source.as_deref());
         return;
     }
 
