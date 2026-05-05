@@ -190,9 +190,9 @@ pub fn split_on_operators(s: &str) -> Vec<Segment> {
         if c == b'&' {
             let next = bytes.get(i + 1).copied();
             let prev = if i > 0 { Some(bytes[i - 1]) } else { None };
-            let part_of_redirect = matches!(prev, Some(b'>') | Some(b'<'))
-                || matches!(next, Some(b'>'));
-            if next != Some(b'&') && !part_of_redirect {
+            let preceded_by_ws = matches!(prev, Some(b' ') | Some(b'\t'));
+            let followed_by_redirect = matches!(next, Some(b'>'));
+            if next != Some(b'&') && preceded_by_ws && !followed_by_redirect {
                 push_command(&mut out, &s[cursor..i]);
                 out.push(Segment::Operator("&".to_string()));
                 i += 1;
