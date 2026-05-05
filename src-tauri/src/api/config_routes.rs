@@ -65,10 +65,37 @@ pub async fn patch_config_api(
 
     let new_cfg: crate::config::schema::AppConfig = serde_json::from_value(cfg_json)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid config value"))?;
+
+    // Detect rename so we can sync mesh state + push the new name to peers.
+    // Mirror of the same logic in the Tauri update_config command.
+    let prev_name = state.config.lock().mesh.instance_name.clone();
+    let new_name = new_cfg.mesh.instance_name.clone();
+    let renamed = !new_name.is_empty() && new_name != prev_name;
+
     *state.config.lock() = new_cfg.clone();
     if let Err(e) = crate::config::save_config_pub(&new_cfg) {
         log::error!("Config save failed: {}", e);
     }
+
+    if renamed {
+        let mesh = state.mesh.clone();
+        {
+            let mut m = mesh.lock();
+            m.ident.instance_name = new_name.clone();
+        }
+        log::info!(
+            "[mesh] instance renamed: {:?} -> {}, broadcasting announce",
+            prev_name, new_name
+        );
+        tokio::spawn(async move {
+            let report = crate::mesh::broadcast_announce(&mesh, None).await;
+            log::info!(
+                "[mesh] post-rename announce sent={} ok={} stale={} errors={}",
+                report.sent, report.ok, report.stale_peers.len(), report.errors.len()
+            );
+        });
+    }
+
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

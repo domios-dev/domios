@@ -373,3 +373,26 @@ body {
   100% { transform: scale(1.06); opacity: 0;   }
 }
 
+/* =========================================================================
+   Agent icon working-state animations
+   Each provider has its own visual language: Claude rotates + breathes,
+   Codex twinkles (main + accent sparkles offset by 50%), OpenCode draws
+   its hexagon outline like a stroke being traced. All run via SMIL-free
+   pure-CSS keyframes so they survive every render with zero JS overhead.
+   ========================================================================= */
+
+/* Universal working-state animation for any agent-icon. Provider-agnostic:
+   third-party plugins get the same breathing rotation for free. Plugins
+   that want their own animation can ship a <style> block inside their
+   `icon_svg` markup — those styles will scope to that SVG only and won't
+   conflict with this default. */
+.agent-icon-working > svg {
+  transform-origin: 50% 50%;
+  animation: agent-icon-working-spin 2.4s ease-in-out infinite;
+}
+@keyframes agent-icon-working-spin {
+  0%   { transform: rotate(0deg)   scale(1);    opacity: 1;   }
+  50%  { transform: rotate(180deg) scale(0.88); opacity: 0.75; }
+  100% { transform: rotate(360deg) scale(1);    opacity: 1;   }
+}
+

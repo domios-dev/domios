@@ -38,9 +38,10 @@ mod windows {
 
     pub fn is_enabled() -> bool {
         use std::process::Command;
-        Command::new("reg")
-            .args(["query", &format!("HKCU\\{}", REG_KEY), "/v", VALUE_NAME])
-            .output()
+        let mut cmd = Command::new("reg");
+        cmd.args(["query", &format!("HKCU\\{}", REG_KEY), "/v", VALUE_NAME]);
+        crate::process_util::no_window_std(&mut cmd);
+        cmd.output()
             .map(|o| o.status.success())
             .unwrap_or(false)
     }
@@ -48,24 +49,25 @@ mod windows {
     pub fn enable() -> Result<(), String> {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         use std::process::Command;
-        let output = Command::new("reg")
-            .args([
-                "add", &format!("HKCU\\{}", REG_KEY),
-                "/v", VALUE_NAME, "/t", "REG_SZ",
-                "/d", &format!("\"{}\" --minimized", exe.to_string_lossy()),
-                "/f",
-            ])
-            .output()
-            .map_err(|e| e.to_string())?;
+        let mut cmd = Command::new("reg");
+        cmd.args([
+            "add", &format!("HKCU\\{}", REG_KEY),
+            "/v", VALUE_NAME, "/t", "REG_SZ",
+            "/d", &format!("\"{}\" --minimized", exe.to_string_lossy()),
+            "/f",
+        ]);
+        crate::process_util::no_window_std(&mut cmd);
+        let output = cmd.output().map_err(|e| e.to_string())?;
         if output.status.success() { Ok(()) }
         else { Err(String::from_utf8_lossy(&output.stderr).to_string()) }
     }
 
     pub fn disable() -> Result<(), String> {
         use std::process::Command;
-        let _ = Command::new("reg")
-            .args(["delete", &format!("HKCU\\{}", REG_KEY), "/v", VALUE_NAME, "/f"])
-            .output();
+        let mut cmd = Command::new("reg");
+        cmd.args(["delete", &format!("HKCU\\{}", REG_KEY), "/v", VALUE_NAME, "/f"]);
+        crate::process_util::no_window_std(&mut cmd);
+        let _ = cmd.output();
         Ok(())
     }
 }

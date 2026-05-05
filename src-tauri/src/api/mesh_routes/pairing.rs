@@ -154,23 +154,36 @@ pub async fn mesh_unpair(
     let our_id = mesh.ident.identity.instance_id.clone();
     drop(mesh);
 
-    // Cascade: notify removed peer to also remove us
+    // Cascade: notify removed peer to also remove us. Walks every cached
+    // address so a stale Tailscale entry doesn't drop the cascade.
     if sender_id != instance_id {
         if let (Some(peer), Some(token)) = (target_peer, signed_token) {
-            let addr = peer.addresses.iter()
-                .find(|a| a.is_tailscale).or_else(|| peer.addresses.first());
-            if let Some(addr) = addr {
+            if !peer.addresses.is_empty() {
                 let client = reqwest::Client::builder()
                     .timeout(std::time::Duration::from_secs(3)).build().unwrap_or_default();
-                let url = format!("http://{}:{}/api/mesh/peers/{}", addr.ip, peer.api_port, our_id);
+                let api_port = peer.api_port;
+                let addresses = peer.addresses.clone();
+                let target = instance_id.clone();
+                let our_id_for_call = our_id.clone();
                 tokio::spawn(async move {
-                    match client.delete(&url)
-                        .header("Authorization", format!("Bearer {}", token))
-                        .send().await {
-                        Ok(resp) if resp.status().is_success() => {
-                            log::info!("[mesh/cascade] Notified {} to remove us ({})", instance_id, our_id);
+                    let result = crate::mesh::transport::try_peer(&addresses, |addr| {
+                        let url = format!("http://{}:{}/api/mesh/peers/{}", addr.ip, api_port, our_id_for_call);
+                        let client = client.clone();
+                        let token = token.clone();
+                        async move {
+                            match client.delete(&url)
+                                .header("Authorization", format!("Bearer {}", token))
+                                .send().await
+                            {
+                                Ok(resp) if resp.status().is_success() => crate::mesh::transport::TryNext::Success(()),
+                                Ok(resp) => crate::mesh::transport::TryNext::Stop(format!("HTTP {}", resp.status())),
+                                Err(e) => crate::mesh::transport::TryNext::Retry(e.to_string()),
+                            }
                         }
-                        _ => log::debug!("[mesh/cascade] Could not notify {} about removal", instance_id),
+                    }).await;
+                    match result {
+                        Ok(()) => log::info!("[mesh/cascade] Notified {} to remove us ({})", target, our_id_for_call),
+                        Err(e) => log::debug!("[mesh/cascade] Could not notify {} about removal: {}", target, e),
                     }
                 });
             }

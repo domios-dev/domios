@@ -122,6 +122,7 @@ impl BwExec for SubprocessBwExec {
         cmd.stdin(std::process::Stdio::piped());
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
+        crate::process_util::no_window_tokio(&mut cmd);
 
         let mut child = cmd.spawn().map_err(|e| format!("spawn bw: {}", e))?;
         if let Some(stdin) = ctx.stdin {

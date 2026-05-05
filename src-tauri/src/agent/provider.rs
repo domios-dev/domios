@@ -335,6 +335,10 @@ pub struct ProviderDescriptor {
     pub display_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_hint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_svg: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_color: Option<String>,
     pub available_models: Vec<ModelInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<String>,
@@ -350,10 +354,20 @@ pub struct ProviderDescriptor {
     pub supports_lazy_skills: bool,
     pub has_hooks: bool,
     pub preserves_context_on_resume: bool,
+    /// CLI binary name the provider expects on PATH (e.g. `claude`, `codex`,
+    /// `opencode`). When present, the frontend renders an "Installation"
+    /// section that polls `which <binary>` and offers an Install button.
+    /// Resolved per-platform on the backend at describe-time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_binary: Option<String>,
+    /// Shell command for installing the CLI on the current platform. Frontend
+    /// pipes it into a fresh terminal pane when the user clicks Install.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub install_command: Option<String>,
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 1;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 3;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 pub trait AgentProvider: Send + Sync {
@@ -549,8 +563,31 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Optional icon hint (emoji or single character) for the provider tab.
     fn icon_hint(&self) -> Option<&str> {
+        None
+    }
+
+    fn icon_svg(&self) -> Option<&str> {
+        None
+    }
+
+    fn icon_color(&self) -> Option<&str> {
+        None
+    }
+
+    /// Name of the binary the provider's launch commands invoke (e.g. `claude`,
+    /// `codex`, `opencode`). When `Some`, CodeTerm checks PATH availability so
+    /// the Settings UI can render an "install" affordance for missing CLIs.
+    /// Default `None` — provider opts out of installation tracking.
+    fn cli_binary(&self) -> Option<&str> {
+        None
+    }
+
+    /// Per-platform install command run inside a fresh terminal pane when the
+    /// user clicks "Install" in Settings. `platform` is one of `"macos"`,
+    /// `"linux"`, `"windows"`. Return `None` for platforms where you don't ship
+    /// an installer recipe.
+    fn install_command(&self, _platform: &str) -> Option<String> {
         None
     }
 
@@ -584,11 +621,14 @@ pub trait AgentProvider: Send + Sync {
     /// impl just assembles the other metadata methods — providers
     /// rarely need to override it.
     fn describe(&self) -> ProviderDescriptor {
+        let platform = current_platform_tag();
         ProviderDescriptor {
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             id: self.id().to_string(),
             display_name: self.display_name().to_string(),
             icon_hint: self.icon_hint().map(|s| s.to_string()),
+            icon_svg: self.icon_svg().map(|s| s.to_string()),
+            icon_color: self.icon_color().map(|s| s.to_string()),
             available_models: self.available_models(),
             default_model: self.default_model().map(|s| s.to_string()),
             settings_schema: self.settings_schema(),
@@ -596,7 +636,19 @@ pub trait AgentProvider: Send + Sync {
             supports_lazy_skills: self.supports_lazy_skills(),
             has_hooks: self.has_hooks(),
             preserves_context_on_resume: self.preserves_context_on_resume(),
+            cli_binary: self.cli_binary().map(|s| s.to_string()),
+            install_command: self.install_command(platform),
         }
+    }
+}
+
+/// Normalised platform tag used by `install_command(platform)`.
+pub fn current_platform_tag() -> &'static str {
+    match std::env::consts::OS {
+        "macos" => "macos",
+        "linux" => "linux",
+        "windows" => "windows",
+        other => other,
     }
 }
 
@@ -614,6 +666,8 @@ mod tests {
             id: "test".into(),
             display_name: "Test Provider".into(),
             icon_hint: Some("T".into()),
+            icon_svg: Some("<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"6\"/></svg>".into()),
+            icon_color: Some("#abcdef".into()),
             available_models: vec![ModelInfo {
                 id: "model-1".into(),
                 display_name: "Model One".into(),
@@ -672,6 +726,8 @@ mod tests {
             supports_lazy_skills: true,
             has_hooks: true,
             preserves_context_on_resume: true,
+            cli_binary: Some("testcli".into()),
+            install_command: Some("npm i -g testcli".into()),
         };
 
         let json = serde_json::to_string(&original).expect("serialize");

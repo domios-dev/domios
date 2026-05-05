@@ -3,8 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { X, TerminalSquare, FolderOpen } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { getAllProviders } from "../../lib/agentProviders";
+import { useConfig } from "../../hooks/useConfig";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
+import { AgentIcon } from "../AgentIcon";
 import type { PaneStatus, Workspace } from "../../lib/types";
 
 interface WorkspaceItemProps {
@@ -63,6 +65,9 @@ export function WorkspaceItem({
     if (e.key === "Escape") { setEditing(false); }
   }, [commitRename]);
 
+  const { config } = useConfig();
+  const agentsConfig = config.agents ?? {};
+
   const menuItems: DropdownMenuItem[] = useMemo(() => {
     const items: DropdownMenuItem[] = [
       {
@@ -71,11 +76,13 @@ export function WorkspaceItem({
         onClick: onNewTerminal,
       },
     ];
-    // Dynamic agent provider entries from registry
+    // Dynamic agent provider entries from registry, filtered by per-provider
+    // visibility toggle. `visible_in_menu` defaults to true when unset.
     for (const provider of getAllProviders()) {
+      if (agentsConfig[provider.id]?.visible_in_menu === false) continue;
       items.push({
         label: `New ${provider.displayName} Session`,
-        icon: <span className="text-[11px] leading-none" style={{ color: provider.iconColor }}>{provider.icon}</span>,
+        icon: <AgentIcon providerId={provider.id} className="text-[12px]" />,
         onClick: () => onNewAgent(provider.id),
       });
     }
@@ -97,7 +104,7 @@ export function WorkspaceItem({
       });
     }
     return items;
-  }, [onNewTerminal, onNewAgent, onClose, workspace.protected, workspace.cwd]);
+  }, [onNewTerminal, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig]);
 
   return (
     <div

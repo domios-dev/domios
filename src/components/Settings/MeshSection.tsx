@@ -4,10 +4,33 @@ import { listen } from "@tauri-apps/api/event";
 import type { AppConfig, MeshPeersResponse, MeshStatus } from "../../lib/types";
 import { Toggle, CopyRow } from "./shared";
 
+// localStorage keys for the mesh-section cache. Keep small + namespaced
+// so a future schema change can be invalidated by bumping the suffix.
+const MESH_CACHE_PEERS_KEY = "codeterm.mesh.peers.cache.v1";
+const MESH_CACHE_STATUS_KEY = "codeterm.mesh.status.cache.v1";
+
+function loadCachedPeers(): MeshPeersResponse | null {
+  try {
+    const raw = localStorage.getItem(MESH_CACHE_PEERS_KEY);
+    return raw ? JSON.parse(raw) as MeshPeersResponse : null;
+  } catch { return null; }
+}
+
+function loadCachedStatus(): MeshStatus | null {
+  try {
+    const raw = localStorage.getItem(MESH_CACHE_STATUS_KEY);
+    return raw ? JSON.parse(raw) as MeshStatus : null;
+  } catch { return null; }
+}
+
 export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void; apiEnabled: boolean }) {
-  const [status, setStatus] = useState<MeshStatus | null>(null);
-  const [peers, setPeers] = useState<MeshPeersResponse | null>(null);
+  // Hydrate from localStorage so the panel never flashes empty when the user
+  // re-opens Settings — the cached snapshot from last session shows
+  // immediately, then the live fetch + discovery refresh overwrite it.
+  const [status, setStatus] = useState<MeshStatus | null>(() => loadCachedStatus());
+  const [peers, setPeers] = useState<MeshPeersResponse | null>(() => loadCachedPeers());
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [pendingTimers, setPendingTimers] = useState<Record<string, number>>({});
   const [manualAddr, setManualAddr] = useState("");
@@ -21,15 +44,42 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
   const broadcastTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchData = useCallback(() => {
-    invoke<MeshStatus>("mesh_get_status").then(setStatus).catch(() => {});
-    invoke<MeshPeersResponse>("mesh_list_peers").then(setPeers).catch(() => {});
+    invoke<MeshStatus>("mesh_get_status").then((s) => {
+      setStatus(s);
+      try { localStorage.setItem(MESH_CACHE_STATUS_KEY, JSON.stringify(s)); } catch {}
+    }).catch(() => {});
+    invoke<MeshPeersResponse>("mesh_list_peers").then((p) => {
+      setPeers(p);
+      try { localStorage.setItem(MESH_CACHE_PEERS_KEY, JSON.stringify(p)); } catch {}
+    }).catch(() => {});
   }, []);
 
+  // Auto-refresh on mount: kick mDNS/UDP discovery + initial fetch so the
+  // section opens already in a refreshing state with cached data underneath
+  // instead of waiting for the user to press Refresh manually.
   useEffect(() => {
-    fetchData();
+    let cancelled = false;
+    setLoading(true);
+    setRefreshing(true);
+    (async () => {
+      // Discovery refresh fails silently when mesh is disabled; we still
+      // want the fetch to land so the UI surfaces the disabled state.
+      if (config.mesh?.enabled) {
+        try { await invoke("mesh_refresh_discovery"); } catch {}
+      }
+      if (cancelled) return;
+      fetchData();
+      // Brief tail so the loader doesn't flicker faster than the eye sees.
+      setTimeout(() => {
+        if (!cancelled) {
+          setRefreshing(false);
+          setLoading(false);
+        }
+      }, 600);
+    })();
     const unlisten = listen("mesh-state-changed", () => fetchData());
-    return () => { unlisten.then((f) => f()); };
-  }, [fetchData]);
+    return () => { cancelled = true; unlisten.then((f) => f()); };
+  }, [fetchData, config.mesh?.enabled]);
 
   useEffect(() => {
     if (!config.mesh?.enabled) return;
@@ -234,7 +284,15 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
       {config.mesh?.enabled && (
         <div className="space-y-2.5">
           <div className="flex items-center justify-between mb-0.5">
-            <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)]">Devices in Mesh</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)]">Devices in Mesh</h3>
+              {refreshing && (
+                <span className="flex items-center gap-1.5 text-[10px] text-[var(--ct-muted-fg)]">
+                  <span className="w-2.5 h-2.5 border border-[var(--ct-accent)] border-t-transparent rounded-full animate-spin" />
+                  {loading && !peers ? "loading..." : "refreshing"}
+                </span>
+              )}
+            </div>
             <button onClick={handleRefresh} disabled={refreshing}
               className="text-[10px] px-2 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors disabled:opacity-50">
               {refreshing ? "Scanning..." : "Refresh"}

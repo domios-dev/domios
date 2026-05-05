@@ -5,21 +5,30 @@ export interface PasteOptions {
   skipText?: boolean;
 }
 
-/** Write file paths to PTY as one space-separated line. */
+export function quotePathForPaste(p: string): string {
+  if (!/[\s"'$`!<>|&;()*?#~]/.test(p)) return p;
+  if (!p.includes("'")) return `'${p}'`;
+  return `"${p.replace(/(["\\$`])/g, "\\$1")}"`;
+}
+
 export async function sendFilePathsToPty(ptyId: string, paths: string[]): Promise<boolean> {
   if (paths.length === 0) return false;
-  await invoke("write_pty_string", { ptyId, data: paths.join(" ") });
+  const data = paths.map(quotePathForPaste).join(" ");
+  await invoke("write_pty_string", { ptyId, data });
   return true;
 }
 
 /** Read clipboard via web API + native file-ref fallback, route to PTY. */
 export async function pasteClipboardToPty(ptyId: string, opts: PasteOptions = {}): Promise<boolean> {
+  const skipText = opts.skipText ?? false;
   const nativePaths = await readNativeClipboardFiles();
   if (nativePaths.length > 0) {
     return sendFilePathsToPty(ptyId, nativePaths);
   }
 
-  const web = await readWebClipboard(opts.skipText ?? false);
+  // skipText: xterm.onData already delivers text from a Cmd+V / Ctrl+V; only
+  // images and saved files need our handling.
+  const web = await readWebClipboard(skipText);
   if (web.text !== null) {
     await invoke("write_pty_string", { ptyId, data: web.text });
   }
@@ -28,6 +37,7 @@ export async function pasteClipboardToPty(ptyId: string, opts: PasteOptions = {}
   }
   if (web.text !== null || web.paths.length > 0) return true;
 
+  if (skipText) return false;
   return fallbackReadText(ptyId);
 }
 

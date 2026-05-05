@@ -20,6 +20,9 @@ export function useAgentDetection({
   const stateRef = useRef(state);
   stateRef.current = state;
 
+  // Path 1 — title-based detection. Works for claude (emits OSC title) but
+  // not for codex/opencode (no OSC). Fires whenever xterm sees an OSC 0/1/2
+  // sequence, even when the resulting title pattern doesn't match an agent.
   useEffect(() => {
     const term = termRef.current;
     if (!term || !termReady) return;
@@ -45,43 +48,23 @@ export function useAgentDetection({
       if (detectedAgent) {
         setAgentType(paneId, detectedAgent);
         invoke("mux_set_pane_agent_type", { paneId, agentType: detectedAgent }).catch(() => {});
-
         // Reset session ID on first detection
         if (!prevAgent) {
           invoke("mux_set_claude_session_id", { paneId, sessionId: null }).catch(() => {});
         }
-
-        // Detect and save the agent session ID for future resume
-        const tryDetectSession = () => {
-          const currentPanes = stateRef.current.panes;
-          const pane = currentPanes[paneId];
-          if (!pane) return;
-          if (pane.agent_session_id) return;
-
-          const excludeIds = Object.values(currentPanes)
-            .map((p) => p.agent_session_id)
-            .filter((id): id is string => !!id);
-          const paneCwd = pane.cwd;
-          if (!paneCwd) {
-            setTimeout(tryDetectSession, 2000);
-            return;
-          }
-          invoke<string | null>("detect_claude_session_id", { cwd: paneCwd, exclude: excludeIds })
-            .then((sessionId) => {
-              if (sessionId) {
-                invoke("mux_set_claude_session_id", { paneId, sessionId }).catch(() => {});
-              } else {
-                setTimeout(tryDetectSession, 3000);
-              }
-            })
-            .catch(() => {
-              setTimeout(tryDetectSession, 3000);
-            });
-        };
-        tryDetectSession();
       }
+      // Session detection fires from the agent_type-watcher effect below —
+      // having one source of truth avoids racing the two paths.
     });
 
     return () => disposable.dispose();
   }, [termReady, termRef, paneId, setPaneTitle, setAgentType]);
+
+  // Path 2 — used to be a frontend-side poll mirroring the backend's
+  // `kick_off_session_detection`. Removed: the backend pinpoints detection
+  // to the wall-clock instant the pane became an agent, while the frontend
+  // had no such floor and would happily pick up sessions created seconds
+  // before the spawn (race noticed when freshly-spawned opencode panes
+  // hijacked sessions left over from rehydrated panes). The backend path is
+  // single source of truth now; this hook only handles title-based detection.
 }

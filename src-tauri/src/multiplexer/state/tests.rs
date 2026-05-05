@@ -138,7 +138,9 @@ fn test_close_pane_returns_pty_id() {
 }
 
 #[test]
-fn test_close_pane_clears_focus() {
+fn test_close_pane_clears_focus_when_no_general() {
+    // No `general` alias registered → fallback finds nothing → focus drops to None.
+    // Matches old behavior so existing callers without General are unaffected.
     let (mut state, initial_pane_id) = MultiplexerState::new();
     let new_pane_id = state
         .split_pane(&initial_pane_id, Orientation::Horizontal)
@@ -149,6 +151,73 @@ fn test_close_pane_clears_focus() {
 
     state.close_pane(&new_pane_id).unwrap();
     assert_eq!(state.get_focused_pane_id(), None);
+}
+
+#[test]
+fn test_close_pane_falls_back_to_general() {
+    // With `general` alias registered, closing the focused pane moves focus to
+    // the General orchestrator pane instead of leaving the UI deselected.
+    let (mut state, general_pane_id) = MultiplexerState::new();
+    state.register_alias("general", &general_pane_id);
+
+    let other_pane_id = state
+        .split_pane(&general_pane_id, Orientation::Horizontal)
+        .unwrap();
+    state.set_focused_pane(&other_pane_id).unwrap();
+
+    state.close_pane(&other_pane_id).unwrap();
+    assert_eq!(state.get_focused_pane_id(), Some(general_pane_id.as_str()));
+}
+
+#[test]
+fn test_close_tab_falls_back_to_general() {
+    let (mut state, general_pane_id) = MultiplexerState::new();
+    state.register_alias("general", &general_pane_id);
+
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (tab2_id, tab2_pane_id) = state.create_tab(&ws_id).unwrap();
+    state.set_focused_pane(&tab2_pane_id).unwrap();
+
+    state.close_tab(&ws_id, &tab2_id).unwrap();
+    assert_eq!(state.get_focused_pane_id(), Some(general_pane_id.as_str()));
+}
+
+#[test]
+fn test_close_workspace_falls_back_to_general() {
+    let (mut state, general_pane_id) = MultiplexerState::new();
+    state.register_alias("general", &general_pane_id);
+
+    let other_ws = state.create_workspace("Other".to_string(), None);
+    let (_tab_id, other_pane_id) = state.create_tab(&other_ws.id).unwrap();
+    state.set_focused_pane(&other_pane_id).unwrap();
+
+    state.close_workspace(&other_ws.id).unwrap();
+    assert_eq!(state.get_focused_pane_id(), Some(general_pane_id.as_str()));
+}
+
+#[test]
+fn test_fallback_focus_to_general_no_op_without_alias() {
+    let (mut state, pane_id) = MultiplexerState::new();
+    state.set_focused_pane(&pane_id).unwrap();
+
+    let result = state.fallback_focus_to_general();
+    assert_eq!(result, None);
+    // Focus left untouched (preferable to silent null).
+    assert_eq!(state.get_focused_pane_id(), Some(pane_id.as_str()));
+}
+
+#[test]
+fn test_fallback_focus_to_general_sets_focus() {
+    let (mut state, general_pane_id) = MultiplexerState::new();
+    state.register_alias("general", &general_pane_id);
+
+    // Clear focus first to make the assignment observable.
+    let other = state.split_pane(&general_pane_id, Orientation::Horizontal).unwrap();
+    state.set_focused_pane(&other).unwrap();
+
+    let result = state.fallback_focus_to_general();
+    assert_eq!(result.as_deref(), Some(general_pane_id.as_str()));
+    assert_eq!(state.get_focused_pane_id(), Some(general_pane_id.as_str()));
 }
 
 #[test]
@@ -516,12 +585,44 @@ fn test_session_snapshot_roundtrip() {
 
     let pane = restored.get_pane(&pane_id).unwrap();
     assert_eq!(pane.cwd.as_deref(), Some("/test/path"));
-    // agent_type is NOT restored (re-detected from PTY output to prevent false positives)
+    // agent_type is dropped when no session_id was saved — without resume
+    // there's no agent to attribute, so re-detect from PTY output instead.
     assert_eq!(pane.agent_type, None);
     assert_eq!(pane.role, Some(AgentRole::Orchestrator));
     assert_eq!(pane.depth, 1);
     assert!(pane.can_spawn);
     assert!(pane.pty_id.is_none());
+}
+
+#[test]
+fn test_session_snapshot_preserves_agent_type_with_session_id() {
+    // Regression: codex/opencode panes silently failed to resume on app
+    // restart because agent_type was always dropped, so the resume launcher
+    // fell back to default_agent_provider (claude) and tried to claude-resume
+    // a non-claude session uuid → session_exists() bailed → resume cleared.
+    for provider in ["claude", "codex", "opencode"] {
+        let (mut state, pane_id) = MultiplexerState::new();
+        if let Some(pane) = state.get_pane_mut(&pane_id) {
+            pane.cwd = Some("/work".to_string());
+            pane.agent_type = Some(provider.to_string());
+            pane.agent_session_id = Some(format!("session-{}", provider));
+        }
+
+        let snap = state.to_session_snapshot();
+        let restored = MultiplexerState::from_session_snapshot(&snap);
+        let pane = restored.get_pane(&pane_id).unwrap();
+
+        assert_eq!(
+            pane.agent_type.as_deref(),
+            Some(provider),
+            "agent_type must survive snapshot roundtrip when session_id is present (provider={})",
+            provider,
+        );
+        assert_eq!(
+            pane.agent_session_id.as_deref(),
+            Some(format!("session-{}", provider).as_str()),
+        );
+    }
 }
 
 #[test]
