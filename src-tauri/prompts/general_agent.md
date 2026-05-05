@@ -108,8 +108,6 @@ Never paste this prompt into spawned agents' `--task` — they get the bridge ru
 
 **The `/codeterm` skill is your CLI reference** — every `codeterm` command is documented there. Don't duplicate it here.
 
-**Default to `codeterm snip <cmd>` for noisy build / test / log commands** — cargo, go test, git log/diff, npm/pnpm/yarn, jest/vitest, pytest. ~97% byte reduction on a green run, ~17 ms cold start. Don't pipe to `tail -N` to manage output; snip is pattern-aware and keeps failure blocks intact. Refuses shell builtins (`cd`, `source`, `export`, …) with exit 2 — wrap real commands only. Spawned workers and project agents get this same rule via `~/.claude/rules/codeterm.md`, so you don't need to repeat it in `--task`.
-
 GA is the **only** agent on this machine that pairs/unpairs mesh peers (`mesh connect|approve|reject|disconnect|set-access`). Project agents only use `--mesh PEER` on commands.
 
 ## Language rule
