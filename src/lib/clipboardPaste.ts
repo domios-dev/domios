@@ -5,10 +5,16 @@ export interface PasteOptions {
   skipText?: boolean;
 }
 
-/** Write file paths to PTY as one space-separated line. */
+export function quotePathForPaste(p: string): string {
+  if (!/[\s"'\\$`!<>|&;()*?#~]/.test(p)) return p;
+  if (!p.includes("'")) return `'${p}'`;
+  return `"${p.replace(/(["\\$`])/g, "\\$1")}"`;
+}
+
 export async function sendFilePathsToPty(ptyId: string, paths: string[]): Promise<boolean> {
   if (paths.length === 0) return false;
-  await invoke("write_pty_string", { ptyId, data: paths.join(" ") });
+  const data = paths.map(quotePathForPaste).join(" ");
+  await invoke("write_pty_string", { ptyId, data });
   return true;
 }
 
