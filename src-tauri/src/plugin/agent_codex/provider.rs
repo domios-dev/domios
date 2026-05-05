@@ -193,7 +193,7 @@ impl AgentProvider for CodexProvider {
 
     fn detect_session_id(
         &self,
-        _cwd: &str,
+        cwd: &str,
         exclude: &[String],
         max_age: Option<Duration>,
     ) -> Option<String> {
@@ -207,7 +207,10 @@ impl AgentProvider for CodexProvider {
         let mut sessions: Vec<(String, std::time::SystemTime)> = Vec::new();
 
         // Walk YYYY/MM/DD directories — collects (stem, modified_time)
-        collect_jsonl_files(&root, &mut sessions, &now, &recency_limit, exclude, 0);
+        // The cwd filter is applied lazily during the walk so we don't read
+        // every JSONL header in the tree; only candidates that pass age +
+        // exclude get their first line parsed.
+        collect_jsonl_files(&root, &mut sessions, &now, &recency_limit, exclude, cwd, 0);
 
         sessions.sort_by(|a, b| b.1.cmp(&a.1));
         // Return UUID extracted from the stem (codex resume expects UUID, not filename)
@@ -380,6 +383,7 @@ fn collect_jsonl_files(
     now: &std::time::SystemTime,
     recency_limit: &Duration,
     exclude: &[String],
+    cwd_filter: &str,
     depth: u8,
 ) {
     let entries = match std::fs::read_dir(dir) {
@@ -394,7 +398,7 @@ fn collect_jsonl_files(
         };
 
         if ft.is_dir() && depth < 4 {
-            collect_jsonl_files(&entry.path(), sessions, now, recency_limit, exclude, depth + 1);
+            collect_jsonl_files(&entry.path(), sessions, now, recency_limit, exclude, cwd_filter, depth + 1);
             continue;
         }
 
@@ -416,12 +420,43 @@ fn collect_jsonl_files(
                     }
                 }
             }
+            // cwd filter — read only the session_meta header (first line) and
+            // match `payload.cwd`. Without this, parallel codex panes in the
+            // same workspace see candidates from sibling cwds and pick the
+            // wrong rollout, then loop forever in the atomic-claim retry path.
+            if !cwd_filter.is_empty() && !rollout_cwd_matches(&entry.path(), cwd_filter) {
+                continue;
+            }
             let sort_key = meta.created().or_else(|_| meta.modified());
             if let Ok(ts) = sort_key {
                 sessions.push((stem.to_string(), ts));
             }
         }
     }
+}
+
+/// Open a codex rollout JSONL, parse the first line, return whether it's a
+/// `session_meta` event whose `payload.cwd` matches the requested directory.
+/// Failures (missing file, bad JSON, no cwd field) → `false` so the candidate
+/// is skipped rather than incorrectly admitted.
+fn rollout_cwd_matches(path: &std::path::Path, cwd: &str) -> bool {
+    use std::io::{BufRead, BufReader};
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    if reader.read_line(&mut line).ok().filter(|n| *n > 0).is_none() {
+        return false;
+    }
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) else { return false };
+    let kind = val.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+    if kind != "session_meta" {
+        return false;
+    }
+    val.get("payload")
+        .and_then(|p| p.get("cwd"))
+        .and_then(|c| c.as_str())
+        .map(|c| c == cwd)
+        .unwrap_or(false)
 }
 
 /// Find a session file by UUID anywhere in the date-based tree.
