@@ -824,4 +824,67 @@ mod tests {
         let err = spec.to_agent_params().unwrap_err();
         assert!(err.contains("Shell"));
     }
+
+    #[test]
+    fn can_spawn_none_round_trips_through_params() {
+        // Caller didn't pass --can-spawn → spec.can_spawn=None → params.can_spawn=None.
+        // This tells set_pane_role to keep the role's default (Orchestrator/Lead=true).
+        let mut spec = agent_spec("claude");
+        if let PaneCommand::Agent(ref mut a) = spec.command {
+            a.role = Some("Orchestrator".into());
+            a.can_spawn = None;
+        }
+        let params = spec.to_agent_params().unwrap();
+        assert_eq!(params.can_spawn, None);
+    }
+
+    #[test]
+    fn can_spawn_some_false_explicitly_overrides() {
+        let mut spec = agent_spec("claude");
+        if let PaneCommand::Agent(ref mut a) = spec.command {
+            a.role = Some("Lead".into());
+            a.can_spawn = Some(false);
+        }
+        let params = spec.to_agent_params().unwrap();
+        assert_eq!(params.can_spawn, Some(false));
+    }
+
+    #[test]
+    fn from_agent_params_preserves_can_spawn_option() {
+        // CLI/REST/socket pass `can_spawn: Option<bool>` straight through —
+        // None means "don't override the role's default", Some(b) means
+        // "user said --can-spawn=b explicitly". The spec must NOT collapse
+        // None → Some(false) (the pre-fix-#42 behavior that clobbered
+        // Orchestrator/Lead defaults to false on every spawn).
+        let mut p = SpawnAgentParams {
+            agent: Some("claude".into()),
+            agent_name: None,
+            args: None,
+            cwd: None,
+            title: None,
+            role: Some("Orchestrator".into()),
+            parent_pane_id: None,
+            can_spawn: None,
+            task: None,
+            workspace_id: None,
+            force_tab: None,
+            report_target_pane_id: None,
+            skip_permissions: None,
+            spawned_by_pane_id: None,
+            model: None,
+            resume_session_id: None,
+        };
+        let spec = SpawnPaneSpec::from_agent_params(p.clone());
+        match spec.command {
+            PaneCommand::Agent(a) => assert_eq!(a.can_spawn, None),
+            _ => panic!("expected Agent"),
+        }
+
+        p.can_spawn = Some(true);
+        let spec = SpawnPaneSpec::from_agent_params(p);
+        match spec.command {
+            PaneCommand::Agent(a) => assert_eq!(a.can_spawn, Some(true)),
+            _ => panic!("expected Agent"),
+        }
+    }
 }
