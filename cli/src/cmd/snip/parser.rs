@@ -189,7 +189,10 @@ pub fn split_on_operators(s: &str) -> Vec<Segment> {
         }
         if c == b'&' {
             let next = bytes.get(i + 1).copied();
-            if next != Some(b'&') {
+            let prev = if i > 0 { Some(bytes[i - 1]) } else { None };
+            let part_of_redirect = matches!(prev, Some(b'>') | Some(b'<'))
+                || matches!(next, Some(b'>'));
+            if next != Some(b'&') && !part_of_redirect {
                 push_command(&mut out, &s[cursor..i]);
                 out.push(Segment::Operator("&".to_string()));
                 i += 1;
@@ -564,6 +567,42 @@ mod tests {
     fn operators_pipe_not_split() {
         let segs = split_on_operators("a | b");
         assert_eq!(segs, vec![Segment::Command("a | b".to_string())]);
+    }
+
+    #[test]
+    fn operators_redirect_2_amp_1_not_split() {
+        let segs = split_on_operators("cargo test 2>&1");
+        assert_eq!(segs, vec![Segment::Command("cargo test 2>&1".to_string())]);
+    }
+
+    #[test]
+    fn operators_redirect_amp_gt_not_split() {
+        let segs = split_on_operators("cargo build &> log");
+        assert_eq!(segs, vec![Segment::Command("cargo build &> log".to_string())]);
+    }
+
+    #[test]
+    fn operators_redirect_lt_amp_not_split() {
+        let segs = split_on_operators("cmd <&3");
+        assert_eq!(segs, vec![Segment::Command("cmd <&3".to_string())]);
+    }
+
+    #[test]
+    fn operators_redirect_with_chain_after() {
+        let segs = split_on_operators("cargo test 2>&1 && echo done");
+        assert_eq!(segs.len(), 3);
+        if let Segment::Command(c) = &segs[0] {
+            assert!(c.contains("2>&1"));
+        } else {
+            panic!("first segment should be command");
+        }
+        assert_eq!(segs[1], Segment::Operator("&&".to_string()));
+    }
+
+    #[test]
+    fn operators_redirect_with_pipe_after() {
+        let segs = split_on_operators("cargo test 2>&1");
+        assert_eq!(segs.len(), 1);
     }
 
     #[test]

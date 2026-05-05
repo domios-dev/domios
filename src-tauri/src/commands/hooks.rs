@@ -272,7 +272,7 @@ fn codeterm_cli_path() -> String {
         let exe = if cfg!(windows) { "codeterm.exe" } else { "codeterm" };
         let p = home.join(".codeterm").join("bin").join(exe);
         if let Some(s) = p.to_str() {
-            return s.to_string();
+            return s.replace('\\', "/");
         }
     }
     "codeterm".to_string()
@@ -340,7 +340,7 @@ pub fn install_claude_token_hooks() -> Result<(), String> {
             "matcher": matcher,
             "hooks": [{
                 "type": "command",
-                "command": format!("\"{cli}\" hook {event}"),
+                "command": format!("'{cli}' hook {event}"),
                 "timeout": timeout_ms,
                 "_source": CODETERM_TOKEN_HOOK_MARKER,
             }]
