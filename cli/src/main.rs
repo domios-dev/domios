@@ -238,6 +238,13 @@ fn main() {
             );
             std::process::exit(7);
         }
+        if matches!(cli.command, Commands::Hook { .. }) {
+            eprintln!(
+                "Error: 'codeterm hook' is invoked by the local agent CLI and \
+                 cannot be mesh-forwarded."
+            );
+            std::process::exit(7);
+        }
         mesh_cli::run_via_mesh(&cli, mesh_target);
         return;
     }
@@ -304,6 +311,14 @@ fn main() {
     // worker exit 1 before it can do any work.
     if let Commands::Mem { action: MemAction::RunWorker { ref kind, ref db_path } } = cli.command {
         cmd::worker::run_mem_worker(kind, db_path.as_deref());
+        return;
+    }
+
+    // Hooks run as the agent's stdin→stdout filter. They never need the
+    // daemon socket, and the cold-start latency budget is <50 ms — short
+    // circuit before discover_socket / SocketClient::connect.
+    if let Commands::Hook { action } = cli.command {
+        cmd::hook::handle_hook(action);
         return;
     }
 
@@ -671,6 +686,9 @@ fn main() {
             return;
         }
         Commands::Snip { cmd: cmd_argv } => cmd::snip::handle_snip(cmd_argv),
+        Commands::Hook { .. } => unreachable!(
+            "hook short-circuits earlier in main.rs before discover_socket"
+        ),
     };
 
     handle_result(cli.json, result);

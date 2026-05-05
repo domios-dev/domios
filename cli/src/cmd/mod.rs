@@ -6,6 +6,7 @@ pub mod mem_secret;
 pub mod mesh;
 pub mod pane;
 pub mod print;
+pub mod hook;
 pub mod sessions;
 pub mod snip;
 pub mod update;

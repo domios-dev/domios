@@ -9,6 +9,7 @@ use super::misc::{
     BridgeAction, BrowserAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction,
     ThemeAction, WorkspaceAction,
 };
+use super::hook::HookAction;
 use super::sessions::SessionsAction;
 use super::update::UpdateAction;
 
@@ -213,5 +214,19 @@ pub enum Commands {
         /// env prefixes (e.g. `RUST_LOG=debug cargo test`).
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true, num_args = 1..)]
         cmd: Vec<String>,
+    },
+
+    /// Provider-agnostic hook handler — reads JSON from stdin, runs
+    /// per-event logic, writes JSON to stdout. Set `CODETERM_HOOK_SOURCE`
+    /// to identify the calling provider (claude / opencode / codex /
+    /// generic). Phase 2 ships real logic for `pre_tool_use` (auto-wrap
+    /// Bash with `codeterm snip`) and for `session_start` /
+    /// `pre_compact` (compaction-survival injection — original task,
+    /// `<command>` directives, workspace AGENTS.md, mem wake-up).
+    /// `user_prompt_submit` stays a stub until Phase 5 adds tip
+    /// emission.
+    Hook {
+        #[command(subcommand)]
+        action: HookAction,
     },
 }
