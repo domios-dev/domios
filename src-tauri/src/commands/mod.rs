@@ -25,6 +25,16 @@ pub struct ClaudeHooksStatus {
     pub session_start_hook: bool,
 }
 
+#[derive(serde::Serialize)]
+pub struct ClaudeTokenHooksStatus {
+    pub settings_exists: bool,
+    pub hooks_installed: bool,
+    pub pre_tool_use: bool,
+    pub session_start: bool,
+    pub user_prompt_submit: bool,
+    pub pre_compact: bool,
+}
+
 mod agent;
 mod clipboard;
 mod completions;

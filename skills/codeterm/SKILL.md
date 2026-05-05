@@ -197,6 +197,37 @@ codeterm theme apply dracula
 
 Custom theme TOML format and CLI: `references/themes.md`.
 
+## Output truncation — save tokens on noisy commands
+
+Wrap any build/test/log command with `codeterm snip` to drop known noise (passing tests, compile spam, hunk middles) while keeping failures, errors, and diagnostic boundaries. Per-tool truncators ship for cargo (test/build/check/clippy/doc/bench), go (test/vet/build), git (log/diff/show), node (npm/pnpm/yarn, jest/vitest test+build), python (pytest/py.test/python -m pytest). Unknown tools pass through unchanged.
+
+```bash
+codeterm snip cargo test                       # ~97% reduction on a green run
+codeterm snip cargo clippy --all-targets
+codeterm snip RUST_LOG=debug cargo test -- --nocapture   # leading KEY=val env applies to the child
+codeterm snip git log -200                     # deterministic 35 lines
+codeterm snip git diff
+codeterm snip pytest -x
+codeterm snip pnpm test
+```
+
+Refuses shell builtins (`cd`, `source`, `export`, `eval`, `exec`, ...) with exit 2 — they don't have an output to truncate. Local-only: `--mesh PEER` + `snip` exits 7.
+
+**Default to `codeterm snip` whenever you'd otherwise spend a Bash turn reading more than a screen of build/test/git output.** It's roughly free (cold start ~17 ms) and reclaims context budget you'd lose to compile spam.
+
+## Hooks (provider-agnostic)
+
+`codeterm hook <event>` reads provider hook JSON from stdin and writes the (possibly modified) JSON to stdout. Wired into Claude Code's hook config so things happen automatically — you usually don't invoke this by hand.
+
+| Event | What it does |
+|-------|--------------|
+| `pre-tool-use` | Rewrites the Bash tool's command via `hookSpecificOutput.updatedInput`, wrapping it with `codeterm snip`. Already-wrapped commands and shell builtins are skipped. Pipes wrap only the head; top-level `&&`, `\|\|`, `;` wrap each segment independently. So when you ask Bash to run `cargo test && git log -50`, Claude sees `codeterm snip cargo test && codeterm snip git log -50` instead — token savings without you thinking about it. |
+| `session-start` | Emits `hookSpecificOutput.additionalContext` with an assembled injection block: identity (`codeterm mem wake-up`), the original task (first user message from the transcript), surviving `<command>` directives (roo-code's regex), and workspace `AGENTS.md` / `CLAUDE.md` / `.codeterm/repo.md`. This is the load-bearing path for surviving compaction and `/clear`. |
+| `pre-compact` | Same injection block as `session-start`, on stdout. Claude's PreCompact API only honours `decision: block`, so this is no-op for Claude (harmless duplicate); session-start is what actually runs. |
+| `user-prompt-submit` | Stub today — Phase 5 will fill it with tool-history-aware tips ("prefix this with `codeterm snip` for ~99% reduction"). |
+
+Provider is identified by `CODETERM_HOOK_SOURCE` (`claude` / `opencode` / `codex` / `generic`; default `claude`). `CODETERM_HOOK_NO_MEM=1` skips the mem wake-up subprocess on hot paths and tests. Local-only: `--mesh` + `hook` exits 7.
+
 ## Session persistence
 
 Sessions auto-save every 30s. CWD is tracked via OSC 7. Claude Code sessions are detected and auto-resumed with `--resume`. Stale ids (JSONL gone from disk) are skipped instead of looping. Each pane gets a pre-generated `--session-id` UUID so multiple panes in the same cwd stay disambiguated, and Claude's `SessionStart` hook updates the persisted id when the user runs `/new` or `/clear` inside the TUI.
@@ -234,4 +265,4 @@ Dot-notation for nested keys. Values are JSON (`true`, `false`, `42`, `"string"`
 
 `Cmd+K` / `Ctrl+K` opens the palette for quick tab/workspace/theme access.
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->

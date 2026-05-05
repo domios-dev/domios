@@ -21,37 +21,94 @@ if [ -f ".env" ]; then
   set +a
 fi
 
-# --- MSVC environment (Windows only) ---
+# Auto-discover VS edition + MSVC + SDK. Override via VS_EDITION / MSVC_VER / SDK_VER env.
 setup_env() {
-  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
-    MSVC_VER="14.44.35207"
-    BT_BASE="C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools"
-    SDK_VER="10.0.22621.0"
-    SDK_BASE="C:/Program Files (x86)/Windows Kits/10"
-    export CC="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/bin/Hostx64/x64/cl.exe"
-    export CXX="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/bin/Hostx64/x64/cl.exe"
-    export LIB="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/lib/x64;$SDK_BASE/Lib/$SDK_VER/ucrt/x64;$SDK_BASE/Lib/$SDK_VER/um/x64"
-    export INCLUDE="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/include;$SDK_BASE/Include/$SDK_VER/ucrt;$SDK_BASE/Include/$SDK_VER/um;$SDK_BASE/Include/$SDK_VER/shared"
-    export RC="$SDK_BASE/bin/$SDK_VER/x64/rc.exe"
-    # Use /c/ prefix for git bash PATH compatibility
-    export PATH="/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/$MSVC_VER/bin/HostX64/x64:/c/Program Files (x86)/Windows Kits/10/bin/$SDK_VER/x64:$PATH"
-    echo "MSVC env loaded (VS 2022 BuildTools, MSVC $MSVC_VER)"
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    return 0
   fi
+
+  local NODE_DIR
+  NODE_DIR=$(ls -d "$(pwd)/.tools/node-v"*-win-x64 2>/dev/null | sort -V | tail -n 1)
+  if [ -n "$NODE_DIR" ] && [ -x "$NODE_DIR/node.exe" ]; then
+    local NODE_BASH="${NODE_DIR/C:/\/c}"
+    NODE_BASH="${NODE_BASH//\\/\/}"
+    export PATH="$NODE_BASH:$PATH"
+  fi
+
+  local SDK_BASE="C:/Program Files (x86)/Windows Kits/10"
+
+  local VS_EDITION="${VS_EDITION:-}"
+  local BT_BASE=""
+  if [ -n "$VS_EDITION" ]; then
+    if [ -d "C:/Program Files (x86)/Microsoft Visual Studio/2022/$VS_EDITION" ]; then
+      BT_BASE="C:/Program Files (x86)/Microsoft Visual Studio/2022/$VS_EDITION"
+    elif [ -d "C:/Program Files/Microsoft Visual Studio/2022/$VS_EDITION" ]; then
+      BT_BASE="C:/Program Files/Microsoft Visual Studio/2022/$VS_EDITION"
+    fi
+  else
+    for ed in BuildTools Community Professional Enterprise; do
+      if [ -d "C:/Program Files (x86)/Microsoft Visual Studio/2022/$ed" ]; then
+        BT_BASE="C:/Program Files (x86)/Microsoft Visual Studio/2022/$ed"
+        VS_EDITION="$ed"
+        break
+      fi
+      if [ -d "C:/Program Files/Microsoft Visual Studio/2022/$ed" ]; then
+        BT_BASE="C:/Program Files/Microsoft Visual Studio/2022/$ed"
+        VS_EDITION="$ed"
+        break
+      fi
+    done
+  fi
+  if [ -z "$BT_BASE" ]; then
+    echo "Error: Visual Studio 2022 not found. Install BuildTools / Community / Professional / Enterprise." >&2
+    return 1
+  fi
+
+  local MSVC_VER="${MSVC_VER:-}"
+  if [ -z "$MSVC_VER" ]; then
+    MSVC_VER=$(ls "$BT_BASE/VC/Tools/MSVC/" 2>/dev/null | sort -V | tail -n 1)
+  fi
+  if [ -z "$MSVC_VER" ] || [ ! -d "$BT_BASE/VC/Tools/MSVC/$MSVC_VER" ]; then
+    echo "Error: no MSVC toolchain under $BT_BASE/VC/Tools/MSVC/" >&2
+    return 1
+  fi
+
+  local SDK_VER="${SDK_VER:-}"
+  if [ -z "$SDK_VER" ]; then
+    SDK_VER=$(ls "$SDK_BASE/Include/" 2>/dev/null | grep -E '^10\.' | sort -V | tail -n 1)
+  fi
+  if [ -z "$SDK_VER" ] || [ ! -d "$SDK_BASE/Include/$SDK_VER" ]; then
+    echo "Error: no Windows SDK under $SDK_BASE/Include/" >&2
+    return 1
+  fi
+
+  export CC="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/bin/Hostx64/x64/cl.exe"
+  export CXX="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/bin/Hostx64/x64/cl.exe"
+  export LIB="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/lib/x64;$SDK_BASE/Lib/$SDK_VER/ucrt/x64;$SDK_BASE/Lib/$SDK_VER/um/x64"
+  export INCLUDE="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/include;$SDK_BASE/Include/$SDK_VER/ucrt;$SDK_BASE/Include/$SDK_VER/um;$SDK_BASE/Include/$SDK_VER/shared"
+  export RC="$SDK_BASE/bin/$SDK_VER/x64/rc.exe"
+
+  local BT_BASH="${BT_BASE/C:/\/c}"
+  export PATH="${BT_BASH}/VC/Tools/MSVC/$MSVC_VER/bin/HostX64/x64:/c/Program Files (x86)/Windows Kits/10/bin/$SDK_VER/x64:$PATH"
+  echo "MSVC env loaded (VS 2022 $VS_EDITION, MSVC $MSVC_VER, SDK $SDK_VER)"
 }
 
-# --- Kill dev instance only (never prod) ---
+# Kill dev codeterm + vite by binary path. Prod lives elsewhere — never matched.
 kill_dev() {
   if [[ "$OSTYPE" == darwin* ]]; then
     pgrep -f "target/debug/codeterm" | xargs kill 2>/dev/null || true
     lsof -ti:1420 | xargs kill -9 2>/dev/null || true
   else
-    local dev_pid
-    dev_pid=$(netstat -ano 2>/dev/null | grep ":7686.*LISTEN" | awk '{print $5}' | head -1)
-    if [ -n "$dev_pid" ] && [ "$dev_pid" != "0" ]; then
-      echo "Killing dev instance (PID $dev_pid on port 7686)..."
-      taskkill //PID "$dev_pid" //F 2>/dev/null || true
-      sleep 1
+    local pids
+    pids=$(powershell.exe -NoProfile -Command "
+      Get-Process codeterm,node -ErrorAction SilentlyContinue |
+        Where-Object { \$_.Path -like '*\\target\\debug\\codeterm.exe' -or \$_.Path -like '*\\.tools\\*' } |
+        ForEach-Object { \$_.Id }
+    " 2>/dev/null | tr -d '\r')
+    if [ -n "$pids" ]; then
+      for pid in $pids; do taskkill //PID "$pid" //F 2>/dev/null || true; done
     fi
+    sleep 1
   fi
 }
 

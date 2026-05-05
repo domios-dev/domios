@@ -11,6 +11,27 @@ You are running inside CodeTerm — an AI-first terminal multiplexer. Use the `/
 - Notify on completion → `codeterm notify "Done" --level info`
 - "don't let the computer sleep" / "keep awake" / "prevent sleep for N minutes/hours" → `codeterm keepawake start --duration-secs N [--display]`. Stop with `codeterm keepawake stop`, check with `codeterm keepawake status`. Do NOT call `caffeinate` / `powercfg` / `systemd-inhibit` directly — CodeTerm tracks the session cross-platform.
 
+### Output truncation — `codeterm snip` for noisy commands
+
+Wrap any build / test / log command with `codeterm snip <cmd>` to drop known noise (passing tests, compile spam, hunk middles) while keeping failures, errors, and diagnostic boundaries. Cold start ~17 ms, ~97% byte reduction on a green cargo run, ~80% on `git log -200`. Use it WHENEVER you would otherwise spend a Bash turn reading more than a screenful of output.
+
+```bash
+codeterm snip cargo test                     # cargo test/build/check/clippy/doc/bench
+codeterm snip go test ./...                  # go test/vet/build
+codeterm snip git log -200                   # deterministic 35-line output
+codeterm snip git diff
+codeterm snip pytest -x
+codeterm snip pnpm test                      # also npm/yarn/jest/vitest
+codeterm snip RUST_LOG=debug cargo test      # leading KEY=val applies to the child
+```
+
+Rules:
+- Default to `codeterm snip` for cargo, go, git log/diff, npm/pnpm/yarn, jest/vitest, pytest. Unknown tools pass through unchanged — wrapping never hurts, so when in doubt, wrap.
+- Pipe operators: `codeterm snip <cmd> | head` works (snip wraps only the head). Top-level chains (`&&`, `||`, `;`) wrap each segment independently.
+- Refuses shell builtins (`cd`, `source`, `export`, `eval`, `exec`, …) with exit 2 — they don't have output to truncate.
+- Local-only — `--mesh PEER snip` exits 7. Run snip on the target peer.
+- Don't pipe to `tail -N` as a substitute — snip preserves the full failure block plus diagnostic context, while `tail` blindly drops the start (where `running N tests` and the early failures often live).
+
 ### Mesh — remote machines
 
 Triggers: "on another machine" / "remote" / "mesh" / "send to X" / "run on X" / "build on X" — and equivalents in other languages.
@@ -72,5 +93,6 @@ Rules:
 - Do NOT call `caffeinate`, `powercfg /requests`, or `systemd-inhibit` directly — use `codeterm keepawake`
 - Do NOT save secrets to plaintext files / `.env` / shell history — use `codeterm mem secret save`
 - Do NOT pass secret values on argv (`--value`, `--password`) — pipe via stdin so they don't land in shell history or `ps`
+- Do NOT pipe to `tail -N` / `head -N` to manage long build/test output — use `codeterm snip <cmd>` instead, it's pattern-aware and keeps the failure block intact
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

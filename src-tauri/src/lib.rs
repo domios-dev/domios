@@ -202,6 +202,9 @@ pub fn run() {
             commands::check_claude_hooks,
             commands::install_claude_hooks,
             commands::uninstall_claude_hooks,
+            commands::check_claude_token_hooks,
+            commands::install_claude_token_hooks,
+            commands::uninstall_claude_token_hooks,
             // Session commands
             session::save_session,
             session::save_session_named,
@@ -325,10 +328,11 @@ pub fn run() {
             // Re-index any items missing vectors (catches failed bg indexing)
             mem.reindex_missing();
 
-            // Auto-install Claude hooks (Notification, Stop, PreCompact).
-            // PreCompact is critical for mem — it flushes pane scrollback
-            // before Claude summarizes the context window.
             commands::ensure_claude_hooks_installed();
+            commands::ensure_claude_token_hooks_installed();
+            if let Err(e) = commands::install_project_rules() {
+                log::warn!("[startup] failed to auto-install codeterm rule: {}", e);
+            }
 
             let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
                 crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),

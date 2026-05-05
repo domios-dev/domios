@@ -882,6 +882,51 @@ codeterm sessions resume SESSION_ID [--title T] [--workspace-id ID] [--workspace
                                                # Atomic resume: locate session, open the right workspace + pane, hand the resume id
                                                # to the provider with the correct CLI shape (no double --resume injection)
 
+# Output truncation
+codeterm snip <cmd> [args...]                  # Run a command and route its stdout+stderr through per-tool truncators.
+                                               # Reduces tokens by keeping diagnostic signals (failures, errors, hunk
+                                               # boundaries) and dropping known noise (passing tests, compile spam,
+                                               # hunk middles). Trailing args are forwarded verbatim, including any
+                                               # leading `KEY=val` env prefixes (`RUST_LOG=debug cargo test` → child
+                                               # sees the env). Unknown tools pass through unchanged. Shell builtins
+                                               # (cd, source, export, eval, exec, ...) are refused (exit 2).
+                                               # Truncators: cargo (test/build/check/clippy/doc/bench),
+                                               # go (test/vet/build), git (log/diff/show), node (npm/pnpm/yarn,
+                                               # jest/vitest test+build), python (pytest/py.test/python -m pytest).
+                                               # Measured: cargo green ~97% reduction, mixed ~91%, `git log -200`
+                                               # → deterministic 35 lines.
+                                               # `--mesh` + snip = exit 7 (local-only, no remote endpoint).
+codeterm snip cargo test                       # Examples
+codeterm snip RUST_LOG=debug cargo test -- --nocapture
+codeterm snip git log -200
+codeterm snip pytest -x
+
+# Provider-agnostic hooks (stdin JSON → stdout JSON)
+codeterm hook session-start                    # Read provider hook payload from stdin, write the (possibly modified)
+codeterm hook user-prompt-submit               # JSON to stdout. Provider is selected by `CODETERM_HOOK_SOURCE`
+codeterm hook pre-tool-use                     # (claude / opencode / codex / generic; default claude).
+codeterm hook pre-compact                      # `--mesh` + hook = exit 7 (local-only).
+                                               #
+                                               # session-start: emits `hookSpecificOutput.additionalContext` with an
+                                               #   assembled injection block — identity (`codeterm mem wake-up`), the
+                                               #   original task (first user message from the transcript), surviving
+                                               #   `<command>` directive blocks (roo-code's extractCommandBlocks
+                                               #   regex), and workspace AGENTS.md / CLAUDE.md / .codeterm/repo.md.
+                                               #   Set `CODETERM_HOOK_NO_MEM=1` to skip the mem subprocess on tests
+                                               #   or hot paths.
+                                               # pre-tool-use: rewrites Bash via Claude's
+                                               #   `hookSpecificOutput.updatedInput` shape — wraps the command with
+                                               #   `codeterm snip`, skips already-wrapped invocations and shell
+                                               #   builtins. Pipes wrap only the head; top-level `&&`, `||`, `;`
+                                               #   wrap each segment independently.
+                                               # pre-compact: emits the same injection block on stdout per the
+                                               #   v1.2.0 plan. Claude's PreCompact API only honours
+                                               #   `decision: block`, so this is no-op for Claude (harmless);
+                                               #   session-start is the load-bearing path.
+                                               # user-prompt-submit: stub today (Phase 5 will add tool-history-aware
+                                               #   tips, e.g. "prefix this with `codeterm snip` for ~99% reduction").
+                                               # Cold-start measured: avg 16.9 ms on Windows release (target ≤50 ms).
+
 ```
 
 Add `--json` flag for machine-readable output.
@@ -963,4 +1008,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->

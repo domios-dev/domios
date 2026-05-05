@@ -42,6 +42,7 @@ pub struct InjectionSources {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct InjectionBlock {
     pub workspace_rules: Option<String>,
+    pub workspace_memory: Option<String>,
     pub first_user_message: Option<String>,
     pub command_blocks: Vec<String>,
     pub mem_wakeup: Option<String>,
@@ -50,6 +51,7 @@ pub struct InjectionBlock {
 impl InjectionBlock {
     pub fn is_empty(&self) -> bool {
         self.workspace_rules.is_none()
+            && self.workspace_memory.is_none()
             && self.first_user_message.is_none()
             && self.command_blocks.is_empty()
             && self.mem_wakeup.is_none()
@@ -80,6 +82,9 @@ impl InjectionBlock {
         if let Some(rules) = &self.workspace_rules {
             sections.push(wrap_reminder("Workspace rules (AGENTS.md / CLAUDE.md)", rules));
         }
+        if let Some(mem) = &self.workspace_memory {
+            sections.push(wrap_reminder("Workspace memory (.codeterm/repo.md)", mem));
+        }
         sections.join("\n\n")
     }
 }
@@ -94,7 +99,9 @@ pub fn build_block(sources: &InjectionSources) -> InjectionBlock {
     let mut block = InjectionBlock::default();
 
     if let Some(cwd) = sources.cwd.as_deref() {
-        block.workspace_rules = read_workspace_rules(Path::new(cwd));
+        let cwd_path = Path::new(cwd);
+        block.workspace_rules = read_workspace_rules(cwd_path);
+        block.workspace_memory = read_workspace_memory(cwd_path);
     }
 
     if let Some(path) = sources.transcript_path.as_deref() {
@@ -111,12 +118,9 @@ pub fn build_block(sources: &InjectionSources) -> InjectionBlock {
     block
 }
 
-/// Look for `AGENTS.md`, then `CLAUDE.md`, then `.codeterm/repo.md`. The
-/// first one that exists wins. Capped at ~16 KB to keep the injected
-/// payload manageable.
 pub fn read_workspace_rules(cwd: &Path) -> Option<String> {
     const MAX_BYTES: usize = 16 * 1024;
-    for name in ["AGENTS.md", "CLAUDE.md", ".codeterm/repo.md"] {
+    for name in ["AGENTS.md", "CLAUDE.md"] {
         let p = cwd.join(name);
         if let Ok(content) = std::fs::read_to_string(&p) {
             let trimmed = content.trim();
@@ -128,6 +132,17 @@ pub fn read_workspace_rules(cwd: &Path) -> Option<String> {
         }
     }
     None
+}
+
+pub fn read_workspace_memory(cwd: &Path) -> Option<String> {
+    const MAX_BYTES: usize = 8 * 1024;
+    let p = cwd.join(".codeterm").join("repo.md");
+    let content = std::fs::read_to_string(&p).ok()?;
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.chars().take(MAX_BYTES).collect())
 }
 
 /// One entry from a Claude Code transcript JSONL. We only care about
@@ -333,22 +348,43 @@ mod tests {
     }
 
     #[test]
-    fn workspace_rules_falls_back_to_repo_md() {
+    fn workspace_memory_loaded_from_codeterm_repo_md() {
         let dir = tempdir_with(&[(".codeterm/repo.md", "Workspace memory.")]);
         assert_eq!(
-            read_workspace_rules(dir.path()),
+            read_workspace_memory(dir.path()),
             Some("Workspace memory.".to_string())
         );
+        assert_eq!(read_workspace_rules(dir.path()), None);
     }
 
     #[test]
-    fn workspace_rules_prefers_agents_md_over_others() {
-        let dir = tempdir_with(&[
-            ("AGENTS.md", "first"),
-            ("CLAUDE.md", "second"),
-            (".codeterm/repo.md", "third"),
-        ]);
+    fn workspace_rules_prefers_agents_md_over_claude_md() {
+        let dir = tempdir_with(&[("AGENTS.md", "first"), ("CLAUDE.md", "second")]);
         assert_eq!(read_workspace_rules(dir.path()), Some("first".to_string()));
+    }
+
+    #[test]
+    fn workspace_rules_and_memory_independent() {
+        let dir = tempdir_with(&[
+            ("AGENTS.md", "rules text"),
+            (".codeterm/repo.md", "memory text"),
+        ]);
+        assert_eq!(read_workspace_rules(dir.path()), Some("rules text".into()));
+        assert_eq!(read_workspace_memory(dir.path()), Some("memory text".into()));
+    }
+
+    #[test]
+    fn render_includes_workspace_memory_after_rules() {
+        let block = InjectionBlock {
+            workspace_rules: Some("rules".into()),
+            workspace_memory: Some("memory".into()),
+            ..Default::default()
+        };
+        let s = block.render();
+        let r_pos = s.find("Workspace rules").unwrap();
+        let m_pos = s.find("Workspace memory").unwrap();
+        assert!(r_pos < m_pos);
+        assert!(s.contains("memory"));
     }
 
     #[test]
@@ -581,12 +617,12 @@ mod tests {
     fn render_block_combines_all_sections() {
         let block = InjectionBlock {
             workspace_rules: Some("rules".into()),
+            workspace_memory: None,
             first_user_message: Some("task".into()),
             command_blocks: vec!["<command>x</command>".into()],
             mem_wakeup: Some("identity".into()),
         };
         let s = block.render();
-        // Expected order: identity → first message → commands → rules.
         let id_pos = s.find("Identity").unwrap();
         let first_pos = s.find("Original task").unwrap();
         let cmd_pos = s.find("Active <command>").unwrap();

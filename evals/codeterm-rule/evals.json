@@ -1,0 +1,102 @@
+{
+  "skill_name": "codeterm-rule",
+  "description": "Evaluates the codeterm_rule.md prompt installed at ~/.claude/rules/codeterm.md for spawned project agents. Covers when-to-use-CodeTerm-CLI behaviors, snip wrapping for noisy output, mesh routing, secrets, and the Do-NOT list.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "snip-cargo-test",
+      "prompt": "run cargo test in this repo and tell me what's failing",
+      "expected_output": "Agent wraps cargo test with codeterm snip to keep output manageable while preserving failures",
+      "expectations": [
+        "Uses `codeterm snip cargo test` (or `codeterm snip` followed by a cargo test invocation) — wraps the noisy build/test command",
+        "Does NOT pipe the cargo output to `tail -N` / `head -N` to manage size",
+        "Does NOT run bare `cargo test` without snip when the user explicitly asked to see what's failing"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "snip-git-log",
+      "prompt": "show me the last 200 commits on this branch",
+      "expected_output": "Agent uses codeterm snip git log -200 to get a deterministic 35-line summary instead of pager spam",
+      "expectations": [
+        "Uses `codeterm snip git log` (with -200 or equivalent) to keep output bounded",
+        "Does NOT pipe `git log` to `head -N` / `tail -N` as a substitute for snip"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "snip-not-for-builtins",
+      "prompt": "I want to switch into ~/Developer/myapp and source venv/bin/activate before running tests",
+      "expected_output": "Agent uses cd / source DIRECTLY (no snip wrap on builtins) and snip-wraps the test command only",
+      "expectations": [
+        "Does NOT wrap `cd` with `codeterm snip` (snip refuses shell builtins with exit 2)",
+        "Does NOT wrap `source` with `codeterm snip`",
+        "May still snip the actual test command (cargo / pytest / npm) if one is mentioned"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "keepawake-not-caffeinate",
+      "prompt": "don't let the computer sleep for the next 2 hours, I'm running a long build",
+      "expected_output": "Agent uses codeterm keepawake start --duration-secs 7200 instead of caffeinate / powercfg",
+      "expectations": [
+        "Uses `codeterm keepawake start` with a `--duration-secs` argument (7200 or equivalent for 2 hours)",
+        "Does NOT call `caffeinate` directly",
+        "Does NOT call `powercfg` or `systemd-inhibit` directly"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "browser-not-start-or-open",
+      "prompt": "open the test report at /tmp/coverage.html in a browser",
+      "expected_output": "Agent uses codeterm browser open file:///tmp/coverage.html, not the OS `open` or `start` command",
+      "expectations": [
+        "Uses `codeterm browser open` with a file:// URL or absolute path to the html file",
+        "Does NOT call the bare `open` command (macOS) for the file",
+        "Does NOT call the bare `start` command (Windows) for the file"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "mesh-cli-not-curl",
+      "prompt": "list all panes on the home-server peer",
+      "expected_output": "Agent uses codeterm pane list --mesh home-server, not raw curl against the REST API",
+      "expectations": [
+        "Uses `codeterm pane list --mesh home-server` (or `codeterm mesh peers` first if discovering)",
+        "Does NOT use raw `curl` against any /api/ endpoint",
+        "Does NOT hit `/api/mesh/peers` or other REST paths directly"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "secret-via-stdin-not-argv",
+      "prompt": "save my OpenAI key sk-proj-abc123 under the name openai-prod",
+      "expected_output": "Agent pipes the value via stdin to codeterm mem secret save --name openai-prod, never passes --value on argv",
+      "expectations": [
+        "Pipes the secret value via stdin (`echo -n` / `printf` / heredoc piped) into `codeterm mem secret save --name openai-prod`",
+        "Does NOT pass the secret value as `--value sk-proj-abc123` or any argv flag containing the plaintext",
+        "Does NOT write the secret to a `.env` file or any plaintext file"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "agent-to-agent-english",
+      "prompt": "заспавнь воркера чтоб разобрался с фронтенд багом в src/components/ChatView",
+      "expected_output": "Agent spawns the worker with an ENGLISH --task argument (despite user request being in Russian)",
+      "expectations": [
+        "The `--task` argument passed to `codeterm agent spawn` is written in English",
+        "Does NOT include Russian text inside the `--task` value (agent-to-agent communication is always English)"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "snip-pytest",
+      "prompt": "run pytest -x in tests/ and report the first failure",
+      "expected_output": "Agent wraps pytest with codeterm snip",
+      "expectations": [
+        "Uses `codeterm snip pytest` (with or without -x) to wrap the test run",
+        "Does NOT pipe pytest output to `tail` / `head`"
+      ]
+    }
+  ]
+}

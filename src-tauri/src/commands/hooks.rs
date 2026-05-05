@@ -1,4 +1,4 @@
-use super::ClaudeHooksStatus;
+use super::{ClaudeHooksStatus, ClaudeTokenHooksStatus};
 
 fn claude_settings_path() -> Result<std::path::PathBuf, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
@@ -9,6 +9,7 @@ fn claude_settings_path() -> Result<std::path::PathBuf, String> {
 // auth_middleware instead of the old loopback-exemption path. Any older
 // marker is treated as upgradable so we overwrite the pre-v2 curl commands.
 pub(super) const CODETERM_HOOK_MARKER: &str = "codeterm-hook-v2";
+pub(super) const CODETERM_TOKEN_HOOK_MARKER: &str = "codeterm-hook-token-v3";
 
 /// True when a hook entry was installed by CodeTerm at any version — used on
 /// install to REMOVE stale entries before writing the current ones. Accepts
@@ -254,4 +255,154 @@ pub fn uninstall_claude_hooks() -> Result<(), String> {
     std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
     log::info!("Claude Code hooks removed");
     Ok(())
+}
+
+fn is_token_hook(hook_entry: &serde_json::Value) -> bool {
+    hook_entry.get("hooks").and_then(|hs| hs.as_array())
+        .map(|hs| hs.iter().any(|h| {
+            h.get("_source").and_then(|s| s.as_str())
+                .map(|src| src == CODETERM_TOKEN_HOOK_MARKER)
+                .unwrap_or(false)
+        }))
+        .unwrap_or(false)
+}
+
+fn codeterm_cli_path() -> String {
+    if let Some(home) = dirs::home_dir() {
+        let exe = if cfg!(windows) { "codeterm.exe" } else { "codeterm" };
+        let p = home.join(".codeterm").join("bin").join(exe);
+        if let Some(s) = p.to_str() {
+            return s.to_string();
+        }
+    }
+    "codeterm".to_string()
+}
+
+#[tauri::command]
+pub fn check_claude_token_hooks() -> Result<ClaudeTokenHooksStatus, String> {
+    let path = claude_settings_path()?;
+    if !path.exists() {
+        return Ok(ClaudeTokenHooksStatus {
+            settings_exists: false,
+            hooks_installed: false,
+            pre_tool_use: false,
+            session_start: false,
+            user_prompt_submit: false,
+            pre_compact: false,
+        });
+    }
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse settings.json: {}", e))?;
+    let pre_tool_use = json.pointer("/hooks/PreToolUse")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(is_token_hook))
+        .unwrap_or(false);
+    let session_start = json.pointer("/hooks/SessionStart")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(is_token_hook))
+        .unwrap_or(false);
+    let user_prompt_submit = json.pointer("/hooks/UserPromptSubmit")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(is_token_hook))
+        .unwrap_or(false);
+    let pre_compact = json.pointer("/hooks/PreCompact")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().any(is_token_hook))
+        .unwrap_or(false);
+    Ok(ClaudeTokenHooksStatus {
+        settings_exists: true,
+        hooks_installed: pre_tool_use && session_start && user_prompt_submit && pre_compact,
+        pre_tool_use,
+        session_start,
+        user_prompt_submit,
+        pre_compact,
+    })
+}
+
+#[tauri::command]
+pub fn install_claude_token_hooks() -> Result<(), String> {
+    let path = claude_settings_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut json: serde_json::Value = if path.exists() {
+        let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse settings.json: {}", e))?
+    } else {
+        serde_json::json!({})
+    };
+
+    let cli = codeterm_cli_path();
+    let make_entry = |matcher: &str, event: &str, timeout_ms: u64| -> serde_json::Value {
+        serde_json::json!({
+            "matcher": matcher,
+            "hooks": [{
+                "type": "command",
+                "command": format!("\"{cli}\" hook {event}"),
+                "timeout": timeout_ms,
+                "_source": CODETERM_TOKEN_HOOK_MARKER,
+            }]
+        })
+    };
+
+    if json.get("hooks").is_none() {
+        json["hooks"] = serde_json::json!({});
+    }
+    let hooks = json["hooks"].as_object_mut().ok_or("hooks is not an object")?;
+
+    for key in &["PreToolUse", "SessionStart", "UserPromptSubmit", "PreCompact"] {
+        if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
+            arr.retain(|h| !is_token_hook(h));
+        }
+        if !hooks.contains_key(*key) {
+            hooks.insert((*key).into(), serde_json::json!([]));
+        }
+    }
+
+    hooks["PreToolUse"].as_array_mut().unwrap().push(make_entry("Bash", "pre-tool-use", 5000));
+    hooks["SessionStart"].as_array_mut().unwrap().push(make_entry("", "session-start", 5000));
+    hooks["UserPromptSubmit"].as_array_mut().unwrap().push(make_entry("", "user-prompt-submit", 5000));
+    hooks["PreCompact"].as_array_mut().unwrap().push(make_entry("", "pre-compact", 5000));
+
+    let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
+    log::info!("Claude token-tool hooks installed at {:?}", path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn uninstall_claude_token_hooks() -> Result<(), String> {
+    let path = claude_settings_path()?;
+    if !path.exists() { return Ok(()); }
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse settings.json: {}", e))?;
+    if let Some(hooks) = json.get_mut("hooks").and_then(|v| v.as_object_mut()) {
+        for key in &["PreToolUse", "SessionStart", "UserPromptSubmit", "PreCompact"] {
+            if let Some(arr) = hooks.get_mut(*key).and_then(|v| v.as_array_mut()) {
+                arr.retain(|h| !is_token_hook(h));
+            }
+        }
+    }
+    let pretty = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    std::fs::write(&path, pretty).map_err(|e| e.to_string())?;
+    log::info!("Claude token-tool hooks removed");
+    Ok(())
+}
+
+pub fn ensure_claude_token_hooks_installed() {
+    match check_claude_token_hooks() {
+        Ok(status) if status.hooks_installed => {
+            log::debug!("[startup] claude token hooks already installed");
+        }
+        Ok(_) | Err(_) => {
+            if let Err(e) = install_claude_token_hooks() {
+                log::warn!("[startup] failed to auto-install claude token hooks: {}", e);
+            } else {
+                log::info!("[startup] claude token hooks auto-installed");
+            }
+        }
+    }
 }

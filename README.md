@@ -226,6 +226,10 @@ codeterm notify "Build complete" --level info
 
 # Browser
 codeterm browser open "http://localhost:3000"
+
+# Output truncation (token saver for build/test/log commands)
+codeterm snip cargo test
+codeterm snip git log -200
 ```
 
 ### Environment Variables
