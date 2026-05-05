@@ -21,10 +21,16 @@ impl ShellSyntax {
     pub const NULL_DEV: &str = if Self::IS_WINDOWS { "NUL" } else { "/dev/null" };
 
     /// Write `task` to a temp file, return the shell expression that reads it inline.
+    ///
+    /// Windows: wrap in `"$(…)"` so PowerShell builds one string and hands it to
+    /// the native command as a single argv element. Bare `(Get-Content -Raw)` was
+    /// argv-split by PS native-command argument passing — any `--flag` token in
+    /// the task body got reparsed as a CLI option (claude's headless path already
+    /// had the same fix via `task_file_stdin_pipe`).
     pub fn task_file_expr(task: &str) -> String {
         let (path, _) = Self::write_task_temp(task);
         if Self::IS_WINDOWS {
-            format!("(Get-Content '{}' -Raw -Encoding UTF8)", path)
+            format!("\"$(Get-Content '{}' -Raw -Encoding UTF8)\"", path)
         } else {
             format!("\"$(cat {})\"", path)
         }
@@ -87,13 +93,22 @@ mod tests {
     fn task_file_expr_writes_file_and_returns_inline_subexpr() {
         let expr = ShellSyntax::task_file_expr("hello world");
         if ShellSyntax::IS_WINDOWS {
-            assert!(expr.starts_with("(Get-Content "));
-            assert!(expr.ends_with(" -Raw -Encoding UTF8)"));
+            assert!(expr.starts_with("\"$(Get-Content "));
+            assert!(expr.ends_with(" -Raw -Encoding UTF8)\""));
         } else {
             assert!(expr.starts_with("\"$(cat "));
             assert!(expr.ends_with(")\""));
         }
         assert!(expr.contains(".ct-task-"));
+    }
+
+    #[test]
+    fn task_file_expr_windows_wraps_in_double_quotes_for_argv_safety() {
+        if !ShellSyntax::IS_WINDOWS { return; }
+        let body = "do something --yes --extra-flag\nmultiline";
+        let expr = ShellSyntax::task_file_expr(body);
+        assert!(expr.starts_with('"') && expr.ends_with('"'),
+            "Windows form must be wrapped in PS double quotes so the native command sees a single argv element: {expr}");
     }
 
     #[test]
