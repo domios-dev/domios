@@ -1,0 +1,292 @@
+   Compiling codeterm-cli v0.1.0 (C:\Users\amigo\Developer\codeterm\cli)
+warning: unused import: `std::fs`
+ --> src/main.rs:7:5
+  |
+7 | use std::fs;
+  |     ^^^^^^^
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.81s
+     Running unittests src/main.rs
+
+running 250 tests
+test cmd::a::ok_0 ... ok
+test cmd::a::ok_1 ... ok
+test cmd::a::ok_2 ... ok
+test cmd::a::ok_3 ... ok
+test cmd::a::ok_4 ... ok
+test cmd::a::ok_5 ... ok
+test cmd::a::ok_6 ... ok
+test cmd::a::ok_7 ... ok
+test cmd::a::ok_8 ... ok
+test cmd::a::ok_9 ... ok
+test cmd::a::ok_10 ... ok
+test cmd::a::ok_11 ... ok
+test cmd::a::ok_12 ... ok
+test cmd::a::ok_13 ... ok
+test cmd::a::ok_14 ... ok
+test cmd::a::ok_15 ... ok
+test cmd::a::ok_16 ... ok
+test cmd::a::ok_17 ... ok
+test cmd::a::ok_18 ... ok
+test cmd::a::ok_19 ... ok
+test cmd::a::ok_20 ... ok
+test cmd::a::ok_21 ... ok
+test cmd::a::ok_22 ... ok
+test cmd::a::ok_23 ... ok
+test cmd::a::ok_24 ... ok
+test cmd::a::ok_25 ... ok
+test cmd::a::ok_26 ... ok
+test cmd::a::ok_27 ... ok
+test cmd::a::ok_28 ... ok
+test cmd::a::ok_29 ... ok
+test cmd::a::ok_30 ... ok
+test cmd::a::ok_31 ... ok
+test cmd::a::ok_32 ... ok
+test cmd::a::ok_33 ... ok
+test cmd::a::ok_34 ... ok
+test cmd::a::ok_35 ... ok
+test cmd::a::ok_36 ... ok
+test cmd::a::ok_37 ... ok
+test cmd::a::ok_38 ... ok
+test cmd::a::ok_39 ... ok
+test cmd::a::ok_40 ... ok
+test cmd::a::ok_41 ... ok
+test cmd::a::ok_42 ... ok
+test cmd::a::ok_43 ... ok
+test cmd::a::ok_44 ... ok
+test cmd::a::ok_45 ... ok
+test cmd::a::ok_46 ... ok
+test cmd::a::ok_47 ... ok
+test cmd::a::ok_48 ... ok
+test cmd::a::ok_49 ... ok
+test cmd::a::ok_50 ... ok
+test cmd::a::ok_51 ... ok
+test cmd::a::ok_52 ... ok
+test cmd::a::ok_53 ... ok
+test cmd::a::ok_54 ... ok
+test cmd::a::ok_55 ... ok
+test cmd::a::ok_56 ... ok
+test cmd::a::ok_57 ... ok
+test cmd::a::ok_58 ... ok
+test cmd::a::ok_59 ... ok
+test cmd::a::ok_60 ... ok
+test cmd::a::ok_61 ... ok
+test cmd::a::ok_62 ... ok
+test cmd::a::ok_63 ... ok
+test cmd::a::ok_64 ... ok
+test cmd::a::ok_65 ... ok
+test cmd::a::ok_66 ... ok
+test cmd::a::ok_67 ... ok
+test cmd::a::ok_68 ... ok
+test cmd::a::ok_69 ... ok
+test cmd::a::ok_70 ... ok
+test cmd::a::ok_71 ... ok
+test cmd::a::ok_72 ... ok
+test cmd::a::ok_73 ... ok
+test cmd::a::ok_74 ... ok
+test cmd::a::ok_75 ... ok
+test cmd::a::ok_76 ... ok
+test cmd::a::ok_77 ... ok
+test cmd::a::ok_78 ... ok
+test cmd::a::ok_79 ... ok
+test cmd::a::ok_80 ... ok
+test cmd::a::ok_81 ... ok
+test cmd::a::ok_82 ... ok
+test cmd::a::ok_83 ... ok
+test cmd::a::ok_84 ... ok
+test cmd::a::ok_85 ... ok
+test cmd::a::ok_86 ... ok
+test cmd::a::ok_87 ... ok
+test cmd::a::ok_88 ... ok
+test cmd::a::ok_89 ... ok
+test cmd::a::ok_90 ... ok
+test cmd::a::ok_91 ... ok
+test cmd::a::ok_92 ... ok
+test cmd::a::ok_93 ... ok
+test cmd::a::ok_94 ... ok
+test cmd::a::ok_95 ... ok
+test cmd::a::ok_96 ... ok
+test cmd::a::ok_97 ... ok
+test cmd::a::ok_98 ... ok
+test cmd::a::ok_99 ... ok
+test cmd::a::ok_100 ... ok
+test cmd::a::ok_101 ... ok
+test cmd::a::ok_102 ... ok
+test cmd::a::ok_103 ... ok
+test cmd::a::ok_104 ... ok
+test cmd::a::ok_105 ... ok
+test cmd::a::ok_106 ... ok
+test cmd::a::ok_107 ... ok
+test cmd::a::ok_108 ... ok
+test cmd::a::ok_109 ... ok
+test cmd::a::ok_110 ... ok
+test cmd::a::ok_111 ... ok
+test cmd::a::ok_112 ... ok
+test cmd::a::ok_113 ... ok
+test cmd::a::ok_114 ... ok
+test cmd::a::ok_115 ... ok
+test cmd::a::ok_116 ... ok
+test cmd::a::ok_117 ... ok
+test cmd::a::ok_118 ... ok
+test cmd::a::ok_119 ... ok
+test cmd::a::ok_120 ... ok
+test cmd::a::ok_121 ... ok
+test cmd::a::ok_122 ... ok
+test cmd::a::ok_123 ... ok
+test cmd::a::ok_124 ... ok
+test cmd::a::ok_125 ... ok
+test cmd::a::ok_126 ... ok
+test cmd::a::ok_127 ... ok
+test cmd::a::ok_128 ... ok
+test cmd::a::ok_129 ... ok
+test cmd::a::ok_130 ... ok
+test cmd::a::ok_131 ... ok
+test cmd::a::ok_132 ... ok
+test cmd::a::ok_133 ... ok
+test cmd::a::ok_134 ... ok
+test cmd::a::ok_135 ... ok
+test cmd::a::ok_136 ... ok
+test cmd::a::ok_137 ... ok
+test cmd::a::ok_138 ... ok
+test cmd::a::ok_139 ... ok
+test cmd::a::ok_140 ... ok
+test cmd::a::ok_141 ... ok
+test cmd::a::ok_142 ... ok
+test cmd::a::ok_143 ... ok
+test cmd::a::ok_144 ... ok
+test cmd::a::ok_145 ... ok
+test cmd::a::ok_146 ... ok
+test cmd::a::ok_147 ... ok
+test cmd::a::ok_148 ... ok
+test cmd::a::ok_149 ... ok
+test cmd::a::ok_150 ... ok
+test cmd::a::ok_151 ... ok
+test cmd::a::ok_152 ... ok
+test cmd::a::ok_153 ... ok
+test cmd::a::ok_154 ... ok
+test cmd::a::ok_155 ... ok
+test cmd::a::ok_156 ... ok
+test cmd::a::ok_157 ... ok
+test cmd::a::ok_158 ... ok
+test cmd::a::ok_159 ... ok
+test cmd::a::ok_160 ... ok
+test cmd::a::ok_161 ... ok
+test cmd::a::ok_162 ... ok
+test cmd::a::ok_163 ... ok
+test cmd::a::ok_164 ... ok
+test cmd::a::ok_165 ... ok
+test cmd::a::ok_166 ... ok
+test cmd::a::ok_167 ... ok
+test cmd::a::ok_168 ... ok
+test cmd::a::ok_169 ... ok
+test cmd::a::ok_170 ... ok
+test cmd::a::ok_171 ... ok
+test cmd::a::ok_172 ... ok
+test cmd::a::ok_173 ... ok
+test cmd::a::ok_174 ... ok
+test cmd::a::ok_175 ... ok
+test cmd::a::ok_176 ... ok
+test cmd::a::ok_177 ... ok
+test cmd::a::ok_178 ... ok
+test cmd::a::ok_179 ... ok
+test cmd::a::ok_180 ... ok
+test cmd::a::ok_181 ... ok
+test cmd::a::ok_182 ... ok
+test cmd::a::ok_183 ... ok
+test cmd::a::ok_184 ... ok
+test cmd::a::ok_185 ... ok
+test cmd::a::ok_186 ... ok
+test cmd::a::ok_187 ... ok
+test cmd::a::ok_188 ... ok
+test cmd::a::ok_189 ... ok
+test cmd::a::ok_190 ... ok
+test cmd::a::ok_191 ... ok
+test cmd::a::ok_192 ... ok
+test cmd::a::ok_193 ... ok
+test cmd::a::ok_194 ... ok
+test cmd::a::ok_195 ... ok
+test cmd::a::ok_196 ... ok
+test cmd::a::ok_197 ... ok
+test cmd::a::ok_198 ... ok
+test cmd::a::ok_199 ... ok
+test cmd::a::ok_200 ... ok
+test cmd::a::ok_201 ... ok
+test cmd::a::ok_202 ... ok
+test cmd::a::ok_203 ... ok
+test cmd::a::ok_204 ... ok
+test cmd::a::ok_205 ... ok
+test cmd::a::ok_206 ... ok
+test cmd::a::ok_207 ... ok
+test cmd::a::ok_208 ... ok
+test cmd::a::ok_209 ... ok
+test cmd::a::ok_210 ... ok
+test cmd::a::ok_211 ... ok
+test cmd::a::ok_212 ... ok
+test cmd::a::ok_213 ... ok
+test cmd::a::ok_214 ... ok
+test cmd::a::ok_215 ... ok
+test cmd::a::ok_216 ... ok
+test cmd::a::ok_217 ... ok
+test cmd::a::ok_218 ... ok
+test cmd::a::ok_219 ... ok
+test cmd::a::ok_220 ... ok
+test cmd::a::ok_221 ... ok
+test cmd::a::ok_222 ... ok
+test cmd::a::ok_223 ... ok
+test cmd::a::ok_224 ... ok
+test cmd::a::ok_225 ... ok
+test cmd::a::ok_226 ... ok
+test cmd::a::ok_227 ... ok
+test cmd::a::ok_228 ... ok
+test cmd::a::ok_229 ... ok
+test cmd::a::ok_230 ... ok
+test cmd::a::ok_231 ... ok
+test cmd::a::ok_232 ... ok
+test cmd::a::ok_233 ... ok
+test cmd::a::ok_234 ... ok
+test cmd::a::ok_235 ... ok
+test cmd::a::ok_236 ... ok
+test cmd::a::ok_237 ... ok
+test cmd::a::ok_238 ... ok
+test cmd::a::ok_239 ... ok
+test cmd::a::ok_240 ... ok
+test cmd::a::ok_241 ... ok
+test cmd::a::ok_242 ... ok
+test cmd::a::ok_243 ... ok
+test cmd::a::ok_244 ... ok
+test cmd::a::ok_245 ... ok
+test cmd::a::ok_246 ... ok
+test cmd::a::ok_247 ... ok
+test cmd::a::ok_248 ... ok
+test cmd::b::failing_test ... FAILED
+
+failures:
+
+---- cmd::b::failing_test stdout ----
+
+thread 'cmd::b::failing_test' (4892) panicked at src\cmd\b.rs:42:9:
+assertion `left == right` failed
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+stack backtrace:
+   0: frame_0
+   1: frame_1
+   2: frame_2
+   3: frame_3
+   4: frame_4
+   5: frame_5
+   6: frame_6
+   7: frame_7
+   8: frame_8
+   9: frame_9
+   10: frame_10
+   11: frame_11
+   12: frame_12
+   13: frame_13
+   14: frame_14
+
+failures:
+    cmd::b::failing_test
+
+test result: FAILED. 249 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s

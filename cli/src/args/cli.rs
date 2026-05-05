@@ -203,4 +203,15 @@ pub enum Commands {
         #[command(subcommand)]
         action: SessionsAction,
     },
+
+    /// Run a command and filter its output through per-tool truncation
+    /// patterns. Reduces tokens spent reading test/build/log output by
+    /// keeping diagnostic signal lines and dropping known noise (passing
+    /// tests, compile spam, hunk middles).
+    Snip {
+        /// Command and arguments to run, including any leading `KEY=val`
+        /// env prefixes (e.g. `RUST_LOG=debug cargo test`).
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true, num_args = 1..)]
+        cmd: Vec<String>,
+    },
 }

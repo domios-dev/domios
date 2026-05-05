@@ -231,6 +231,13 @@ fn main() {
             );
             std::process::exit(7);
         }
+        if matches!(cli.command, Commands::Snip { .. }) {
+            eprintln!(
+                "Error: 'codeterm snip' wraps a local child process and cannot be \
+                 mesh-forwarded. Run it on the target peer directly."
+            );
+            std::process::exit(7);
+        }
         mesh_cli::run_via_mesh(&cli, mesh_target);
         return;
     }
@@ -653,6 +660,7 @@ fn main() {
             cmd::sessions::handle_sessions(cli.json, action, &http, &base_url, token.as_deref());
             return;
         }
+        Commands::Snip { cmd: cmd_argv } => cmd::snip::handle_snip(cmd_argv),
     };
 
     handle_result(cli.json, result);

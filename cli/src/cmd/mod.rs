@@ -7,5 +7,6 @@ pub mod mesh;
 pub mod pane;
 pub mod print;
 pub mod sessions;
+pub mod snip;
 pub mod update;
 pub mod worker;

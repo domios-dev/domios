@@ -1,0 +1,70 @@
+    Compiling proc-macro2 v1.0.86
+    Compiling unicode-ident v1.0.13
+    Compiling memchr v2.7.4
+    Compiling once_cell v1.20.2
+    Compiling serde v1.0.215
+    Compiling syn v2.0.87
+    Compiling clap_lex v0.7.2
+    Compiling clap_builder v4.5.20
+    Compiling clap v4.5.20
+    Compiling regex-syntax v0.8.5
+    Compiling regex-automata v0.4.8
+    Compiling regex v1.11.1
+    Compiling codeterm-cli v0.1.0 (C:\Users\amigo\Developer\codeterm\cli)
+     Finished `test` profile [unoptimized + debuginfo] target(s) in 4.52s
+     Running unittests src/main.rs (target/debug/deps/codeterm-1a2b3c4d5e6f7890)
+
+running 50 tests
+test cmd::snip::cargo::tests::passthrough_for_unknown_subcommand ... ok
+test cmd::snip::cargo::tests::passthrough_when_no_subcommand ... ok
+test cmd::snip::cargo::tests::drops_compiling_lines ... ok
+test cmd::snip::cargo::tests::drops_finished_lines ... ok
+test cmd::snip::cargo::tests::drops_running_lines ... ok
+test cmd::snip::cargo::tests::drops_per_test_ok ... ok
+test cmd::snip::cargo::tests::keeps_test_result_summary ... ok
+test cmd::snip::cargo::tests::keeps_failed_marker ... ok
+test cmd::snip::cargo::tests::keeps_running_n_tests ... ok
+test cmd::snip::cargo::tests::keeps_failures_section ... ok
+test cmd::snip::cargo::tests::green_run_high_reduction ... ok
+test cmd::snip::go::tests::passthrough_for_unknown_subcommand ... ok
+test cmd::snip::go::tests::drops_pass_marker ... ok
+test cmd::snip::go::tests::keeps_fail_marker ... ok
+test cmd::snip::go::tests::drops_pause ... ok
+test cmd::snip::go::tests::drops_cont ... ok
+test cmd::snip::go::tests::keeps_run ... ok
+test cmd::snip::go::tests::drops_pkg_ok_line ... ok
+test cmd::snip::go::tests::drops_pkg_no_tests ... ok
+test cmd::snip::go::tests::keeps_fail_summary ... ok
+test cmd::snip::go::tests::keeps_panic_block_until_blank_line ... ok
+test cmd::snip::go::tests::keeps_fail_body ... ok
+test cmd::snip::go::tests::all_fail_preserves_diagnostics ... ok
+test cmd::snip::git::tests::log_passthrough_when_short ... ok
+test cmd::snip::git::tests::log_truncates_long_input_to_35_lines_total ... ok
+test cmd::snip::git::tests::log_deterministic_for_200 ... ok
+test cmd::snip::git::tests::log_keeps_first_head_lines ... ok
+test cmd::snip::git::tests::log_keeps_last_5_lines ... ok
+test cmd::snip::git::tests::diff_keeps_diff_header ... ok
+test cmd::snip::git::tests::diff_passthrough_small_hunk ... ok
+test cmd::snip::git::tests::diff_collapses_huge_hunk_body ... ok
+test cmd::snip::git::tests::diff_keeps_each_hunk_independently ... ok
+test cmd::snip::git::tests::diff_keeps_binary_marker ... ok
+test cmd::snip::git::tests::diff_keeps_rename_headers ... ok
+test cmd::snip::git::tests::diff_show_uses_same_truncator ... ok
+test cmd::snip::git::tests::passthrough_for_other_subcommands ... ok
+test cmd::snip::git::tests::log_log_oneline_200_is_35_lines ... ok
+test cmd::snip::node::tests::jest_drops_pass_line ... ok
+test cmd::snip::node::tests::jest_keeps_fail_line ... ok
+test cmd::snip::node::tests::jest_drops_check_marker ... ok
+test cmd::snip::node::tests::jest_keeps_bullet_failure ... ok
+test cmd::snip::node::tests::jest_keeps_expected_received ... ok
+test cmd::snip::node::tests::npm_test_dispatches_test_truncator ... ok
+test cmd::snip::node::tests::npm_run_build_dispatches_build_truncator ... ok
+test cmd::snip::node::tests::npm_build_keeps_ts_error ... ok
+test cmd::snip::node::tests::green_test_run_high_reduction ... ok
+test cmd::snip::python::tests::pytest_bare_recognised ... ok
+test cmd::snip::python::tests::keeps_failed_line ... ok
+test cmd::snip::python::tests::keeps_failure_traceback ... ok
+test cmd::snip::python::tests::green_run_high_reduction ... ok
+
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
