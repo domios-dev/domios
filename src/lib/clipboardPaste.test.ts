@@ -27,13 +27,17 @@ assert("cyrillic + space → single-quote wrap (utf-8 preserved)",
   quotePathForPaste("/Users/rollacode/Desktop/Снимок экрана 2026-05-05 в 10.49.45.png"),
   "'/Users/rollacode/Desktop/Снимок экрана 2026-05-05 в 10.49.45.png'");
 
-assert("windows backslash without space → wrapped (backslash treated as meta-ish)",
+assert("windows backslash without space → unchanged (cmd.exe compatibility)",
   quotePathForPaste("C:\\Users\\me\\file.png"),
-  "'C:\\Users\\me\\file.png'");
+  "C:\\Users\\me\\file.png");
 
 assert("windows backslash + space → single-quote wrap",
   quotePathForPaste("C:\\Users\\me\\file with space.png"),
   "'C:\\Users\\me\\file with space.png'");
+
+assert("windows path with $ → quoted",
+  quotePathForPaste("C:\\$Recycle.Bin\\file.png"),
+  "'C:\\$Recycle.Bin\\file.png'");
 
 assert("internal single quote → double-quote wrap with escapes",
   quotePathForPaste("/tmp/it's broken.png"),

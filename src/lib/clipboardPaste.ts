@@ -6,7 +6,7 @@ export interface PasteOptions {
 }
 
 export function quotePathForPaste(p: string): string {
-  if (!/[\s"'\\$`!<>|&;()*?#~]/.test(p)) return p;
+  if (!/[\s"'$`!<>|&;()*?#~]/.test(p)) return p;
   if (!p.includes("'")) return `'${p}'`;
   return `"${p.replace(/(["\\$`])/g, "\\$1")}"`;
 }
