@@ -472,16 +472,28 @@ async fn inject_message(
     msg: &InboundMessage,
     voice_cfg: &VoiceTranscribeConfig,
 ) -> Result<(), String> {
-    let pane_id = {
+    let (pane_id, agent_type) = {
         let mux = svc.mux.lock();
-        mux.resolve_pane_id(general_agent::GENERAL_ALIAS)
-            .ok_or("General Agent not found")?
+        let pid = mux.resolve_pane_id(general_agent::GENERAL_ALIAS)
+            .ok_or("General Agent not found")?;
+        let at = mux.get_pane(&pid).and_then(|p| p.agent_type.clone());
+        (pid, at)
     };
 
     let body = build_message_body(msg, voice_cfg).await;
     let msg_id_suffix = msg.message_id.map(|id| format!(" msg_id={}", id)).unwrap_or_default();
     let prefixed = format!("[{}: {}{}] {}",
         capitalize(&msg.service), msg.user_id, msg_id_suffix, body);
+
+    if agent_type.is_none() {
+        let preview: String = prefixed.chars().take(120).collect();
+        log::info!(
+            "[bridge] queued inbound for pane={} (agent restarting): {}",
+            pane_id, preview,
+        );
+        super::inbound_buffer::push(&pane_id, prefixed);
+        return Ok(());
+    }
 
     let pty_id = svc.resolve_pty_id(&pane_id)?;
     let paste = format!("\x1b[200~{}\x1b[201~", prefixed);
@@ -491,10 +503,8 @@ async fn inject_message(
     let pty = svc.pty.clone();
     let pty_id = pty_id.clone();
     std::thread::spawn(move || {
-        // First attempt after 500ms
         std::thread::sleep(std::time::Duration::from_millis(500));
         let _ = pty.lock().write(&pty_id, b"\r");
-        // Retry after 2s if first didn't take
         std::thread::sleep(std::time::Duration::from_millis(2000));
         let _ = pty.lock().write(&pty_id, b"\r");
     });

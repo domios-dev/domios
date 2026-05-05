@@ -67,6 +67,9 @@ pub(crate) fn init_states() -> AppStates {
         last_check: None,
         last_check_time: None,
         channel,
+        phase: update::UpdatePhase::Idle,
+        last_error: None,
+        phase_changed_at: None,
     }));
 
     // Try to restore last session, fallback to default workspace

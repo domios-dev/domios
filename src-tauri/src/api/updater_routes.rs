@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::api::routes::{check_auth, AppState};
 use crate::update::apply::{check_and_apply, ApplyOptions};
 use crate::update::self_update::{self, SelfUpdateOptions};
-use crate::update::Channel;
+use crate::update::{Channel, UpdatePhase};
 
 #[derive(Deserialize)]
 pub struct CheckUpdateQuery {
@@ -34,16 +34,49 @@ pub async fn check_update(
     }
 
     let method = state.update_state.lock().install_method.clone();
+    {
+        let mut us = state.update_state.lock();
+        us.set_phase(UpdatePhase::Checking);
+        us.clear_error();
+    }
 
-    let info = crate::update::checker::check_for_update(&method)
-        .await
-        .map_err(|_| (StatusCode::BAD_GATEWAY, "Failed to check for updates"))?;
+    let info = match crate::update::checker::check_for_update(&method).await {
+        Ok(i) => i,
+        Err(e) => {
+            log::error!("[updater] check failed: {}", e);
+            state.update_state.lock().set_error(format!("check failed: {}", e));
+            return Err((StatusCode::BAD_GATEWAY, "Failed to check for updates"));
+        }
+    };
 
     let mut us = state.update_state.lock();
     us.last_check = Some(info.clone());
     us.last_check_time = Some(std::time::Instant::now());
+    us.set_phase(UpdatePhase::Idle);
+    drop(us);
 
     Ok(Json(serde_json::to_value(info).unwrap_or_default()))
+}
+
+pub async fn update_status(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+
+    let us = state.update_state.lock();
+    let elapsed_secs = us.phase_changed_at.map(|t| t.elapsed().as_secs());
+    let body = serde_json::json!({
+        "phase": us.phase.to_string(),
+        "last_error": us.last_error.clone(),
+        "channel": us.channel.to_string(),
+        "install_method": us.install_method.to_string(),
+        "current_version": env!("CARGO_PKG_VERSION"),
+        "latest_known": us.last_check.as_ref().map(|i| i.latest_version.clone()),
+        "update_available": us.last_check.as_ref().map(|i| i.update_available).unwrap_or(false),
+        "phase_age_secs": elapsed_secs,
+    });
+    Ok(Json(body))
 }
 
 #[derive(Deserialize)]
@@ -72,15 +105,38 @@ pub async fn install_update(
         let app = state.svc.app_handle.clone();
         let channel = state.update_state.lock().channel;
         let manifest_url = q.manifest_url.clone();
+        let update_state = state.update_state.clone();
+        {
+            let mut us = update_state.lock();
+            us.set_phase(UpdatePhase::Checking);
+            us.clear_error();
+        }
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("tokio runtime");
+            let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    let msg = format!("tokio runtime build failed: {}", e);
+                    log::error!("[updater] {}", msg);
+                    update_state.lock().set_error(msg);
+                    return;
+                }
+            };
             rt.block_on(async {
                 let opts = ApplyOptions { channel, manifest_url };
-                if let Err(e) = check_and_apply(&app, opts).await {
-                    log::error!("[updater] check_and_apply failed: {}", e);
+                match check_and_apply(&app, opts.clone(), update_state.clone()).await {
+                    Ok(applied) => {
+                        if applied {
+                            update_state.lock().set_phase(UpdatePhase::Success);
+                            log::info!("[updater] check_and_apply success — restart imminent");
+                        } else {
+                            update_state.lock().set_phase(UpdatePhase::Idle);
+                            log::info!("[updater] check_and_apply: no update available");
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("[updater] check_and_apply failed: {}", e);
+                        update_state.lock().set_error(e);
+                    }
                 }
             });
         });
