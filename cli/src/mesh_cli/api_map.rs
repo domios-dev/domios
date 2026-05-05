@@ -219,11 +219,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 path.push_str(&format!("&limit={}&max_snippets={}", limit, max_snippets));
                 ("GET".into(), path, None)
             }
-            crate::SessionsAction::Resume { session_id, title, workspace_id, workspace_name } => {
+            crate::SessionsAction::Resume { session_id, title, workspace_id, workspace_name, model } => {
                 let mut body = serde_json::Map::new();
                 if let Some(t) = title { body.insert("title".into(), serde_json::Value::String(t.clone())); }
                 if let Some(w) = workspace_id { body.insert("workspace_id".into(), serde_json::Value::String(w.clone())); }
                 if let Some(n) = workspace_name { body.insert("workspace_name".into(), serde_json::Value::String(n.clone())); }
+                if let Some(m) = model { body.insert("model".into(), serde_json::Value::String(m.clone())); }
                 (
                     "POST".into(),
                     format!("/api/sessions/{}/resume", urlencoding::encode(session_id)),

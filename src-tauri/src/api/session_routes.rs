@@ -72,6 +72,11 @@ pub(crate) struct ResumeSessionBody {
     workspace_id: Option<String>,
     #[serde(default)]
     workspace_name: Option<String>,
+    /// Override the model the session was last using. Threaded through
+    /// to `SpawnAgentParams.model` and translated to the provider's
+    /// real flag by `build_agent_command` via `model_launch_args()`.
+    #[serde(default)]
+    model: Option<String>,
 }
 
 /// Atomic "resume a past session" action:
@@ -87,7 +92,7 @@ pub async fn resume_session_api(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let body = body.map(|Json(v)| v).unwrap_or(ResumeSessionBody {
-        title: None, workspace_id: None, workspace_name: None,
+        title: None, workspace_id: None, workspace_name: None, model: None,
     });
 
     let meta = state
@@ -158,7 +163,7 @@ pub async fn resume_session_api(
         report_target_pane_id: None,
         skip_permissions: Some(true),
         spawned_by_pane_id: None,
-        model: None,
+        model: body.model.clone(),
     };
     // DO NOT set pane.agent_session_id before spawn — commands.rs::spawn_pty's
     // auto-resume path fires on any saved session_id and would inject its own
