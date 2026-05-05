@@ -794,6 +794,7 @@ dependencies = [
  "futures-core",
  "git2",
  "hostname",
+ "if-addrs",
  "image",
  "interprocess",
  "keyring",

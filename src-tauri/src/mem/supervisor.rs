@@ -159,6 +159,7 @@ impl Supervisor {
             &self.db_path.to_string_lossy(),
         ]);
         cmd.kill_on_drop(true);
+        crate::process_util::no_window_tokio(&mut cmd);
 
         let output = match tokio::time::timeout(WORKER_TIMEOUT, cmd.output()).await {
             Ok(Ok(out)) => out,

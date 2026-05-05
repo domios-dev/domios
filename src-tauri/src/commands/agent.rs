@@ -129,8 +129,11 @@ pub fn check_cli_installed(binary: String) -> Result<bool, String> {
     if binary.chars().any(|c| matches!(c, '/' | '\\' | ' ' | ';' | '|' | '&' | '$' | '`' | '<' | '>' | '\n')) {
         return Ok(false);
     }
-    let cmd = if cfg!(target_os = "windows") { "where" } else { "which" };
-    let output = std::process::Command::new(cmd).arg(&binary).output();
+    let cmd_name = if cfg!(target_os = "windows") { "where" } else { "which" };
+    let mut cmd = std::process::Command::new(cmd_name);
+    cmd.arg(&binary);
+    crate::process_util::no_window_std(&mut cmd);
+    let output = cmd.output();
     match output {
         Ok(out) if out.status.success() && !out.stdout.is_empty() => Ok(true),
         Ok(_) => Ok(false),
