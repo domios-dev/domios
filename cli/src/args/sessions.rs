@@ -42,6 +42,13 @@ pub enum SessionsAction {
         /// Custom name for the new workspace (default: basename of cwd).
         #[arg(long)]
         workspace_name: Option<String>,
+        /// Model id to launch with (overrides the model the session was
+        /// last using). Useful when resuming a Claude/Codex/OpenCode
+        /// conversation with a different backing model — the host
+        /// translates to the provider's actual flag (`--model X`,
+        /// `-m X`, etc.) via `model_launch_args()`.
+        #[arg(long)]
+        model: Option<String>,
     },
     /// Print metadata for a past session (provider, cwd, file path, times).
     /// Read-only probe — use before `sessions resume` to verify the session
