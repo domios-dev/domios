@@ -32,9 +32,6 @@ export function useAgentProviders(): {
     "agent_provider",
     fetcher,
   );
-  // Mirror to the sync descriptor cache so AgentIcon (and any other
-  // small consumer) can read brand SVG / color without subscribing to
-  // its own copy of this hook. One canonical source, many cheap readers.
   useEffect(() => {
     setAgentDescriptors(items);
   }, [items]);

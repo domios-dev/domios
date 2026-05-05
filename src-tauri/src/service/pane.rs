@@ -110,20 +110,7 @@ impl ServiceContext {
         // still matches.
         let grace = std::time::Duration::from_secs(2);
         std::thread::spawn(move || {
-            // Total budget: 900s (15min). Step: 3s. Stop early if a
-            // session_id was already written by another path (e.g.
-            // session-id injection during launch for claude --session-id
-            // flow), if the pane closed, or if the user swapped agents.
-            //
-            // Why 15min: codex doesn't write its rollout JSONL until the
-            // FIRST user message — so a fresh codex pane that the user
-            // doesn't engage with for several minutes will exit detection
-            // empty-handed, losing the auto-resume affordance forever.
-            // Earlier budgets (60s, then 180s) tripped this regularly.
-            // The thread is cheap (one cwd-filtered dir walk every 3s)
-            // and exits the moment any of the early-return conditions
-            // fire, so paying for a longer wall-clock window costs us
-            // nothing for engaged panes and saves abandoned-codex panes.
+            // 15min budget — codex writes its rollout only on first user message.
             let max_attempts = 300u32;
             let step = std::time::Duration::from_secs(3);
             for _ in 0..max_attempts {

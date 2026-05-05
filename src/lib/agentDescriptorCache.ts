@@ -1,19 +1,6 @@
 import { useSyncExternalStore } from "react";
 import type { ProviderDescriptor } from "./types";
 
-/**
- * Sync registry of agent provider descriptors keyed by id.
- *
- * Why a singleton outside React state: many small components
- * (AgentIcon in every sidebar tab/menu) need the descriptor to render the
- * brand mark. Routing every read through `useAgentProviders` would mean
- * each AgentIcon mounts its own listener and triggers its own initial
- * fetch. Instead, the existing `useAgentProviders` hook (used at higher
- * levels) populates this cache via `setAgentDescriptors`, and AgentIcon
- * reads sync via `useAgentDescriptor`. No new fetch storms, no flicker
- * after the first parent fetches once.
- */
-
 let cache: Record<string, ProviderDescriptor> = {};
 const subscribers = new Set<() => void>();
 

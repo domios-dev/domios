@@ -72,9 +72,6 @@ pub(crate) struct ResumeSessionBody {
     workspace_id: Option<String>,
     #[serde(default)]
     workspace_name: Option<String>,
-    /// Override the model the session was last using. Threaded through
-    /// to `SpawnAgentParams.model` and translated to the provider's
-    /// real flag by `build_agent_command` via `model_launch_args()`.
     #[serde(default)]
     model: Option<String>,
 }
