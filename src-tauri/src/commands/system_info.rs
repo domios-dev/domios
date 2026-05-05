@@ -35,9 +35,16 @@ pub fn get_default_cwd() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn get_network_info(state: tauri::State<'_, crate::config::ConfigState>) -> Result<serde_json::Value, String> {
+pub fn get_network_info(
+    state: tauri::State<'_, crate::config::ConfigState>,
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+) -> Result<serde_json::Value, String> {
     let local_ip = crate::api::routes::local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
-    let tailscale_ip = crate::api::routes::detect_tailscale_ip();
+    // Read the cached value populated by `mesh::discovery::detect_tailscale`
+    // from the periodic refresh loop, instead of running an independent
+    // shellout that lacked IP-parse validation, the GUI-bridge fallback,
+    // and a timeout. Single source of truth for tailscale_ip is mesh state.
+    let tailscale_ip = mesh.lock().tailscale_ip.clone();
     let port = state.lock().api.port;
     Ok(serde_json::json!({
         "local_ip": local_ip,

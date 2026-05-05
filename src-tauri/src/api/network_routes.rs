@@ -11,7 +11,13 @@ pub async fn network_info(
     AxumState(state): AxumState<AppState>,
 ) -> Json<serde_json::Value> {
     let local_ip = local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
-    let tailscale_ip = detect_tailscale_ip();
+    // Read the cached value populated by `mesh::discovery::detect_tailscale`
+    // from the periodic refresh loop, instead of running an independent (and
+    // historically buggy) shellout from the HTTP path. The mesh module's
+    // detection has IPv4 validation, GUI-bridge fallback, and timeouts —
+    // duplicating that logic here only invited the GUI-bridge error string
+    // to show up as a "Tailnet IP" in the /api/network response.
+    let tailscale_ip = state.mesh.lock().tailscale_ip.clone();
     let port = state.api_port;
 
     Json(serde_json::json!({
@@ -72,14 +78,3 @@ pub fn local_ip_address() -> Option<String> {
     socket.local_addr().ok().map(|a| a.ip().to_string())
 }
 
-pub fn detect_tailscale_ip() -> Option<String> {
-    let output = std::process::Command::new("tailscale")
-        .args(["ip", "-4"])
-        .output()
-        .ok()?;
-    if output.status.success() {
-        let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !ip.is_empty() { return Some(ip); }
-    }
-    None
-}

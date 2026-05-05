@@ -210,4 +210,4 @@ pub(crate) fn check_auth(_state: &AppState, _headers: &HeaderMap) -> Result<(), 
 
 // Re-exports preserve the `crate::api::routes::*` import paths used by
 // commands.rs, update::self_update.rs, secrets/api.rs, etc.
-pub use super::network_routes::{detect_tailscale_ip, local_ip_address};
+pub use super::network_routes::local_ip_address;
