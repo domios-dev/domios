@@ -9,10 +9,11 @@
  * Adding a new bundled or third-party agent plugin requires ZERO changes here —
  * the descriptor flows through automatically.
  */
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import type { ProviderDescriptor } from "../lib/types";
+import { setAgentDescriptors } from "../lib/agentDescriptorCache";
 import { useContributions } from "./useContributions";
 
 async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
@@ -31,5 +32,11 @@ export function useAgentProviders(): {
     "agent_provider",
     fetcher,
   );
+  // Mirror to the sync descriptor cache so AgentIcon (and any other
+  // small consumer) can read brand SVG / color without subscribing to
+  // its own copy of this hook. One canonical source, many cheap readers.
+  useEffect(() => {
+    setAgentDescriptors(items);
+  }, [items]);
   return { providers: items, loading, error, refetch };
 }

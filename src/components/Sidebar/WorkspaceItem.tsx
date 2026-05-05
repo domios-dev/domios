@@ -6,6 +6,7 @@ import { getAllProviders } from "../../lib/agentProviders";
 import { useConfig } from "../../hooks/useConfig";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
+import { AgentIcon } from "../AgentIcon";
 import type { PaneStatus, Workspace } from "../../lib/types";
 
 interface WorkspaceItemProps {
@@ -81,7 +82,7 @@ export function WorkspaceItem({
       if (agentsConfig[provider.id]?.visible_in_menu === false) continue;
       items.push({
         label: `New ${provider.displayName} Session`,
-        icon: <span className="text-[11px] leading-none" style={{ color: provider.iconColor }}>{provider.icon}</span>,
+        icon: <AgentIcon providerId={provider.id} className="text-[12px]" />,
         onClick: () => onNewAgent(provider.id),
       });
     }

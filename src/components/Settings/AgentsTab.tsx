@@ -6,6 +6,7 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
 import { Toggle } from "./shared";
+import { AgentIcon } from "../AgentIcon";
 
 export function AgentsOverview({
   config,
@@ -109,8 +110,8 @@ export function AgentsOverview({
               onClick={() => onOpenProvider(p.id)}
               className="flex items-center gap-3 p-3.5 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-left"
             >
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-base shrink-0">
-                {p.icon_hint || p.display_name.slice(0, 1).toUpperCase()}
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-[18px] shrink-0">
+                <AgentIcon providerId={p.id} title={p.display_name} />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-medium text-[var(--ct-fg)]">{p.display_name}</div>
@@ -172,8 +173,8 @@ export function AgentProviderScreen({
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3 pb-2">
-        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-lg shrink-0">
-          {provider.icon_hint || provider.display_name.slice(0, 1).toUpperCase()}
+        <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-[22px] shrink-0">
+          <AgentIcon providerId={provider.id} title={provider.display_name} />
         </div>
         <div className="min-w-0">
           <div className="text-sm font-medium text-[var(--ct-fg)]">{provider.display_name}</div>

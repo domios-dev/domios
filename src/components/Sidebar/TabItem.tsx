@@ -4,6 +4,7 @@ import { X, Pencil, UserMinus, Ban, CircleCheck } from "lucide-react";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TelegramIcon, TerminalIcon } from "../Icons";
+import { AgentIcon } from "../AgentIcon";
 import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import { ROLE_ICONS } from "./HierarchyTree";
 
@@ -138,11 +139,12 @@ export function TabItem({
             title={`${pane.role}${status === "Working" ? " — working" : ""}`}
           >{ROLE_ICONS[pane.role]}</span>
         ) : hasAgent ? (
-          <span
-            className={`shrink-0 text-[11px] leading-none ${status === "Working" ? "animate-spin" : ""}`}
-            style={{ color: agentProvider?.iconColor || "#f0883e", ...(status === "Working" ? { animationDuration: "1.5s" } : {}) }}
+          <AgentIcon
+            providerId={agentProvider?.id ?? "claude"}
+            working={status === "Working"}
+            className="shrink-0 text-[12px] leading-none"
             title={status === "Working" ? `${agentProvider?.displayName || "Agent"} working...` : status === "Waiting" ? `${agentProvider?.displayName || "Agent"} — waiting for input` : agentProvider?.displayName || "Agent"}
-          >{agentProvider?.icon || "✳"}</span>
+          />
         ) : (
           <TerminalIcon className="shrink-0" />
         )}
