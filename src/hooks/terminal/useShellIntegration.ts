@@ -34,6 +34,11 @@ export function useShellIntegration({
   const [shellReady, setShellReady] = useState(!!ptyId);
   const [overlayVisible, setOverlayVisible] = useState(!ptyId);
 
+  // protected panes mount before backend reports ptyId; useState initialiser fires only once.
+  useEffect(() => {
+    if (ptyId) setShellReady(true);
+  }, [ptyId]);
+
   // Fade out overlay after shell ready
   useEffect(() => {
     if (shellReady && overlayVisible) {
