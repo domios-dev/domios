@@ -114,6 +114,8 @@ pub async fn bridge_stop(
         }
     }
 
+    crate::startup::unmark_pane_connected_service(&state.svc, &body.service);
+
     Ok(Json(json!({
         "ok": true,
         "released_in_ms": elapsed.as_millis() as u64,

@@ -12,7 +12,7 @@ mod states;
 mod window;
 
 pub(crate) use background::start_background_tasks;
-pub use bridge::{spawn_telegram_bridge, start_telegram_bridge};
+pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_pane_connected_service};
 #[cfg(test)]
 pub use bridge::start_telegram_bridge_for_test;
 pub(crate) use cli_install::install_bundled_cli;
