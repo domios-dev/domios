@@ -38,6 +38,7 @@ walkdir = "2"
 regex = "1"
 scip = "0.7"
 protobuf = "3"
+serde_yaml = "0.9"
 
 [dev-dependencies]
 tempfile = "3"

@@ -3,6 +3,7 @@ pub mod cache;
 pub mod chunks;
 pub mod config_io;
 pub mod embed;
+pub mod fitness;
 pub mod graph;
 pub mod index;
 pub mod lang;
@@ -88,6 +89,45 @@ pub fn handle(client: &mut SocketClient, json: bool, action: MapAction) {
         }
         MapAction::Config { action } => {
             handle_config(client, json, action);
+        }
+        MapAction::Fitness { workspace, ci } => {
+            let root = match workspace::resolve_workspace_root(client, workspace.as_deref()) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
+            match fitness::check(&root) {
+                Ok(report) => {
+                    if json {
+                        let v = serde_json::to_value(&report).unwrap_or(serde_json::json!({}));
+                        print_object(&v);
+                    } else {
+                        println!(
+                            "modules={} rules={} confirmed={} violations={} orphans={}",
+                            report.modules,
+                            report.rules,
+                            report.confirmed_edges,
+                            report.violation_edges.len(),
+                            report.orphan_edges
+                        );
+                        for v in &report.violation_edges {
+                            println!(
+                                "  ✗ {} → {}  ({} → {})",
+                                v.from, v.to, v.source_path, v.target_path
+                            );
+                        }
+                    }
+                    if ci && !report.violation_edges.is_empty() {
+                        std::process::exit(2);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
         }
         MapAction::Export { workspace, workspace_root, node, k_hops, node_cap } => {
             let root = if let Some(path) = workspace_root {

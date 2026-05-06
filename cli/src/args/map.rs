@@ -41,6 +41,15 @@ pub enum MapAction {
         #[command(subcommand)]
         action: MapConfigAction,
     },
+    /// Run the architecture fitness check (Reflexion model) against
+    /// `<workspace>/.codeterm/map/v1/architecture.yml`.
+    Fitness {
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Exit non-zero on any violation. Useful for CI gates.
+        #[arg(long)]
+        ci: bool,
+    },
     /// Open a Project Map pane in the daemon for the given workspace.
     Show {
         /// Workspace ID. Default: walk up from cwd.
