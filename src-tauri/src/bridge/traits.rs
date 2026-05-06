@@ -85,6 +85,6 @@ pub trait MessagingService: Send + 'static {
         self: Box<Self>,
         tx: tokio::sync::mpsc::Sender<InboundMessage>,
         cancel: std::sync::Arc<tokio::sync::Notify>,
-        state: std::sync::Arc<parking_lot::Mutex<crate::bridge::supervisor::BridgeRuntimeState>>,
+        status: std::sync::Arc<dyn crate::bridge::supervisor::BridgeStatusSink>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
 }

@@ -10,7 +10,6 @@ use serde_json::{json, Value};
 
 use crate::api::routes::{check_auth, AppState};
 use crate::bridge;
-use crate::secrets::SecretError;
 
 const TELEGRAM_SECRET_NAME: &str = "telegram_bot_token";
 
@@ -41,11 +40,9 @@ pub async fn bridge_state(
     let snap = state.svc.bridge_supervisor.snapshot();
     let token_present = bridge::telegram::token_path().exists();
 
-    let has_secret_in_vault = match state.svc.secrets.read().await.get(TELEGRAM_SECRET_NAME).await {
-        Ok(_) => true,
-        Err(SecretError::NotFound) | Err(SecretError::Locked) | Err(SecretError::LoggedOut) => false,
-        Err(_) => false,
-    };
+    let has_secret_in_vault = state.svc.secrets.read().await
+        .has(TELEGRAM_SECRET_NAME).await
+        .unwrap_or(false);
 
     let (config_enabled, instance_name) = {
         let cfg = state.config.lock();

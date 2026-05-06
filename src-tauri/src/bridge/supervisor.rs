@@ -6,6 +6,13 @@ use parking_lot::Mutex;
 use tauri::async_runtime::JoinHandle;
 use tokio::sync::Notify;
 
+/// Capability passed to messaging-service implementations so they can
+/// report poll outcomes without owning the supervisor's internal state.
+pub trait BridgeStatusSink: Send + Sync {
+    fn mark_poll_ok(&self);
+    fn mark_poll_error(&self, err: &str);
+}
+
 #[derive(Debug, Clone)]
 pub struct BridgeRuntimeState {
     pub service: String,
@@ -56,8 +63,8 @@ impl BridgeSupervisor {
         self.op_lock.clone().lock_owned().await
     }
 
-    pub fn state_handle(&self) -> Arc<Mutex<BridgeRuntimeState>> {
-        self.state.clone()
+    pub fn as_status_sink(self: &Arc<Self>) -> Arc<dyn BridgeStatusSink> {
+        self.clone()
     }
 
     pub fn cancel_token(&self) -> Arc<Notify> {
@@ -82,19 +89,6 @@ impl BridgeSupervisor {
         s.last_poll_ok = None;
         s.last_poll_error = None;
         s.error_count = 0;
-    }
-
-    pub fn mark_poll_ok(&self) {
-        let mut s = self.state.lock();
-        s.last_poll_ok = Some(Utc::now());
-        s.last_poll_error = None;
-        s.error_count = 0;
-    }
-
-    pub fn mark_poll_error(&self, err: &str) {
-        let mut s = self.state.lock();
-        s.last_poll_error = Some(err.to_string());
-        s.error_count = s.error_count.saturating_add(1);
     }
 
     pub async fn stop(&self, timeout: Duration) -> Result<Duration, String> {
@@ -131,6 +125,21 @@ impl BridgeSupervisor {
                 ))
             }
         }
+    }
+}
+
+impl BridgeStatusSink for BridgeSupervisor {
+    fn mark_poll_ok(&self) {
+        let mut s = self.state.lock();
+        s.last_poll_ok = Some(Utc::now());
+        s.last_poll_error = None;
+        s.error_count = 0;
+    }
+
+    fn mark_poll_error(&self, err: &str) {
+        let mut s = self.state.lock();
+        s.last_poll_error = Some(err.to_string());
+        s.error_count = s.error_count.saturating_add(1);
     }
 }
 

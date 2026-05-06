@@ -340,6 +340,15 @@ impl SecretStore for MockStore {
             None => Err(SecretError::NotFound),
         }
     }
+
+    async fn has(&self, name_or_id: &str) -> Result<bool, SecretError> {
+        self.require_unlocked()?;
+        let g = self.inner.lock();
+        if g.by_id.contains_key(name_or_id) {
+            return Ok(true);
+        }
+        Ok(g.by_name.contains_key(&name_or_id.to_lowercase()))
+    }
 }
 
 #[cfg(test)]
@@ -539,5 +548,23 @@ mod tests {
             store.unlock(creds).await,
             Err(SecretError::BadRequest { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn has_returns_true_without_decrypting() {
+        let store = MockStore::new();
+        let r = store.save(req("token", "very-secret")).await.unwrap();
+        assert_eq!(store.has("token").await.unwrap(), true);
+        assert_eq!(store.has("TOKEN").await.unwrap(), true);
+        assert_eq!(store.has(&r.item_id).await.unwrap(), true);
+        assert_eq!(store.has("missing").await.unwrap(), false);
+    }
+
+    #[tokio::test]
+    async fn has_propagates_locked_state() {
+        let store = MockStore::new();
+        store.save(req("k", "v")).await.unwrap();
+        store.lock().await.unwrap();
+        assert!(matches!(store.has("k").await, Err(SecretError::Locked)));
     }
 }
