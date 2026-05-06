@@ -223,6 +223,9 @@ pub enum BridgeAction {
         /// Skip preflight target-state check (for force migrations).
         #[arg(long)]
         force: bool,
+        /// How long target may take to claim the Telegram lock before the migration is considered failed (ms).
+        #[arg(long, default_value_t = 10_000)]
+        claim_timeout_ms: u64,
     },
 }
 
