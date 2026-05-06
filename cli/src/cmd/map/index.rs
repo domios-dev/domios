@@ -3,6 +3,7 @@ use crate::cmd::map::cache::{check_file, fs_mtime_ns, fs_size};
 use crate::cmd::map::chunks::chunk_file;
 use crate::cmd::map::embed::{vec_to_le_bytes, EmbedClient, VECTOR_DIM};
 use crate::cmd::map::lang::Lang;
+use crate::cmd::map::pagerank::{personalized as pagerank, EdgeWeight};
 use crate::cmd::map::store::{NewNode, Store};
 use crate::cmd::map::tags::{extract, Tag, TagRole};
 use crate::cmd::map::walker::{walk_workspace, WorkspaceFile};
@@ -67,6 +68,7 @@ pub fn run_index(root: &Path, opts: IndexOptions) -> Result<IndexReport, String>
 
     derive_edges(&store, &defs, &refs_per_file, &mut report)?;
     derive_bridge_edges(&store, &mut report)?;
+    rank_files(&store)?;
     embed_pending_chunks(&store, &mut report);
 
     let counts = store.counts().map_err(|e| format!("counts: {e}"))?;
@@ -324,6 +326,29 @@ fn derive_edges(
                 report.edges += 1;
             }
         }
+    }
+    Ok(())
+}
+
+fn rank_files(store: &Store) -> Result<(), String> {
+    let nodes = store
+        .collect_all_node_ids()
+        .map_err(|e| format!("collect nodes: {e}"))?;
+    if nodes.is_empty() {
+        return Ok(());
+    }
+    let edges_raw = store
+        .collect_ranking_edges()
+        .map_err(|e| format!("collect edges: {e}"))?;
+    let edges: Vec<EdgeWeight> = edges_raw
+        .into_iter()
+        .map(|(s, t, w)| EdgeWeight { source: s, target: t, weight: w })
+        .collect();
+    let ranks = pagerank(&nodes, &edges, None);
+    for (id, score) in ranks {
+        store
+            .update_node_importance(id, score)
+            .map_err(|e| format!("update importance: {e}"))?;
     }
     Ok(())
 }

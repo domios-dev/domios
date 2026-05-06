@@ -23,6 +23,8 @@ pub struct GraphNode {
     pub start_col: Option<i64>,
     pub end_line: Option<i64>,
     pub end_col: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub importance: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -64,7 +66,7 @@ impl GraphQuery {
             .conn
             .prepare(
                 "SELECT n.id, n.kind, n.display_name, n.serialized_name, f.path, \
-                        n.start_line, n.start_col, n.end_line, n.end_col \
+                        n.start_line, n.start_col, n.end_line, n.end_col, n.importance \
                  FROM node n LEFT JOIN file f ON n.file_id = f.id \
                  ORDER BY (CASE WHEN n.kind = 'file' THEN 0 ELSE 1 END), n.id LIMIT ?1",
             )
@@ -155,7 +157,7 @@ impl GraphQuery {
             .conn
             .prepare(
                 "SELECT n.id, n.kind, n.display_name, n.serialized_name, f.path, \
-                        n.start_line, n.start_col, n.end_line, n.end_col \
+                        n.start_line, n.start_col, n.end_line, n.end_col, n.importance \
                  FROM node n LEFT JOIN file f ON n.file_id = f.id WHERE n.id = ?1",
             )
             .map_err(|e| format!("prepare node detail: {e}"))?;
@@ -173,6 +175,7 @@ impl GraphQuery {
                 start_col: row.get(6).map_err(|e| e.to_string())?,
                 end_line: row.get(7).map_err(|e| e.to_string())?,
                 end_col: row.get(8).map_err(|e| e.to_string())?,
+                importance: row.get::<_, Option<f64>>(9).map_err(|e| e.to_string())?,
             }));
         }
         Ok(None)
@@ -203,7 +206,7 @@ fn collect_nodes_by_ids(
     let placeholders = std::iter::repeat("?").take(ids.len()).collect::<Vec<_>>().join(",");
     let sql = format!(
         "SELECT n.id, n.kind, n.display_name, n.serialized_name, f.path, \
-                n.start_line, n.start_col, n.end_line, n.end_col \
+                n.start_line, n.start_col, n.end_line, n.end_col, n.importance \
          FROM node n LEFT JOIN file f ON n.file_id = f.id WHERE n.id IN ({})",
         placeholders
     );
@@ -267,6 +270,7 @@ fn row_to_node(row: &rusqlite::Row<'_>) -> rusqlite::Result<GraphNode> {
         start_col: row.get(6)?,
         end_line: row.get(7)?,
         end_col: row.get(8)?,
+        importance: row.get::<_, Option<f64>>(9)?,
     })
 }
 

@@ -41,6 +41,9 @@ impl Store {
 
     fn init_schema(&self, workspace_root: &Path) -> rusqlite::Result<()> {
         self.conn.execute_batch(SCHEMA_DDL)?;
+        for stmt in ADDITIVE_MIGRATIONS {
+            let _ = self.conn.execute(stmt, []);
+        }
         self.conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         self.set_meta("schema_version", &SCHEMA_VERSION.to_string())?;
         self.set_meta("indexer_version", INDEXER_VERSION)?;
@@ -208,6 +211,62 @@ impl Store {
                 .optional()?
         };
         Ok(node_id.map(|id| ChunkLocator { node_id: id, file_id, start_line: start }))
+    }
+
+    pub fn update_node_importance(&self, node_id: i64, importance: f64) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "UPDATE node SET importance = ?1 WHERE id = ?2",
+            params![importance, node_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn collect_invoke_edges(&self) -> rusqlite::Result<Vec<(i64, i64, f64)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT source_node_id, target_node_id, weight FROM edge WHERE kind = 'invoke'")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, f64>(2)?))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    pub fn collect_file_node_ids(&self) -> rusqlite::Result<Vec<i64>> {
+        let mut stmt = self.conn.prepare("SELECT id FROM node WHERE kind = 'file'")?;
+        let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    pub fn collect_all_node_ids(&self) -> rusqlite::Result<Vec<i64>> {
+        let mut stmt = self.conn.prepare("SELECT id FROM node")?;
+        let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    pub fn collect_ranking_edges(&self) -> rusqlite::Result<Vec<(i64, i64, f64)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT source_node_id, target_node_id, weight FROM edge WHERE kind IN ('invoke','contain','bridge')")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, f64>(2)?))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
 
     pub fn count_chunks(&self) -> rusqlite::Result<(i64, i64)> {
@@ -431,6 +490,10 @@ pub struct ChunkLocator {
     pub start_line: i64,
 }
 
+const ADDITIVE_MIGRATIONS: &[&str] = &[
+    "ALTER TABLE node ADD COLUMN importance REAL",
+];
+
 const SCHEMA_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS map_meta (
   key   TEXT PRIMARY KEY,
@@ -457,7 +520,8 @@ CREATE TABLE IF NOT EXISTS node (
   start_col       INTEGER,
   end_line        INTEGER,
   end_col         INTEGER,
-  metadata        TEXT
+  metadata        TEXT,
+  importance      REAL
 );
 CREATE INDEX IF NOT EXISTS node_file_idx ON node(file_id);
 CREATE INDEX IF NOT EXISTS node_kind_idx ON node(kind);

@@ -8,6 +8,7 @@ export interface ProjectMapNode {
   start_col: number | null;
   end_line: number | null;
   end_col: number | null;
+  importance?: number | null;
   signature?: string | null;
 }
 

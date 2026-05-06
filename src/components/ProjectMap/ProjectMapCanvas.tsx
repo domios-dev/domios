@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sigma from "sigma";
 import Graph from "graphology";
 import EdgeCurveProgram from "@sigma/edge-curve";
-import { colorForKind, edgeRgbFor } from "./styles";
+import { clusterKeyFromPath, colorForCluster, colorForKind, edgeRgbFor, sizeFromImportance } from "./styles";
 import type { ProjectMapEdge, ProjectMapNode } from "./types";
 
 interface Props {
@@ -25,6 +25,13 @@ function nodeSize(kind: string): number {
   if (kind === "file" || kind === "module") return NODE_BASE_SIZE + 2.5;
   if (kind === "class") return NODE_BASE_SIZE + 1.5;
   return NODE_BASE_SIZE;
+}
+
+function nodeColor(node: ProjectMapNode): string {
+  if (node.kind === "file" || node.kind === "module") {
+    return colorForCluster(clusterKeyFromPath(node.path));
+  }
+  return colorForKind(node.kind);
 }
 
 function deterministicSeed(id: number): { x: number; y: number } {
@@ -167,31 +174,48 @@ export function ProjectMapCanvas({
     const sigma = sigmaRef.current;
     if (!graph || !sigma) return;
 
+    let minImp = Infinity;
+    let maxImp = -Infinity;
+    for (const n of nodes) {
+      if (typeof n.importance === "number") {
+        if (n.importance < minImp) minImp = n.importance;
+        if (n.importance > maxImp) maxImp = n.importance;
+      }
+    }
+    if (!isFinite(minImp)) {
+      minImp = 0;
+      maxImp = 1;
+    }
+
     const wantedNodes = new Set<string>();
-    const fileBuckets = new Map<string, number>();
+    const clusterBuckets = new Map<string, number>();
     for (const n of nodes) {
       const idStr = String(n.id);
       wantedNodes.add(idStr);
       const seed = deterministicSeed(n.id);
-      const path = n.path ?? n.serialized_name ?? "";
-      let bucket = fileBuckets.get(path);
+      const cluster = clusterKeyFromPath(n.path);
+      let bucket = clusterBuckets.get(cluster);
       if (bucket === undefined) {
-        bucket = fileBuckets.size;
-        fileBuckets.set(path, bucket);
+        bucket = clusterBuckets.size;
+        clusterBuckets.set(cluster, bucket);
       }
-      const angle = (bucket * 2.39996323) % (Math.PI * 2);
-      const radius = 6 + Math.sqrt(bucket + 1) * 1.5;
-      const cx = Math.cos(angle) * radius;
-      const cy = Math.sin(angle) * radius;
-      const x = cx + (seed.x - 0.5) * 1.2;
-      const y = cy + (seed.y - 0.5) * 1.2;
+      const clusterAngle = (bucket * 2.39996323) % (Math.PI * 2);
+      const clusterRadius = 8 + Math.sqrt(bucket + 1) * 2.0;
+      const cx = Math.cos(clusterAngle) * clusterRadius;
+      const cy = Math.sin(clusterAngle) * clusterRadius;
+      const x = cx + (seed.x - 0.5) * 2.4;
+      const y = cy + (seed.y - 0.5) * 2.4;
+      const importanceSize = sizeFromImportance(n.importance, minImp, maxImp);
+      const baseSize = nodeSize(n.kind);
+      const size = n.kind === "file" || n.kind === "module" ? Math.max(baseSize, importanceSize) : baseSize;
       const attrs = {
         x,
         y,
-        size: nodeSize(n.kind),
-        color: colorForKind(n.kind),
+        size,
+        color: nodeColor(n),
         label: n.display_name,
         kind: n.kind,
+        cluster,
       };
       if (graph.hasNode(idStr)) graph.mergeNodeAttributes(idStr, attrs);
       else graph.addNode(idStr, attrs);
