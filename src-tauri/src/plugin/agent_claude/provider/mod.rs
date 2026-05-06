@@ -159,8 +159,13 @@ impl AgentProvider for ClaudeProvider {
 
     fn install_command(&self, platform: &str) -> Option<String> {
         match platform {
-            "macos" | "linux" => Some("npm install -g @anthropic-ai/claude-code".into()),
-            "windows" => Some("npm install -g @anthropic-ai/claude-code".into()),
+            // Anthropic's native installer is the recommended path — auto-updates
+            // in the background, no Node.js dependency. npm is now an "advanced"
+            // option per https://code.claude.com/docs/en/setup.
+            "macos" | "linux" => Some("curl -fsSL https://claude.ai/install.sh | bash".into()),
+            "windows" => Some(
+                "powershell -Command \"irm https://claude.ai/install.ps1 | iex\"".into(),
+            ),
             _ => None,
         }
     }
