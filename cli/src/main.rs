@@ -139,6 +139,8 @@ pub fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
     }
     reqwest::blocking::Client::builder()
         .default_headers(headers)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(60))
         .build()
         .unwrap_or_else(|_| reqwest::blocking::Client::new())
 }
