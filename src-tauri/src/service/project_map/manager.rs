@@ -24,6 +24,13 @@ struct WorkspaceSlot {
     last_run: Option<RunSummary>,
 }
 
+pub struct WorkspaceMeta<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub cwd: &'a Path,
+    pub protected: bool,
+}
+
 impl ProjectMapManager {
     pub fn new(data_dir: &Path, socket_path: String) -> Arc<Self> {
         let cli_path = resolve_cli_path(data_dir);
@@ -38,17 +45,23 @@ impl ProjectMapManager {
     /// initial index in the background and arm a watcher. Idempotent — calling
     /// it twice for the same workspace is a no-op (the second call sees the
     /// existing slot and returns early).
-    pub fn bootstrap(self: &Arc<Self>, workspaces: &[(String, String, Option<String>)]) {
-        for (id, name, cwd) in workspaces {
+    pub fn bootstrap(self: &Arc<Self>, workspaces: &[(String, String, Option<String>, bool)]) {
+        for (id, name, cwd, protected) in workspaces {
             if let Some(cwd) = cwd.as_deref() {
-                self.start_for_workspace(id, name, Path::new(cwd));
+                self.start_for_workspace(WorkspaceMeta {
+                    id,
+                    name,
+                    cwd: Path::new(cwd),
+                    protected: *protected,
+                });
             }
         }
     }
 
-    pub fn start_for_workspace(self: &Arc<Self>, ws_id: &str, name: &str, cwd: &Path) {
+    pub fn start_for_workspace(self: &Arc<Self>, meta: WorkspaceMeta<'_>) {
+        let WorkspaceMeta { id: ws_id, name, cwd, protected } = meta;
         let cfg = crate::service::project_map::config::read_config(cwd);
-        let verdict = evaluate(name, Some(cwd), cfg.indexing_enabled);
+        let verdict = evaluate(protected, Some(cwd), cfg.indexing_enabled);
         if !verdict.is_eligible() {
             log::debug!(
                 "[project-map] skip '{}' ({}): {:?}",
@@ -173,11 +186,15 @@ mod tests {
         ProjectMapManager::new(tmp.path(), "unused-socket-for-test".into())
     }
 
+    fn meta<'a>(ws_id: &'a str, name: &'a str, cwd: &'a Path, protected: bool) -> WorkspaceMeta<'a> {
+        WorkspaceMeta { id: ws_id, name, cwd, protected }
+    }
+
     #[test]
-    fn skips_general_workspace() {
+    fn skips_protected_workspace() {
         let m = make_manager();
         let tmp = tempfile::tempdir().unwrap();
-        m.start_for_workspace("ws-1", "General", tmp.path());
+        m.start_for_workspace(meta("ws-1", "Renamed", tmp.path(), true));
         assert!(m.watched().is_empty());
     }
 
@@ -188,7 +205,7 @@ mod tests {
         let mut cfg = crate::service::project_map::config::default_config();
         cfg.indexing_enabled = false;
         crate::service::project_map::config::write_config(tmp.path(), &cfg).unwrap();
-        m.start_for_workspace("ws-1", "proj", tmp.path());
+        m.start_for_workspace(meta("ws-1", "proj", tmp.path(), false));
         assert!(m.watched().is_empty());
     }
 
@@ -196,7 +213,7 @@ mod tests {
     fn registers_eligible_workspace() {
         let m = make_manager();
         let tmp = tempfile::tempdir().unwrap();
-        m.start_for_workspace("ws-1", "proj", tmp.path());
+        m.start_for_workspace(meta("ws-1", "proj", tmp.path(), false));
         let watched = m.watched();
         assert_eq!(watched.len(), 1);
         assert_eq!(watched[0].0, "ws-1");

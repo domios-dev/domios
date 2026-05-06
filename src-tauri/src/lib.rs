@@ -380,10 +380,10 @@ pub fn run() {
             {
                 let svc = service_state.clone();
                 std::thread::spawn(move || {
-                    let workspaces: Vec<(String, String, Option<String>)> = svc
+                    let workspaces: Vec<(String, String, Option<String>, bool)> = svc
                         .list_workspaces()
                         .into_iter()
-                        .map(|w| (w.id, w.name, w.cwd))
+                        .map(|w| (w.id, w.name, w.cwd, w.protected))
                         .collect();
                     svc.project_map.bootstrap(&workspaces);
                 });

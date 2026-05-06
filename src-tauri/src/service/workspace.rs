@@ -38,8 +38,14 @@ impl ServiceContext {
         self.emit_state_changed();
 
         if let Some(cwd_str) = cwd.as_deref() {
-            self.project_map
-                .start_for_workspace(&ws.id, &name, std::path::Path::new(cwd_str));
+            self.project_map.start_for_workspace(
+                crate::service::project_map::WorkspaceMeta {
+                    id: &ws.id,
+                    name: &name,
+                    cwd: std::path::Path::new(cwd_str),
+                    protected: ws.protected,
+                },
+            );
         }
 
         // Auto-spawn agent in the new workspace

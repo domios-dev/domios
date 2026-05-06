@@ -1,11 +1,9 @@
 use std::path::Path;
 
-pub const GENERAL_WORKSPACE_NAME: &str = "General";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
     Eligible,
-    SkipGeneral,
+    SkipProtected,
     SkipNoCwd,
     SkipMissingCwd,
     SkipDisabled,
@@ -17,9 +15,9 @@ impl Verdict {
     }
 }
 
-pub fn evaluate(name: &str, cwd: Option<&Path>, indexing_enabled: bool) -> Verdict {
-    if name == GENERAL_WORKSPACE_NAME {
-        return Verdict::SkipGeneral;
+pub fn evaluate(protected: bool, cwd: Option<&Path>, indexing_enabled: bool) -> Verdict {
+    if protected {
+        return Verdict::SkipProtected;
     }
     let Some(cwd) = cwd else { return Verdict::SkipNoCwd };
     if !cwd.exists() {
@@ -50,11 +48,11 @@ mod tests {
         let real = tmp.path().to_path_buf();
         let absent = PathBuf::from("/definitely/does/not/exist/9b8a8a3");
 
-        assert_eq!(evaluate("General", Some(&real), true), Verdict::SkipGeneral);
-        assert_eq!(evaluate("proj", None, true), Verdict::SkipNoCwd);
-        assert_eq!(evaluate("proj", Some(&absent), true), Verdict::SkipMissingCwd);
-        assert_eq!(evaluate("proj", Some(&real), false), Verdict::SkipDisabled);
-        assert_eq!(evaluate("proj", Some(&real), true), Verdict::Eligible);
+        assert_eq!(evaluate(true, Some(&real), true), Verdict::SkipProtected);
+        assert_eq!(evaluate(false, None, true), Verdict::SkipNoCwd);
+        assert_eq!(evaluate(false, Some(&absent), true), Verdict::SkipMissingCwd);
+        assert_eq!(evaluate(false, Some(&real), false), Verdict::SkipDisabled);
+        assert_eq!(evaluate(false, Some(&real), true), Verdict::Eligible);
     }
 
     #[test]
