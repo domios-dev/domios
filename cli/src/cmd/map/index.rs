@@ -68,6 +68,9 @@ pub fn run_index(root: &Path, opts: IndexOptions) -> Result<IndexReport, String>
 
     derive_edges(&store, &defs, &refs_per_file, &mut report)?;
     derive_bridge_edges(&store, &mut report)?;
+    if let Err(e) = crate::cmd::map::scip_loader::load_workspace(root, &store) {
+        eprintln!("project-map: scip loader: {e}");
+    }
     rank_files(&store)?;
     embed_pending_chunks(&store, &mut report);
 

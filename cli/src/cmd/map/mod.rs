@@ -7,6 +7,7 @@ pub mod graph;
 pub mod index;
 pub mod lang;
 pub mod pagerank;
+pub mod scip_loader;
 pub mod search;
 pub mod status;
 pub mod store;

@@ -36,6 +36,8 @@ tree-sitter-java = "0.23"
 ignore = "0.4"
 walkdir = "2"
 regex = "1"
+scip = "0.7"
+protobuf = "3"
 
 [dev-dependencies]
 tempfile = "3"
