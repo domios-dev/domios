@@ -231,6 +231,10 @@ fn main() {
             );
             std::process::exit(7);
         }
+        if matches!(cli.command, Commands::Bridge { action: BridgeAction::Migrate { .. } }) {
+            eprintln!("Error: bridge migrate must run locally on the source machine, not via --mesh.");
+            std::process::exit(6);
+        }
         mesh_cli::run_via_mesh(&cli, mesh_target);
         return;
     }
@@ -454,49 +458,10 @@ fn main() {
             client.call("notification.create", Some(params))
         }
 
-        Commands::Bridge { action } => match action {
-            BridgeAction::Restart => {
-                client.call("bridge.restart", None)
-            }
-            BridgeAction::Send { text, service, to, append, r#type, file, caption, filename, buttons } => {
-                let mut params = serde_json::json!({
-                    "service": service,
-                    "chat_id": to,
-                    "type": r#type,
-                    "append": append,
-                });
-                if let Some(t) = text {
-                    params["text"] = serde_json::Value::String(t);
-                }
-                if let Some(f) = file {
-                    params["file"] = serde_json::Value::String(f);
-                }
-                if let Some(c) = caption {
-                    params["caption"] = serde_json::Value::String(c);
-                }
-                if let Some(n) = filename {
-                    params["filename"] = serde_json::Value::String(n);
-                }
-                if let Some(b) = buttons {
-                    // Parse buttons JSON
-                    match serde_json::from_str::<serde_json::Value>(&b) {
-                        Ok(v) => { params["buttons"] = v; }
-                        Err(e) => {
-                            eprintln!("Invalid buttons JSON: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                client.call("bridge.send", Some(params))
-            }
-            BridgeAction::React { to, message_id, emoji } => {
-                client.call("bridge.react", Some(serde_json::json!({
-                    "chat_id": to,
-                    "message_id": message_id,
-                    "emoji": emoji,
-                })))
-            }
-        },
+        Commands::Bridge { action } => {
+            cmd::bridge::handle_bridge(&mut client, cli.json, action);
+            return;
+        }
 
         Commands::Notifications { action, unread } => match action {
             Some(NotificationAction::Clear) => client.call("notification.clear", None),

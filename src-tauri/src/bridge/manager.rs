@@ -57,6 +57,8 @@ impl BridgeManager {
         self,
         services: Vec<Box<dyn MessagingService>>,
         mut outbound_rx: tokio::sync::mpsc::UnboundedReceiver<OutboundMessage>,
+        cancel: Arc<tokio::sync::Notify>,
+        runtime_state: Arc<Mutex<super::supervisor::BridgeRuntimeState>>,
     ) {
         let (tx, mut rx) = mpsc::channel::<InboundMessage>(64);
         let fallback_chat_id: Arc<Mutex<Option<i64>>> = Arc::new(Mutex::new(None));
@@ -64,33 +66,17 @@ impl BridgeManager {
         for service in services {
             let tx_clone = tx.clone();
             let id = service.id().to_string();
+            let svc_cancel = cancel.clone();
+            let svc_state = runtime_state.clone();
             tokio::spawn(async move {
                 log::info!("[bridge] starting service: {}", id);
-                service.start(tx_clone.clone()).await;
-                // Service died — restart loop with new instance
-                log::warn!("[bridge] service {} stopped, entering restart loop", id);
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    log::info!("[bridge] restarting service: {}", id);
-                    let token = super::telegram::read_token();
-                    if let Some(token) = token {
-                        let config = crate::config::load_config();
-                        let new_svc = super::telegram::TelegramService::new(
-                            token, config.integrations.telegram_allowed_users.clone(),
-                        );
-                        let new_svc: Box<dyn MessagingService> = Box::new(new_svc);
-                        new_svc.start(tx_clone.clone()).await;
-                        log::warn!("[bridge] service {} stopped again", id);
-                    } else {
-                        log::error!("[bridge] no token for restart, waiting 30s");
-                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-                    }
-                }
+                service.start(tx_clone.clone(), svc_cancel, svc_state).await;
+                log::info!("[bridge] service {} exited", id);
             });
         }
 
         let token = super::telegram::read_token().unwrap_or_default();
-        let api_base = telegram_api_base();
+        let api_base = super::telegram::telegram_api_base();
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(15))
@@ -110,6 +96,10 @@ impl BridgeManager {
 
         loop {
             tokio::select! {
+                _ = cancel.notified() => {
+                    log::info!("[bridge] manager received cancel; exiting outer loop");
+                    return;
+                }
                 Some(msg) = rx.recv() => {
                     // Debounce: collect rapid-fire messages (user splitting text, Telegram auto-split)
                     let mut messages = vec![msg];
@@ -239,10 +229,6 @@ impl BridgeManager {
             }
         }
     }
-}
-
-fn telegram_api_base() -> String {
-    std::env::var("TELEGRAM_API_BASE").unwrap_or_else(|_| "https://api.telegram.org".to_string())
 }
 
 fn tg_url(base: &str, token: &str, method: &str) -> String {

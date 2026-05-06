@@ -203,7 +203,30 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             },
             _ => ("GET".into(), "/api/mesh/status".into(), None),
         },
-        Commands::Bridge { .. } => ("GET".into(), "/api/health".into(), None),
+        Commands::Bridge { action } => match action {
+            crate::BridgeAction::Restart => (
+                "POST".into(),
+                "/api/bridge/start".into(),
+                Some(serde_json::json!({
+                    "service": "telegram",
+                    "ensure_token": true,
+                    "wait_for_lock_ms": 10000,
+                }).to_string()),
+            ),
+            crate::BridgeAction::Send { text, to, append, .. } => (
+                "POST".into(),
+                "/api/bridge/send".into(),
+                Some(serde_json::json!({
+                    "text": text,
+                    "chat_id": to,
+                    "append": append,
+                }).to_string()),
+            ),
+            // React over mesh isn't relayable today (no /api/bridge/react endpoint).
+            crate::BridgeAction::React { .. } => ("GET".into(), "/api/health".into(), None),
+            // Migrate is intercepted in main.rs before reaching the relay path.
+            crate::BridgeAction::Migrate { .. } => ("GET".into(), "/api/health".into(), None),
+        },
         Commands::Theme { action } => match action {
             crate::ThemeAction::List => ("GET".into(), "/api/themes".into(), None),
             _ => ("GET".into(), "/api/themes".into(), None),
