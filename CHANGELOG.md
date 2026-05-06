@@ -7,6 +7,59 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [Unreleased]
+
+### Added
+
+- **`codeterm bridge migrate --to PEER`** — hot-relocate the active
+  Telegram poller (and any future single-poller bridge) from the
+  current host to a paired mesh peer without restarting either daemon.
+  Orchestrates a six-step flow over `/api/bridge/{state,start,stop,announce}`
+  + the existing mesh relay: source preflight → release source →
+  enable + claim target via the target's own vault → verify both →
+  optional `--announce` sentinel → auto-rollback on any failure.
+  Exit codes: `0` success, `1` generic failure (rollback OK), `5`
+  preflight (target unreachable / missing peer / no token + no vault),
+  `6` usage error (running via `--mesh` is rejected — must run on the
+  source machine), `7` split-brain (rollback also failed). Supports
+  `--service` (default `telegram`), `--announce`,
+  `--announce-chat-id` (default `186809246`), `--no-rollback`,
+  `--force`, and `--claim-timeout-ms` (default `10000`). Each daemon
+  resolves its own vault — secrets never cross the mesh, matching
+  the existing `--mesh PEER mem secret …` local-only contract.
+- **REST API: bridge runtime control.** Four new endpoints under
+  `/api/bridge/*`:
+  - `GET /api/bridge/state` — runtime + config snapshot
+    (`active`, `config_enabled`, `token_present`,
+    `has_secret_in_vault`, `started_at`, `last_poll_ok`,
+    `last_poll_error`, `error_count`, `instance_name`).
+    `has_secret_in_vault` uses `SecretStore::has` and never decrypts.
+  - `POST /api/bridge/start` — `{service?, ensure_token?, wait_for_lock_ms?}`.
+    With `ensure_token: true` the daemon pulls
+    `telegram_bot_token` from the local vault when the token file is
+    missing (412 if not in vault). Persists
+    `integrations.telegram_enabled=true`, then waits for
+    `last_poll_ok >= started_at` to confirm the upstream lock was
+    claimed. 409 on Telegram conflict (another poller still active).
+  - `POST /api/bridge/stop` — `{service?, timeout_ms?}`. Persists
+    `telegram_enabled=false` **only after** the supervisor stop
+    succeeds, so timeouts don't desync config from runtime.
+    408 on timeout, idempotent when already idle.
+  - `POST /api/bridge/announce` — `{service?, chat_id, text}`. One-shot
+    outbound text via the existing channel; 503 if the bridge isn't
+    active locally.
+- **`BridgeSupervisor::op_guard()`** (tokio Mutex) serializes start /
+  stop / boot-time spawn so concurrent operations on the same daemon
+  never race.
+
+### Changed
+
+- **Docs (`docs/API.md`, `docs/MESH.md`, `docs/SKILLS.md`)** updated
+  to cover the new REST endpoints and the migration orchestration
+  including secret-locality guarantee and exit codes. Codeterm skill
+  (`skills/codeterm/SKILL.md` + `references/telegram.md`) gained a
+  `bridge migrate` quick-reference.
+
 ## [1.1.14] — 2026-05-05
 
 Patch: stop the periodic console-window flash users were seeing on
