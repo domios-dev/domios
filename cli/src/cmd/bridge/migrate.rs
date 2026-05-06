@@ -318,6 +318,7 @@ fn report_split_brain(
             "repair_command": repair_cmd,
         });
         println!("{}", serde_json::to_string_pretty(&payload).unwrap());
+        return;
     }
     eprintln!();
     eprintln!("============================================================");

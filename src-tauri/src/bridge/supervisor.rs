@@ -119,6 +119,7 @@ impl BridgeSupervisor {
         let started = Instant::now();
         let outcome = tokio::time::timeout(timeout, &mut handle).await;
         nudger.abort();
+        let _ = nudger.await;
         match outcome {
             Ok(_join_result) => Ok(started.elapsed()),
             Err(_) => {
