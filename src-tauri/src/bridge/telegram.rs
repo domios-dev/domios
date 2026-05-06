@@ -4,10 +4,9 @@ use std::pin::Pin;
 use std::future::Future;
 use std::sync::Arc;
 
-use parking_lot::Mutex;
 use tokio::sync::Notify;
 
-use super::supervisor::BridgeRuntimeState;
+use super::supervisor::BridgeStatusSink;
 use super::traits::{InboundAttachment, InboundMessage, MessagingService, ReplyContext};
 
 pub const TELEGRAM_MAX_LEN: usize = 4096;
@@ -181,7 +180,7 @@ impl TelegramService {
         self: Box<Self>,
         tx: tokio::sync::mpsc::Sender<InboundMessage>,
         cancel: Arc<Notify>,
-        state: Arc<Mutex<BridgeRuntimeState>>,
+        status: Arc<dyn BridgeStatusSink>,
     ) {
         let mut offset: i64 = 0;
         let mut error_count: u32 = 0;
@@ -220,21 +219,12 @@ impl TelegramService {
                     error_count = 0;
                     match r.json::<serde_json::Value>().await {
                         Ok(v) => {
-                            {
-                                let mut s = state.lock();
-                                s.last_poll_ok = Some(chrono::Utc::now());
-                                s.last_poll_error = None;
-                                s.error_count = 0;
-                            }
+                            status.mark_poll_ok();
                             v
                         }
                         Err(e) => {
                             log::warn!("[telegram] parse error: {}", e);
-                            {
-                                let mut s = state.lock();
-                                s.last_poll_error = Some(format!("parse error: {}", e));
-                                s.error_count = s.error_count.saturating_add(1);
-                            }
+                            status.mark_poll_error(&format!("parse error: {}", e));
                             if cancellable_sleep(&cancel, std::time::Duration::from_secs(1)).await { return; }
                             continue;
                         }
@@ -243,35 +233,23 @@ impl TelegramService {
                 Ok(r) if r.status().as_u16() == 429 => {
                     let wait = 30u64; // Telegram rate limit
                     log::warn!("[telegram] rate limited, waiting {}s", wait);
-                    {
-                        let mut s = state.lock();
-                        s.last_poll_error = Some("429 Too Many Requests".to_string());
-                        s.error_count = s.error_count.saturating_add(1);
-                    }
+                    status.mark_poll_error("429 Too Many Requests");
                     if cancellable_sleep(&cancel, std::time::Duration::from_secs(wait)).await { return; }
                     continue;
                 }
                 Ok(r) if r.status().as_u16() == 409 => {
                     error_count = error_count.saturating_add(1);
                     log::warn!("[telegram] 409 Conflict — another getUpdates poller still active");
-                    {
-                        let mut s = state.lock();
-                        s.last_poll_error = Some("409 Conflict".to_string());
-                        s.error_count = s.error_count.saturating_add(1);
-                    }
+                    status.mark_poll_error("409 Conflict");
                     let backoff = (2u64.pow(error_count.min(6))).min(60);
                     if cancellable_sleep(&cancel, std::time::Duration::from_secs(backoff)).await { return; }
                     continue;
                 }
                 Ok(r) => {
                     error_count += 1;
-                    let status = r.status();
-                    log::warn!("[telegram] API error {}", status);
-                    {
-                        let mut s = state.lock();
-                        s.last_poll_error = Some(format!("HTTP {}", status));
-                        s.error_count = s.error_count.saturating_add(1);
-                    }
+                    let http_status = r.status();
+                    log::warn!("[telegram] API error {}", http_status);
+                    status.mark_poll_error(&format!("HTTP {}", http_status));
                     let backoff = (2u64.pow(error_count.min(6))).min(60);
                     if cancellable_sleep(&cancel, std::time::Duration::from_secs(backoff)).await { return; }
                     continue;
@@ -279,11 +257,7 @@ impl TelegramService {
                 Err(e) => {
                     error_count += 1;
                     log::warn!("[telegram] poll error (count={}): {}", error_count, e);
-                    {
-                        let mut s = state.lock();
-                        s.last_poll_error = Some(e.to_string());
-                        s.error_count = s.error_count.saturating_add(1);
-                    }
+                    status.mark_poll_error(&e.to_string());
                     let backoff = (2u64.pow(error_count.min(6))).min(60);
                     if cancellable_sleep(&cancel, std::time::Duration::from_secs(backoff)).await { return; }
                     continue;
@@ -384,9 +358,9 @@ impl MessagingService for TelegramService {
         self: Box<Self>,
         tx: tokio::sync::mpsc::Sender<InboundMessage>,
         cancel: Arc<Notify>,
-        state: Arc<Mutex<BridgeRuntimeState>>,
+        status: Arc<dyn BridgeStatusSink>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        Box::pin(async move { self.poll_updates(tx, cancel, state).await; })
+        Box::pin(async move { self.poll_updates(tx, cancel, status).await; })
     }
 }
 

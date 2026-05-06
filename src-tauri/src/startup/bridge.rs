@@ -46,11 +46,11 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
     );
     let manager = bridge::BridgeManager::new((**svc).clone());
     let cancel = svc.bridge_supervisor.cancel_token();
-    let state = svc.bridge_supervisor.state_handle();
+    let status = svc.bridge_supervisor.as_status_sink();
 
     let handle = tauri::async_runtime::spawn(async move {
         log::info!("[bridge] manager spawned");
-        manager.start(vec![Box::new(telegram)], rx, cancel, state).await;
+        manager.start(vec![Box::new(telegram)], rx, cancel, status).await;
         log::info!("[bridge] manager exited");
     });
 
@@ -81,7 +81,7 @@ pub async fn start_telegram_bridge_for_test(
 
     let supervisor = Arc::new(bridge::supervisor::BridgeSupervisor::new());
     let cancel = supervisor.cancel_token();
-    let state = supervisor.state_handle();
+    let status = supervisor.as_status_sink();
 
     let svc = bridge::telegram::TelegramService::with_base(token, api_base);
     let (tx, mut rx_inbound) = tokio::sync::mpsc::channel(8);
@@ -92,7 +92,7 @@ pub async fn start_telegram_bridge_for_test(
     use crate::bridge::traits::MessagingService;
     let svc_box: Box<dyn MessagingService> = Box::new(svc);
     let handle = tauri::async_runtime::spawn(async move {
-        svc_box.start(tx, cancel, state).await;
+        svc_box.start(tx, cancel, status).await;
     });
     supervisor.set_task(handle, Utc::now());
     supervisor

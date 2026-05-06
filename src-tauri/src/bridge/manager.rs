@@ -58,7 +58,7 @@ impl BridgeManager {
         services: Vec<Box<dyn MessagingService>>,
         mut outbound_rx: tokio::sync::mpsc::UnboundedReceiver<OutboundMessage>,
         cancel: Arc<tokio::sync::Notify>,
-        runtime_state: Arc<Mutex<super::supervisor::BridgeRuntimeState>>,
+        status: Arc<dyn super::supervisor::BridgeStatusSink>,
     ) {
         let (tx, mut rx) = mpsc::channel::<InboundMessage>(64);
         let fallback_chat_id: Arc<Mutex<Option<i64>>> = Arc::new(Mutex::new(None));
@@ -67,10 +67,10 @@ impl BridgeManager {
             let tx_clone = tx.clone();
             let id = service.id().to_string();
             let svc_cancel = cancel.clone();
-            let svc_state = runtime_state.clone();
+            let svc_status = status.clone();
             tokio::spawn(async move {
                 log::info!("[bridge] starting service: {}", id);
-                service.start(tx_clone.clone(), svc_cancel, svc_state).await;
+                service.start(tx_clone.clone(), svc_cancel, svc_status).await;
                 log::info!("[bridge] service {} exited", id);
             });
         }
