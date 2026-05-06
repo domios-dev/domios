@@ -7,9 +7,9 @@ use axum::{
 use tower_http::cors::CorsLayer;
 
 use super::{
-    agent_routes, config_routes, cron_routes, health_routes, hook_routes, map_routes, mem_routes,
-    mesh_routes, network_routes, notification_routes, pane_routes, session_routes,
-    theme_routes, updater_routes, webhook_routes, workspace_routes,
+    agent_routes, bridge_routes, config_routes, cron_routes, health_routes, hook_routes,
+    map_routes, mem_routes, mesh_routes, network_routes, notification_routes, pane_routes,
+    session_routes, theme_routes, updater_routes, webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -106,6 +106,10 @@ pub fn create_router(state: AppState) -> Router {
             get(updater_routes::get_channel).post(updater_routes::set_channel),
         )
         .route("/api/bridge/send", post(config_routes::bridge_send_api))
+        .route("/api/bridge/state", get(bridge_routes::bridge_state))
+        .route("/api/bridge/start", post(bridge_routes::bridge_start))
+        .route("/api/bridge/stop", post(bridge_routes::bridge_stop))
+        .route("/api/bridge/announce", post(bridge_routes::bridge_announce))
         .route("/api/mesh/ping", get(mesh_routes::mesh_ping))
         .route("/api/mesh/debug/sign", get(mesh_routes::mesh_debug_sign))
         .route("/api/mesh/status", get(mesh_routes::mesh_status))

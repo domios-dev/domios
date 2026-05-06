@@ -182,7 +182,7 @@ pub(crate) fn start_servers(
     // Start messaging bridge (Telegram, etc.) if configured
     let integrations = states.config.lock().integrations.clone();
     if integrations.telegram_enabled {
-        super::bridge::start_telegram_bridge(service_state);
+        super::bridge::spawn_telegram_bridge(service_state.clone());
     }
 
     // If we just booted after a self-update, push the result through the

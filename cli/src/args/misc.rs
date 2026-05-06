@@ -203,6 +203,30 @@ pub enum BridgeAction {
         /// Emoji to react with (e.g. "👍", "✅", "❤")
         emoji: String,
     },
+    /// Migrate active bridge poller from this node to another mesh peer.
+    Migrate {
+        /// Target peer instance_name (as shown in `codeterm mesh peers`).
+        #[arg(long)]
+        to: String,
+        /// Service to migrate (currently only "telegram").
+        #[arg(long, default_value = "telegram")]
+        service: String,
+        /// Send a one-shot "now serving from <host>" message to the sentinel chat.
+        #[arg(long)]
+        announce: bool,
+        /// Sentinel chat id for --announce. Defaults to the maintainer's chat.
+        #[arg(long, default_value_t = 186809246)]
+        announce_chat_id: i64,
+        /// Skip auto-rollback if target claim fails (leave source disabled).
+        #[arg(long)]
+        no_rollback: bool,
+        /// Skip preflight target-state check (for force migrations).
+        #[arg(long)]
+        force: bool,
+        /// How long target may take to claim the Telegram lock before the migration is considered failed (ms).
+        #[arg(long, default_value_t = 10_000)]
+        claim_timeout_ms: u64,
+    },
 }
 
 #[derive(Subcommand)]
