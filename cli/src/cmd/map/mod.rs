@@ -1,3 +1,4 @@
+pub mod bridge;
 pub mod cache;
 pub mod config_io;
 pub mod graph;

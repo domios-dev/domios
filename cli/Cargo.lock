@@ -229,6 +229,7 @@ dependencies = [
  "ed25519-dalek",
  "ignore",
  "interprocess",
+ "regex",
  "reqwest",
  "rusqlite",
  "serde",

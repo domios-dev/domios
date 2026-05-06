@@ -87,7 +87,41 @@ impl Store {
             params![file_id],
         )?;
         self.conn.execute("DELETE FROM node WHERE file_id = ?1", params![file_id])?;
+        self.conn.execute("DELETE FROM tauri_bridge_signal WHERE file_id = ?1", params![file_id])?;
         Ok(())
+    }
+
+    pub fn insert_bridge_signal(
+        &self,
+        file_id: i64,
+        side: &str,
+        command: &str,
+        line: i64,
+    ) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "INSERT INTO tauri_bridge_signal(file_id,side,command,line) VALUES(?1,?2,?3,?4)",
+            params![file_id, side, command, line],
+        )?;
+        Ok(())
+    }
+
+    pub fn collect_bridge_signals(&self) -> rusqlite::Result<Vec<(i64, String, String, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT file_id, side, command, line FROM tauri_bridge_signal",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
 
     pub fn insert_node(&self, node: &NewNode) -> rusqlite::Result<i64> {
@@ -122,12 +156,25 @@ impl Store {
         target_node_id: i64,
         weight: f64,
     ) -> rusqlite::Result<()> {
+        self.insert_edge_with_metadata(kind, source_node_id, target_node_id, weight, None)
+    }
+
+    pub fn insert_edge_with_metadata(
+        &self,
+        kind: &str,
+        source_node_id: i64,
+        target_node_id: i64,
+        weight: f64,
+        metadata: Option<&str>,
+    ) -> rusqlite::Result<()> {
         self.conn.execute(
-            "INSERT INTO edge(kind,source_node_id,target_node_id,weight) \
-             VALUES(?1,?2,?3,?4) \
+            "INSERT INTO edge(kind,source_node_id,target_node_id,weight,metadata) \
+             VALUES(?1,?2,?3,?4,?5) \
              ON CONFLICT(kind,source_node_id,target_node_id) \
-             DO UPDATE SET weight = edge.weight + excluded.weight",
-            params![kind, source_node_id, target_node_id, weight],
+             DO UPDATE SET \
+                weight   = edge.weight + excluded.weight, \
+                metadata = COALESCE(excluded.metadata, edge.metadata)",
+            params![kind, source_node_id, target_node_id, weight, metadata],
         )?;
         Ok(())
     }
@@ -308,6 +355,16 @@ CREATE TABLE IF NOT EXISTS error (
   message   TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS tauri_bridge_signal (
+  id        INTEGER PRIMARY KEY,
+  file_id   INTEGER NOT NULL REFERENCES file(id) ON DELETE CASCADE,
+  side      TEXT NOT NULL,
+  command   TEXT NOT NULL,
+  line      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tauri_bridge_signal_command_idx ON tauri_bridge_signal(command);
+CREATE INDEX IF NOT EXISTS tauri_bridge_signal_file_idx ON tauri_bridge_signal(file_id);
 "#;
 
 #[cfg(test)]

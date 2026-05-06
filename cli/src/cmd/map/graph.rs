@@ -31,6 +31,8 @@ pub struct GraphEdge {
     pub target: i64,
     pub kind: String,
     pub weight: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Clone, Copy)]
@@ -226,7 +228,7 @@ fn collect_edges_within(
     }
     let mut stmt = store
         .conn
-        .prepare("SELECT source_node_id, target_node_id, kind, weight FROM edge")
+        .prepare("SELECT source_node_id, target_node_id, kind, weight, metadata FROM edge")
         .map_err(|e| format!("prepare edges: {e}"))?;
     let rows = stmt
         .query_map([], |r| {
@@ -235,6 +237,7 @@ fn collect_edges_within(
                 r.get::<_, i64>(1)?,
                 r.get::<_, String>(2)?,
                 r.get::<_, f64>(3)?,
+                r.get::<_, Option<String>>(4)?,
             ))
         })
         .map_err(|e| format!("query edges: {e}"))?;
@@ -246,6 +249,7 @@ fn collect_edges_within(
                 target: row.1,
                 kind: row.2,
                 weight: row.3,
+                metadata: row.4.and_then(|s| serde_json::from_str(&s).ok()),
             });
         }
     }

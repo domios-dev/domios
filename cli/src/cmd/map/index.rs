@@ -1,4 +1,6 @@
+use crate::cmd::map::bridge::tauri::{handlers_in_rust, invokes_in_ts};
 use crate::cmd::map::cache::{check_file, fs_mtime_ns, fs_size};
+use crate::cmd::map::lang::Lang;
 use crate::cmd::map::store::{NewNode, Store};
 use crate::cmd::map::tags::{extract, Tag, TagRole};
 use crate::cmd::map::walker::{walk_workspace, WorkspaceFile};
@@ -60,6 +62,7 @@ pub fn run_index(root: &Path, opts: IndexOptions) -> Result<IndexReport, String>
     }
 
     derive_edges(&store, &defs, &refs_per_file, &mut report)?;
+    derive_bridge_edges(&store, &mut report)?;
 
     let counts = store.counts().map_err(|e| format!("counts: {e}"))?;
     report.nodes = counts.nodes as usize;
@@ -148,7 +151,35 @@ fn index_file(
         }
     }
 
+    record_bridge_signals(store, wf, file_id, &source)?;
+
     Ok(IndexFileResult::Indexed)
+}
+
+fn record_bridge_signals(
+    store: &Store,
+    wf: &WorkspaceFile,
+    file_id: i64,
+    source: &str,
+) -> Result<(), String> {
+    match wf.lang {
+        Lang::Rust => {
+            for h in handlers_in_rust(source) {
+                store
+                    .insert_bridge_signal(file_id, "handler", &h.name, h.line as i64)
+                    .map_err(|e| format!("insert bridge handler: {e}"))?;
+            }
+        }
+        Lang::TypeScript | Lang::Tsx | Lang::JavaScript => {
+            for i in invokes_in_ts(source) {
+                store
+                    .insert_bridge_signal(file_id, "invoke", &i.command, i.line as i64)
+                    .map_err(|e| format!("insert bridge invoke: {e}"))?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn insert_def(
@@ -277,6 +308,70 @@ fn derive_edges(
     Ok(())
 }
 
+fn derive_bridge_edges(store: &Store, report: &mut IndexReport) -> Result<(), String> {
+    store
+        .conn
+        .execute("DELETE FROM edge WHERE kind = 'bridge'", [])
+        .map_err(|e| format!("clear bridge edges: {e}"))?;
+
+    let signals = store
+        .collect_bridge_signals()
+        .map_err(|e| format!("collect signals: {e}"))?;
+    if signals.is_empty() {
+        return Ok(());
+    }
+
+    let mut handlers: HashMap<String, Vec<i64>> = HashMap::new();
+    let mut invokes: HashMap<String, Vec<i64>> = HashMap::new();
+
+    for (file_id, side, command, _line) in signals {
+        let file_node_id: Option<i64> = store
+            .conn
+            .query_row(
+                "SELECT id FROM node WHERE file_id = ?1 AND kind = 'file'",
+                rusqlite::params![file_id],
+                |r| r.get(0),
+            )
+            .ok();
+        let Some(fnid) = file_node_id else { continue };
+        match side.as_str() {
+            "handler" => {
+                let target_node: Option<i64> = store
+                    .conn
+                    .query_row(
+                        "SELECT n.id FROM node n WHERE n.file_id = ?1 AND n.display_name = ?2 \
+                         AND n.kind IN ('function','method') ORDER BY n.id LIMIT 1",
+                        rusqlite::params![file_id, command],
+                        |r| r.get(0),
+                    )
+                    .ok();
+                handlers.entry(command).or_default().push(target_node.unwrap_or(fnid));
+            }
+            "invoke" => {
+                invokes.entry(command).or_default().push(fnid);
+            }
+            _ => {}
+        }
+    }
+
+    for (cmd, sources) in &invokes {
+        let Some(targets) = handlers.get(cmd) else { continue };
+        for src_id in sources {
+            for tgt_id in targets {
+                if src_id == tgt_id {
+                    continue;
+                }
+                let metadata = format!(r#"{{"via":"tauri","command":"{}"}}"#, cmd);
+                store
+                    .insert_edge_with_metadata("bridge", *src_id, *tgt_id, 1.0, Some(&metadata))
+                    .map_err(|e| format!("insert bridge edge: {e}"))?;
+                report.edges += 1;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn weight_for(name: &str) -> f64 {
     let mut w = 1.0;
     if name.starts_with('_') {
@@ -332,6 +427,38 @@ mod tests {
         let store = Store::open(root).unwrap();
         let rows = store.search_nodes("special_codeterm_helper", None, 5).unwrap();
         assert!(!rows.is_empty(), "search should find helper");
+    }
+
+    #[test]
+    fn tauri_bridge_edges_emitted() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join("src-tauri/src")).unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("src-tauri/src/lib.rs"),
+            "#[tauri::command]\npub fn mux_create_workspace() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/App.tsx"),
+            r#"import { invoke } from "@tauri-apps/api/core"; invoke('mux_create_workspace', { name: 'x' });"#,
+        )
+        .unwrap();
+
+        let report = run_index(root, IndexOptions { force: true, verbose: false }).unwrap();
+        assert!(report.files_indexed >= 2);
+
+        let q = crate::cmd::map::graph::GraphQuery::open(root).unwrap();
+        let g = q.full_graph(crate::cmd::map::graph::DEFAULT_NODE_CAP).unwrap();
+        let bridges: Vec<_> = g.edges.iter().filter(|e| e.kind == "bridge").collect();
+        assert!(!bridges.is_empty(), "expected at least 1 bridge edge, got {:?}", g.edges);
+        let cmd = bridges[0]
+            .metadata
+            .as_ref()
+            .and_then(|v| v.get("command").and_then(|c| c.as_str()))
+            .unwrap_or("");
+        assert_eq!(cmd, "mux_create_workspace");
     }
 
     #[test]
