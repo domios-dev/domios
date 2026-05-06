@@ -98,7 +98,7 @@ impl BridgeSupervisor {
             s.active = false;
         }
 
-        let Some(handle) = handle else {
+        let Some(mut handle) = handle else {
             return Ok(Duration::ZERO);
         };
 
@@ -111,14 +111,18 @@ impl BridgeSupervisor {
         });
 
         let started = Instant::now();
-        let outcome = tokio::time::timeout(timeout, handle).await;
+        let outcome = tokio::time::timeout(timeout, &mut handle).await;
         nudger.abort();
         match outcome {
             Ok(_join_result) => Ok(started.elapsed()),
-            Err(_) => Err(format!(
-                "bridge stop timed out after {}ms",
-                timeout.as_millis()
-            )),
+            Err(_) => {
+                handle.abort();
+                let _ = handle.await;
+                Err(format!(
+                    "bridge stop timed out after {}ms",
+                    timeout.as_millis()
+                ))
+            }
         }
     }
 }
@@ -163,14 +167,25 @@ mod tests {
     async fn supervisor_stop_timeout_aborts_task() {
         let sup = BridgeSupervisor::new();
 
+        let canary = Arc::new(());
+        let canary_in = canary.clone();
         let handle = tauri::async_runtime::spawn(async move {
+            let _hold = canary_in;
             std::future::pending::<()>().await;
         });
         sup.set_task(handle, Utc::now());
+        assert_eq!(Arc::strong_count(&canary), 2);
 
         let res = sup.stop(Duration::from_millis(150)).await;
         assert!(res.is_err(), "should timeout");
         assert!(!sup.is_active());
+
+        tokio::task::yield_now().await;
+        assert_eq!(
+            Arc::strong_count(&canary),
+            1,
+            "stop must abort + join the handle so task locals drop — leaked task would keep holding the Telegram lock"
+        );
     }
 
     #[test]
