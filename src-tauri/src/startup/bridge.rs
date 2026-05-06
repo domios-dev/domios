@@ -59,6 +59,27 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
     Ok(())
 }
 
+/// Drop the service tag from the General Agent pane's connected_services so
+/// the frontend stops showing the integration logo. Safe to call when the
+/// pane / service tag is missing — silent no-op.
+pub fn unmark_pane_connected_service(svc: &ServiceState, service: &str) {
+    let removed = {
+        let mut mux = svc.mux.lock();
+        let Some(pid) = mux.resolve_pane_id(service::general_agent::GENERAL_ALIAS) else {
+            return;
+        };
+        let Some(pane) = mux.get_pane_mut(&pid) else {
+            return;
+        };
+        let before = pane.connected_services.len();
+        pane.connected_services.retain(|s| s != service);
+        before != pane.connected_services.len()
+    };
+    if removed {
+        svc.emit_state_changed();
+    }
+}
+
 /// Synchronous wrapper used at boot — schedules the async start on the
 /// tauri runtime and logs failures. Callers must NOT block on completion.
 pub fn spawn_telegram_bridge(svc: ServiceState) {
