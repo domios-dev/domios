@@ -19,7 +19,7 @@ pub enum MapAction {
         #[arg(long)]
         workspace: Option<String>,
     },
-    /// Search nodes by display name (substring match).
+    /// Search nodes by display name (substring) and chunk vectors (semantic).
     Search {
         query: String,
         #[arg(long)]
@@ -29,6 +29,12 @@ pub enum MapAction {
         /// Filter by node kind (function, method, class, file, …).
         #[arg(long)]
         kind: Option<String>,
+        /// Skip substring path; vector hits only.
+        #[arg(long)]
+        semantic_only: bool,
+        /// Top-k seed count for the vector path.
+        #[arg(long, default_value = "30")]
+        vec_k: usize,
     },
     /// Read or write per-workspace map configuration.
     Config {

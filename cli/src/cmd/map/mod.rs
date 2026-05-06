@@ -1,6 +1,8 @@
 pub mod bridge;
 pub mod cache;
+pub mod chunks;
 pub mod config_io;
+pub mod embed;
 pub mod graph;
 pub mod index;
 pub mod lang;
@@ -156,7 +158,7 @@ pub fn handle(client: &mut SocketClient, json: bool, action: MapAction) {
                 }
             }
         }
-        MapAction::Search { query, workspace, limit, kind } => {
+        MapAction::Search { query, workspace, limit, kind, semantic_only, vec_k } => {
             let root = match workspace::resolve_workspace_root(client, workspace.as_deref()) {
                 Ok(r) => r,
                 Err(e) => {
@@ -164,7 +166,14 @@ pub fn handle(client: &mut SocketClient, json: bool, action: MapAction) {
                     std::process::exit(1);
                 }
             };
-            match search::run_search(&root, &query, kind.as_deref(), limit) {
+            let opts = search::SearchOptions {
+                query: &query,
+                kind: kind.as_deref(),
+                limit,
+                semantic_only,
+                vec_k,
+            };
+            match search::run_search(&root, opts) {
                 Ok(rows) => {
                     if json {
                         let v = serde_json::to_value(&rows).unwrap_or(serde_json::json!([]));

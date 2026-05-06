@@ -1,8 +1,19 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{ffi::sqlite3_auto_extension, params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
+use std::sync::Once;
 
 pub const SCHEMA_VERSION: i32 = 1;
 pub const INDEXER_VERSION: &str = "0.1.0";
+
+static VEC_EXT_REGISTERED: Once = Once::new();
+
+fn register_sqlite_vec() {
+    VEC_EXT_REGISTERED.call_once(|| unsafe {
+        sqlite3_auto_extension(Some(std::mem::transmute(
+            sqlite_vec::sqlite3_vec_init as *const (),
+        )));
+    });
+}
 
 pub struct Store {
     pub conn: Connection,
@@ -10,6 +21,7 @@ pub struct Store {
 
 impl Store {
     pub fn open(workspace_root: &Path) -> rusqlite::Result<Store> {
+        register_sqlite_vec();
         let dir = workspace_root.join(".codeterm").join("map").join("v1");
         std::fs::create_dir_all(&dir)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
@@ -88,7 +100,126 @@ impl Store {
         )?;
         self.conn.execute("DELETE FROM node WHERE file_id = ?1", params![file_id])?;
         self.conn.execute("DELETE FROM tauri_bridge_signal WHERE file_id = ?1", params![file_id])?;
+        self.conn.execute(
+            "DELETE FROM chunk_vec WHERE chunk_id IN (SELECT id FROM chunk WHERE file_id = ?1)",
+            params![file_id],
+        )?;
+        self.conn.execute("DELETE FROM chunk WHERE file_id = ?1", params![file_id])?;
         Ok(())
+    }
+
+    pub fn insert_chunk(
+        &self,
+        file_id: i64,
+        start_line: u32,
+        end_line: u32,
+        contents: &str,
+    ) -> rusqlite::Result<i64> {
+        self.conn.execute(
+            "INSERT INTO chunk(file_id,start_line,end_line,contents,embedded_at) \
+             VALUES(?1,?2,?3,?4,NULL)",
+            params![file_id, start_line as i64, end_line as i64, contents],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn store_chunk_vector(
+        &self,
+        chunk_id: i64,
+        embedding: &[u8],
+    ) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "DELETE FROM chunk_vec WHERE chunk_id = ?1",
+            params![chunk_id],
+        )?;
+        self.conn.execute(
+            "INSERT INTO chunk_vec(chunk_id,embedding) VALUES(?1,?2)",
+            params![chunk_id, embedding],
+        )?;
+        let now = chrono::Utc::now().timestamp_millis();
+        self.conn.execute(
+            "UPDATE chunk SET embedded_at = ?1 WHERE id = ?2",
+            params![now, chunk_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn unembedded_chunks(&self) -> rusqlite::Result<Vec<(i64, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, contents FROM chunk WHERE embedded_at IS NULL")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    pub fn vec_search(
+        &self,
+        query: &[u8],
+        k: usize,
+    ) -> rusqlite::Result<Vec<(i64, f64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT chunk_id, distance FROM chunk_vec \
+             WHERE embedding MATCH ?1 AND k = ?2 ORDER BY distance",
+        )?;
+        let rows = stmt.query_map(params![query, k as i64], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    pub fn chunk_to_node(&self, chunk_id: i64) -> rusqlite::Result<Option<ChunkLocator>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT c.file_id, c.start_line, c.end_line FROM chunk c WHERE c.id = ?1",
+        )?;
+        let row = stmt
+            .query_row(params![chunk_id], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            })
+            .optional()?;
+        let Some((file_id, start, _end)) = row else { return Ok(None) };
+
+        let node_id: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT id FROM node WHERE file_id = ?1 AND start_line IS NOT NULL \
+                 AND start_line <= ?2 AND (end_line IS NULL OR end_line >= ?2) \
+                 ORDER BY (?2 - start_line) ASC LIMIT 1",
+                params![file_id, start],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let node_id = if let Some(id) = node_id {
+            Some(id)
+        } else {
+            self.conn
+                .query_row(
+                    "SELECT id FROM node WHERE file_id = ?1 AND kind = 'file'",
+                    params![file_id],
+                    |r| r.get(0),
+                )
+                .optional()?
+        };
+        Ok(node_id.map(|id| ChunkLocator { node_id: id, file_id, start_line: start }))
+    }
+
+    pub fn count_chunks(&self) -> rusqlite::Result<(i64, i64)> {
+        let total: i64 = self.conn.query_row("SELECT COUNT(*) FROM chunk", [], |r| r.get(0))?;
+        let embedded: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM chunk WHERE embedded_at IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )?;
+        Ok((total, embedded))
     }
 
     pub fn insert_bridge_signal(
@@ -293,6 +424,13 @@ pub struct NodeRow {
     pub start_line: Option<i64>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ChunkLocator {
+    pub node_id: i64,
+    pub file_id: i64,
+    pub start_line: i64,
+}
+
 const SCHEMA_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS map_meta (
   key   TEXT PRIMARY KEY,
@@ -365,6 +503,21 @@ CREATE TABLE IF NOT EXISTS tauri_bridge_signal (
 );
 CREATE INDEX IF NOT EXISTS tauri_bridge_signal_command_idx ON tauri_bridge_signal(command);
 CREATE INDEX IF NOT EXISTS tauri_bridge_signal_file_idx ON tauri_bridge_signal(file_id);
+
+CREATE TABLE IF NOT EXISTS chunk (
+  id          INTEGER PRIMARY KEY,
+  file_id     INTEGER NOT NULL REFERENCES file(id) ON DELETE CASCADE,
+  start_line  INTEGER NOT NULL,
+  end_line    INTEGER NOT NULL,
+  contents    TEXT NOT NULL,
+  embedded_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS chunk_file_idx ON chunk(file_id);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vec USING vec0(
+  chunk_id INTEGER PRIMARY KEY,
+  embedding FLOAT[384]
+);
 "#;
 
 #[cfg(test)]

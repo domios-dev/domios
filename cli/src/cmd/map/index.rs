@@ -1,5 +1,7 @@
 use crate::cmd::map::bridge::tauri::{handlers_in_rust, invokes_in_ts};
 use crate::cmd::map::cache::{check_file, fs_mtime_ns, fs_size};
+use crate::cmd::map::chunks::chunk_file;
+use crate::cmd::map::embed::{vec_to_le_bytes, EmbedClient, VECTOR_DIM};
 use crate::cmd::map::lang::Lang;
 use crate::cmd::map::store::{NewNode, Store};
 use crate::cmd::map::tags::{extract, Tag, TagRole};
@@ -16,6 +18,8 @@ pub struct IndexReport {
     pub nodes: usize,
     pub edges: usize,
     pub errors: usize,
+    pub chunks: usize,
+    pub chunks_embedded: usize,
     pub elapsed_ms: u128,
 }
 
@@ -63,6 +67,7 @@ pub fn run_index(root: &Path, opts: IndexOptions) -> Result<IndexReport, String>
 
     derive_edges(&store, &defs, &refs_per_file, &mut report)?;
     derive_bridge_edges(&store, &mut report)?;
+    embed_pending_chunks(&store, &mut report);
 
     let counts = store.counts().map_err(|e| format!("counts: {e}"))?;
     report.nodes = counts.nodes as usize;
@@ -152,8 +157,23 @@ fn index_file(
     }
 
     record_bridge_signals(store, wf, file_id, &source)?;
+    record_chunks(store, wf, file_id, &source)?;
 
     Ok(IndexFileResult::Indexed)
+}
+
+fn record_chunks(
+    store: &Store,
+    wf: &WorkspaceFile,
+    file_id: i64,
+    source: &str,
+) -> Result<(), String> {
+    for c in chunk_file(wf.lang, source) {
+        store
+            .insert_chunk(file_id, c.start_line, c.end_line, &c.text)
+            .map_err(|e| format!("insert chunk: {e}"))?;
+    }
+    Ok(())
 }
 
 fn record_bridge_signals(
@@ -306,6 +326,63 @@ fn derive_edges(
         }
     }
     Ok(())
+}
+
+fn embed_pending_chunks(store: &Store, report: &mut IndexReport) {
+    let pending = match store.unembedded_chunks() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("project-map: list pending chunks: {e}");
+            return;
+        }
+    };
+    let total = pending.len();
+    if total == 0 {
+        if let Ok((tot, emb)) = store.count_chunks() {
+            report.chunks = tot as usize;
+            report.chunks_embedded = emb as usize;
+        }
+        return;
+    }
+    let mut client = EmbedClient::new();
+    if let Err(e) = client.embed("warmup") {
+        eprintln!("project-map: embed unavailable, skipping vectors ({e})");
+        if let Ok((tot, emb)) = store.count_chunks() {
+            report.chunks = tot as usize;
+            report.chunks_embedded = emb as usize;
+        }
+        return;
+    }
+
+    let mut embedded = 0usize;
+    for (chunk_id, contents) in pending {
+        match client.embed(&contents) {
+            Ok(v) if v.len() == VECTOR_DIM => {
+                let bytes = vec_to_le_bytes(&v);
+                if let Err(e) = store.store_chunk_vector(chunk_id, &bytes) {
+                    eprintln!("project-map: store vector {chunk_id}: {e}");
+                } else {
+                    embedded += 1;
+                }
+            }
+            Ok(v) => {
+                eprintln!(
+                    "project-map: chunk {chunk_id} unexpected dim {} (want {VECTOR_DIM})",
+                    v.len()
+                );
+            }
+            Err(e) => {
+                eprintln!("project-map: embed chunk {chunk_id}: {e}");
+            }
+        }
+    }
+    if let Ok((tot, emb)) = store.count_chunks() {
+        report.chunks = tot as usize;
+        report.chunks_embedded = emb as usize;
+    } else {
+        report.chunks = total;
+        report.chunks_embedded = embedded;
+    }
 }
 
 fn derive_bridge_edges(store: &Store, report: &mut IndexReport) -> Result<(), String> {
