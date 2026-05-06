@@ -394,7 +394,6 @@ export interface MemoryConfig {
   extraction_agent: string;
   extraction_model: string;
   auto_extract: boolean;
-  dreaming_enabled: boolean;
   dreaming_agent: string;
   dreaming_model: string;
   worker_model: string;
