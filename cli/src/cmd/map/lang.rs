@@ -54,6 +54,49 @@ impl Lang {
         Lang::from_extension(ext)
     }
 
+    pub fn resolution_group(self) -> &'static str {
+        match self {
+            Lang::TypeScript | Lang::Tsx | Lang::JavaScript => "js",
+            Lang::C | Lang::Cpp => "c",
+            Lang::Rust => "rust",
+            Lang::Python => "py",
+            Lang::Go => "go",
+            Lang::Java => "java",
+            Lang::Swift => "swift",
+            Lang::Ruby => "ruby",
+            Lang::Kotlin => "kotlin",
+            Lang::CSharp => "csharp",
+            Lang::Php => "php",
+            Lang::Scala => "scala",
+            Lang::Dart => "dart",
+            Lang::Elixir => "elixir",
+            Lang::Lua => "lua",
+            Lang::OCaml => "ocaml",
+        }
+    }
+
+    pub fn group_from_lang_name(name: &str) -> Option<&'static str> {
+        match name {
+            "typescript" | "tsx" | "javascript" => Some("js"),
+            "c" | "cpp" => Some("c"),
+            "rust" => Some("rust"),
+            "python" => Some("py"),
+            "go" => Some("go"),
+            "java" => Some("java"),
+            "swift" => Some("swift"),
+            "ruby" => Some("ruby"),
+            "kotlin" => Some("kotlin"),
+            "csharp" => Some("csharp"),
+            "php" => Some("php"),
+            "scala" => Some("scala"),
+            "dart" => Some("dart"),
+            "elixir" => Some("elixir"),
+            "lua" => Some("lua"),
+            "ocaml" => Some("ocaml"),
+            _ => None,
+        }
+    }
+
     pub fn from_extension(ext: &str) -> Option<Lang> {
         match ext.to_ascii_lowercase().as_str() {
             "rs" => Some(Lang::Rust),

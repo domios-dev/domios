@@ -49,17 +49,19 @@ pub fn run_index(root: &Path, opts: IndexOptions) -> Result<IndexReport, String>
         emit_progress("scan", 0, files.len());
     }
 
-    // defs[name] = list of node_ids that define `name`
+    // defs[name] = list of (node_id, lang_group) — language-scoped to prevent cross-language false edges
     // refs_per_file[file_node_id] = set of names referenced
-    let mut defs: HashMap<String, Vec<i64>> = HashMap::new();
+    // file_lang[file_node_id] = lang_group for resolving refs against same-language defs
+    let mut defs: HashMap<String, Vec<(i64, &'static str)>> = HashMap::new();
     let mut refs_per_file: HashMap<i64, HashSet<String>> = HashMap::new();
+    let mut file_lang: HashMap<i64, &'static str> = HashMap::new();
     let mut report = IndexReport::default();
     report.files = files.len();
 
     let total = files.len();
     let mut last_progress: usize = 0;
     for (idx, wf) in files.iter().enumerate() {
-        match index_file(&store, wf, opts.force, &mut defs, &mut refs_per_file) {
+        match index_file(&store, wf, opts.force, &mut defs, &mut refs_per_file, &mut file_lang) {
             Ok(IndexFileResult::Cached) => report.files_cached += 1,
             Ok(IndexFileResult::Indexed) => report.files_indexed += 1,
             Err(e) => {
@@ -80,7 +82,7 @@ pub fn run_index(root: &Path, opts: IndexOptions) -> Result<IndexReport, String>
     let graph_dirty = opts.force || report.files_indexed > 0;
     if graph_dirty {
         if opts.progress { emit_progress("graph", 0, 1); }
-        derive_edges(&store, &defs, &refs_per_file, &mut report)?;
+        derive_edges(&store, &defs, &refs_per_file, &file_lang, &mut report)?;
         derive_bridge_edges(&store, &mut report)?;
         derive_http_bridge_edges(&store, &mut report)?;
         if let Err(e) = crate::cmd::map::scip_loader::load_workspace(root, &store) {
@@ -119,8 +121,9 @@ fn index_file(
     store: &Store,
     wf: &WorkspaceFile,
     force: bool,
-    defs: &mut HashMap<String, Vec<i64>>,
+    defs: &mut HashMap<String, Vec<(i64, &'static str)>>,
     refs_per_file: &mut HashMap<i64, HashSet<String>>,
+    file_lang: &mut HashMap<i64, &'static str>,
 ) -> Result<IndexFileResult, String> {
     let mtime = fs_mtime_ns(&wf.abs_path).map_err(|e| format!("mtime: {e}"))?;
     let size = fs_size(&wf.abs_path).map_err(|e| format!("size: {e}"))?;
@@ -128,7 +131,7 @@ fn index_file(
     if !force {
         if let Ok(check) = check_file(store, &wf.rel_path, mtime) {
             if check.fresh {
-                hydrate_cached_file(store, wf, defs, refs_per_file)?;
+                hydrate_cached_file(store, wf, defs, refs_per_file, file_lang)?;
                 return Ok(IndexFileResult::Cached);
             }
         }
@@ -165,6 +168,7 @@ fn index_file(
         .map_err(|e| format!("insert file node: {e}"))?;
 
     let mut def_names_in_file: HashSet<String> = HashSet::new();
+    file_lang.insert(file_node_id, wf.lang.resolution_group());
 
     for t in &tags {
         if t.role == TagRole::Def {
@@ -267,7 +271,7 @@ fn insert_def(
     t: &Tag,
     file_id: i64,
     file_node_id: i64,
-    defs: &mut HashMap<String, Vec<i64>>,
+    defs: &mut HashMap<String, Vec<(i64, &'static str)>>,
     def_names_in_file: &mut HashSet<String>,
 ) -> Result<(), String> {
     let serial = format!("{}:{}::{}#{}:{}", wf.lang.name(), wf.rel_path, t.name, t.line, t.col);
@@ -292,7 +296,7 @@ fn insert_def(
         .insert_occurrence(file_id, Some(node_id), &t.name, TagRole::Def.as_str(), t.line as i64, t.col as i64)
         .map_err(|e| format!("insert occurrence: {e}"))?;
 
-    defs.entry(t.name.clone()).or_default().push(node_id);
+    defs.entry(t.name.clone()).or_default().push((node_id, wf.lang.resolution_group()));
     def_names_in_file.insert(t.name.clone());
     Ok(())
 }
@@ -300,8 +304,9 @@ fn insert_def(
 fn hydrate_cached_file(
     store: &Store,
     wf: &WorkspaceFile,
-    defs: &mut HashMap<String, Vec<i64>>,
+    defs: &mut HashMap<String, Vec<(i64, &'static str)>>,
     refs_per_file: &mut HashMap<i64, HashSet<String>>,
+    file_lang: &mut HashMap<i64, &'static str>,
 ) -> Result<(), String> {
     let file_node_serial = format!("file:{}", wf.rel_path);
     let file_node_id: Option<i64> = store
@@ -323,6 +328,8 @@ fn hydrate_cached_file(
         )
         .ok();
     let Some(fid) = file_id else { return Ok(()) };
+
+    file_lang.insert(fnid, wf.lang.resolution_group());
 
     let mut stmt = store
         .conn
@@ -350,15 +357,16 @@ fn hydrate_cached_file(
         })
         .map_err(|e| format!("hydrate defs: {e}"))?;
     for row in rows2.flatten() {
-        defs.entry(row.1).or_default().push(row.0);
+        defs.entry(row.1).or_default().push((row.0, wf.lang.resolution_group()));
     }
     Ok(())
 }
 
 fn derive_edges(
     store: &Store,
-    defs: &HashMap<String, Vec<i64>>,
+    defs: &HashMap<String, Vec<(i64, &'static str)>>,
     refs_per_file: &HashMap<i64, HashSet<String>>,
+    file_lang: &HashMap<i64, &'static str>,
     report: &mut IndexReport,
 ) -> Result<(), String> {
     store
@@ -368,16 +376,17 @@ fn derive_edges(
 
     let empty: HashSet<String> = HashSet::new();
     for (file_node_id, names) in refs_per_file {
+        let Some(src_group) = file_lang.get(file_node_id).copied() else { continue };
         for name in names {
             if name.len() < 3 || is_too_common(name) {
                 continue;
             }
             let Some(targets) = defs.get(name) else { continue };
-            for tgt in targets {
-                if tgt == file_node_id {
-                    continue;
-                }
-                let weight = weight_for(name, defs.get(name).map(|v| v.len()).unwrap_or(0), &empty);
+            let same_lang_count = targets.iter().filter(|(_, g)| *g == src_group).count();
+            for (tgt, tgt_group) in targets {
+                if *tgt_group != src_group { continue; }
+                if tgt == file_node_id { continue; }
+                let weight = weight_for(name, same_lang_count, &empty);
                 store
                     .insert_edge("invoke", *file_node_id, *tgt, weight)
                     .map_err(|e| format!("insert invoke edge: {e}"))?;

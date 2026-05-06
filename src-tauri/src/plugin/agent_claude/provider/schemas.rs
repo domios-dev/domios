@@ -134,8 +134,8 @@ pub(super) fn install_bridge_rule(payload: &str) -> Result<(), String> {
     std::fs::create_dir_all(&rules_dir)
         .map_err(|e| format!("create {}: {}", rules_dir.display(), e))?;
 
-    let final_path = rules_dir.join("codeterm.md");
-    let tmp_path = rules_dir.join("codeterm.md.tmp");
+    let final_path = rules_dir.join("codeterm-mem.md");
+    let tmp_path = rules_dir.join("codeterm-mem.md.tmp");
 
     std::fs::write(&tmp_path, payload)
         .map_err(|e| format!("write {}: {}", tmp_path.display(), e))?;
@@ -154,7 +154,7 @@ pub(super) fn uninstall_bridge_rule() -> Result<(), String> {
         .ok_or_else(|| "no home directory".to_string())?
         .join(".claude")
         .join("rules")
-        .join("codeterm.md");
+        .join("codeterm-mem.md");
     if path.exists() {
         std::fs::remove_file(&path)
             .map_err(|e| format!("remove {}: {}", path.display(), e))?;

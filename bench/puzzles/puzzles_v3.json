@@ -4,15 +4,14 @@
   "description": "v3 multi-step bench inspired by aider/SWE-bench. 6 multi-step tasks: 4 graph-heavy (where wrong starting point cascades) + 2 adversarial literal (rg should win). Each task has objectively verifiable ground truth. Scoring: must_contain set (all required tokens present, case-insensitive). Run N=2 per (task, mode) for variance. Track trajectory: tool_uses, distinct_tools, distinct_files_read.",
   "puzzles": [
     {
-      "id": "MS1_top_centrality_with_callers",
+      "id": "MS1_top_callers_with_caller_files",
       "kind": "centrality+edges",
       "expected_strength": "map",
-      "question": "Three-step task. (1) Identify the TOP 3 functions in src-tauri/src/service/ ranked by structural importance (PageRank). (2) For each of those 3 functions, name ONE other Rust file in the codeterm repo that calls it (any caller other than the file where the function is defined). (3) Output as a 3-row list: 'function_name @ defining_file:line — caller: caller_file'. All three names must appear; for callers, ANY non-defining file that legitimately calls them counts.",
+      "question": "Two-step task. (1) Among Rust functions defined in src-tauri/src/service/ (any depth), identify the TOP 2 functions by NUMBER OF DISTINCT incoming callers (other Rust files that call them via `invoke` edges). (2) For each of those 2 functions, name ONE other Rust file in the codeterm repo that calls it. Output as a 2-row list: 'function_name @ defining_file — caller: caller_file'. The top function should have ≥3 more callers than the runner-up.",
       "expected": {
         "must_contain": [
-          "list_workspaces", "src-tauri/src/service/workspace.rs",
-          "send_text", "src-tauri/src/service/pty_io.rs",
-          "emit_state_changed", "src-tauri/src/service/mod.rs"
+          "emit_state_changed", "src-tauri/src/service/mod.rs",
+          "set_pane_agent_type", "src-tauri/src/service/pane.rs"
         ]
       }
     },
@@ -64,7 +63,7 @@
       "expected_strength": "rg",
       "question": "How many DISTINCT files inside src-tauri/src/api/ (any depth — search recursively into all subdirectories) contain at least one call to `.unwrap_or_else(`? Just answer with the integer.",
       "expected": {
-        "must_contain": ["9"]
+        "must_contain": ["10"]
       }
     }
   ],
