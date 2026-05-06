@@ -256,6 +256,10 @@ pub async fn bridge_announce(
     check_auth(&state, &headers)?;
     ensure_telegram(&body.service)?;
 
+    if !state.svc.bridge_supervisor.is_active() {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "Bridge not active"));
+    }
+
     let tx_guard = state.svc.bridge_outbound.lock();
     let tx = tx_guard
         .as_ref()
