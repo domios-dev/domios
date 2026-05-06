@@ -210,9 +210,87 @@ The `connect`, `approve`, `reject`, and `disconnect` endpoints are high-level �
 **Flat peer model:** Paired = trusted. No crown, no king, no trust declarations. Each machine sets an **AccessLevel** (Full/ReadOnly/AgentIsolated) per peer locally via the `mesh_set_access` Tauri command. Default is Full. UDP discovery broadcasts every 30 seconds.
 
 #### Bridge (Telegram / External Services)
-| Method | Path | Body | Description |
+| Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
+| GET | `/api/bridge/state` | `?service=telegram` | Bridge runtime + config snapshot for live migration / health |
+| POST | `/api/bridge/start` | `{service?, ensure_token?, wait_for_lock_ms?}` | Start the messaging supervisor; optionally pull token from vault and wait for the upstream lock |
+| POST | `/api/bridge/stop` | `{service?, timeout_ms?}` | Stop the messaging supervisor and persist `telegram_enabled=false` |
+| POST | `/api/bridge/announce` | `{service?, chat_id, text}` | One-shot outbound text via the running bridge (used by `bridge migrate --announce`) |
 | POST | `/api/bridge/send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram) |
+
+**Concurrency contract.** `bridge_start`, `bridge_stop`, and the boot-time spawn all acquire the same `BridgeSupervisor::op_guard()` (tokio Mutex), so start/stop operations on the same daemon are serialized — no two of them ever race.
+
+**GET /api/bridge/state** — current bridge runtime + config metadata. The `?service` query defaults to `telegram`; an unsupported value returns `400`. The `has_secret_in_vault` field is metadata-only via `SecretStore::has` and never decrypts the value.
+
+```json
+{
+  "service": "telegram",
+  "active": true,
+  "config_enabled": true,
+  "token_present": true,
+  "has_secret_in_vault": true,
+  "secret_name": "telegram_bot_token",
+  "started_at": "2026-05-06T12:00:00Z",
+  "last_poll_ok": "2026-05-06T12:01:30Z",
+  "last_poll_error": null,
+  "error_count": 0,
+  "instance_name": "BLACKSTAR"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `service` | `string` | Service identifier (`"telegram"` today). |
+| `active` | `bool` | Supervisor is running and the poller task is alive. |
+| `config_enabled` | `bool` | `integrations.telegram_enabled` from `config.toml`. |
+| `token_present` | `bool` | `~/.codeterm/secrets/telegram.token` exists on disk. |
+| `has_secret_in_vault` | `bool` | The local secret store reports an entry named `secret_name`. Metadata only — value never decrypted. |
+| `secret_name` | `string` | Vault key the bridge would resolve to (`"telegram_bot_token"`). |
+| `started_at` | `string?` | RFC3339 timestamp of the last successful start. |
+| `last_poll_ok` | `string?` | RFC3339 timestamp of the most recent successful Telegram `getUpdates`. |
+| `last_poll_error` | `string?` | Last polling error message; `null` while healthy. |
+| `error_count` | `int` | Lifetime polling-error counter (resets on supervisor restart). |
+| `instance_name` | `string` | Local mesh `instance_name` for cross-host disambiguation. |
+
+**POST /api/bridge/start** — start the supervisor. Body:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `service` | `string` | `"telegram"` | Service to start. `400` if unsupported. |
+| `ensure_token` | `bool` | `false` | If `true` and the local token file is missing, the daemon pulls `telegram_bot_token` from the local secret vault and writes it to `~/.codeterm/secrets/telegram.token` (mode `0600` on Unix). Returns `412` if the secret is not in the vault. |
+| `wait_for_lock_ms` | `u64` | `10000` | How long to wait (ms) for the supervisor's `last_poll_ok` to advance past `started_at`, confirming the Telegram long-poll lock was claimed (no other poller fighting for it). |
+
+Side effect: persists `integrations.telegram_enabled = true` to `config.toml` (so the supervisor auto-starts on next boot). Returns `200` once `last_poll_ok >= started_at`:
+```json
+{"ok": true, "started_in_ms": 1430, "claimed_lock": true}
+```
+
+If a polling error containing `409` is observed (Telegram refuses the lock — another poller still active), responds `409 Conflict` with the upstream error embedded. If the wait window expires without a successful poll, returns `200` with `ok: false, claimed_lock: false` and an `error` field carrying the most recent poll error (or `"no successful poll within wait window"`).
+
+**POST /api/bridge/stop** — stop the supervisor and persist `telegram_enabled=false`. Body:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `service` | `string` | `"telegram"` | Service to stop. `400` if unsupported. |
+| `timeout_ms` | `u64` | `30000` | How long to wait for the poller task to exit gracefully. |
+
+Behaviour:
+- If the supervisor is already idle, persists `telegram_enabled=false` (idempotent) and returns `200`:
+  ```json
+  {"ok": true, "released_in_ms": 0, "was_active": false}
+  ```
+- If active, signals the supervisor and waits up to `timeout_ms`. On success returns `200` with `was_active: true`. The config flip to `telegram_enabled=false` happens **only after** the supervisor stop succeeds, so timeouts never leave config disagreeing with runtime.
+- On timeout returns `408 Request Timeout` (`bridge stop timed out`); config is left untouched.
+
+**POST /api/bridge/announce** — enqueue a one-shot text message via the existing outbound channel. Used by `codeterm bridge migrate --announce` to post a "now serving from <host>" sentinel after a successful migration. Body:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `service` | `string` | `"telegram"` | Service to announce on. `400` if unsupported. |
+| `chat_id` | `i64` | *(required)* | Target Telegram chat/user id. |
+| `text` | `string` | *(required)* | Message text (HTML parse mode). |
+
+Returns `200 {"ok": true}` on success or `503 Service Unavailable` (`Bridge not active`) if the local bridge has no outbound channel yet.
 
 **POST /api/bridge/send** — sends an outbound message or media through the bridge. Parameters:
 
@@ -860,6 +938,16 @@ codeterm bridge send --to CHAT_ID --type document --file /path/to/f.pdf --filena
                                                # Send document with custom filename
 codeterm bridge send --to CHAT_ID --type voice --file /path/to/audio.ogg
                                                # Send voice/video/animation/sticker
+codeterm bridge migrate --to PEER [--service telegram] [--announce] [--announce-chat-id ID] \
+                        [--no-rollback] [--force] [--claim-timeout-ms 10000]
+                                               # Hot-relocate the active poller to a paired mesh peer.
+                                               # Daemons stay up; no restart. Source is disabled,
+                                               # target claims the upstream lock; auto-rollback on
+                                               # failure. MUST run on the SOURCE machine — running
+                                               # via `--mesh PEER` exits 6.
+                                               # Exit codes: 0 success / 1 generic / 5 preflight
+                                               # (target unreachable, no token+vault, missing peer)
+                                               # / 6 usage error / 7 split-brain (rollback also failed).
 
 # Mesh Networking
 codeterm mesh status                           # Show mesh identity, peers, discovery
@@ -963,4 +1051,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->
