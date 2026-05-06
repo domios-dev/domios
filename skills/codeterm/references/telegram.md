@@ -60,3 +60,32 @@ HTML only: `<b>`, `<i>`, `<code>`, `<pre>`, `<a href>`, `<s>`, `<u>`, `<tg-spoil
 ## Settings UI
 
 Settings → Integrations → Telegram (toggle + allowed users).
+
+## Hot-relocating the poller (`bridge migrate`)
+
+Telegram allows exactly one active long-poll per bot token. `bridge migrate` moves that poller from the current machine to a paired mesh peer without restarting either daemon. Use it when you're shutting down the host that currently runs the bridge.
+
+**Run on the SOURCE machine.** `--mesh PEER bridge migrate` exits `6` (usage error) — the orchestration legitimately needs to talk to both daemons in opposite directions.
+
+```bash
+codeterm bridge migrate --to PEER \
+  [--service telegram] \
+  [--announce] [--announce-chat-id 186809246] \
+  [--no-rollback] [--force] [--claim-timeout-ms 10000]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--to` | *(required)* | Target peer `instance_name` or `instance_id` from `codeterm mesh peers`. |
+| `--service` | `telegram` | Bridge to migrate. Only `telegram` today. |
+| `--announce` | `false` | Post `[CodeTerm] Telegram bridge migrated to <to> from <from>` after success. |
+| `--announce-chat-id` | `186809246` | Chat id for `--announce`. |
+| `--no-rollback` | `false` | If the target claim fails, leave the source disabled instead of restarting it. |
+| `--force` | `false` | Skip the target preflight (`token_present || has_secret_in_vault`). |
+| `--claim-timeout-ms` | `10000` | How long the target may take to claim the upstream lock before the migration is failed. |
+
+**What it does (briefly):** disable source config → stop source supervisor → enable target config → start target supervisor with `ensure_token: true` (target pulls from its own vault if needed) → wait for target's `last_poll_ok >= started_at` → verify both states → optionally announce. On failure, auto-rollback re-enables and restarts the source.
+
+**Secret locality.** Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` from the source and never sends it across the wire — `--ensure-token` only fires on the daemon that owns the secret. Same contract as `--mesh PEER mem secret …`.
+
+**Exit codes:** `0` success / `1` generic failure (rollback OK) / `5` preflight (target unreachable, no token + no vault, missing peer) / `6` usage error (e.g. `--mesh`) / `7` split-brain (rollback also failed; CLI prints the manual repair command). Full orchestration steps + REST endpoints: `docs/MESH.md` and `docs/API.md`.
