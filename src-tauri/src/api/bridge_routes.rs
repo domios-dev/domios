@@ -88,7 +88,26 @@ pub async fn bridge_stop(
     check_auth(&state, &headers)?;
     ensure_telegram(&body.service)?;
 
+    let _op = state.svc.bridge_supervisor.op_guard().await;
+
     let was_active = state.svc.bridge_supervisor.is_active();
+    if !was_active {
+        let mut cfg = state.config.lock();
+        cfg.integrations.telegram_enabled = false;
+        if let Err(e) = crate::config::save_config_pub(&cfg) {
+            log::warn!("[bridge] failed to persist disable: {}", e);
+        }
+        return Ok(Json(json!({
+            "ok": true,
+            "released_in_ms": 0,
+            "was_active": false,
+        })));
+    }
+
+    let elapsed = state.svc.bridge_supervisor
+        .stop(Duration::from_millis(body.timeout_ms))
+        .await
+        .map_err(|_| (StatusCode::REQUEST_TIMEOUT, "bridge stop timed out"))?;
 
     {
         let mut cfg = state.config.lock();
@@ -98,22 +117,11 @@ pub async fn bridge_stop(
         }
     }
 
-    if !was_active {
-        return Ok(Json(json!({
-            "ok": true,
-            "released_in_ms": 0,
-            "was_active": false,
-        })));
-    }
-
-    match state.svc.bridge_supervisor.stop(Duration::from_millis(body.timeout_ms)).await {
-        Ok(elapsed) => Ok(Json(json!({
-            "ok": true,
-            "released_in_ms": elapsed.as_millis() as u64,
-            "was_active": true,
-        }))),
-        Err(_) => Err((StatusCode::REQUEST_TIMEOUT, "bridge stop timed out")),
-    }
+    Ok(Json(json!({
+        "ok": true,
+        "released_in_ms": elapsed.as_millis() as u64,
+        "was_active": true,
+    })))
 }
 
 #[derive(Deserialize)]
@@ -135,6 +143,8 @@ pub async fn bridge_start(
 ) -> Result<Json<Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     ensure_telegram(&body.service).map_err(|(s, m)| (s, m.to_string()))?;
+
+    let _op = state.svc.bridge_supervisor.op_guard().await;
 
     if body.ensure_token && !bridge::telegram::token_path().exists() {
         let store = state.svc.secrets.read().await;
@@ -167,6 +177,7 @@ pub async fn bridge_start(
         return Err((StatusCode::INTERNAL_SERVER_ERROR, e));
     }
 
+    let claim_anchor = state.svc.bridge_supervisor.snapshot().started_at;
     let deadline = started + Duration::from_millis(body.wait_for_lock_ms.max(250));
     let poll = Duration::from_millis(250);
     let mut claimed = false;
@@ -174,9 +185,11 @@ pub async fn bridge_start(
 
     loop {
         let snap = state.svc.bridge_supervisor.snapshot();
-        if snap.last_poll_ok.is_some() {
-            claimed = true;
-            break;
+        if let (Some(ok), Some(anchor)) = (snap.last_poll_ok, claim_anchor) {
+            if ok >= anchor {
+                claimed = true;
+                break;
+            }
         }
         if let Some(err) = snap.last_poll_error.clone() {
             last_error = Some(err.clone());

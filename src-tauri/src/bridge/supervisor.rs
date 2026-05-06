@@ -33,6 +33,7 @@ pub struct BridgeSupervisor {
     state: Arc<Mutex<BridgeRuntimeState>>,
     cancel: Arc<Notify>,
     task: Arc<Mutex<Option<JoinHandle<()>>>>,
+    op_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl Default for BridgeSupervisor {
@@ -47,7 +48,12 @@ impl BridgeSupervisor {
             state: Arc::new(Mutex::new(BridgeRuntimeState::new("telegram"))),
             cancel: Arc::new(Notify::new()),
             task: Arc::new(Mutex::new(None)),
+            op_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
+    }
+
+    pub async fn op_guard(&self) -> tokio::sync::OwnedMutexGuard<()> {
+        self.op_lock.clone().lock_owned().await
     }
 
     pub fn state_handle(&self) -> Arc<Mutex<BridgeRuntimeState>> {
