@@ -204,6 +204,38 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn nudger_does_not_kill_the_next_poller() {
+        // Regression guard for the iteration-3 nudger-after-stop race: a stale
+        // notify_waiters() from stop()'s nudger must not wake a freshly-set
+        // task that registers cancel.notified() afterwards.
+        let sup = BridgeSupervisor::new();
+        let cancel = sup.cancel_token();
+
+        let h1 = tauri::async_runtime::spawn(async move {
+            cancel.notified().await;
+        });
+        sup.set_task(h1, Utc::now());
+        sup.stop(Duration::from_secs(1)).await.expect("clean stop");
+
+        let cancel = sup.cancel_token();
+        let killed = Arc::new(AtomicBool::new(false));
+        let killed_in = killed.clone();
+        let h2 = tauri::async_runtime::spawn(async move {
+            cancel.notified().await;
+            killed_in.store(true, Ordering::SeqCst);
+        });
+        sup.set_task(h2, Utc::now());
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            !killed.load(Ordering::SeqCst),
+            "fresh poller must not be woken by stale notify from prior stop's nudger"
+        );
+
+        sup.stop(Duration::from_secs(1)).await.expect("second stop");
+    }
+
     #[test]
     fn supervisor_state_snapshot_round_trip() {
         let sup = BridgeSupervisor::new();

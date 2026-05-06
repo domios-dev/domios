@@ -11,6 +11,7 @@ pub struct MigrateArgs {
     pub announce_chat_id: i64,
     pub no_rollback: bool,
     pub force: bool,
+    pub claim_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -167,7 +168,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         &serde_json::json!({
             "service": args.service,
             "ensure_token": true,
-            "wait_for_lock_ms": 10000,
+            "wait_for_lock_ms": args.claim_timeout_ms,
         }),
     );
     let claim_ms = claim_started.elapsed().as_millis() as u64;
@@ -185,7 +186,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
             eprintln!("--no-rollback set: leaving source disabled.");
             std::process::exit(1);
         }
-        match rollback(&http, &base, &args.service) {
+        match rollback(&http, &base, &args.service, args.claim_timeout_ms) {
             Ok(()) => {
                 eprintln!("Rollback: succeeded (source is active again)");
                 std::process::exit(1);
@@ -214,7 +215,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         if args.no_rollback {
             std::process::exit(1);
         }
-        match rollback(&http, &base, &args.service) {
+        match rollback(&http, &base, &args.service, args.claim_timeout_ms) {
             Ok(()) => {
                 eprintln!("Rollback: succeeded");
                 std::process::exit(1);
@@ -267,6 +268,7 @@ fn rollback(
     http: &reqwest::blocking::Client,
     base: &str,
     service: &str,
+    claim_timeout_ms: u64,
 ) -> Result<(), String> {
     if let Err(e) = patch_config_local(
         http,
@@ -283,7 +285,7 @@ fn rollback(
         &serde_json::json!({
             "service": service,
             "ensure_token": true,
-            "wait_for_lock_ms": 10000,
+            "wait_for_lock_ms": claim_timeout_ms,
         }),
     )
     .map(|_| ())

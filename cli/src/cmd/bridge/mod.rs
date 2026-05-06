@@ -75,6 +75,7 @@ pub fn handle_bridge(client: &mut SocketClient, json: bool, action: BridgeAction
             announce_chat_id,
             no_rollback,
             force,
+            claim_timeout_ms,
         } => migrate::run_migrate(
             json,
             migrate::MigrateArgs {
@@ -84,6 +85,7 @@ pub fn handle_bridge(client: &mut SocketClient, json: bool, action: BridgeAction
                 announce_chat_id,
                 no_rollback,
                 force,
+                claim_timeout_ms,
             },
         ),
     }
