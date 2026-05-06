@@ -1,3 +1,4 @@
+pub mod http;
 pub mod tauri;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

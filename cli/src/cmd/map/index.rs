@@ -1,3 +1,4 @@
+use crate::cmd::map::bridge::http::{extract_calls, extract_handlers, match_path};
 use crate::cmd::map::bridge::tauri::{handlers_in_rust, invokes_in_ts};
 use crate::cmd::map::cache::{check_file, fs_mtime_ns, fs_size};
 use crate::cmd::map::chunks::chunk_file;
@@ -68,6 +69,7 @@ pub fn run_index(root: &Path, opts: IndexOptions) -> Result<IndexReport, String>
 
     derive_edges(&store, &defs, &refs_per_file, &mut report)?;
     derive_bridge_edges(&store, &mut report)?;
+    derive_http_bridge_edges(&store, &mut report)?;
     if let Err(e) = crate::cmd::map::scip_loader::load_workspace(root, &store) {
         eprintln!("project-map: scip loader: {e}");
     }
@@ -203,6 +205,16 @@ fn record_bridge_signals(
             }
         }
         _ => {}
+    }
+    for h in extract_handlers(wf.lang, source) {
+        store
+            .insert_http_signal(file_id, "handler", &h.method, &h.path, h.line as i64)
+            .map_err(|e| format!("insert http handler: {e}"))?;
+    }
+    for c in extract_calls(wf.lang, source) {
+        store
+            .insert_http_signal(file_id, "call", &c.method, &c.path, c.line as i64)
+            .map_err(|e| format!("insert http call: {e}"))?;
     }
     Ok(())
 }
@@ -411,6 +423,64 @@ fn embed_pending_chunks(store: &Store, report: &mut IndexReport) {
         report.chunks = total;
         report.chunks_embedded = embedded;
     }
+}
+
+fn derive_http_bridge_edges(store: &Store, report: &mut IndexReport) -> Result<(), String> {
+    let signals = store
+        .collect_http_signals()
+        .map_err(|e| format!("collect http signals: {e}"))?;
+    if signals.is_empty() {
+        return Ok(());
+    }
+    let mut handlers: Vec<(i64, String, String)> = Vec::new();
+    let mut calls: Vec<(i64, String, String)> = Vec::new();
+    for (file_id, side, method, path, _line) in signals {
+        match side.as_str() {
+            "handler" => handlers.push((file_id, method, path)),
+            "call" => calls.push((file_id, method, path)),
+            _ => {}
+        }
+    }
+    let mut emitted = 0usize;
+    for (call_file, call_method, call_path) in &calls {
+        let Some(call_node) = lookup_file_node(store, *call_file)? else { continue };
+        for (h_file, h_method, h_path) in &handlers {
+            if h_method != "*" && h_method != call_method {
+                continue;
+            }
+            if !match_path(h_path, call_path) {
+                continue;
+            }
+            let Some(h_node) = lookup_file_node(store, *h_file)? else { continue };
+            if h_node == call_node {
+                continue;
+            }
+            let metadata = format!(
+                r#"{{"via":"http","method":"{}","path":"{}"}}"#,
+                call_method, h_path
+            );
+            store
+                .insert_edge_with_metadata("bridge", call_node, h_node, 1.0, Some(&metadata))
+                .map_err(|e| format!("insert http bridge edge: {e}"))?;
+            emitted += 1;
+        }
+    }
+    report.edges += emitted;
+    Ok(())
+}
+
+fn lookup_file_node(store: &Store, file_id: i64) -> Result<Option<i64>, String> {
+    store
+        .conn
+        .query_row(
+            "SELECT id FROM node WHERE file_id = ?1 AND kind = 'file'",
+            rusqlite::params![file_id],
+            |r| r.get::<_, i64>(0),
+        )
+        .ok()
+        .map(Some)
+        .map(Ok)
+        .unwrap_or(Ok(None))
 }
 
 fn derive_bridge_edges(store: &Store, report: &mut IndexReport) -> Result<(), String> {

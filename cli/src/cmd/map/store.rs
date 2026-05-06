@@ -103,6 +103,7 @@ impl Store {
         )?;
         self.conn.execute("DELETE FROM node WHERE file_id = ?1", params![file_id])?;
         self.conn.execute("DELETE FROM tauri_bridge_signal WHERE file_id = ?1", params![file_id])?;
+        self.conn.execute("DELETE FROM http_bridge_signal WHERE file_id = ?1", params![file_id])?;
         self.conn.execute(
             "DELETE FROM chunk_vec WHERE chunk_id IN (SELECT id FROM chunk WHERE file_id = ?1)",
             params![file_id],
@@ -305,6 +306,41 @@ impl Store {
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
                 r.get::<_, i64>(3)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    pub fn insert_http_signal(
+        &self,
+        file_id: i64,
+        side: &str,
+        method: &str,
+        path: &str,
+        line: i64,
+    ) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "INSERT INTO http_bridge_signal(file_id,side,method,path,line) VALUES(?1,?2,?3,?4,?5)",
+            params![file_id, side, method, path, line],
+        )?;
+        Ok(())
+    }
+
+    pub fn collect_http_signals(&self) -> rusqlite::Result<Vec<(i64, String, String, String, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT file_id, side, method, path, line FROM http_bridge_signal",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, i64>(4)?,
             ))
         })?;
         let mut out = Vec::new();
@@ -567,6 +603,17 @@ CREATE TABLE IF NOT EXISTS tauri_bridge_signal (
 );
 CREATE INDEX IF NOT EXISTS tauri_bridge_signal_command_idx ON tauri_bridge_signal(command);
 CREATE INDEX IF NOT EXISTS tauri_bridge_signal_file_idx ON tauri_bridge_signal(file_id);
+
+CREATE TABLE IF NOT EXISTS http_bridge_signal (
+  id       INTEGER PRIMARY KEY,
+  file_id  INTEGER NOT NULL REFERENCES file(id) ON DELETE CASCADE,
+  side     TEXT NOT NULL,
+  method   TEXT NOT NULL,
+  path     TEXT NOT NULL,
+  line     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS http_bridge_signal_path_idx ON http_bridge_signal(path);
+CREATE INDEX IF NOT EXISTS http_bridge_signal_file_idx ON http_bridge_signal(file_id);
 
 CREATE TABLE IF NOT EXISTS chunk (
   id          INTEGER PRIMARY KEY,
