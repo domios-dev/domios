@@ -20,6 +20,19 @@ interface Props {
 
 const NODE_BASE_SIZE = 3.5;
 
+function dimColor(color: string, alpha: number): string {
+  if (color.startsWith("#") && color.length === 7) {
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  if (color.startsWith("rgba(")) {
+    return color.replace(/,([\d.]+)\)$/, `,${alpha})`);
+  }
+  return `rgba(120,128,140,${alpha})`;
+}
+
 function nodeSize(kind: string): number {
   if (kind === "file" || kind === "module") return NODE_BASE_SIZE + 2.5;
   if (kind === "class") return NODE_BASE_SIZE + 1.5;
@@ -113,9 +126,6 @@ export function ProjectMapCanvas({
         if (neighbourRef.current === null && !isFile && !isSelected) {
           return { ...data, hidden: true };
         }
-        if (!inFocus && !isSelected) {
-          return { ...data, hidden: true };
-        }
         if (isSelected) {
           return {
             ...data,
@@ -130,6 +140,14 @@ export function ProjectMapCanvas({
             color: "#f5f5f5",
             size: (data.size as number) + 1.5,
             zIndex: 1,
+          };
+        }
+        if (!inFocus) {
+          return {
+            ...data,
+            color: dimColor(data.color as string, isFile ? 0.22 : 0.08),
+            label: "",
+            size: Math.max(1, (data.size as number) * (isFile ? 0.7 : 0.5)),
           };
         }
         return data;
@@ -147,7 +165,14 @@ export function ProjectMapCanvas({
           return data;
         }
         if (isAggregate) {
-          return { ...data, hidden: true };
+          const touchesFocus = neighbourRef.current.has(sId) || neighbourRef.current.has(tId);
+          if (!touchesFocus) {
+            return {
+              ...data,
+              color: `rgba(${data.kindRgb ?? "120,128,140"},0.05)`,
+            };
+          }
+          return data;
         }
         const inFocus = neighbourRef.current.has(sId) && neighbourRef.current.has(tId);
         if (!inFocus) {
@@ -331,15 +356,44 @@ export function ProjectMapCanvas({
     if (focusId == null) return;
     const sigma = sigmaRef.current;
     const graph = graphRef.current;
-    if (!sigma || !graph) return;
+    const el = containerRef.current;
+    if (!sigma || !graph || !el) return;
     const idStr = String(focusId);
     if (!graph.hasNode(idStr)) return;
-    const attrs = graph.getNodeAttributes(idStr);
-    sigma.getCamera().animate(
-      { x: attrs.x as number, y: attrs.y as number, ratio: 0.35 },
-      { duration: 320 },
+
+    const ids = neighbourSet ? Array.from(neighbourSet, String) : [idStr];
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const id of ids) {
+      if (!graph.hasNode(id)) continue;
+      const a = graph.getNodeAttributes(id);
+      const x = a.x as number;
+      const y = a.y as number;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    if (!isFinite(minX)) {
+      const a = graph.getNodeAttributes(idStr);
+      sigma.getCamera().animate(
+        { x: a.x as number, y: a.y as number, ratio: 0.6 },
+        { duration: 320 },
+      );
+      return;
+    }
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const w = Math.max(2, maxX - minX);
+    const h = Math.max(2, maxY - minY);
+    const pad = 1.6;
+    const ratio = Math.max(
+      0.15,
+      Math.min(2.0,
+        Math.max((w * pad) / Math.max(1, el.clientWidth), (h * pad) / Math.max(1, el.clientHeight)) * 30,
+      ),
     );
-  }, [focusId]);
+    sigma.getCamera().animate({ x: cx, y: cy, ratio }, { duration: 320 });
+  }, [focusId, neighbourSet]);
 
   const doFit = useCallback(() => {
     const sigma = sigmaRef.current;
