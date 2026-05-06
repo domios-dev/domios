@@ -104,8 +104,6 @@ Process plugin (Python). Uses:
 | Browser (new) | `browser` | Native |
 | Code indexing (new) | `code-index` | Process |
 
-Full plan: `docs/plans/plugin-architecture.md`
-
 ## Future capabilities
 
 Things we'll likely build:

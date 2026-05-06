@@ -6,8 +6,6 @@
 //! work (extracting agent-claude as the first native plugin, process
 //! plugins over JSON-RPC, WASM sandboxing) can plug in without touching
 //! core modules.
-//!
-//! See `docs/plans/plugin-architecture.md` for the full design.
 
 pub mod agent_claude;
 pub mod agent_codex;

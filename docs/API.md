@@ -466,8 +466,6 @@ Response:
 
 Errors: `404` if the session id isn't found; `400` if the located session has no `project_path` (can't decide cwd); `500` on workspace create / agent spawn failure.
 
-Implementation plan + Codex schema audit live in `docs/plans/session-tracking.md`.
-
 #### Configuration
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|

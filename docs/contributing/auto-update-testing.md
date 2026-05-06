@@ -1,11 +1,9 @@
 # Auto-update testing playbook
 
 How to exercise CodeTerm's self-update pipeline without shipping a real
-release. Mirrors `docs/plans/auto-update.md` §Testing — read this when you
-need to actually run the rig; read the plan when you need design rationale.
+release.
 
 Cross-references:
-- [Plan](../plans/auto-update.md)
 - [Signing setup](./auto-update-signing.md)
 - [Test fixture README](../../tests/fixtures/auto-update/README.md)
 

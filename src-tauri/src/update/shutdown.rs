@@ -22,7 +22,7 @@ fn provider_exit_command(provider_id: &str) -> Option<&'static str> {
     }
 }
 
-/// Step 2-9 from `docs/plans/auto-update.md`. Step 1 (user confirmation) and
+/// Step 1 (user confirmation) and
 /// step 6 (binary swap, handled by `tauri-plugin-updater` before this runs)
 /// happen outside. Steps 7-9 (relaunch + session restore + per-pane resume)
 /// happen in the NEW process via `lib.rs::init_states` (snapshot reload) and

@@ -1,7 +1,6 @@
 //! Installs the mem bridge rule on every registered agent provider at
 //! startup and on plugin changes. The old MEMORY.md watch loop is gone —
 //! persistent memory lives in `codeterm mem` (SQLite), not on disk.
-//! See `docs/plans/mem-architecture.md` Phase 3.0.
 
 use std::path::PathBuf;
 use std::sync::Arc;

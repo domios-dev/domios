@@ -1,9 +1,7 @@
 # CodeTerm Plugins — Authoring Guide
 
 This document describes how to author a CodeTerm plugin **given what exists in
-the code today**. For the full forward-looking design (process host, WASM
-sandboxing, hot-reload, skill delivery to every agent provider, marketplace),
-see [`plans/plugin-architecture.md`](plans/plugin-architecture.md).
+the code today**.
 
 ## What a plugin is
 
@@ -191,8 +189,7 @@ in `src-tauri/src/service/mod.rs`, which publish the following two variants:
 Other `SystemEvent` variants (`PaneFocused`, `PaneClosed`,
 `AgentStarted`, `AgentIdle`, `ConfigChanged`, `Generic`) are **defined but not
 yet emitted** anywhere in core. Subscribing to them today is valid but you will
-receive nothing. They will be filled in as the plugin host work progresses — see
-`plans/plugin-architecture.md`.
+receive nothing. They will be filled in as the plugin host work progresses.
 
 If you need an event that does not yet exist, publish a
 `SystemEvent::Generic { event_type, data }` from core and subscribe to it by
@@ -200,8 +197,8 @@ the string `"generic"` — but prefer adding a typed variant.
 
 ## Not yet
 
-The following are described in `plans/plugin-architecture.md` but **do not
-exist in the code today**. Do not build plugins that depend on them:
+The following are designed but **do not exist in the code today**. Do not build
+plugins that depend on them:
 
 - **`agent-claude` extraction.** Claude detection, prompt parsing, session
   discovery, and skill delivery still live in `src-tauri/src/agent/claude.rs`.
@@ -223,8 +220,5 @@ exist in the code today**. Do not build plugins that depend on them:
   native plugins have full process access by virtue of being compiled in.
 - **Prompt composition.** `[prompt].ga_section` / `skill_section` paths are
   parsed but nothing reads them yet.
-- **Mesh replication.** `[mesh]` has no struct in the parser at all; the plan
-  describes it but the Rust side does not know about it.
-
-For the full target design, see
-[`plans/plugin-architecture.md`](plans/plugin-architecture.md).
+- **Mesh replication.** `[mesh]` has no struct in the parser at all; the Rust
+  side does not know about it.

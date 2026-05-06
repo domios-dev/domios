@@ -92,7 +92,7 @@ Keep it under 500 words. If there are 20 Low findings, summarize them as one lin
 You DO:
 - Read diffs and files
 - Run `./build.sh check`, `cargo test --lib`, `npx tsc --noEmit` to verify claims
-- Compare against `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/plans/plugin-architecture.md`
+- Compare against `CLAUDE.md`, `docs/ARCHITECTURE.md`
 - Cross-reference changes against docs to flag doc drift
 
 You DO NOT:

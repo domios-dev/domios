@@ -110,5 +110,4 @@ Both NSIS and WiX bundles are configured for per-user installation in
 `tauri.conf.json` (`bundle.windows.nsis.installMode = "perUser"`,
 `bundle.windows.wix.installScope = "perUser"`). The installer writes to
 `%LOCALAPPDATA%` and does not require admin elevation. A future
-`--all-users` switch (system-wide install) is documented in
-`docs/plans/auto-update.md` but not implemented in v1.
+`--all-users` switch (system-wide install) is not implemented in v1.

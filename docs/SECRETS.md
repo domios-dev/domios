@@ -177,7 +177,7 @@ There is intentionally no public registration API for plugins outside the binary
 
 ## Trade-off / threat model
 
-Honest summary. The full audit lives in `docs/plans/secrets-store.md`.
+Honest summary.
 
 - **Local + release builds.** Same protection as Chrome / Slack / 1Password CLI. Bytes are encrypted at rest by the OS keychain; require an unlocked login session to read. An attacker with disk access cannot recover values from the index alone — the index never contains secret material.
 - **Local + dev builds.** Plaintext on disk gated by Unix `0600`. The keychain file is at `~/.codeterm-dev/keychain/codeterm-secrets.json`. Treat the dev keychain like an `.env` file. We chose this over signed-binary-changes-on-rebuild macOS prompts because the prompts make iterative work impossible; the trade-off is conscious.

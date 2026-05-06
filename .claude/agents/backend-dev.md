@@ -31,7 +31,7 @@ src-tauri/
 
 ## Architecture you work toward
 
-**Target: Hexagonal + Command Bus** (see `docs/ARCHITECTURE.md` and `docs/plans/plugin-architecture.md`).
+**Target: Hexagonal + Command Bus** (see `docs/ARCHITECTURE.md`).
 
 - **Core** (multiplexer, pty, mesh, config) has no external deps
 - **Commands** (`dispatch::Command` enum) is the single interface for operations

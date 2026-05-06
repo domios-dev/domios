@@ -153,8 +153,7 @@ Design rationale for the 04-25 batch lives in the mem decisions chain
   workflow ships Win + macOS Intel + macOS ARM signed assets +
   channel-aware manifests. (Phases 1–4: 9215040, f1dfc7f, 5a6658b,
   fe8e738; merged in 540d42e.) See
-  [`docs/contributing/auto-update-testing.md`](docs/contributing/auto-update-testing.md)
-  and [`docs/plans/auto-update.md`](docs/plans/auto-update.md).
+  [`docs/contributing/auto-update-testing.md`](docs/contributing/auto-update-testing.md).
 
 - **Agent restart CLI / API** — `codeterm agent restart --pane ID
   [--force] [--grace-secs N]` and `POST /api/panes/{id}/agent/restart`.
@@ -238,7 +237,6 @@ Design rationale for the 04-25 batch lives in the mem decisions chain
   `docs/contributing/agent-restart-testing.md`,
   `docs/contributing/auto-update-testing.md`,
   `docs/contributing/auto-update-signing.md`.
-- `docs/plans/auto-update.md` flagged as **shipped 2026-04-25**.
 - README mirrored to all translation locales (auto-translated drafts)
   with the new agent restart, bridges, voice transcription,
   self-update, and supervisor sections. (1fb2bab, 12ea9a1.)

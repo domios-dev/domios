@@ -48,6 +48,6 @@ Everything else gets deleted. If you catch yourself writing a comment and you ca
 - Business logic lives in `service/` or the target `dispatch::Command` layer.
 - Core (`multiplexer`, `pty`, `mesh`, `config`) has no outward dependencies.
 - Every operation reachable from 3 transports (REST + Socket + Tauri) should live in `dispatch::Command` — not duplicated 3 times.
-- Plugin-ready = isolated module with explicit interface. See `docs/plans/plugin-architecture.md`.
+- Plugin-ready = isolated module with explicit interface.
 
 <!-- revision: 1 -->

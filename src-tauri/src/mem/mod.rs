@@ -1,4 +1,4 @@
-//! Unified mem store — one SQLite, one CLI, one query path. See docs/plans/mem-architecture.md.
+//! Unified mem store — one SQLite, one CLI, one query path.
 
 pub mod store;
 pub mod search;

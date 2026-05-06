@@ -26,7 +26,7 @@ Two stores, two purposes — don't confuse them:
 | **mem** (`~/.codeterm/mem/knowledge.db`) | SQLite + FTS5 + sqlite-vec | "what did the agent learn / decide / save?" | Curated facts, learnings, skills, conversations the agent chose to keep |
 | **sessions** (provider-owned files) | Claude JSONLs / Codex rollouts | "what did we talk about that one time?" | Raw conversation history; on-demand search via `codeterm sessions search`, atomic resume via `codeterm sessions resume` |
 
-Mem is curated and indexed; sessions are raw and provider-owned. The two never share storage. See `docs/API.md` (`/api/sessions/*`) and `docs/plans/session-tracking.md` for the session side.
+Mem is curated and indexed; sessions are raw and provider-owned. The two never share storage. See `docs/API.md` (`/api/sessions/*`) for the session side.
 
 ## Storage layer
 
@@ -307,4 +307,3 @@ Memory Panel UI reads this directly.
 - `src-tauri/src/api/mem_routes.rs` — REST API
 - `src-tauri/prompts/bridge_mem.md` — behavioral protocol
 - `src/components/MemoryPanel/` — UI
-- `docs/plans/references/mempalace.md` — what we adopted from MemPalace
