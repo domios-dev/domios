@@ -1,9 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { ApiConfig, CronJob, CronRunInfo, GraphWorkerInfo } from "../../lib/types";
+import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
 import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
 import { WorkerLogPopup } from "./WorkerLogPopup";
-import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 
 interface Props {
   api: ApiConfig;
@@ -56,9 +55,10 @@ function formatDateTime(ms: number): string {
 }
 
 interface MemoryConfig {
-  dreaming_enabled: boolean;
   dreaming_agent: string;
   dreaming_model: string;
+  file_sync_enabled: boolean;
+  file_sync_interval_minutes: number;
 }
 
 interface ProviderInfo {
@@ -67,9 +67,7 @@ interface ProviderInfo {
   available_models?: Array<{ id: string; display_name: string }>;
 }
 
-type RunHistoryItem =
-  | { type: "dream"; worker: GraphWorkerInfo }
-  | { type: "librarian"; run: CronRunInfo };
+type RunHistoryItem = { type: "dream"; worker: GraphWorkerInfo };
 
 function statusColor(status: string): string {
   switch (status) {
@@ -87,21 +85,6 @@ function statusColor(status: string): string {
   }
 }
 
-function statusLabel(status: string): string {
-  switch (status) {
-    case "Success":
-      return "done";
-    case "Failed":
-      return "error";
-    case "Running":
-      return "running";
-    case "Cancelled":
-      return "cancelled";
-    default:
-      return status;
-  }
-}
-
 function scheduleLabel(schedule: string): string {
   if (schedule.includes("0 3 * * *") || schedule.includes("0 2 * * *") || schedule.includes("0 4 * * *")) {
     return "Every night ~3 AM";
@@ -114,14 +97,12 @@ function scheduleLabel(schedule: string): string {
 
 function MemoryScheduledTabImpl({ api }: Props) {
   const [dreamCron, setDreamCron] = useState<CronJob | null>(null);
-  const [librarianCron, setLibrarianCron] = useState<CronJob | null>(null);
   const [cronLoading, setCronLoading] = useState(true);
   const [dreamWorkers, setDreamWorkers] = useState<GraphWorkerInfo[]>([]);
-  const [librarianHistory, setLibrarianHistory] = useState<CronRunInfo[]>([]);
   const [logWorker, setLogWorker] = useState<GraphWorkerInfo | null>(null);
-  const [logCronRun, setLogCronRun] = useState<CronRunInfo | null>(null);
   const [diaryEntries, setDiaryEntries] = useState<DreamDiaryEntry[]>([]);
   const [diaryLoading, setDiaryLoading] = useState(true);
+  const [syncStatus, setSyncStatus] = useState<{ tracked_files: number; stale_files: number } | null>(null);
   const mountedRef = useRef(true);
 
   const [memCfg, setMemCfg] = useState<MemoryConfig | null>(null);
@@ -144,6 +125,10 @@ function MemoryScheduledTabImpl({ api }: Props) {
       .then((r) => r.ok ? r.json() : [])
       .then((p) => { if (mountedRef.current) setProviders(p); })
       .catch(() => {});
+    fetch(`${baseUrl(api)}/api/mem/sync/status`, { headers: authHeaders(api) })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d && mountedRef.current) setSyncStatus(d); })
+      .catch(() => {});
   }, [api]);
 
   const patchMemConfig = useCallback((patch: Partial<MemoryConfig>) => {
@@ -157,20 +142,20 @@ function MemoryScheduledTabImpl({ api }: Props) {
     }).catch(() => {});
   }, [api, memCfg]);
 
-  const toggleCronEnabled = useCallback(async (cronId: string, enable: boolean) => {
+  const toggleDreamCron = useCallback(async (enable: boolean) => {
+    if (!dreamCron) return;
     const endpoint = enable ? "enable" : "disable";
     try {
-      const res = await fetch(`${baseUrl(api)}/api/crons/${encodeURIComponent(cronId)}/${endpoint}`, {
+      const res = await fetch(`${baseUrl(api)}/api/crons/${encodeURIComponent(dreamCron.id)}/${endpoint}`, {
         method: "POST",
         headers: authHeaders(api),
       });
       if (res.ok && mountedRef.current) {
         const updated = (await res.json()) as CronJob;
-        if (updated.name === "mem-dreaming-auto") setDreamCron(updated);
-        else if (updated.name === "mem-librarian-auto") setLibrarianCron(updated);
+        setDreamCron(updated);
       }
     } catch { /* network error */ }
-  }, [api]);
+  }, [api, dreamCron]);
 
   useEffect(() => {
     return () => { mountedRef.current = false; };
@@ -183,19 +168,7 @@ function MemoryScheduledTabImpl({ api }: Props) {
       if (res.ok && mountedRef.current) {
         const jobs = (await res.json()) as CronJob[];
         const dream = jobs.find(j => j.name === "mem-dreaming-auto") ?? null;
-        const lib = jobs.find(j => j.name === "mem-librarian-auto") ?? null;
         setDreamCron(dream);
-        setLibrarianCron(lib);
-
-        if (lib) {
-          const hRes = await fetch(`${baseUrl(api)}/api/crons/${encodeURIComponent(lib.id)}/history`, {
-            headers: authHeaders(api),
-          });
-          if (hRes.ok && mountedRef.current) {
-            const runs = (await hRes.json()) as CronRunInfo[];
-            setLibrarianHistory(runs.sort((a, b) => b.started_at - a.started_at));
-          }
-        }
       }
       const wRes = await fetch(`${baseUrl(api)}/api/mem/workers`, { headers: authHeaders(api) });
       if (wRes.ok && mountedRef.current) {
@@ -281,17 +254,11 @@ function MemoryScheduledTabImpl({ api }: Props) {
     };
   }, [fetchCronData, fetchDiary]);
 
-  const mergedHistory: RunHistoryItem[] = [
-    ...dreamWorkers.map((w): RunHistoryItem => ({ type: "dream", worker: w })),
-    ...librarianHistory.map((r): RunHistoryItem => ({ type: "librarian", run: r })),
-  ].sort((a, b) => {
-    const timeA = a.type === "dream" ? a.worker.spawned_at : a.run.started_at;
-    const timeB = b.type === "dream" ? b.worker.spawned_at : b.run.started_at;
-    return timeB - timeA;
-  });
+  const mergedHistory: RunHistoryItem[] = dreamWorkers
+    .map((w): RunHistoryItem => ({ type: "dream", worker: w }))
+    .sort((a, b) => b.worker.spawned_at - a.worker.spawned_at);
 
   const lastDreamRun = dreamWorkers[0] ?? null;
-  const lastLibrarianRun = librarianHistory[0] ?? null;
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-y-auto">
@@ -310,7 +277,7 @@ function MemoryScheduledTabImpl({ api }: Props) {
                   <input
                     type="checkbox"
                     checked={dreamCron.enabled}
-                    onChange={(e) => toggleCronEnabled(dreamCron.id, e.target.checked)}
+                    onChange={(e) => toggleDreamCron(e.target.checked)}
                     className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
                   />
                 </label>
@@ -400,61 +367,33 @@ function MemoryScheduledTabImpl({ api }: Props) {
           <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 overflow-hidden">
             <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--ct-border)]">
               <span className="text-xs font-semibold text-[var(--ct-fg)]">Librarian (File Sync)</span>
-              {librarianCron && (
+              {memCfg && (
                 <label className="flex items-center gap-1.5 cursor-pointer">
                   <span className="text-[10px] text-[var(--ct-muted-fg)]">
-                    {librarianCron.enabled ? "On" : "Off"}
+                    {memCfg.file_sync_enabled ? "On" : "Off"}
                   </span>
                   <input
                     type="checkbox"
-                    checked={librarianCron.enabled}
-                    onChange={(e) => toggleCronEnabled(librarianCron.id, e.target.checked)}
+                    checked={memCfg.file_sync_enabled}
+                    onChange={(e) => patchMemConfig({ file_sync_enabled: e.target.checked })}
                     className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
                   />
                 </label>
               )}
             </div>
             <div className="px-3 py-2 space-y-2">
-              {/* No model selector for librarian — just provider info */}
               <div className="text-[10px] text-[var(--ct-muted-fg)]">
-                Watches source-tracked memory items and re-indexes on change
+                Watches source-tracked memory items and re-indexes on change. No LLM — pure mtime comparison.
               </div>
-              {/* Schedule + next run */}
               <div className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)]">
-                <span>{librarianCron ? scheduleLabel(librarianCron.schedule) : "Not configured"}</span>
-                <span className="opacity-40">|</span>
-                <span className="font-mono tabular-nums">
-                  {librarianCron?.next_run ? relativeTime(librarianCron.next_run) : "---"}
+                <span>
+                  Runs every {memCfg?.file_sync_interval_minutes ?? 60} minutes when enabled
                 </span>
               </div>
-              {/* Last run status */}
-              {lastLibrarianRun && (
-                <div className="flex items-center gap-2">
-                  <span
-                    className="px-1.5 py-px rounded-[3px] text-[9px] font-semibold uppercase"
-                    style={{
-                      background: `${statusColor(lastLibrarianRun.status)}22`,
-                      color: statusColor(lastLibrarianRun.status),
-                    }}
-                  >
-                    {statusLabel(lastLibrarianRun.status)}
-                  </span>
-                  <span className="text-[10px] text-[var(--ct-muted-fg)] tabular-nums">
-                    {formatDateTime(lastLibrarianRun.started_at)}
-                  </span>
-                  {lastLibrarianRun.finished_at && (
-                    <span className="text-[10px] text-[var(--ct-muted-fg)] tabular-nums">
-                      {formatDuration(lastLibrarianRun.started_at, lastLibrarianRun.finished_at)}
-                    </span>
-                  )}
-                </div>
-              )}
-              {!lastLibrarianRun && !cronLoading && (
-                <div className="text-[10px] text-[var(--ct-muted-fg)]">No runs yet</div>
-              )}
-              {!librarianCron && !cronLoading && (
-                <div className="text-[10px] text-[var(--ct-muted-fg)] italic">
-                  No librarian cron found
+              {syncStatus && (
+                <div className="text-[10px] text-[var(--ct-muted-fg)] tabular-nums">
+                  Tracked files: {syncStatus.tracked_files}
+                  {syncStatus.stale_files > 0 ? ` (${syncStatus.stale_files} stale)` : ""}
                 </div>
               )}
             </div>
@@ -471,76 +410,38 @@ function MemoryScheduledTabImpl({ api }: Props) {
           )}
           <div className="space-y-1">
             {mergedHistory.map(item => {
-              if (item.type === "dream") {
-                const w = item.worker;
-                const isDone = w.status === "done" || w.status === "error" || w.status === "orphaned";
-                const color = statusColor(w.status);
-                const dur = isDone && w.done_at ? formatDuration(w.spawned_at, w.done_at) : "";
-                return (
-                  <div
-                    key={`dream-${w.worker_id}`}
-                    className="flex items-center gap-2.5 px-3 py-1.5 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)] cursor-pointer hover:border-[var(--ct-accent)]"
-                    onClick={() => setLogWorker(w)}
-                  >
-                    <span
-                      className="px-1.5 py-px rounded-[3px] text-[9px] font-semibold uppercase shrink-0"
-                      style={{ background: "#8b5cf622", color: "#8b5cf6" }}
-                    >
-                      REM
-                    </span>
-                    <span
-                      className="px-1.5 py-px rounded-[3px] text-[10px] font-semibold uppercase w-[52px] text-center shrink-0"
-                      style={{ background: `${color}22`, color }}
-                    >
-                      {w.status}
-                    </span>
-                    <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
-                      {formatDateTime(w.spawned_at)}
-                    </span>
-                    {w.model && (
-                      <span className="text-[9px] text-[var(--ct-muted-fg)]">{w.model}</span>
-                    )}
-                    {dur && (
-                      <span className="text-[10px] text-[var(--ct-muted-fg)] ml-auto tabular-nums">{dur}</span>
-                    )}
-                    {!isDone && (
-                      <span className="text-[10px] ml-auto flex items-center gap-1" style={{ color }}>
-                        <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: color }} />
-                        running
-                      </span>
-                    )}
-                  </div>
-                );
-              }
-              const r = item.run;
-              const color = statusColor(r.status);
-              const isTerminal = r.status !== "Running";
-              const dur = isTerminal && r.finished_at ? formatDuration(r.started_at, r.finished_at) : "";
+              const w = item.worker;
+              const isDone = w.status === "done" || w.status === "error" || w.status === "orphaned";
+              const color = statusColor(w.status);
+              const dur = isDone && w.done_at ? formatDuration(w.spawned_at, w.done_at) : "";
               return (
                 <div
-                  key={`lib-${r.run_id}`}
+                  key={`dream-${w.worker_id}`}
                   className="flex items-center gap-2.5 px-3 py-1.5 rounded bg-[var(--ct-hover-bg)] border border-[var(--ct-border)] cursor-pointer hover:border-[var(--ct-accent)]"
-                  onClick={() => r.pane_id ? setLogCronRun(r) : undefined}
+                  onClick={() => setLogWorker(w)}
                 >
                   <span
                     className="px-1.5 py-px rounded-[3px] text-[9px] font-semibold uppercase shrink-0"
-                    style={{ background: "#06b6d422", color: "#06b6d4" }}
+                    style={{ background: "#8b5cf622", color: "#8b5cf6" }}
                   >
-                    Sync
+                    REM
                   </span>
                   <span
                     className="px-1.5 py-px rounded-[3px] text-[10px] font-semibold uppercase w-[52px] text-center shrink-0"
                     style={{ background: `${color}22`, color }}
                   >
-                    {statusLabel(r.status)}
+                    {w.status}
                   </span>
                   <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
-                    {formatDateTime(r.started_at)}
+                    {formatDateTime(w.spawned_at)}
                   </span>
+                  {w.model && (
+                    <span className="text-[9px] text-[var(--ct-muted-fg)]">{w.model}</span>
+                  )}
                   {dur && (
                     <span className="text-[10px] text-[var(--ct-muted-fg)] ml-auto tabular-nums">{dur}</span>
                   )}
-                  {!isTerminal && (
+                  {!isDone && (
                     <span className="text-[10px] ml-auto flex items-center gap-1" style={{ color }}>
                       <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: color }} />
                       running
@@ -595,15 +496,6 @@ function MemoryScheduledTabImpl({ api }: Props) {
       </div>
       {logWorker && (
         <WorkerLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
-      )}
-      {logCronRun && (
-        <AgentRunLogPopup
-          api={api}
-          paneId={logCronRun.pane_id}
-          title="Librarian Sync"
-          status={logCronRun.status}
-          onClose={() => setLogCronRun(null)}
-        />
       )}
     </div>
   );
