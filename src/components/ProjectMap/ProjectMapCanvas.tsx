@@ -19,8 +19,6 @@ interface Props {
 }
 
 const NODE_BASE_SIZE = 3.5;
-const FOCUS_NEIGHBOUR_OPACITY = 1.0;
-const DIM_OPACITY = 0.05;
 
 function nodeSize(kind: string): number {
   if (kind === "file" || kind === "module") return NODE_BASE_SIZE + 2.5;
@@ -108,7 +106,14 @@ export function ProjectMapCanvas({
         const inFocus = neighbourRef.current ? neighbourRef.current.has(id) : true;
         const isActive = focusIdRef.current === id || hoverIdRef.current === id;
         const isSelected = selectedRef.current?.has(id) ?? false;
+        const isFile = kind === "file" || kind === "module";
         if (!visible) {
+          return { ...data, hidden: true };
+        }
+        if (neighbourRef.current === null && !isFile && !isSelected) {
+          return { ...data, hidden: true };
+        }
+        if (!inFocus && !isSelected) {
           return { ...data, hidden: true };
         }
         if (isSelected) {
@@ -118,9 +123,6 @@ export function ProjectMapCanvas({
             size: (data.size as number) + 1.8,
             zIndex: 2,
           };
-        }
-        if (!inFocus) {
-          return { ...data, color: dimColor(data.color as string), label: "" };
         }
         if (isActive) {
           return {
@@ -133,14 +135,23 @@ export function ProjectMapCanvas({
         return data;
       },
       edgeReducer: (edge, data) => {
+        const kind = (data.kind as string) ?? "invoke";
         const [s, t] = graph.extremities(edge);
         const sId = Number(s);
         const tId = Number(t);
-        const inFocus =
-          neighbourRef.current === null ||
-          (neighbourRef.current.has(sId) && neighbourRef.current.has(tId));
+        const isAggregate = kind.startsWith("file_");
+        if (neighbourRef.current === null) {
+          if (!isAggregate) {
+            return { ...data, hidden: true };
+          }
+          return data;
+        }
+        if (isAggregate) {
+          return { ...data, hidden: true };
+        }
+        const inFocus = neighbourRef.current.has(sId) && neighbourRef.current.has(tId);
         if (!inFocus) {
-          return { ...data, color: `rgba(${data.kindRgb ?? "120,128,140"},0.04)` };
+          return { ...data, hidden: true };
         }
         return data;
       },
@@ -227,6 +238,22 @@ export function ProjectMapCanvas({
       if (!wantedNodes.has(id)) graph.dropNode(id);
     }
 
+    const fileNodeByPath = new Map<string, number>();
+    const fileNodeByDef = new Map<number, number>();
+    for (const n of nodes) {
+      if ((n.kind === "file" || n.kind === "module") && n.path) {
+        fileNodeByPath.set(n.path, n.id);
+      }
+    }
+    for (const n of nodes) {
+      if (n.kind === "file" || n.kind === "module") continue;
+      if (!n.path) continue;
+      const fid = fileNodeByPath.get(n.path);
+      if (fid != null) fileNodeByDef.set(n.id, fid);
+    }
+
+    const aggregatedFileEdges = new Map<string, { src: number; tgt: number; kind: string; weight: number }>();
+
     const wantedEdges = new Set<string>();
     for (const e of edges) {
       const key = `${e.source}->${e.target}-${e.kind}`;
@@ -234,15 +261,57 @@ export function ProjectMapCanvas({
       const tId = String(e.target);
       if (!graph.hasNode(sId) || !graph.hasNode(tId)) continue;
       wantedEdges.add(key);
+      if (!graph.hasEdge(key)) {
+        const rgb = edgeRgbFor(e.kind);
+        const alpha = e.kind === "contain" ? 0.18 : 0.32;
+        try {
+          graph.addEdgeWithKey(key, sId, tId, {
+            size: e.kind === "contain" ? 0.04 : 0.08,
+            color: `rgba(${rgb},${alpha})`,
+            kindRgb: rgb,
+            kind: e.kind,
+          });
+        } catch {
+          /* duplicate */
+        }
+      }
+      if (e.kind === "invoke" || e.kind === "bridge") {
+        const sFile = fileNodeByDef.get(e.source) ?? (
+          (nodes.find((n) => n.id === e.source)?.kind === "file" ||
+            nodes.find((n) => n.id === e.source)?.kind === "module")
+            ? e.source
+            : null
+        );
+        const tFile = fileNodeByDef.get(e.target) ?? (
+          (nodes.find((n) => n.id === e.target)?.kind === "file" ||
+            nodes.find((n) => n.id === e.target)?.kind === "module")
+            ? e.target
+            : null
+        );
+        if (sFile != null && tFile != null && sFile !== tFile) {
+          const aggKey = `${sFile}->${tFile}-file_${e.kind}`;
+          const existing = aggregatedFileEdges.get(aggKey);
+          if (existing) {
+            existing.weight += e.weight;
+          } else {
+            aggregatedFileEdges.set(aggKey, { src: sFile, tgt: tFile, kind: `file_${e.kind}`, weight: e.weight });
+          }
+        }
+      }
+    }
+    for (const [key, agg] of aggregatedFileEdges) {
+      wantedEdges.add(key);
       if (graph.hasEdge(key)) continue;
-      const rgb = edgeRgbFor(e.kind);
-      const alpha = e.kind === "contain" ? 0.18 : 0.32;
+      const baseKind = agg.kind === "file_bridge" ? "bridge" : "invoke";
+      const rgb = edgeRgbFor(baseKind);
+      const alpha = Math.min(0.6, 0.2 + Math.log10(1 + agg.weight) * 0.15);
+      const size = Math.min(0.4, 0.08 + Math.log10(1 + agg.weight) * 0.12);
       try {
-        graph.addEdgeWithKey(key, sId, tId, {
-          size: e.kind === "contain" ? 0.04 : 0.08,
+        graph.addEdgeWithKey(key, String(agg.src), String(agg.tgt), {
+          size,
           color: `rgba(${rgb},${alpha})`,
           kindRgb: rgb,
-          kind: e.kind,
+          kind: agg.kind,
         });
       } catch {
         /* duplicate */
@@ -309,15 +378,3 @@ export function ProjectMapCanvas({
   );
 }
 
-function dimColor(color: string): string {
-  if (color.startsWith("#") && color.length === 7) {
-    return `rgba(${parseInt(color.slice(1, 3), 16)},${parseInt(color.slice(3, 5), 16)},${parseInt(
-      color.slice(5, 7),
-      16,
-    )},${DIM_OPACITY})`;
-  }
-  if (color.startsWith("rgba(")) {
-    return color.replace(/,([\d.]+)\)$/, `,${DIM_OPACITY})`);
-  }
-  return `rgba(120,128,140,${FOCUS_NEIGHBOUR_OPACITY * 0.05})`;
-}
