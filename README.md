@@ -71,7 +71,7 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Real-time streaming** — SSE endpoint for live terminal output
 
 ### Bridges & external services
-- **Telegram bridge** — bidirectional. Inbound messages arrive in the General Agent pane as `[Telegram: USER_ID] text`; outbound replies go through `codeterm bridge send` with HTML formatting (sanitizer auto-escapes stray `<word>` placeholders so unsupported tokens never break the parser)
+- **Telegram bridge** — bidirectional. Inbound messages arrive in the General Agent pane as `[Telegram: USER_ID] text`; outbound replies go through `codeterm bridge send` with HTML formatting (sanitizer auto-escapes stray `<word>` placeholders so unsupported tokens never break the parser). `codeterm bridge migrate --to PEER` hot-relocates the active poller to a paired mesh peer without restarting either daemon — secrets stay local to each host's vault
 - **Voice transcription** — when `integrations.voice_transcribe.enabled = true`, voice / video-note attachments are transcribed by a local Whisper daemon (`http://127.0.0.1:7891` by default) before reaching any agent — Claude, Codex, future clients, all covered by one upstream change
 - **Webhook bridge** — register URLs for agent events (`agent.permission_request`, `agent.task_complete`, `agent.report`)
 

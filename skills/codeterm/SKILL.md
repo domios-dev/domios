@@ -185,7 +185,14 @@ codeterm bridge send --to USER_ID --service telegram "Your reply"
 codeterm bridge send --to USER_ID --service telegram --append "...more text"
 ```
 
-Setup, media types, formatting, and full reference: `references/telegram.md`.
+Hot-relocate the active poller to a paired mesh peer (no daemon restart):
+```bash
+codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--claim-timeout-ms 10000]
+# Run on the SOURCE machine; --mesh PEER is rejected (exit 6).
+# Each daemon resolves its own vault — secrets never cross the mesh.
+```
+
+Setup, media types, formatting, migration orchestration, and full reference: `references/telegram.md`.
 
 ## Themes
 
@@ -234,4 +241,4 @@ Dot-notation for nested keys. Values are JSON (`true`, `false`, `42`, `"string"`
 
 `Cmd+K` / `Ctrl+K` opens the palette for quick tab/workspace/theme access.
 
-<!-- revision: 32 -->
+<!-- revision: 33 -->

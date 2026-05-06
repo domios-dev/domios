@@ -193,3 +193,86 @@ fn mesh_peer_set_addr_omits_port_when_absent() {
     assert_eq!(v["ip"], "10.0.0.1");
     assert!(v.get("port").is_none());
 }
+
+#[test]
+fn mem_search_relays_to_search_endpoint_with_query() {
+    use crate::MemAction;
+    let cmd = Commands::Mem {
+        action: MemAction::Search {
+            query: "windows release build".into(),
+            kind: Some("fact".into()),
+            area: None,
+            scope: None,
+            limit: 5,
+            rerank: false,
+        },
+    };
+    let (m, p, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, "GET");
+    assert!(p.starts_with("/api/mem/search?"), "got: {}", p);
+    assert!(p.contains("q=windows%20release%20build"), "query missing/unencoded: {}", p);
+    assert!(p.contains("kind=fact"), "kind missing: {}", p);
+    assert!(p.contains("limit=5"), "limit missing: {}", p);
+    assert!(b.is_none());
+}
+
+#[test]
+fn mem_save_relays_to_items_post() {
+    use crate::MemAction;
+    let cmd = Commands::Mem {
+        action: MemAction::Save {
+            kind: "fact".into(),
+            title: Some("test".into()),
+            body: Some("body content".into()),
+            summary: None,
+            tags: None,
+            area: Some("release".into()),
+            importance: 4.0,
+            scope: None,
+            source_path: None,
+            replace: false,
+            skip_extract: false,
+        },
+    };
+    let (m, p, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, "POST");
+    assert_eq!(p, "/api/mem/items");
+    let body: serde_json::Value = serde_json::from_str(&b.unwrap()).unwrap();
+    assert_eq!(body["kind"], "fact");
+    assert_eq!(body["title"], "test");
+    assert_eq!(body["body"], "body content");
+    assert_eq!(body["area"], "release");
+    assert_eq!(body["importance"], 4.0);
+}
+
+#[test]
+fn mem_get_relays_to_items_id() {
+    use crate::MemAction;
+    let cmd = Commands::Mem { action: MemAction::Get { id: "fact_x".into() } };
+    let (m, p, _) = cli_command_to_api(&cmd);
+    assert_eq!(m, "GET");
+    assert_eq!(p, "/api/mem/items/fact_x");
+}
+
+#[test]
+fn mem_stats_still_routes_to_stats() {
+    use crate::MemAction;
+    let cmd = Commands::Mem { action: MemAction::Stats };
+    let (m, p, _) = cli_command_to_api(&cmd);
+    assert_eq!(m, "GET");
+    assert_eq!(p, "/api/mem/stats");
+}
+
+#[test]
+fn mem_local_only_falls_back_to_stats() {
+    use crate::MemAction;
+    let cmd = Commands::Mem {
+        action: MemAction::RunWorker {
+            kind: "dreaming-light".into(),
+            db_path: None,
+        },
+    };
+    let (m, p, _) = cli_command_to_api(&cmd);
+    assert_eq!(m, "GET");
+    assert_eq!(p, "/api/mem/stats");
+}

@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod bridge;
 pub mod cron;
 pub mod install;
 pub mod mem;
