@@ -10,6 +10,8 @@ use crate::service::{self, ServiceState};
 
 /// Start (or hot-restart) the Telegram bridge. Async because we may need to
 /// stop a previously running supervisor before claiming the getUpdates lock.
+/// Caller MUST hold `bridge_supervisor.op_guard()` to serialize against
+/// concurrent /api/bridge/{start,stop} — this fn does not lock.
 pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
     let token = bridge::telegram::read_token()
         .ok_or_else(|| "telegram: no token at secrets_dir/telegram.token".to_string())?;
@@ -61,6 +63,7 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
 /// tauri runtime and logs failures. Callers must NOT block on completion.
 pub fn spawn_telegram_bridge(svc: ServiceState) {
     tauri::async_runtime::spawn(async move {
+        let _op = svc.bridge_supervisor.op_guard().await;
         if let Err(e) = start_telegram_bridge(&svc).await {
             log::warn!("[bridge] start failed: {}", e);
         }

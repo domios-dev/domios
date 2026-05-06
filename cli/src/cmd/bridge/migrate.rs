@@ -32,6 +32,7 @@ pub struct BridgeState {
 
 const EXIT_TARGET_MISCONFIG: i32 = 5;
 const EXIT_USAGE: i32 = 6;
+const EXIT_SPLIT_BRAIN: i32 = 7;
 
 pub fn run_migrate(json: bool, args: MigrateArgs) {
     let started = Instant::now();
@@ -114,12 +115,16 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         return;
     }
 
-    let _ = patch_config_local(
+    if let Err(e) = patch_config_local(
         &http,
         &base,
         "integrations.telegram_enabled",
         serde_json::json!(false),
-    );
+    ) {
+        eprintln!("Error: failed to persist source telegram_enabled=false: {}", e);
+        eprintln!("hint: aborting before stopping the poller — source remains active.");
+        std::process::exit(1);
+    }
     log_step(json, "config", "source telegram_enabled=false");
 
     let stop_started = Instant::now();
@@ -141,13 +146,16 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
     };
     log_step(json, "stop", &format!("released in {}ms", released_ms));
 
-    let _ = relay_patch_config(
+    if let Err(e) = relay_patch_config(
         &http,
         &peer_url,
         &signed,
         "integrations.telegram_enabled",
         serde_json::json!(true),
-    );
+    ) {
+        eprintln!("Warning: failed to persist target telegram_enabled=true: {}", e);
+        eprintln!("hint: /api/bridge/start will still flip it; future reboots may not auto-start.");
+    }
     log_step(json, "config", "target telegram_enabled=true");
 
     let claim_started = Instant::now();
@@ -173,20 +181,20 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
     if claim_resp.is_err() || !claimed_lock {
         let err_msg = claim_resp.err().unwrap_or_else(|| "claim returned ok=false".to_string());
         eprintln!("Error: target claim failed: {}", err_msg);
-        if !args.no_rollback {
-            let rolled = rollback(&http, &base, &args.service);
-            eprintln!(
-                "Rollback: {} (source {} after rollback attempt)",
-                if rolled.is_ok() { "succeeded" } else { "FAILED" },
-                if rolled.is_ok() { "is active again" } else { "may be down" }
-            );
-            if let Err(e) = rolled {
-                eprintln!("Rollback error: {}", e);
-            }
-        } else {
+        if args.no_rollback {
             eprintln!("--no-rollback set: leaving source disabled.");
+            std::process::exit(1);
         }
-        std::process::exit(1);
+        match rollback(&http, &base, &args.service) {
+            Ok(()) => {
+                eprintln!("Rollback: succeeded (source is active again)");
+                std::process::exit(1);
+            }
+            Err(e) => {
+                report_split_brain(json, &source_name, &args.to, &args.service, &e);
+                std::process::exit(EXIT_SPLIT_BRAIN);
+            }
+        }
     }
     log_step(
         json,
@@ -203,14 +211,19 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
             "Error: post-migration verification failed (local inactive={}, target active={}).",
             local_inactive, target_active
         );
-        if !args.no_rollback {
-            let rolled = rollback(&http, &base, &args.service);
-            eprintln!(
-                "Rollback: {}",
-                if rolled.is_ok() { "succeeded" } else { "FAILED" }
-            );
+        if args.no_rollback {
+            std::process::exit(1);
         }
-        std::process::exit(1);
+        match rollback(&http, &base, &args.service) {
+            Ok(()) => {
+                eprintln!("Rollback: succeeded");
+                std::process::exit(1);
+            }
+            Err(e) => {
+                report_split_brain(json, &source_name, &args.to, &args.service, &e);
+                std::process::exit(EXIT_SPLIT_BRAIN);
+            }
+        }
     }
 
     if args.announce {
@@ -255,13 +268,14 @@ fn rollback(
     base: &str,
     service: &str,
 ) -> Result<(), String> {
-    patch_config_local(
+    if let Err(e) = patch_config_local(
         http,
         base,
         "integrations.telegram_enabled",
         serde_json::json!(true),
-    )
-    .ok();
+    ) {
+        return Err(format!("config re-enable: {}", e));
+    }
     post_local(
         http,
         base,
@@ -273,12 +287,49 @@ fn rollback(
         }),
     )
     .map(|_| ())
+    .map_err(|e| format!("bridge start: {}", e))
 }
 
 fn log_step(json: bool, step: &str, msg: &str) {
     if !json {
         eprintln!("[migrate:{}] {}", step, msg);
     }
+}
+
+fn report_split_brain(
+    json: bool,
+    source: &str,
+    target: &str,
+    service: &str,
+    rollback_err: &str,
+) {
+    let repair_cmd = format!(
+        "codeterm config set integrations.{}_enabled true && codeterm bridge restart",
+        service
+    );
+    if json {
+        let payload = serde_json::json!({
+            "ok": false,
+            "state": "orphaned",
+            "service": service,
+            "from": source,
+            "to": target,
+            "rollback_error": rollback_err,
+            "repair_command": repair_cmd,
+        });
+        println!("{}", serde_json::to_string_pretty(&payload).unwrap());
+    }
+    eprintln!();
+    eprintln!("============================================================");
+    eprintln!("MANUAL REPAIR REQUIRED — split-brain state");
+    eprintln!("------------------------------------------------------------");
+    eprintln!("  source: {} (disabled, poller stopped)", source);
+    eprintln!("  target: {} (claim failed, not active)", target);
+    eprintln!("  rollback error: {}", rollback_err);
+    eprintln!();
+    eprintln!("To restore service on the source, run:");
+    eprintln!("  {}", repair_cmd);
+    eprintln!("============================================================");
 }
 
 pub fn check_idempotent(source_name: &str, target_name: &str) -> Option<String> {
