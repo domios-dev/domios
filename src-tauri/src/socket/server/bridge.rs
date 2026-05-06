@@ -13,7 +13,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, JsonRpcError> {
     match method {
         "bridge.restart" => {
-            crate::start_telegram_bridge(svc);
+            crate::spawn_telegram_bridge(svc.clone());
             Ok(serde_json::json!({"ok": true, "message": "Telegram bridge starting"}))
         }
 

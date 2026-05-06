@@ -2,6 +2,12 @@
 
 use std::pin::Pin;
 use std::future::Future;
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+use tokio::sync::Notify;
+
+use super::supervisor::BridgeRuntimeState;
 use super::traits::{InboundAttachment, InboundMessage, MessagingService, ReplyContext};
 
 pub const TELEGRAM_MAX_LEN: usize = 4096;
@@ -9,7 +15,7 @@ pub const TELEGRAM_MAX_LEN: usize = 4096;
 /// Max total size of bridge-downloads dir before eviction (100 MB).
 const DOWNLOADS_MAX_BYTES: u64 = 100 * 1024 * 1024;
 
-fn token_path() -> std::path::PathBuf {
+pub fn token_path() -> std::path::PathBuf {
     crate::service::general_agent::secrets_dir().join("telegram.token")
 }
 
@@ -24,13 +30,22 @@ fn user_allowed(allowed: &[String], user_id: i64) -> bool {
     !allowed.is_empty() && allowed.contains(&user_id.to_string())
 }
 
+pub fn telegram_api_base() -> String {
+    std::env::var("TELEGRAM_API_BASE").unwrap_or_else(|_| "https://api.telegram.org".to_string())
+}
+
 pub struct TelegramService {
     token: String,
     client: reqwest::Client,
+    api_base: String,
 }
 
 impl TelegramService {
     pub fn new(token: String, _allowed_users: Vec<String>) -> Self {
+        Self::with_base(token, telegram_api_base())
+    }
+
+    pub fn with_base(token: String, api_base: String) -> Self {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(40)) // > Telegram's 30s long poll
@@ -38,11 +53,11 @@ impl TelegramService {
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        Self { token, client }
+        Self { token, client, api_base }
     }
 
     fn api_url(&self, method: &str) -> String {
-        format!("https://api.telegram.org/bot{}/{}", self.token, method)
+        format!("{}/bot{}/{}", self.api_base.trim_end_matches('/'), self.token, method)
     }
 
     fn is_user_allowed(&self, user_id: i64) -> bool {
@@ -76,8 +91,8 @@ impl TelegramService {
         let body: serde_json::Value = resp.json().await.ok()?;
         let tg_path = body.get("result")?.get("file_path")?.as_str()?;
 
-        // Step 2: download from https://api.telegram.org/file/bot<token>/<file_path>
-        let url = format!("https://api.telegram.org/file/bot{}/{}", self.token, tg_path);
+        // Step 2: download from <api_base>/file/bot<token>/<file_path>
+        let url = format!("{}/file/bot{}/{}", self.api_base.trim_end_matches('/'), self.token, tg_path);
         let resp = self.client.get(&url)
             .timeout(std::time::Duration::from_secs(30))
             .send().await.ok()?;
@@ -162,7 +177,12 @@ impl TelegramService {
         None
     }
 
-    async fn poll_updates(self: Box<Self>, tx: tokio::sync::mpsc::Sender<InboundMessage>) {
+    async fn poll_updates(
+        self: Box<Self>,
+        tx: tokio::sync::mpsc::Sender<InboundMessage>,
+        cancel: Arc<Notify>,
+        state: Arc<Mutex<BridgeRuntimeState>>,
+    ) {
         let mut offset: i64 = 0;
         let mut error_count: u32 = 0;
         let mut poll_count: u64 = 0;
@@ -181,43 +201,98 @@ impl TelegramService {
                 log::info!("[telegram] poll #{}, offset={}, errors={}", poll_count, offset, error_count);
             }
 
-            let resp = self.client
-                .post(&self.api_url("getUpdates"))
+            let request = self.client
+                .post(self.api_url("getUpdates"))
                 .json(&serde_json::json!({ "offset": offset, "timeout": 30, "allowed_updates": ["message", "callback_query"] }))
-                .send().await; // client-level timeout handles this (40s)
+                .send();
+
+            let resp = tokio::select! {
+                biased;
+                _ = cancel.notified() => {
+                    log::info!("[telegram] received stop signal; releasing getUpdates lock");
+                    return;
+                }
+                r = request => r,
+            };
 
             let body = match resp {
                 Ok(r) if r.status().is_success() => {
                     error_count = 0;
                     match r.json::<serde_json::Value>().await {
-                        Ok(v) => v,
-                        Err(e) => { log::warn!("[telegram] parse error: {}", e); tokio::time::sleep(std::time::Duration::from_secs(1)).await; continue; }
+                        Ok(v) => {
+                            {
+                                let mut s = state.lock();
+                                s.last_poll_ok = Some(chrono::Utc::now());
+                                s.last_poll_error = None;
+                                s.error_count = 0;
+                            }
+                            v
+                        }
+                        Err(e) => {
+                            log::warn!("[telegram] parse error: {}", e);
+                            {
+                                let mut s = state.lock();
+                                s.last_poll_error = Some(format!("parse error: {}", e));
+                                s.error_count = s.error_count.saturating_add(1);
+                            }
+                            if cancellable_sleep(&cancel, std::time::Duration::from_secs(1)).await { return; }
+                            continue;
+                        }
                     }
                 }
                 Ok(r) if r.status().as_u16() == 429 => {
                     let wait = 30u64; // Telegram rate limit
                     log::warn!("[telegram] rate limited, waiting {}s", wait);
-                    tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                    {
+                        let mut s = state.lock();
+                        s.last_poll_error = Some("429 Too Many Requests".to_string());
+                        s.error_count = s.error_count.saturating_add(1);
+                    }
+                    if cancellable_sleep(&cancel, std::time::Duration::from_secs(wait)).await { return; }
+                    continue;
+                }
+                Ok(r) if r.status().as_u16() == 409 => {
+                    error_count = error_count.saturating_add(1);
+                    log::warn!("[telegram] 409 Conflict — another getUpdates poller still active");
+                    {
+                        let mut s = state.lock();
+                        s.last_poll_error = Some("409 Conflict".to_string());
+                        s.error_count = s.error_count.saturating_add(1);
+                    }
+                    let backoff = (2u64.pow(error_count.min(6))).min(60);
+                    if cancellable_sleep(&cancel, std::time::Duration::from_secs(backoff)).await { return; }
                     continue;
                 }
                 Ok(r) => {
                     error_count += 1;
-                    log::warn!("[telegram] API error {}", r.status());
+                    let status = r.status();
+                    log::warn!("[telegram] API error {}", status);
+                    {
+                        let mut s = state.lock();
+                        s.last_poll_error = Some(format!("HTTP {}", status));
+                        s.error_count = s.error_count.saturating_add(1);
+                    }
                     let backoff = (2u64.pow(error_count.min(6))).min(60);
-                    tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
+                    if cancellable_sleep(&cancel, std::time::Duration::from_secs(backoff)).await { return; }
                     continue;
                 }
                 Err(e) => {
                     error_count += 1;
                     log::warn!("[telegram] poll error (count={}): {}", error_count, e);
+                    {
+                        let mut s = state.lock();
+                        s.last_poll_error = Some(e.to_string());
+                        s.error_count = s.error_count.saturating_add(1);
+                    }
                     let backoff = (2u64.pow(error_count.min(6))).min(60);
-                    tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
+                    if cancellable_sleep(&cancel, std::time::Duration::from_secs(backoff)).await { return; }
                     continue;
                 }
             };
 
             let Some(updates) = body.get("result").and_then(|v| v.as_array()) else {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await; continue;
+                if cancellable_sleep(&cancel, std::time::Duration::from_secs(1)).await { return; }
+                continue;
             };
 
             for update in updates {
@@ -280,10 +355,18 @@ impl TelegramService {
                     reply_ctx: ReplyContext::Telegram { chat_id },
                 }).await.is_err() {
                     log::error!("[telegram] channel send failed — receiver may be dead, but keeping poll alive");
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    if cancellable_sleep(&cancel, std::time::Duration::from_secs(5)).await { return; }
                 }
             }
         }
+    }
+}
+
+async fn cancellable_sleep(cancel: &Notify, dur: std::time::Duration) -> bool {
+    tokio::select! {
+        biased;
+        _ = cancel.notified() => true,
+        _ = tokio::time::sleep(dur) => false,
     }
 }
 
@@ -297,8 +380,13 @@ fn evict_downloads(dir: &std::path::Path) {
 
 impl MessagingService for TelegramService {
     fn id(&self) -> &str { "telegram" }
-    fn start(self: Box<Self>, tx: tokio::sync::mpsc::Sender<InboundMessage>) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        Box::pin(async move { self.poll_updates(tx).await; })
+    fn start(
+        self: Box<Self>,
+        tx: tokio::sync::mpsc::Sender<InboundMessage>,
+        cancel: Arc<Notify>,
+        state: Arc<Mutex<BridgeRuntimeState>>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        Box::pin(async move { self.poll_updates(tx, cancel, state).await; })
     }
 }
 
