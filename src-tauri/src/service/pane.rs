@@ -1,7 +1,16 @@
 //! Pane lifecycle: split, close, rename, focus, browser.
 
 use crate::multiplexer::types::Orientation;
+use serde::Serialize;
 use super::ServiceContext;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DispatchablePane {
+    pub pane_id: String,
+    pub title: String,
+    pub role: String,
+    pub agent_type: Option<String>,
+}
 
 impl ServiceContext {
     pub fn split_pane(&self, pane_id: &str, orientation: Orientation) -> Result<String, String> {
@@ -42,6 +51,29 @@ impl ServiceContext {
         let pane_id = self.mux.lock().open_browser(Some(url))?;
         self.emit_state_changed();
         Ok(pane_id)
+    }
+
+    pub fn dispatchable_panes_in_workspace(&self, workspace_id: &str) -> Vec<DispatchablePane> {
+        let mux = self.mux.lock();
+        let Some(ws) = mux.get_workspace(workspace_id) else { return Vec::new(); };
+        let mut out = Vec::new();
+        for tab in &ws.tabs {
+            for pid in tab.split_tree.collect_pane_ids() {
+                let Some(p) = mux.get_pane(&pid) else { continue };
+                let role = p.role;
+                if !matches!(role, Some(crate::multiplexer::types::AgentRole::Orchestrator)
+                                 | Some(crate::multiplexer::types::AgentRole::Lead)) {
+                    continue;
+                }
+                out.push(DispatchablePane {
+                    pane_id: p.id.clone(),
+                    title: p.title.clone(),
+                    role: format!("{:?}", role.unwrap()),
+                    agent_type: p.agent_type.clone(),
+                });
+            }
+        }
+        out
     }
 
     pub fn open_project_map(&self, workspace_id: &str) -> Result<String, String> {

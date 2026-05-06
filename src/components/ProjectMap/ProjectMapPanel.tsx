@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { TopBar } from "./TopBar";
@@ -6,9 +6,13 @@ import { LeftRail } from "./LeftRail";
 import { RightRail } from "./RightRail";
 import { BottomStrip } from "./BottomStrip";
 import { ProjectMapCanvas } from "./ProjectMapCanvas";
+import { ActionBar } from "./ActionBar";
 import { useProjectMapGraph } from "./hooks/useProjectMapGraph";
 import { useFocusMode } from "./hooks/useFocusMode";
 import { useNodeDetail } from "./hooks/useNodeDetail";
+import { useSelection } from "./hooks/useSelection";
+import { useDispatchablePanes } from "./hooks/useDispatchablePanes";
+import { useDispatchState } from "./hooks/useDispatchState";
 import type { ProjectMapNode } from "./types";
 
 interface Props {
@@ -63,6 +67,29 @@ export function ProjectMapPanel({ api, workspaceId }: Props) {
     fitFnRef.current = fn;
   }, []);
 
+  const selection = useSelection();
+  const { panes: dispatchPanes } = useDispatchablePanes(api, workspaceId);
+  const { state: dispatchState, persist: persistDispatchState } = useDispatchState(api, workspaceId);
+
+  const onPaneChange = useCallback(
+    (paneId: string) => persistDispatchState({ last_dispatch_pane: paneId }),
+    [persistDispatchState],
+  );
+  const onSent = useCallback(() => {
+    if (focus.focusId == null) return;
+  }, [focus.focusId]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && selection.selected.size > 0) {
+        e.preventDefault();
+        selection.clear();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selection]);
+
   if (!workspaceId) {
     return (
       <div className="absolute inset-0 flex items-center justify-center text-[var(--ct-muted)] text-sm bg-[var(--ct-bg)]">
@@ -111,8 +138,24 @@ export function ProjectMapPanel({ api, workspaceId }: Props) {
               focusId={focus.focusId}
               onFocus={focus.setFocus}
               registerFit={registerFit}
+              selected={selection.selected}
+              onSelectToggle={selection.toggle}
+              onSelectionClear={selection.clear}
             />
           )}
+          <ActionBar
+            api={api}
+            selectedIds={[...selection.selected]}
+            nodesById={nodeMap}
+            edges={payload?.edges ?? []}
+            focusId={focus.focusId}
+            panes={dispatchPanes}
+            preferredPaneId={dispatchState.last_dispatch_pane}
+            initialMessage={dispatchState.last_message_template ?? undefined}
+            onPaneChange={onPaneChange}
+            onClear={selection.clear}
+            onSent={onSent}
+          />
           {truncated && (
             <div className="absolute top-2 left-1/2 -translate-x-1/2 px-3 py-1 rounded-sm bg-[var(--ct-yellow)]/15 border border-[var(--ct-yellow)]/40 text-[10px] text-[var(--ct-yellow)]">
               Graph too large; showing partial result. Pick a starting node to focus.

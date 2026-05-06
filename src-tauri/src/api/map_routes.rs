@@ -119,3 +119,87 @@ pub async fn show(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(ShowResponse { pane_id }))
 }
+
+#[derive(Deserialize)]
+pub struct WorkspaceQuery {
+    pub workspace: String,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct DispatchState {
+    #[serde(default)]
+    pub last_dispatch_pane: Option<String>,
+    #[serde(default)]
+    pub last_message_template: Option<String>,
+}
+
+fn workspace_cwd(state: &AppState, workspace_id: &str) -> Result<std::path::PathBuf, (StatusCode, String)> {
+    let workspaces = state.svc.list_workspaces();
+    let ws = workspaces
+        .iter()
+        .find(|w| w.id == workspace_id)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("workspace {} not found", workspace_id)))?;
+    let cwd = ws
+        .cwd
+        .clone()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "workspace has no cwd".into()))?;
+    Ok(std::path::PathBuf::from(cwd))
+}
+
+fn state_path(workspace_cwd: &std::path::Path) -> std::path::PathBuf {
+    workspace_cwd.join(".codeterm").join("map").join("v1").join("state.json")
+}
+
+fn read_state(workspace_cwd: &std::path::Path) -> DispatchState {
+    let path = state_path(workspace_cwd);
+    let Ok(text) = std::fs::read_to_string(&path) else { return DispatchState::default(); };
+    serde_json::from_str(&text).unwrap_or_default()
+}
+
+fn write_state(workspace_cwd: &std::path::Path, st: &DispatchState) -> std::io::Result<()> {
+    let path = state_path(workspace_cwd);
+    if let Some(p) = path.parent() {
+        std::fs::create_dir_all(p)?;
+    }
+    let json = serde_json::to_string_pretty(st).expect("serialize DispatchState");
+    std::fs::write(&path, json)
+}
+
+pub async fn get_state(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<WorkspaceQuery>,
+) -> Result<Json<DispatchState>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let cwd = workspace_cwd(&state, &q.workspace)?;
+    Ok(Json(read_state(&cwd)))
+}
+
+pub async fn patch_state(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<WorkspaceQuery>,
+    Json(body): Json<DispatchState>,
+) -> Result<Json<DispatchState>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let cwd = workspace_cwd(&state, &q.workspace)?;
+    let mut st = read_state(&cwd);
+    if body.last_dispatch_pane.is_some() {
+        st.last_dispatch_pane = body.last_dispatch_pane;
+    }
+    if body.last_message_template.is_some() {
+        st.last_message_template = body.last_message_template;
+    }
+    write_state(&cwd, &st).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write state: {e}")))?;
+    Ok(Json(st))
+}
+
+pub async fn dispatchable(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<WorkspaceQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let panes = state.svc.dispatchable_panes_in_workspace(&q.workspace);
+    Ok(Json(serde_json::to_value(panes).unwrap_or(serde_json::json!([]))))
+}

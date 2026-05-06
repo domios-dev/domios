@@ -30,6 +30,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/identify", get(health_routes::identify))
         .route("/api/map/graph", get(map_routes::graph))
         .route("/api/map/show", post(map_routes::show))
+        .route("/api/map/state", get(map_routes::get_state).patch(map_routes::patch_state))
+        .route("/api/map/dispatchable", get(map_routes::dispatchable))
         .route("/api/workspaces", get(workspace_routes::list_workspaces).post(workspace_routes::create_workspace))
         .route("/api/workspaces/{id}/focus", post(workspace_routes::focus_workspace))
         .route("/api/workspaces/{id}/rename", post(workspace_routes::rename_workspace))

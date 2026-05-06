@@ -12,6 +12,9 @@ interface Props {
   focusId: number | null;
   onFocus: (id: number | null) => void;
   registerFit?: (fn: () => void) => void;
+  selected?: Set<number>;
+  onSelectToggle?: (id: number, additive: boolean) => void;
+  onSelectionClear?: () => void;
 }
 
 const NODE_BASE_SIZE = 3.5;
@@ -37,6 +40,9 @@ export function ProjectMapCanvas({
   focusId,
   onFocus,
   registerFit,
+  selected,
+  onSelectToggle,
+  onSelectionClear,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -49,6 +55,13 @@ export function ProjectMapCanvas({
   const [hoverId, setHoverId] = useState<number | null>(null);
   const hoverIdRef = useRef<number | null>(null);
   hoverIdRef.current = hoverId;
+
+  const selectedRef = useRef<Set<number> | null>(null);
+  selectedRef.current = selected ?? null;
+  const onSelectToggleRef = useRef(onSelectToggle);
+  onSelectToggleRef.current = onSelectToggle;
+  const onSelectionClearRef = useRef(onSelectionClear);
+  onSelectionClearRef.current = onSelectionClear;
 
   const neighbourSet = useMemo(() => {
     if (focusId == null) return null;
@@ -85,8 +98,17 @@ export function ProjectMapCanvas({
         const visible = visibleKindsRef.current.size === 0 || visibleKindsRef.current.has(kind);
         const inFocus = neighbourRef.current ? neighbourRef.current.has(id) : true;
         const isActive = focusIdRef.current === id || hoverIdRef.current === id;
+        const isSelected = selectedRef.current?.has(id) ?? false;
         if (!visible) {
           return { ...data, hidden: true };
+        }
+        if (isSelected) {
+          return {
+            ...data,
+            color: "#f5d77a",
+            size: (data.size as number) + 1.8,
+            zIndex: 2,
+          };
         }
         if (!inFocus) {
           return { ...data, color: dimColor(data.color as string), label: "" };
@@ -115,8 +137,22 @@ export function ProjectMapCanvas({
       },
     });
     sigmaRef.current = sigma;
-    sigma.on("clickNode", ({ node }) => onFocus(Number(node)));
-    sigma.on("clickStage", () => onFocus(null));
+    sigma.on("clickNode", ({ node, event }) => {
+      const id = Number(node);
+      const additive = !!(event?.original as MouseEvent | undefined)?.metaKey
+        || !!(event?.original as MouseEvent | undefined)?.ctrlKey;
+      const toggle = onSelectToggleRef.current;
+      if (additive && toggle) {
+        toggle(id, true);
+        return;
+      }
+      onFocus(id);
+      if (toggle) toggle(id, false);
+    });
+    sigma.on("clickStage", () => {
+      onFocus(null);
+      onSelectionClearRef.current?.();
+    });
     sigma.on("enterNode", ({ node }) => setHoverId(Number(node)));
     sigma.on("leaveNode", () => setHoverId(null));
     return () => {
@@ -193,7 +229,7 @@ export function ProjectMapCanvas({
 
   useEffect(() => {
     sigmaRef.current?.refresh({ skipIndexation: true });
-  }, [focusId, hoverId, visibleKinds, neighbourSet]);
+  }, [focusId, hoverId, visibleKinds, neighbourSet, selected]);
 
   useEffect(() => {
     if (focusId == null) return;
