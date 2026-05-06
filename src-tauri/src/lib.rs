@@ -369,9 +369,25 @@ pub fn run() {
                     crate::secrets::new_state(&cfg)
                 },
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                project_map: crate::service::project_map::ProjectMapManager::new(
+                    &crate::paths::data_dir(),
+                    crate::socket::server::socket_display_path(),
+                ),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
+
+            {
+                let svc = service_state.clone();
+                std::thread::spawn(move || {
+                    let workspaces: Vec<(String, String, Option<String>)> = svc
+                        .list_workspaces()
+                        .into_iter()
+                        .map(|w| (w.id, w.name, w.cwd))
+                        .collect();
+                    svc.project_map.bootstrap(&workspaces);
+                });
+            }
 
             // SecretStore::init() runs inside start_servers BEFORE the
             // API listener binds — see start_servers below. That's the

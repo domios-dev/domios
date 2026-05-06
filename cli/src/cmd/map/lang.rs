@@ -26,8 +26,12 @@ impl Lang {
     }
 
     pub fn from_path(path: &Path) -> Option<Lang> {
-        let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-        match ext.as_str() {
+        let ext = path.extension()?.to_str()?;
+        Lang::from_extension(ext)
+    }
+
+    pub fn from_extension(ext: &str) -> Option<Lang> {
+        match ext.to_ascii_lowercase().as_str() {
             "rs" => Some(Lang::Rust),
             "ts" | "mts" | "cts" => Some(Lang::TypeScript),
             "tsx" => Some(Lang::Tsx),

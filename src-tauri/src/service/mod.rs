@@ -23,6 +23,7 @@ mod output;
 pub mod cron;
 pub mod pty_lifecycle;
 pub mod general_agent;
+pub mod project_map;
 pub mod sync_watcher;
 pub mod agent_restart;
 #[cfg(test)]
@@ -83,6 +84,8 @@ pub struct ServiceContext {
     pub secrets: crate::secrets::SecretStoreState,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
+    /// Per-workspace project-map manager: watches cwd, spawns indexer.
+    pub project_map: Arc<project_map::ProjectMapManager>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;

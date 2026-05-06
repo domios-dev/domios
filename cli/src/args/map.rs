@@ -30,4 +30,30 @@ pub enum MapAction {
         #[arg(long)]
         kind: Option<String>,
     },
+    /// Read or write per-workspace map configuration.
+    Config {
+        #[command(subcommand)]
+        action: MapConfigAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MapConfigAction {
+    /// Print the configured value for a key, or the whole config.
+    Get {
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Specific key (e.g. `indexing.enabled`).
+        #[arg(long)]
+        key: Option<String>,
+    },
+    /// Set a key to a value. Value parses as bool / int as appropriate.
+    Set {
+        /// Configuration key (`indexing.enabled`, `watch.debounce_ms`, `index.max_files`).
+        key: String,
+        /// New value.
+        value: String,
+        #[arg(long)]
+        workspace: Option<String>,
+    },
 }

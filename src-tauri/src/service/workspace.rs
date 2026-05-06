@@ -37,6 +37,11 @@ impl ServiceContext {
         let _ = self.mux.lock().set_active_workspace(&ws.id);
         self.emit_state_changed();
 
+        if let Some(cwd_str) = cwd.as_deref() {
+            self.project_map
+                .start_for_workspace(&ws.id, &name, std::path::Path::new(cwd_str));
+        }
+
         // Auto-spawn agent in the new workspace
         let ws_id = ws.id.clone();
         let svc = self.clone();
@@ -84,6 +89,7 @@ impl ServiceContext {
         let pty_ids = self.mux.lock().close_workspace(id)?;
         let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        self.project_map.stop_for_workspace(id);
         self.emit_state_changed();
         if pre_focus != post_focus {
             if let Some(new) = post_focus {
