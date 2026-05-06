@@ -1,9 +1,11 @@
 import { RefreshCw } from "lucide-react";
 
+export type LayoutMode = "force" | "dsm";
+
 interface Props {
   workspaceName: string;
-  layout: "force";
-  onLayoutChange: (layout: "force") => void;
+  layout: LayoutMode;
+  onLayoutChange: (layout: LayoutMode) => void;
   onRefresh: () => void;
   loading: boolean;
 }
@@ -20,11 +22,12 @@ export function TopBar({ workspaceName, layout, onLayoutChange, onRefresh, loadi
       <div className="flex-1" />
       <select
         value={layout}
-        onChange={(e) => onLayoutChange(e.target.value as "force")}
+        onChange={(e) => onLayoutChange(e.target.value as LayoutMode)}
         className="bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded-sm px-1 py-0.5 text-[11px] outline-none"
         title="Layout algorithm"
       >
         <option value="force">force</option>
+        <option value="dsm">layered (DSM)</option>
       </select>
       <button
         onClick={onRefresh}

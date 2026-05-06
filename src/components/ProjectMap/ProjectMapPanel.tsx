@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
-import { TopBar } from "./TopBar";
+import { TopBar, type LayoutMode } from "./TopBar";
 import { LeftRail } from "./LeftRail";
 import { RightRail } from "./RightRail";
 import { BottomStrip } from "./BottomStrip";
@@ -13,6 +13,7 @@ import { useNodeDetail } from "./hooks/useNodeDetail";
 import { useSelection } from "./hooks/useSelection";
 import { useDispatchablePanes } from "./hooks/useDispatchablePanes";
 import { useDispatchState } from "./hooks/useDispatchState";
+import { useElkLayout } from "./hooks/useElkLayout";
 import type { ProjectMapNode } from "./types";
 
 interface Props {
@@ -67,6 +68,9 @@ export function ProjectMapPanel({ api, workspaceId }: Props) {
     fitFnRef.current = fn;
   }, []);
 
+  const [layout, setLayout] = useState<LayoutMode>("force");
+  const elk = useElkLayout(payload?.nodes ?? [], payload?.edges ?? [], layout === "dsm");
+
   const selection = useSelection();
   const { panes: dispatchPanes } = useDispatchablePanes(api, workspaceId);
   const { state: dispatchState, persist: persistDispatchState } = useDispatchState(api, workspaceId);
@@ -105,10 +109,10 @@ export function ProjectMapPanel({ api, workspaceId }: Props) {
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] text-[var(--ct-fg)]">
       <TopBar
         workspaceName={workspaceName}
-        layout="force"
-        onLayoutChange={() => {}}
+        layout={layout}
+        onLayoutChange={setLayout}
         onRefresh={refetch}
-        loading={loading}
+        loading={loading || elk.loading}
       />
       <div className="flex-1 min-h-0 flex">
         <LeftRail
@@ -141,6 +145,7 @@ export function ProjectMapPanel({ api, workspaceId }: Props) {
               selected={selection.selected}
               onSelectToggle={selection.toggle}
               onSelectionClear={selection.clear}
+              layoutOverride={layout === "dsm" ? elk.positions : null}
             />
           )}
           <ActionBar

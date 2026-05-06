@@ -15,6 +15,7 @@ interface Props {
   selected?: Set<number>;
   onSelectToggle?: (id: number, additive: boolean) => void;
   onSelectionClear?: () => void;
+  layoutOverride?: Map<number, { x: number; y: number }> | null;
 }
 
 const NODE_BASE_SIZE = 3.5;
@@ -50,6 +51,7 @@ export function ProjectMapCanvas({
   selected,
   onSelectToggle,
   onSelectionClear,
+  layoutOverride,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -203,8 +205,9 @@ export function ProjectMapCanvas({
       const clusterRadius = 8 + Math.sqrt(bucket + 1) * 2.0;
       const cx = Math.cos(clusterAngle) * clusterRadius;
       const cy = Math.sin(clusterAngle) * clusterRadius;
-      const x = cx + (seed.x - 0.5) * 2.4;
-      const y = cy + (seed.y - 0.5) * 2.4;
+      const override = layoutOverride?.get(n.id);
+      const x = override ? override.x : cx + (seed.x - 0.5) * 2.4;
+      const y = override ? override.y : cy + (seed.y - 0.5) * 2.4;
       const importanceSize = sizeFromImportance(n.importance, minImp, maxImp);
       const baseSize = nodeSize(n.kind);
       const size = n.kind === "file" || n.kind === "module" ? Math.max(baseSize, importanceSize) : baseSize;
@@ -249,7 +252,7 @@ export function ProjectMapCanvas({
       if (!wantedEdges.has(key)) graph.dropEdge(key);
     }
     sigma.refresh({ skipIndexation: true });
-  }, [nodes, edges]);
+  }, [nodes, edges, layoutOverride]);
 
   useEffect(() => {
     sigmaRef.current?.refresh({ skipIndexation: true });
