@@ -663,6 +663,10 @@ fn main() {
             cmd::sessions::handle_sessions(cli.json, action, &http, &base_url, token.as_deref());
             return;
         }
+        Commands::Map { action } => {
+            cmd::map::handle(&mut client, cli.json, action);
+            return;
+        }
     };
 
     handle_result(cli.json, result);

@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod cron;
 pub mod install;
+pub mod map;
 pub mod mem;
 pub mod mem_secret;
 pub mod mesh;

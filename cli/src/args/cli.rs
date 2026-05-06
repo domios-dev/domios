@@ -4,6 +4,7 @@ use crate::mesh_cli::MeshAction;
 
 use super::agent::AgentAction;
 use super::cron::CronAction;
+use super::map::MapAction;
 use super::mem::MemAction;
 use super::misc::{
     BridgeAction, BrowserAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction,
@@ -202,5 +203,11 @@ pub enum Commands {
     Sessions {
         #[command(subcommand)]
         action: SessionsAction,
+    },
+
+    /// Project Map — bird's-eye structural graph of a workspace
+    Map {
+        #[command(subcommand)]
+        action: MapAction,
     },
 }

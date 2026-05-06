@@ -249,6 +249,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             _ => ("GET".into(), "/api/keepawake".into(), None),
         },
+        Commands::Map { .. } => {
+            eprintln!("Error: `codeterm map` over --mesh is not wired yet (local-only in v1.2.0 phase 1).");
+            std::process::exit(2);
+        }
         Commands::SelfUpdate { check, rollback, channel, .. } => {
             if *check {
                 ("GET".into(), "/api/update/check".into(), None)
