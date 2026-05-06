@@ -6,6 +6,7 @@ import { LeftRail } from "./LeftRail";
 import { RightRail } from "./RightRail";
 import { BottomStrip } from "./BottomStrip";
 import { ProjectMapCanvas } from "./ProjectMapCanvas";
+import { CityCanvas } from "./CityCanvas";
 import { ActionBar } from "./ActionBar";
 import { useProjectMapGraph } from "./hooks/useProjectMapGraph";
 import { useFocusMode } from "./hooks/useFocusMode";
@@ -134,7 +135,7 @@ export function ProjectMapPanel({ api, workspaceId }: Props) {
               Empty graph. Run <code className="font-mono">codeterm map index</code> to populate.
             </div>
           )}
-          {payload && payload.nodes.length > 0 && (
+          {payload && payload.nodes.length > 0 && layout !== "city" && (
             <ProjectMapCanvas
               nodes={payload.nodes}
               edges={payload.edges}
@@ -147,6 +148,9 @@ export function ProjectMapPanel({ api, workspaceId }: Props) {
               onSelectionClear={selection.clear}
               layoutOverride={layout === "dsm" ? elk.positions : null}
             />
+          )}
+          {payload && payload.nodes.length > 0 && layout === "city" && (
+            <CityCanvas nodes={payload.nodes} focusId={focus.focusId} onFocus={focus.setFocus} />
           )}
           <ActionBar
             api={api}

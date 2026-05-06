@@ -1,6 +1,6 @@
 import { RefreshCw } from "lucide-react";
 
-export type LayoutMode = "force" | "dsm";
+export type LayoutMode = "force" | "dsm" | "city";
 
 interface Props {
   workspaceName: string;
@@ -28,6 +28,7 @@ export function TopBar({ workspaceName, layout, onLayoutChange, onRefresh, loadi
       >
         <option value="force">force</option>
         <option value="dsm">layered (DSM)</option>
+        <option value="city">3D city</option>
       </select>
       <button
         onClick={onRefresh}
