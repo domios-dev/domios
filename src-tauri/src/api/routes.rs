@@ -7,7 +7,7 @@ use axum::{
 use tower_http::cors::CorsLayer;
 
 use super::{
-    agent_routes, config_routes, cron_routes, health_routes, hook_routes, mem_routes,
+    agent_routes, config_routes, cron_routes, health_routes, hook_routes, map_routes, mem_routes,
     mesh_routes, network_routes, notification_routes, pane_routes, session_routes,
     theme_routes, updater_routes, webhook_routes, workspace_routes,
 };
@@ -28,6 +28,7 @@ pub fn create_router(state: AppState) -> Router {
     let router = Router::new()
         .route("/api/health", get(health_routes::health))
         .route("/api/identify", get(health_routes::identify))
+        .route("/api/map/graph", get(map_routes::graph))
         .route("/api/workspaces", get(workspace_routes::list_workspaces).post(workspace_routes::create_workspace))
         .route("/api/workspaces/{id}/focus", post(workspace_routes::focus_workspace))
         .route("/api/workspaces/{id}/rename", post(workspace_routes::rename_workspace))

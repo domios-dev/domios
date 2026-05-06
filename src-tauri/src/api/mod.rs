@@ -7,6 +7,7 @@ pub mod config_routes;
 pub mod cron_routes;
 pub mod health_routes;
 pub mod hook_routes;
+pub mod map_routes;
 pub mod mem_routes;
 pub mod mesh_routes;
 pub mod network_routes;

@@ -1,5 +1,6 @@
 pub mod cache;
 pub mod config_io;
+pub mod graph;
 pub mod index;
 pub mod lang;
 pub mod search;
@@ -82,6 +83,40 @@ pub fn handle(client: &mut SocketClient, json: bool, action: MapAction) {
         }
         MapAction::Config { action } => {
             handle_config(client, json, action);
+        }
+        MapAction::Export { workspace, workspace_root, node, k_hops, node_cap } => {
+            let root = if let Some(path) = workspace_root {
+                std::path::PathBuf::from(path)
+            } else {
+                match workspace::resolve_workspace_root(client, workspace.as_deref()) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("Error: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            };
+            let q = match graph::GraphQuery::open(&root) {
+                Ok(q) => q,
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
+            let result = match node {
+                Some(id) => q.focus_subgraph(id, k_hops),
+                None => q.full_graph(node_cap),
+            };
+            match result {
+                Ok(payload) => {
+                    let v = serde_json::to_value(&payload).unwrap_or(serde_json::json!({}));
+                    println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+                }
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
         }
         MapAction::Search { query, workspace, limit, kind } => {
             let root = match workspace::resolve_workspace_root(client, workspace.as_deref()) {
