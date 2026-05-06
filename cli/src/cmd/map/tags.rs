@@ -165,4 +165,102 @@ fn main() {
         let tags = extract(Lang::Go, "").unwrap();
         assert!(tags.is_empty());
     }
+
+    fn assert_extracts_def(lang: Lang, src: &str, expected_name: &str) {
+        let tags = extract(lang, src).unwrap_or_else(|e| panic!("{:?}: {e}", lang));
+        let defs: Vec<&str> = tags
+            .iter()
+            .filter(|t| t.role == TagRole::Def)
+            .map(|t| t.name.as_str())
+            .collect();
+        assert!(
+            defs.contains(&expected_name),
+            "{:?}: missing def {expected_name:?}, got {defs:?}",
+            lang
+        );
+    }
+
+    #[test]
+    fn extracts_swift_class_and_function() {
+        assert_extracts_def(Lang::Swift, "class Foo {}\nfunc bar() {}\n", "Foo");
+        assert_extracts_def(Lang::Swift, "class Foo {}\nfunc bar() {}\n", "bar");
+    }
+
+    #[test]
+    fn extracts_c_function_and_struct() {
+        assert_extracts_def(Lang::C, "struct Foo { int x; };\nint bar(int n) { return n; }\n", "bar");
+    }
+
+    #[test]
+    fn extracts_cpp_class_and_function() {
+        assert_extracts_def(Lang::Cpp, "class Foo {};\nint bar() { return 1; }\n", "Foo");
+        assert_extracts_def(Lang::Cpp, "class Foo {};\nint bar() { return 1; }\n", "bar");
+    }
+
+    #[test]
+    fn extracts_ruby_method_and_class() {
+        assert_extracts_def(Lang::Ruby, "class Foo\n  def bar\n    1\n  end\nend\n", "Foo");
+        assert_extracts_def(Lang::Ruby, "class Foo\n  def bar\n    1\n  end\nend\n", "bar");
+    }
+
+    #[test]
+    fn extracts_kotlin_class_and_function() {
+        assert_extracts_def(Lang::Kotlin, "class Foo\nfun bar(): Int = 1\n", "Foo");
+        assert_extracts_def(Lang::Kotlin, "class Foo\nfun bar(): Int = 1\n", "bar");
+    }
+
+    #[test]
+    fn extracts_csharp_class_and_method() {
+        assert_extracts_def(
+            Lang::CSharp,
+            "namespace N { class Foo { int Bar() { return 1; } } }\n",
+            "Foo",
+        );
+    }
+
+    #[test]
+    fn extracts_php_function_and_class() {
+        assert_extracts_def(
+            Lang::Php,
+            "<?php\nclass Foo { function bar() { return 1; } }\n",
+            "Foo",
+        );
+    }
+
+    #[test]
+    fn extracts_scala_class_and_def() {
+        assert_extracts_def(
+            Lang::Scala,
+            "class Foo { def bar: Int = 1 }\n",
+            "Foo",
+        );
+    }
+
+    #[test]
+    fn extracts_dart_class_and_function() {
+        assert_extracts_def(
+            Lang::Dart,
+            "class Foo {}\nint bar() => 1;\n",
+            "Foo",
+        );
+    }
+
+    #[test]
+    fn extracts_elixir_module_and_def() {
+        assert_extracts_def(
+            Lang::Elixir,
+            "defmodule Foo do\n  def bar, do: 1\nend\n",
+            "Foo",
+        );
+    }
+
+    #[test]
+    fn extracts_lua_function() {
+        assert_extracts_def(Lang::Lua, "local function bar() return 1 end\n", "bar");
+    }
+
+    #[test]
+    fn extracts_ocaml_function() {
+        assert_extracts_def(Lang::OCaml, "let bar x = x + 1\nlet () = ignore (bar 1)\n", "bar");
+    }
 }
