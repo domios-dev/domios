@@ -3,7 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 
 use crate::api::routes::{check_auth, AppState};
@@ -84,4 +84,38 @@ fn run_export(
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     serde_json::from_str(stdout.trim()).map_err(|e| format!("parse cli output: {e}"))
+}
+
+#[derive(Deserialize)]
+pub struct ShowParams {
+    pub workspace_id: String,
+}
+
+#[derive(Serialize)]
+pub struct ShowResponse {
+    pub pane_id: String,
+}
+
+pub async fn show(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ShowParams>,
+) -> Result<Json<ShowResponse>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let workspaces = state.svc.list_workspaces();
+    let ws = workspaces
+        .iter()
+        .find(|w| w.id == body.workspace_id)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("workspace {} not found", body.workspace_id)))?;
+    if ws.name == "General" {
+        return Err((StatusCode::BAD_REQUEST, "General workspace has no project map".into()));
+    }
+    if ws.cwd.is_none() {
+        return Err((StatusCode::BAD_REQUEST, "workspace has no cwd".into()));
+    }
+    let pane_id = state
+        .svc
+        .open_project_map(&body.workspace_id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(ShowResponse { pane_id }))
 }

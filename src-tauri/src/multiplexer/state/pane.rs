@@ -30,6 +30,7 @@ impl MultiplexerState {
             hidden: false,
             show_in_tabbar: true,
             worker_id: None,
+            project_map_workspace_id: None,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -63,9 +64,82 @@ impl MultiplexerState {
             hidden: false,
             show_in_tabbar: true,
             worker_id: None,
+            project_map_workspace_id: None,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
+    }
+
+    pub fn create_project_map_pane(&mut self, workspace_id: String) -> String {
+        let pane_id = short_id();
+        let pane = Pane {
+            id: pane_id.clone(),
+            pty_id: None,
+            pane_type: PaneType::ProjectMap,
+            title: "Project Map".to_string(),
+            cwd: None,
+            url: None,
+            agent_type: None,
+            agent_session_id: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: false,
+            depth: 0,
+            report_target_pane_id: None,
+            spawned_by_pane_id: None,
+            title_level: TitleLevel::Default,
+            chat_view: false,
+            pending_prompt: None,
+            auto_approve: false,
+            protected: false,
+            connected_services: vec![],
+            agent_set_at: None,
+            hidden: false,
+            show_in_tabbar: true,
+            worker_id: None,
+            project_map_workspace_id: Some(workspace_id),
+        };
+        self.panes.insert(pane_id.clone(), pane);
+        pane_id
+    }
+
+    pub fn find_project_map_pane(&self, workspace_id: &str) -> Option<String> {
+        self.panes.values()
+            .find(|p| p.pane_type == PaneType::ProjectMap
+                && p.project_map_workspace_id.as_deref() == Some(workspace_id))
+            .map(|p| p.id.clone())
+    }
+
+    pub fn open_project_map(&mut self, workspace_id: &str) -> Result<String, String> {
+        if let Some(existing) = self.find_project_map_pane(workspace_id) {
+            self.focused_pane_id = Some(existing.clone());
+            return Ok(existing);
+        }
+
+        let workspace_exists = self.workspaces.iter().any(|w| w.id == workspace_id);
+        if !workspace_exists {
+            return Err(format!("Workspace not found: {}", workspace_id));
+        }
+
+        let new_pane_id = self.create_project_map_pane(workspace_id.to_string());
+
+        let tab_id = short_id();
+        let tab = Tab {
+            id: tab_id.clone(),
+            title: "Project Map".to_string(),
+            split_tree: SplitNode::Leaf {
+                pane_id: new_pane_id.clone(),
+            },
+        };
+
+        let workspace = self.workspaces.iter_mut()
+            .find(|w| w.id == workspace_id)
+            .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
+        workspace.tabs.push(tab);
+        workspace.active_tab_id = Some(tab_id);
+
+        self.focused_pane_id = Some(new_pane_id.clone());
+        Ok(new_pane_id)
     }
 
     /// Open a browser pane alongside the focused pane (or in a new tab).

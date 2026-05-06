@@ -44,6 +44,13 @@ impl ServiceContext {
         Ok(pane_id)
     }
 
+    pub fn open_project_map(&self, workspace_id: &str) -> Result<String, String> {
+        let pane_id = self.mux.lock().open_project_map(workspace_id)?;
+        self.emit_state_changed();
+        self.emit_pane_focus_changed(&pane_id);
+        Ok(pane_id)
+    }
+
     pub fn link_pty(&self, pane_id: &str, pty_id: String) {
         if let Some(orphan) = self.mux.lock().link_pty(pane_id, pty_id) {
             log::warn!("[link_pty] pane {} relinked — killing orphan pty {}", pane_id, &orphan[..orphan.len().min(8)]);

@@ -42,7 +42,7 @@ export interface PendingPrompt {
 export interface Pane {
   id: string;
   pty_id: string | null;
-  pane_type: "Terminal" | "Browser";
+  pane_type: "Terminal" | "Browser" | "ProjectMap";
   title: string;
   cwd: string | null;
   url?: string;
@@ -60,6 +60,7 @@ export interface Pane {
   hidden?: boolean;
   show_in_tabbar?: boolean;
   worker_id?: string | null;
+  project_map_workspace_id?: string | null;
 }
 
 export interface MultiplexerState {

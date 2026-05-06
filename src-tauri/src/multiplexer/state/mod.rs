@@ -101,6 +101,7 @@ impl MultiplexerState {
             hidden: false,
             show_in_tabbar: true,
             worker_id: None,
+            project_map_workspace_id: None,
         };
 
         let tab = Tab {

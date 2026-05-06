@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { TerminalPane } from "./TerminalPane";
 import { BrowserPane } from "../Browser/BrowserPane";
+import { ProjectMapPanel } from "../ProjectMap/ProjectMapPanel";
 
 import { Divider } from "./Divider";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { isPaneVisible, useWorkerFocusVersion } from "../MemoryPanel/workerFocusStore";
-import type { SplitNode, Pane, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
+import type { SplitNode, Pane, ThemeConfig, FontConfig, TerminalConfigSettings, ApiConfig } from "../../lib/types";
 import { CloseXIcon } from "../Icons";
 
 interface SplitContainerProps {
@@ -25,6 +26,7 @@ interface SplitContainerProps {
   fontConfig?: FontConfig;
   /** Terminal settings */
   terminalConfig?: TerminalConfigSettings;
+  api?: ApiConfig;
 }
 
 const MIN_PANE_SIZE = 100; // px
@@ -49,6 +51,7 @@ export function SplitContainer({
   theme,
   fontConfig,
   terminalConfig,
+  api,
 }: SplitContainerProps) {
   // Subscribe so tree re-renders when force-focus set changes
   useWorkerFocusVersion();
@@ -81,6 +84,22 @@ export function SplitContainer({
             isFocused={focusedPaneId === pane.id}
             onFocus={onFocusPane}
           />
+          {splitButtons}
+        </PaneWrapper>
+      );
+    }
+
+    if (pane.pane_type === "ProjectMap") {
+      return (
+        <PaneWrapper paneId={pane.id} isFocused={focusedPaneId === pane.id} hasSplits={hasSplits}>
+          <div className="w-full h-full" onMouseDown={() => onFocusPane(pane.id)}>
+            {api && (
+              <ProjectMapPanel
+                api={api}
+                workspaceId={pane.project_map_workspace_id ?? undefined}
+              />
+            )}
+          </div>
           {splitButtons}
         </PaneWrapper>
       );
@@ -132,6 +151,7 @@ export function SplitContainer({
         theme={theme}
         fontConfig={fontConfig}
         terminalConfig={terminalConfig}
+        api={api}
       />
     );
   }
@@ -157,6 +177,7 @@ export function SplitContainer({
           theme={theme}
           fontConfig={fontConfig}
           terminalConfig={terminalConfig}
+          api={api}
         />
       ))}
     </SplitView>

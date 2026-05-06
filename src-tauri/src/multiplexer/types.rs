@@ -242,6 +242,8 @@ pub struct Pane {
     /// Graph-worker id linking this pane to a GraphWorkerRegistry entry.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub worker_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub project_map_workspace_id: Option<String>,
 }
 
 fn default_show_in_tabbar() -> bool { true }
@@ -268,6 +270,7 @@ impl Default for TitleLevel {
 pub enum PaneType {
     Terminal,
     Browser,
+    ProjectMap,
 }
 
 #[cfg(test)]

@@ -119,6 +119,43 @@ pub fn handle(client: &mut SocketClient, json: bool, action: MapAction) {
                 }
             }
         }
+        MapAction::Show { workspace, node: _ } => {
+            let ws_id = match workspace::resolve_workspace_id(client, workspace.as_deref()) {
+                Ok(id) => id,
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
+            let (base, token) = crate::read_api_config();
+            let http = crate::build_http(&token);
+            match http
+                .post(format!("{}/api/map/show", base))
+                .json(&serde_json::json!({ "workspace_id": ws_id }))
+                .send()
+            {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let val: serde_json::Value = resp.json().unwrap_or_default();
+                    if !status.is_success() {
+                        eprintln!("Error: {}", status);
+                        if let Some(s) = val.as_str() { eprintln!("{}", s); }
+                        std::process::exit(1);
+                    }
+                    if json {
+                        print_object(&val);
+                    } else if let Some(pid) = val.get("pane_id").and_then(|v| v.as_str()) {
+                        println!("opened project map pane {}", pid);
+                    } else {
+                        println!("opened project map");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
         MapAction::Search { query, workspace, limit, kind } => {
             let root = match workspace::resolve_workspace_root(client, workspace.as_deref()) {
                 Ok(r) => r,

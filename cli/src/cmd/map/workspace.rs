@@ -20,6 +20,37 @@ pub fn resolve_workspace_root(
     Err("Not inside a workspace. Pass --workspace WS_ID or run from a workspace cwd.".into())
 }
 
+pub fn resolve_workspace_id(
+    client: &mut SocketClient,
+    workspace_id: Option<&str>,
+) -> Result<String, String> {
+    if let Some(id) = workspace_id {
+        return Ok(id.to_string());
+    }
+    if let Ok(env_id) = std::env::var("CODETERM_WORKSPACE_ID") {
+        if !env_id.is_empty() {
+            return Ok(env_id);
+        }
+    }
+    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+    let cwd_str = cwd.to_string_lossy().to_string();
+    let value = client
+        .call("workspace.list", None)
+        .map_err(|e| format!("workspace.list failed: {e}"))?;
+    let arr = value.as_array().ok_or_else(|| "workspace.list: expected array".to_string())?;
+    let ws = arr
+        .iter()
+        .find(|w| w.get("cwd").and_then(|v| v.as_str()) == Some(cwd_str.as_str()))
+        .ok_or_else(|| {
+            "Not inside a workspace. Pass --workspace WS_ID or run from a workspace cwd.".to_string()
+        })?;
+    let id = ws
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "workspace.list entry has no id".to_string())?;
+    Ok(id.to_string())
+}
+
 fn resolve_via_api(client: &mut SocketClient, id: &str) -> Result<PathBuf, String> {
     let value = client
         .call("workspace.list", None)

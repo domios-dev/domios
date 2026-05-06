@@ -32,6 +32,8 @@ impl MultiplexerState {
                     let depth = pane.map(|p| p.depth).unwrap_or(0);
                     let title = pane.map(|p| p.title.clone());
                     let title_level = pane.map(|p| format!("{:?}", p.title_level));
+                    let pane_type = pane.map(|p| format!("{:?}", p.pane_type));
+                    let project_map_workspace_id = pane.and_then(|p| p.project_map_workspace_id.clone());
                     SplitNodeSnapshot::Leaf {
                         pane_id: pane_id.clone(),
                         cwd,
@@ -43,6 +45,8 @@ impl MultiplexerState {
                         parent_pane_id,
                         can_spawn,
                         depth,
+                        pane_type,
+                        project_map_workspace_id,
                     }
                 }
                 SplitNode::Split { orientation, ratio, children } => SplitNodeSnapshot::Split {
@@ -97,7 +101,7 @@ impl MultiplexerState {
 
         fn snapshot_to_split(node: &SplitNodeSnapshot, panes: &mut HashMap<String, Pane>) -> SplitNode {
             match node {
-                SplitNodeSnapshot::Leaf { pane_id, cwd, title, title_level, agent_type, claude_session_id, role, parent_pane_id, can_spawn, depth } => {
+                SplitNodeSnapshot::Leaf { pane_id, cwd, title, title_level, agent_type, claude_session_id, role, parent_pane_id, can_spawn, depth, pane_type, project_map_workspace_id } => {
                     let parsed_role = role.as_deref().and_then(|r| match r {
                         "Orchestrator" | "Conductor" => Some(crate::multiplexer::types::AgentRole::Orchestrator),
                         "Lead" => Some(crate::multiplexer::types::AgentRole::Lead),
@@ -133,10 +137,15 @@ impl MultiplexerState {
                     } else {
                         None
                     };
+                    let restored_pane_type = match pane_type.as_deref() {
+                        Some("Browser") => PaneType::Browser,
+                        Some("ProjectMap") => PaneType::ProjectMap,
+                        _ => PaneType::Terminal,
+                    };
                     panes.insert(pane_id.clone(), Pane {
                         id: pane_id.clone(),
                         pty_id: None,
-                        pane_type: PaneType::Terminal,
+                        pane_type: restored_pane_type,
                         title: restored_title,
                         cwd: cwd.clone(),
                         url: None,
@@ -158,6 +167,7 @@ impl MultiplexerState {
             hidden: false,
             show_in_tabbar: true,
             worker_id: None,
+            project_map_workspace_id: project_map_workspace_id.clone(),
                     });
                     SplitNode::Leaf { pane_id: pane_id.clone() }
                 }

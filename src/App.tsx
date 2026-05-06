@@ -614,6 +614,7 @@ function AppInner() {
                   theme={theme}
                   fontConfig={config.font}
                   terminalConfig={config.terminal}
+                  api={config.api}
                 />
               </div>
                 );

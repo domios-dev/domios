@@ -58,6 +58,10 @@ pub enum SplitNodeSnapshot {
         /// Hierarchy depth (0=none, 1=orchestrator, 2=lead/worker, 3=worker).
         #[serde(default)]
         depth: u8,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        pane_type: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        project_map_workspace_id: Option<String>,
     },
     Split {
         orientation: String,

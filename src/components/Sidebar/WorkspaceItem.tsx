@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { X, TerminalSquare, FolderOpen } from "lucide-react";
+import { X, TerminalSquare, FolderOpen, Network } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { getAllProviders } from "../../lib/agentProviders";
 import { useConfig } from "../../hooks/useConfig";
@@ -68,6 +68,27 @@ export function WorkspaceItem({
   const { config } = useConfig();
   const agentsConfig = config.agents ?? {};
 
+  const openProjectMap = useCallback(async (workspaceId: string) => {
+    const api = config.api;
+    const host = api.host === "0.0.0.0" ? "127.0.0.1" : api.host;
+    const url = `http://${host}:${api.port}/api/map/show`;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(api.token ? { Authorization: `Bearer ${api.token}` } : {}),
+        },
+        body: JSON.stringify({ workspace_id: workspaceId }),
+      });
+      if (!res.ok) {
+        console.error("[project-map] open failed", res.status, await res.text());
+      }
+    } catch (e) {
+      console.error("[project-map] open error", e);
+    }
+  }, [config.api]);
+
   const menuItems: DropdownMenuItem[] = useMemo(() => {
     const items: DropdownMenuItem[] = [
       {
@@ -95,6 +116,15 @@ export function WorkspaceItem({
         },
       });
     }
+    if (workspace.cwd && workspace.name !== "General") {
+      items.push({
+        label: "Show Project Map",
+        icon: <Network size={11} strokeWidth={1.5} />,
+        onClick: () => {
+          openProjectMap(workspace.id);
+        },
+      });
+    }
     if (!workspace.protected) {
       items.push({
         label: "Delete Workspace",
@@ -104,7 +134,7 @@ export function WorkspaceItem({
       });
     }
     return items;
-  }, [onNewTerminal, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig]);
+  }, [onNewTerminal, onNewAgent, onClose, workspace.protected, workspace.cwd, workspace.id, workspace.name, agentsConfig, openProjectMap]);
 
   return (
     <div

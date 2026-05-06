@@ -35,6 +35,15 @@ pub enum MapAction {
         #[command(subcommand)]
         action: MapConfigAction,
     },
+    /// Open a Project Map pane in the daemon for the given workspace.
+    Show {
+        /// Workspace ID. Default: walk up from cwd.
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Node ID to focus on initial open (frontend hint, optional).
+        #[arg(long)]
+        node: Option<i64>,
+    },
     /// Export the graph (nodes + edges) as JSON.
     Export {
         #[arg(long)]
