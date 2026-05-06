@@ -56,6 +56,11 @@ fn chunk_via_tree_sitter(lang: Lang, source: &str) -> Option<Vec<Chunk>> {
                 text,
             });
         } else {
+            if is_container_kind(child.kind()) {
+                if let Some(header) = collapsed_container_chunk(source, &child) {
+                    out.push(header);
+                }
+            }
             for c in slide_window_chunks(source, span.start as u32, (span.end - 1) as u32) {
                 out.push(c);
             }
@@ -118,6 +123,69 @@ fn chunk_via_lines(source: &str) -> Vec<Chunk> {
         start = end;
     }
     out
+}
+
+fn is_container_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "class_declaration"
+            | "class_definition"
+            | "impl_item"
+            | "trait_item"
+            | "interface_declaration"
+            | "namespace_declaration"
+            | "module"
+    )
+}
+
+fn collapsed_container_chunk(source: &str, container: &Node<'_>) -> Option<Chunk> {
+    let header_line = container.start_position().row;
+    let lines: Vec<&str> = source.lines().collect();
+    if header_line >= lines.len() {
+        return None;
+    }
+    let mut buf = String::new();
+    buf.push_str(lines[header_line].trim_end());
+    buf.push('\n');
+    let mut cursor = container.walk();
+    let mut last_line: usize = header_line;
+    for child in container.named_children(&mut cursor) {
+        if !is_signature_kind(child.kind()) {
+            continue;
+        }
+        let row = child.start_position().row;
+        if row >= lines.len() || row <= last_line {
+            continue;
+        }
+        let sig_line = lines[row].trim_end();
+        if sig_line.is_empty() {
+            continue;
+        }
+        buf.push_str("  ");
+        buf.push_str(sig_line.trim_start());
+        buf.push_str(" { ... }\n");
+        last_line = row;
+    }
+    if buf.trim().len() < MIN_CHUNK_CHARS {
+        return None;
+    }
+    let end_line = container.end_position().row.min(lines.len().saturating_sub(1));
+    Some(Chunk {
+        start_line: header_line as u32,
+        end_line: end_line as u32,
+        text: buf,
+    })
+}
+
+fn is_signature_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "function_item"
+            | "function_declaration"
+            | "function_definition"
+            | "method_declaration"
+            | "method_definition"
+    )
 }
 
 fn slide_window_chunks(source: &str, start_line: u32, end_line: u32) -> Vec<Chunk> {

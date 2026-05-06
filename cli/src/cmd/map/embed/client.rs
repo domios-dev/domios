@@ -8,7 +8,10 @@ const CHILD_MAX_CALLS: u64 = 200;
 #[derive(Serialize)]
 struct Request<'a> {
     id: &'a str,
-    text: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    texts: Option<&'a [String]>,
 }
 
 #[derive(Deserialize)]
@@ -16,6 +19,7 @@ struct Response {
     #[allow(dead_code)]
     id: String,
     embedding: Option<Vec<f32>>,
+    embeddings: Option<Vec<Vec<f32>>>,
     error: Option<String>,
 }
 
@@ -42,11 +46,30 @@ impl Process {
     }
 
     fn request(&mut self, text: &str) -> Result<Vec<f32>, String> {
-        let line = serde_json::to_string(&Request { id: "", text })
+        let line = serde_json::to_string(&Request { id: "", text: Some(text), texts: None })
             .map_err(|e| e.to_string())?;
         writeln!(self.stdin, "{}", line).map_err(|e| format!("write: {}", e))?;
         self.stdin.flush().map_err(|e| format!("flush: {}", e))?;
+        let parsed = self.read_response()?;
+        if let Some(err) = parsed.error {
+            return Err(err);
+        }
+        parsed.embedding.ok_or_else(|| "no embedding".into())
+    }
 
+    fn request_batch(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+        let line = serde_json::to_string(&Request { id: "", text: None, texts: Some(texts) })
+            .map_err(|e| e.to_string())?;
+        writeln!(self.stdin, "{}", line).map_err(|e| format!("write: {}", e))?;
+        self.stdin.flush().map_err(|e| format!("flush: {}", e))?;
+        let parsed = self.read_response()?;
+        if let Some(err) = parsed.error {
+            return Err(err);
+        }
+        parsed.embeddings.ok_or_else(|| "no embeddings".into())
+    }
+
+    fn read_response(&mut self) -> Result<Response, String> {
         let mut resp = String::new();
         self.stdout.read_line(&mut resp).map_err(|e| format!("read: {}", e))?;
         if resp.is_empty() {
@@ -55,10 +78,7 @@ impl Process {
         let parsed: Response = serde_json::from_str(resp.trim())
             .map_err(|e| format!("parse: {}", e))?;
         self.calls += 1;
-        if let Some(err) = parsed.error {
-            return Err(err);
-        }
-        parsed.embedding.ok_or_else(|| "no embedding".into())
+        Ok(parsed)
     }
 }
 
@@ -80,14 +100,7 @@ impl EmbedClient {
 
     pub fn embed(&mut self, text: &str) -> Result<Vec<f32>, String> {
         let normalized = preprocess(text);
-        if let Some(p) = self.proc.as_ref() {
-            if p.calls >= CHILD_MAX_CALLS {
-                self.proc = None;
-            }
-        }
-        if self.proc.is_none() {
-            self.proc = Some(Process::spawn()?);
-        }
+        self.ensure_proc()?;
         let p = self.proc.as_mut().unwrap();
         match p.request(&normalized) {
             Ok(v) => Ok(v),
@@ -96,6 +109,40 @@ impl EmbedClient {
                 Err(e)
             }
         }
+    }
+
+    pub fn embed_batch(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+        let normalized: Vec<String> = texts.iter().map(|t| preprocess(t)).collect();
+        self.ensure_proc()?;
+        let p = self.proc.as_mut().unwrap();
+        match p.request_batch(&normalized) {
+            Ok(v) => {
+                if v.len() != texts.len() {
+                    self.proc = None;
+                    return Err(format!("batch size mismatch: got {}, expected {}", v.len(), texts.len()));
+                }
+                Ok(v)
+            }
+            Err(e) => {
+                self.proc = None;
+                Err(e)
+            }
+        }
+    }
+
+    fn ensure_proc(&mut self) -> Result<(), String> {
+        if let Some(p) = self.proc.as_ref() {
+            if p.calls >= CHILD_MAX_CALLS {
+                self.proc = None;
+            }
+        }
+        if self.proc.is_none() {
+            self.proc = Some(Process::spawn()?);
+        }
+        Ok(())
     }
 }
 

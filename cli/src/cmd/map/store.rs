@@ -30,6 +30,7 @@ impl Store {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        conn.busy_timeout(std::time::Duration::from_millis(3000))?;
         let store = Store { conn };
         store.init_schema(workspace_root)?;
         Ok(store)
@@ -41,9 +42,6 @@ impl Store {
 
     fn init_schema(&self, workspace_root: &Path) -> rusqlite::Result<()> {
         self.conn.execute_batch(SCHEMA_DDL)?;
-        for stmt in ADDITIVE_MIGRATIONS {
-            let _ = self.conn.execute(stmt, []);
-        }
         self.conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         self.set_meta("schema_version", &SCHEMA_VERSION.to_string())?;
         self.set_meta("indexer_version", INDEXER_VERSION)?;
@@ -118,13 +116,32 @@ impl Store {
         start_line: u32,
         end_line: u32,
         contents: &str,
+        text_hash: &str,
     ) -> rusqlite::Result<i64> {
         self.conn.execute(
-            "INSERT INTO chunk(file_id,start_line,end_line,contents,embedded_at) \
-             VALUES(?1,?2,?3,?4,NULL)",
-            params![file_id, start_line as i64, end_line as i64, contents],
+            "INSERT INTO chunk(file_id,start_line,end_line,contents,text_hash,embedded_at) \
+             VALUES(?1,?2,?3,?4,?5,NULL)",
+            params![file_id, start_line as i64, end_line as i64, contents, text_hash],
         )?;
         Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn lookup_embedding_cache(&self, text_hash: &str) -> rusqlite::Result<Option<Vec<u8>>> {
+        self.conn
+            .query_row(
+                "SELECT embedding FROM embedding_cache WHERE text_hash = ?1",
+                params![text_hash],
+                |r| r.get::<_, Vec<u8>>(0),
+            )
+            .optional()
+    }
+
+    pub fn store_embedding_cache(&self, text_hash: &str, embedding: &[u8]) -> rusqlite::Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO embedding_cache(text_hash,embedding) VALUES(?1,?2)",
+            params![text_hash, embedding],
+        )?;
+        Ok(())
     }
 
     pub fn store_chunk_vector(
@@ -148,11 +165,19 @@ impl Store {
         Ok(())
     }
 
-    pub fn unembedded_chunks(&self) -> rusqlite::Result<Vec<(i64, String)>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, contents FROM chunk WHERE embedded_at IS NULL")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+    pub fn unembedded_chunks(&self) -> rusqlite::Result<Vec<UnembeddedChunk>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT c.id, c.contents, f.path \
+             FROM chunk c LEFT JOIN file f ON f.id = c.file_id \
+             WHERE c.embedded_at IS NULL",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(UnembeddedChunk {
+                chunk_id: r.get::<_, i64>(0)?,
+                contents: r.get::<_, String>(1)?,
+                path: r.get::<_, Option<String>>(2)?,
+            })
+        })?;
         let mut out = Vec::new();
         for r in rows {
             out.push(r?);
@@ -445,6 +470,325 @@ impl Store {
         Ok(Counts { files, nodes, edges, errors })
     }
 
+    pub fn top_by_importance(
+        &self,
+        kind: Option<&str>,
+        path_prefix: Option<&str>,
+        limit: u32,
+    ) -> rusqlite::Result<Vec<NodeRow>> {
+        let mut sql = String::from(
+            "SELECT n.id, n.kind, n.serialized_name, n.display_name, f.path, n.start_line \
+             FROM node n LEFT JOIN file f ON n.file_id = f.id \
+             WHERE n.importance IS NOT NULL",
+        );
+        if kind.is_some() { sql.push_str(" AND n.kind = ?1"); }
+        if path_prefix.is_some() {
+            if kind.is_some() { sql.push_str(" AND f.path LIKE ?2"); }
+            else { sql.push_str(" AND f.path LIKE ?1"); }
+        }
+        sql.push_str(" ORDER BY n.importance DESC LIMIT ?");
+        sql.push_str(&format!("{}", if kind.is_some() && path_prefix.is_some() { 3 }
+            else if kind.is_some() || path_prefix.is_some() { 2 } else { 1 }));
+        let mut stmt = self.conn.prepare(&sql)?;
+        let collect = |row: &rusqlite::Row| -> rusqlite::Result<NodeRow> {
+            Ok(NodeRow {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                serialized_name: row.get(2)?,
+                display_name: row.get(3)?,
+                path: row.get::<_, Option<String>>(4)?,
+                start_line: row.get::<_, Option<i64>>(5)?,
+            })
+        };
+        let prefix_pat = path_prefix.map(|p| format!("{}%", p));
+        let mut out = Vec::new();
+        match (kind, prefix_pat.as_deref()) {
+            (Some(k), Some(p)) => {
+                let rows = stmt.query_map(params![k, p, limit as i64], collect)?;
+                for r in rows { out.push(r?); }
+            }
+            (Some(k), None) => {
+                let rows = stmt.query_map(params![k, limit as i64], collect)?;
+                for r in rows { out.push(r?); }
+            }
+            (None, Some(p)) => {
+                let rows = stmt.query_map(params![p, limit as i64], collect)?;
+                for r in rows { out.push(r?); }
+            }
+            (None, None) => {
+                let rows = stmt.query_map(params![limit as i64], collect)?;
+                for r in rows { out.push(r?); }
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn neighbours(
+        &self,
+        node_id: i64,
+        outgoing: bool,
+        incoming: bool,
+        edge_kind: Option<&str>,
+        limit: u32,
+    ) -> rusqlite::Result<Vec<NeighbourRow>> {
+        let mut out = Vec::new();
+        if outgoing {
+            let mut sql = String::from(
+                "SELECT 'out' AS dir, e.kind, e.weight, n.id, n.kind, n.serialized_name, n.display_name, f.path, n.start_line \
+                 FROM edge e JOIN node n ON n.id = e.target_node_id \
+                 LEFT JOIN file f ON n.file_id = f.id \
+                 WHERE e.source_node_id = ?1",
+            );
+            if edge_kind.is_some() { sql.push_str(" AND e.kind = ?2"); }
+            sql.push_str(" ORDER BY e.weight DESC LIMIT ?");
+            sql.push_str(&format!("{}", if edge_kind.is_some() { 3 } else { 2 }));
+            let mut stmt = self.conn.prepare(&sql)?;
+            let collect = collect_neighbour_row;
+            let rows: Box<dyn Iterator<Item = rusqlite::Result<NeighbourRow>>> = match edge_kind {
+                Some(k) => Box::new(stmt.query_map(params![node_id, k, limit as i64], collect)?
+                    .collect::<Vec<_>>().into_iter()),
+                None => Box::new(stmt.query_map(params![node_id, limit as i64], collect)?
+                    .collect::<Vec<_>>().into_iter()),
+            };
+            for r in rows { out.push(r?); }
+        }
+        if incoming {
+            let mut sql = String::from(
+                "SELECT 'in' AS dir, e.kind, e.weight, n.id, n.kind, n.serialized_name, n.display_name, f.path, n.start_line \
+                 FROM edge e JOIN node n ON n.id = e.source_node_id \
+                 LEFT JOIN file f ON n.file_id = f.id \
+                 WHERE e.target_node_id = ?1",
+            );
+            if edge_kind.is_some() { sql.push_str(" AND e.kind = ?2"); }
+            sql.push_str(" ORDER BY e.weight DESC LIMIT ?");
+            sql.push_str(&format!("{}", if edge_kind.is_some() { 3 } else { 2 }));
+            let mut stmt = self.conn.prepare(&sql)?;
+            let collect = collect_neighbour_row;
+            let rows: Box<dyn Iterator<Item = rusqlite::Result<NeighbourRow>>> = match edge_kind {
+                Some(k) => Box::new(stmt.query_map(params![node_id, k, limit as i64], collect)?
+                    .collect::<Vec<_>>().into_iter()),
+                None => Box::new(stmt.query_map(params![node_id, limit as i64], collect)?
+                    .collect::<Vec<_>>().into_iter()),
+            };
+            for r in rows { out.push(r?); }
+        }
+        Ok(out)
+    }
+
+    pub fn resolve_node_by_name(&self, name: &str) -> rusqlite::Result<Vec<i64>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM node WHERE display_name = ?1 LIMIT 10",
+        )?;
+        let rows = stmt.query_map(params![name], |r| r.get::<_, i64>(0))?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    }
+
+    pub fn file_outgoing(&self, path: &str, limit: u32) -> rusqlite::Result<Vec<NodeRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT n2.id, n2.kind, n2.serialized_name, n2.display_name, f2.path, n2.start_line \
+             FROM file f1 \
+             JOIN node n1 ON n1.file_id = f1.id \
+             JOIN edge e ON e.source_node_id = n1.id \
+             JOIN node n2 ON n2.id = e.target_node_id \
+             LEFT JOIN file f2 ON n2.file_id = f2.id \
+             WHERE f1.path = ?1 AND e.kind IN ('invoke','bridge') AND n2.file_id != f1.id \
+             ORDER BY n2.importance DESC NULLS LAST LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![path, limit as i64], |r| {
+            Ok(NodeRow {
+                id: r.get(0)?,
+                kind: r.get(1)?,
+                serialized_name: r.get(2)?,
+                display_name: r.get(3)?,
+                path: r.get::<_, Option<String>>(4)?,
+                start_line: r.get::<_, Option<i64>>(5)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    }
+
+    pub fn file_incoming(&self, path: &str, limit: u32) -> rusqlite::Result<Vec<NodeRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT n1.id, n1.kind, n1.serialized_name, n1.display_name, f1.path, n1.start_line \
+             FROM file f2 \
+             JOIN node n2 ON n2.file_id = f2.id \
+             JOIN edge e ON e.target_node_id = n2.id \
+             JOIN node n1 ON n1.id = e.source_node_id \
+             LEFT JOIN file f1 ON n1.file_id = f1.id \
+             WHERE f2.path = ?1 AND e.kind IN ('invoke','bridge') AND n1.file_id != f2.id \
+             ORDER BY n1.importance DESC NULLS LAST LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![path, limit as i64], |r| {
+            Ok(NodeRow {
+                id: r.get(0)?,
+                kind: r.get(1)?,
+                serialized_name: r.get(2)?,
+                display_name: r.get(3)?,
+                path: r.get::<_, Option<String>>(4)?,
+                start_line: r.get::<_, Option<i64>>(5)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    }
+
+    pub fn bridge_summary_tauri(&self, limit: u32) -> rusqlite::Result<Vec<TauriBridgeCommand>> {
+        let mut stmt = self.conn.prepare(
+            "WITH handlers AS ( \
+               SELECT command, MIN(file_id) AS file_id, MIN(line) AS line \
+               FROM tauri_bridge_signal WHERE side='handler' \
+               GROUP BY command \
+             ) \
+             SELECT h.command, \
+                    (SELECT COUNT(*) FROM tauri_bridge_signal i WHERE i.command = h.command AND i.side='invoke') AS invoker_count, \
+                    fh.path, h.line + 1 \
+             FROM handlers h \
+             JOIN file fh ON fh.id = h.file_id \
+             ORDER BY invoker_count DESC, h.command LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |r| {
+            Ok(TauriBridgeCommand {
+                command: r.get(0)?,
+                invoker_count: r.get::<_, i64>(1)? as u32,
+                handler_path: r.get(2)?,
+                handler_line: r.get(3)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    }
+
+    pub fn bridge_summary_http(&self, limit: u32) -> rusqlite::Result<Vec<HttpBridgeRoute>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT method, path, fh.path, h.line + 1 \
+             FROM http_bridge_signal h \
+             JOIN file fh ON fh.id = h.file_id \
+             WHERE h.side = 'handler' \
+             GROUP BY h.method, h.path, fh.path, h.line \
+             ORDER BY h.method, h.path LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |r| {
+            Ok(HttpBridgeRoute {
+                method: r.get(0)?,
+                route_path: r.get(1)?,
+                handler_path: r.get(2)?,
+                handler_line: r.get(3)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    }
+
+    pub fn bridge_pairs_tauri(&self, limit: u32) -> rusqlite::Result<Vec<TauriBridgePair>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT h.command, fi.path, i.line + 1, fh.path, h.line + 1 \
+             FROM tauri_bridge_signal h \
+             JOIN tauri_bridge_signal i ON i.command = h.command AND i.side = 'invoke' \
+             JOIN file fh ON fh.id = h.file_id \
+             JOIN file fi ON fi.id = i.file_id \
+             WHERE h.side = 'handler' \
+             ORDER BY h.command LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |r| {
+            Ok(TauriBridgePair {
+                command: r.get(0)?,
+                invoker_path: r.get(1)?,
+                invoker_line: r.get(2)?,
+                handler_path: r.get(3)?,
+                handler_line: r.get(4)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    }
+
+    pub fn bridge_pairs_http(&self, limit: u32) -> rusqlite::Result<Vec<HttpBridgePair>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT h.method, h.path, fh.path, h.line + 1 \
+             FROM http_bridge_signal h \
+             JOIN file fh ON fh.id = h.file_id \
+             WHERE h.side = 'handler' \
+             ORDER BY h.method, h.path LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |r| {
+            Ok(HttpBridgePair {
+                method: r.get(0)?,
+                route_path: r.get(1)?,
+                handler_path: r.get(2)?,
+                handler_line: r.get(3)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r?); }
+        Ok(out)
+    }
+
+    pub fn rebuild_fts(&self) -> rusqlite::Result<()> {
+        self.conn.execute("DELETE FROM node_fts", [])?;
+        self.conn.execute(
+            "INSERT INTO node_fts(rowid, display_name, serialized_name, path) \
+             SELECT n.id, n.display_name, n.serialized_name, COALESCE(f.path, '') \
+             FROM node n LEFT JOIN file f ON n.file_id = f.id",
+            [],
+        )?;
+        Ok(())
+    }
+
+    pub fn search_nodes_fts(
+        &self,
+        query: &str,
+        kind: Option<&str>,
+        limit: u32,
+    ) -> rusqlite::Result<Vec<NodeRow>> {
+        let escaped = sanitize_fts_query(query);
+        if escaped.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sql = match kind {
+            Some(_) => "SELECT n.id, n.kind, n.serialized_name, n.display_name, f.path, n.start_line \
+                        FROM node_fts JOIN node n ON n.id = node_fts.rowid \
+                        LEFT JOIN file f ON n.file_id = f.id \
+                        WHERE node_fts MATCH ?1 AND n.kind = ?2 \
+                        ORDER BY bm25(node_fts, 5.0, 3.0, 1.5) ASC LIMIT ?3",
+            None => "SELECT n.id, n.kind, n.serialized_name, n.display_name, f.path, n.start_line \
+                     FROM node_fts JOIN node n ON n.id = node_fts.rowid \
+                     LEFT JOIN file f ON n.file_id = f.id \
+                     WHERE node_fts MATCH ?1 \
+                     ORDER BY bm25(node_fts, 5.0, 3.0, 1.5) ASC LIMIT ?2",
+        };
+        let mut stmt = self.conn.prepare(sql)?;
+        let collect = |row: &rusqlite::Row| -> rusqlite::Result<NodeRow> {
+            Ok(NodeRow {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                serialized_name: row.get(2)?,
+                display_name: row.get(3)?,
+                path: row.get::<_, Option<String>>(4)?,
+                start_line: row.get::<_, Option<i64>>(5)?,
+            })
+        };
+        let mut out = Vec::new();
+        match kind {
+            Some(k) => {
+                let rows = stmt.query_map(params![escaped, k, limit as i64], collect)?;
+                for r in rows { out.push(r?); }
+            }
+            None => {
+                let rows = stmt.query_map(params![escaped, limit as i64], collect)?;
+                for r in rows { out.push(r?); }
+            }
+        }
+        Ok(out)
+    }
+
     pub fn search_nodes(
         &self,
         query: &str,
@@ -454,13 +798,13 @@ impl Store {
         let pattern = format!("%{}%", query);
         let mut stmt = match kind {
             Some(_) => self.conn.prepare(
-                "SELECT n.kind, n.serialized_name, n.display_name, f.path, n.start_line \
+                "SELECT n.id, n.kind, n.serialized_name, n.display_name, f.path, n.start_line \
                  FROM node n LEFT JOIN file f ON n.file_id = f.id \
                  WHERE n.display_name LIKE ?1 AND n.kind = ?2 \
                  ORDER BY n.display_name LIMIT ?3",
             )?,
             None => self.conn.prepare(
-                "SELECT n.kind, n.serialized_name, n.display_name, f.path, n.start_line \
+                "SELECT n.id, n.kind, n.serialized_name, n.display_name, f.path, n.start_line \
                  FROM node n LEFT JOIN file f ON n.file_id = f.id \
                  WHERE n.display_name LIKE ?1 \
                  ORDER BY n.display_name LIMIT ?2",
@@ -469,11 +813,12 @@ impl Store {
         let mut out = Vec::new();
         let collect = |row: &rusqlite::Row| -> rusqlite::Result<NodeRow> {
             Ok(NodeRow {
-                kind: row.get(0)?,
-                serialized_name: row.get(1)?,
-                display_name: row.get(2)?,
-                path: row.get::<_, Option<String>>(3)?,
-                start_line: row.get::<_, Option<i64>>(4)?,
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                serialized_name: row.get(2)?,
+                display_name: row.get(3)?,
+                path: row.get::<_, Option<String>>(4)?,
+                start_line: row.get::<_, Option<i64>>(5)?,
             })
         };
         match kind {
@@ -512,6 +857,7 @@ pub struct Counts {
 
 #[derive(Debug, serde::Serialize)]
 pub struct NodeRow {
+    pub id: i64,
     pub kind: String,
     pub serialized_name: String,
     pub display_name: String,
@@ -519,16 +865,92 @@ pub struct NodeRow {
     pub start_line: Option<i64>,
 }
 
+pub fn sanitize_fts_query(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let tokens: Vec<String> = trimmed
+        .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("\"{}\"*", s.replace('"', "\"\"")))
+        .collect();
+    tokens.join(" OR ")
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct NeighbourRow {
+    pub direction: String,
+    pub edge_kind: String,
+    pub edge_weight: f64,
+    pub id: i64,
+    pub kind: String,
+    pub serialized_name: String,
+    pub display_name: String,
+    pub path: Option<String>,
+    pub start_line: Option<i64>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct TauriBridgeCommand {
+    pub command: String,
+    pub invoker_count: u32,
+    pub handler_path: String,
+    pub handler_line: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct HttpBridgeRoute {
+    pub method: String,
+    pub route_path: String,
+    pub handler_path: String,
+    pub handler_line: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct TauriBridgePair {
+    pub command: String,
+    pub invoker_path: String,
+    pub invoker_line: i64,
+    pub handler_path: String,
+    pub handler_line: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct HttpBridgePair {
+    pub method: String,
+    pub route_path: String,
+    pub handler_path: String,
+    pub handler_line: i64,
+}
+
+fn collect_neighbour_row(row: &rusqlite::Row) -> rusqlite::Result<NeighbourRow> {
+    Ok(NeighbourRow {
+        direction: row.get(0)?,
+        edge_kind: row.get(1)?,
+        edge_weight: row.get(2)?,
+        id: row.get(3)?,
+        kind: row.get(4)?,
+        serialized_name: row.get(5)?,
+        display_name: row.get(6)?,
+        path: row.get::<_, Option<String>>(7)?,
+        start_line: row.get::<_, Option<i64>>(8)?,
+    })
+}
+
 #[derive(Debug, Clone)]
+pub struct UnembeddedChunk {
+    pub chunk_id: i64,
+    pub contents: String,
+    pub path: Option<String>,
+}
+
 pub struct ChunkLocator {
     pub node_id: i64,
     pub file_id: i64,
     pub start_line: i64,
 }
 
-const ADDITIVE_MIGRATIONS: &[&str] = &[
-    "ALTER TABLE node ADD COLUMN importance REAL",
-];
 
 const SCHEMA_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS map_meta (
@@ -621,13 +1043,27 @@ CREATE TABLE IF NOT EXISTS chunk (
   start_line  INTEGER NOT NULL,
   end_line    INTEGER NOT NULL,
   contents    TEXT NOT NULL,
+  text_hash   TEXT,
   embedded_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS chunk_file_idx ON chunk(file_id);
+CREATE INDEX IF NOT EXISTS chunk_text_hash_idx ON chunk(text_hash);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vec USING vec0(
   chunk_id INTEGER PRIMARY KEY,
   embedding FLOAT[384]
+);
+
+CREATE TABLE IF NOT EXISTS embedding_cache (
+  text_hash TEXT PRIMARY KEY,
+  embedding BLOB NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS node_fts USING fts5(
+  display_name,
+  serialized_name,
+  path,
+  tokenize='unicode61 remove_diacritics 2'
 );
 "#;
 

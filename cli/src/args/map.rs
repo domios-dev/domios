@@ -13,6 +13,9 @@ pub enum MapAction {
         /// Print per-file progress to stderr.
         #[arg(long)]
         verbose: bool,
+        /// Emit machine-readable progress lines to stderr (`__progress__ {...}`).
+        #[arg(long)]
+        progress: bool,
     },
     /// Print last-index time, node/edge counts, errors.
     Status {
@@ -58,6 +61,80 @@ pub enum MapAction {
         /// Node ID to focus on initial open (frontend hint, optional).
         #[arg(long)]
         node: Option<i64>,
+    },
+    /// List top-N nodes by PageRank importance, optionally filtered by path/kind.
+    Rank {
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Restrict to nodes whose file path starts with this prefix.
+        #[arg(long)]
+        path: Option<String>,
+        /// Filter by node kind (function, method, class, file, …).
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long, default_value = "20")]
+        limit: u32,
+    },
+    /// List bridge edges (Tauri IPC ↔ HTTP route ↔ handler pairs).
+    /// Default: one row per command/route with invoker count. Pass --all-pairs
+    /// for the full per-invocation-site listing.
+    Bridges {
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Filter: tauri | http | all (default).
+        #[arg(long, default_value = "all")]
+        kind: String,
+        #[arg(long, default_value = "200")]
+        limit: u32,
+        /// Show every invocation site instead of one row per command.
+        #[arg(long)]
+        all_pairs: bool,
+    },
+    /// List graph neighbours of a node (incoming/outgoing edges).
+    Edges {
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Node ID to inspect. Find the ID with `map search`.
+        #[arg(long, conflicts_with = "name")]
+        node: Option<i64>,
+        /// Alternative: resolve node by exact display_name (errors if ambiguous).
+        #[arg(long, conflicts_with = "node")]
+        name: Option<String>,
+        /// Direction: in | out | both (default).
+        #[arg(long, default_value = "both")]
+        direction: String,
+        /// Filter by edge kind: invoke | contain | bridge | all (default).
+        #[arg(long, default_value = "all")]
+        edge_kind: String,
+        #[arg(long, default_value = "50")]
+        limit: u32,
+    },
+    /// Files this file references (outgoing dependencies).
+    Deps {
+        #[arg(long)]
+        workspace: Option<String>,
+        /// File path (e.g. `src-tauri/src/multiplexer/state.rs`).
+        path: String,
+        #[arg(long, default_value = "30")]
+        limit: u32,
+    },
+    /// Files that reference this file (incoming dependents).
+    Dependents {
+        #[arg(long)]
+        workspace: Option<String>,
+        path: String,
+        #[arg(long, default_value = "30")]
+        limit: u32,
+    },
+    /// List indexed files ranked by PageRank importance.
+    Files {
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Restrict to files whose path starts with this prefix.
+        #[arg(long)]
+        path: Option<String>,
+        #[arg(long, default_value = "30")]
+        limit: u32,
     },
     /// Export the graph (nodes + edges) as JSON.
     Export {

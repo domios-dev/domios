@@ -28,6 +28,7 @@ pub struct IndexReport {
 pub struct IndexOptions {
     pub force: bool,
     pub verbose: bool,
+    pub progress: bool,
 }
 
 pub fn run_index(root: &Path, opts: IndexOptions) -> Result<IndexReport, String> {
@@ -44,6 +45,9 @@ pub fn run_index(root: &Path, opts: IndexOptions) -> Result<IndexReport, String>
     if opts.verbose {
         eprintln!("project-map: {} candidate files", files.len());
     }
+    if opts.progress {
+        emit_progress("scan", 0, files.len());
+    }
 
     // defs[name] = list of node_ids that define `name`
     // refs_per_file[file_node_id] = set of names referenced
@@ -52,7 +56,9 @@ pub fn run_index(root: &Path, opts: IndexOptions) -> Result<IndexReport, String>
     let mut report = IndexReport::default();
     report.files = files.len();
 
-    for wf in &files {
+    let total = files.len();
+    let mut last_progress: usize = 0;
+    for (idx, wf) in files.iter().enumerate() {
         match index_file(&store, wf, opts.force, &mut defs, &mut refs_per_file) {
             Ok(IndexFileResult::Cached) => report.files_cached += 1,
             Ok(IndexFileResult::Indexed) => report.files_indexed += 1,
@@ -65,16 +71,29 @@ pub fn run_index(root: &Path, opts: IndexOptions) -> Result<IndexReport, String>
                 }
             }
         }
+        if opts.progress && (idx + 1 == total || idx - last_progress >= 10) {
+            last_progress = idx;
+            emit_progress("index", idx + 1, total);
+        }
     }
 
-    derive_edges(&store, &defs, &refs_per_file, &mut report)?;
-    derive_bridge_edges(&store, &mut report)?;
-    derive_http_bridge_edges(&store, &mut report)?;
-    if let Err(e) = crate::cmd::map::scip_loader::load_workspace(root, &store) {
-        eprintln!("project-map: scip loader: {e}");
+    let graph_dirty = opts.force || report.files_indexed > 0;
+    if graph_dirty {
+        if opts.progress { emit_progress("graph", 0, 1); }
+        derive_edges(&store, &defs, &refs_per_file, &mut report)?;
+        derive_bridge_edges(&store, &mut report)?;
+        derive_http_bridge_edges(&store, &mut report)?;
+        if let Err(e) = crate::cmd::map::scip_loader::load_workspace(root, &store) {
+            eprintln!("project-map: scip loader: {e}");
+        }
+        rank_files(&store)?;
+        if let Err(e) = store.rebuild_fts() {
+            eprintln!("project-map: rebuild fts: {e}");
+        }
+        if opts.progress { emit_progress("graph", 1, 1); }
     }
-    rank_files(&store)?;
-    embed_pending_chunks(&store, &mut report);
+    embed_pending_chunks(&store, &mut report, opts.progress);
+    if opts.progress { emit_progress("done", 1, 1); }
 
     let counts = store.counts().map_err(|e| format!("counts: {e}"))?;
     report.nodes = counts.nodes as usize;
@@ -176,11 +195,34 @@ fn record_chunks(
     source: &str,
 ) -> Result<(), String> {
     for c in chunk_file(wf.lang, source) {
-        store
-            .insert_chunk(file_id, c.start_line, c.end_line, &c.text)
+        let embed_text = build_embed_text(Some(&wf.rel_path), &c.text);
+        let hash = hash_embed_text(&embed_text);
+        let chunk_id = store
+            .insert_chunk(file_id, c.start_line, c.end_line, &c.text, &hash)
             .map_err(|e| format!("insert chunk: {e}"))?;
+        match store.lookup_embedding_cache(&hash) {
+            Ok(Some(bytes)) => {
+                if let Err(e) = store.store_chunk_vector(chunk_id, &bytes) {
+                    eprintln!("project-map: replay vec for chunk {chunk_id}: {e}");
+                }
+            }
+            Ok(None) => {}
+            Err(e) => eprintln!("project-map: cache lookup {chunk_id}: {e}"),
+        }
     }
     Ok(())
+}
+
+pub fn hash_embed_text(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    let bytes = hasher.finalize();
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes.iter() {
+        s.push_str(&format!("{:02x}", b));
+    }
+    s
 }
 
 fn record_bridge_signals(
@@ -324,6 +366,7 @@ fn derive_edges(
         .execute("DELETE FROM edge WHERE kind = 'invoke'", [])
         .map_err(|e| format!("clear invoke edges: {e}"))?;
 
+    let empty: HashSet<String> = HashSet::new();
     for (file_node_id, names) in refs_per_file {
         for name in names {
             if name.len() < 3 || is_too_common(name) {
@@ -334,7 +377,7 @@ fn derive_edges(
                 if tgt == file_node_id {
                     continue;
                 }
-                let weight = weight_for(name);
+                let weight = weight_for(name, defs.get(name).map(|v| v.len()).unwrap_or(0), &empty);
                 store
                     .insert_edge("invoke", *file_node_id, *tgt, weight)
                     .map_err(|e| format!("insert invoke edge: {e}"))?;
@@ -368,7 +411,24 @@ fn rank_files(store: &Store) -> Result<(), String> {
     Ok(())
 }
 
-fn embed_pending_chunks(store: &Store, report: &mut IndexReport) {
+fn emit_progress(phase: &str, done: usize, total: usize) {
+    eprintln!("__progress__ {{\"phase\":\"{}\",\"done\":{},\"total\":{}}}", phase, done, total);
+}
+
+fn build_embed_text(path: Option<&str>, contents: &str) -> String {
+    match path {
+        Some(p) if !p.is_empty() => {
+            let mut out = String::with_capacity(p.len() + contents.len() + 2);
+            out.push_str(p);
+            out.push('\n');
+            out.push_str(contents);
+            out
+        }
+        _ => contents.to_string(),
+    }
+}
+
+fn embed_pending_chunks(store: &Store, report: &mut IndexReport, progress: bool) {
     let pending = match store.unembedded_chunks() {
         Ok(p) => p,
         Err(e) => {
@@ -395,26 +455,74 @@ fn embed_pending_chunks(store: &Store, report: &mut IndexReport) {
     }
 
     let mut embedded = 0usize;
-    for (chunk_id, contents) in pending {
-        match client.embed(&contents) {
-            Ok(v) if v.len() == VECTOR_DIM => {
-                let bytes = vec_to_le_bytes(&v);
-                if let Err(e) = store.store_chunk_vector(chunk_id, &bytes) {
-                    eprintln!("project-map: store vector {chunk_id}: {e}");
-                } else {
+    let mut to_embed: Vec<(i64, String, String)> = Vec::new();
+    for ch in pending {
+        let prefixed = build_embed_text(ch.path.as_deref(), &ch.contents);
+        let hash = hash_embed_text(&prefixed);
+        if let Ok(Some(bytes)) = store.lookup_embedding_cache(&hash) {
+            if let Err(e) = store.store_chunk_vector(ch.chunk_id, &bytes) {
+                eprintln!("project-map: replay vec for {}: {e}", ch.chunk_id);
+            } else {
+                embedded += 1;
+            }
+            continue;
+        }
+        to_embed.push((ch.chunk_id, hash, prefixed));
+    }
+
+    const BATCH: usize = 32;
+    let total_to_embed = to_embed.len();
+    let mut processed = 0usize;
+    if progress { emit_progress("embed", 0, total_to_embed); }
+    for batch in to_embed.chunks(BATCH) {
+        let texts: Vec<String> = batch.iter().map(|(_, _, t)| t.clone()).collect();
+        match client.embed_batch(&texts) {
+            Ok(vs) => {
+                for ((chunk_id, hash, _), v) in batch.iter().zip(vs.iter()) {
+                    if v.len() != VECTOR_DIM {
+                        eprintln!(
+                            "project-map: chunk {chunk_id} unexpected dim {} (want {VECTOR_DIM})",
+                            v.len()
+                        );
+                        continue;
+                    }
+                    let bytes = vec_to_le_bytes(v);
+                    if let Err(e) = store.store_chunk_vector(*chunk_id, &bytes) {
+                        eprintln!("project-map: store vector {chunk_id}: {e}");
+                        continue;
+                    }
+                    if let Err(e) = store.store_embedding_cache(hash, &bytes) {
+                        eprintln!("project-map: cache store: {e}");
+                    }
                     embedded += 1;
                 }
             }
-            Ok(v) => {
-                eprintln!(
-                    "project-map: chunk {chunk_id} unexpected dim {} (want {VECTOR_DIM})",
-                    v.len()
-                );
-            }
             Err(e) => {
-                eprintln!("project-map: embed chunk {chunk_id}: {e}");
+                eprintln!("project-map: batch embed failed ({e}) — falling back to per-chunk");
+                for (chunk_id, hash, prefixed) in batch.iter() {
+                    match client.embed(prefixed) {
+                        Ok(v) if v.len() == VECTOR_DIM => {
+                            let bytes = vec_to_le_bytes(&v);
+                            if let Err(e) = store.store_chunk_vector(*chunk_id, &bytes) {
+                                eprintln!("project-map: store vector {chunk_id}: {e}");
+                                continue;
+                            }
+                            if let Err(e) = store.store_embedding_cache(hash, &bytes) {
+                                eprintln!("project-map: cache store: {e}");
+                            }
+                            embedded += 1;
+                        }
+                        Ok(v) => eprintln!(
+                            "project-map: chunk {chunk_id} unexpected dim {} (want {VECTOR_DIM})",
+                            v.len()
+                        ),
+                        Err(e) => eprintln!("project-map: embed chunk {chunk_id}: {e}"),
+                    }
+                }
             }
         }
+        processed += batch.len();
+        if progress { emit_progress("embed", processed, total_to_embed); }
     }
     if let Ok((tot, emb)) = store.count_chunks() {
         report.chunks = tot as usize;
@@ -547,19 +655,32 @@ fn derive_bridge_edges(store: &Store, report: &mut IndexReport) -> Result<(), St
     Ok(())
 }
 
-fn weight_for(name: &str) -> f64 {
+fn weight_for(name: &str, def_count: usize, mentioned: &HashSet<String>) -> f64 {
     let mut w = 1.0;
     if name.starts_with('_') {
         w *= 0.1;
     }
-    if name.len() >= 5 && (has_snake_or_camel(name)) {
+    if name.len() >= 8 && has_structured_case(name) {
+        w *= 10.0;
+    } else if name.len() >= 5 && has_structured_case(name) {
         w *= 2.0;
+    }
+    if def_count > 5 {
+        w *= 0.1;
+    }
+    if mentioned.contains(name) {
+        w *= 10.0;
     }
     w
 }
 
-fn has_snake_or_camel(s: &str) -> bool {
-    s.contains('_') || s.chars().any(|c| c.is_uppercase()) && s.chars().any(|c| c.is_lowercase())
+fn has_structured_case(s: &str) -> bool {
+    if s.contains('_') || s.contains('-') {
+        return true;
+    }
+    let has_upper = s.chars().any(|c| c.is_uppercase());
+    let has_lower = s.chars().any(|c| c.is_lowercase());
+    has_upper && has_lower
 }
 
 fn is_too_common(name: &str) -> bool {
@@ -595,7 +716,7 @@ mod tests {
         )
         .unwrap();
 
-        let report = run_index(root, IndexOptions { force: true, verbose: false }).unwrap();
+        let report = run_index(root, IndexOptions { force: true, verbose: false, progress: false }).unwrap();
         assert!(report.files_indexed >= 2, "indexed: {}", report.files_indexed);
         assert!(report.nodes > 0);
 
@@ -621,7 +742,7 @@ mod tests {
         )
         .unwrap();
 
-        let report = run_index(root, IndexOptions { force: true, verbose: false }).unwrap();
+        let report = run_index(root, IndexOptions { force: true, verbose: false, progress: false }).unwrap();
         assert!(report.files_indexed >= 2);
 
         let q = crate::cmd::map::graph::GraphQuery::open(root).unwrap();
@@ -643,8 +764,8 @@ mod tests {
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::write(root.join("src/lib.rs"), "fn alpha() {}\n").unwrap();
 
-        let r1 = run_index(root, IndexOptions { force: false, verbose: false }).unwrap();
-        let r2 = run_index(root, IndexOptions { force: false, verbose: false }).unwrap();
+        let r1 = run_index(root, IndexOptions { force: false, verbose: false, progress: false }).unwrap();
+        let r2 = run_index(root, IndexOptions { force: false, verbose: false, progress: false }).unwrap();
         assert!(r1.files_indexed >= 1);
         assert_eq!(r2.files_indexed, 0, "second pass should hit cache");
         assert!(r2.files_cached >= 1);

@@ -1,0 +1,81 @@
+{
+  "version": 3,
+  "repo": "codeterm",
+  "description": "v3 multi-step bench inspired by aider/SWE-bench. 6 multi-step tasks: 4 graph-heavy (where wrong starting point cascades) + 2 adversarial literal (rg should win). Each task has objectively verifiable ground truth. Scoring: must_contain set (all required tokens present, case-insensitive). Run N=2 per (task, mode) for variance. Track trajectory: tool_uses, distinct_tools, distinct_files_read.",
+  "puzzles": [
+    {
+      "id": "MS1_top_centrality_with_callers",
+      "kind": "centrality+edges",
+      "expected_strength": "map",
+      "question": "Three-step task. (1) Identify the TOP 3 functions in src-tauri/src/service/ ranked by structural importance (PageRank). (2) For each of those 3 functions, name ONE other Rust file in the codeterm repo that calls it (any caller other than the file where the function is defined). (3) Output as a 3-row list: 'function_name @ defining_file:line — caller: caller_file'. All three names must appear; for callers, ANY non-defining file that legitimately calls them counts.",
+      "expected": {
+        "must_contain": [
+          "list_workspaces", "src-tauri/src/service/workspace.rs",
+          "send_text", "src-tauri/src/service/pty_io.rs",
+          "emit_state_changed", "src-tauri/src/service/mod.rs"
+        ]
+      }
+    },
+    {
+      "id": "MS2_tauri_prefix_audit",
+      "kind": "bridge+aggregate",
+      "expected_strength": "map",
+      "question": "Two-step task. (1) Across ALL Tauri commands defined in this repo, group them by their first underscore-separated segment (e.g. 'mux_create_workspace' → 'mux'; 'mesh_get_status' → 'mesh'). (2) Report which prefix has the MOST distinct commands and the count for that prefix. Final answer must include the prefix string and the integer count.",
+      "expected": {
+        "must_contain": ["mux", "22"]
+      }
+    },
+    {
+      "id": "MS3_most_dependents_file",
+      "kind": "dependents",
+      "expected_strength": "map",
+      "question": "Among files inside src-tauri/src/service/ (only one level deep, not subdirectories), find the SINGLE file that has the most other Rust files referencing it (incoming dependents). Output the file path. (Hint: this file is a module-root.)",
+      "expected": {
+        "must_contain": ["src-tauri/src/service/mod.rs"]
+      }
+    },
+    {
+      "id": "MS4_most_invoked_tauri_commands",
+      "kind": "bridge+aggregate",
+      "expected_strength": "map",
+      "question": "Among ALL Tauri commands in this repo, find the top 5 ranked by NUMBER of distinct invocation sites in TypeScript code (i.e. count how many times `invoke('command_name')` or equivalent appears across .ts/.tsx files, grouped by command name). List the 5 command names in any order. The top one should appear by a wide margin (~3× the next).",
+      "expected": {
+        "must_contain": [
+          "write_pty_string",
+          "mux_update_pane_cwd",
+          "resize_pty",
+          "mux_set_active_tab",
+          "mux_set_active_workspace"
+        ]
+      }
+    },
+    {
+      "id": "MS5_adversarial_panic_literal",
+      "kind": "literal",
+      "expected_strength": "rg",
+      "question": "Where in the Rust source code is the literal string 'protected workspace has no project map' written? Provide the file path and line number.",
+      "expected": {
+        "must_contain": ["src-tauri/src/api/map_routes.rs", "164"]
+      }
+    },
+    {
+      "id": "MS6_adversarial_unwrap_or_else_count",
+      "kind": "literal",
+      "expected_strength": "rg",
+      "question": "How many DISTINCT files inside src-tauri/src/api/ (any depth — search recursively into all subdirectories) contain at least one call to `.unwrap_or_else(`? Just answer with the integer.",
+      "expected": {
+        "must_contain": ["9"]
+      }
+    }
+  ],
+  "scoring": {
+    "correctness": "1.0 if all must_contain tokens present (case-insensitive substring); 0.5 if at least half; 0.0 otherwise.",
+    "trajectory_metrics": [
+      "tool_uses (worker self-report integer)",
+      "distinct_tools (worker lists which tool TYPES used: rg|Read|Bash|codeterm-map|other)",
+      "distinct_files_read (count of unique file paths Read)",
+      "elapsed_seconds"
+    ],
+    "runs_per_combo": 3
+  }
+}

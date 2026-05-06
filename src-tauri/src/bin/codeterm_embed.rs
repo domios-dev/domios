@@ -16,8 +16,12 @@ use std::io::{BufRead, BufReader, Write};
 
 #[derive(Deserialize)]
 struct Request {
+    #[serde(default)]
     id: String,
-    text: String,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    texts: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -25,6 +29,8 @@ struct Response {
     id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     embedding: Option<Vec<f32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    embeddings: Option<Vec<Vec<f32>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -112,24 +118,44 @@ fn main() {
         let req: Request = match serde_json::from_str(&line) {
             Ok(r) => r,
             Err(e) => {
-                let resp = Response { id: String::new(), embedding: None, error: Some(format!("parse: {}", e)) };
+                let resp = Response { id: String::new(), embedding: None, embeddings: None, error: Some(format!("parse: {}", e)) };
                 let _ = writeln!(stdout, "{}", serde_json::to_string(&resp).unwrap_or_default());
                 let _ = stdout.flush();
                 continue;
             }
         };
 
-        let resp = match model.embed(vec![req.text], None) {
-            Ok(mut embs) => Response {
-                id: req.id,
-                embedding: embs.pop(),
-                error: None,
-            },
-            Err(e) => Response {
-                id: req.id,
-                embedding: None,
-                error: Some(format!("embed: {}", e)),
-            },
+        let resp = if let Some(texts) = req.texts {
+            match model.embed(texts, None) {
+                Ok(embs) => Response {
+                    id: req.id,
+                    embedding: None,
+                    embeddings: Some(embs),
+                    error: None,
+                },
+                Err(e) => Response {
+                    id: req.id,
+                    embedding: None,
+                    embeddings: None,
+                    error: Some(format!("embed: {}", e)),
+                },
+            }
+        } else {
+            let text = req.text.unwrap_or_default();
+            match model.embed(vec![text], None) {
+                Ok(mut embs) => Response {
+                    id: req.id,
+                    embedding: embs.pop(),
+                    embeddings: None,
+                    error: None,
+                },
+                Err(e) => Response {
+                    id: req.id,
+                    embedding: None,
+                    embeddings: None,
+                    error: Some(format!("embed: {}", e)),
+                },
+            }
         };
 
         match serde_json::to_string(&resp) {

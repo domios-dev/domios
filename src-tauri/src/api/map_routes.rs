@@ -125,81 +125,97 @@ pub struct WorkspaceQuery {
     pub workspace: String,
 }
 
-#[derive(Serialize, Deserialize, Default, Clone)]
-pub struct DispatchState {
-    #[serde(default)]
-    pub last_dispatch_pane: Option<String>,
-    #[serde(default)]
-    pub last_message_template: Option<String>,
-}
-
-fn workspace_cwd(state: &AppState, workspace_id: &str) -> Result<std::path::PathBuf, (StatusCode, String)> {
-    let workspaces = state.svc.list_workspaces();
-    let ws = workspaces
-        .iter()
-        .find(|w| w.id == workspace_id)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("workspace {} not found", workspace_id)))?;
-    let cwd = ws
-        .cwd
-        .clone()
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "workspace has no cwd".into()))?;
-    Ok(std::path::PathBuf::from(cwd))
-}
-
-fn state_path(workspace_cwd: &std::path::Path) -> std::path::PathBuf {
-    workspace_cwd.join(".codeterm").join("map").join("v1").join("state.json")
-}
-
-fn read_state(workspace_cwd: &std::path::Path) -> DispatchState {
-    let path = state_path(workspace_cwd);
-    let Ok(text) = std::fs::read_to_string(&path) else { return DispatchState::default(); };
-    serde_json::from_str(&text).unwrap_or_default()
-}
-
-fn write_state(workspace_cwd: &std::path::Path, st: &DispatchState) -> std::io::Result<()> {
-    let path = state_path(workspace_cwd);
-    if let Some(p) = path.parent() {
-        std::fs::create_dir_all(p)?;
-    }
-    let json = serde_json::to_string_pretty(st).expect("serialize DispatchState");
-    std::fs::write(&path, json)
-}
-
-pub async fn get_state(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Query(q): Query<WorkspaceQuery>,
-) -> Result<Json<DispatchState>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let cwd = workspace_cwd(&state, &q.workspace)?;
-    Ok(Json(read_state(&cwd)))
-}
-
-pub async fn patch_state(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Query(q): Query<WorkspaceQuery>,
-    Json(body): Json<DispatchState>,
-) -> Result<Json<DispatchState>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let cwd = workspace_cwd(&state, &q.workspace)?;
-    let mut st = read_state(&cwd);
-    if body.last_dispatch_pane.is_some() {
-        st.last_dispatch_pane = body.last_dispatch_pane;
-    }
-    if body.last_message_template.is_some() {
-        st.last_message_template = body.last_message_template;
-    }
-    write_state(&cwd, &st).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write state: {e}")))?;
-    Ok(Json(st))
-}
-
-pub async fn dispatchable(
+pub async fn progress(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Query(q): Query<WorkspaceQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let panes = state.svc.dispatchable_panes_in_workspace(&q.workspace);
-    Ok(Json(serde_json::to_value(panes).unwrap_or(serde_json::json!([]))))
+    let p = state.svc.project_map.progress(&q.workspace);
+    Ok(Json(serde_json::to_value(p).unwrap_or(serde_json::json!({}))))
+}
+
+#[derive(Deserialize)]
+pub struct SearchParams {
+    pub workspace: String,
+    pub q: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default = "default_search_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub semantic_only: bool,
+}
+
+fn default_search_limit() -> usize { 30 }
+
+pub async fn search(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<SearchParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let workspaces = state.svc.list_workspaces();
+    let ws = workspaces
+        .iter()
+        .find(|w| w.id == params.workspace)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, format!("workspace {} not found", params.workspace)))?;
+    if ws.protected {
+        return Err((StatusCode::BAD_REQUEST, "protected workspace has no project map".into()));
+    }
+    let cwd = ws
+        .cwd
+        .clone()
+        .ok_or_else(|| (StatusCode::BAD_REQUEST, "workspace has no cwd".into()))?;
+    let query_trimmed = params.q.trim();
+    if query_trimmed.is_empty() {
+        return Ok(Json(serde_json::json!([])));
+    }
+
+    let cli_path =
+        crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir());
+    let body = tokio::task::spawn_blocking(move || run_search(&cli_path, &cwd, &params))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join error: {e}")))?
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(body))
+}
+
+fn run_search(
+    cli_path: &std::path::Path,
+    workspace_root: &str,
+    params: &SearchParams,
+) -> Result<serde_json::Value, String> {
+    let mut cmd = std::process::Command::new(cli_path);
+    cmd.current_dir(workspace_root)
+        .arg("--json")
+        .arg("map")
+        .arg("search")
+        .arg(&params.q)
+        .arg("--limit")
+        .arg(params.limit.to_string());
+    if let Some(ref k) = params.kind {
+        if !k.is_empty() {
+            cmd.arg("--kind").arg(k);
+        }
+    }
+    if params.semantic_only {
+        cmd.arg("--semantic-only");
+    }
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
+    let output = cmd.output().map_err(|e| format!("spawn cli: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "cli exit {}: {}",
+            output.status.code().unwrap_or(-1),
+            stderr.trim()
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Ok(serde_json::json!([]));
+    }
+    serde_json::from_str(trimmed).map_err(|e| format!("parse cli output: {e}"))
 }

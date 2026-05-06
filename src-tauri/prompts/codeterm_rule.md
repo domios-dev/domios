@@ -54,6 +54,58 @@ Rules:
 - Secrets DO NOT cross the mesh. `--mesh PEER mem secret …` always exits 7. Each machine's vault is local.
 - Default backend is Bitwarden (uses the `bw` CLI). The unlocked session token is persisted in the OS keychain, never on disk in plaintext.
 
+### Project map — code search by symbol/concept
+
+When working inside a project workspace (any non-`protected` workspace with a cwd), CodeTerm auto-indexes the codebase into a structural map: files, classes, functions, methods, plus edges (calls, contains, Tauri-IPC ↔ HTTP bridges). PageRank ranks by code centrality. Use this BEFORE grep/find for symbol/concept lookups — it's faster across hundreds of files, knows kinds, and supports semantic search.
+
+```bash
+codeterm map status                                       # what's indexed, when, counts
+codeterm map search "spawn_agent"                         # hybrid: substring + semantic (default)
+codeterm map search "MultiplexerState" --kind class       # filter by kind: function|method|class|file|module
+codeterm map search "create a new pty terminal" --semantic-only   # concept queries
+codeterm map search "workspace_create" --json             # machine-readable rows
+codeterm map rank --path src-tauri/src/multiplexer/       # top-N nodes by PageRank (centrality) in subtree
+codeterm map files --limit 15                             # top-N files by importance — what to read first
+codeterm map bridges --kind tauri                         # one row per distinct command, sorted by invoke-site count
+codeterm map bridges --kind tauri --all-pairs             # full per-invoke-site listing (TS callsite → Rust handler)
+codeterm map bridges --kind http                          # all HTTP routes: METHOD path → handler:line
+codeterm map edges --node 1816 --direction out            # what does this node call
+codeterm map edges --name TelegramService --direction in  # who references this symbol (resolves by name)
+codeterm map deps src-tauri/src/multiplexer/state.rs      # files THIS file pulls in
+codeterm map dependents src-tauri/src/pty/manager.rs      # files that reference THIS file
+codeterm map index                                        # daemon auto-watches; manual only if stale
+```
+
+`map search` is the swiss-army knife. The graph queries (`rank`, `bridges`, `edges`, `deps`, `dependents`, `files`) replace 5–10 `rg` calls when the question is structural ("what's the most important file in X", "all IPC handlers", "who depends on Y"). All accept `--json` for piping.
+
+**Trigger phrases → command** (use these patterns mechanically; do NOT default to `rg` when one fits):
+
+- "where is X / find class X / locate function Y" → `map search "X"` (single keyword, exact symbol)
+- "code that does Z conceptually" / "find handler for jitter" → `map search "<phrase>" --semantic-only`
+- "most important / most central / hot path / top function in X" → `map rank --path X --kind function|class|method`
+- "biggest files / what to read first / most central files in X" → `map files --path X --limit N`
+- "all Tauri commands" / "list IPC handlers" → `map bridges --kind tauri --limit 200 [--json | jq …]`
+- "all HTTP routes" / "every endpoint" → `map bridges --kind http --limit 200`
+- "top-N tauri commands by invoke sites" → `map bridges --kind tauri --limit N` (already sorted by invoker_count desc; first column is the count)
+- "group Tauri commands by prefix / count distinct mux_* / count by command name" → `map bridges --kind tauri --json | jq -r '.tauri[] | select(.command | startswith("mux_")) | .command' | wc -l` (one row per distinct command — no dedup gymnastics needed)
+- "find every TS file that calls Tauri command X" → `map bridges --kind tauri --all-pairs --json | jq -r '.tauri[] | select(.command=="X") | .invoker_path'`
+- "who calls X / where is FOO referenced / blast radius of rename Y" → `map edges --name X --direction in`
+- "what does this file/symbol pull in" → `map deps PATH` (file) or `map edges --node ID --direction out` (symbol)
+- "what depends on this file / who imports this module" → `map dependents PATH` (incoming file-level)
+- "Visual inspector" → `codeterm map show`
+
+**Aggregate / count-by / group-by questions** are MAP territory, not rg territory. Whenever the question shape is "count distinct X grouped by Y" or "which N has the most Z", reach for `bridges --json | jq` or `rank` first — `rg invoke\\(` over a polyglot codebase is brittle and undercounts.
+
+Map is blind on these — fall back to `rg` immediately:
+- **Literal tokens / escape sequences** (`\x1b]7;`, ANSI codes, OSC). Map indexes named symbols, not raw text.
+- **Anonymous closures inside hooks/handlers** (e.g. `useEffect(() => {...})`). No name → no node.
+- **Code in shell snippets / string literals** (`include_str!("script.sh")`, multiline raw strings). Body isn't AST-parsed by language.
+- **Comments, strings, READMEs, TODOs** — pure text patterns.
+
+First-shot strategy: try `map search` first. If `no matches` or junk-only results, switch to `rg`. Don't loop on map for literal tokens. Map saves a step on structural lookups (~30% of typical "where is this?" calls); on text-pattern lookups it's a wasted call but the wasted call is cheap.
+
+Map is per-workspace; `protected` workspaces have none.
+
 ### Integrations & config
 
 - Set up Telegram, config options → read the `/codeterm` skill for details
@@ -72,5 +124,6 @@ Rules:
 - Do NOT call `caffeinate`, `powercfg /requests`, or `systemd-inhibit` directly — use `codeterm keepawake`
 - Do NOT save secrets to plaintext files / `.env` / shell history — use `codeterm mem secret save`
 - Do NOT pass secret values on argv (`--value`, `--password`) — pipe via stdin so they don't land in shell history or `ps`
+- Do NOT default to `rg`/`grep`/`find` for symbol lookups inside a project workspace — try `codeterm map search` first
 
-<!-- revision: 9 -->
+<!-- revision: 14 -->

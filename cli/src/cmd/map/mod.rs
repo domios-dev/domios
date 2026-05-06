@@ -22,7 +22,7 @@ use crate::cmd::print::print_object;
 
 pub fn handle(client: &mut SocketClient, json: bool, action: MapAction) {
     match action {
-        MapAction::Index { workspace, full, verbose } => {
+        MapAction::Index { workspace, full, verbose, progress } => {
             let root = match workspace::resolve_workspace_root(client, workspace.as_deref()) {
                 Ok(r) => r,
                 Err(e) => {
@@ -30,7 +30,7 @@ pub fn handle(client: &mut SocketClient, json: bool, action: MapAction) {
                     std::process::exit(1);
                 }
             };
-            match index::run_index(&root, index::IndexOptions { force: full, verbose }) {
+            match index::run_index(&root, index::IndexOptions { force: full, verbose, progress }) {
                 Ok(report) => {
                     let v = serde_json::to_value(&report).unwrap_or(serde_json::json!({}));
                     if json {
@@ -219,7 +219,7 @@ pub fn handle(client: &mut SocketClient, json: bool, action: MapAction) {
                 Ok(rows) => {
                     if json {
                         let v = serde_json::to_value(&rows).unwrap_or(serde_json::json!([]));
-                        print_object(&v);
+                        println!("{}", serde_json::to_string_pretty(&v).unwrap());
                     } else if rows.is_empty() {
                         println!("no matches");
                     } else {
@@ -238,6 +238,193 @@ pub fn handle(client: &mut SocketClient, json: bool, action: MapAction) {
                     std::process::exit(1);
                 }
             }
+        }
+        MapAction::Rank { workspace, path, kind, limit } => {
+            let root = resolve_or_exit(client, workspace.as_deref());
+            let store = open_or_exit(&root);
+            match store.top_by_importance(kind.as_deref(), path.as_deref(), limit) {
+                Ok(rows) => emit_node_rows(&rows, json),
+                Err(e) => exit_err(e),
+            }
+        }
+        MapAction::Files { workspace, path, limit } => {
+            let root = resolve_or_exit(client, workspace.as_deref());
+            let store = open_or_exit(&root);
+            match store.top_by_importance(Some("file"), path.as_deref(), limit) {
+                Ok(rows) => emit_node_rows(&rows, json),
+                Err(e) => exit_err(e),
+            }
+        }
+        MapAction::Bridges { workspace, kind, limit, all_pairs } => {
+            let root = resolve_or_exit(client, workspace.as_deref());
+            let store = open_or_exit(&root);
+            let want_tauri = kind == "tauri" || kind == "all";
+            let want_http = kind == "http" || kind == "all";
+            if all_pairs {
+                let mut tauri = Vec::new();
+                let mut http = Vec::new();
+                if want_tauri {
+                    tauri = store.bridge_pairs_tauri(limit).unwrap_or_else(|e| {
+                        eprintln!("project-map: tauri pairs: {e}"); Vec::new()
+                    });
+                }
+                if want_http {
+                    http = store.bridge_pairs_http(limit).unwrap_or_else(|e| {
+                        eprintln!("project-map: http pairs: {e}"); Vec::new()
+                    });
+                }
+                if json {
+                    let v = serde_json::json!({"tauri": tauri, "http": http});
+                    println!("{}", serde_json::to_string_pretty(&v).unwrap());
+                } else {
+                    if !tauri.is_empty() {
+                        println!("# Tauri IPC pairs ({})", tauri.len());
+                        for p in &tauri {
+                            println!("  {}  {}:{} → {}:{}",
+                                p.command, p.invoker_path, p.invoker_line,
+                                p.handler_path, p.handler_line);
+                        }
+                    }
+                    if !http.is_empty() {
+                        println!("# HTTP routes ({})", http.len());
+                        for p in &http {
+                            println!("  {} {}  → {}:{}",
+                                p.method, p.route_path, p.handler_path, p.handler_line);
+                        }
+                    }
+                }
+            } else {
+                let mut tauri = Vec::new();
+                let mut http = Vec::new();
+                if want_tauri {
+                    tauri = store.bridge_summary_tauri(limit).unwrap_or_else(|e| {
+                        eprintln!("project-map: tauri summary: {e}"); Vec::new()
+                    });
+                }
+                if want_http {
+                    http = store.bridge_summary_http(limit).unwrap_or_else(|e| {
+                        eprintln!("project-map: http summary: {e}"); Vec::new()
+                    });
+                }
+                if json {
+                    let v = serde_json::json!({"tauri": tauri, "http": http});
+                    println!("{}", serde_json::to_string_pretty(&v).unwrap());
+                } else {
+                    if !tauri.is_empty() {
+                        println!("# Tauri IPC ({} distinct commands)", tauri.len());
+                        for c in &tauri {
+                            println!("  {:>3} invokers  {}  → {}:{}",
+                                c.invoker_count, c.command, c.handler_path, c.handler_line);
+                        }
+                    }
+                    if !http.is_empty() {
+                        println!("# HTTP routes ({} distinct)", http.len());
+                        for r in &http {
+                            println!("  {} {}  → {}:{}",
+                                r.method, r.route_path, r.handler_path, r.handler_line);
+                        }
+                    }
+                }
+            }
+        }
+        MapAction::Edges { workspace, node, name, direction, edge_kind, limit } => {
+            let root = resolve_or_exit(client, workspace.as_deref());
+            let store = open_or_exit(&root);
+            let node_id = match (node, name) {
+                (Some(id), _) => id,
+                (None, Some(n)) => match store.resolve_node_by_name(&n) {
+                    Ok(ids) if ids.len() == 1 => ids[0],
+                    Ok(ids) if ids.is_empty() => {
+                        eprintln!("Error: no node with display_name = '{}'", n);
+                        std::process::exit(1);
+                    }
+                    Ok(ids) => {
+                        eprintln!("Error: ambiguous name '{}' — {} matches; pass --node ID instead",
+                            n, ids.len());
+                        std::process::exit(1);
+                    }
+                    Err(e) => exit_err(e),
+                },
+                (None, None) => {
+                    eprintln!("Error: pass --node ID or --name DISPLAY_NAME");
+                    std::process::exit(1);
+                }
+            };
+            let outgoing = matches!(direction.as_str(), "out" | "both");
+            let incoming = matches!(direction.as_str(), "in" | "both");
+            let ek = if edge_kind == "all" { None } else { Some(edge_kind.as_str()) };
+            match store.neighbours(node_id, outgoing, incoming, ek, limit) {
+                Ok(rows) => emit_neighbour_rows(&rows, json),
+                Err(e) => exit_err(e),
+            }
+        }
+        MapAction::Deps { workspace, path, limit } => {
+            let root = resolve_or_exit(client, workspace.as_deref());
+            let store = open_or_exit(&root);
+            match store.file_outgoing(&path, limit) {
+                Ok(rows) => emit_node_rows(&rows, json),
+                Err(e) => exit_err(e),
+            }
+        }
+        MapAction::Dependents { workspace, path, limit } => {
+            let root = resolve_or_exit(client, workspace.as_deref());
+            let store = open_or_exit(&root);
+            match store.file_incoming(&path, limit) {
+                Ok(rows) => emit_node_rows(&rows, json),
+                Err(e) => exit_err(e),
+            }
+        }
+    }
+}
+
+fn resolve_or_exit(client: &mut SocketClient, workspace: Option<&str>) -> std::path::PathBuf {
+    match workspace::resolve_workspace_root(client, workspace) {
+        Ok(r) => r,
+        Err(e) => { eprintln!("Error: {e}"); std::process::exit(1); }
+    }
+}
+
+fn open_or_exit(root: &std::path::Path) -> store::Store {
+    match store::Store::open(root) {
+        Ok(s) => s,
+        Err(e) => { eprintln!("Error: open store: {e}"); std::process::exit(1); }
+    }
+}
+
+fn exit_err<E: std::fmt::Display>(e: E) -> ! {
+    eprintln!("Error: {e}");
+    std::process::exit(1);
+}
+
+fn emit_node_rows(rows: &[store::NodeRow], json: bool) {
+    if json {
+        let v = serde_json::to_value(rows).unwrap_or(serde_json::json!([]));
+        println!("{}", serde_json::to_string_pretty(&v).unwrap());
+    } else if rows.is_empty() {
+        println!("no matches");
+    } else {
+        for r in rows {
+            let path = r.path.clone().unwrap_or_else(|| "-".to_string());
+            let line = r.start_line.map(|l| format!(":{}", l + 1)).unwrap_or_default();
+            println!("[{}] #{}  {} — {}{}", r.kind, r.id, r.display_name, path, line);
+        }
+    }
+}
+
+fn emit_neighbour_rows(rows: &[store::NeighbourRow], json: bool) {
+    if json {
+        let v = serde_json::to_value(rows).unwrap_or(serde_json::json!([]));
+        println!("{}", serde_json::to_string_pretty(&v).unwrap());
+    } else if rows.is_empty() {
+        println!("no neighbours");
+    } else {
+        for r in rows {
+            let arrow = if r.direction == "out" { "→" } else { "←" };
+            let path = r.path.clone().unwrap_or_else(|| "-".to_string());
+            let line = r.start_line.map(|l| format!(":{}", l + 1)).unwrap_or_default();
+            println!("  {} {} ({}, w={:.2})  [{}] {} — {}{}",
+                arrow, r.edge_kind, r.direction, r.edge_weight,
+                r.kind, r.display_name, path, line);
         }
     }
 }

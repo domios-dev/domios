@@ -1,5 +1,5 @@
 use super::eligibility::{evaluate, Verdict};
-use super::runner::{resolve_cli_path, RunCoordinator, RunSummary, Runner};
+use super::runner::{resolve_cli_path, IndexProgress, RunCoordinator, RunSummary, Runner};
 use super::watcher::{start_watcher, WorkspaceWatcher};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -22,6 +22,7 @@ struct WorkspaceSlot {
     watcher: Option<WorkspaceWatcher>,
     coord: Arc<RunCoordinator>,
     last_run: Option<RunSummary>,
+    progress: Arc<Mutex<IndexProgress>>,
 }
 
 pub struct WorkspaceMeta<'a> {
@@ -81,6 +82,7 @@ impl ProjectMapManager {
                 watcher: None,
                 coord: Arc::new(RunCoordinator::new()),
                 last_run: None,
+                progress: Arc::new(Mutex::new(IndexProgress::default())),
             };
             inner.workspaces.insert(ws_id.to_string(), slot);
         }
@@ -97,10 +99,10 @@ impl ProjectMapManager {
     }
 
     pub fn trigger_index(self: &Arc<Self>, ws_id: &str, force: bool) {
-        let coord = {
+        let (coord, progress) = {
             let inner = self.inner.lock();
             match inner.workspaces.get(ws_id) {
-                Some(slot) => slot.coord.clone(),
+                Some(slot) => (slot.coord.clone(), slot.progress.clone()),
                 None => return,
             }
         };
@@ -115,7 +117,7 @@ impl ProjectMapManager {
         std::thread::Builder::new()
             .name(format!("project-map-{}", ws_id))
             .spawn(move || loop {
-                let summary = runner.run_index(&ws_id, force);
+                let summary = runner.run_index(&ws_id, force, progress.clone());
                 if !summary.ok {
                     log::warn!("[project-map] {} failed: {}", ws_id, summary.message);
                 } else {
@@ -164,6 +166,10 @@ impl ProjectMapManager {
 
     pub fn last_run(&self, ws_id: &str) -> Option<RunSummary> {
         self.inner.lock().workspaces.get(ws_id).and_then(|s| s.last_run.clone())
+    }
+
+    pub fn progress(&self, ws_id: &str) -> Option<IndexProgress> {
+        self.inner.lock().workspaces.get(ws_id).map(|s| s.progress.lock().clone())
     }
 
     /// Snapshot of currently watched workspaces, for debugging / status APIs.

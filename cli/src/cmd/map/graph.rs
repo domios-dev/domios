@@ -306,7 +306,7 @@ mod tests {
             "fn main() { let _ = alpha_helper(); let _ = beta_helper(); }\n",
         )
         .unwrap();
-        run_index(root, IndexOptions { force: true, verbose: false }).unwrap();
+        run_index(root, IndexOptions { force: true, verbose: false, progress: false }).unwrap();
         tmp
     }
 

@@ -1,21 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
-import { TopBar, type LayoutMode } from "./TopBar";
-import { LeftRail } from "./LeftRail";
-import { RightRail } from "./RightRail";
+import { TopBar } from "./TopBar";
 import { BottomStrip } from "./BottomStrip";
-import { ProjectMapCanvas } from "./ProjectMapCanvas";
-import { CityCanvas } from "./CityCanvas";
-import { ActionBar } from "./ActionBar";
-import { useProjectMapGraph } from "./hooks/useProjectMapGraph";
-import { useFocusMode } from "./hooks/useFocusMode";
+import { NodeDetailPopup } from "./NodeDetailPopup";
+import { SearchInspector } from "./SearchInspector";
 import { useNodeDetail } from "./hooks/useNodeDetail";
-import { useSelection } from "./hooks/useSelection";
-import { useDispatchablePanes } from "./hooks/useDispatchablePanes";
-import { useDispatchState } from "./hooks/useDispatchState";
-import { useElkLayout } from "./hooks/useElkLayout";
-import type { ProjectMapNode } from "./types";
+import { useMapProgress } from "./hooks/useMapProgress";
 
 interface Props {
   api: ApiConfig;
@@ -24,76 +15,19 @@ interface Props {
 
 export function ProjectMapPanel({ api, workspaceId }: Props) {
   const { state } = useMultiplexer();
-  const workspace = useMemo(
-    () => state.workspaces.find((w) => w.id === workspaceId),
-    [state.workspaces, workspaceId],
-  );
+  const workspace = state.workspaces.find((w) => w.id === workspaceId);
   const workspaceName = workspace?.name ?? "(unknown)";
 
-  const { payload, stats, truncated, error, loading, refetch } = useProjectMapGraph(api, workspaceId);
-  const focus = useFocusMode(null, { enableShortcuts: true });
-  const { detail } = useNodeDetail(api, workspaceId, focus.focusId);
+  const [focusId, setFocusId] = useState<number | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const { detail, error: detailError } = useNodeDetail(api, workspaceId, focusId);
+  const progress = useMapProgress(api, workspaceId);
 
-  const [visibleKinds, setVisibleKinds] = useState<Set<string>>(new Set());
-  const toggleKind = useCallback((kind: string) => {
-    setVisibleKinds((prev) => {
-      const next = new Set(prev);
-      if (next.has(kind)) next.delete(kind);
-      else next.add(kind);
-      return next;
-    });
-  }, []);
-
-  const [bookmarks, setBookmarks] = useState<number[]>([]);
-  const addBookmark = useCallback(() => {
-    if (focus.focusId == null) return;
-    setBookmarks((prev) => (prev.includes(focus.focusId!) ? prev : [...prev, focus.focusId!]));
-  }, [focus.focusId]);
-  const removeBookmark = useCallback((id: number) => {
-    setBookmarks((prev) => prev.filter((b) => b !== id));
-  }, []);
-
-  const nodeMap = useMemo(() => {
-    const m = new Map<number, ProjectMapNode>();
-    for (const n of payload?.nodes ?? []) m.set(n.id, n);
-    return m;
-  }, [payload]);
-
-  const bookmarkLabel = useCallback(
-    (id: number) => nodeMap.get(id)?.display_name ?? `#${id}`,
-    [nodeMap],
-  );
-
-  const fitFnRef = useRef<(() => void) | null>(null);
-  const registerFit = useCallback((fn: () => void) => {
-    fitFnRef.current = fn;
-  }, []);
-
-  const [layout, setLayout] = useState<LayoutMode>("force");
-  const elk = useElkLayout(payload?.nodes ?? [], payload?.edges ?? [], layout === "dsm");
-
-  const selection = useSelection();
-  const { panes: dispatchPanes } = useDispatchablePanes(api, workspaceId);
-  const { state: dispatchState, persist: persistDispatchState } = useDispatchState(api, workspaceId);
-
-  const onPaneChange = useCallback(
-    (paneId: string) => persistDispatchState({ last_dispatch_pane: paneId }),
-    [persistDispatchState],
-  );
-  const onSent = useCallback(() => {
-    if (focus.focusId == null) return;
-  }, [focus.focusId]);
+  const refresh = useCallback(() => setRefreshTick((t) => t + 1), []);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && selection.selected.size > 0) {
-        e.preventDefault();
-        selection.clear();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selection]);
+    setFocusId(null);
+  }, [workspaceId]);
 
   if (!workspaceId) {
     return (
@@ -103,83 +37,25 @@ export function ProjectMapPanel({ api, workspaceId }: Props) {
     );
   }
 
-  const status: "ready" | "loading" | "error" =
-    error ? "error" : loading ? "loading" : "ready";
-
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] text-[var(--ct-fg)]">
-      <TopBar
-        workspaceName={workspaceName}
-        layout={layout}
-        onLayoutChange={setLayout}
-        onRefresh={refetch}
-        loading={loading || elk.loading}
-      />
-      <div className="flex-1 min-h-0 flex">
-        <LeftRail
-          visibleKinds={visibleKinds}
-          toggleKind={toggleKind}
-          back={focus.back}
-          forward={focus.forward}
-          canBack={focus.canBack}
-          canForward={focus.canForward}
-          bookmarks={bookmarks}
-          addBookmark={addBookmark}
-          removeBookmark={removeBookmark}
-          jumpToBookmark={focus.setFocus}
-          bookmarkLabel={bookmarkLabel}
+      <TopBar workspaceName={workspaceName} onRefresh={refresh} progress={progress} />
+      <div className="flex-1 min-w-0 relative">
+        <SearchInspector
+          key={refreshTick}
+          api={api}
+          workspaceId={workspaceId}
+          onPick={setFocusId}
+          focusId={focusId}
+          progress={progress}
         />
-        <div className="flex-1 min-w-0 relative">
-          {(payload?.nodes.length ?? 0) === 0 && !loading && !error && (
-            <div className="absolute inset-0 flex items-center justify-center text-[var(--ct-muted)] text-xs">
-              Empty graph. Run <code className="font-mono">codeterm map index</code> to populate.
-            </div>
-          )}
-          {payload && payload.nodes.length > 0 && layout !== "city" && (
-            <ProjectMapCanvas
-              nodes={payload.nodes}
-              edges={payload.edges}
-              visibleKinds={visibleKinds}
-              focusId={focus.focusId}
-              onFocus={focus.setFocus}
-              registerFit={registerFit}
-              selected={selection.selected}
-              onSelectToggle={selection.toggle}
-              onSelectionClear={selection.clear}
-              layoutOverride={layout === "dsm" ? elk.positions : null}
-            />
-          )}
-          {payload && payload.nodes.length > 0 && layout === "city" && (
-            <CityCanvas nodes={payload.nodes} focusId={focus.focusId} onFocus={focus.setFocus} />
-          )}
-          <ActionBar
-            api={api}
-            selectedIds={[...selection.selected]}
-            nodesById={nodeMap}
-            edges={payload?.edges ?? []}
-            focusId={focus.focusId}
-            panes={dispatchPanes}
-            preferredPaneId={dispatchState.last_dispatch_pane}
-            initialMessage={dispatchState.last_message_template ?? undefined}
-            onPaneChange={onPaneChange}
-            onClear={selection.clear}
-            onSent={onSent}
-          />
-          {truncated && (
-            <div className="absolute top-2 left-1/2 -translate-x-1/2 px-3 py-1 rounded-sm bg-[var(--ct-yellow)]/15 border border-[var(--ct-yellow)]/40 text-[10px] text-[var(--ct-yellow)]">
-              Graph too large; showing partial result. Pick a starting node to focus.
-            </div>
-          )}
-        </div>
-        <RightRail detail={detail} onJump={focus.setFocus} />
+        <NodeDetailPopup
+          detail={detail}
+          onClose={() => setFocusId(null)}
+          onJump={setFocusId}
+        />
       </div>
-      <BottomStrip
-        status={status}
-        errorText={error}
-        nodeCount={stats?.nodes ?? payload?.nodes.length}
-        edgeCount={stats?.edges ?? payload?.edges.length}
-        truncated={truncated}
-      />
+      <BottomStrip status={detailError ? "error" : "ready"} errorText={detailError} />
     </div>
   );
 }

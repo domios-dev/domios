@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 const DAMPING: f64 = 0.85;
-const ITERATIONS: usize = 50;
+const ITERATIONS: usize = 100;
 const CONVERGENCE_DELTA: f64 = 1e-6;
 
 pub struct EdgeWeight {

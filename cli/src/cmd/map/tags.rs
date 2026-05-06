@@ -57,11 +57,11 @@ impl TagKind {
 
     fn from_capture_suffix(suffix: &str) -> TagKind {
         match suffix {
-            "class" | "struct" | "union" | "enum" | "trait" => TagKind::Class,
+            "class" | "struct" | "union" | "enum" | "trait" | "type" => TagKind::Class,
             "interface" => TagKind::Interface,
             "function" => TagKind::Function,
             "method" => TagKind::Method,
-            "module" | "package" => TagKind::Module,
+            "module" | "package" | "namespace" => TagKind::Module,
             "macro" => TagKind::Macro,
             "constant" => TagKind::Constant,
             "variable" | "field" | "property" => TagKind::Variable,
@@ -87,32 +87,34 @@ pub fn extract(lang: Lang, source: &str) -> Result<Vec<Tag>, String> {
 
     let mut out = Vec::new();
     while let Some(m) = matches.next() {
+        let mut role_kind: Option<(TagRole, TagKind)> = None;
+        let mut name_node: Option<tree_sitter::Node> = None;
         for cap in m.captures {
             let cap_name = names.get(cap.index as usize).copied().unwrap_or("");
-            let (role, suffix) = if let Some(rest) = cap_name.strip_prefix("name.definition.") {
-                (TagRole::Def, rest)
-            } else if let Some(rest) = cap_name.strip_prefix("name.reference.") {
-                (TagRole::Ref, rest)
-            } else {
-                continue;
-            };
-            let node = cap.node;
-            let text = &source[node.byte_range()];
-            if text.is_empty() {
-                continue;
+            if cap_name == "name" {
+                name_node = Some(cap.node);
+            } else if let Some(suffix) = cap_name.strip_prefix("definition.") {
+                role_kind = Some((TagRole::Def, TagKind::from_capture_suffix(suffix)));
+            } else if let Some(suffix) = cap_name.strip_prefix("reference.") {
+                role_kind = Some((TagRole::Ref, TagKind::from_capture_suffix(suffix)));
             }
-            let start = node.start_position();
-            let end = node.end_position();
-            out.push(Tag {
-                role,
-                kind: TagKind::from_capture_suffix(suffix),
-                name: text.to_string(),
-                line: start.row as u32,
-                col: start.column as u32,
-                end_line: end.row as u32,
-                end_col: end.column as u32,
-            });
         }
+        let (Some(node), Some((role, kind))) = (name_node, role_kind) else { continue };
+        let text = &source[node.byte_range()];
+        if text.is_empty() {
+            continue;
+        }
+        let start = node.start_position();
+        let end = node.end_position();
+        out.push(Tag {
+            role,
+            kind,
+            name: text.to_string(),
+            line: start.row as u32,
+            col: start.column as u32,
+            end_line: end.row as u32,
+            end_col: end.column as u32,
+        });
     }
     Ok(out)
 }
