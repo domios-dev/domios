@@ -29,6 +29,8 @@ pub struct BridgeState {
     pub error_count: i64,
     #[serde(default)]
     pub last_poll_ok: Option<String>,
+    #[serde(default)]
+    pub instance_name: Option<String>,
 }
 
 const EXIT_TARGET_MISCONFIG: i32 = 5;
@@ -54,10 +56,10 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
         }
     };
 
-    let source_name = match get_self_instance_name(&http, &base) {
-        Some(n) => n,
-        None => {
-            eprintln!("Error: could not read local instance name from /api/identify.");
+    let source_name = match source_state.instance_name.clone() {
+        Some(n) if !n.is_empty() => n,
+        _ => {
+            eprintln!("Error: /api/bridge/state did not include instance_name. Daemon may be older than the bridge migrate feature.");
             std::process::exit(EXIT_TARGET_MISCONFIG);
         }
     };
@@ -372,14 +374,6 @@ fn get_bridge_state_local(
     resp.json::<BridgeState>().map_err(|e| e.to_string())
 }
 
-fn get_self_instance_name(http: &reqwest::blocking::Client, base: &str) -> Option<String> {
-    let resp = http.get(format!("{}/api/identify", base)).send().ok()?;
-    let val: serde_json::Value = resp.json().ok()?;
-    val.get("instance_name")
-        .and_then(|v| v.as_str())
-        .map(String::from)
-}
-
 fn resolve_paired_peer(
     http: &reqwest::blocking::Client,
     base: &str,
@@ -575,6 +569,7 @@ mod tests {
             secret_name: Some("telegram_bot_token".into()),
             error_count: 0,
             last_poll_ok: None,
+            instance_name: None,
         }
     }
 
