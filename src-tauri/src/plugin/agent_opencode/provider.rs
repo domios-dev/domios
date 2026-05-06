@@ -539,10 +539,9 @@ impl AgentProvider for OpenCodeProvider {
             "macos" | "linux" => {
                 Some("curl -fsSL https://opencode.ai/install | bash".into())
             }
-            // Windows install script lives at the same domain with .ps1 ext.
-            "windows" => Some(
-                "powershell -Command \"irm https://opencode.ai/install.ps1 | iex\"".into(),
-            ),
+            // Upstream removed the .ps1 installer; the canonical npm package
+            // works on stock Windows + Node and matches the claude/codex flow.
+            "windows" => Some("npm install -g opencode-ai".into()),
             _ => None,
         }
     }
