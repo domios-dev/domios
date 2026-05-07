@@ -3,8 +3,9 @@ use std::time::Duration;
 
 use crate::agent::provider::{
     self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SessionMessage,
-    SessionMetadata, SettingField, TaskDelivery,
+    SessionMetadata, SettingField, TaskDelivery, UsageSnapshot,
 };
+use super::usage as opencode_usage;
 use crate::shell::ShellSyntax;
 
 #[path = "models.rs"]
@@ -118,6 +119,29 @@ impl OpenCodeProvider {
         None
     }
 
+    /// Pull every message row for one session out of the sqlite db,
+    /// returning the raw `data` JSON of each. Returns None if the db
+    /// is missing or the query fails (caller falls back to fs walk).
+    fn db_messages(session_id: &str) -> Option<Vec<serde_json::Value>> {
+        let path = Self::db_path()?;
+        let conn = rusqlite::Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .ok()?;
+        let mut stmt = conn
+            .prepare("SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created ASC")
+            .ok()?;
+        let rows = stmt
+            .query_map(rusqlite::params![session_id], |row| row.get::<_, String>(0))
+            .ok()?;
+        let out: Vec<serde_json::Value> = rows
+            .flatten()
+            .filter_map(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .collect();
+        if out.is_empty() { None } else { Some(out) }
+    }
+
     /// Check the sqlite store for an exact session id. Used by
     /// `session_exists` to validate before resume — if the user wiped the
     /// db between runs the old id stops being resumable.
@@ -221,6 +245,17 @@ impl AgentProvider for OpenCodeProvider {
         self.session_file_path(_cwd, session_id)
             .map(|p| p.exists())
             .unwrap_or(false)
+    }
+
+    fn read_usage(&self, _cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
+        if let Some(rows) = Self::db_messages(session_id) {
+            if let Some(snap) = opencode_usage::accumulate(rows.into_iter()) {
+                return Some(snap);
+            }
+        }
+        let messages_root = Self::messages_root()?;
+        let dir = messages_root.join(session_id);
+        opencode_usage::read_from_path(&dir)
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {

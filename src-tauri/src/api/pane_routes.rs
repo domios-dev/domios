@@ -421,6 +421,38 @@ pub(crate) struct GetTextQuery {
     formatted: bool,
 }
 
+pub async fn get_pane_usage(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
+
+    let (agent_type, session_id, cwd) = {
+        let mux = state.svc.mux.lock();
+        let pane = mux.get_pane(&pane_id)
+            .ok_or((StatusCode::NOT_FOUND, "Pane not found"))?;
+        (
+            pane.agent_type.clone(),
+            pane.agent_session_id.clone(),
+            pane.cwd.clone(),
+        )
+    };
+
+    let (Some(agent_type), Some(session_id), Some(cwd)) = (agent_type, session_id, cwd) else {
+        return Ok(Json(serde_json::json!({ "usage": serde_json::Value::Null })));
+    };
+
+    let usage = state
+        .svc
+        .agent_registry
+        .with_provider(&agent_type, |p| p.read_usage(&cwd, &session_id))
+        .flatten();
+
+    Ok(Json(serde_json::json!({ "usage": usage })))
+}
+
 pub async fn get_pane_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
