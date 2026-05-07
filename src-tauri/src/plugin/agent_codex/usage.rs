@@ -1,3 +1,19 @@
+//! Token usage parsing for Codex's per-session JSONL rollouts.
+//!
+//! Real Codex (codex-cli >= 0.128) emits one `event_msg/token_count` event
+//! per turn carrying the *running cumulative total* at
+//! `payload.info.total_token_usage`. Subsequent events overwrite the snapshot;
+//! we never sum across events for that shape — that would multiply the
+//! totals by the event count.
+//!
+//! Cache-token field name in the wild: `cached_input_tokens` (no
+//! `cache_creation_input_tokens` — Codex doesn't model cache writes
+//! separately, the model's input includes both fresh and cached tokens).
+//!
+//! Verified live against real Mac sessions (108 events, final total
+//! input_tokens=366721) — the file existed but the parser previously
+//! returned None for it. See PR #54.
+
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
@@ -20,23 +36,20 @@ pub fn read_from_path(path: &Path) -> Option<UsageSnapshot> {
         }
         let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
 
-        if let Some(tu) = extract_token_usage(&v) {
-            snap.input_tokens = snap.input_tokens.saturating_add(tu.input);
-            snap.output_tokens = snap.output_tokens.saturating_add(tu.output);
-            snap.cache_creation_input_tokens = snap
-                .cache_creation_input_tokens
-                .saturating_add(tu.cache_create);
-            snap.cache_read_input_tokens =
-                snap.cache_read_input_tokens.saturating_add(tu.cache_read);
-            snap.message_count = snap.message_count.saturating_add(1);
-            found_any = true;
+        let Some(counts) = extract_token_usage(&v) else { continue };
 
-            if let Some(ts) = parse_timestamp(&v) {
-                if snap.window_started_at.is_none() {
-                    snap.window_started_at = Some(ts);
-                }
-                snap.last_activity_at = Some(ts);
+        snap.input_tokens = counts.input;
+        snap.output_tokens = counts.output;
+        snap.cache_creation_input_tokens = counts.cache_create;
+        snap.cache_read_input_tokens = counts.cache_read;
+        snap.message_count = snap.message_count.saturating_add(1);
+        found_any = true;
+
+        if let Some(ts) = parse_timestamp(&v) {
+            if snap.window_started_at.is_none() {
+                snap.window_started_at = Some(ts);
             }
+            snap.last_activity_at = Some(ts);
         }
     }
 
@@ -53,27 +66,11 @@ struct TokenCounts {
 fn extract_token_usage(v: &Value) -> Option<TokenCounts> {
     let payload = v.get("payload")?;
 
-    if let Some(c) = counts_from_object(payload) {
-        return Some(c);
-    }
-
-    if let Some(meta) = payload.get("response_meta") {
-        if let Some(tu) = meta.get("token_usage") {
+    if let Some(info) = payload.get("info") {
+        if let Some(tu) = info.get("total_token_usage").or_else(|| info.get("last_token_usage")) {
             if let Some(c) = counts_from_object(tu) {
                 return Some(c);
             }
-        }
-    }
-
-    if let Some(tu) = payload.get("token_usage") {
-        if let Some(c) = counts_from_object(tu) {
-            return Some(c);
-        }
-    }
-
-    if let Some(usage) = payload.get("usage") {
-        if let Some(c) = counts_from_object(usage) {
-            return Some(c);
         }
     }
 
@@ -81,16 +78,10 @@ fn extract_token_usage(v: &Value) -> Option<TokenCounts> {
 }
 
 fn counts_from_object(obj: &Value) -> Option<TokenCounts> {
-    let input = u64_field(obj, &["input_tokens", "prompt_tokens", "input"]);
-    let output = u64_field(obj, &["output_tokens", "completion_tokens", "output"]);
-    let cache_create = u64_field(
-        obj,
-        &["cache_creation_input_tokens", "cache_creation_tokens", "cache_write_tokens"],
-    );
-    let cache_read = u64_field(
-        obj,
-        &["cache_read_input_tokens", "cached_input_tokens", "cache_read_tokens"],
-    );
+    let input = u64_field(obj, &["input_tokens", "prompt_tokens"]);
+    let output = u64_field(obj, &["output_tokens", "completion_tokens"]);
+    let cache_read = u64_field(obj, &["cached_input_tokens", "cache_read_input_tokens"]);
+    let cache_create = u64_field(obj, &["cache_creation_input_tokens"]);
 
     if input == 0 && output == 0 && cache_create == 0 && cache_read == 0 {
         return None;
@@ -129,62 +120,64 @@ mod tests {
         path
     }
 
+    /// Mirrors the real codex-cli >= 0.128 event_msg/token_count shape.
+    /// Verified against /Users/rollacode/.codex/sessions/2025/09/20/
+    /// rollout-2025-09-20T11-44-19-... — 108 events, final total 366721.
     #[test]
-    fn cumulative_sum_across_turns() {
+    fn takes_last_event_total_not_sum() {
         let dir = TempDir::new().unwrap();
-        let path = write_lines(
-            &dir,
-            "rollout.jsonl",
-            &[
-                r#"{"timestamp":"2026-05-05T07:14:32.214Z","type":"session_meta","payload":{"id":"abc","cwd":"/tmp"}}"#,
-                r#"{"timestamp":"2026-05-05T07:15:00.000Z","type":"event_msg","payload":{"type":"token_count","input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":5}}"#,
-                r#"{"timestamp":"2026-05-05T07:16:00.000Z","type":"response_item","payload":{"type":"message","role":"assistant","response_meta":{"token_usage":{"input_tokens":200,"output_tokens":75,"cache_creation_input_tokens":20,"cache_read_input_tokens":15}}}}"#,
-                r#"{"timestamp":"2026-05-05T07:17:00.000Z","type":"event_msg","payload":{"type":"task_complete"}}"#,
-            ],
-        );
+        let path = write_lines(&dir, "rollout.jsonl", &[
+            r#"{"timestamp":"2026-05-05T07:14:32.214Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":3577,"output_tokens":628,"cached_input_tokens":2560}}}}"#,
+            r#"{"timestamp":"2026-05-05T07:15:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":7866,"output_tokens":692,"cached_input_tokens":5120}}}}"#,
+            r#"{"timestamp":"2026-05-05T07:16:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":366721,"output_tokens":2238,"cached_input_tokens":265000}}}}"#,
+        ]);
 
         let snap = read_from_path(&path).expect("snapshot");
-        assert_eq!(snap.input_tokens, 300);
-        assert_eq!(snap.output_tokens, 125);
-        assert_eq!(snap.cache_creation_input_tokens, 30);
-        assert_eq!(snap.cache_read_input_tokens, 20);
-        assert_eq!(snap.message_count, 2);
+        // Expect the LAST event's totals, not the sum (which would be 378164).
+        assert_eq!(snap.input_tokens, 366721, "should be last total, not sum");
+        assert_eq!(snap.output_tokens, 2238, "should be last total, not sum");
+        assert_eq!(snap.cache_read_input_tokens, 265000);
+        assert_eq!(snap.cache_creation_input_tokens, 0, "codex doesn't model cache writes");
+        assert_eq!(snap.message_count, 3, "count of token_count events seen");
         assert!(snap.window_started_at.is_some());
-        assert!(snap.last_activity_at.is_some());
-        assert!(snap.last_activity_at.unwrap() >= snap.window_started_at.unwrap());
+        assert!(snap.last_activity_at >= snap.window_started_at);
+    }
+
+    #[test]
+    fn falls_back_to_last_token_usage_when_total_absent() {
+        let dir = TempDir::new().unwrap();
+        let path = write_lines(&dir, "no_total.jsonl", &[
+            r#"{"timestamp":"2026-05-05T07:15:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":42,"output_tokens":13}}}}"#,
+        ]);
+        let snap = read_from_path(&path).expect("snapshot");
+        assert_eq!(snap.input_tokens, 42);
+        assert_eq!(snap.output_tokens, 13);
     }
 
     #[test]
     fn skips_malformed_lines() {
         let dir = TempDir::new().unwrap();
-        let path = write_lines(
-            &dir,
-            "broken.jsonl",
-            &[
-                r#"not json at all"#,
-                r#"{"timestamp":"2026-05-05T07:15:00.000Z","type":"event_msg","payload":{"type":"token_count","input_tokens":40,"output_tokens":20}}"#,
-                r#"{broken json"#,
-                r#"{"timestamp":"2026-05-05T07:16:00.000Z","type":"event_msg","payload":{"type":"token_count","input_tokens":60,"output_tokens":30}}"#,
-            ],
-        );
+        let path = write_lines(&dir, "broken.jsonl", &[
+            r#"not json at all"#,
+            r#"{"timestamp":"2026-05-05T07:15:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":40,"output_tokens":20,"cached_input_tokens":5}}}}"#,
+            r#"{broken json"#,
+            r#"{"timestamp":"2026-05-05T07:16:00.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":80,"output_tokens":40,"cached_input_tokens":10}}}}"#,
+        ]);
 
         let snap = read_from_path(&path).expect("snapshot");
-        assert_eq!(snap.input_tokens, 100);
-        assert_eq!(snap.output_tokens, 50);
+        assert_eq!(snap.input_tokens, 80, "last valid event wins");
+        assert_eq!(snap.output_tokens, 40);
         assert_eq!(snap.message_count, 2);
     }
 
     #[test]
-    fn returns_none_when_no_usage() {
+    fn returns_none_when_no_token_count_events() {
         let dir = TempDir::new().unwrap();
-        let path = write_lines(
-            &dir,
-            "empty.jsonl",
-            &[
-                r#"{"timestamp":"2026-05-05T07:14:32.214Z","type":"session_meta","payload":{"id":"abc"}}"#,
-                r#"{"timestamp":"2026-05-05T07:15:00.000Z","type":"event_msg","payload":{"type":"task_started"}}"#,
-            ],
-        );
+        let path = write_lines(&dir, "empty.jsonl", &[
+            r#"{"timestamp":"2026-05-05T07:14:32.214Z","type":"session_meta","payload":{"id":"abc"}}"#,
+            r#"{"timestamp":"2026-05-05T07:15:00.000Z","type":"event_msg","payload":{"type":"task_started"}}"#,
+            r#"{"timestamp":"2026-05-05T07:16:00.000Z","type":"response_item","payload":{"type":"message","role":"user"}}"#,
+        ]);
 
         assert!(read_from_path(&path).is_none());
     }
@@ -197,41 +190,11 @@ mod tests {
     }
 
     #[test]
-    fn parses_payload_token_usage_shape() {
-        // Branch: payload.token_usage (without response_meta wrapper).
+    fn ignores_zero_only_total() {
         let dir = TempDir::new().unwrap();
-        let path = write_lines(&dir, "tu.jsonl", &[
-            r#"{"timestamp":"2026-05-05T07:14:32.214Z","type":"event_msg","payload":{"type":"token_count","token_usage":{"input_tokens":11,"output_tokens":22,"cache_creation_input_tokens":3,"cache_read_input_tokens":4}}}"#,
+        let path = write_lines(&dir, "zero.jsonl", &[
+            r#"{"timestamp":"2026-05-05T07:14:32.214Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0}}}}"#,
         ]);
-        let snap = read_from_path(&path).expect("snapshot");
-        assert_eq!(snap.input_tokens, 11);
-        assert_eq!(snap.output_tokens, 22);
-        assert_eq!(snap.cache_creation_input_tokens, 3);
-        assert_eq!(snap.cache_read_input_tokens, 4);
-    }
-
-    #[test]
-    fn parses_payload_usage_shape_anthropic_aliases() {
-        // Branch: payload.usage. OpenAI-style aliases: prompt_tokens / completion_tokens.
-        let dir = TempDir::new().unwrap();
-        let path = write_lines(&dir, "u.jsonl", &[
-            r#"{"timestamp":"2026-05-05T07:14:32.214Z","type":"response_item","payload":{"usage":{"prompt_tokens":7,"completion_tokens":13}}}"#,
-        ]);
-        let snap = read_from_path(&path).expect("snapshot");
-        assert_eq!(snap.input_tokens, 7);
-        assert_eq!(snap.output_tokens, 13);
-    }
-
-    #[test]
-    fn saturating_add_does_not_panic_on_huge_values() {
-        let dir = TempDir::new().unwrap();
-        // u64::MAX as input twice would overflow without saturating_add.
-        let line = format!(
-            r#"{{"timestamp":"2026-05-05T07:14:32.214Z","type":"event_msg","payload":{{"type":"token_count","input_tokens":{},"output_tokens":1}}}}"#,
-            u64::MAX
-        );
-        let path = write_lines(&dir, "huge.jsonl", &[&line, &line]);
-        let snap = read_from_path(&path).expect("snapshot");
-        assert_eq!(snap.input_tokens, u64::MAX, "saturated, not wrapped");
+        assert!(read_from_path(&path).is_none(), "all-zero token block carries no signal");
     }
 }
