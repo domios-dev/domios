@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { useTauriFileDrop } from "../../hooks/terminal";
+import { extractFilePathsFromClipboard } from "../../lib/clipboardPaste";
 import { MessageBubble } from "./MessageBubble";
 import type { ChatMessage } from "./parser";
 import { AlertTriangle, File } from "lucide-react";
@@ -60,46 +61,6 @@ function mimeFromPath(p: string): string {
   const ext = p.split(".").pop()?.toLowerCase() || "";
   if (IMAGE_EXTS.has(ext)) return ext === "jpg" ? "image/jpeg" : `image/${ext}`;
   return "application/octet-stream";
-}
-
-function looksLikeAbsolutePath(s: string): boolean {
-  const t = s.trim();
-  return /^([A-Za-z]:[\\/]|\/|~\/)/.test(t) && !t.includes("\n") && t.length < 1000;
-}
-
-function fileUriToPath(uri: string): string | null {
-  if (!uri.startsWith("file://")) return null;
-  let p = decodeURI(uri.slice("file://".length));
-  if (p.startsWith("/") && /^\/[A-Za-z]:[\\/]/.test(p)) p = p.slice(1);
-  return p;
-}
-
-// Extracts real file paths the OS attached to the clipboard alongside a
-// possibly-bogus image preview. Without this, macOS Cmd+C of a Finder file
-// followed by Cmd+V gives a 1024x1024 placeholder PNG via getAsFile().
-function extractFilePathsFromClipboard(cd: DataTransfer): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-
-  const uriList = cd.getData("text/uri-list");
-  if (uriList) {
-    for (const line of uriList.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) continue;
-      const p = fileUriToPath(trimmed) ?? (looksLikeAbsolutePath(trimmed) ? trimmed : null);
-      if (p && !seen.has(p)) { seen.add(p); out.push(p); }
-    }
-  }
-
-  if (out.length === 0) {
-    const plain = cd.getData("text/plain");
-    if (plain && looksLikeAbsolutePath(plain)) {
-      const p = plain.trim();
-      if (!seen.has(p)) { seen.add(p); out.push(p); }
-    }
-  }
-
-  return out;
 }
 
 export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: ChatViewProps) {

@@ -195,4 +195,43 @@ mod tests {
         let missing = dir.path().join("does-not-exist.jsonl");
         assert!(read_from_path(&missing).is_none());
     }
+
+    #[test]
+    fn parses_payload_token_usage_shape() {
+        // Branch: payload.token_usage (without response_meta wrapper).
+        let dir = TempDir::new().unwrap();
+        let path = write_lines(&dir, "tu.jsonl", &[
+            r#"{"timestamp":"2026-05-05T07:14:32.214Z","type":"event_msg","payload":{"type":"token_count","token_usage":{"input_tokens":11,"output_tokens":22,"cache_creation_input_tokens":3,"cache_read_input_tokens":4}}}"#,
+        ]);
+        let snap = read_from_path(&path).expect("snapshot");
+        assert_eq!(snap.input_tokens, 11);
+        assert_eq!(snap.output_tokens, 22);
+        assert_eq!(snap.cache_creation_input_tokens, 3);
+        assert_eq!(snap.cache_read_input_tokens, 4);
+    }
+
+    #[test]
+    fn parses_payload_usage_shape_anthropic_aliases() {
+        // Branch: payload.usage. OpenAI-style aliases: prompt_tokens / completion_tokens.
+        let dir = TempDir::new().unwrap();
+        let path = write_lines(&dir, "u.jsonl", &[
+            r#"{"timestamp":"2026-05-05T07:14:32.214Z","type":"response_item","payload":{"usage":{"prompt_tokens":7,"completion_tokens":13}}}"#,
+        ]);
+        let snap = read_from_path(&path).expect("snapshot");
+        assert_eq!(snap.input_tokens, 7);
+        assert_eq!(snap.output_tokens, 13);
+    }
+
+    #[test]
+    fn saturating_add_does_not_panic_on_huge_values() {
+        let dir = TempDir::new().unwrap();
+        // u64::MAX as input twice would overflow without saturating_add.
+        let line = format!(
+            r#"{{"timestamp":"2026-05-05T07:14:32.214Z","type":"event_msg","payload":{{"type":"token_count","input_tokens":{},"output_tokens":1}}}}"#,
+            u64::MAX
+        );
+        let path = write_lines(&dir, "huge.jsonl", &[&line, &line]);
+        let snap = read_from_path(&path).expect("snapshot");
+        assert_eq!(snap.input_tokens, u64::MAX, "saturated, not wrapped");
+    }
 }
