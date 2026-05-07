@@ -59,6 +59,10 @@ pub(crate) struct SendTextBody {
     /// Use for keystrokes that need to be interpreted by TUI (e.g. vim j/k navigation).
     #[serde(default)]
     raw: bool,
+    /// When `Some(true)` (or absent — default true), block until echo + submit
+    /// confirmed and report verified. `Some(false)` opts back into the
+    /// legacy fire-and-forget path.
+    verify: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -104,15 +108,40 @@ pub async fn send_text(
         return Ok(Json(serde_json::json!({"ok": true, "batch": true})));
     }
 
-    let text = body.text.unwrap_or_default();
     if body.raw {
-        let mut buf = text;
+        let mut buf = body.text.clone().unwrap_or_default();
         if body.enter && !buf.ends_with('\r') { buf.push('\r'); }
         state.svc.write_raw(&pane_id, buf.as_bytes())
             .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
+    let verify = body.verify.unwrap_or(true);
+    if verify {
+        let pty_id = state.svc.resolve_pty_id(&pane_id)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        let opts = crate::service::inject_verify::VerifyOpts::default();
+        let strategy = crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+            timeout: std::time::Duration::from_secs(10),
+        };
+        let text_owned = body.text.clone().unwrap_or_default();
+        return match state.svc.send_text_verified(&pty_id, &text_owned, body.enter, strategy, opts) {
+            Ok(r) => Ok(Json(serde_json::json!({
+                "ok": true,
+                "verified": true,
+                "echo_observed": r.echo_observed,
+                "submit_observed": r.submit_observed,
+                "elapsed_ms": r.elapsed.as_millis() as u64,
+            }))),
+            Err(e) => Ok(Json(serde_json::json!({
+                "ok": false,
+                "verified": false,
+                "error": format!("{}", e),
+            }))),
+        };
+    }
+
+    let text = body.text.unwrap_or_default();
     let cmd = crate::dispatch::Command::SendText { pane_id, text, enter: body.enter };
     let result = crate::dispatch::dispatch(&cmd, &state.svc)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
@@ -603,5 +632,30 @@ mod tests_send_text_body {
     #[test]
     fn default_true_returns_true() {
         assert!(default_true());
+    }
+
+    #[test]
+    fn send_text_body_verify_defaults_to_none() {
+        let json = r#"{"text":"hi"}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.verify, None);
+        assert_eq!(body.verify.unwrap_or(true), true,
+            "absent verify resolves to verified=true (default policy)");
+    }
+
+    #[test]
+    fn send_text_body_verify_explicit_false() {
+        let json = r#"{"text":"hi","verify":false}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.verify, Some(false));
+        assert_eq!(body.verify.unwrap_or(true), false,
+            "explicit verify=false opts out of verified path");
+    }
+
+    #[test]
+    fn send_text_body_verify_explicit_true() {
+        let json = r#"{"text":"hi","verify":true}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.verify, Some(true));
     }
 }

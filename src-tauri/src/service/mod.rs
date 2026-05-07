@@ -16,6 +16,7 @@ mod workspace;
 mod pane;
 pub mod pty_io;
 mod hierarchy;
+pub mod inject_verify;
 mod orchestrator;
 pub mod spawn;
 pub mod notification;
@@ -41,8 +42,12 @@ use crate::multiplexer::types::AgentRole;
 use crate::{AgentTrackerState, NotifState, OutputBufferState, PromptDetectorState, PtyState, ReportStoreState, ScreenStateHandle};
 
 // Re-export public types used by callers.
-pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
 pub use hierarchy::PaneStatusInfo;
+pub use inject_verify::{
+    InjectionError, InjectionResult, VerifyOpts, screen_contains_echo, snapshot_prompt_line,
+    wait_for_echo, wait_for_submit_shell, wait_for_submit_tui_drained,
+};
+pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
 
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
