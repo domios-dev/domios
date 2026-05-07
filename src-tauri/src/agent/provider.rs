@@ -410,6 +410,13 @@ pub trait AgentProvider: Send + Sync {
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
 
+    /// Read cumulative token usage for one session. Returns None if no log
+    /// file exists for that session yet. Implementation reads per-provider
+    /// log formats. Default returns None (provider has no usage log).
+    fn read_usage(&self, _cwd: &str, _session_id: &str) -> Option<UsageSnapshot> {
+        None
+    }
+
     /// What kind of session-id control this provider supports.
     /// Default is `None` — provider generates its own ids and CodeTerm
     /// has to detect them post-launch via `detect_session_id`.
@@ -640,6 +647,26 @@ pub trait AgentProvider: Send + Sync {
             install_command: self.install_command(platform),
         }
     }
+}
+
+/// Cumulative token usage for a single agent session, sourced from the
+/// provider's on-disk session log. Field semantics follow the Claude
+/// `message.usage` shape because that's the most expressive vocabulary
+/// (input/output + cache creation/read). Providers without separate
+/// cache accounting populate `input_tokens` / `output_tokens` only.
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+pub struct UsageSnapshot {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_input_tokens: u64,
+    pub cache_read_input_tokens: u64,
+    pub message_count: u32,
+    /// When this session's billing window started — used by rolling-window
+    /// quota math. None for providers without billing windows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_started_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_activity_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Normalised platform tag used by `install_command(platform)`.

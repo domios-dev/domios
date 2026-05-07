@@ -43,6 +43,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/output/stream", get(pane_routes::stream_pane_output))
         .route("/api/agent-runs/{pane_id}/log", get(pane_routes::agent_run_log))
         .route("/api/panes/{id}/text", get(pane_routes::get_pane_text))
+        .route("/api/panes/{id}/usage", get(pane_routes::get_pane_usage))
         .route("/api/panes/{id}/exec", post(pane_routes::exec_in_pane))
         .route("/api/panes/{id}/resize", post(pane_routes::resize_pane))
         .route("/api/browser/open", post(pane_routes::open_browser))

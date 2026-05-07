@@ -6,6 +6,7 @@
 //! core never references OpenCode directly.
 
 pub mod provider;
+pub mod usage;
 
 pub use provider::OpenCodeProvider;
 

@@ -9,13 +9,14 @@ mod detection;
 mod launch;
 mod schemas;
 mod sessions;
+mod usage;
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::agent::provider::{
     AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, SessionIdInjection,
-    SessionMessage, SessionMetadata, SettingField, TaskDelivery,
+    SessionMessage, SessionMetadata, SettingField, TaskDelivery, UsageSnapshot,
 };
 
 /// Claude Code agent provider.
@@ -85,6 +86,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
         launch::build_resume_command(session_id, skip_permissions)
+    }
+
+    fn read_usage(&self, cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
+        usage::read(cwd, session_id)
     }
 
     fn has_event_markers(&self, chunk: &str) -> bool {
