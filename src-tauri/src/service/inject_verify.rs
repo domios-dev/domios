@@ -399,7 +399,10 @@ mod tests {
     fn placeholder_regex_matches_singular_and_plural_lines() {
         assert!(screen_has_paste_placeholder("> [Pasted text #1 +1 line]"));
         assert!(screen_has_paste_placeholder("> [Pasted text #99 +250 lines]"));
-        assert!(!screen_has_paste_placeholder("> [Pasted text #1]"));
+        // v1.1.19 widened the regex to also accept the bare `[Pasted text #N]`
+        // shape (without the trailing `+M lines` suffix).
+        assert!(screen_has_paste_placeholder("> [Pasted text #1]"));
+        // Bracket pair is required; the unbracketed prose form must not match.
         assert!(!screen_has_paste_placeholder("Pasted text #1 +1 line"));
     }
 

@@ -51,6 +51,7 @@ pub fn run_mem_worker(kind: &str, db_path_arg: Option<&str>) {
             "considered": r.considered, "promoted": r.promoted,
             "dropped": r.dropped, "phase": r.phase,
         })),
+        "dreaming-normalize" => worker_dreaming_normalize(&conn),
         "librarian-once" => {
             let skills_root = dirs::home_dir().unwrap_or_default()
                 .join(data_dir_name()).join("skills");
@@ -203,6 +204,204 @@ fn worker_dreaming_deep(conn: &rusqlite::Connection) -> Result<WorkerDreamReport
         dropped: total_expired,
         phase: "deep".into(),
     })
+}
+
+// ---------------------------------------------------------------------------
+// Graph normalize phase. Mirror of `src-tauri/src/mem/dreaming.rs::normalize_run`
+// — the test fixture there is the source of truth for thresholds + SQL. Keep
+// constants and queries in sync between the two files.
+// ---------------------------------------------------------------------------
+
+const NORMALIZE_PROTECTED_TYPES: &[&str] = &["kind", "area", "agent", "workspace"];
+const NORMALIZE_ORPHAN_AGE_DAYS: i64 = 14;
+const NORMALIZE_RATIO_HARD: f64 = 0.85;
+const NORMALIZE_RATIO_FLAG: f64 = 0.70;
+const NORMALIZE_SYNONYMS: &[(&str, &str)] = &[
+    ("references", "mentions"),
+    ("refers_to", "mentions"),
+    ("contributes_to", "works_on"),
+    ("at_location", "located_at"),
+];
+
+fn lev(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (n, m) = (a.len(), b.len());
+    if n == 0 { return m; }
+    if m == 0 { return n; }
+    let mut prev: Vec<usize> = (0..=m).collect();
+    let mut curr = vec![0usize; m + 1];
+    for i in 1..=n {
+        curr[0] = i;
+        for j in 1..=m {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[m]
+}
+
+fn lev_ratio(a: &str, b: &str) -> f64 {
+    let max = a.chars().count().max(b.chars().count());
+    if max == 0 { return 1.0; }
+    1.0 - (lev(a, b) as f64 / max as f64)
+}
+
+fn split_prefix(id: &str) -> Option<(&str, &str)> {
+    id.find('_').map(|i| (&id[..i], &id[i + 1..]))
+}
+
+fn worker_dreaming_normalize(conn: &rusqlite::Connection) -> Result<serde_json::Value, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut merged: u64 = 0;
+    let mut flagged: Vec<serde_json::Value> = Vec::new();
+    let mut relations_canonicalized: u64 = 0;
+
+    // 1. Canonicalize synonymous relations.
+    for (from, to) in NORMALIZE_SYNONYMS {
+        let updated = conn.execute(
+            "UPDATE OR IGNORE relations SET relation_type = ?1 \
+             WHERE relation_type = ?2 AND valid_to IS NULL",
+            rusqlite::params![to, from],
+        ).map_err(|e| format!("canonicalize update: {}", e))? as u64;
+        let dropped = conn.execute(
+            "DELETE FROM relations WHERE relation_type = ?1 AND valid_to IS NULL",
+            rusqlite::params![from],
+        ).map_err(|e| format!("canonicalize delete: {}", e))? as u64;
+        relations_canonicalized += updated + dropped;
+    }
+
+    // 2. Detect entity merge candidates.
+    let entities: Vec<(String, String)> = {
+        let mut stmt = conn
+            .prepare("SELECT id, entity_type FROM entities ORDER BY id")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(|e| e.to_string())?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+
+    let degrees: std::collections::HashMap<String, u32> = {
+        let mut stmt = conn.prepare(
+            "SELECT id, (SELECT COUNT(*) FROM relations \
+             WHERE valid_to IS NULL AND (from_id = entities.id OR to_id = entities.id)) \
+             FROM entities",
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u32>(1)?)))
+            .map_err(|e| e.to_string())?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+
+    use std::collections::HashMap;
+    let mut buckets: HashMap<(String, String), Vec<(String, String)>> = HashMap::new();
+    for (id, etype) in &entities {
+        if let Some((prefix, suffix)) = split_prefix(id) {
+            if suffix.chars().count() >= 2 {
+                buckets
+                    .entry((etype.clone(), prefix.to_string()))
+                    .or_default()
+                    .push((id.clone(), suffix.to_string()));
+            }
+        }
+    }
+
+    for entries in buckets.values() {
+        for i in 0..entries.len() {
+            for j in (i + 1)..entries.len() {
+                let (a_id, a_suf) = &entries[i];
+                let (b_id, b_suf) = &entries[j];
+                let ratio = lev_ratio(a_suf, b_suf);
+                if ratio < NORMALIZE_RATIO_FLAG { continue; }
+                let a_deg = degrees.get(a_id).copied().unwrap_or(0);
+                let b_deg = degrees.get(b_id).copied().unwrap_or(0);
+                if ratio >= NORMALIZE_RATIO_HARD && a_deg != b_deg {
+                    let (alias, canonical) = if a_deg < b_deg {
+                        (a_id.clone(), b_id.clone())
+                    } else {
+                        (b_id.clone(), a_id.clone())
+                    };
+                    if normalize_add_alias(conn, &alias, &canonical).is_ok() {
+                        merged += 1;
+                    }
+                } else {
+                    flagged.push(serde_json::json!({
+                        "a": a_id, "b": b_id, "ratio": ratio,
+                    }));
+                }
+            }
+        }
+    }
+
+    // 3. Orphan cleanup.
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(NORMALIZE_ORPHAN_AGE_DAYS)).to_rfc3339();
+    let placeholders = NORMALIZE_PROTECTED_TYPES.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "DELETE FROM entities WHERE entity_type NOT IN ({}) \
+         AND created_at < ?{} \
+         AND id NOT IN (SELECT from_id FROM relations WHERE valid_to IS NULL) \
+         AND id NOT IN (SELECT to_id FROM relations WHERE valid_to IS NULL)",
+        placeholders,
+        NORMALIZE_PROTECTED_TYPES.len() + 1,
+    );
+    let mut sql_params: Vec<&dyn rusqlite::ToSql> =
+        NORMALIZE_PROTECTED_TYPES.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    sql_params.push(&cutoff);
+    let orphans_deleted = conn
+        .execute(&sql, sql_params.as_slice())
+        .map_err(|e| format!("orphan cleanup: {}", e))? as u64;
+
+    // 4. Broken-relation invalidation.
+    let broken_relations_invalidated = conn.execute(
+        "UPDATE relations SET valid_to = ?1 \
+         WHERE valid_to IS NULL \
+         AND (from_id NOT IN (SELECT id FROM entities) \
+              OR to_id NOT IN (SELECT id FROM entities))",
+        rusqlite::params![&now],
+    ).map_err(|e| format!("broken invalidate: {}", e))? as u64;
+
+    Ok(serde_json::json!({
+        "phase": "normalize",
+        "merged": merged,
+        "flagged_entity_pairs": flagged,
+        "relations_canonicalized": relations_canonicalized,
+        "orphans_deleted": orphans_deleted,
+        "broken_relations_invalidated": broken_relations_invalidated,
+    }))
+}
+
+fn normalize_add_alias(
+    conn: &rusqlite::Connection,
+    alias_id: &str,
+    canonical_id: &str,
+) -> Result<(), String> {
+    if alias_id == canonical_id {
+        return Err("alias cannot equal canonical".into());
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT OR REPLACE INTO entity_aliases (alias_id, canonical_id, created_at) VALUES (?1, ?2, ?3)",
+        rusqlite::params![alias_id, canonical_id, &now],
+    ).map_err(|e| format!("add_alias: {}", e))?;
+    conn.execute(
+        "UPDATE OR IGNORE relations SET from_id = ?1 WHERE from_id = ?2",
+        rusqlite::params![canonical_id, alias_id],
+    ).map_err(|e| format!("rewire from: {}", e))?;
+    conn.execute(
+        "UPDATE OR IGNORE relations SET to_id = ?1 WHERE to_id = ?2",
+        rusqlite::params![canonical_id, alias_id],
+    ).map_err(|e| format!("rewire to: {}", e))?;
+    conn.execute(
+        "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
+        rusqlite::params![alias_id],
+    ).map_err(|e| format!("cleanup alias relations: {}", e))?;
+    conn.execute(
+        "DELETE FROM entities WHERE id = ?1",
+        rusqlite::params![alias_id],
+    ).map_err(|e| format!("delete alias entity: {}", e))?;
+    Ok(())
 }
 
 #[derive(Debug, Default, serde::Serialize)]

@@ -791,8 +791,8 @@ mod subcommand_contract_tests {
     }
 
     #[test]
-    fn mem_run_worker_accepts_all_three_kinds() {
-        for kind in ["dreaming-light", "dreaming-deep", "librarian-once"] {
+    fn mem_run_worker_accepts_all_kinds() {
+        for kind in ["dreaming-light", "dreaming-deep", "dreaming-normalize", "librarian-once"] {
             let res = Cli::try_parse_from([
                 "codeterm",
                 "mem",

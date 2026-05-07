@@ -385,7 +385,11 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             };
             ("POST".into(), url, None)
         }
-        MemAction::Dream => ("POST".into(), "/api/mem/dream".into(), None),
+        MemAction::Dream { phase } => (
+            "POST".into(),
+            format!("/api/mem/dream?phase={}", enc(phase)),
+            None,
+        ),
         MemAction::Graph { action } => match action {
             MemGraphAction::Create { id, entity_type, props, scope } => {
                 let props_val: serde_json::Value = serde_json::from_str(props).unwrap_or(json!({}));

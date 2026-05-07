@@ -25,23 +25,47 @@ pub async fn mem_extract_pending(
     Ok(Json(serde_json::json!({ "queued": count })))
 }
 
+#[derive(Deserialize, Default)]
+pub struct DreamParams {
+    #[serde(default)]
+    pub phase: Option<String>,
+}
+
 pub async fn mem_dream(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    Query(p): Query<DreamParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     use crate::mem::supervisor::WorkerKind;
-    let light = state.svc.mem_supervisor.run(WorkerKind::DreamingLight)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("dreaming-light: {}", e)))?;
-    let deep = state.svc.mem_supervisor.run(WorkerKind::DreamingDeep)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("dreaming-deep: {}", e)))?;
 
-    let svc = state.svc.clone();
-    std::thread::spawn(move || dreaming::spawn_rem_worker(&svc));
+    let phase = p.phase.as_deref().unwrap_or("all").to_lowercase();
+    let phases: Vec<WorkerKind> = match phase.as_str() {
+        "light" => vec![WorkerKind::DreamingLight],
+        "deep" => vec![WorkerKind::DreamingDeep],
+        "normalize" => vec![WorkerKind::DreamingNormalize],
+        "all" => vec![
+            WorkerKind::DreamingLight,
+            WorkerKind::DreamingDeep,
+            WorkerKind::DreamingNormalize,
+        ],
+        other => return Err((StatusCode::BAD_REQUEST, format!("unknown phase: {}", other))),
+    };
 
-    Ok(Json(serde_json::json!({ "phases": [light, deep] })))
+    let mut reports = Vec::new();
+    for kind in &phases {
+        let report = state.svc.mem_supervisor.run(*kind).await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{}: {}", kind.as_arg(), e)))?;
+        reports.push(report);
+    }
+
+    // REM worker only fires on a full nightly run; targeted phase calls skip it.
+    if phase == "all" {
+        let svc = state.svc.clone();
+        std::thread::spawn(move || dreaming::spawn_rem_worker(&svc));
+    }
+
+    Ok(Json(serde_json::json!({ "phases": reports })))
 }
 
 pub async fn mem_dream_report(

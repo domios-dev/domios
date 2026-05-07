@@ -364,8 +364,9 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 "pane": pane_id, "title": title,
             }))
         }
-        MemAction::Dream => {
-            mem_post_request(&http, &format!("{}/api/mem/dream", base), &serde_json::json!({}))
+        MemAction::Dream { phase } => {
+            let url = format!("{}/api/mem/dream?phase={}", base, urlencoding::encode(&phase));
+            mem_post_request(&http, &url, &serde_json::json!({}))
         }
         MemAction::Sync { path } => {
             let mut url = format!("{}/api/mem/sync", base);
