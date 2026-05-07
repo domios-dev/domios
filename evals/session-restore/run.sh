@@ -21,12 +21,12 @@ WS_CR=$(new_workspace WS-claude-renamed C:/temp/restore-WS-claude-renamed)
 
 P_SS=$(new_shell_pane $WS_SS C:/temp/restore-WS-shell-silent silent-shell)
 P_ST=$(new_shell_pane $WS_ST C:/temp/restore-WS-shell-with-text shell-with-text)
-sleep 2 && codeterm pane exec --pane $P_ST 'Get-Date; Get-Location' > /dev/null 2>&1
+sleep 2 && dc pane exec --pane $P_ST 'Get-Date; Get-Location' > /dev/null 2>&1
 
 P_CS=$(new_claude_pane $WS_CS C:/temp/restore-WS-claude-silent silent-claude)
 P_CT=$(new_claude_pane $WS_CT C:/temp/restore-WS-claude-with-text claude-with-text 'reply with single word: PINEAPPLE')
 P_CR=$(new_claude_pane $WS_CR C:/temp/restore-WS-claude-renamed will-rename)
-codeterm pane rename 'MY-CUSTOM-TITLE' --pane $P_CR > /dev/null 2>&1
+dc pane rename 'MY-CUSTOM-TITLE' --pane $P_CR > /dev/null 2>&1
 
 echo "  ws_ids: empty=$WS_E shell-s=$WS_SS shell-t=$WS_ST cl-s=$WS_CS cl-t=$WS_CT cl-r=$WS_CR"
 echo "  pane_ids: $P_SS $P_ST $P_CS $P_CT $P_CR"

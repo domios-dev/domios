@@ -1,16 +1,32 @@
 #!/usr/bin/env bash
 # Shared bench helpers — sourceable. Cross-platform (mac/linux/windows-bash).
 #
+# CRITICAL — read once before using:
+#
+#   Every bench targets the DEV daemon (port 7686). The user's prod
+#   daemon (port 7685) is NEVER touched by these helpers. To make
+#   that impossible to break by accident:
+#
+#     1. Sourcing this file auto-calls dev_env (sets all four env
+#        vars for the dev daemon). You don't need to call dev_env
+#        yourself.
+#     2. Use `dc <subcommand>` instead of `codeterm <subcommand>`.
+#        `dc` re-exports the dev env-vars in its own subshell so a
+#        leaked CODETERM_API_PORT=7685 from the parent pane (which
+#        is what happens when a Claude session lives inside prod
+#        codeterm) cannot route the call to prod.
+#     3. The HTTP helpers (dev_get, dev_post) are hardcoded to
+#        http://127.0.0.1:7686 — no env-var indirection.
+#
 # Usage:
 #   source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
-#   dev_env
+#   dc workspace list           # safe — always dev
 #   snap_label=$(snapshot pre)
-#   ...
+#   reset_dev_state
 #
-# Goals: reduce per-bench shell ceremony so the orchestrator calling
-# the bench from a Claude session burns fewer tool calls. Also keeps
-# OS-specific commands (taskkill vs kill, named pipes vs sockets) in
-# one place so individual benches stay portable.
+# Cross-platform (mac/linux/windows-bash). Filesystem paths go through
+# python's os.path.expanduser so git bash $HOME (/c/Users/X) doesn't
+# break native Windows Python.
 
 set -u
 
@@ -50,7 +66,9 @@ dev_env() {
   export CODETERM_DEV_AUTH_HEADER="Authorization: Bearer $CODETERM_API_TOKEN"
 }
 
-# Convenience: GET an API path, returns JSON. Requires dev_env first.
+# Convenience: GET an API path, returns JSON. Hardcoded to dev (7686)
+# so it CANNOT accidentally hit prod even if the parent shell's
+# CODETERM_API_PORT is 7685.
 dev_get() {
   curl -s --max-time 10 -H "$CODETERM_DEV_AUTH_HEADER" "http://127.0.0.1:7686$1"
 }
@@ -60,6 +78,29 @@ dev_post() {
   curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
     -H "Content-Type: application/json" --data "${1:-{}}" \
     "http://127.0.0.1:7686$path"
+}
+
+# Run the codeterm CLI against the dev daemon, regardless of what
+# CODETERM_* vars the parent shell inherited. This is the ONLY way
+# bench scripts should invoke the CLI — `codeterm <cmd>` directly
+# follows the parent env, which in a prod-hosted Claude pane silently
+# routes to port 7685 + the prod socket.
+#
+# Assert dev is alive BEFORE every call. Otherwise the CLI's socket
+# auto-discovery falls back to prod's pipe when codeterm-dev.sock
+# doesn't exist — which is exactly how Andrey lost prod state on
+# 2026-05-07. Fail loud with non-zero exit instead of silently
+# dispatching to the wrong daemon.
+dc() {
+  if ! curl -s --max-time 1 http://127.0.0.1:7686/api/health > /dev/null 2>&1; then
+    echo "ERROR [dc]: dev daemon not on port 7686. Start it: ./build.sh dev" >&2
+    echo "             (would have leaked to prod via socket-discovery fallback)" >&2
+    return 7
+  fi
+  CODETERM_API_PORT=7686 \
+  CODETERM_API_TOKEN="$CODETERM_API_TOKEN" \
+  CODETERM_SOCKET_PATH="$CODETERM_SOCKET_PATH" \
+  codeterm "$@"
 }
 
 # --- Lifecycle -------------------------------------------------------
@@ -186,7 +227,7 @@ for w in json.load(sys.stdin):
     if w['name'].startswith('$prefix'): print(w['id'])
 " | while read -r id; do
     [ -n "$id" ] || continue
-    codeterm workspace close "$id" > /dev/null 2>&1
+    dc workspace close "$id" > /dev/null 2>&1
   done
 }
 
@@ -203,7 +244,7 @@ for w in json.load(sys.stdin):
         print(w['id'])
 " | while read -r id; do
     [ -n "$id" ] || continue
-    codeterm workspace close "$id" > /dev/null 2>&1
+    dc workspace close "$id" > /dev/null 2>&1
   done
 }
 
@@ -235,14 +276,14 @@ PYEOF
 new_workspace() {
   local name="$1" cwd="$2"
   mkdir -p "$cwd" 2>/dev/null
-  codeterm workspace create "$name" --cwd "$cwd" --json 2>/dev/null \
+  dc workspace create "$name" --cwd "$cwd" --json 2>/dev/null \
     | python -c "import json,sys; print(json.load(sys.stdin).get('id',''))"
 }
 
 # Spawn a plain shell pane in the given workspace. Echoes pane_id.
 new_shell_pane() {
   local ws="$1" cwd="$2" title="${3:-shell}"
-  codeterm pane new --workspace "$ws" --cwd "$cwd" --title "$title" --json 2>/dev/null \
+  dc pane new --workspace "$ws" --cwd "$cwd" --title "$title" --json 2>/dev/null \
     | python -c "import json,sys; print(json.load(sys.stdin).get('pane_id',''))"
 }
 
@@ -252,5 +293,13 @@ new_claude_pane() {
   local ws="$1" cwd="$2" title="${3:-claude}" task="${4:-}"
   local args=( agent spawn claude --workspace "$ws" --cwd "$cwd" --title "$title" )
   [ -n "$task" ] && args+=( --task "$task" )
-  codeterm "${args[@]}" 2>&1 | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1
+  dc "${args[@]}" 2>&1 | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1
 }
+
+# --- Auto-init: source-time dev_env so callers can't forget. ---------
+# Without this, a forgotten `dev_env` call early in a bench leaks the
+# parent shell's CODETERM_API_PORT/SOCKET into `codeterm` calls — and
+# when the parent is a Claude pane inside prod codeterm, every CLI
+# call lands on prod (port 7685) instead of dev. Andrey's prod state
+# got minor cleanup damage from exactly this on 2026-05-07.
+dev_env > /dev/null 2>&1 || true
