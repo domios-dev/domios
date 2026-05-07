@@ -62,6 +62,46 @@ function mimeFromPath(p: string): string {
   return "application/octet-stream";
 }
 
+function looksLikeAbsolutePath(s: string): boolean {
+  const t = s.trim();
+  return /^([A-Za-z]:[\\/]|\/|~\/)/.test(t) && !t.includes("\n") && t.length < 1000;
+}
+
+function fileUriToPath(uri: string): string | null {
+  if (!uri.startsWith("file://")) return null;
+  let p = decodeURI(uri.slice("file://".length));
+  if (p.startsWith("/") && /^\/[A-Za-z]:[\\/]/.test(p)) p = p.slice(1);
+  return p;
+}
+
+// Extracts real file paths the OS attached to the clipboard alongside a
+// possibly-bogus image preview. Without this, macOS Cmd+C of a Finder file
+// followed by Cmd+V gives a 1024x1024 placeholder PNG via getAsFile().
+function extractFilePathsFromClipboard(cd: DataTransfer): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const uriList = cd.getData("text/uri-list");
+  if (uriList) {
+    for (const line of uriList.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const p = fileUriToPath(trimmed) ?? (looksLikeAbsolutePath(trimmed) ? trimmed : null);
+      if (p && !seen.has(p)) { seen.add(p); out.push(p); }
+    }
+  }
+
+  if (out.length === 0) {
+    const plain = cd.getData("text/plain");
+    if (plain && looksLikeAbsolutePath(plain)) {
+      const p = plain.trim();
+      if (!seen.has(p)) { seen.add(p); out.push(p); }
+    }
+  }
+
+  return out;
+}
+
 export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: ChatViewProps) {
   const provider = getAgentProvider(agentType);
   const [allMessages, setAllMessages] = useState<ChatMessage[]>([]);
@@ -257,11 +297,30 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   }, [input, attachments, ptyId, paneId]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    // Check for files (images, PDFs, any file type)
     const items = Array.from(e.clipboardData.items);
     const fileItems = items.filter(item => item.kind === "file");
 
+    // Real filesystem paths from the clipboard ALWAYS win over getAsFile() blobs.
+    // macOS Cmd+C of a Finder file puts a file URL on the pasteboard but
+    // getAsFile() yields a generic 1024x1024 PNG icon, not the file's bytes.
+    // The same is true for some Windows Explorer file copies.
+    const pathsFromClipboard = extractFilePathsFromClipboard(e.clipboardData);
+
+    if (pathsFromClipboard.length > 0) {
+      e.preventDefault();
+      const newAttachments: Attachment[] = pathsFromClipboard.map((p) => ({
+        id: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        name: basename(p),
+        path: p,
+        type: mimeFromPath(p),
+      }));
+      setAttachments(prev => [...prev, ...newAttachments]);
+      return;
+    }
+
     if (fileItems.length > 0) {
+      // No path on the clipboard — these are real in-memory bytes
+      // (e.g. Shift+Cmd+Ctrl+4 screenshot, or a "copy image" from a webpage).
       e.preventDefault();
       for (const item of fileItems) {
         const blob = item.getAsFile();
@@ -291,28 +350,9 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       return;
     }
 
-    // Text paste — check if it looks like a file path (Ctrl+C file in Explorer)
     e.preventDefault();
     const text = e.clipboardData.getData("text/plain");
     if (!text) return;
-
-    // Detect pasted file paths: Windows (C:\...) or Unix (/...) with common extensions
-    const trimmed = text.trim();
-    const looksLikeFile = /^([A-Za-z]:\\|\/|~\/)/.test(trimmed)
-      && !trimmed.includes("\n")
-      && trimmed.length < 500;
-    if (looksLikeFile) {
-      const ext = trimmed.split(".").pop()?.toLowerCase() || "";
-      const isImage = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext);
-      const entry: Attachment = {
-        id: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-        name: trimmed.split(/[\\/]/).pop() || trimmed,
-        path: trimmed,
-        type: isImage ? `image/${ext === "jpg" ? "jpeg" : ext}` : "application/octet-stream",
-      };
-      setAttachments(prev => [...prev, entry]);
-      return;
-    }
 
     const el = e.target as HTMLTextAreaElement;
     const start = el.selectionStart;
