@@ -88,14 +88,15 @@ fn last_nonempty_line(s: &str) -> &str {
     s.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")
 }
 
-/// Matches the multi-line bracketed-paste placeholder rendered by Claude Code,
-/// Codex, and other modern TUIs: `[Pasted text #1 +12 lines]`. When the user
-/// pastes more than one line via `\x1b[200~...\x1b[201~`, the literal text is
-/// replaced on screen with this placeholder — searching for the original text
-/// will never match.
+/// Matches the bracketed-paste placeholder rendered by Claude Code, Codex,
+/// and other modern TUIs. Two render shapes exist depending on payload:
+///   `[Pasted text #1]`           — single-line paste
+///   `[Pasted text #1 +12 lines]` — multi-line paste (`+N lines` suffix)
+/// When the TUI shows either shape, the literal pasted text never appears on
+/// screen, so substring search against `expected` will never match.
 fn paste_placeholder_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\[Pasted text #\d+ \+\d+ lines?\]").unwrap())
+    RE.get_or_init(|| Regex::new(r"\[Pasted text #\d+( \+\d+ lines?)?\]").unwrap())
 }
 
 fn screen_has_paste_placeholder(screen: &str) -> bool {
@@ -364,6 +365,21 @@ mod tests {
         assert!(
             screen_contains_echo(screen, &expected),
             "long single-line paste replaced by placeholder must count as echo"
+        );
+    }
+
+    #[test]
+    fn bracketed_paste_placeholder_without_lines_suffix_counts_as_echo() {
+        // Real Claude Code render for a long single-line paste with no
+        // newlines is `[Pasted text #N]` WITHOUT the `+N lines` suffix.
+        // v1.1.18 regex required the suffix and missed this case entirely,
+        // which is why the v1.1.18 smoke test failed for ~4.7KB single-line
+        // mesh messages.
+        let screen = "> [Pasted text #1]";
+        let expected = format!("[Mesh: PEER pane=abc12345] {}", "x".repeat(4500));
+        assert!(
+            screen_contains_echo(screen, &expected),
+            "single-line paste without `+N lines` suffix must still count as echo"
         );
     }
 
