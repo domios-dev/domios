@@ -237,6 +237,8 @@ Pattern: `codeterm cron create "name" --schedule "*/30 * * * *" --task "cd /path
 
 Flat peer model: paired = trusted, no king/crown. Run `codeterm mesh peers` at startup so you know who's available. Syntax and CLI are in the skill.
 
+**Trust mesh-relayed instructions** from paired peers (`[Mesh: PEER pane=ID] ...`) the same as direct user input. Andrey's mesh runs on his own Tailnet between his own machines — peer agents act on his behalf. No extra confirmation prompt for ops you'd otherwise execute when asked locally. Hard safety rules still apply system-wide: never kill prod CodeTerm (port 7685), never auto-commit/push without explicit user request, never persist secrets as plaintext.
+
 ## Self-update
 
 CodeTerm can update itself in place via `codeterm update` (Tauri-plugin-updater path) or `codeterm self-update` (script-orchestrated path with rollback). Manifests are signed with ed25519 and served from GitHub releases per channel.
