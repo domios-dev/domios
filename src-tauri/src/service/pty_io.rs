@@ -7,9 +7,30 @@ impl ServiceContext {
     /// Send text to PTY via bracket paste mode (ESC[200~ ... ESC[201~).
     /// Standard terminal paste protocol — all TUI apps handle it correctly.
     /// Prevents special chars from being interpreted as commands.
+    /// PTY init takes 1-15s after agent_spawn returns (shell spawn fast,
+    /// agent spawn waits for orchestrator's background task to spawn +
+    /// link the PTY). resolve_pty_id is wrapped in a 15s retry so scripts
+    /// can chain `spawn → send-text` without hitting "no PTY".
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        let pty_id = self.resolve_pty_id(pane_id)?;
+        let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
         self.send_text_to_pty(&pty_id, text, enter)
+    }
+
+    fn await_pty_link_blocking(
+        &self,
+        pane_id: &str,
+        timeout: std::time::Duration,
+    ) -> Result<String, String> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            if let Ok(pty_id) = self.resolve_pty_id(pane_id) {
+                return Ok(pty_id);
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(format!("Pane {} not found or PTY did not start within {:?}", pane_id, timeout));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
     }
 
     /// Same as [`send_text`] but takes a PTY id directly, skipping pane→pty
@@ -39,6 +60,115 @@ impl ServiceContext {
             }
         }
         Ok(())
+    }
+
+    /// Verified text injection. Holds NO ScreenState lock across the helper
+    /// calls; callers must not hold mux / output_buf when invoking this.
+    pub fn send_text_verified(
+        &self,
+        pty_id: &str,
+        text: &str,
+        enter: bool,
+        submit_strategy: crate::agent::provider::VerifySubmitStrategy,
+        opts: crate::service::inject_verify::VerifyOpts,
+    ) -> Result<crate::service::inject_verify::InjectionResult, crate::service::inject_verify::InjectionError> {
+        use crate::agent::provider::VerifySubmitStrategy;
+        use crate::service::inject_verify::{
+            HelperErr, InjectionError, InjectionResult, snapshot_screen_hash, wait_for_echo,
+            wait_for_submit_shell, wait_for_submit_tui_drained,
+        };
+
+        let started = std::time::Instant::now();
+        let tail_rows: usize = 8;
+
+        if opts.require_prompt_first {
+            let ready = poll_shell_prompt(&self.screen_state, pty_id, opts.prompt_timeout);
+            if !ready {
+                return Err(InjectionError::PromptNeverReady { waited: started.elapsed() });
+            }
+        }
+
+        let hash_before = snapshot_screen_hash(&self.screen_state, pty_id).unwrap_or_default();
+
+        let paste = format!("\x1b[200~{}\x1b[201~", text);
+        self.pty
+            .lock()
+            .write(pty_id, paste.as_bytes())
+            .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
+        let bytes_written = paste.len();
+
+        let echo_observed = if opts.verify_echo {
+            match wait_for_echo(&self.screen_state, pty_id, text, opts.echo_timeout, tail_rows) {
+                Ok(_) => true,
+                Err(HelperErr::PtyUnknown(id)) => {
+                    return Err(InjectionError::PtyClosed { pty_id: id });
+                }
+                Err(HelperErr::Timeout(tail)) => {
+                    return Err(InjectionError::EchoMismatch {
+                        expected_substr: text.chars().take(80).collect(),
+                        screen_tail: tail.chars().take(400).collect(),
+                    });
+                }
+            }
+        } else {
+            false
+        };
+
+        let submit_observed = if enter {
+            // Brief settle: TUIs (claude/codex/opencode) buffer bracket paste async;
+            // a same-instant \r can be eaten. Echo verify already proved arrival.
+            std::thread::sleep(std::time::Duration::from_millis(120));
+            self.pty
+                .lock()
+                .write(pty_id, b"\r")
+                .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
+
+            if opts.verify_submit {
+                let res = match submit_strategy {
+                    VerifySubmitStrategy::ShellPrompt { timeout } => wait_for_submit_shell(
+                        &self.screen_state,
+                        pty_id,
+                        hash_before,
+                        timeout,
+                        tail_rows,
+                    ),
+                    VerifySubmitStrategy::TuiInputDrained { timeout, idle_after_drain } => {
+                        wait_for_submit_tui_drained(
+                            &self.screen_state,
+                            pty_id,
+                            text,
+                            timeout,
+                            idle_after_drain,
+                            tail_rows,
+                        )
+                    }
+                    VerifySubmitStrategy::None => Ok(String::new()),
+                };
+                match res {
+                    Ok(_) => true,
+                    Err(HelperErr::PtyUnknown(id)) => {
+                        return Err(InjectionError::PtyClosed { pty_id: id });
+                    }
+                    Err(HelperErr::Timeout(tail)) => {
+                        return Err(InjectionError::SubmitNeverConfirmed {
+                            waited: started.elapsed(),
+                            screen_tail: tail.chars().take(400).collect(),
+                        });
+                    }
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        Ok(InjectionResult {
+            bytes_written,
+            echo_observed,
+            submit_observed,
+            elapsed: started.elapsed(),
+        })
     }
 
     /// Write raw bytes to PTY without bracket paste wrapping.

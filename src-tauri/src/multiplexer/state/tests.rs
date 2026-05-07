@@ -585,9 +585,11 @@ fn test_session_snapshot_roundtrip() {
 
     let pane = restored.get_pane(&pane_id).unwrap();
     assert_eq!(pane.cwd.as_deref(), Some("/test/path"));
-    // agent_type is dropped when no session_id was saved — without resume
-    // there's no agent to attribute, so re-detect from PTY output instead.
-    assert_eq!(pane.agent_type, None);
+    // agent_type MUST survive even without a session_id. The spawn-on-mount
+    // path (commands::pty) launches a fresh agent in this case, otherwise
+    // a "silent" claude pane (spawned but never talked to before kill)
+    // would come back as a bare powershell.
+    assert_eq!(pane.agent_type.as_deref(), Some("claude"));
     assert_eq!(pane.role, Some(AgentRole::Orchestrator));
     assert_eq!(pane.depth, 1);
     assert!(pane.can_spawn);

@@ -46,6 +46,22 @@ pub enum WorkspaceAction {
 pub enum PaneAction {
     /// List all panes
     List,
+    /// Create a plain shell pane (no agent attached) in a workspace
+    New {
+        /// Target workspace id (default: current focused)
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Working directory for the new pane
+        #[arg(long)]
+        cwd: Option<String>,
+        /// Tab title
+        #[arg(long)]
+        title: Option<String>,
+        /// Command to run on pane start (e.g. `"poetry run backend"`).
+        /// Sent into the PTY after the shell is ready.
+        #[arg(long)]
+        cmd: Option<String>,
+    },
     /// Print the current (focused) pane ID — no JSON parsing needed
     Current {
         /// Return the last pane instead of the focused one

@@ -135,24 +135,31 @@ pub async fn spawn_pty(
     // This runs in backend so it works even for non-visible tabs.
     // Skip protected panes (General Agent) — backend manages their lifecycle.
     if let Some(ref pid) = pane_id {
-        let (session_id, is_protected, pane_cwd) = {
+        let (session_id, is_protected, pane_cwd, restored_from_snapshot) = {
             let m = mux_state.lock();
             let pane = m.get_pane(pid);
             (
                 pane.and_then(|p| p.agent_session_id.clone()),
                 pane.map(|p| p.protected).unwrap_or(false),
                 pane.and_then(|p| p.cwd.clone()),
+                pane.map(|p| p.restored_from_snapshot).unwrap_or(false),
             )
         };
         let agent_type = mux_state.lock().get_pane(pid)
             .and_then(|p| p.agent_type.clone());
+        let mut should_fresh_launch = restored_from_snapshot
+            && !is_protected
+            && agent_type.is_some();
+        let agent_type_for_fresh = agent_type.clone();
+
         if let Some(session_id) = session_id.filter(|_| !is_protected) {
             let provider_id = agent_type.unwrap_or_else(crate::config::default_agent_provider);
 
             // Validate the session file still exists. If it's gone (cleared cache,
             // different machine, /new inside the TUI last run), resuming produces
             // spam like "No conversation found with session ID: ..." which the
-            // watchdog then retries forever. Clear and bail quietly instead.
+            // watchdog then retries forever. Clear and fall through so the
+            // restored-from-snapshot branch can spawn a fresh agent if needed.
             let session_valid = pane_cwd.as_deref().map(|cwd| {
                 svc.agent_registry.with_provider(&provider_id, |p| {
                     p.session_exists(cwd, &session_id)
@@ -161,54 +168,101 @@ pub async fn spawn_pty(
 
             if !session_valid {
                 log::info!(
-                    "[resume] session {} for pane {} has no backing file under {:?} — clearing, skipping resume",
+                    "[resume] session {} for pane {} has no backing file under {:?} — clearing, will try fresh launch",
                     session_id, pid, pane_cwd
                 );
                 svc.set_agent_session_id(pid, None);
                 svc.emit_state_changed();
-                return Ok(pty_id);
+            } else {
+                svc.set_pane_agent_type(pid, Some(provider_id.clone()));
+                svc.emit_state_changed();
+
+                // Build resume command via provider registry (provider-agnostic).
+                // Per-provider config: each plugin has its own resume_sessions /
+                // resume_skip_permissions in `[agents.<id>]` (back-compat fallback
+                // to global `[agent]` is handled by `provider_config()`).
+                let pc = crate::config::provider_config(&provider_id);
+                let _ = config_state; // global lock no longer needed for these fields
+                let resume_enabled = pc.resume_sessions.unwrap_or(true);
+                let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
+                let resume_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
+                    p.build_resume_command(&session_id, skip_perms)
+                }).flatten();
+
+                if let Some(cmd) = resume_cmd {
+                    let pty_clone = state.inner().clone();
+                    let pty_id_for_poll = pty_id.clone();
+                    let pty_id_for_write = pty_id.clone();
+                    let screen_state_clone = screen_state.inner().clone();
+                    tokio::spawn(async move {
+                        if !resume_enabled { return; }
+
+                        // 60s is generous but matters under contention: at app
+                        // restart dozens of panes spawn in parallel and shell
+                        // initialization can stall well past the old 15s budget
+                        // (observed 14-20s for Nth-pane zsh under load on macOS).
+                        let ready = tokio::task::spawn_blocking(move || {
+                            crate::service::pty_io::poll_shell_prompt(
+                                &screen_state_clone, &pty_id_for_poll,
+                                std::time::Duration::from_secs(60),
+                            )
+                        }).await.unwrap_or(false);
+
+                        if !ready {
+                            log::warn!("[resume] shell not ready for session {}, skipping", session_id);
+                            return;
+                        }
+
+                        log::info!("[resume] sending: {}", cmd);
+                        let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
+                        let _ = pty_clone.lock().write(&pty_id_for_write, paste.as_bytes());
+                    });
+                }
+                should_fresh_launch = false;
             }
+        }
 
-            svc.set_pane_agent_type(pid, Some(provider_id.clone()));
-            svc.emit_state_changed();
-
-            // Build resume command via provider registry (provider-agnostic).
-            // Per-provider config: each plugin has its own resume_sessions /
-            // resume_skip_permissions in `[agents.<id>]` (back-compat fallback
-            // to global `[agent]` is handled by `provider_config()`).
+        if should_fresh_launch {
+            let provider_id = agent_type_for_fresh.expect("checked above");
+            // Pane was tagged with an agent but had no session to resume —
+            // typically a "silent" claude pane the user spawned and never
+            // talked to before a kill. Without this branch the pane comes
+            // back as a bare powershell, which is exactly the bug Andrey
+            // reported. Launch the agent fresh so the pane matches what
+            // the snapshot promised. Gated on restored_from_snapshot so
+            // it does NOT race the orchestrator's own launch on a fresh
+            // `agent spawn` (would otherwise paste the launch twice).
+            // Flag cleared after first spawn so a re-mount stays quiet.
+            svc.clear_pane_restored_flag(pid);
             let pc = crate::config::provider_config(&provider_id);
-            let _ = config_state; // global lock no longer needed for these fields
-            let resume_enabled = pc.resume_sessions.unwrap_or(true);
             let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
-            let resume_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
-                p.build_resume_command(&session_id, skip_perms)
-            }).flatten();
-
-            if let Some(cmd) = resume_cmd {
+            let launch_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
+                p.build_launch_command(&crate::agent::provider::AgentLaunchParams {
+                    skip_permissions: skip_perms,
+                    ..Default::default()
+                })
+            });
+            if let Some(cmd) = launch_cmd {
                 let pty_clone = state.inner().clone();
                 let pty_id_for_poll = pty_id.clone();
                 let pty_id_for_write = pty_id.clone();
                 let screen_state_clone = screen_state.inner().clone();
+                let provider_label = provider_id.clone();
                 tokio::spawn(async move {
-                    if !resume_enabled { return; }
-
-                    // 60s is generous but matters under contention: at app
-                    // restart dozens of panes spawn in parallel and shell
-                    // initialization can stall well past the old 15s budget
-                    // (observed 14-20s for Nth-pane zsh under load on macOS).
                     let ready = tokio::task::spawn_blocking(move || {
                         crate::service::pty_io::poll_shell_prompt(
                             &screen_state_clone, &pty_id_for_poll,
                             std::time::Duration::from_secs(60),
                         )
                     }).await.unwrap_or(false);
-
                     if !ready {
-                        log::warn!("[resume] shell not ready for session {}, skipping", session_id);
+                        log::warn!(
+                            "[restore-fresh] shell not ready for {} pane, skipping launch",
+                            provider_label
+                        );
                         return;
                     }
-
-                    log::info!("[resume] sending: {}", cmd);
+                    log::info!("[restore-fresh] launching {} (no session): {}", provider_label, cmd);
                     let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
                     let _ = pty_clone.lock().write(&pty_id_for_write, paste.as_bytes());
                 });

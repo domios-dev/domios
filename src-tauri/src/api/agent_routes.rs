@@ -31,6 +31,8 @@ pub(crate) struct SpawnAgentBody {
     /// Model selector — provider decides flag syntax via
     /// AgentProvider::model_launch_args.
     model: Option<String>,
+    /// Optional override for readiness wait. Default 30s.
+    wait_ready_secs: Option<u64>,
 }
 
 pub async fn spawn_agent(
@@ -57,8 +59,19 @@ pub async fn spawn_agent(
         model: body.model,
         resume_session_id: None,
     };
-    let result = state.svc.spawn_agent(params).await
+    let wait_secs = body.wait_ready_secs.unwrap_or(30);
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    let result = state.svc.spawn_agent(params, Some(ready_tx)).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    let wait = tokio::time::timeout(std::time::Duration::from_secs(wait_secs), ready_rx).await;
+    let (ready, error) = match wait {
+        Ok(Ok(Ok(()))) => (true, None),
+        Ok(Ok(Err(reason))) => (false, Some(reason)),
+        Ok(Err(_recv_err)) => (false, Some("internal: launch thread dropped before signaling".to_string())),
+        Err(_timeout) => (false, Some(format!("timed out ({}s) waiting for agent readiness", wait_secs))),
+    };
+
     let mut resp = serde_json::json!({
         "pane_id": result.pane_id,
         "tab_id": result.tab_id,
@@ -66,7 +79,11 @@ pub async fn spawn_agent(
         "agent": result.agent,
         "title": result.title,
         "role": result.role,
+        "ready": ready,
     });
+    if let Some(reason) = error {
+        resp["ready_error"] = serde_json::json!(reason);
+    }
     if let Some(ref warning) = result.warning {
         resp["warning"] = serde_json::json!(warning);
     }
@@ -356,4 +373,32 @@ pub async fn get_hierarchy(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     Ok(Json(serde_json::json!(state.svc.get_hierarchy())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spawn_body_without_wait_ready_secs() {
+        let json = r#"{"agent":"claude"}"#;
+        let body: SpawnAgentBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.agent.as_deref(), Some("claude"));
+        assert_eq!(body.wait_ready_secs, None);
+    }
+
+    #[test]
+    fn spawn_body_with_wait_ready_secs() {
+        let json = r#"{"agent":"claude","wait_ready_secs":10}"#;
+        let body: SpawnAgentBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.wait_ready_secs, Some(10));
+    }
+
+    #[test]
+    fn spawn_body_empty_object() {
+        let json = r#"{}"#;
+        let body: SpawnAgentBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.agent, None);
+        assert_eq!(body.wait_ready_secs, None);
+    }
 }

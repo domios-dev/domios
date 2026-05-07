@@ -3,8 +3,9 @@ use std::time::Duration;
 
 use crate::agent::provider::{
     self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SessionMessage,
-    SessionMetadata, SettingField, TaskDelivery,
+    SessionMetadata, SettingField, TaskDelivery, UsageSnapshot, VerifySubmitStrategy,
 };
+use super::usage as codex_usage;
 use crate::shell::ShellSyntax;
 
 /// OpenAI Codex CLI agent provider.
@@ -74,6 +75,13 @@ impl AgentProvider for CodexProvider {
         TaskDelivery::InlineFlag
     }
 
+    fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
+        VerifySubmitStrategy::TuiInputDrained {
+            timeout: Duration::from_secs(15),
+            idle_after_drain: Duration::from_millis(800),
+        }
+    }
+
     fn detect_from_title(&self, title: &str) -> bool {
         let lower = title.to_lowercase();
         lower.contains("codex")
@@ -91,6 +99,11 @@ impl AgentProvider for CodexProvider {
         // session_id is a UUID — need to find the matching rollout-*-<uuid>.jsonl file
         let root = Self::sessions_root()?;
         find_session_file_by_uuid(&root, session_id)
+    }
+
+    fn read_usage(&self, cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
+        let path = self.session_file_path(cwd, session_id)?;
+        codex_usage::read_from_path(&path)
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {

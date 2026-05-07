@@ -54,6 +54,10 @@ pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Forward CLI-shaped argv to the bundled CLI before Tauri/logging init,
+    // otherwise GUI single-instance silently swallows the args (issue #51).
+    startup::forward_to_cli_if_invoked();
+
     startup::setup_logging();
 
     log::info!("CodeTerm starting...");
