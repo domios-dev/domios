@@ -213,6 +213,46 @@ pub async fn spawn_pty(
                     let _ = pty_clone.lock().write(&pty_id_for_write, paste.as_bytes());
                 });
             }
+        } else if let Some(provider_id) = agent_type.filter(|_| !is_protected) {
+            // Pane was tagged with an agent but had no session to resume —
+            // typically a "silent" claude pane the user spawned and never
+            // talked to before a kill. Without this branch the pane comes
+            // back as a bare powershell, which is exactly the bug Andrey
+            // reported. Launch the agent fresh so the pane matches what
+            // the snapshot promised.
+            let pc = crate::config::provider_config(&provider_id);
+            let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
+            let launch_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
+                p.build_launch_command(&crate::agent::provider::AgentLaunchParams {
+                    skip_permissions: skip_perms,
+                    ..Default::default()
+                })
+            });
+            if let Some(cmd) = launch_cmd {
+                let pty_clone = state.inner().clone();
+                let pty_id_for_poll = pty_id.clone();
+                let pty_id_for_write = pty_id.clone();
+                let screen_state_clone = screen_state.inner().clone();
+                let provider_label = provider_id.clone();
+                tokio::spawn(async move {
+                    let ready = tokio::task::spawn_blocking(move || {
+                        crate::service::pty_io::poll_shell_prompt(
+                            &screen_state_clone, &pty_id_for_poll,
+                            std::time::Duration::from_secs(60),
+                        )
+                    }).await.unwrap_or(false);
+                    if !ready {
+                        log::warn!(
+                            "[restore-fresh] shell not ready for {} pane, skipping launch",
+                            provider_label
+                        );
+                        return;
+                    }
+                    log::info!("[restore-fresh] launching {} (no session): {}", provider_label, cmd);
+                    let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
+                    let _ = pty_clone.lock().write(&pty_id_for_write, paste.as_bytes());
+                });
+            }
         }
     }
 

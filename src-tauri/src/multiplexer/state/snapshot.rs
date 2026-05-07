@@ -112,7 +112,6 @@ impl MultiplexerState {
                         _ => if role.is_some() { TitleLevel::User } else { TitleLevel::Default },
                     };
                     // Deduplicate session_id: only the first pane claiming it wins.
-                    // Calculated up front so agent_type can mirror its presence.
                     let restored_session_id = claude_session_id.as_ref().and_then(|sid| {
                         if panes.values().any(|p| p.agent_session_id.as_deref() == Some(sid.as_str())) {
                             None
@@ -120,19 +119,14 @@ impl MultiplexerState {
                             Some(sid.clone())
                         }
                     });
-                    // Restore agent_type ONLY when a session_id survived. Without
-                    // a session there's no resume, so leaving agent_type set
-                    // would lie about a non-running agent. With a session, the
-                    // resume launcher needs the type to dispatch to the right
-                    // provider — claude/codex/opencode all have different CLIs.
-                    // Pre-fix, agent_type was always dropped → codex/opencode
-                    // panes silently resumed via claude (the default provider)
-                    // and bailed at session_exists.
-                    let restored_agent_type = if restored_session_id.is_some() {
-                        agent_type.clone()
-                    } else {
-                        None
-                    };
+                    // Always preserve agent_type. The spawn-on-mount path
+                    // (commands::pty::spawn_pty_for_pane) decides whether to
+                    // --resume (session_id present) or to launch a fresh
+                    // agent (session_id missing). Dropping agent_type here
+                    // turned every silent claude pane (spawned but never
+                    // talked to before kill) into a bare powershell on
+                    // restart — exactly the bug the user reported.
+                    let restored_agent_type = agent_type.clone();
                     panes.insert(pane_id.clone(), Pane {
                         id: pane_id.clone(),
                         pty_id: None,
