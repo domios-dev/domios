@@ -8,14 +8,14 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             let result = client.call("pane.list", None);
             handle_result(json, result);
         }
-        PaneAction::New { workspace, cwd, title } => {
+        PaneAction::New { workspace, cwd, title, cmd } => {
             let (base, token) = read_api_config();
             let http = build_http(&token);
             let mut body = serde_json::json!({});
             if let Some(w) = workspace { body["workspace_id"] = serde_json::Value::String(w); }
             if let Some(c) = cwd { body["cwd"] = serde_json::Value::String(c); }
             if let Some(t) = title { body["title"] = serde_json::Value::String(t); }
-            let result = http.post(format!("{}/api/panes", base))
+            let create_result = http.post(format!("{}/api/panes", base))
                 .json(&body)
                 .send()
                 .map_err(|e| e.to_string())
@@ -28,7 +28,26 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                         Err(format!("HTTP {}: {}", status.as_u16(), txt))
                     }
                 });
-            handle_result(json, result);
+
+            let final_result = match (create_result, cmd) {
+                (Ok(resp), Some(cmd_text)) => {
+                    let pane_id = resp.get("pane_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    if pane_id.is_empty() {
+                        Ok(resp)
+                    } else {
+                        let exec_url = format!("{}/api/panes/{}/exec", base, pane_id);
+                        let exec_body = serde_json::json!({"command": cmd_text});
+                        match http.post(&exec_url).json(&exec_body).send() {
+                            Ok(r) if r.status().is_success() => Ok(resp),
+                            Ok(r) => Err(format!("pane created (id={}) but --cmd failed: HTTP {}: {}",
+                                pane_id, r.status().as_u16(), r.text().unwrap_or_default())),
+                            Err(e) => Err(format!("pane created (id={}) but --cmd failed: {}", pane_id, e)),
+                        }
+                    }
+                }
+                (other, _) => other,
+            };
+            handle_result(json, final_result);
         }
         PaneAction::Current { last } => {
             let result = client.call("pane.list", None);

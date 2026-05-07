@@ -60,7 +60,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Pane { action } => match action {
             crate::PaneAction::List => ("GET".into(), "/api/panes".into(), None),
             crate::PaneAction::Current { .. } => ("GET".into(), "/api/panes".into(), None),
-            crate::PaneAction::New { workspace, cwd, title } => {
+            crate::PaneAction::New { workspace, cwd, title, cmd: _ } => {
                 let mut body = serde_json::json!({});
                 if let Some(w) = workspace { body["workspace_id"] = serde_json::Value::String(w.clone()); }
                 if let Some(c) = cwd { body["cwd"] = serde_json::Value::String(c.clone()); }
