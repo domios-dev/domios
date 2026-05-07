@@ -17,6 +17,35 @@ pub async fn list_panes(
     Ok(Json(result.into_json()))
 }
 
+#[derive(Deserialize)]
+pub struct CreateShellPaneBody {
+    pub workspace_id: Option<String>,
+    pub cwd: Option<String>,
+    pub title: Option<String>,
+}
+
+pub async fn create_shell_pane(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateShellPaneBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
+    let handle = state.svc.spawn_pane(SpawnPaneSpec {
+        workspace_id: body.workspace_id,
+        cwd: body.cwd,
+        title: body.title,
+        visibility: PaneVisibility::Visible,
+        command: PaneCommand::Shell,
+        ..Default::default()
+    }).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({
+        "pane_id": handle.pane_id,
+        "workspace_id": handle.workspace_id,
+        "tab_id": handle.tab_id,
+    })))
+}
+
 fn default_true() -> bool { true }
 
 #[derive(Deserialize)]
@@ -30,6 +59,10 @@ pub(crate) struct SendTextBody {
     /// Use for keystrokes that need to be interpreted by TUI (e.g. vim j/k navigation).
     #[serde(default)]
     raw: bool,
+    /// When `Some(true)` (or absent — default true), block until echo + submit
+    /// confirmed and report verified. `Some(false)` opts back into the
+    /// legacy fire-and-forget path.
+    verify: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -38,6 +71,19 @@ pub(crate) struct BatchCommand {
     #[serde(default = "default_true")]
     enter: bool,
     delay_ms: Option<u64>,
+}
+
+/// PTY init takes ~1-2s after agent_spawn returns; send-text fired
+/// immediately would otherwise hit "no PTY" unconditionally. Poll for
+/// the link with this short budget so a script can chain spawn → send.
+async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
+    for _ in 0..75 {
+        if state.svc.resolve_pty_id(pane_id).is_ok() {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    false
 }
 
 pub async fn send_text(
@@ -49,6 +95,10 @@ pub async fn send_text(
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
+    if !await_pty_link(&state, &pane_id).await {
+        return Err((StatusCode::NOT_FOUND, "Pane not found or PTY did not start within 3s"));
+    }
+
     if let Some(batch) = body.batch {
         let items: Vec<crate::service::pty_io::SendBatchItem> = batch.into_iter().map(|c| {
             crate::service::pty_io::SendBatchItem { text: c.text, enter: c.enter, delay_ms: c.delay_ms }
@@ -58,15 +108,40 @@ pub async fn send_text(
         return Ok(Json(serde_json::json!({"ok": true, "batch": true})));
     }
 
-    let text = body.text.unwrap_or_default();
     if body.raw {
-        let mut buf = text;
+        let mut buf = body.text.clone().unwrap_or_default();
         if body.enter && !buf.ends_with('\r') { buf.push('\r'); }
         state.svc.write_raw(&pane_id, buf.as_bytes())
             .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
+    let verify = body.verify.unwrap_or(true);
+    if verify {
+        let pty_id = state.svc.resolve_pty_id(&pane_id)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        let opts = crate::service::inject_verify::VerifyOpts::default();
+        let strategy = crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+            timeout: std::time::Duration::from_secs(10),
+        };
+        let text_owned = body.text.clone().unwrap_or_default();
+        return match state.svc.send_text_verified(&pty_id, &text_owned, body.enter, strategy, opts) {
+            Ok(r) => Ok(Json(serde_json::json!({
+                "ok": true,
+                "verified": true,
+                "echo_observed": r.echo_observed,
+                "submit_observed": r.submit_observed,
+                "elapsed_ms": r.elapsed.as_millis() as u64,
+            }))),
+            Err(e) => Ok(Json(serde_json::json!({
+                "ok": false,
+                "verified": false,
+                "error": format!("{}", e),
+            }))),
+        };
+    }
+
+    let text = body.text.unwrap_or_default();
     let cmd = crate::dispatch::Command::SendText { pane_id, text, enter: body.enter };
     let result = crate::dispatch::dispatch(&cmd, &state.svc)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
@@ -132,6 +207,10 @@ pub async fn exec_in_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
+
+    if !await_pty_link(&state, &pane_id).await {
+        return Err((StatusCode::NOT_FOUND, "Pane not found or PTY did not start within 3s"));
+    }
     let pty_id = state.svc.resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
 
@@ -371,6 +450,38 @@ pub(crate) struct GetTextQuery {
     formatted: bool,
 }
 
+pub async fn get_pane_usage(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
+
+    let (agent_type, session_id, cwd) = {
+        let mux = state.svc.mux.lock();
+        let pane = mux.get_pane(&pane_id)
+            .ok_or((StatusCode::NOT_FOUND, "Pane not found"))?;
+        (
+            pane.agent_type.clone(),
+            pane.agent_session_id.clone(),
+            pane.cwd.clone(),
+        )
+    };
+
+    let (Some(agent_type), Some(session_id), Some(cwd)) = (agent_type, session_id, cwd) else {
+        return Ok(Json(serde_json::json!({ "usage": serde_json::Value::Null })));
+    };
+
+    let usage = state
+        .svc
+        .agent_registry
+        .with_provider(&agent_type, |p| p.read_usage(&cwd, &session_id))
+        .flatten();
+
+    Ok(Json(serde_json::json!({ "usage": usage })))
+}
+
 pub async fn get_pane_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -521,5 +632,30 @@ mod tests_send_text_body {
     #[test]
     fn default_true_returns_true() {
         assert!(default_true());
+    }
+
+    #[test]
+    fn send_text_body_verify_defaults_to_none() {
+        let json = r#"{"text":"hi"}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.verify, None);
+        assert_eq!(body.verify.unwrap_or(true), true,
+            "absent verify resolves to verified=true (default policy)");
+    }
+
+    #[test]
+    fn send_text_body_verify_explicit_false() {
+        let json = r#"{"text":"hi","verify":false}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.verify, Some(false));
+        assert_eq!(body.verify.unwrap_or(true), false,
+            "explicit verify=false opts out of verified path");
+    }
+
+    #[test]
+    fn send_text_body_verify_explicit_true() {
+        let json = r#"{"text":"hi","verify":true}"#;
+        let body: SendTextBody = serde_json::from_str(json).unwrap();
+        assert_eq!(body.verify, Some(true));
     }
 }

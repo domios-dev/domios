@@ -156,7 +156,7 @@ pub async fn resume_session_api(
     };
     let spawned = state
         .svc
-        .spawn_agent(spawn_params)
+        .spawn_agent(spawn_params, None)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     state.svc.set_pane_agent_type(&spawned.pane_id, Some(meta.provider.clone()));

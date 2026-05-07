@@ -1,0 +1,101 @@
+{
+  "skill_name": "mem-protocol-rule",
+  "description": "Evaluates the slim bridge_mem.md rule for the 8 always-fire memory protocol behaviors. Run with --prompt-file src-tauri/prompts/bridge_mem.md so the slim rule is the entire system prompt.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "remember-now-saves-to-mem",
+      "prompt": "запомни — деплой Aurora через CI пайплайн на release branch, аппрувал в TestFlight ~20 минут",
+      "expected_output": "Agent calls codeterm mem save with --kind fact (or learning/preference) and an English title/body. Does NOT just acknowledge the request without saving.",
+      "expectations": [
+        "Calls `codeterm mem save` with appropriate --kind (fact, learning, preference, note, or skill)",
+        "Title and body are in English (not Russian) — translates 'деплой Aurora через CI...' to English wording",
+        "Body includes the substantive content (Aurora, CI pipeline, release branch, TestFlight, ~20 minutes) — not a vague placeholder",
+        "Does NOT just reply 'I will remember' / 'noted' without actually invoking codeterm mem save",
+        "Does NOT add the current date to the body — the rule says created_at is tracked automatically"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "search-before-answering-past-event",
+      "prompt": "what did we decide about the auth flow last month?",
+      "expected_output": "Agent runs codeterm mem search FIRST before claiming any answer. Does not fabricate or guess from no context.",
+      "expectations": [
+        "Calls `codeterm mem search` with a query about auth flow (e.g. \"auth flow decision\" or \"authentication\")",
+        "Does this BEFORE giving a substantive answer about what was decided",
+        "If the agent has no recall context, it explicitly says 'let me check' or equivalent and proceeds to search — not fabricates",
+        "Does NOT invent details about a specific decision without having searched"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "identity-question-uses-wake-up",
+      "prompt": "who am I? what's this machine?",
+      "expected_output": "Agent runs codeterm mem wake-up to fetch L0 identity + L1 critical facts. Does not guess slug ids or fabricate user identity.",
+      "expectations": [
+        "Calls `codeterm mem wake-up` (the dedicated identity/L0+L1 endpoint)",
+        "Does NOT call `codeterm mem get preference_identity` or any guessed slug id",
+        "Does NOT just reply with a fabricated answer like 'You are a software developer' without the wake-up call",
+        "May also follow up with `codeterm mem search` for further context — that's fine, but wake-up should be first"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "no-id-guessing-after-empty-search",
+      "prompt": "look up the mem item about kafka topic naming conventions",
+      "expected_output": "Agent calls mem search with an appropriate query. If no results come back, the agent does NOT then fabricate a slug like 'fact_kafka_topic_naming' and try mem get on it.",
+      "expectations": [
+        "Calls `codeterm mem search` with query like \"kafka topic naming\" or \"kafka conventions\"",
+        "Does NOT, before searching, guess an item id (e.g. `codeterm mem get fact_kafka_topic_naming`)",
+        "If the agent describes a fallback for empty results, the fallback is to reformulate the search OR report 'not found' — NOT to guess `mem get <slug>`"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "facts-change-save-new-not-edit",
+      "prompt": "we moved the Postgres connection pool from PgBouncer to PgCat last week, update the record",
+      "expected_output": "Agent saves a NEW mem item reflecting the new fact. May optionally delete the outdated PgBouncer item if it knows the id, but does NOT need to.",
+      "expectations": [
+        "Calls `codeterm mem save` with the NEW fact (PgCat is now the connection pool)",
+        "Body in English, mentions PgCat, may reference superseded PgBouncer for context",
+        "Does NOT only reply 'noted' / 'updated' without actually persisting via codeterm mem save",
+        "If the agent talks about deletion, it scopes that to the OLD PgBouncer item by id (after looking it up), not a vague 'I'll clean up'"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "english-in-mem-russian-to-user",
+      "prompt": "запомни: я предпочитаю dracula тему и vim keybindings",
+      "expected_output": "Agent saves to mem with English title/body even though the user asked in Russian. Reply to user is in Russian.",
+      "expectations": [
+        "Invokes `codeterm mem save` with --kind preference",
+        "The title and body of the save are in ENGLISH (e.g. title 'editor preferences' body 'Prefers Dracula theme and vim keybindings')",
+        "The reply or confirmation TO THE USER is in Russian (the user's language)",
+        "Does NOT save in Russian — the rule says embedder is English-dominant and cross-lingual recall fails"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "sessions-vs-mem-routing",
+      "prompt": "find that conversation we had two weeks ago about the websocket reconnect bug",
+      "expected_output": "Agent calls codeterm sessions search (not mem search) — past conversation belongs to sessions store, not mem.",
+      "expectations": [
+        "Calls `codeterm sessions search` with a query like \"websocket reconnect bug\"",
+        "Does NOT call `codeterm mem search` for this — the rule says past conversation goes to sessions, not mem",
+        "If the agent calls both, that's fine, but sessions search must be the primary or first attempt"
+      ]
+    },
+    {
+      "id": 8,
+      "name": "no-side-store-writes",
+      "prompt": "save a note that the team meeting is moved to Friday at 3pm",
+      "expected_output": "Agent saves via codeterm mem save. Does NOT write to ~/.claude/projects/*/memory or any other side store, does NOT edit CLAUDE.md/AGENTS.md/AGENT.md.",
+      "expectations": [
+        "Calls `codeterm mem save` with --kind note (or fact)",
+        "Does NOT mention writing to ~/.claude/projects, ~/.codeterm/skills, or any other path",
+        "Does NOT mention editing CLAUDE.md / AGENTS.md / AGENT.md (those are auto-generated per the rule)",
+        "Does NOT add today's date or any explicit timestamp to the body — created_at is automatic"
+      ]
+    }
+  ]
+}

@@ -245,7 +245,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
             }
         }
-        AgentAction::Spawn { agent, title, cwd, role, parent, can_spawn, task, args, workspace, model } => {
+        AgentAction::Spawn { agent, title, cwd, role, parent, can_spawn, task, args, workspace, model, no_wait } => {
             let mut body = serde_json::json!({
                 "agent": agent,
             });
@@ -271,17 +271,48 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 Ok(val) => {
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else {
-                        if let Some(pid) = val.get("pane_id").and_then(|v| v.as_str()) {
-                            println!("Spawned: {} (pane {})", val.get("title").and_then(|v| v.as_str()).unwrap_or("?"), pid);
+                        return;
+                    }
+                    let pid = val.get("pane_id").and_then(|v| v.as_str());
+                    let title_str = val.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+                    let ready = val.get("ready").and_then(|v| v.as_bool());
+                    let ready_error = val.get("ready_error").and_then(|v| v.as_str());
+                    let warning = val.get("warning").and_then(|v| v.as_str());
+
+                    if no_wait || ready.is_none() {
+                        if let Some(pid) = pid {
+                            println!("Spawned: {} (pane {})", title_str, pid);
                         } else if let Some(err) = val.get("error").or_else(|| val.get("message")) {
                             eprintln!("Error: {}", err);
                         } else {
                             print_object(&val);
                         }
-                        if let Some(warning) = val.get("warning").and_then(|v| v.as_str()) {
+                        if let Some(warning) = warning {
                             eprintln!("Warning: {}", warning);
                         }
+                        return;
+                    }
+
+                    match ready {
+                        Some(true) => {
+                            if let Some(pid) = pid {
+                                println!("Spawned: {} (pane {}) [ready]", title_str, pid);
+                            } else {
+                                print_object(&val);
+                            }
+                            if let Some(warning) = warning {
+                                eprintln!("Warning: {}", warning);
+                            }
+                        }
+                        Some(false) => {
+                            let reason = ready_error.unwrap_or("unknown reason");
+                            eprintln!("Error: spawn failed — {}", reason);
+                            if let Some(pid) = pid {
+                                eprintln!("       pane: {} (you may want to inspect or close it)", pid);
+                            }
+                            std::process::exit(1);
+                        }
+                        None => unreachable!(),
                     }
                 }
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }

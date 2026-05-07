@@ -48,6 +48,52 @@ Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-d
 
 Full testing guide (3 layers, remote E2E, fixtures): `docs/TESTING.md`.
 
+## Bench safety: NEVER call raw `codeterm` against dev — use the lib
+
+When iterating on behaviour benches under `evals/<name>/`, the
+orchestrator usually runs in a Claude pane **inside prod codeterm**.
+That parent pane exports `CODETERM_API_PORT=7685` and a prod socket
+path. A bare `codeterm <subcommand>` in any bench shell inherits
+that env and silently dispatches to **prod**, not dev. If the dev
+daemon also happens to be down at that moment, the CLI's
+socket-discovery falls back to the prod pipe — same outcome.
+
+**Always** source the bench lib first and use its `dc` wrapper:
+
+```bash
+source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
+dc workspace list           # locked to dev — fails with exit 7 if dev is down
+```
+
+Sourcing the lib auto-calls `dev_env` (port 7686 + dev token + dev
+socket pipe). The `dc` function asserts dev is alive on every call
+before invoking the CLI, and re-exports the dev env-vars into the
+CLI's process so a leaked parent var can't override it. HTTP
+helpers in the lib (`dev_get`, `dev_post`) are hardcoded to
+`http://127.0.0.1:7686` for the same reason.
+
+Hard rule: **no bench script under `evals/` may invoke `codeterm`
+directly.** Use `dc`. If you really need a prod-targeted CLI call,
+do it explicitly outside the bench machinery, after a clear
+"this is prod" log line — never inside an automated drill.
+
+## Behaviour benches — `evals/`
+
+Behavioural changes (system prompts, session restore semantics, mem
+recall quality, agent routing) are verified with bench scripts under
+`evals/<name>/`. Existing sets:
+
+- `evals/general-agent/` — General Agent prompt behaviour (21 cases, A/B via `prompt-evaluator` skill)
+- `evals/mem-recall/` — mem search engine quality (Recall@K / MRR)
+- `evals/mem-protocol/` — slim `bridge_mem.md` rule fires the right protocol calls
+- `evals/session-restore/` — kill+restart preserves workspace/pane/agent_type metadata; UI-mount step manual
+
+**Before changing behaviour, find the matching eval set and run it
+first to capture the baseline. Extend the eval set if a new scenario
+isn't covered. Don't ship behavioural changes without a bench unless
+the change is a hardcoded constant tweak.** Each `evals/<name>/`
+folder has a README explaining how to run.
+
 ## Lock ordering (deadlock prevention)
 
 Acquire in order, drop before awaiting. parking_lot is **not reentrant** — `mux.lock()` inside `mux.lock()` deadlocks.

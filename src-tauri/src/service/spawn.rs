@@ -149,9 +149,17 @@ impl SpawnPaneSpec {
 
 impl ServiceContext {
     pub fn spawn_pane(&self, spec: SpawnPaneSpec) -> Result<PaneHandle, String> {
+        self.spawn_pane_with_ready(spec, None)
+    }
+
+    pub fn spawn_pane_with_ready(
+        &self,
+        spec: SpawnPaneSpec,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<PaneHandle, String> {
         match (&spec.visibility, &spec.command) {
             (PaneVisibility::Visible, PaneCommand::Agent(_)) => {
-                self.spawn_visible_agent_impl(spec)
+                self.spawn_visible_agent_impl(spec, ready_tx)
             }
             (PaneVisibility::Hidden, PaneCommand::Agent(_)) => {
                 self.spawn_hidden_agent_impl(spec)
@@ -166,6 +174,7 @@ impl ServiceContext {
     pub(crate) fn spawn_visible_agent_impl(
         &self,
         spec: SpawnPaneSpec,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<PaneHandle, String> {
         let agent = match &spec.command {
             PaneCommand::Agent(a) => a.clone(),
@@ -308,6 +317,7 @@ impl ServiceContext {
             launch_cmd,
             agent_cmd.clone(),
             role_suffixed_task,
+            ready_tx,
         );
 
         Ok(PaneHandle {
@@ -646,8 +656,17 @@ impl ServiceContext {
                 .with_provider(&provider, |p| p.build_launch_command(&launch_params))
                 .unwrap_or_else(|| format!("{} --dangerously-skip-permissions", provider));
 
-            if let Err(e) = svc_outer.send_text(&pane_id_outer, &launch_cmd, true) {
-                log::error!("[spawn.hidden] send launch cmd: {}", e);
+            match svc_outer.resolve_pty_id(&pane_id_outer) {
+                Ok(pty_id) => {
+                    let opts = crate::service::inject_verify::VerifyOpts::default();
+                    let strategy = crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+                        timeout: std::time::Duration::from_secs(15),
+                    };
+                    if let Err(e) = svc_outer.send_text_verified(&pty_id, &launch_cmd, true, strategy, opts) {
+                        log::error!("[spawn.hidden] verified launch cmd failed: {}", e);
+                    }
+                }
+                Err(e) => log::error!("[spawn.hidden] no pty for pane {}: {}", pane_id_outer, e),
             }
             log::debug!(
                 "[spawn.hidden] agent launched pane={} provider={}",
