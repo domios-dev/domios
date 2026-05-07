@@ -26,6 +26,7 @@ pub const MEM_PARENT_SUBCMD: &str = "mem";
 pub const RUN_WORKER_SUBCMD: &str = "run-worker";
 pub const KIND_DREAMING_LIGHT: &str = "dreaming-light";
 pub const KIND_DREAMING_DEEP: &str = "dreaming-deep";
+pub const KIND_DREAMING_NORMALIZE: &str = "dreaming-normalize";
 pub const KIND_LIBRARIAN_ONCE: &str = "librarian-once";
 pub const DB_PATH_FLAG: &str = "--db-path";
 
@@ -33,6 +34,7 @@ pub const DB_PATH_FLAG: &str = "--db-path";
 pub enum WorkerKind {
     DreamingLight,
     DreamingDeep,
+    DreamingNormalize,
     LibrarianOnce,
 }
 
@@ -41,12 +43,13 @@ impl WorkerKind {
         match self {
             Self::DreamingLight => KIND_DREAMING_LIGHT,
             Self::DreamingDeep => KIND_DREAMING_DEEP,
+            Self::DreamingNormalize => KIND_DREAMING_NORMALIZE,
             Self::LibrarianOnce => KIND_LIBRARIAN_ONCE,
         }
     }
 
-    pub fn all() -> [WorkerKind; 3] {
-        [Self::DreamingLight, Self::DreamingDeep, Self::LibrarianOnce]
+    pub fn all() -> [WorkerKind; 4] {
+        [Self::DreamingLight, Self::DreamingDeep, Self::DreamingNormalize, Self::LibrarianOnce]
     }
 }
 
@@ -449,11 +452,13 @@ mod tests {
         assert_eq!(RUN_WORKER_SUBCMD, "run-worker");
         assert_eq!(KIND_DREAMING_LIGHT, "dreaming-light");
         assert_eq!(KIND_DREAMING_DEEP, "dreaming-deep");
+        assert_eq!(KIND_DREAMING_NORMALIZE, "dreaming-normalize");
         assert_eq!(KIND_LIBRARIAN_ONCE, "librarian-once");
         assert_eq!(DB_PATH_FLAG, "--db-path");
 
         assert_eq!(WorkerKind::DreamingLight.as_arg(), KIND_DREAMING_LIGHT);
         assert_eq!(WorkerKind::DreamingDeep.as_arg(), KIND_DREAMING_DEEP);
+        assert_eq!(WorkerKind::DreamingNormalize.as_arg(), KIND_DREAMING_NORMALIZE);
         assert_eq!(WorkerKind::LibrarianOnce.as_arg(), KIND_LIBRARIAN_ONCE);
     }
 

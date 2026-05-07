@@ -171,8 +171,12 @@ pub enum MemAction {
         #[arg(long)]
         title: Option<String>,
     },
-    /// Run dreaming consolidation (light + deep phases)
-    Dream,
+    /// Run dreaming consolidation. Phases: light, deep, normalize, all (default).
+    Dream {
+        /// Which phase to run: light | deep | normalize | all
+        #[arg(long, default_value = "all")]
+        phase: String,
+    },
     /// Trigger file sync for source-tracked items (Librarian)
     Sync {
         /// Sync one file by path
@@ -195,7 +199,7 @@ pub enum MemAction {
     /// or librarian cannot take the API down.
     #[clap(name = "run-worker")]
     RunWorker {
-        /// Which phase to run: dreaming-light | dreaming-deep | librarian-once
+        /// Which phase to run: dreaming-light | dreaming-deep | dreaming-normalize | librarian-once
         kind: String,
         /// Override the path to knowledge.db. Defaults to the same data dir
         /// the CLI uses elsewhere (`~/.codeterm/mem/knowledge.db` for prod,
