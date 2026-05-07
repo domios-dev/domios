@@ -64,6 +64,17 @@ impl ServiceContext {
 
     /// Verified text injection. Holds NO ScreenState lock across the helper
     /// calls; callers must not hold mux / output_buf when invoking this.
+    ///
+    /// **Delivery is always best-effort: if `enter` is true, Enter (`\r`) is
+    /// written to the PTY UNCONDITIONALLY after the bracket-paste payload.**
+    /// Echo and submit verification are reporting fields on `InjectionResult`,
+    /// not gates: a verify-timeout returns `Ok(... echo_observed: false ...)`
+    /// rather than an error, and Enter still fires. This is the design fix for
+    /// the long-standing bug where an echo-verify timeout (e.g. paste-placeholder
+    /// matching, scroll-out, or TUIs that take >3s to render) caused Enter to
+    /// be skipped entirely, leaving the recipient stuck in paste-mode forever.
+    /// Hard errors are reserved for situations that genuinely prevent delivery
+    /// (PTY closed, prompt never became ready when the caller required it).
     pub fn send_text_verified(
         &self,
         pty_id: &str,
@@ -97,32 +108,41 @@ impl ServiceContext {
             .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
         let bytes_written = paste.len();
 
+        // Echo verify: informational only. Timeout means we couldn't confirm,
+        // not that the paste failed. PtyUnknown is the only real failure here
+        // and surfaces as PtyClosed.
         let echo_observed = if opts.verify_echo {
             match wait_for_echo(&self.screen_state, pty_id, text, opts.echo_timeout, tail_rows) {
                 Ok(_) => true,
                 Err(HelperErr::PtyUnknown(id)) => {
                     return Err(InjectionError::PtyClosed { pty_id: id });
                 }
-                Err(HelperErr::Timeout(tail)) => {
-                    return Err(InjectionError::EchoMismatch {
-                        expected_substr: text.chars().take(80).collect(),
-                        screen_tail: tail.chars().take(400).collect(),
-                    });
+                Err(HelperErr::Timeout(_)) => {
+                    log::debug!(
+                        "echo verify timed out for pty {} (text len={}); proceeding to submit Enter anyway",
+                        pty_id,
+                        text.len()
+                    );
+                    false
                 }
             }
         } else {
             false
         };
 
+        // Enter ALWAYS fires when the caller asked for it. This is the
+        // load-bearing line — no early-return above this point can skip it
+        // unless the PTY is already gone.
         let submit_observed = if enter {
             // Brief settle: TUIs (claude/codex/opencode) buffer bracket paste async;
-            // a same-instant \r can be eaten. Echo verify already proved arrival.
+            // a same-instant \r can be eaten.
             std::thread::sleep(std::time::Duration::from_millis(120));
             self.pty
                 .lock()
                 .write(pty_id, b"\r")
                 .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
 
+            // Submit verify: also informational. Timeout no longer aborts.
             if opts.verify_submit {
                 let res = match submit_strategy {
                     VerifySubmitStrategy::ShellPrompt { timeout } => wait_for_submit_shell(
@@ -149,11 +169,12 @@ impl ServiceContext {
                     Err(HelperErr::PtyUnknown(id)) => {
                         return Err(InjectionError::PtyClosed { pty_id: id });
                     }
-                    Err(HelperErr::Timeout(tail)) => {
-                        return Err(InjectionError::SubmitNeverConfirmed {
-                            waited: started.elapsed(),
-                            screen_tail: tail.chars().take(400).collect(),
-                        });
+                    Err(HelperErr::Timeout(_)) => {
+                        log::debug!(
+                            "submit verify timed out for pty {}; Enter was sent, recipient may still be processing",
+                            pty_id
+                        );
+                        false
                     }
                 }
             } else {
