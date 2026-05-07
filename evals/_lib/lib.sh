@@ -233,19 +233,47 @@ for w in json.load(sys.stdin):
 
 # Reset dev to a clean baseline: closes every non-protected workspace
 # (i.e. everything except General). Use at the START of a bench when
-# the test isn't about restoring prior state — guarantees the next
-# 'create + kill + restart' sequence starts from one workspace, not
-# from 6 leftover test workspaces from the last run.
+# the test isn't about restoring prior state.
+#
+# Two paths:
+#   - reset_dev_state (light) — close via HTTP, with retries. Fast
+#     when there's only a couple of leftover workspaces. Hits a
+#     known backend bug where back-to-back close of *restored*
+#     workspaces (PTYs already killed by the restart) intermittently
+#     returns dropped connections; the retry loop covers the gap.
+#   - reset_dev_state_hard (nuclear) — kills the daemon, blanks
+#     last.json, restarts. Guarantees a single-workspace baseline
+#     (just General) regardless of what state the daemon was in.
+#     Use when the bench's `pre` snapshot count must be exact.
 reset_dev_state() {
-  dev_get /api/workspaces | python -c "
+  local pass max_pass=4
+  for pass in $(seq 1 $max_pass); do
+    local ids
+    ids=$(dev_get /api/workspaces | python -c "
 import json, sys
 for w in json.load(sys.stdin):
     if not w.get('protected', False):
         print(w['id'])
-" | while read -r id; do
-    [ -n "$id" ] || continue
-    dc workspace close "$id" > /dev/null 2>&1
+")
+    [ -z "$ids" ] && return 0
+    for id in $ids; do
+      [ -n "$id" ] || continue
+      dev_post "/api/workspaces/$id/close" > /dev/null 2>&1
+      sleep 0.3
+    done
   done
+}
+
+# Nuclear reset — kills dev, removes last.json (so restart can't
+# restore old workspaces), restarts dev, waits for ready. Ends with
+# exactly one workspace (General). Slow (~30s) but bulletproof.
+reset_dev_state_hard() {
+  dev_kill_hard
+  rm -f "$(python -c "import os; print(os.path.join(os.path.expanduser('~'), '.codeterm-dev', 'sessions', 'last.json'))")"
+  rm -rf "$(python -c "import os; print(os.path.join(os.path.expanduser('~'), '.codeterm-dev', 'sessions', 'backups'))")"
+  dev_start_bg
+  dev_wait_ready 180
+  sleep 3
 }
 
 # Sanity check the on-disk session file is well-formed and that no

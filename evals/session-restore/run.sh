@@ -8,8 +8,8 @@ source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
 dev_env || exit 1
 dev_alive || { echo "ERROR: dev not running. Start it: ./build.sh dev" >&2; exit 1; }
 
-echo "== reset dev to clean baseline (close all non-protected workspaces)"
-reset_dev_state
+echo "== reset dev HARD (kill, blank last.json, restart) for guaranteed clean baseline"
+reset_dev_state_hard
 
 echo "== create 6 scenarios"
 WS_E=$(new_workspace WS-empty C:/temp/restore-WS-empty)
