@@ -242,9 +242,36 @@ fn handle_connection(
                 let response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
                     Ok(req) => {
                         let id = req.id.clone();
-                        match dispatch(&req.method, req.params, mux, pty, notif, app, output_buf, svc) {
-                            Ok(result) => JsonRpcResponse::success(id, result),
-                            Err(err) => JsonRpcResponse::error(id, err.code, err.message),
+                        let id_for_panic = id.clone();
+                        let method = req.method.clone();
+                        // catch_unwind so a panic inside any dispatch handler does not
+                        // silently drop the socket and leave the CLI with an "EOF while
+                        // parsing" mystery. We surface a real JSON-RPC error instead.
+                        let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            dispatch(&req.method, req.params, mux, pty, notif, app, output_buf, svc)
+                        }));
+                        match dispatched {
+                            Ok(Ok(result)) => JsonRpcResponse::success(id, result),
+                            Ok(Err(err)) => JsonRpcResponse::error(id, err.code, err.message),
+                            Err(panic) => {
+                                let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                                    (*s).to_string()
+                                } else if let Some(s) = panic.downcast_ref::<String>() {
+                                    s.clone()
+                                } else {
+                                    "non-string panic payload".to_string()
+                                };
+                                log::error!(
+                                    "JSON-RPC dispatch panicked for method '{}': {}",
+                                    method,
+                                    panic_msg
+                                );
+                                JsonRpcResponse::error(
+                                    id_for_panic,
+                                    -32603,
+                                    format!("internal panic in '{}': {}", method, panic_msg),
+                                )
+                            }
                         }
                     }
                     Err(e) => JsonRpcResponse::error(
