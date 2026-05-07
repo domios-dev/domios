@@ -30,6 +30,7 @@ impl MultiplexerState {
             hidden: false,
             show_in_tabbar: true,
             worker_id: None,
+            restored_from_snapshot: false,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
@@ -63,6 +64,7 @@ impl MultiplexerState {
             hidden: false,
             show_in_tabbar: true,
             worker_id: None,
+            restored_from_snapshot: false,
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
