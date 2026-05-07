@@ -5,6 +5,53 @@ export interface PasteOptions {
   skipText?: boolean;
 }
 
+export function looksLikeAbsolutePath(s: string): boolean {
+  const t = s.trim();
+  return /^([A-Za-z]:[\\/]|\/|~\/)/.test(t) && !t.includes("\n") && t.length < 1000;
+}
+
+export function fileUriToPath(uri: string): string | null {
+  if (!uri.startsWith("file://")) return null;
+  let raw = uri.slice("file://".length);
+  if (raw.startsWith("/")) {
+    const afterSlash = raw.slice(1);
+    if (/^[A-Za-z]:[\\/]/.test(afterSlash)) raw = afterSlash;
+  }
+  try {
+    return decodeURI(raw);
+  } catch {
+    return raw;
+  }
+}
+
+// Extracts real file paths the OS attached to the clipboard alongside a
+// possibly-bogus image preview. Without this, macOS Cmd+C of a Finder file
+// followed by Cmd+V gives a 1024x1024 placeholder PNG via getAsFile().
+export function extractFilePathsFromClipboard(cd: DataTransfer): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const uriList = cd.getData("text/uri-list");
+  if (uriList) {
+    for (const line of uriList.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const p = fileUriToPath(trimmed) ?? (looksLikeAbsolutePath(trimmed) ? trimmed.trim() : null);
+      if (p && !seen.has(p)) { seen.add(p); out.push(p); }
+    }
+  }
+
+  if (out.length === 0) {
+    const plain = cd.getData("text/plain");
+    if (plain && looksLikeAbsolutePath(plain)) {
+      const p = plain.trim();
+      if (!seen.has(p)) { seen.add(p); out.push(p); }
+    }
+  }
+
+  return out;
+}
+
 export function quotePathForPaste(p: string): string {
   if (!/[\s"'$`!<>|&;()*?#~]/.test(p)) return p;
   if (!p.includes("'")) return `'${p}'`;
