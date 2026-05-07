@@ -104,12 +104,27 @@ impl SocketClient {
 
         // Read response line
         let mut line = String::new();
-        self.reader
+        let bytes_read = self
+            .reader
             .read_line(&mut line)
             .map_err(|e| format!("Read error: {}", e))?;
 
-        let resp: JsonRpcResponse =
-            serde_json::from_str(line.trim()).map_err(|e| format!("Parse response error: {}", e))?;
+        if bytes_read == 0 || line.trim().is_empty() {
+            return Err(format!(
+                "daemon closed the socket without responding to '{}' (read {} bytes). \
+                 The server-side handler may have panicked during dispatch, or the daemon \
+                 restarted mid-request. Retry usually clears it; if it persists, check daemon logs.",
+                method, bytes_read
+            ));
+        }
+
+        let resp: JsonRpcResponse = serde_json::from_str(line.trim()).map_err(|e| {
+            let preview: String = line.chars().take(200).collect();
+            format!(
+                "malformed JSON-RPC response from daemon for '{}' ({} bytes, first 200 chars: {:?}): {}",
+                method, line.len(), preview, e
+            )
+        })?;
 
         if let Some(err) = resp.error {
             return Err(format!("RPC error {}: {}", err.code, err.message));
