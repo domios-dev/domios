@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import logoUrl from "../../assets/logo.png";
 import { Group, Toggle, InfoRow, AboutLink } from "./shared";
 import { KeybindGroup } from "./KeybindGroup";
 import { UpdateSection } from "./UpdateSection";
@@ -502,7 +503,7 @@ export function SettingsPanel({
               <div className="max-w-2xl mx-auto space-y-6">
                 {/* Logo + tagline */}
                 <div className="text-center py-4">
-                  <img src="/assets/logo.png" alt="CodeTerm" width="64" height="64" className="rounded-xl mb-3 mx-auto" />
+                  <img src={logoUrl} alt="CodeTerm" width="64" height="64" className="rounded-xl mb-3 mx-auto" />
                   <div className="text-xl font-bold text-[var(--ct-fg)]">CodeTerm</div>
                   <div className="text-xs text-[var(--ct-muted-fg)] mt-1">AI-first terminal multiplexer</div>
                 </div>

@@ -139,6 +139,8 @@ pub fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
     }
     reqwest::blocking::Client::builder()
         .default_headers(headers)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(60))
         .build()
         .unwrap_or_else(|_| reqwest::blocking::Client::new())
 }
@@ -161,16 +163,15 @@ pub use args::misc::{WorkspaceAction, PaneAction, BrowserAction, NotificationAct
 /// Returns Err(reason) if the text matches a known mangled-shell pattern. The
 /// caller surfaces a hint pointing at --from-file / --from-stdin.
 fn guard_against_shell_mangle(text: &str) -> Result<(), String> {
-    // Patterns that virtually never appear in legitimate user-typed messages
-    // but do appear when bash's "command not found" stderr leaks into stdin.
     const SUSPICIOUS: &[&str] = &[
         ": command not found",
         "/usr/bin/bash: line ",
         "bash: line ",
         "syntax error near unexpected token",
     ];
+    let scrubbed = strip_fenced_code_blocks(text);
     for needle in SUSPICIOUS {
-        if text.contains(needle) {
+        if scrubbed.contains(needle) {
             return Err(format!(
                 "send-text payload looks shell-mangled (matched marker: {:?})",
                 needle
@@ -178,6 +179,56 @@ fn guard_against_shell_mangle(text: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Handles the response from `pane.send_text`, branching on the verified
+/// fields surfaced by Bundle E. Falls back to the legacy printer when the
+/// response shape lacks `verified` (older daemon, batch/raw mode).
+fn handle_send_text_result(json: bool, result: Result<serde_json::Value, String>) {
+    match result {
+        Ok(value) => {
+            if json {
+                println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                return;
+            }
+            if let Some(verified) = value.get("verified").and_then(|v| v.as_bool()) {
+                if verified {
+                    let elapsed = value.get("elapsed_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let echo = value.get("echo_observed").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let submit = value.get("submit_observed").and_then(|v| v.as_bool()).unwrap_or(false);
+                    println!("OK (verified in {}ms; echo={}, submit={})", elapsed, echo, submit);
+                } else {
+                    let err = value.get("error").and_then(|v| v.as_str()).unwrap_or("verification failed");
+                    eprintln!("Error: {}", err);
+                    std::process::exit(2);
+                }
+                return;
+            }
+            print_human(&value);
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Removes the contents of all triple-backtick fenced code blocks from
+/// `text`, leaving the surrounding prose.
+fn strip_fenced_code_blocks(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut in_block = false;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            in_block = !in_block;
+            continue;
+        }
+        if !in_block {
+            out.push_str(line);
+        }
+    }
+    out
 }
 
 /// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
@@ -230,6 +281,10 @@ fn main() {
                  (vault peer), or design a trust model first."
             );
             std::process::exit(7);
+        }
+        if matches!(cli.command, Commands::Bridge { action: BridgeAction::Migrate { .. } }) {
+            eprintln!("Error: bridge migrate must run locally on the source machine, not via --mesh.");
+            std::process::exit(6);
         }
         mesh_cli::run_via_mesh(&cli, mesh_target);
         return;
@@ -402,7 +457,7 @@ fn main() {
             }
         }
 
-        Commands::SendText { pane, text, from_file, from_stdin } => {
+        Commands::SendText { pane, text, from_file, from_stdin, no_wait } => {
             let (resolved_text, source) = if from_stdin {
                 use std::io::Read;
                 let mut buf = String::new();
@@ -440,10 +495,16 @@ fn main() {
                 std::process::exit(2);
             }
             let pane_id = resolve_pane(&mut client, pane);
-            client.call(
-                "pane.send_text",
-                Some(serde_json::json!({ "pane_id": pane_id, "text": resolved_text })),
-            )
+            let mut params = serde_json::json!({
+                "pane_id": pane_id,
+                "text": resolved_text,
+            });
+            if no_wait {
+                params["verify"] = serde_json::json!(false);
+            }
+            let result = client.call("pane.send_text", Some(params));
+            handle_send_text_result(cli.json, result);
+            return;
         }
 
         Commands::Notify { title, body, level } => {
@@ -454,49 +515,10 @@ fn main() {
             client.call("notification.create", Some(params))
         }
 
-        Commands::Bridge { action } => match action {
-            BridgeAction::Restart => {
-                client.call("bridge.restart", None)
-            }
-            BridgeAction::Send { text, service, to, append, r#type, file, caption, filename, buttons } => {
-                let mut params = serde_json::json!({
-                    "service": service,
-                    "chat_id": to,
-                    "type": r#type,
-                    "append": append,
-                });
-                if let Some(t) = text {
-                    params["text"] = serde_json::Value::String(t);
-                }
-                if let Some(f) = file {
-                    params["file"] = serde_json::Value::String(f);
-                }
-                if let Some(c) = caption {
-                    params["caption"] = serde_json::Value::String(c);
-                }
-                if let Some(n) = filename {
-                    params["filename"] = serde_json::Value::String(n);
-                }
-                if let Some(b) = buttons {
-                    // Parse buttons JSON
-                    match serde_json::from_str::<serde_json::Value>(&b) {
-                        Ok(v) => { params["buttons"] = v; }
-                        Err(e) => {
-                            eprintln!("Invalid buttons JSON: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                client.call("bridge.send", Some(params))
-            }
-            BridgeAction::React { to, message_id, emoji } => {
-                client.call("bridge.react", Some(serde_json::json!({
-                    "chat_id": to,
-                    "message_id": message_id,
-                    "emoji": emoji,
-                })))
-            }
-        },
+        Commands::Bridge { action } => {
+            cmd::bridge::handle_bridge(&mut client, cli.json, action);
+            return;
+        }
 
         Commands::Notifications { action, unread } => match action {
             Some(NotificationAction::Clear) => client.call("notification.clear", None),
@@ -698,6 +720,32 @@ mod send_text_guard_tests {
     fn syntax_error_rejected() {
         let payload = "bash: -c: line 1: syntax error near unexpected token `('";
         assert!(guard_against_shell_mangle(payload).is_err());
+    }
+
+    #[test]
+    fn guard_ignores_marker_inside_fenced_code_block() {
+        let payload = "Here is the repro:\n```\npunset: command not found\n```\nEnd.";
+        assert!(guard_against_shell_mangle(payload).is_ok());
+    }
+
+    #[test]
+    fn guard_still_fires_on_marker_outside_code_block() {
+        let payload = "this is just /usr/bin/bash: line 5: foo not in a code block";
+        assert!(guard_against_shell_mangle(payload).is_err());
+    }
+
+    #[test]
+    fn guard_handles_unterminated_fence_safely() {
+        // Unterminated fence treats the rest as code-block — better to skip a
+        // potentially-spurious guard than reject legitimate content.
+        let payload = "```\n: command not found\nstill open\n";
+        assert!(guard_against_shell_mangle(payload).is_ok());
+    }
+
+    #[test]
+    fn guard_with_multiple_fences_strips_only_inside() {
+        let payload = "outside ok\n```\n: command not found\n```\nbetween\n```\nbash: line 1: x\n```\ntrailing";
+        assert!(guard_against_shell_mangle(payload).is_ok());
     }
 }
 

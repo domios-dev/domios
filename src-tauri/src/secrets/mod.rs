@@ -286,6 +286,17 @@ pub trait SecretStore: Send + Sync {
     async fn search(&self, query: &str) -> Result<Vec<SecretRef>, SecretError>;
     async fn delete(&self, name_or_id: &str) -> Result<(), SecretError>;
 
+    /// Metadata-only existence check. Backends should override with a path
+    /// that does NOT decrypt the value — UI status polling must not trigger
+    /// vault prompts, network round-trips, or "secret accessed" audit logs.
+    async fn has(&self, name_or_id: &str) -> Result<bool, SecretError> {
+        match self.get(name_or_id).await {
+            Ok(_) => Ok(true),
+            Err(SecretError::NotFound) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     async fn organizations(&self) -> Result<Vec<OrganizationRef>, SecretError> {
         Ok(Vec::new())
     }
@@ -432,5 +443,121 @@ mod tests {
     #[test]
     fn build_active_store_mock_still_available_for_tests() {
         assert_eq!(build_active_store(&cfg_with("mock")).id(), "mock");
+    }
+
+    struct GetOnlyStore {
+        present: bool,
+        get_calls: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl SecretStore for GetOnlyStore {
+        fn id(&self) -> &'static str {
+            "get-only-test"
+        }
+        async fn status(&self) -> StoreStatus {
+            StoreStatus::Unlocked {
+                user: None,
+                transient: true,
+                endpoint: None,
+            }
+        }
+        async fn unlock(&self, _: UnlockCredentials) -> Result<(), SecretError> {
+            Ok(())
+        }
+        async fn lock(&self) -> Result<(), SecretError> {
+            Ok(())
+        }
+        async fn logout(&self) -> Result<(), SecretError> {
+            Ok(())
+        }
+        async fn save(&self, _: SaveRequest) -> Result<SecretRef, SecretError> {
+            Err(SecretError::BadRequest {
+                message: "unsupported".into(),
+            })
+        }
+        async fn get(&self, name_or_id: &str) -> Result<SecretValue, SecretError> {
+            self.get_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.present {
+                Ok(SecretValue {
+                    item_id: "id-1".into(),
+                    name: name_or_id.into(),
+                    value: SecretString::from("v"),
+                    notes: None,
+                })
+            } else {
+                Err(SecretError::NotFound)
+            }
+        }
+        async fn list(&self, _: ListFilter) -> Result<Vec<SecretRef>, SecretError> {
+            Ok(Vec::new())
+        }
+        async fn search(&self, _: &str) -> Result<Vec<SecretRef>, SecretError> {
+            Ok(Vec::new())
+        }
+        async fn delete(&self, _: &str) -> Result<(), SecretError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn default_has_impl_returns_true_for_existing_item() {
+        let store = GetOnlyStore {
+            present: true,
+            get_calls: std::sync::atomic::AtomicUsize::new(0),
+        };
+        assert_eq!(store.has("anything").await.unwrap(), true);
+        assert_eq!(store.get_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn default_has_impl_returns_false_for_not_found() {
+        let store = GetOnlyStore {
+            present: false,
+            get_calls: std::sync::atomic::AtomicUsize::new(0),
+        };
+        assert_eq!(store.has("missing").await.unwrap(), false);
+        assert_eq!(store.get_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn default_has_impl_propagates_other_errors() {
+        struct LockedStore;
+        #[async_trait]
+        impl SecretStore for LockedStore {
+            fn id(&self) -> &'static str {
+                "locked-test"
+            }
+            async fn status(&self) -> StoreStatus {
+                StoreStatus::Locked { endpoint: None }
+            }
+            async fn unlock(&self, _: UnlockCredentials) -> Result<(), SecretError> {
+                Ok(())
+            }
+            async fn lock(&self) -> Result<(), SecretError> {
+                Ok(())
+            }
+            async fn logout(&self) -> Result<(), SecretError> {
+                Ok(())
+            }
+            async fn save(&self, _: SaveRequest) -> Result<SecretRef, SecretError> {
+                Err(SecretError::Locked)
+            }
+            async fn get(&self, _: &str) -> Result<SecretValue, SecretError> {
+                Err(SecretError::Locked)
+            }
+            async fn list(&self, _: ListFilter) -> Result<Vec<SecretRef>, SecretError> {
+                Err(SecretError::Locked)
+            }
+            async fn search(&self, _: &str) -> Result<Vec<SecretRef>, SecretError> {
+                Err(SecretError::Locked)
+            }
+            async fn delete(&self, _: &str) -> Result<(), SecretError> {
+                Err(SecretError::Locked)
+            }
+        }
+        let store = LockedStore;
+        assert!(matches!(store.has("k").await, Err(SecretError::Locked)));
     }
 }

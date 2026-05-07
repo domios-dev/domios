@@ -18,7 +18,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             let p = pane.as_deref().unwrap_or("general");
             ("GET".into(), format!("/api/panes/{}/output?lines={}&strip_ansi=true", p, lines), None)
         }
-        Commands::SendText { text, pane, from_file, from_stdin } => {
+        Commands::SendText { text, pane, from_file, from_stdin, no_wait } => {
             let p = pane.as_deref().unwrap_or("general");
             let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
             let body_text = if *from_stdin {
@@ -40,8 +40,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 eprintln!("      try --from-file <path> with a real tempfile.");
                 std::process::exit(2);
             }
-            ("POST".into(), format!("/api/panes/{}/send", p),
-                Some(serde_json::json!({"text": body_text, "enter": true, "source_pane": source}).to_string()))
+            let mut body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
+            if *no_wait {
+                body["verify"] = serde_json::json!(false);
+            }
+            ("POST".into(), format!("/api/panes/{}/send", p), Some(body.to_string()))
         }
         Commands::Notify { title, body, level } => {
             ("POST".into(), "/api/notifications".into(),
@@ -60,6 +63,13 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Pane { action } => match action {
             crate::PaneAction::List => ("GET".into(), "/api/panes".into(), None),
             crate::PaneAction::Current { .. } => ("GET".into(), "/api/panes".into(), None),
+            crate::PaneAction::New { workspace, cwd, title, cmd: _ } => {
+                let mut body = serde_json::json!({});
+                if let Some(w) = workspace { body["workspace_id"] = serde_json::Value::String(w.clone()); }
+                if let Some(c) = cwd { body["cwd"] = serde_json::Value::String(c.clone()); }
+                if let Some(t) = title { body["title"] = serde_json::Value::String(t.clone()); }
+                ("POST".into(), "/api/panes".into(), Some(body.to_string()))
+            }
             crate::PaneAction::Focus { id } => ("POST".into(), format!("/api/panes/{}/focus", id), None),
             crate::PaneAction::Close { id } => ("POST".into(), format!("/api/panes/{}/close", id), None),
             crate::PaneAction::Rename { title, pane } => {
@@ -88,7 +98,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Agent { action } => match action {
             crate::AgentAction::List => ("GET".into(), "/api/agents".into(), None),
             crate::AgentAction::Hierarchy => ("GET".into(), "/api/agents/hierarchy".into(), None),
-            crate::AgentAction::Spawn { agent, title, task, role, parent, workspace, can_spawn, cwd, args, model, .. } => {
+            crate::AgentAction::Spawn { agent, title, task, role, parent, workspace, can_spawn, cwd, args, model, no_wait } => {
                 let agent_name = agent.as_str();
                 let mut body = serde_json::json!({
                     "agent": agent_name,
@@ -102,6 +112,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if let Some(c) = cwd { body["cwd"] = serde_json::json!(c); }
                 if let Some(a) = args { if !a.is_empty() { body["args"] = serde_json::json!(a); } }
                 if let Some(m) = model { body["model"] = serde_json::json!(m); }
+                if *no_wait { body["wait_ready_secs"] = serde_json::json!(0); }
                 ("POST".into(), "/api/agents/spawn".into(), Some(body.to_string()))
             }
             _ => ("GET".into(), "/api/agents".into(), None),
@@ -203,14 +214,35 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             },
             _ => ("GET".into(), "/api/mesh/status".into(), None),
         },
-        Commands::Bridge { .. } => ("GET".into(), "/api/health".into(), None),
+        Commands::Bridge { action } => match action {
+            crate::BridgeAction::Restart => (
+                "POST".into(),
+                "/api/bridge/start".into(),
+                Some(serde_json::json!({
+                    "service": "telegram",
+                    "ensure_token": true,
+                    "wait_for_lock_ms": 10000,
+                }).to_string()),
+            ),
+            crate::BridgeAction::Send { text, to, append, .. } => (
+                "POST".into(),
+                "/api/bridge/send".into(),
+                Some(serde_json::json!({
+                    "text": text,
+                    "chat_id": to,
+                    "append": append,
+                }).to_string()),
+            ),
+            // React over mesh isn't relayable today (no /api/bridge/react endpoint).
+            crate::BridgeAction::React { .. } => ("GET".into(), "/api/health".into(), None),
+            // Migrate is intercepted in main.rs before reaching the relay path.
+            crate::BridgeAction::Migrate { .. } => ("GET".into(), "/api/health".into(), None),
+        },
         Commands::Theme { action } => match action {
             crate::ThemeAction::List => ("GET".into(), "/api/themes".into(), None),
             _ => ("GET".into(), "/api/themes".into(), None),
         },
-        // Mem operations are per-machine state; relay to /api/mem/stats as a
-        // safe default. Users should run `codeterm mem ...` on the local pane.
-        Commands::Mem { .. } => ("GET".into(), "/api/mem/stats".into(), None),
+        Commands::Mem { action } => mem_to_api(action),
         Commands::Sessions { action } => match action {
             crate::SessionsAction::Search { query, provider, project, limit, max_snippets } => {
                 let mut path = format!("/api/sessions/search?q={}", urlencoding::encode(query));
@@ -265,5 +297,143 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("POST".into(), path, None)
             }
         }
+    }
+}
+
+fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
+    use crate::{MemAction, MemGraphAction};
+    use serde_json::json;
+
+    let enc = urlencoding::encode;
+    match action {
+        MemAction::Search { query, kind, area, scope, limit, .. } => {
+            let mut path = format!("/api/mem/search?q={}&limit={}", enc(query), limit);
+            if let Some(k) = kind { path.push_str(&format!("&kind={}", enc(k))); }
+            if let Some(a) = area { path.push_str(&format!("&area={}", enc(a))); }
+            if let Some(s) = scope { path.push_str(&format!("&scope={}", enc(s))); }
+            ("GET".into(), path, None)
+        }
+        MemAction::Get { id } => ("GET".into(), format!("/api/mem/items/{}", enc(id)), None),
+        MemAction::Delete { id } => ("DELETE".into(), format!("/api/mem/items/{}", enc(id)), None),
+        MemAction::History { id } => ("GET".into(), format!("/api/mem/items/{}/history", enc(id)), None),
+        MemAction::Taxonomy { workspace } => {
+            let path = match workspace {
+                Some(w) => format!("/api/mem/taxonomy?workspace={}", enc(w)),
+                None => "/api/mem/taxonomy".into(),
+            };
+            ("GET".into(), path, None)
+        }
+        MemAction::Tail { limit, .. } => {
+            ("GET".into(), format!("/api/mem/tail?limit={}", limit), None)
+        }
+        MemAction::Update { id, title, summary, area, tags, body, importance } => {
+            let mut payload = serde_json::Map::new();
+            if let Some(v) = title { payload.insert("title".into(), json!(v)); }
+            if let Some(v) = summary { payload.insert("summary".into(), json!(v)); }
+            if let Some(v) = area { payload.insert("area".into(), json!(v)); }
+            if let Some(v) = tags { payload.insert("tags".into(), json!(v)); }
+            if let Some(v) = body { payload.insert("body".into(), json!(v)); }
+            if let Some(v) = importance { payload.insert("importance".into(), json!(v)); }
+            ("PATCH".into(), format!("/api/mem/items/{}", enc(id)),
+                Some(serde_json::Value::Object(payload).to_string()))
+        }
+        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, source_path, replace, skip_extract } => {
+            let mut payload = json!({"kind": kind, "importance": importance});
+            if let Some(v) = title { payload["title"] = json!(v); }
+            if let Some(v) = body { payload["body"] = json!(v); }
+            if let Some(v) = summary { payload["summary"] = json!(v); }
+            if let Some(v) = tags { payload["tags"] = json!(v); }
+            if let Some(v) = area { payload["area"] = json!(v); }
+            if let Some(v) = scope { payload["scope"] = json!(v); }
+            if let Some(v) = source_path { payload["source_path"] = json!(v); }
+            if *replace { payload["replace"] = json!(true); }
+            if *skip_extract { payload["skip_extract"] = json!(true); }
+            ("POST".into(), "/api/mem/items".into(), Some(payload.to_string()))
+        }
+        MemAction::WakeUp { budget, l0_only, no_l0 } => {
+            let mut path = String::from("/api/mem/wake-up");
+            let mut sep = '?';
+            if let Some(b) = budget { path.push(sep); sep = '&'; path.push_str(&format!("budget={}", b)); }
+            if *l0_only { path.push(sep); sep = '&'; path.push_str("l0_only=true"); }
+            if *no_l0 { path.push(sep); let _ = sep; path.push_str("no_l0=true"); }
+            ("GET".into(), path, None)
+        }
+        MemAction::ExtractPending { limit } => {
+            ("POST".into(), format!("/api/mem/extract-pending?limit={}", limit), None)
+        }
+        MemAction::Stats => ("GET".into(), "/api/mem/stats".into(), None),
+        MemAction::Learn { text, kind, tags, error, feature } => {
+            let resolved_text = text.clone().or_else(|| error.clone()).or_else(|| feature.clone()).unwrap_or_default();
+            let resolved_kind = kind.clone()
+                .or_else(|| if error.is_some() { Some("error".into()) } else { None })
+                .or_else(|| if feature.is_some() { Some("feature".into()) } else { None })
+                .unwrap_or_else(|| "insight".into());
+            let mut payload = json!({"text": resolved_text, "kind": resolved_kind});
+            if let Some(v) = tags { payload["tags"] = json!(v); }
+            ("POST".into(), "/api/mem/learn".into(), Some(payload.to_string()))
+        }
+        MemAction::LearnList => {
+            ("GET".into(), "/api/mem/search?kind=learning&limit=50".into(), None)
+        }
+        MemAction::LearnPromote { id } => {
+            ("POST".into(), format!("/api/mem/promote/{}", enc(id)), None)
+        }
+        MemAction::Sync { path } => {
+            let url = match path {
+                Some(p) => format!("/api/mem/sync?path={}", enc(p)),
+                None => "/api/mem/sync".into(),
+            };
+            ("POST".into(), url, None)
+        }
+        MemAction::Dream => ("POST".into(), "/api/mem/dream".into(), None),
+        MemAction::Graph { action } => match action {
+            MemGraphAction::Create { id, entity_type, props, scope } => {
+                let props_val: serde_json::Value = serde_json::from_str(props).unwrap_or(json!({}));
+                let mut payload = json!({"id": id, "entity_type": entity_type, "props": props_val});
+                if let Some(s) = scope { payload["scope"] = json!(s); }
+                ("POST".into(), "/api/mem/graph/entities".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::Relate { from, rel, to, valid_from, valid_to, confidence, scope } => {
+                let mut payload = json!({"from": from, "rel": rel, "to": to, "confidence": confidence});
+                if let Some(v) = valid_from { payload["valid_from"] = json!(v); }
+                if let Some(v) = valid_to { payload["valid_to"] = json!(v); }
+                if let Some(v) = scope { payload["scope"] = json!(v); }
+                ("POST".into(), "/api/mem/graph/relate".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::Related { id, rel, as_of } => {
+                let mut path = format!("/api/mem/graph/related?id={}", enc(id));
+                if let Some(r) = rel { path.push_str(&format!("&rel={}", enc(r))); }
+                if let Some(a) = as_of { path.push_str(&format!("&as_of={}", enc(a))); }
+                ("GET".into(), path, None)
+            }
+            MemGraphAction::Invalidate { from, rel, to, ended } => {
+                let mut payload = json!({"from": from, "rel": rel, "to": to});
+                if let Some(e) = ended { payload["ended"] = json!(e); }
+                ("POST".into(), "/api/mem/graph/invalidate".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::Timeline { entity } => {
+                ("GET".into(), format!("/api/mem/graph/timeline?entity={}", enc(entity)), None)
+            }
+            MemGraphAction::Traverse { from, hops, max_nodes, as_of } => {
+                let mut path = format!("/api/mem/graph/traverse?from={}&hops={}&max_nodes={}", enc(from), hops, max_nodes);
+                if let Some(a) = as_of { path.push_str(&format!("&as_of={}", enc(a))); }
+                ("GET".into(), path, None)
+            }
+            MemGraphAction::Path { from, to, max_hops } => {
+                ("GET".into(), format!("/api/mem/graph/path?from={}&to={}&max_hops={}", enc(from), enc(to), max_hops), None)
+            }
+            MemGraphAction::Tunnels => ("GET".into(), "/api/mem/graph/tunnels".into(), None),
+            MemGraphAction::Alias { .. } => ("POST".into(), "/api/mem/graph/alias".into(), None),
+        },
+        // Local-only subcommands. Mesh relay falls through to /stats so callers
+        // always get a valid JSON response, but the operation itself never
+        // makes sense across the wire (PTY scrollback / subprocess /
+        // filesystem skill folders / env-coupled worker handles). `Secret` is
+        // already hard-rejected upstream in main.rs.
+        MemAction::Flush { .. }
+        | MemAction::RunWorker { .. }
+        | MemAction::Skill { .. }
+        | MemAction::Worker { .. }
+        | MemAction::Secret { .. } => ("GET".into(), "/api/mem/stats".into(), None),
     }
 }

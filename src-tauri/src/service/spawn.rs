@@ -149,9 +149,17 @@ impl SpawnPaneSpec {
 
 impl ServiceContext {
     pub fn spawn_pane(&self, spec: SpawnPaneSpec) -> Result<PaneHandle, String> {
+        self.spawn_pane_with_ready(spec, None)
+    }
+
+    pub fn spawn_pane_with_ready(
+        &self,
+        spec: SpawnPaneSpec,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<PaneHandle, String> {
         match (&spec.visibility, &spec.command) {
             (PaneVisibility::Visible, PaneCommand::Agent(_)) => {
-                self.spawn_visible_agent_impl(spec)
+                self.spawn_visible_agent_impl(spec, ready_tx)
             }
             (PaneVisibility::Hidden, PaneCommand::Agent(_)) => {
                 self.spawn_hidden_agent_impl(spec)
@@ -166,6 +174,7 @@ impl ServiceContext {
     pub(crate) fn spawn_visible_agent_impl(
         &self,
         spec: SpawnPaneSpec,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<PaneHandle, String> {
         let agent = match &spec.command {
             PaneCommand::Agent(a) => a.clone(),
@@ -308,6 +317,7 @@ impl ServiceContext {
             launch_cmd,
             agent_cmd.clone(),
             role_suffixed_task,
+            ready_tx,
         );
 
         Ok(PaneHandle {
@@ -646,8 +656,17 @@ impl ServiceContext {
                 .with_provider(&provider, |p| p.build_launch_command(&launch_params))
                 .unwrap_or_else(|| format!("{} --dangerously-skip-permissions", provider));
 
-            if let Err(e) = svc_outer.send_text(&pane_id_outer, &launch_cmd, true) {
-                log::error!("[spawn.hidden] send launch cmd: {}", e);
+            match svc_outer.resolve_pty_id(&pane_id_outer) {
+                Ok(pty_id) => {
+                    let opts = crate::service::inject_verify::VerifyOpts::default();
+                    let strategy = crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+                        timeout: std::time::Duration::from_secs(15),
+                    };
+                    if let Err(e) = svc_outer.send_text_verified(&pty_id, &launch_cmd, true, strategy, opts) {
+                        log::error!("[spawn.hidden] verified launch cmd failed: {}", e);
+                    }
+                }
+                Err(e) => log::error!("[spawn.hidden] no pty for pane {}: {}", pane_id_outer, e),
             }
             log::debug!(
                 "[spawn.hidden] agent launched pane={} provider={}",
@@ -668,223 +687,5 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn agent_spec(provider: &str) -> SpawnPaneSpec {
-        SpawnPaneSpec {
-            visibility: PaneVisibility::Visible,
-            command: PaneCommand::Agent(AgentSpawnSpec {
-                provider: provider.into(),
-                auto_approve: true,
-                ..Default::default()
-            }),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn default_visibility_is_visible() {
-        let spec = SpawnPaneSpec::default();
-        assert_eq!(spec.visibility, PaneVisibility::Visible);
-    }
-
-    #[test]
-    fn default_command_is_shell() {
-        let spec = SpawnPaneSpec::default();
-        assert!(matches!(spec.command, PaneCommand::Shell));
-    }
-
-    #[test]
-    fn agent_auto_approve_defaults_true_via_serde() {
-        let json = r#"{"provider": "claude"}"#;
-        let agent: AgentSpawnSpec = serde_json::from_str(json).unwrap();
-        assert!(agent.auto_approve);
-    }
-
-    #[test]
-    fn agent_auto_approve_defaults_true_via_struct() {
-        let agent = AgentSpawnSpec {
-            provider: "claude".into(),
-            auto_approve: default_true(),
-            ..Default::default()
-        };
-        assert!(agent.auto_approve);
-    }
-
-    #[test]
-    fn shell_spec_roundtrips_json() {
-        let spec = SpawnPaneSpec {
-            title: Some("scratch".into()),
-            ..Default::default()
-        };
-        let json = serde_json::to_string(&spec).unwrap();
-        let back: SpawnPaneSpec = serde_json::from_str(&json).unwrap();
-        assert!(matches!(back.command, PaneCommand::Shell));
-        assert_eq!(back.title.as_deref(), Some("scratch"));
-    }
-
-    #[test]
-    fn agent_spec_roundtrips_json() {
-        let spec = SpawnPaneSpec {
-            visibility: PaneVisibility::Hidden,
-            command: PaneCommand::Agent(AgentSpawnSpec {
-                provider: "claude".into(),
-                model: Some("opus".into()),
-                task: Some("hello".into()),
-                role: Some("Worker".into()),
-                can_spawn: Some(false),
-                auto_approve: true,
-                worker_id: Some("w-123".into()),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let json = serde_json::to_string(&spec).unwrap();
-        let back: SpawnPaneSpec = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.visibility, PaneVisibility::Hidden);
-        match back.command {
-            PaneCommand::Agent(a) => {
-                assert_eq!(a.provider, "claude");
-                assert_eq!(a.model.as_deref(), Some("opus"));
-                assert_eq!(a.task.as_deref(), Some("hello"));
-                assert_eq!(a.role.as_deref(), Some("Worker"));
-                assert_eq!(a.worker_id.as_deref(), Some("w-123"));
-                assert!(a.auto_approve);
-            }
-            _ => panic!("expected Agent"),
-        }
-    }
-
-    #[test]
-    fn from_agent_params_carries_model_into_spec() {
-        let params = SpawnAgentParams {
-            agent: Some("codex".into()),
-            agent_name: None,
-            args: None,
-            cwd: None,
-            title: None,
-            role: None,
-            parent_pane_id: None,
-            can_spawn: None,
-            task: None,
-            workspace_id: None,
-            force_tab: None,
-            report_target_pane_id: None,
-            skip_permissions: None,
-            spawned_by_pane_id: None,
-            model: Some("gpt-5.4-mini".into()),
-            resume_session_id: None,
-        };
-        let spec = SpawnPaneSpec::from_agent_params(params);
-        match spec.command {
-            PaneCommand::Agent(a) => assert_eq!(a.model.as_deref(), Some("gpt-5.4-mini")),
-            _ => panic!("expected Agent"),
-        }
-    }
-
-    #[test]
-    fn to_agent_params_carries_model_as_dedicated_field() {
-        // Model travels as a dedicated `model` field through SpawnAgentParams,
-        // not as `--model X` baked into args. `build_agent_command` then asks
-        // the provider via `model_launch_args` to render the correct flag
-        // syntax (`-m X` for codex/opencode, `--model X` for claude).
-        let mut spec = agent_spec("claude");
-        if let PaneCommand::Agent(ref mut a) = spec.command {
-            a.model = Some("opus".into());
-            a.task = Some("count files".into());
-        }
-        let params = spec.to_agent_params().unwrap();
-        assert_eq!(params.agent.as_deref(), Some("claude"));
-        assert_eq!(params.task.as_deref(), Some("count files"));
-        assert_eq!(params.model.as_deref(), Some("opus"));
-        let args = params.args.unwrap_or_default();
-        assert!(!args.iter().any(|a| a == "--model"), "model must not leak into args");
-    }
-
-    #[test]
-    fn to_agent_params_passes_role_and_report_target() {
-        let mut spec = agent_spec("claude");
-        spec.parent_pane_id = Some("parent-1".into());
-        if let PaneCommand::Agent(ref mut a) = spec.command {
-            a.role = Some("Lead".into());
-            a.can_spawn = Some(true);
-            a.report_target_pane_id = Some("cron-host".into());
-        }
-        let params = spec.to_agent_params().unwrap();
-        assert_eq!(params.role.as_deref(), Some("Lead"));
-        assert_eq!(params.parent_pane_id.as_deref(), Some("parent-1"));
-        assert_eq!(params.can_spawn, Some(true));
-        assert_eq!(params.report_target_pane_id.as_deref(), Some("cron-host"));
-    }
-
-    #[test]
-    fn to_agent_params_fails_on_shell_spec() {
-        let spec = SpawnPaneSpec::default();
-        let err = spec.to_agent_params().unwrap_err();
-        assert!(err.contains("Shell"));
-    }
-
-    #[test]
-    fn can_spawn_none_round_trips_through_params() {
-        // Caller didn't pass --can-spawn → spec.can_spawn=None → params.can_spawn=None.
-        // This tells set_pane_role to keep the role's default (Orchestrator/Lead=true).
-        let mut spec = agent_spec("claude");
-        if let PaneCommand::Agent(ref mut a) = spec.command {
-            a.role = Some("Orchestrator".into());
-            a.can_spawn = None;
-        }
-        let params = spec.to_agent_params().unwrap();
-        assert_eq!(params.can_spawn, None);
-    }
-
-    #[test]
-    fn can_spawn_some_false_explicitly_overrides() {
-        let mut spec = agent_spec("claude");
-        if let PaneCommand::Agent(ref mut a) = spec.command {
-            a.role = Some("Lead".into());
-            a.can_spawn = Some(false);
-        }
-        let params = spec.to_agent_params().unwrap();
-        assert_eq!(params.can_spawn, Some(false));
-    }
-
-    #[test]
-    fn from_agent_params_preserves_can_spawn_option() {
-        // CLI/REST/socket pass `can_spawn: Option<bool>` straight through —
-        // None means "don't override the role's default", Some(b) means
-        // "user said --can-spawn=b explicitly". The spec must NOT collapse
-        // None → Some(false) (the pre-fix-#42 behavior that clobbered
-        // Orchestrator/Lead defaults to false on every spawn).
-        let mut p = SpawnAgentParams {
-            agent: Some("claude".into()),
-            agent_name: None,
-            args: None,
-            cwd: None,
-            title: None,
-            role: Some("Orchestrator".into()),
-            parent_pane_id: None,
-            can_spawn: None,
-            task: None,
-            workspace_id: None,
-            force_tab: None,
-            report_target_pane_id: None,
-            skip_permissions: None,
-            spawned_by_pane_id: None,
-            model: None,
-            resume_session_id: None,
-        };
-        let spec = SpawnPaneSpec::from_agent_params(p.clone());
-        match spec.command {
-            PaneCommand::Agent(a) => assert_eq!(a.can_spawn, None),
-            _ => panic!("expected Agent"),
-        }
-
-        p.can_spawn = Some(true);
-        let spec = SpawnPaneSpec::from_agent_params(p);
-        match spec.command {
-            PaneCommand::Agent(a) => assert_eq!(a.can_spawn, Some(true)),
-            _ => panic!("expected Agent"),
-        }
-    }
-}
+#[path = "spawn_tests.rs"]
+mod tests;

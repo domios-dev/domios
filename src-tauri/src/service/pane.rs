@@ -58,6 +58,13 @@ impl ServiceContext {
         }
     }
 
+    pub fn clear_pane_restored_flag(&self, pane_id: &str) {
+        let mut mux = self.mux.lock();
+        if let Some(pane) = mux.get_pane_mut(pane_id) {
+            pane.restored_from_snapshot = false;
+        }
+    }
+
     pub fn set_pane_agent_type(&self, pane_id: &str, agent_type: Option<String>) {
         // Apply the state change first; clone the resulting `(prev, new)` so we
         // can decide post-lock whether to kick off session-id polling.

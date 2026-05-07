@@ -57,7 +57,7 @@ impl ServiceContext {
 
     async fn batch_spawn(&self, params: &serde_json::Value) -> Result<serde_json::Value, String> {
         let p = SpawnAgentParams::from_json(params)?;
-        let result = self.spawn_agent(p).await?;
+        let result = self.spawn_agent(p, None).await?;
         Ok(serde_json::json!({
             "pane_id": result.pane_id,
             "tab_id": result.tab_id,
@@ -253,6 +253,16 @@ impl ServiceContext {
     /// cron, socket, workspace init). New call sites should build a
     /// `SpawnPaneSpec` and call `spawn_pane` directly.
     pub fn spawn_agent_sync(&self, params: SpawnAgentParams) -> Result<SpawnResult, String> {
+        self.spawn_agent_sync_with_ready(params, None)
+    }
+
+    /// Like [`spawn_agent_sync`], but threads an optional readiness oneshot to
+    /// the background launcher so callers can block on echo+submit verification.
+    pub fn spawn_agent_sync_with_ready(
+        &self,
+        params: SpawnAgentParams,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<SpawnResult, String> {
         let role = params.role.clone();
         let agent = params.agent.clone().unwrap_or_else(crate::config::default_agent_provider);
         let title = params
@@ -261,7 +271,7 @@ impl ServiceContext {
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent.clone());
         let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params(params);
-        let handle = self.spawn_pane(spec)?;
+        let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
         Ok(SpawnResult {
             pane_id: handle.pane_id,
             tab_id: handle.tab_id,
@@ -273,7 +283,11 @@ impl ServiceContext {
         })
     }
 
-    pub async fn spawn_agent(&self, mut params: SpawnAgentParams) -> Result<SpawnResult, String> {
+    pub async fn spawn_agent(
+        &self,
+        mut params: SpawnAgentParams,
+        ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<SpawnResult, String> {
         let default_provider = crate::config::default_agent_provider();
         let agent_cmd = params.agent.as_deref().unwrap_or(&default_provider);
         // Validate against the registry — reject unknown provider ids upfront.
@@ -391,7 +405,7 @@ impl ServiceContext {
             }
         });
         let launch_cmd = build_agent_command(agent_cmd, &params, bg_task.as_deref(), &self.agent_registry);
-        launch_agent_in_background(self.clone(), pane_id.clone(), launch_cmd, agent_cmd.to_string(), bg_task);
+        launch_agent_in_background(self.clone(), pane_id.clone(), launch_cmd, agent_cmd.to_string(), bg_task, ready_tx);
 
         Ok(SpawnResult {
             pane_id,
@@ -416,6 +430,7 @@ pub(crate) fn launch_agent_in_background(
     launch_cmd: String,
     agent_cmd: String,
     task: Option<String>,
+    ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
 ) {
     let registry = svc.agent_registry.clone();
     std::thread::spawn(move || {
@@ -461,6 +476,9 @@ pub(crate) fn launch_agent_in_background(
                     }
                     Err(e) => {
                         log::error!("launch_agent: backend PTY spawn failed: {}", e);
+                        if let Some(tx) = ready_tx {
+                            let _ = tx.send(Err(format!("backend PTY spawn failed: {}", e)));
+                        }
                         return;
                     }
                 }
@@ -489,34 +507,70 @@ pub(crate) fn launch_agent_in_background(
             }
         }
 
-        // 3. Send launch command. Address the PTY directly — pane.pty_id may
-        //    be raced/overwritten by a frontend `mux_link_pty` that lands
-        //    after the deadline-fallback spawn, pointing at a pty_id whose
-        //    `register_session` is still in flight.
-        if let Err(e) = svc.send_text_to_pty(&pty_id, &launch_cmd, true) {
+        // 3. Send launch command (verified). Shell prompt was already polled in step 2,
+        //    so require_prompt_first=false avoids a redundant wait.
+        let launch_opts = crate::service::inject_verify::VerifyOpts {
+            require_prompt_first: false,
+            verify_echo: true,
+            verify_submit: true,
+            prompt_timeout: std::time::Duration::from_secs(0),
+            echo_timeout: std::time::Duration::from_secs(3),
+            submit_timeout: std::time::Duration::from_secs(15),
+        };
+        // Use the provider's submit strategy: TUI providers (claude/codex/opencode)
+        // hand the shell off to a TUI on launch, so a "new shell prompt" never
+        // appears — TuiInputDrained is the right signal there.
+        let launch_strategy = registry
+            .with_provider(&agent_cmd, |p| p.verify_submit_strategy())
+            .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+                timeout: std::time::Duration::from_secs(15),
+            });
+        if let Err(e) = svc.send_text_verified(&pty_id, &launch_cmd, true, launch_strategy, launch_opts) {
             log::error!(
-                "launch_agent: failed to send launch cmd for pane {} (pty {}): {}",
+                "launch_agent: launch_cmd failed for pane {} (pty {}): {}",
                 pane_id, pty_id, e
             );
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(format!("launch_cmd failed: {}", e)));
+            }
             return;
         }
 
-        // 4. For PtyInput delivery, send task after short delay
+        // 4. For PtyInput delivery, send task immediately — verified send already
+        //    gated on receiver-side completion of the launch command.
         let is_pty_input = matches!(delivery, TaskDelivery::PtyInput);
         if is_pty_input {
             if let Some(ref task_text) = task {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                if let Err(e) = svc.send_text_to_pty(&pty_id, task_text, true) {
+                let provider_submit_strategy = registry
+                    .with_provider(&agent_cmd, |p| p.verify_submit_strategy())
+                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+                        timeout: std::time::Duration::from_secs(5),
+                    });
+                let task_opts = crate::service::inject_verify::VerifyOpts {
+                    require_prompt_first: false,
+                    verify_echo: true,
+                    verify_submit: true,
+                    prompt_timeout: std::time::Duration::from_secs(0),
+                    echo_timeout: std::time::Duration::from_secs(3),
+                    submit_timeout: std::time::Duration::from_secs(15),
+                };
+                if let Err(e) = svc.send_text_verified(&pty_id, task_text, true, provider_submit_strategy, task_opts) {
                     log::error!(
-                        "launch_agent: failed to send task for pane {} (pty {}): {}",
+                        "launch_agent: task delivery failed for pane {} (pty {}): {}",
                         pane_id, pty_id, e
                     );
+                    if let Some(tx) = ready_tx {
+                        let _ = tx.send(Err(format!("task delivery failed: {}", e)));
+                    }
                     return;
                 }
             }
         }
 
-        log::info!("launch_agent: agent launched in {}", pane_id);
+        log::info!("launch_agent: agent ready in pane {}", pane_id);
+        if let Some(tx) = ready_tx {
+            let _ = tx.send(Ok(()));
+        }
     });
 }
 

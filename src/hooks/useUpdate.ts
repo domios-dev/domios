@@ -78,8 +78,9 @@ export function useUpdate() {
   }, []);
 
   const refresh = useCallback(
-    async (force = false): Promise<void> => {
+    async (force = false, opts?: { silent?: boolean }): Promise<void> => {
       const a = apiRef.current;
+      const silent = opts?.silent ?? false;
       setStatus("checking");
       setError(null);
       try {
@@ -90,8 +91,12 @@ export function useUpdate() {
         if (!isUpdateInfo(data)) throw new Error("Malformed update info");
         handleInfo(data);
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        setStatus("error");
+        if (silent) {
+          setStatus("idle");
+        } else {
+          setError(e instanceof Error ? e.message : String(e));
+          setStatus("error");
+        }
       }
     },
     [handleInfo],
@@ -160,10 +165,10 @@ export function useUpdate() {
   useEffect(() => {
     if (mountedRef.current) return;
     mountedRef.current = true;
-    void refresh(false);
+    void refresh(false, { silent: true });
     void fetchChannel();
 
-    const interval = setInterval(() => void refresh(false), 30 * 60 * 1000);
+    const interval = setInterval(() => void refresh(false, { silent: true }), 30 * 60 * 1000);
     return () => clearInterval(interval);
   }, [refresh, fetchChannel]);
 

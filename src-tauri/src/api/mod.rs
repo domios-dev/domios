@@ -3,6 +3,7 @@ pub mod events;
 pub mod routes;
 
 pub mod agent_routes;
+pub mod bridge_routes;
 pub mod config_routes;
 pub mod cron_routes;
 pub mod health_routes;

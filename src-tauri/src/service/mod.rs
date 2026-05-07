@@ -16,6 +16,7 @@ mod workspace;
 mod pane;
 pub mod pty_io;
 mod hierarchy;
+pub mod inject_verify;
 mod orchestrator;
 pub mod spawn;
 pub mod notification;
@@ -41,8 +42,12 @@ use crate::multiplexer::types::AgentRole;
 use crate::{AgentTrackerState, NotifState, OutputBufferState, PromptDetectorState, PtyState, ReportStoreState, ScreenStateHandle};
 
 // Re-export public types used by callers.
-pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
 pub use hierarchy::PaneStatusInfo;
+pub use inject_verify::{
+    InjectionError, InjectionResult, VerifyOpts, screen_contains_echo, snapshot_prompt_line,
+    wait_for_echo, wait_for_submit_shell, wait_for_submit_tui_drained,
+};
+pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
 
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
@@ -75,8 +80,8 @@ pub struct ServiceContext {
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
     /// Receiver half — taken when bridge starts. Replaced on restart with a new channel.
     pub bridge_outbound_rx: Arc<parking_lot::Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<crate::bridge::manager::OutboundMessage>>>>,
-    /// Handle to the running bridge task — aborted on restart.
-    pub bridge_task: Arc<parking_lot::Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
+    /// Supervisor for the messaging bridge — owns task handle, cancel signal, runtime state.
+    pub bridge_supervisor: Arc<crate::bridge::supervisor::BridgeSupervisor>,
     /// Per-pane last-restart timestamp for `agent_restart` rate limiting.
     pub restart_tracker: agent_restart::RestartTracker,
     /// Active secret-store backend (mock in Phase 1; bitwarden lands in Phase 2).

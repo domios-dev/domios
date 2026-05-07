@@ -50,10 +50,14 @@ pub type UpdateStateHandle = Arc<Mutex<update::UpdateState>>;
 pub type MeshStateHandle = mesh::MeshState;
 pub type KeepAwakeStateHandle = keepawake::KeepAwakeState;
 
-pub use startup::start_telegram_bridge;
+pub use startup::{spawn_telegram_bridge, start_telegram_bridge};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Forward CLI-shaped argv to the bundled CLI before Tauri/logging init,
+    // otherwise GUI single-instance silently swallows the args (issue #51).
+    startup::forward_to_cli_if_invoked();
+
     startup::setup_logging();
 
     log::info!("CodeTerm starting...");
@@ -360,7 +364,7 @@ pub fn run() {
                 run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
                 bridge_outbound: bridge_outbound_tx,
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
-                bridge_task: Arc::new(Mutex::new(None)),
+                bridge_supervisor: Arc::new(bridge::supervisor::BridgeSupervisor::new()),
                 restart_tracker: crate::service::agent_restart::new_restart_tracker(),
                 secrets: {
                     let cfg_guard = states.config.lock();
