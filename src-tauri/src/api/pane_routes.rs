@@ -73,7 +73,7 @@ pub(crate) struct BatchCommand {
 /// immediately would otherwise hit "no PTY" unconditionally. Poll for
 /// the link with this short budget so a script can chain spawn → send.
 async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
-    for _ in 0..15 {
+    for _ in 0..75 {
         if state.svc.resolve_pty_id(pane_id).is_ok() {
             return true;
         }
