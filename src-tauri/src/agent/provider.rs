@@ -79,12 +79,9 @@ pub struct SessionMessage {
     pub is_meta: bool,
 }
 
-// ── Plugin self-presentation types (Chunk B.1) ─────────────────────
-//
 // `ProviderDescriptor` is the wire format every plugin reports through
-// `AgentProvider::describe()`. The frontend reads ONE list and uses it
-// to render Settings panels, Sidebar menus, command palette entries —
-// no hardcoded provider knowledge anywhere on the JS side.
+// `AgentProvider::describe()`; the frontend renders Settings, Sidebar,
+// and command palette entries from the list with no per-provider JS.
 
 /// Single model offered by an agent provider.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -270,9 +267,7 @@ impl ActionStyle {
     }
 }
 
-// ── Reusable settings schema builders ───────────────────────────────
-//
-// Shared across providers to avoid duplicating identical UI sections.
+// Reusable settings schema builders — shared across providers.
 
 /// Build the "Session Resume" settings section common to all providers.
 /// `skip_flag` is the provider-specific CLI flag for skipping approvals.
@@ -410,9 +405,7 @@ pub trait AgentProvider: Send + Sync {
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
 
-    /// Read cumulative token usage for one session. Returns None if no log
-    /// file exists for that session yet. Implementation reads per-provider
-    /// log formats. Default returns None (provider has no usage log).
+    /// Cumulative token usage from the provider's session log.
     fn read_usage(&self, _cwd: &str, _session_id: &str) -> Option<UsageSnapshot> {
         None
     }
@@ -486,11 +479,7 @@ pub trait AgentProvider: Send + Sync {
         crate::agent::detector::parse_permission_prompt(text)
     }
 
-    // ── Agent-specific CLI commands ──────────────────────────────────
-    //
-    // These carry per-provider knowledge of in-agent control commands.
-    // Default implementations return None / empty so a minimal provider
-    // still compiles; real providers override the ones that apply.
+    // In-agent control commands — defaults return None/empty.
 
     /// Flags to pass to the CLI so the agent auto-approves tool calls.
     fn auto_approve_flags(&self) -> Vec<String> {
@@ -553,12 +542,8 @@ pub trait AgentProvider: Send + Sync {
         Ok(())
     }
 
-    // ── Self-presentation metadata (Chunk B.1) ───────────────────────
-    //
-    // The frontend renders provider tabs, model dropdowns, and settings
-    // panels purely from these methods + `describe()`. Default impls are
-    // empty so existing providers don't break; real providers override
-    // what they actually offer.
+    // Self-presentation: frontend reads provider tabs, models, and
+    // settings purely from these + `describe()`. Defaults stay empty.
 
     /// Models this provider offers (e.g. sonnet, opus, haiku for Claude).
     fn available_models(&self) -> Vec<ModelInfo> {
@@ -649,11 +634,7 @@ pub trait AgentProvider: Send + Sync {
     }
 }
 
-/// Cumulative token usage for a single agent session, sourced from the
-/// provider's on-disk session log. Field semantics follow the Claude
-/// `message.usage` shape because that's the most expressive vocabulary
-/// (input/output + cache creation/read). Providers without separate
-/// cache accounting populate `input_tokens` / `output_tokens` only.
+/// Cumulative token usage for one agent session.
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct UsageSnapshot {
     pub input_tokens: u64,
@@ -661,8 +642,6 @@ pub struct UsageSnapshot {
     pub cache_creation_input_tokens: u64,
     pub cache_read_input_tokens: u64,
     pub message_count: u32,
-    /// When this session's billing window started — used by rolling-window
-    /// quota math. None for providers without billing windows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window_started_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
