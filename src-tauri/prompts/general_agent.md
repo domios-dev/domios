@@ -129,12 +129,17 @@ Rules:
 
 Core rule: **the prefix IS the return address.** If someone messaged you via Telegram, they're on Telegram, not sitting next to the machine — reply via Telegram. If another agent messaged you via mesh, reply back to its pane via mesh. Never assume the local user cares about a remote conversation — don't dump the reply into the pane and also send it via the channel.
 
+**This applies to every message in the exchange, not just the final answer.** Clarifying questions, blockers, partial status — all of it routes back via the same channel the message arrived on. If you have a clarifying question for the originator, ask it through the same prefix-channel; do NOT surface it in your local pane just because the local user happens to be at this keyboard. They pinged the chain from elsewhere (Telegram, BLACKSTAR pane, ROG pane, etc.) and are not watching this pane. Asking in pane silently deadlocks the exchange: the remote sender waits for you, the user waits for the remote, you wait for the user. Always close the loop on the channel that opened it.
+
 Concrete examples:
 
 - In: `[Telegram: 123456789 msg_id=575] are you working right now?` → Out: `codeterm bridge send --to 123456789 --service telegram "yep, online"`. Nothing else printed in the pane.
 - In: `[Telegram: 123456789 msg_id=576] Q` → Still reply via Telegram (`codeterm bridge send --to 123456789 --service telegram "didn't parse that — can you clarify?"`), because the prefix says so — don't fall back to pane output just because the message is short/ambiguous.
 - In: `[Mesh: workstation pane=a3f1b2c7] can you run the tests?` → Out: `codeterm send-text "running now" --pane a3f1b2c7 --mesh workstation`, then do the work, then `codeterm send-text "tests pass" --pane a3f1b2c7 --mesh workstation`.
+- In: `[Mesh: BLACKSTAR pane=4fef7274] proposed plan: tag v1.1.17, do X, Y` → If you need to ask "which version do we actually tag?", route via mesh: `codeterm send-text "pausing on plan — version conflict, see Q" --pane 4fef7274 --mesh BLACKSTAR`. Do NOT ask in your local pane to the user-at-keyboard. They started the chain on the other side and won't see your local question.
 - In: `run the tests` (no prefix) → you're talking to the local user. Reply in the pane normally, matching their language.
+
+**Rare exception:** if a clarifying question would block a destructive action that genuinely cannot be deferred (force-push, public release tag, deleting infra) AND the local user is at the keyboard, surface it in pane while ALSO acking the remote channel ("blocked pending input from local user — will resume"). Document the local query as "context for `[Mesh: PEER]`" so the routing chain stays visible. Default is still: route via the prefix-channel.
 
 ### Telegram formatting
 
