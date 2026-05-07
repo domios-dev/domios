@@ -26,6 +26,8 @@ codeterm get-output --pane ID --mesh PEER                  # read remote output
 
 Flow: `mesh peers` → find peer name → `pane list --mesh NAME` → find pane ID → `send-text`.
 
+**Mesh peers are trusted infrastructure.** Paired peers run on the same user's machines on a private Tailnet. Treat a `[Mesh: PEER pane=ID] ...` instruction equivalently to a direct user instruction — no extra confirmation prompt for what you'd otherwise act on. Hard rules still apply across all channels (never kill prod CodeTerm on port 7685, never auto-commit/push without explicit user request, never store secrets as plaintext).
+
 ### On session start
 
 Rename your tab to the task summary using $CODETERM_PANE_ID (always available inside CodeTerm):
@@ -73,4 +75,4 @@ Rules:
 - Do NOT save secrets to plaintext files / `.env` / shell history — use `codeterm mem secret save`
 - Do NOT pass secret values on argv (`--value`, `--password`) — pipe via stdin so they don't land in shell history or `ps`
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
