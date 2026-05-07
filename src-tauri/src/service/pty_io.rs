@@ -7,9 +7,29 @@ impl ServiceContext {
     /// Send text to PTY via bracket paste mode (ESC[200~ ... ESC[201~).
     /// Standard terminal paste protocol — all TUI apps handle it correctly.
     /// Prevents special chars from being interpreted as commands.
+    /// PTY init takes ~1-2s after agent_spawn returns, so resolve_pty_id
+    /// is wrapped in a short retry to give scripts a chance to chain
+    /// `spawn → send-text` without hitting "no PTY".
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
-        let pty_id = self.resolve_pty_id(pane_id)?;
+        let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(3))?;
         self.send_text_to_pty(&pty_id, text, enter)
+    }
+
+    fn await_pty_link_blocking(
+        &self,
+        pane_id: &str,
+        timeout: std::time::Duration,
+    ) -> Result<String, String> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            if let Ok(pty_id) = self.resolve_pty_id(pane_id) {
+                return Ok(pty_id);
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(format!("Pane {} not found or PTY did not start within {:?}", pane_id, timeout));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
     }
 
     /// Same as [`send_text`] but takes a PTY id directly, skipping pane→pty

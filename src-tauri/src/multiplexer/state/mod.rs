@@ -101,6 +101,7 @@ impl MultiplexerState {
             hidden: false,
             show_in_tabbar: true,
             worker_id: None,
+            restored_from_snapshot: false,
         };
 
         let tab = Tab {
