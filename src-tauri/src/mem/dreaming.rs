@@ -615,6 +615,35 @@ mod tests {
         assert_eq!(job.schedule, "0 3 * * *");
     }
 
+    #[test]
+    fn dream_cron_enabled_state_round_trips_through_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crons.json");
+        std::mem::forget(dir);
+        let mut store = crate::cron::store::CronStore::new_with_path(path);
+
+        ensure_dreaming_cron(&mut store).expect("create dream cron");
+        let id = store
+            .list()
+            .iter()
+            .find(|j| j.name == DREAMING_CRON_NAME)
+            .unwrap()
+            .id
+            .clone();
+
+        let enabled_now = |store: &crate::cron::store::CronStore, id: &str| -> bool {
+            store.list().iter().find(|j| j.id == id).unwrap().enabled
+        };
+
+        assert!(enabled_now(&store, &id), "fresh dreaming cron must be enabled");
+
+        store.set_enabled(&id, false).unwrap();
+        assert!(!enabled_now(&store, &id), "disable must persist through store API");
+
+        store.set_enabled(&id, true).unwrap();
+        assert!(enabled_now(&store, &id), "re-enable must persist through store API");
+    }
+
     #[tokio::test]
     async fn deep_phase_keeps_high_importance_conversations() {
         let mem = MemManager::open_in_memory().unwrap();

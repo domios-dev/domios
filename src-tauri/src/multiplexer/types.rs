@@ -242,6 +242,13 @@ pub struct Pane {
     /// Graph-worker id linking this pane to a GraphWorkerRegistry entry.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub worker_id: Option<String>,
+    /// In-memory only — true when pane was deserialized from a session
+    /// snapshot. Gates the spawn-fresh-agent path in commands::pty so it
+    /// does NOT race the orchestrator's launch on freshly spawned panes.
+    /// Cleared after the first successful spawn so a re-mount doesn't
+    /// trigger another launch.
+    #[serde(skip, default)]
+    pub restored_from_snapshot: bool,
 }
 
 fn default_show_in_tabbar() -> bool { true }

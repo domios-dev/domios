@@ -10,6 +10,24 @@ pub enum ReadinessStrategy {
     FixedDelay { duration: Duration },
 }
 
+/// How to confirm that text submitted to a launched provider was actually
+/// processed (Enter consumed, REPL accepted it). Used to gate `OK` on a
+/// real receiver-side observation rather than an optimistic write.
+#[derive(Debug, Clone)]
+pub enum VerifySubmitStrategy {
+    /// Wait for a new shell prompt to appear (default for plain shells and
+    /// providers that pipe through the shell unchanged).
+    ShellPrompt { timeout: Duration },
+    /// Wait for the TUI's input box to drain — the typed text disappears
+    /// from the bottom rows. Cheap heuristic: poll the last few rows; once
+    /// the needle is gone, wait `idle_after_drain` of no-screen-change
+    /// before declaring submitted.
+    TuiInputDrained { timeout: Duration, idle_after_drain: Duration },
+    /// No verification — for providers where post-submit state is not
+    /// observable from the PTY (session-id-injection, headless flag delivery, etc.).
+    None,
+}
+
 /// How to deliver the task to the agent.
 #[derive(Debug, Clone)]
 pub enum TaskDelivery {
@@ -79,12 +97,9 @@ pub struct SessionMessage {
     pub is_meta: bool,
 }
 
-// ── Plugin self-presentation types (Chunk B.1) ─────────────────────
-//
 // `ProviderDescriptor` is the wire format every plugin reports through
-// `AgentProvider::describe()`. The frontend reads ONE list and uses it
-// to render Settings panels, Sidebar menus, command palette entries —
-// no hardcoded provider knowledge anywhere on the JS side.
+// `AgentProvider::describe()`; the frontend renders Settings, Sidebar,
+// and command palette entries from the list with no per-provider JS.
 
 /// Single model offered by an agent provider.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -270,9 +285,7 @@ impl ActionStyle {
     }
 }
 
-// ── Reusable settings schema builders ───────────────────────────────
-//
-// Shared across providers to avoid duplicating identical UI sections.
+// Reusable settings schema builders — shared across providers.
 
 /// Build the "Session Resume" settings section common to all providers.
 /// `skip_flag` is the provider-specific CLI flag for skipping approvals.
@@ -386,6 +399,13 @@ pub trait AgentProvider: Send + Sync {
     /// How to deliver the task to the agent.
     fn task_delivery(&self) -> TaskDelivery;
 
+    /// How to verify that submitted text was actually processed. Default is
+    /// shell-prompt polling — providers running TUIs or non-observable flows
+    /// override (TuiInputDrained / None).
+    fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
+        VerifySubmitStrategy::ShellPrompt { timeout: Duration::from_secs(5) }
+    }
+
     /// Detect this agent from the pane/tab title string.
     fn detect_from_title(&self, title: &str) -> bool;
 
@@ -409,6 +429,11 @@ pub trait AgentProvider: Send + Sync {
 
     /// Build a command to resume an existing session.
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String>;
+
+    /// Cumulative token usage from the provider's session log.
+    fn read_usage(&self, _cwd: &str, _session_id: &str) -> Option<UsageSnapshot> {
+        None
+    }
 
     /// What kind of session-id control this provider supports.
     /// Default is `None` — provider generates its own ids and CodeTerm
@@ -479,11 +504,7 @@ pub trait AgentProvider: Send + Sync {
         crate::agent::detector::parse_permission_prompt(text)
     }
 
-    // ── Agent-specific CLI commands ──────────────────────────────────
-    //
-    // These carry per-provider knowledge of in-agent control commands.
-    // Default implementations return None / empty so a minimal provider
-    // still compiles; real providers override the ones that apply.
+    // In-agent control commands — defaults return None/empty.
 
     /// Flags to pass to the CLI so the agent auto-approves tool calls.
     fn auto_approve_flags(&self) -> Vec<String> {
@@ -546,12 +567,8 @@ pub trait AgentProvider: Send + Sync {
         Ok(())
     }
 
-    // ── Self-presentation metadata (Chunk B.1) ───────────────────────
-    //
-    // The frontend renders provider tabs, model dropdowns, and settings
-    // panels purely from these methods + `describe()`. Default impls are
-    // empty so existing providers don't break; real providers override
-    // what they actually offer.
+    // Self-presentation: frontend reads provider tabs, models, and
+    // settings purely from these + `describe()`. Defaults stay empty.
 
     /// Models this provider offers (e.g. sonnet, opus, haiku for Claude).
     fn available_models(&self) -> Vec<ModelInfo> {
@@ -640,6 +657,20 @@ pub trait AgentProvider: Send + Sync {
             install_command: self.install_command(platform),
         }
     }
+}
+
+/// Cumulative token usage for one agent session.
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+pub struct UsageSnapshot {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_input_tokens: u64,
+    pub cache_read_input_tokens: u64,
+    pub message_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_started_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_activity_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Normalised platform tag used by `install_command(platform)`.

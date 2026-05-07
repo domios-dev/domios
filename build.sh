@@ -5,7 +5,7 @@
 #   ./build.sh check     — cargo check only (~2s incremental)
 #   ./build.sh test      — run Rust unit tests
 #   ./build.sh build     — production build
-#   ./build.sh cli       — build CLI and install to ~/.codeterm/bin/
+#   ./build.sh cli       — build CLI and install to ~/.codeterm/bin/ + ~/.codeterm-dev/bin/
 #   ./build.sh clean     — clean build cache
 #   ./build.sh kill      — kill dev instance (safe, won't touch prod)
 #   ./build.sh webdriver — dev with WebDriver for UI tests
@@ -57,6 +57,21 @@ kill_dev() {
 
 setup_env
 
+# Copy the freshly-built CLI into a target bin dir. Both prod (~/.codeterm/bin)
+# and dev (~/.codeterm-dev/bin) need the same binary so the dev daemon's
+# resolve_cli_path (which prefers data_dir/bin first) doesn't shell into a
+# stale CLI that's missing recent subcommands.
+install_cli_to() {
+  local bin_dir="$1"
+  mkdir -p "$bin_dir"
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    cp cli/target/release/codeterm "$bin_dir/codeterm"
+  else
+    cp cli/target/release/codeterm.exe "$bin_dir/codeterm.exe"
+  fi
+  echo "CLI installed to $bin_dir"
+}
+
 # Auto-install node deps if lockfile is newer than node_modules
 ensure_deps() {
   if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules/.package-lock.json ] 2>/dev/null; then
@@ -81,17 +96,19 @@ case "$CMD" in
     ensure_deps
     pnpm tauri build
     ;;
+  embed)
+    # Force-rebuild the codeterm-embed binary. Skipped on every dev cycle
+    # by default — use this when you change embed sources or pull new
+    # ONNX/embeddings deps.
+    cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
+    node scripts/bundle-embed.js
+    echo "codeterm-embed rebuilt"
+    ;;
   cli)
     touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
-    BIN_DIR="$HOME/.codeterm/bin"
-    mkdir -p "$BIN_DIR"
-    if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-      cp cli/target/release/codeterm "$BIN_DIR/codeterm"
-    else
-      cp cli/target/release/codeterm.exe "$BIN_DIR/codeterm.exe"
-    fi
-    echo "CLI installed to $BIN_DIR"
+    install_cli_to "$HOME/.codeterm/bin"
+    install_cli_to "$HOME/.codeterm-dev/bin"
     ;;
   clean)
     cargo clean --manifest-path src-tauri/Cargo.toml
@@ -110,14 +127,9 @@ case "$CMD" in
     # Build CLI first (so it's ready when app starts)
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
-    BIN_DIR="$HOME/.codeterm/bin"
-    mkdir -p "$BIN_DIR"
-    if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-      cp cli/target/release/codeterm "$BIN_DIR/codeterm"
-    else
-      cp cli/target/release/codeterm.exe "$BIN_DIR/codeterm.exe"
-    fi
-    echo "CLI installed. Build #$BUILD_NUM starting..."
+    install_cli_to "$HOME/.codeterm/bin"
+    install_cli_to "$HOME/.codeterm-dev/bin"
+    echo "Build #$BUILD_NUM starting..."
     pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json
     ;;
   webdriver)

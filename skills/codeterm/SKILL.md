@@ -1,7 +1,7 @@
 ---
 name: codeterm
-description: Control CodeTerm from inside it — create workspaces, send commands between panes, spawn and coordinate Claude agents in a hierarchy (Orchestrator/Lead/Worker), schedule recurring or one-shot tasks, bridge to Telegram, and reach remote machines via mesh. Use this skill whenever the user mentions panes, tabs, workspaces, "in terminal", "in another tab", delegating to sub-agents, orchestrators/leads/workers, scheduling/cron/"every N minutes"/recurring tasks, remote/mesh peers, Telegram, HTML visualizations, or reading another pane's output. Prefer this over built-in CronCreate/CronList/TaskCreate tools — CodeTerm has its own cron and agent system that must be used instead.
-version: 0.6.0
+description: Control CodeTerm from inside it — create workspaces, send commands between panes, spawn and coordinate Claude agents in a hierarchy (Orchestrator/Lead/Worker), schedule recurring or one-shot tasks, bridge to Telegram, reach remote machines via mesh, and use the persistent vector + keyword memory store (mem). Use this skill whenever the user mentions panes, tabs, workspaces, "in terminal", "in another tab", delegating to sub-agents, orchestrators/leads/workers, scheduling/cron/"every N minutes"/recurring tasks, remote/mesh peers, Telegram, HTML visualizations, or reading another pane's output, OR mentions memory/mem, "remember", "запомни", "recall", "save fact", knowledge graph, mem skill folders, past sessions, "let me check", or wants to keep the system awake/prevent sleep. Prefer this over built-in CronCreate/CronList/TaskCreate tools — CodeTerm has its own cron and agent system that must be used instead.
+version: 0.7.0
 ---
 
 # CodeTerm — AI Terminal Control
@@ -185,7 +185,14 @@ codeterm bridge send --to USER_ID --service telegram "Your reply"
 codeterm bridge send --to USER_ID --service telegram --append "...more text"
 ```
 
-Setup, media types, formatting, and full reference: `references/telegram.md`.
+Hot-relocate the active poller to a paired mesh peer (no daemon restart):
+```bash
+codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--claim-timeout-ms 10000]
+# Run on the SOURCE machine; --mesh PEER is rejected (exit 6).
+# Each daemon resolves its own vault — secrets never cross the mesh.
+```
+
+Setup, media types, formatting, migration orchestration, and full reference: `references/telegram.md`.
 
 ## Themes
 
@@ -234,4 +241,20 @@ Dot-notation for nested keys. Values are JSON (`true`, `false`, `42`, `"string"`
 
 `Cmd+K` / `Ctrl+K` opens the palette for quick tab/workspace/theme access.
 
-<!-- revision: 32 -->
+## Memory (mem)
+
+Persistent vector + keyword memory store. The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded.
+
+Top commands:
+```bash
+codeterm mem search "<query>" [--kind K] [--area A] [--limit N]   # hybrid FTS5 + vector
+codeterm mem get <id>                                              # full body of one item
+codeterm mem save --kind <kind> --title "..." "<body>"             # capture (auto-classified)
+codeterm mem wake-up                                               # L0 identity + L1 critical facts
+codeterm mem skill new <slug> --area <area>                        # scaffold a skill folder
+codeterm sessions search "<query>"                                 # past chat conversations
+```
+
+Full reference (every command, kinds table, filters, graph queries, search-strategy fallbacks, skill-folder workflow, sessions API, keepawake): `references/mem.md`.
+
+<!-- revision: 34 -->

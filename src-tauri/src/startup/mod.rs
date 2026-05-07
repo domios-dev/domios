@@ -6,14 +6,18 @@
 mod background;
 mod bridge;
 mod cli_install;
+mod cli_shim;
 mod logging;
 mod servers;
 mod states;
 mod window;
 
 pub(crate) use background::start_background_tasks;
-pub use bridge::start_telegram_bridge;
+pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_pane_connected_service};
+#[cfg(test)]
+pub use bridge::start_telegram_bridge_for_test;
 pub(crate) use cli_install::install_bundled_cli;
+pub(crate) use cli_shim::forward_to_cli_if_invoked;
 pub(crate) use logging::setup_logging;
 pub(crate) use servers::start_servers;
 pub(crate) use states::init_states;

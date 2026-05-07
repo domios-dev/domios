@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AppConfig } from "../../lib/types";
+import type { AppConfig, CronJob } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { Group, Label } from "./shared";
 
 export function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
-  const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_enabled: true, dreaming_agent: "", dreaming_model: "haiku", worker_model: "claude-haiku-4-5-20251001", worker_timeout_seconds: 150, file_sync_enabled: true, file_sync_interval_minutes: 60, dedup_threshold: 0.15 };
+  const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_agent: "", dreaming_model: "haiku", worker_model: "claude-haiku-4-5-20251001", worker_timeout_seconds: 150, file_sync_enabled: true, file_sync_interval_minutes: 60, dedup_threshold: 0.15 };
   const mem = { ...defaultMem, ...(config.memory ?? {}) };
   const { providers } = useAgentProviders();
   const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
@@ -24,6 +24,8 @@ export function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <
   const apiBase = api ? `http://${api.host === "0.0.0.0" ? "127.0.0.1" : api.host}:${api.port}` : "";
   const apiHeaders: HeadersInit = api?.token ? { Authorization: `Bearer ${api.token}` } : {};
 
+  const [dreamCron, setDreamCron] = useState<{ id: string; enabled: boolean } | null>(null);
+
   useEffect(() => {
     if (!apiBase) return;
     fetch(`${apiBase}/api/mem/sync/status`, { headers: apiHeaders })
@@ -31,6 +33,31 @@ export function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <
       .then(d => setSyncStatus(d))
       .catch(() => {});
   }, [apiBase]);
+
+  useEffect(() => {
+    if (!apiBase) return;
+    fetch(`${apiBase}/api/crons`, { headers: apiHeaders })
+      .then(r => r.ok ? r.json() : [])
+      .then((jobs: CronJob[]) => {
+        const job = jobs.find(j => j.name === "mem-dreaming-auto");
+        if (job) setDreamCron({ id: job.id, enabled: job.enabled });
+      })
+      .catch(() => {});
+  }, [apiBase]);
+
+  const toggleDreamerCron = useCallback(async (enabled: boolean) => {
+    if (!apiBase || !dreamCron) return;
+    try {
+      const r = await fetch(`${apiBase}/api/crons/${encodeURIComponent(dreamCron.id)}/${enabled ? "enable" : "disable"}`, {
+        method: "POST",
+        headers: apiHeaders,
+      });
+      if (r.ok) {
+        const updated = (await r.json()) as CronJob;
+        setDreamCron({ id: updated.id, enabled: updated.enabled });
+      }
+    } catch { /* ignore */ }
+  }, [apiBase, dreamCron]);
 
   const triggerSync = useCallback(async () => {
     if (!apiBase) return;
@@ -148,11 +175,14 @@ export function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={mem.dreaming_enabled}
-                  onChange={(e) => onUpdate("memory", { ...mem, dreaming_enabled: e.target.checked })}
-                  className="w-4 h-4 rounded"
+                  checked={dreamCron?.enabled ?? false}
+                  disabled={!dreamCron}
+                  onChange={(e) => toggleDreamerCron(e.target.checked)}
+                  className="w-4 h-4 rounded disabled:opacity-50"
                 />
-                <span className="text-xs text-[var(--ct-fg)]">Nightly memory optimization</span>
+                <span className="text-xs text-[var(--ct-fg)]">
+                  {dreamCron ? "Nightly memory optimization" : "Loading cron..."}
+                </span>
               </label>
             </Label>
             <Label text="Agent provider">

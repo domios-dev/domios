@@ -1,15 +1,18 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::OnceLock;
-use std::time::{Duration, Instant};
-
-use parking_lot::Mutex;
+use std::time::Duration;
 
 use crate::agent::provider::{
     self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SessionMessage,
-    SessionMetadata, SettingField, TaskDelivery,
+    SessionMetadata, SettingField, TaskDelivery, UsageSnapshot, VerifySubmitStrategy,
 };
+use super::usage as opencode_usage;
 use crate::shell::ShellSyntax;
+
+#[path = "models.rs"]
+mod models;
+use models::{cached_opencode_models, fallback_models, fetch_opencode_models, store_opencode_models};
+#[cfg(test)]
+use models::prettify_model_id;
 
 /// OpenCode (sst/opencode) agent provider.
 ///
@@ -116,6 +119,29 @@ impl OpenCodeProvider {
         None
     }
 
+    /// Pull every message row for one session out of the sqlite db,
+    /// returning the raw `data` JSON of each. Returns None if the db
+    /// is missing or the query fails (caller falls back to fs walk).
+    fn db_messages(session_id: &str) -> Option<Vec<serde_json::Value>> {
+        let path = Self::db_path()?;
+        let conn = rusqlite::Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .ok()?;
+        let mut stmt = conn
+            .prepare("SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created ASC")
+            .ok()?;
+        let rows = stmt
+            .query_map(rusqlite::params![session_id], |row| row.get::<_, String>(0))
+            .ok()?;
+        let out: Vec<serde_json::Value> = rows
+            .flatten()
+            .filter_map(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .collect();
+        if out.is_empty() { None } else { Some(out) }
+    }
+
     /// Check the sqlite store for an exact session id. Used by
     /// `session_exists` to validate before resume — if the user wiped the
     /// db between runs the old id stops being resumable.
@@ -183,6 +209,13 @@ impl AgentProvider for OpenCodeProvider {
         TaskDelivery::InlineFlag
     }
 
+    fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
+        VerifySubmitStrategy::TuiInputDrained {
+            timeout: Duration::from_secs(15),
+            idle_after_drain: Duration::from_millis(800),
+        }
+    }
+
     fn detect_from_title(&self, title: &str) -> bool {
         let lower = title.to_lowercase();
         lower.contains("opencode")
@@ -219,6 +252,17 @@ impl AgentProvider for OpenCodeProvider {
         self.session_file_path(_cwd, session_id)
             .map(|p| p.exists())
             .unwrap_or(false)
+    }
+
+    fn read_usage(&self, _cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
+        if let Some(rows) = Self::db_messages(session_id) {
+            if let Some(snap) = opencode_usage::accumulate(rows.into_iter()) {
+                return Some(snap);
+            }
+        }
+        let messages_root = Self::messages_root()?;
+        let dir = messages_root.join(session_id);
+        opencode_usage::read_from_path(&dir)
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
@@ -539,10 +583,9 @@ impl AgentProvider for OpenCodeProvider {
             "macos" | "linux" => {
                 Some("curl -fsSL https://opencode.ai/install | bash".into())
             }
-            // Windows install script lives at the same domain with .ps1 ext.
-            "windows" => Some(
-                "powershell -Command \"irm https://opencode.ai/install.ps1 | iex\"".into(),
-            ),
+            // Upstream removed the .ps1 installer; the canonical npm package
+            // works on stock Windows + Node and matches the claude/codex flow.
+            "windows" => Some("npm install -g opencode-ai".into()),
             _ => None,
         }
     }
@@ -667,135 +710,6 @@ fn find_file_by_name(dir: &Path, target: &str, depth: u8) -> Option<PathBuf> {
     None
 }
 
-// ── Live model discovery ────────────────────────────────────────────
-
-/// 5 minute TTL — `opencode models` is fast (<200ms cold) but spawning
-/// a subprocess on every settings render is silly.
-const MODEL_CACHE_TTL: Duration = Duration::from_secs(300);
-
-struct ModelCache {
-    fetched_at: Instant,
-    models: Vec<ModelInfo>,
-}
-
-fn model_cache() -> &'static Mutex<Option<ModelCache>> {
-    static CACHE: OnceLock<Mutex<Option<ModelCache>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(None))
-}
-
-fn cached_opencode_models() -> Option<Vec<ModelInfo>> {
-    let guard = model_cache().lock();
-    let entry = guard.as_ref()?;
-    if entry.fetched_at.elapsed() < MODEL_CACHE_TTL {
-        Some(entry.models.clone())
-    } else {
-        None
-    }
-}
-
-fn store_opencode_models(models: Vec<ModelInfo>) {
-    *model_cache().lock() = Some(ModelCache {
-        fetched_at: Instant::now(),
-        models,
-    });
-}
-
-fn fetch_opencode_models() -> Result<Vec<ModelInfo>, String> {
-    let mut cmd = Command::new("opencode");
-    cmd.arg("models");
-    crate::process_util::no_window_std(&mut cmd);
-    let output = cmd
-        .output()
-        .map_err(|e| format!("spawn opencode: {}", e))?;
-
-    if !output.status.success() {
-        return Err(format!(
-            "opencode models exited {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let models: Vec<ModelInfo> = stdout
-        .lines()
-        .map(|l| l.trim())
-        .filter(|l| !l.is_empty() && l.contains('/'))
-        .map(|id| ModelInfo {
-            id: id.to_string(),
-            display_name: prettify_model_id(id),
-            description: None,
-        })
-        .collect();
-
-    Ok(models)
-}
-
-/// "anthropic/claude-opus-4-7" → "Anthropic · Claude Opus 4.7".
-/// Drop in for a richer wire format if/when opencode adds JSON output.
-fn prettify_model_id(id: &str) -> String {
-    let (provider, model) = id.split_once('/').unwrap_or(("", id));
-    let provider_label = match provider {
-        "anthropic" => "Anthropic",
-        "openai" => "OpenAI",
-        "google" => "Google",
-        "github-copilot" => "GitHub Copilot",
-        "openrouter" => "OpenRouter",
-        "opencode" => "OpenCode",
-        other if !other.is_empty() => other,
-        _ => "",
-    };
-    let model_label = model
-        .split('-')
-        .map(|part| {
-            // Capitalise first char of each hyphen segment, leave numerics alone.
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
-    if provider_label.is_empty() {
-        model_label
-    } else {
-        format!("{} · {}", provider_label, model_label)
-    }
-}
-
-/// Static seed used when the CLI is missing or the fetch fails. Keeps the
-/// settings UI usable on a fresh install before `opencode providers login`.
-fn fallback_models() -> Vec<ModelInfo> {
-    vec![
-        ModelInfo {
-            id: "anthropic/claude-opus-4-7".into(),
-            display_name: "Anthropic · Claude Opus 4.7".into(),
-            description: Some("Anthropic frontier model — strongest coding intelligence.".into()),
-        },
-        ModelInfo {
-            id: "anthropic/claude-sonnet-4-6".into(),
-            display_name: "Anthropic · Claude Sonnet 4.6".into(),
-            description: Some("Anthropic balanced model — fast + capable.".into()),
-        },
-        ModelInfo {
-            id: "anthropic/claude-haiku-4-5".into(),
-            display_name: "Anthropic · Claude Haiku 4.5".into(),
-            description: Some("Anthropic small model — cheap, fast.".into()),
-        },
-        ModelInfo {
-            id: "openai/gpt-5".into(),
-            display_name: "OpenAI · GPT-5".into(),
-            description: Some("OpenAI frontier model.".into()),
-        },
-        ModelInfo {
-            id: "opencode/big-pickle".into(),
-            display_name: "OpenCode · Big Pickle".into(),
-            description: Some("OpenCode-hosted frontier coding model.".into()),
-        },
-    ]
-}
-
 /// CodeTerm injects a few system-shaped prompts as role=user at session
 /// start. Mark them meta so cross-provider session search skips them.
 fn is_codeterm_injection(text: &str) -> bool {
@@ -809,274 +723,5 @@ fn is_codeterm_injection(text: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn opencode_provider_id() {
-        let p = OpenCodeProvider::new();
-        assert_eq!(p.id(), "opencode");
-        assert_eq!(p.display_name(), "OpenCode");
-    }
-
-    #[test]
-    fn opencode_auto_approve_flags() {
-        let p = OpenCodeProvider::new();
-        assert_eq!(
-            p.auto_approve_flags(),
-            vec!["--dangerously-skip-permissions"]
-        );
-    }
-
-    #[test]
-    fn opencode_detect_from_title() {
-        let p = OpenCodeProvider::new();
-        assert!(p.detect_from_title("opencode"));
-        assert!(p.detect_from_title("OpenCode - project"));
-        assert!(p.detect_from_title("* My OpenCode Session"));
-        assert!(!p.detect_from_title("claude"));
-        assert!(!p.detect_from_title("codex"));
-    }
-
-    #[test]
-    fn opencode_launch_interactive() {
-        let p = OpenCodeProvider::new();
-        let cmd = p.build_launch_command(&AgentLaunchParams {
-            agent_name: None,
-            task: None,
-            args: None,
-            skip_permissions: false,
-            headless: false,
-            session_id: None,
-        });
-        assert_eq!(cmd, "opencode");
-    }
-
-    #[test]
-    fn opencode_launch_interactive_skip_perms_does_not_attach_flag() {
-        // The --dangerously-skip-permissions flag is `run`-only. Interactive
-        // TUI launches must NOT include it (opencode rejects unknown args).
-        let p = OpenCodeProvider::new();
-        let cmd = p.build_launch_command(&AgentLaunchParams {
-            agent_name: None,
-            task: None,
-            args: None,
-            skip_permissions: true,
-            headless: false,
-            session_id: None,
-        });
-        assert_eq!(cmd, "opencode");
-        assert!(!cmd.contains("--dangerously-skip-permissions"));
-    }
-
-    #[test]
-    fn opencode_launch_with_task_uses_run_subcommand() {
-        let p = OpenCodeProvider::new();
-        let cmd = p.build_launch_command(&AgentLaunchParams {
-            agent_name: None,
-            task: Some("fix the bug".to_string()),
-            args: None,
-            skip_permissions: true,
-            headless: false,
-            session_id: None,
-        });
-        assert!(cmd.starts_with("opencode run"));
-        assert!(cmd.contains("--dangerously-skip-permissions"));
-        assert!(cmd.contains("--format json"));
-        assert!(cmd.contains("fix the bug"));
-    }
-
-    #[test]
-    fn opencode_launch_with_task_no_skip() {
-        let p = OpenCodeProvider::new();
-        let cmd = p.build_launch_command(&AgentLaunchParams {
-            agent_name: None,
-            task: Some("fix the bug".to_string()),
-            args: None,
-            skip_permissions: false,
-            headless: false,
-            session_id: None,
-        });
-        assert!(cmd.starts_with("opencode run"));
-        assert!(!cmd.contains("--dangerously-skip-permissions"));
-        assert!(cmd.contains("--format json"));
-    }
-
-    #[test]
-    fn opencode_launch_with_extra_args() {
-        let p = OpenCodeProvider::new();
-        let cmd = p.build_launch_command(&AgentLaunchParams {
-            agent_name: None,
-            task: Some("hello".to_string()),
-            args: Some(vec!["-m".into(), "anthropic/claude-opus-4-7".into()]),
-            skip_permissions: true,
-            headless: false,
-            session_id: None,
-        });
-        assert!(cmd.contains("-m anthropic/claude-opus-4-7"));
-        assert!(cmd.contains("opencode run"));
-    }
-
-    #[test]
-    fn opencode_resume_command_uses_session_flag() {
-        let p = OpenCodeProvider::new();
-        let cmd = p
-            .build_resume_command("ses_3bc903c6bffeLofCwfS0EczYak", true)
-            .unwrap();
-        assert!(cmd.starts_with("opencode --session"));
-        assert!(cmd.contains("ses_3bc903c6bffeLofCwfS0EczYak"));
-        // TUI doesn't accept --dangerously-skip-permissions even when caller
-        // asks for skip — provider must drop it silently.
-        assert!(!cmd.contains("--dangerously-skip-permissions"));
-    }
-
-    #[test]
-    fn opencode_compact_and_exit() {
-        let p = OpenCodeProvider::new();
-        assert_eq!(p.compact_command(), Some("/compact"));
-        assert_eq!(p.exit_command(), Some("/exit"));
-    }
-
-    #[test]
-    fn opencode_event_detection() {
-        let p = OpenCodeProvider::new();
-        let events = p.detect_events("Permission required: Bash(rm -rf /)");
-        assert_eq!(events.len(), 1);
-        assert!(matches!(
-            events[0],
-            crate::agent::detector::AgentEvent::PermissionRequest
-        ));
-
-        let events = p.detect_events("Hello, how can I help?");
-        assert!(events.is_empty());
-    }
-
-    #[test]
-    fn opencode_noise_detection() {
-        let p = OpenCodeProvider::new();
-        assert!(p.is_output_noise(""));
-        assert!(p.is_output_noise("   "));
-        assert!(p.is_output_noise("───────────"));
-        assert!(p.is_output_noise("█▀▀█ █▀▀█ █▀▀█"));
-        assert!(!p.is_output_noise("Some actual output"));
-    }
-
-    #[test]
-    fn opencode_status_bar_rows() {
-        let p = OpenCodeProvider::new();
-        assert_eq!(p.status_bar_rows(), 2);
-    }
-
-    #[test]
-    fn opencode_describe_assembles_full_descriptor() {
-        let p = OpenCodeProvider::new();
-        let desc = p.describe();
-        assert_eq!(desc.id, "opencode");
-        assert_eq!(desc.display_name, "OpenCode");
-        assert_eq!(desc.icon_hint.as_deref(), Some("◇"));
-        assert_eq!(desc.default_model.as_deref(), Some("anthropic/claude-opus-4-7"));
-        assert!(desc.preserves_context_on_resume);
-        assert!(!desc.has_hooks);
-        assert!(!desc.settings_schema.is_empty());
-    }
-
-    #[test]
-    fn opencode_settings_schema_has_required_sections() {
-        let p = OpenCodeProvider::new();
-        let schema = p.settings_schema();
-        let titles: Vec<&str> = schema
-            .iter()
-            .filter_map(|f| match f {
-                crate::agent::provider::SettingField::Section { title, .. } => Some(title.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert!(titles.contains(&"Session Resume"));
-        assert!(titles.contains(&"Model"));
-        assert!(titles.contains(&"Requirements"));
-    }
-
-    #[test]
-    fn opencode_settings_schema_round_trips_as_json() {
-        let p = OpenCodeProvider::new();
-        let desc = p.describe();
-        let json = serde_json::to_string(&desc).expect("serialize");
-        let decoded: crate::agent::provider::ProviderDescriptor =
-            serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(desc, decoded);
-    }
-
-    #[test]
-    fn opencode_has_no_notifications_contribution() {
-        let p = OpenCodeProvider::new();
-        assert!(p.notifications_schema().is_empty());
-        assert!(p.describe().notifications_schema.is_empty());
-    }
-
-    #[test]
-    fn opencode_default_model_is_set() {
-        let p = OpenCodeProvider::new();
-        assert_eq!(p.default_model(), Some("anthropic/claude-opus-4-7"));
-    }
-
-    #[test]
-    fn opencode_models_returns_non_empty_list_via_live_or_fallback() {
-        // Either the live `opencode models` succeeds and we get >0 entries,
-        // or the fetch fails and the fallback seed list kicks in. Both paths
-        // must produce a non-empty list — settings UI relies on it.
-        let p = OpenCodeProvider::new();
-        let models = p.available_models();
-        assert!(!models.is_empty(), "available_models must never be empty");
-        // Every entry must be a proper provider/model pair.
-        for m in &models {
-            assert!(m.id.contains('/'), "model id without provider prefix: {}", m.id);
-        }
-    }
-
-    #[test]
-    fn opencode_fallback_seed_is_stable() {
-        let seed = fallback_models();
-        let ids: Vec<&str> = seed.iter().map(|m| m.id.as_str()).collect();
-        assert!(ids.contains(&"anthropic/claude-opus-4-7"));
-        assert!(ids.contains(&"anthropic/claude-sonnet-4-6"));
-        assert!(ids.contains(&"opencode/big-pickle"));
-    }
-
-    #[test]
-    fn prettify_model_id_humanises_known_providers() {
-        assert_eq!(
-            prettify_model_id("anthropic/claude-opus-4-7"),
-            "Anthropic · Claude Opus 4 7"
-        );
-        assert_eq!(
-            prettify_model_id("github-copilot/gpt-5-mini"),
-            "GitHub Copilot · Gpt 5 Mini"
-        );
-        assert_eq!(prettify_model_id("opencode/big-pickle"), "OpenCode · Big Pickle");
-        // Unknown provider — keep the raw segment so we don't lose info.
-        assert_eq!(prettify_model_id("zoinks/super-fast"), "zoinks · Super Fast");
-        // Bare id without slash — return as-is, capitalised.
-        assert_eq!(prettify_model_id("just-a-name"), "Just A Name");
-    }
-
-    #[test]
-    fn opencode_meta_filter_known_injections() {
-        assert!(is_codeterm_injection("# AGENTS.md instructions for /Users/x"));
-        assert!(is_codeterm_injection("<INSTRUCTIONS>\nYou are..."));
-        assert!(is_codeterm_injection("<environment_context>\n  <cwd>/x</cwd>"));
-        assert!(is_codeterm_injection("You are the General Agent — the always-on system brain"));
-        assert!(!is_codeterm_injection("fix the bug in parser.rs"));
-        assert!(!is_codeterm_injection("# TODO\n- ship v2"));
-    }
-
-    #[test]
-    fn opencode_session_id_injection_default_none() {
-        // OpenCode generates session ids itself (`ses_*`) — no pre-launch
-        // injection like Claude's --session-id flag.
-        let p = OpenCodeProvider::new();
-        assert_eq!(
-            p.session_id_injection(),
-            crate::agent::provider::SessionIdInjection::None
-        );
-    }
-}
+#[path = "provider_tests.rs"]
+mod tests;

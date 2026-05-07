@@ -92,7 +92,6 @@ const DEFAULT_CONFIG: AppConfig = {
     extraction_agent: "",
     extraction_model: "haiku",
     auto_extract: true,
-    dreaming_enabled: true,
     dreaming_agent: "",
     dreaming_model: "haiku",
     worker_model: "claude-haiku-4-5-20251001",

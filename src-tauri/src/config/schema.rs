@@ -346,8 +346,6 @@ pub struct MemoryConfig {
     pub extraction_model: String,
     /// Enable auto-extraction workers on save
     pub auto_extract: bool,
-    /// Enable nightly dreaming optimizer
-    pub dreaming_enabled: bool,
     /// Agent provider for dreaming cron (default: same as general_agent)
     pub dreaming_agent: String,
     /// Model for dreaming agent. Empty string = fall back to `worker_model`.
@@ -379,7 +377,6 @@ impl Default for MemoryConfig {
             extraction_agent: String::new(),
             extraction_model: String::new(),
             auto_extract: true,
-            dreaming_enabled: true,
             dreaming_agent: String::new(),
             dreaming_model: String::new(),
             worker_model: default_worker_model(),

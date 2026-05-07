@@ -103,6 +103,27 @@ impl ScreenState {
         })
     }
 
+    /// Returns the last `max_rows` non-blank rows of the screen plus all rows
+    /// after them, joined with `\n`. On a fresh PTY where content lives near
+    /// the top and bottom rows are blank, this still returns the content.
+    pub fn tail_text(&self, pty_id: &str, max_rows: usize) -> Option<String> {
+        let parser = self.parsers.get(pty_id)?;
+        let screen = parser.screen();
+        let (rows, cols) = screen.size();
+        let last_nonblank: Option<u16> = (0..rows).rev().find(|&r| {
+            !screen.contents_between(r, 0, r, cols).trim().is_empty()
+        });
+        let end_row_excl = last_nonblank.map(|r| r + 1).unwrap_or(rows);
+        let start_row = end_row_excl.saturating_sub(max_rows as u16);
+        let mut out = String::new();
+        for row in start_row..end_row_excl {
+            let row_text = screen.contents_between(row, 0, row, cols);
+            out.push_str(&row_text);
+            out.push('\n');
+        }
+        Some(out)
+    }
+
     /// Get or create the prompt-ready signal for a PTY. The first call arms detection:
     /// subsequent `process` calls will `mark_ready` as soon as the screen looks like a prompt.
     /// If a prompt is already on screen at arm-time, the signal fires immediately.

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { useTauriFileDrop } from "../../hooks/terminal";
+import { extractFilePathsFromClipboard } from "../../lib/clipboardPaste";
 import { MessageBubble } from "./MessageBubble";
 import type { ChatMessage } from "./parser";
 import { AlertTriangle, File } from "lucide-react";
@@ -257,11 +258,30 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
   }, [input, attachments, ptyId, paneId]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    // Check for files (images, PDFs, any file type)
     const items = Array.from(e.clipboardData.items);
     const fileItems = items.filter(item => item.kind === "file");
 
+    // Real filesystem paths from the clipboard ALWAYS win over getAsFile() blobs.
+    // macOS Cmd+C of a Finder file puts a file URL on the pasteboard but
+    // getAsFile() yields a generic 1024x1024 PNG icon, not the file's bytes.
+    // The same is true for some Windows Explorer file copies.
+    const pathsFromClipboard = extractFilePathsFromClipboard(e.clipboardData);
+
+    if (pathsFromClipboard.length > 0) {
+      e.preventDefault();
+      const newAttachments: Attachment[] = pathsFromClipboard.map((p) => ({
+        id: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        name: basename(p),
+        path: p,
+        type: mimeFromPath(p),
+      }));
+      setAttachments(prev => [...prev, ...newAttachments]);
+      return;
+    }
+
     if (fileItems.length > 0) {
+      // No path on the clipboard — these are real in-memory bytes
+      // (e.g. Shift+Cmd+Ctrl+4 screenshot, or a "copy image" from a webpage).
       e.preventDefault();
       for (const item of fileItems) {
         const blob = item.getAsFile();
@@ -291,28 +311,9 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
       return;
     }
 
-    // Text paste — check if it looks like a file path (Ctrl+C file in Explorer)
     e.preventDefault();
     const text = e.clipboardData.getData("text/plain");
     if (!text) return;
-
-    // Detect pasted file paths: Windows (C:\...) or Unix (/...) with common extensions
-    const trimmed = text.trim();
-    const looksLikeFile = /^([A-Za-z]:\\|\/|~\/)/.test(trimmed)
-      && !trimmed.includes("\n")
-      && trimmed.length < 500;
-    if (looksLikeFile) {
-      const ext = trimmed.split(".").pop()?.toLowerCase() || "";
-      const isImage = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(ext);
-      const entry: Attachment = {
-        id: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-        name: trimmed.split(/[\\/]/).pop() || trimmed,
-        path: trimmed,
-        type: isImage ? `image/${ext === "jpg" ? "jpeg" : ext}` : "application/octet-stream",
-      };
-      setAttachments(prev => [...prev, entry]);
-      return;
-    }
 
     const el = e.target as HTMLTextAreaElement;
     const start = el.selectionStart;

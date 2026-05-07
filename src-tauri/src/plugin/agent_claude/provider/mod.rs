@@ -9,13 +9,15 @@ mod detection;
 mod launch;
 mod schemas;
 mod sessions;
+mod usage;
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::agent::provider::{
     AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, SessionIdInjection,
-    SessionMessage, SessionMetadata, SettingField, TaskDelivery,
+    SessionMessage, SessionMetadata, SettingField, TaskDelivery, UsageSnapshot,
+    VerifySubmitStrategy,
 };
 
 /// Claude Code agent provider.
@@ -62,6 +64,13 @@ impl AgentProvider for ClaudeProvider {
         TaskDelivery::InlineFlag
     }
 
+    fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
+        VerifySubmitStrategy::TuiInputDrained {
+            timeout: Duration::from_secs(15),
+            idle_after_drain: Duration::from_millis(800),
+        }
+    }
+
     fn detect_from_title(&self, title: &str) -> bool {
         detection::detect_from_title(title)
     }
@@ -85,6 +94,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
         launch::build_resume_command(session_id, skip_permissions)
+    }
+
+    fn read_usage(&self, cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
+        usage::read(cwd, session_id)
     }
 
     fn has_event_markers(&self, chunk: &str) -> bool {
@@ -159,8 +172,13 @@ impl AgentProvider for ClaudeProvider {
 
     fn install_command(&self, platform: &str) -> Option<String> {
         match platform {
-            "macos" | "linux" => Some("npm install -g @anthropic-ai/claude-code".into()),
-            "windows" => Some("npm install -g @anthropic-ai/claude-code".into()),
+            // Anthropic's native installer is the recommended path — auto-updates
+            // in the background, no Node.js dependency. npm is now an "advanced"
+            // option per https://code.claude.com/docs/en/setup.
+            "macos" | "linux" => Some("curl -fsSL https://claude.ai/install.sh | bash".into()),
+            "windows" => Some(
+                "powershell -Command \"irm https://claude.ai/install.ps1 | iex\"".into(),
+            ),
             _ => None,
         }
     }
@@ -262,6 +280,21 @@ mod tests {
                 assert_eq!(timeout, Duration::from_secs(30));
             }
             _ => panic!("Expected PollShellPrompt"),
+        }
+    }
+
+    #[test]
+    fn claude_uses_tui_input_drained_for_submit_verification() {
+        let p = ClaudeProvider::new();
+        match p.verify_submit_strategy() {
+            VerifySubmitStrategy::TuiInputDrained { timeout, idle_after_drain } => {
+                assert!(timeout >= Duration::from_secs(10), "claude timeout too short");
+                assert!(
+                    idle_after_drain >= Duration::from_millis(500),
+                    "idle window too short"
+                );
+            }
+            other => panic!("expected TuiInputDrained, got {:?}", other),
         }
     }
 
