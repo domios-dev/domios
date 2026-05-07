@@ -40,6 +40,19 @@ pub(crate) struct BatchCommand {
     delay_ms: Option<u64>,
 }
 
+/// PTY init takes ~1-2s after agent_spawn returns; send-text fired
+/// immediately would otherwise hit "no PTY" unconditionally. Poll for
+/// the link with this short budget so a script can chain spawn → send.
+async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
+    for _ in 0..15 {
+        if state.svc.resolve_pty_id(pane_id).is_ok() {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    false
+}
+
 pub async fn send_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -48,6 +61,10 @@ pub async fn send_text(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
+
+    if !await_pty_link(&state, &pane_id).await {
+        return Err((StatusCode::NOT_FOUND, "Pane not found or PTY did not start within 3s"));
+    }
 
     if let Some(batch) = body.batch {
         let items: Vec<crate::service::pty_io::SendBatchItem> = batch.into_iter().map(|c| {
