@@ -1,4 +1,7 @@
+use std::sync::OnceLock;
 use std::time::Duration;
+
+use regex::Regex;
 
 use crate::ScreenStateHandle;
 use crate::pty::screen_state::screen_has_shell_prompt;
@@ -85,16 +88,68 @@ fn last_nonempty_line(s: &str) -> &str {
     s.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("")
 }
 
+/// Matches the multi-line bracketed-paste placeholder rendered by Claude Code,
+/// Codex, and other modern TUIs: `[Pasted text #1 +12 lines]`. When the user
+/// pastes more than one line via `\x1b[200~...\x1b[201~`, the literal text is
+/// replaced on screen with this placeholder — searching for the original text
+/// will never match.
+fn paste_placeholder_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\[Pasted text #\d+ \+\d+ lines?\]").unwrap())
+}
+
+fn screen_has_paste_placeholder(screen: &str) -> bool {
+    paste_placeholder_regex().is_match(screen)
+}
+
+fn last_n_chars(s: &str, n: usize) -> String {
+    let total = s.chars().count();
+    let skip = total.saturating_sub(n);
+    s.chars().skip(skip).collect()
+}
+
+const ECHO_SUFFIX_MATCH_CHARS: usize = 80;
+const ECHO_LONG_INPUT_BYTES: usize = 200;
+/// Only fall back to suffix-match when the paste is large enough that the
+/// prefix could realistically have scrolled out of the tail-rows window.
+/// Tail capacity is ~8 rows × ~100 cols ≈ 800 bytes; require a clear margin
+/// above that so corruption in normal-size inputs is still detected.
+const ECHO_SUFFIX_MATCH_MIN_INPUT_BYTES: usize = 1024;
+
 pub fn screen_contains_echo(screen_tail: &str, expected: &str) -> bool {
     if expected.is_empty() {
         return true;
     }
     let n_expected = normalize_ws(expected);
-    if normalize_ws(screen_tail).contains(&n_expected) {
+    let n_tail = normalize_ws(screen_tail);
+    if n_tail.contains(&n_expected) {
         return true;
     }
     let flat = screen_tail.replace('\n', "");
-    normalize_ws(&flat).contains(&n_expected)
+    let n_flat = normalize_ws(&flat);
+    if n_flat.contains(&n_expected) {
+        return true;
+    }
+    // Long shell paste: prefix scrolls out of the tail-rows window before we
+    // poll, so the head of `expected` is never visible. The tail of the paste
+    // still is — match the last N chars instead. Gated on input size so a
+    // ~90-char command with a corrupted prefix is still caught by the strict
+    // substring check above.
+    if expected.len() >= ECHO_SUFFIX_MATCH_MIN_INPUT_BYTES {
+        let suffix = last_n_chars(&n_expected, ECHO_SUFFIX_MATCH_CHARS);
+        if n_tail.contains(&suffix) || n_flat.contains(&suffix) {
+            return true;
+        }
+    }
+    // Bracketed-paste TUI placeholder: Claude/Codex collapse multi-line pastes
+    // into "[Pasted text #N +M lines]" — literal text never appears, but the
+    // paste was accepted. Treat the placeholder as echo confirmation, but only
+    // for inputs that would actually trigger the placeholder rendering.
+    let placeholder_eligible = expected.contains('\n') || expected.len() > ECHO_LONG_INPUT_BYTES;
+    if placeholder_eligible && screen_has_paste_placeholder(screen_tail) {
+        return true;
+    }
+    false
 }
 
 pub fn wait_for_echo(
@@ -274,6 +329,62 @@ mod tests {
         let screen = "rollacode@host codeterm % unset CLAUDECODE && claude --dangerously-skip-permissions \"$(cat /tmp/.ct-task-01219c41)\")\"";
         let expected = r#"unset CLAUDECODE && claude --dangerously-skip-permissions "$(cat /tmp/.ct-task-01219c41)""#;
         assert!(screen_contains_echo(screen, expected));
+    }
+
+    #[test]
+    fn long_paste_with_scrolled_out_prefix_matches_via_suffix() {
+        // 5000-char paste: only the trailing portion fits into the 8-row tail
+        // window. Echo verify must still confirm via suffix match.
+        let body: String = "A".repeat(4900);
+        let expected = format!("[Mesh: BLACKSTAR pane=abc12345] {} TAIL_TOKEN_END", body);
+        // Tail captured by screen_state contains only the last ~640 chars of the paste.
+        let visible_tail: String = expected.chars().rev().take(600).collect::<String>().chars().rev().collect();
+        assert!(
+            screen_contains_echo(&visible_tail, &expected),
+            "long paste should match via suffix even when prefix scrolled out"
+        );
+    }
+
+    #[test]
+    fn bracketed_paste_placeholder_counts_as_echo_for_multiline_input() {
+        // Claude TUI replaces multi-line pastes with the placeholder; literal
+        // text never appears on screen.
+        let screen = "> [Pasted text #1 +12 lines]\n  Press Enter to send";
+        let expected = "line one\nline two\nline three\nline four";
+        assert!(
+            screen_contains_echo(screen, expected),
+            "multi-line paste replaced by placeholder must count as echo"
+        );
+    }
+
+    #[test]
+    fn bracketed_paste_placeholder_counts_as_echo_for_long_input() {
+        let screen = "> [Pasted text #7 +1 line]\n  Press Enter to send";
+        let expected = format!("[Mesh: PEER pane=abc12345] {}", "x".repeat(500));
+        assert!(
+            screen_contains_echo(screen, &expected),
+            "long single-line paste replaced by placeholder must count as echo"
+        );
+    }
+
+    #[test]
+    fn placeholder_does_not_falsely_match_short_single_line_input() {
+        // Defensive: a literal "[Pasted text #N +M lines]" on screen must not
+        // confirm an unrelated short input.
+        let screen = "> [Pasted text #3 +2 lines]";
+        let expected = "ls -la";
+        assert!(
+            !screen_contains_echo(screen, expected),
+            "placeholder must not satisfy a short single-line input"
+        );
+    }
+
+    #[test]
+    fn placeholder_regex_matches_singular_and_plural_lines() {
+        assert!(screen_has_paste_placeholder("> [Pasted text #1 +1 line]"));
+        assert!(screen_has_paste_placeholder("> [Pasted text #99 +250 lines]"));
+        assert!(!screen_has_paste_placeholder("> [Pasted text #1]"));
+        assert!(!screen_has_paste_placeholder("Pasted text #1 +1 line"));
     }
 
     // vt100 default is 50 rows; tail_rows >= 50 scans the whole screen.
