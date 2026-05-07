@@ -17,6 +17,35 @@ pub async fn list_panes(
     Ok(Json(result.into_json()))
 }
 
+#[derive(Deserialize)]
+pub struct CreateShellPaneBody {
+    pub workspace_id: Option<String>,
+    pub cwd: Option<String>,
+    pub title: Option<String>,
+}
+
+pub async fn create_shell_pane(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateShellPaneBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
+    let handle = state.svc.spawn_pane(SpawnPaneSpec {
+        workspace_id: body.workspace_id,
+        cwd: body.cwd,
+        title: body.title,
+        visibility: PaneVisibility::Visible,
+        command: PaneCommand::Shell,
+        ..Default::default()
+    }).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({
+        "pane_id": handle.pane_id,
+        "workspace_id": handle.workspace_id,
+        "tab_id": handle.tab_id,
+    })))
+}
+
 fn default_true() -> bool { true }
 
 #[derive(Deserialize)]

@@ -8,6 +8,28 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             let result = client.call("pane.list", None);
             handle_result(json, result);
         }
+        PaneAction::New { workspace, cwd, title } => {
+            let (base, token) = read_api_config();
+            let http = build_http(&token);
+            let mut body = serde_json::json!({});
+            if let Some(w) = workspace { body["workspace_id"] = serde_json::Value::String(w); }
+            if let Some(c) = cwd { body["cwd"] = serde_json::Value::String(c); }
+            if let Some(t) = title { body["title"] = serde_json::Value::String(t); }
+            let result = http.post(format!("{}/api/panes", base))
+                .json(&body)
+                .send()
+                .map_err(|e| e.to_string())
+                .and_then(|r| {
+                    let status = r.status();
+                    let txt = r.text().unwrap_or_default();
+                    if status.is_success() {
+                        serde_json::from_str::<serde_json::Value>(&txt).map_err(|e| e.to_string())
+                    } else {
+                        Err(format!("HTTP {}: {}", status.as_u16(), txt))
+                    }
+                });
+            handle_result(json, result);
+        }
         PaneAction::Current { last } => {
             let result = client.call("pane.list", None);
             match result {

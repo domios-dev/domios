@@ -34,7 +34,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/workspaces/{id}/close", post(workspace_routes::close_workspace))
         .route("/api/workspaces/{id}/tabs", post(workspace_routes::create_tab))
         .route("/api/workspaces/{id}/tabs/{tab_id}/move", post(workspace_routes::move_tab))
-        .route("/api/panes", get(pane_routes::list_panes))
+        .route("/api/panes", get(pane_routes::list_panes).post(pane_routes::create_shell_pane))
         .route("/api/panes/{id}/send", post(pane_routes::send_text))
         .route("/api/panes/{id}/focus", post(pane_routes::focus_pane))
         .route("/api/panes/{id}/close", post(pane_routes::close_pane))
