@@ -57,6 +57,10 @@ pub enum PaneAction {
         /// Tab title
         #[arg(long)]
         title: Option<String>,
+        /// Command to run on pane start (e.g. `"poetry run backend"`).
+        /// Sent into the PTY after the shell is ready.
+        #[arg(long)]
+        cmd: Option<String>,
     },
     /// Print the current (focused) pane ID — no JSON parsing needed
     Current {
