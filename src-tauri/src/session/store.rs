@@ -81,12 +81,18 @@ impl SessionStore {
 
     pub fn save(&self, snapshot: &SessionSnapshot) -> Result<(), String> {
         let path = self.session_dir.join("last.json");
-        // Rotate: backup current last.json before overwriting
+        let tmp = self.session_dir.join("last.json.tmp");
         if path.exists() {
             let _ = self.rotate_backup(&path);
         }
         let json = serde_json::to_string_pretty(snapshot).map_err(|e| e.to_string())?;
-        fs::write(path, json).map_err(|e| e.to_string())
+        // Atomic write: tmp file then rename. fs::write directly into last.json
+        // is NOT crash-safe — a kill mid-write (Windows reboot, OOM, BSOD)
+        // truncates the live file and the next boot loses every workspace.
+        fs::write(&tmp, json.as_bytes())
+            .map_err(|e| format!("write {}: {}", tmp.display(), e))?;
+        fs::rename(&tmp, &path)
+            .map_err(|e| format!("rename → {}: {}", path.display(), e))
     }
 
     fn rotate_backup(&self, last_json: &std::path::Path) -> Result<(), String> {
@@ -131,11 +137,58 @@ impl SessionStore {
     pub fn load_last(&self) -> Result<Option<SessionSnapshot>, String> {
         let path = self.session_dir.join("last.json");
         if !path.exists() {
+            return self.load_latest_valid_backup();
+        }
+        let json = match fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!(
+                    "[session] last.json read failed ({}); falling back to backups/",
+                    e
+                );
+                return self.load_latest_valid_backup();
+            }
+        };
+        match serde_json::from_str::<SessionSnapshot>(&json) {
+            Ok(snap) => Ok(Some(snap)),
+            Err(parse_err) => {
+                log::error!(
+                    "[session] last.json corrupt ({} bytes, parse error: {}); falling back to backups/",
+                    json.len(),
+                    parse_err
+                );
+                self.load_latest_valid_backup()
+            }
+        }
+    }
+
+    fn load_latest_valid_backup(&self) -> Result<Option<SessionSnapshot>, String> {
+        let backup_dir = self.session_dir.join("backups");
+        if !backup_dir.exists() {
+            log::error!("[session] no backups/ dir, cannot recover; starting empty");
             return Ok(None);
         }
-        let json = fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let snap = serde_json::from_str(&json).map_err(|e| e.to_string())?;
-        Ok(Some(snap))
+        let mut entries: Vec<_> = fs::read_dir(&backup_dir)
+            .map_err(|e| format!("read backups: {}", e))?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries.into_iter().rev() {
+            let path = entry.path();
+            let Ok(content) = fs::read_to_string(&path) else { continue };
+            let Ok(snap) = serde_json::from_str::<SessionSnapshot>(&content) else { continue };
+            log::warn!(
+                "[session] recovered from backup {} ({} workspaces)",
+                path.display(),
+                snap.workspaces.len()
+            );
+            return Ok(Some(snap));
+        }
+        log::error!(
+            "[session] every file in backups/ failed to parse; starting empty"
+        );
+        Ok(None)
     }
 
     pub fn save_named(&self, name: &str, snapshot: &SessionSnapshot) -> Result<(), String> {
@@ -179,5 +232,100 @@ impl SessionStore {
             fs::remove_file(path).map_err(|e| e.to_string())?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn fresh_store() -> (SessionStore, TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore { session_dir: dir.path().to_path_buf() };
+        (store, dir)
+    }
+
+    fn snap(workspaces: usize) -> SessionSnapshot {
+        SessionSnapshot {
+            version: "test".into(),
+            timestamp: 0,
+            active_workspace_id: None,
+            workspaces: (0..workspaces)
+                .map(|i| WorkspaceSnapshot {
+                    id: format!("ws_{}", i),
+                    name: format!("ws{}", i),
+                    tabs: vec![],
+                    active_tab_id: None,
+                    cwd: None,
+                    protected: false,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn save_is_atomic_no_leftover_tmp() {
+        let (store, _dir) = fresh_store();
+        store.save(&snap(2)).unwrap();
+        assert!(store.session_dir.join("last.json").exists());
+        assert!(!store.session_dir.join("last.json.tmp").exists());
+    }
+
+    #[test]
+    fn load_corrupt_last_falls_back_to_backup() {
+        let (store, _dir) = fresh_store();
+        store.save(&snap(3)).unwrap();
+        store.save(&snap(4)).unwrap();
+        store.save(&snap(5)).unwrap();
+
+        fs::write(store.session_dir.join("last.json"), b"{not valid json").unwrap();
+
+        let recovered = store.load_last().unwrap().expect("must recover");
+        assert!(
+            !recovered.workspaces.is_empty(),
+            "fallback to backups must return non-empty snapshot"
+        );
+    }
+
+    #[test]
+    fn load_missing_last_falls_back_to_backup() {
+        let (store, _dir) = fresh_store();
+        store.save(&snap(2)).unwrap();
+        store.save(&snap(3)).unwrap();
+        fs::remove_file(store.session_dir.join("last.json")).unwrap();
+
+        let recovered = store.load_last().unwrap().expect("must recover from backup");
+        assert!(!recovered.workspaces.is_empty());
+    }
+
+    #[test]
+    fn load_no_last_no_backups_returns_none() {
+        let (store, _dir) = fresh_store();
+        let res = store.load_last().unwrap();
+        assert!(res.is_none());
+    }
+
+    #[test]
+    fn load_corrupt_last_and_corrupt_backups_returns_none() {
+        let (store, _dir) = fresh_store();
+        store.save(&snap(1)).unwrap();
+        store.save(&snap(1)).unwrap();
+        fs::write(store.session_dir.join("last.json"), b"oops").unwrap();
+        let backup_dir = store.session_dir.join("backups");
+        for entry in fs::read_dir(&backup_dir).unwrap().flatten() {
+            fs::write(entry.path(), b"corrupt").unwrap();
+        }
+        let res = store.load_last().unwrap();
+        assert!(res.is_none(), "all corrupt → None, never panics");
+    }
+
+    #[test]
+    fn round_trip_save_load() {
+        let (store, _dir) = fresh_store();
+        let s = snap(3);
+        store.save(&s).unwrap();
+        let loaded = store.load_last().unwrap().unwrap();
+        assert_eq!(loaded.workspaces.len(), 3);
     }
 }
