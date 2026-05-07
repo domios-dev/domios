@@ -190,6 +190,23 @@ for w in json.load(sys.stdin):
   done
 }
 
+# Reset dev to a clean baseline: closes every non-protected workspace
+# (i.e. everything except General). Use at the START of a bench when
+# the test isn't about restoring prior state — guarantees the next
+# 'create + kill + restart' sequence starts from one workspace, not
+# from 6 leftover test workspaces from the last run.
+reset_dev_state() {
+  dev_get /api/workspaces | python -c "
+import json, sys
+for w in json.load(sys.stdin):
+    if not w.get('protected', False):
+        print(w['id'])
+" | while read -r id; do
+    [ -n "$id" ] || continue
+    codeterm workspace close "$id" > /dev/null 2>&1
+  done
+}
+
 # Sanity check the on-disk session file is well-formed and that no
 # half-written .tmp got left behind. Returns non-zero on either issue.
 # Uses python's os.path.expanduser so the path resolves correctly on

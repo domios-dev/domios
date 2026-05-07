@@ -96,6 +96,14 @@ case "$CMD" in
     ensure_deps
     pnpm tauri build
     ;;
+  embed)
+    # Force-rebuild the codeterm-embed binary. Skipped on every dev cycle
+    # by default — use this when you change embed sources or pull new
+    # ONNX/embeddings deps.
+    cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
+    node scripts/bundle-embed.js
+    echo "codeterm-embed rebuilt"
+    ;;
   cli)
     touch cli/src/main.rs
     cargo build --release --manifest-path cli/Cargo.toml
