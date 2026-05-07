@@ -20,19 +20,47 @@ WS_CT=$(new_workspace WS-claude-with-text C:/temp/restore-WS-claude-with-text)
 WS_CR=$(new_workspace WS-claude-renamed C:/temp/restore-WS-claude-renamed)
 
 P_SS=$(new_shell_pane $WS_SS C:/temp/restore-WS-shell-silent silent-shell)
+
 P_ST=$(new_shell_pane $WS_ST C:/temp/restore-WS-shell-with-text shell-with-text)
-sleep 2 && dc pane exec --pane $P_ST 'Get-Date; Get-Location' > /dev/null 2>&1
+# pwsh PTY linked != shell-ready-for-input. await_pty_link returns
+# as soon as the PTY is registered, but the shell process inside
+# (powershell.exe) takes another 5-10s to render its prompt and
+# attach stdin. exec before that point gets bytes-eaten silently.
+# 12s is the empirical safe window on Win11/PS5.
+sleep 12 && dc pane exec --pane $P_ST 'echo MARKER_SHELL_BEFORE_KILL' > /dev/null 2>&1
 
 P_CS=$(new_claude_pane $WS_CS C:/temp/restore-WS-claude-silent silent-claude)
-P_CT=$(new_claude_pane $WS_CT C:/temp/restore-WS-claude-with-text claude-with-text 'reply with single word: PINEAPPLE')
+
+P_CT=$(new_claude_pane $WS_CT C:/temp/restore-WS-claude-with-text claude-with-text 'reply with single word PINEAPPLEMARKER')
+
 P_CR=$(new_claude_pane $WS_CR C:/temp/restore-WS-claude-renamed will-rename)
 dc pane rename 'MY-CUSTOM-TITLE' --pane $P_CR > /dev/null 2>&1
 
 echo "  ws_ids: empty=$WS_E shell-s=$WS_SS shell-t=$WS_ST cl-s=$WS_CS cl-t=$WS_CT cl-r=$WS_CR"
 echo "  pane_ids: $P_SS $P_ST $P_CS $P_CT $P_CR"
 
-echo "== wait 35s for autosave"
-sleep 35
+echo "== wait 25s for claude bootstrap + initial task response"
+sleep 25
+
+echo "== assert text actually arrived in panes BEFORE kill"
+shell_out=$(dc get-output --pane $P_ST --lines 30 2>&1)
+if echo "$shell_out" | grep -q "MARKER_SHELL_BEFORE_KILL"; then
+  echo "  OK shell-with-text contains MARKER_SHELL_BEFORE_KILL"
+else
+  echo "  FAIL shell-with-text missing MARKER_SHELL_BEFORE_KILL"
+  echo "$shell_out" | tail -5
+fi
+
+claude_out=$(dc get-output --pane $P_CT --lines 30 2>&1)
+if echo "$claude_out" | grep -q "PINEAPPLEMARKER"; then
+  echo "  OK claude-with-text response contains PINEAPPLEMARKER"
+else
+  echo "  FAIL claude-with-text response missing PINEAPPLEMARKER (claude may not have responded yet)"
+  echo "$claude_out" | tail -8
+fi
+
+echo "== wait extra 10s for autosave"
+sleep 10
 PRE=$(snapshot session-restore-pre)
 echo "  pre snapshot: $PRE"
 
