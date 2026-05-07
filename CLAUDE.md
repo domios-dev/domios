@@ -48,6 +48,23 @@ Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-d
 
 Full testing guide (3 layers, remote E2E, fixtures): `docs/TESTING.md`.
 
+## Behaviour benches — `evals/`
+
+Behavioural changes (system prompts, session restore semantics, mem
+recall quality, agent routing) are verified with bench scripts under
+`evals/<name>/`. Existing sets:
+
+- `evals/general-agent/` — General Agent prompt behaviour (21 cases, A/B via `prompt-evaluator` skill)
+- `evals/mem-recall/` — mem search engine quality (Recall@K / MRR)
+- `evals/mem-protocol/` — slim `bridge_mem.md` rule fires the right protocol calls
+- `evals/session-restore/` — kill+restart preserves workspace/pane/agent_type metadata; UI-mount step manual
+
+**Before changing behaviour, find the matching eval set and run it
+first to capture the baseline. Extend the eval set if a new scenario
+isn't covered. Don't ship behavioural changes without a bench unless
+the change is a hardcoded constant tweak.** Each `evals/<name>/`
+folder has a README explaining how to run.
+
 ## Lock ordering (deadlock prevention)
 
 Acquire in order, drop before awaiting. parking_lot is **not reentrant** — `mux.lock()` inside `mux.lock()` deadlocks.
