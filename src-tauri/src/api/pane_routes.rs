@@ -178,6 +178,10 @@ pub async fn exec_in_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
+
+    if !await_pty_link(&state, &pane_id).await {
+        return Err((StatusCode::NOT_FOUND, "Pane not found or PTY did not start within 3s"));
+    }
     let pty_id = state.svc.resolve_pty_id(&pane_id)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
 
