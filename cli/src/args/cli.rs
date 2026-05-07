@@ -80,6 +80,11 @@ pub enum Commands {
         ///   EOF
         #[arg(long)]
         from_stdin: bool,
+
+        /// Skip server-side echo+submit verification — fire-and-forget.
+        /// Default is verified send (waits up to ~10s for echo and submit).
+        #[arg(long, default_value_t = false)]
+        no_wait: bool,
     },
 
     /// Open a canvas panel (localhost, data URLs, HTML visualizations)

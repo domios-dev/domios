@@ -17,6 +17,7 @@ use std::time::Duration;
 use crate::agent::provider::{
     AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, SessionIdInjection,
     SessionMessage, SessionMetadata, SettingField, TaskDelivery, UsageSnapshot,
+    VerifySubmitStrategy,
 };
 
 /// Claude Code agent provider.
@@ -61,6 +62,13 @@ impl AgentProvider for ClaudeProvider {
 
     fn task_delivery(&self) -> TaskDelivery {
         TaskDelivery::InlineFlag
+    }
+
+    fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
+        VerifySubmitStrategy::TuiInputDrained {
+            timeout: Duration::from_secs(15),
+            idle_after_drain: Duration::from_millis(800),
+        }
     }
 
     fn detect_from_title(&self, title: &str) -> bool {
@@ -272,6 +280,21 @@ mod tests {
                 assert_eq!(timeout, Duration::from_secs(30));
             }
             _ => panic!("Expected PollShellPrompt"),
+        }
+    }
+
+    #[test]
+    fn claude_uses_tui_input_drained_for_submit_verification() {
+        let p = ClaudeProvider::new();
+        match p.verify_submit_strategy() {
+            VerifySubmitStrategy::TuiInputDrained { timeout, idle_after_drain } => {
+                assert!(timeout >= Duration::from_secs(10), "claude timeout too short");
+                assert!(
+                    idle_after_drain >= Duration::from_millis(500),
+                    "idle window too short"
+                );
+            }
+            other => panic!("expected TuiInputDrained, got {:?}", other),
         }
     }
 

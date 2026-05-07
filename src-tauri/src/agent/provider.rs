@@ -10,6 +10,24 @@ pub enum ReadinessStrategy {
     FixedDelay { duration: Duration },
 }
 
+/// How to confirm that text submitted to a launched provider was actually
+/// processed (Enter consumed, REPL accepted it). Used to gate `OK` on a
+/// real receiver-side observation rather than an optimistic write.
+#[derive(Debug, Clone)]
+pub enum VerifySubmitStrategy {
+    /// Wait for a new shell prompt to appear (default for plain shells and
+    /// providers that pipe through the shell unchanged).
+    ShellPrompt { timeout: Duration },
+    /// Wait for the TUI's input box to drain — the typed text disappears
+    /// from the bottom rows. Cheap heuristic: poll the last few rows; once
+    /// the needle is gone, wait `idle_after_drain` of no-screen-change
+    /// before declaring submitted.
+    TuiInputDrained { timeout: Duration, idle_after_drain: Duration },
+    /// No verification — for providers where post-submit state is not
+    /// observable from the PTY (session-id-injection, headless flag delivery, etc.).
+    None,
+}
+
 /// How to deliver the task to the agent.
 #[derive(Debug, Clone)]
 pub enum TaskDelivery {
@@ -380,6 +398,13 @@ pub trait AgentProvider: Send + Sync {
 
     /// How to deliver the task to the agent.
     fn task_delivery(&self) -> TaskDelivery;
+
+    /// How to verify that submitted text was actually processed. Default is
+    /// shell-prompt polling — providers running TUIs or non-observable flows
+    /// override (TuiInputDrained / None).
+    fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
+        VerifySubmitStrategy::ShellPrompt { timeout: Duration::from_secs(5) }
+    }
 
     /// Detect this agent from the pane/tab title string.
     fn detect_from_title(&self, title: &str) -> bool;

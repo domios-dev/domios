@@ -18,7 +18,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             let p = pane.as_deref().unwrap_or("general");
             ("GET".into(), format!("/api/panes/{}/output?lines={}&strip_ansi=true", p, lines), None)
         }
-        Commands::SendText { text, pane, from_file, from_stdin } => {
+        Commands::SendText { text, pane, from_file, from_stdin, no_wait } => {
             let p = pane.as_deref().unwrap_or("general");
             let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
             let body_text = if *from_stdin {
@@ -40,8 +40,11 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 eprintln!("      try --from-file <path> with a real tempfile.");
                 std::process::exit(2);
             }
-            ("POST".into(), format!("/api/panes/{}/send", p),
-                Some(serde_json::json!({"text": body_text, "enter": true, "source_pane": source}).to_string()))
+            let mut body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
+            if *no_wait {
+                body["verify"] = serde_json::json!(false);
+            }
+            ("POST".into(), format!("/api/panes/{}/send", p), Some(body.to_string()))
         }
         Commands::Notify { title, body, level } => {
             ("POST".into(), "/api/notifications".into(),
@@ -95,7 +98,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Agent { action } => match action {
             crate::AgentAction::List => ("GET".into(), "/api/agents".into(), None),
             crate::AgentAction::Hierarchy => ("GET".into(), "/api/agents/hierarchy".into(), None),
-            crate::AgentAction::Spawn { agent, title, task, role, parent, workspace, can_spawn, cwd, args, model, .. } => {
+            crate::AgentAction::Spawn { agent, title, task, role, parent, workspace, can_spawn, cwd, args, model, no_wait } => {
                 let agent_name = agent.as_str();
                 let mut body = serde_json::json!({
                     "agent": agent_name,
@@ -109,6 +112,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if let Some(c) = cwd { body["cwd"] = serde_json::json!(c); }
                 if let Some(a) = args { if !a.is_empty() { body["args"] = serde_json::json!(a); } }
                 if let Some(m) = model { body["model"] = serde_json::json!(m); }
+                if *no_wait { body["wait_ready_secs"] = serde_json::json!(0); }
                 ("POST".into(), "/api/agents/spawn".into(), Some(body.to_string()))
             }
             _ => ("GET".into(), "/api/agents".into(), None),

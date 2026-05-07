@@ -138,5 +138,10 @@ pub enum AgentAction {
         /// see what's available.
         #[arg(long)]
         model: Option<String>,
+        /// Don't wait for agent readiness — return as soon as the pane is
+        /// created. Default waits up to ~30s for the provider to confirm the
+        /// process is alive and accepting input.
+        #[arg(long, default_value_t = false)]
+        no_wait: bool,
     },
 }

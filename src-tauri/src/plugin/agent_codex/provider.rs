@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::agent::provider::{
     self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SessionMessage,
-    SessionMetadata, SettingField, TaskDelivery, UsageSnapshot,
+    SessionMetadata, SettingField, TaskDelivery, UsageSnapshot, VerifySubmitStrategy,
 };
 use super::usage as codex_usage;
 use crate::shell::ShellSyntax;
@@ -73,6 +73,13 @@ impl AgentProvider for CodexProvider {
 
     fn task_delivery(&self) -> TaskDelivery {
         TaskDelivery::InlineFlag
+    }
+
+    fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
+        VerifySubmitStrategy::TuiInputDrained {
+            timeout: Duration::from_secs(15),
+            idle_after_drain: Duration::from_millis(800),
+        }
     }
 
     fn detect_from_title(&self, title: &str) -> bool {

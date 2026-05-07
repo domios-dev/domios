@@ -59,9 +59,37 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("enter"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
+            let verify = params
+                .as_ref()
+                .and_then(|p| p.get("verify"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let svc_ref = svc.as_ref();
+            if verify {
+                let pty_id = svc_ref.resolve_pty_id(&pane_id)
+                    .map_err(|e| JsonRpcError { code: -32602, message: e })?;
+                let opts = crate::service::inject_verify::VerifyOpts::default();
+                let strategy = crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+                    timeout: std::time::Duration::from_secs(10),
+                };
+                return Ok(match svc_ref.send_text_verified(&pty_id, &text, enter, strategy, opts) {
+                    Ok(r) => serde_json::json!({
+                        "ok": true,
+                        "verified": true,
+                        "echo_observed": r.echo_observed,
+                        "submit_observed": r.submit_observed,
+                        "elapsed_ms": r.elapsed.as_millis() as u64,
+                    }),
+                    Err(e) => serde_json::json!({
+                        "ok": false,
+                        "verified": false,
+                        "error": format!("{}", e),
+                    }),
+                });
+            }
             crate::dispatch::dispatch(
                 &crate::dispatch::Command::SendText { pane_id, text, enter },
-                svc.as_ref(),
+                svc_ref,
             )
             .map(|r| r.into_json())
             .map_err(|e| JsonRpcError { code: -32603, message: e })
