@@ -357,6 +357,27 @@ pub fn invalidate_broken_relations(conn: &Connection, now_iso: &str) -> MemStore
     Ok(n)
 }
 
+/// Bumps `evidence_count` for the given mem_item by 1. Returns `Ok(true)`
+/// when a row was updated, `Ok(false)` when no row matched. Best-effort —
+/// callers are observer code that must not crash when the row went away.
+pub fn bump_evidence_count(conn: &Connection, mem_id: &str) -> MemStoreResult<bool> {
+    let n = conn.execute(
+        "UPDATE mem_items SET evidence_count = evidence_count + 1 WHERE id = ?1",
+        rusqlite::params![mem_id],
+    )?;
+    Ok(n > 0)
+}
+
+/// Bumps `false_fire_count` for the given mem_item by 1. Same semantics
+/// as `bump_evidence_count` — returns `Ok(false)` on missing row.
+pub fn bump_false_fire_count(conn: &Connection, mem_id: &str) -> MemStoreResult<bool> {
+    let n = conn.execute(
+        "UPDATE mem_items SET false_fire_count = false_fire_count + 1 WHERE id = ?1",
+        rusqlite::params![mem_id],
+    )?;
+    Ok(n > 0)
+}
+
 /// Record `alias_id -> canonical_id`, rewire any relations pointing at the
 /// alias (UPDATE OR IGNORE so collisions get dropped), then delete leftover
 /// alias-referencing relations and the alias entity row.
