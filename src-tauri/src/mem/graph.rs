@@ -96,20 +96,28 @@ pub fn invalidate_relation(
     Ok(n > 0)
 }
 
-/// Timeline for an entity: all relations where it's subject or object,
-/// sorted by valid_from. Includes expired relations so history is visible.
+/// Timeline for an entity: relations where it's subject or object,
+/// sorted by valid_from. Default: active-only. Pass `include_invalidated = true`
+/// for full history (including closed `valid_to` rows).
 pub fn timeline(
     conn: &Connection,
     entity_id: &str,
+    include_invalidated: bool,
 ) -> Result<Vec<Relation>, String> {
-    let mut stmt = conn.prepare(
+    let mut sql = String::from(
         r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to,
                   confidence, properties_json
            FROM relations
-           WHERE from_id = ?1 OR to_id = ?1
-           ORDER BY valid_from DESC, created_at DESC"#,
-    ).map_err(|e| e.to_string())?;
-    let rows = stmt.query_map(params![entity_id], |r| {
+           WHERE (from_id = ?1 OR to_id = ?1)"#,
+    );
+    let mut binds: Vec<String> = vec![entity_id.to_string()];
+    append_active_filter(&mut sql, &mut binds, include_invalidated, None);
+    sql.push_str(" ORDER BY valid_from DESC, created_at DESC");
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let bind_refs: Vec<&dyn rusqlite::ToSql> =
+        binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let rows = stmt.query_map(rusqlite::params_from_iter(bind_refs), |r| {
         let props_json: String = r.get(7)?;
         Ok(Relation {
             from_id: r.get(0)?,
@@ -706,6 +714,40 @@ mod tests {
             .collect();
         assert!(!ids.contains(&"person_only_dead".to_string()),
             "entity reachable only via invalidated relations must NOT appear in tunnels");
+    }
+
+    #[test]
+    fn timeline_excludes_invalidated_by_default() {
+        let conn = fresh();
+        insert_entity(&conn, &Entity {
+            id: "e_a".into(), entity_type: "X".into(),
+            scope: "global".into(), properties: serde_json::Value::Null,
+        }).unwrap();
+        insert_entity(&conn, &Entity {
+            id: "e_b".into(), entity_type: "X".into(),
+            scope: "global".into(), properties: serde_json::Value::Null,
+        }).unwrap();
+        insert_relation(&conn, &Relation {
+            from_id: "e_a".into(), relation_type: "active".into(), to_id: "e_b".into(),
+            scope: "global".into(),
+            valid_from: "2026-01-01T00:00:00.000000+00:00".into(),
+            valid_to: None,
+            confidence: 1.0, properties: serde_json::Value::Null,
+        }).unwrap();
+        insert_relation(&conn, &Relation {
+            from_id: "e_a".into(), relation_type: "dead".into(), to_id: "e_b".into(),
+            scope: "global".into(),
+            valid_from: "2025-01-01T00:00:00.000000+00:00".into(),
+            valid_to: Some("2025-06-01T00:00:00.000000+00:00".into()),
+            confidence: 1.0, properties: serde_json::Value::Null,
+        }).unwrap();
+
+        let active = timeline(&conn, "e_a", false).unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].relation_type, "active");
+
+        let all = timeline(&conn, "e_a", true).unwrap();
+        assert_eq!(all.len(), 2);
     }
 
     #[test]

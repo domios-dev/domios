@@ -405,8 +405,9 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/invalidate", base), &payload)
             }
-            MemGraphAction::Timeline { entity } => {
-                let url = format!("{}/api/mem/graph/timeline?entity={}", base, urlencoding::encode(&entity));
+            MemGraphAction::Timeline { entity, include_invalidated } => {
+                let mut url = format!("{}/api/mem/graph/timeline?entity={}", base, urlencoding::encode(&entity));
+                if include_invalidated { url.push_str("&include_invalidated=true"); }
                 mem_get_request(&http, &url)
             }
             MemGraphAction::Traverse { from, hops, max_nodes, as_of, include_invalidated } => {

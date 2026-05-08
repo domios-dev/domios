@@ -434,6 +434,9 @@ pub enum MemGraphAction {
     Timeline {
         #[arg(long)]
         entity: String,
+        /// Include relations whose valid_to is set (default: active-only)
+        #[arg(long)]
+        include_invalidated: bool,
     },
     /// BFS traversal from an entity (max_hops cap)
     Traverse {
