@@ -2,16 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MemoryCanvas } from "./MemoryCanvas";
 import { MemoryListTab } from "./MemoryListTab";
 import { MemoryActivityTab } from "./MemoryActivityTab";
-import { MemoryScheduledTab } from "./MemoryScheduledTab";
-import { MemoryWorkerPanel } from "./MemoryWorkerPanel";
+import { MemoryDreamsTab } from "./MemoryDreamsTab";
 import { useGraphData } from "./useGraphData";
 import { useActivityPulses } from "./useActivityPulses";
-import { workerFocusStore } from "./workerFocusStore";
-import { navigationStore } from "../Navigation/navigationStore";
 import { fetchStats, isTauriEnv, type MemStats } from "./memoryApi";
-import type { ApiConfig, GraphWorkerInfo } from "../../lib/types";
+import type { ApiConfig } from "../../lib/types";
 
-export type MemoryTab = "list" | "graph" | "activity" | "scheduled";
+export type MemoryTab = "dreams" | "graph" | "list" | "activity";
 
 export interface MemoryInitialState {
   selectedId: string | null;
@@ -25,12 +22,7 @@ const TAB_BASE =
 const TAB_ACTIVE = `${TAB_BASE} border-[var(--ct-accent)] text-[var(--ct-fg)]`;
 const TAB_INACTIVE = `${TAB_BASE} border-transparent text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]`;
 
-const BTN_CLASS =
-  "bg-transparent border border-[var(--ct-border)] text-inherit px-2.5 py-1 rounded text-xs cursor-pointer";
-const BTN_ACTIVE_CLASS =
-  "bg-[var(--ct-hover)] border border-[var(--ct-border)] text-inherit px-2.5 py-1 rounded text-xs cursor-pointer";
-
-const TABS: MemoryTab[] = ["list", "graph", "activity", "scheduled"];
+const TABS: MemoryTab[] = ["dreams", "graph", "list", "activity"];
 
 interface Props {
   api: ApiConfig;
@@ -39,25 +31,18 @@ interface Props {
   onFocusPane?: (paneId: string) => void;
 }
 
-export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) {
-  const [activeTab, setActiveTab] = useState<MemoryTab>(initialState?.activeTab ?? "list");
+export function MemoryPanel({ api, onClose, initialState }: Props) {
+  const [activeTab, setActiveTab] = useState<MemoryTab>(initialState?.activeTab ?? "dreams");
   const {
     nodes,
     edges,
     loading,
     error,
     stats,
-    pinnedPositions,
     updateNode,
     removeNode,
-    pinPosition,
-    unpinPosition,
-    unpinAllPositions,
   } = useGraphData(api);
   const { pulses } = useActivityPulses(api);
-  const [workerPanelVisible, setWorkerPanelVisible] = useState(
-    initialState?.workerPanelVisible ?? false,
-  );
   const [selectedId, setSelectedId] = useState<string | null>(
     initialState?.selectedId ?? null,
   );
@@ -71,7 +56,6 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
 
   const [memStats, setMemStats] = useState<MemStats | null>(null);
 
-  // Stats via Tauri events
   useEffect(() => {
     let active = true;
     const load = () => fetchStats(api).then((s) => { if (active) setMemStats(s); }).catch(() => {});
@@ -90,25 +74,6 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
     }
     return () => { active = false; if (unlisten) unlisten(); };
   }, [api]);
-
-  const handleOpenWorker = useCallback(
-    (worker: GraphWorkerInfo) => {
-      navigationStore.set({
-        view: "memory-panel",
-        memoryState: {
-          panX: 0, panY: 0, scale: 1,
-          selectedNodeId: selectedId,
-          feedVisible: false,
-          workerPanelVisible,
-        },
-        label: "Memory Graph",
-      });
-      workerFocusStore.focus(worker.pane_id);
-      onFocusPane?.(worker.pane_id);
-      onClose();
-    },
-    [selectedId, workerPanelVisible, onFocusPane, onClose],
-  );
 
   const fitRef = useRef<() => void>(() => {});
   const recenterRef = useRef<() => void>(() => {});
@@ -136,11 +101,10 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
         return;
       }
       if (inField) return;
-      if (e.key === "1") { e.preventDefault(); setActiveTab("list"); }
+      if (e.key === "1") { e.preventDefault(); setActiveTab("dreams"); }
       else if (e.key === "2") { e.preventDefault(); setActiveTab("graph"); }
-      else if (e.key === "3") { e.preventDefault(); setActiveTab("activity"); }
-      else if (e.key === "4") { e.preventDefault(); setActiveTab("scheduled"); }
-      else if (e.key === "w" || e.key === "W") { e.preventDefault(); setWorkerPanelVisible((v) => !v); }
+      else if (e.key === "3") { e.preventDefault(); setActiveTab("list"); }
+      else if (e.key === "4") { e.preventDefault(); setActiveTab("activity"); }
       else if (e.key === "f" || e.key === "F") { if (activeTab === "graph") { e.preventDefault(); fitRef.current(); } }
       else if (e.key === "0") { if (activeTab === "graph") { e.preventDefault(); recenterRef.current(); } }
       else if (e.key === "p" || e.key === "P") { if (activeTab === "graph") { e.preventDefault(); setPhysicsEnabled((v) => !v); } }
@@ -182,20 +146,11 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
             </button>
           ))}
         </div>
-
-        <div className="flex gap-1.5 ml-auto">
-          <button
-            onClick={() => setWorkerPanelVisible((v) => !v)}
-            className={workerPanelVisible ? BTN_ACTIVE_CLASS : BTN_CLASS}
-            title="Toggle workers (W)"
-          >
-            Workers (W)
-          </button>
-        </div>
       </div>
 
       {/* Tab content */}
       <div className="relative flex-1 min-h-0">
+        {activeTab === "dreams" && <MemoryDreamsTab api={api} />}
         {activeTab === "list" && (
           <MemoryListTab
             api={api}
@@ -235,12 +190,8 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
               nodes={nodes}
               edges={edges}
               pulses={pulses}
-              pinnedPositions={pinnedPositions}
               updateNode={updateNode}
               removeNode={removeNode}
-              pinPosition={pinPosition}
-              unpinPosition={unpinPosition}
-              unpinAllPositions={unpinAllPositions}
               registerFit={registerFit}
               registerRecenter={registerRecenter}
               selectedIdOverride={selectedId}
@@ -254,16 +205,6 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
             api={api}
             nodes={nodes}
             onNavigateToItem={handleNavigateToItem}
-          />
-        )}
-        {activeTab === "scheduled" && (
-          <MemoryScheduledTab api={api} />
-        )}
-        {workerPanelVisible && (
-          <MemoryWorkerPanel
-            api={api}
-            onOpenWorker={handleOpenWorker}
-            onClose={() => setWorkerPanelVisible(false)}
           />
         )}
       </div>

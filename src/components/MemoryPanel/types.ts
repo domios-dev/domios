@@ -29,12 +29,6 @@ export interface MemNode {
   recurrence_count?: number;
 }
 
-export interface PinnedPosition {
-  mem_id: string;
-  x: number;
-  y: number;
-}
-
 export interface MemEdge {
   from: string;
   to: string;

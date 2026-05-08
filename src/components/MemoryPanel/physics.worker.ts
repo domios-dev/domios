@@ -7,9 +7,6 @@ import type {
   PhysicsResponse,
 } from "./physicsProtocol";
 
-// Lower repulsion — unconnected nodes don't fly apart on their own.
-// Cluster-to-cluster separation comes from each cluster's collective mass
-// pushing outward, amplified by the tighter spring (more cohesive cluster).
 const REPULSION = 120000;
 const SPRING_LENGTH = 700;
 const SPRING_K = 0.010;
@@ -18,10 +15,7 @@ const DAMPING = 0.78;
 const MAX_VEL = 35;
 const ENERGY_SLEEP = 0.05;
 const TICK_INTERVAL_MS = 16;
-// Hard cool-down: after this many ticks since the last heat the simulation
-// stops regardless of residual energy. Without this the slow CENTER_PULL
-// drift compounds forever as new nodes arrive.
-const MAX_TICKS_PER_HEAT = 320; // ~5s at 16ms ticks
+const MAX_TICKS_PER_HEAT = 320;
 
 interface NodeState {
   x: number;
@@ -31,18 +25,11 @@ interface NodeState {
 }
 
 const nodes = new Map<string, NodeState>();
-const pinned = new Set<string>();
 let edges: PhysicsEdge[] = [];
 let enabled = true;
 let sleeping = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 let ticksSinceHeat = 0;
-// Flips true the first time the simulation reaches sleep (energy or wallclock).
-// After that, automatic re-wakes from setGraph topology changes are suppressed —
-// new nodes from background workers (extraction, dreamer) shouldn't kick the
-// whole layout into motion. Only explicit user intent (drag, manual heat,
-// pinning) re-wakes the loop, and even then only for ~5s before it freezes
-// again.
 let firstSettleDone = false;
 
 function post(msg: PhysicsResponse) {
@@ -114,11 +101,6 @@ function step() {
   let energy = 0;
   for (const id of ids) {
     const node = nodes.get(id)!;
-    if (pinned.has(id)) {
-      node.vx = 0;
-      node.vy = 0;
-      continue;
-    }
     node.vx = (node.vx + fx.get(id)!) * DAMPING;
     node.vy = (node.vy + fy.get(id)!) * DAMPING;
     const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
@@ -134,10 +116,9 @@ function step() {
 
   if (positions.length > 0) post({ type: "tick", positions });
 
-  const energySleep = energy / n < ENERGY_SLEEP && pinned.size === 0;
-  const wallclockSleep = ticksSinceHeat >= MAX_TICKS_PER_HEAT && pinned.size === 0;
+  const energySleep = energy / n < ENERGY_SLEEP;
+  const wallclockSleep = ticksSinceHeat >= MAX_TICKS_PER_HEAT;
   if (energySleep || wallclockSleep) {
-    // Zero velocities so any residual drift halts cleanly. Heat resumes the loop.
     for (const node of nodes.values()) {
       node.vx = 0;
       node.vy = 0;
@@ -167,32 +148,19 @@ function setGraph(next: PhysicsNode[], nextEdges: PhysicsEdge[]) {
   let topologyChanged = false;
   for (const n of next) {
     seen.add(n.id);
-    const existing = nodes.get(n.id);
-    if (existing) {
-      if (n.pinned) {
-        existing.x = n.x;
-        existing.y = n.y;
-      }
-    } else {
+    if (!nodes.has(n.id)) {
       nodes.set(n.id, { x: n.x, y: n.y, vx: 0, vy: 0 });
       topologyChanged = true;
     }
-    if (n.pinned) pinned.add(n.id);
-    else pinned.delete(n.id);
   }
   for (const id of [...nodes.keys()]) {
     if (!seen.has(id)) {
       nodes.delete(id);
-      pinned.delete(id);
       topologyChanged = true;
     }
   }
   if (edges.length !== nextEdges.length) topologyChanged = true;
   edges = nextEdges;
-  // Only auto-wake on the FIRST graph load. Once the layout has settled
-  // (`firstSettleDone`), subsequent topology changes from background workers
-  // do NOT restart the simulation — new nodes sit at their seed position and
-  // the existing layout stays frozen. User-driven `heat` / drag still wakes.
   if (enabled && topologyChanged && !firstSettleDone) {
     sleeping = false;
     startLoop();
@@ -204,14 +172,6 @@ self.addEventListener("message", (ev: MessageEvent<PhysicsRequest>) => {
   switch (msg.type) {
     case "setGraph":
       setGraph(msg.nodes, msg.edges);
-      break;
-    case "setPinned":
-      pinned.clear();
-      for (const id of msg.pinned) pinned.add(id);
-      if (enabled && sleeping) {
-        sleeping = false;
-        startLoop();
-      }
       break;
     case "updatePosition": {
       const node = nodes.get(msg.id);

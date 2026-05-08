@@ -9,8 +9,6 @@ interface Props {
   node: MemNode;
   onUpdate: (id: string, patch: Partial<MemNode>) => void;
   onDelete: (id: string) => void;
-  isPinned?: boolean;
-  onUnpin?: () => void;
   edges: MemEdge[];
   nodes: Map<string, MemNode>;
   onSelectNode: (id: string) => void;
@@ -48,8 +46,6 @@ export function MemoryNodeDetail({
   node,
   onUpdate,
   onDelete,
-  isPinned,
-  onUnpin,
   edges,
   nodes,
   onSelectNode,
@@ -222,16 +218,6 @@ export function MemoryNodeDetail({
           />
         ) : (
           <strong className="text-sm flex-1 break-words">{node.title}</strong>
-        )}
-        {isPinned && onUnpin && !editing && (
-          <button
-            onClick={onUnpin}
-            title="Unpin position (release to force simulation)"
-            aria-label="Unpin"
-            className="shrink-0 mt-[2px] px-1.5 py-0.5 rounded-[3px] bg-transparent border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-fg)] cursor-pointer text-[9px] uppercase tracking-wide leading-none font-semibold"
-          >
-            pinned
-          </button>
         )}
         <button
           onClick={() => setTucked(true)}
