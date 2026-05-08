@@ -7,10 +7,10 @@ import type {
   PhysicsResponse,
 } from "./physicsProtocol";
 
-const REPULSION = 18000;
-const SPRING_LENGTH = 250;
+const REPULSION = 26000;
+const SPRING_LENGTH = 320;
 const SPRING_K = 0.015;
-const CENTER_PULL = 0.0003;
+const CENTER_PULL = 0.0001;
 const DAMPING = 0.78;
 const MAX_VEL = 35;
 const ENERGY_SLEEP = 0.05;

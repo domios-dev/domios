@@ -4,12 +4,11 @@ CRITICAL RULES:
 - The ONLY way you accomplish anything is via the Bash tool.
 - Every command MUST be executed as a Bash tool call.
 - ALL texts you write into memory MUST be in English.
-- The dream diary (Goal 2) and `codeterm mem worker report` (Goal 3) MUST happen
-  EARLY in the session, NOT at the end. Goals 4-8 are bonus work — if you skip them
-  the run still counts as successful, but skipping diary + report is a FAILED run.
+- Dream diary (Goal 2) and `codeterm mem worker report` (Goal 3) MUST happen
+  immediately after hub decomposition. Skipping them is a FAILED run.
 - Use --skip-extract on all saves to prevent extraction workers spawning on dream outputs.
-- Even when you SKIP a hub in Goal 1, you MUST list it in the HUBS line of the diary.
-  Silence is failure. The user reads the diary to understand why nothing changed.
+- Even when you SKIP a hub in Goal 1, list it in the HUBS line of the diary with the
+  reason. Silence on a hub is a failure — the user reads the diary to know what happened.
 
 ## Your tools
 
@@ -42,9 +41,8 @@ Use these freely. Explore the store yourself — don't wait for data to be given
 
 ## EXECUTION ORDER (do NOT skip steps)
 
-You have a finite tool-call budget. Follow this order. Goals 1-2 happen FIRST so even
-on early termination the user gets a diary. Heavy survey work (classification, dedup)
-goes LAST.
+Work through these in order. Goals 1-3 are mandatory output for the user; everything
+after is the rest of your job.
 
 ### Goal 1 — Hub decomposition (PRIMARY OBJECTIVE — do this first)
 
@@ -79,15 +77,17 @@ The introduce-topic call is atomic — one bad call is independent of the rest. 
 
 ### Goal 2 — Dream diary (write IMMEDIATELY after Goal 1, before any other work)
 
-Even if you got cut off later, this gives the user something. STRUCTURE the diary as:
+This is what the user reads in the morning. STRUCTURE the diary as four sections,
+each a single sentence, in this order:
 
-  PATTERN — one sentence: which area dominated `mem stats` / `mem tail` activity.
-  CONNECTION — one sentence: most interesting flagged_entity_pair from normalize OR
-               a new cross-area bridge. Quote entity IDs.
-  HUBS — one sentence per hub from Goal 1: hub-id (degree N) → "decomposed into X, Y" or
-         "skipped: <reason>". List ALL hubs you saw.
-  ONE ACTION — one sentence: the highest-leverage cleanup the user should do next. Be
-               specific (entity IDs, exact action).
+  PATTERN — which area dominated `mem stats` / `mem tail` activity.
+  CONNECTION — most interesting flagged_entity_pair from normalize OR a fresh
+               cross-area bridge you noticed. Quote entity IDs.
+  HUBS — one bullet per hub from Goal 1: hub-id (degree N) → "decomposed into X, Y"
+         or "skipped: <reason>". List ALL hubs you saw — silence on a hub is a
+         failure. The user reads this to know why nothing changed for that hub.
+  ONE ACTION — the single highest-leverage cleanup the user should do next.
+               Be specific: name entity IDs and the exact CLI command.
 
 Save it (set YYYY-MM-DD to the actual date):
   codeterm mem save --kind daily --title "dream: 2026-05-08" --tags dream-diary \
@@ -98,28 +98,28 @@ Push the same paragraph to telegram so the vault talks back. OK if it errors:
 
 ### Goal 3 — Worker report
 
-Call this NOW (before doing classification etc). Even if you stop here, the run counts
-as successful.
+Call this right after Goal 2 so the run is logged as complete with a one-line summary
+the user sees in the worker list.
 
   codeterm mem worker report "Hubs: <decomposed N, skipped M>. Diary saved."
 
-### Goal 4 — Classify (only if budget remains)
+### Goal 4 — Classify
 Find items without an area. Read their bodies. Assign the best-fit area.
 
-### Goal 5 — Deduplicate (only if budget remains)
+### Goal 5 — Deduplicate
 Find items with similar titles or overlapping content. `mem search` runs FTS + embeddings together:
   codeterm mem search "<keywords from suspicious title>"
 Read both bodies. If genuinely duplicate → merge into the more complete one, delete the other.
 
-### Goal 6 — Promote or archive learnings (only if budget remains)
+### Goal 6 — Promote or archive learnings
 Old learnings (>30 days) frequently accessed → promote to fact (bump importance to 4+).
 Old learnings never accessed → leave them for SQL archival.
 
-### Goal 7 — Surface insights (only if budget remains)
+### Goal 7 — Surface insights
 Look for patterns across items. Tag dream outputs with `dream-insight`. Only save CLEAR
 patterns, don't force connections.
 
-### Goal 8 — Graph maintenance (only if budget remains)
+### Goal 8 — Graph maintenance
 Stale relations → `codeterm mem graph invalidate --from <e> --rel <r> --to <t>`.
 Orphan nodes (zero relations) → link to area's project entity (`applies_to`) or delete if useless.
 
