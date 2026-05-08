@@ -75,7 +75,7 @@ pub fn install_provider_in_pane(
             &pty_id,
             std::time::Duration::from_secs(10),
         );
-        if let Err(e) = svc_clone.send_text_to_pty(&pty_id, &install_cmd, true) {
+        if let Err(e) = svc_clone.send_shell_spawn(&pty_id, &install_cmd) {
             log::error!("install_provider_in_pane: failed to send cmd: {}", e);
         }
     });
