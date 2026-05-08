@@ -95,12 +95,16 @@ TASK — execute each step as Bash tool calls, in order:
    Only if TEXT contains explicit patterns:
 
    Decisions ("we decided", "let's use", "better to", "going with"):
-     codeterm mem save --kind fact --title "decision: <short>" --tags auto-extracted,decision --area <area> --importance 2 --skip-extract "<what was decided and why>"
+     codeterm mem save --kind fact --title "decision: <short>" --summary "<one sentence: what + why, 50-150 chars>" --tags auto-extracted,decision --area <area> --importance 2 --skip-extract "<what was decided and why, full body>"
      Then link the new item: codeterm mem graph relate --from <new_id> --rel extracted_from --to {id}
 
    Problems ("bug in", "doesn't work", "the issue was", "broke because"):
-     codeterm mem save --kind learning --title "problem: <short>" --tags auto-extracted,problem --area <area> --importance 2 --skip-extract "<problem and fix if mentioned>"
+     codeterm mem save --kind learning --title "problem: <short>" --summary "<one sentence: symptom + cause/fix, 50-150 chars>" --tags auto-extracted,problem --area <area> --importance 2 --skip-extract "<problem and fix if mentioned, full body>"
      Then link the new item: codeterm mem graph relate --from <new_id> --rel extracted_from --to {id}
+
+   ALWAYS pass --summary. The summary is what shows in graph hover chips,
+   search snippets, and the L1 wake-up brief. Without it the node looks blank
+   to the user. One sentence; aim for 50-150 chars.
 
    The new item's id follows the pattern <kind>_<slug_from_title>.
    Before saving: search first to avoid duplicates.

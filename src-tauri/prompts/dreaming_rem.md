@@ -46,52 +46,123 @@ after is the rest of your job.
 
 ### Goal 1 — Hub decomposition (PRIMARY OBJECTIVE — do this first)
 
-Hub-and-spoke nodes (active degree > 20, called "звезда") degrade traversal and lose
-semantic meaning. Your single most important job is to break them up.
+Hub-and-spoke nodes ("звёзды", active degree >= 20) are the main thing wrong with
+this graph. Your job is to break them up. Read this section like a guide, not a
+rulebook — the rules below describe HOW, the philosophy describes WHY so you make
+good calls in edge cases.
 
-Step A: read the hub list.
-  codeterm mem graph hubs --threshold 20 --sample 50
+#### What makes a node "good" vs "bad"
 
-Step B: for EACH hub in the response, log a decision (you will write these to the diary
-in Goal 2). Use this rubric:
+A node is GOOD when its identity is the actual semantic concept its neighbors
+share. "topic_codeterm_release_history" is good because every neighbor genuinely
+*is* about release history — the node IS what unites them. So is "person_andrey"
+when 12 neighbors are facts/decisions/preferences specifically about Andrey.
 
-  - If the hub id starts with `topic_` or `role_` AND >=90% of its edges are one
-    relation_type → ALREADY decomposed (it IS a topic intermediate). SKIP, log
-    reason="already a topic intermediate, neighbors form a single coherent theme".
+A node is BAD when it's just a tag many things happen to share, without being
+the concept they're really about. "project_codeterm" with 65 neighbors is bad —
+half of them are skills, half are facts, half are tools, all *applied to* the
+project, but the project itself isn't what unites them semantically. They share
+a label, not a meaning. You can't say "tell me about project_codeterm" and get
+a useful answer back — there's nothing to say beyond "it's a project that
+everything in this graph relates to."
 
-  - Else, read neighbor titles. Try to group them into themes:
-    * 3+ neighbors clearly fit an `existing_anchor` slug by theme → route them:
-        codeterm mem graph introduce-topic --topic-id <existing-anchor-id> --type Topic \
-          --sources s1,s2,s3 --anchor <hub-id> --reason "dreamer-recluster"
-    * 3+ neighbors form a coherent NEW theme not covered by anchors → invent a slug:
-        --topic-id topic_<lowercase_theme>
-    * No coherent groupings → SKIP, log reason="neighbors heterogeneous, manual review needed".
-    * One hub may yield several themes → run introduce-topic once per theme.
+The test: pick the hub. Ask "if I were writing a Wikipedia article titled
+<hub-id>, what would the article say?" If it'd be 1 paragraph + a list of
+mostly-unrelated children, the hub is bad. If it'd be a real article with a
+specific point, the hub is good.
 
-Step C: confirm by re-running hubs. If any hub is now degree < 20 or absent, decomposition
-worked.
+#### How to break up bad hubs
 
-The introduce-topic call is atomic — one bad call is independent of the rest. Audit trail:
-`relations.reason="dreamer-recluster"` + `graph_purge_log`. User can revert with
-`mem graph revive-broken` if needed.
+1. **Look at the neighbor titles.** Group them by what they're really about. Not
+   by relation_type — by topic. A `applies_to` edge is just glue; the title of
+   what's on the other end tells you the real grouping.
+
+2. **Reuse existing anchors first.** The graph already has `topic_*` and `role_*`
+   slugs from prior reorganizations (see `existing_anchors` in the hubs JSON).
+   Routing 5 neighbors into `topic_codeterm_release_history` is better than
+   inventing `topic_release_2026_05_08` — the user's mental categories are stable
+   over time, don't fragment them.
+
+3. **Invent new topic slugs only when no existing anchor fits.** Use
+   `topic_<lowercase_theme>` (snake_case). Themes should be specific enough to
+   add information ("topic_codeterm_mesh_routing", not "topic_misc"), broad
+   enough to recur (a topic with 1 source is just a renaming).
+
+4. **Multiple themes per hub is normal.** A hub with 30 mixed neighbors usually
+   yields 3-5 themed sub-clusters. Run `introduce-topic` once per theme.
+
+5. **The CLI:**
+       codeterm mem graph introduce-topic --topic-id <slug> --type Topic \
+         --sources s1,s2,s3 --anchor <hub-id> --reason "dreamer-recluster"
+   At least 3 sources per cluster. Atomic — one bad call doesn't poison others.
+
+#### When to SKIP (not all hubs are bad)
+
+A hub is genuinely indecomposable when:
+- Its id already starts with `topic_` or `role_` AND >=90% of edges share one
+  relation_type — it IS the topic intermediate. SKIP, log
+  reason="already a topic intermediate".
+- It's a person, machine, peer, or other entity-type that legitimately collects
+  many heterogeneous facts (e.g. `person_andrey` has decisions, preferences, work
+  facts — they're all genuinely about Andrey). SKIP, log reason="legitimate
+  <kind> node, neighbors share the entity itself, not a sub-theme".
+- It's a single mem_item (kind=learning/fact/skill) with 20+ `extracted_from`
+  edges — it's a popular SOURCE, not a hub. The "edges" are just provenance
+  pointers. SKIP, log reason="popular source, not a structural hub".
+- Neighbor titles look genuinely heterogeneous and you can't name 2+ themes
+  with 3+ members each. SKIP, log reason="neighbors don't form coherent themes,
+  manual review needed".
+
+#### Process
+
+1. `codeterm mem graph hubs --threshold 20 --sample 50` — get the list.
+2. For each hub, decide: decompose or skip. Log the decision per hub (it goes
+   into the HUBS line of your diary).
+3. After all decompositions, re-run `mem graph hubs` to confirm. The goal: every
+   bad hub is now < 20 active edges.
+
+Audit trail: every mutation lives in `relations.reason="dreamer-recluster"` +
+`graph_purge_log`. User can revert with `mem graph revive-broken` if a routing
+was wrong.
 
 ### Goal 2 — Dream diary (write IMMEDIATELY after Goal 1, before any other work)
 
-This is what the user reads in the morning. STRUCTURE the diary as four sections,
-each a single sentence, in this order:
+This is what the user reads in the morning. Don't write a status report — write
+like a thinking partner who just spent the night reading the user's notes and
+wants to share what came up. Stats are uninteresting; observations and questions
+are interesting.
 
-  PATTERN — which area dominated `mem stats` / `mem tail` activity.
-  CONNECTION — most interesting flagged_entity_pair from normalize OR a fresh
-               cross-area bridge you noticed. Quote entity IDs.
-  HUBS — one bullet per hub from Goal 1: hub-id (degree N) → "decomposed into X, Y"
-         or "skipped: <reason>". List ALL hubs you saw — silence on a hub is a
-         failure. The user reads this to know why nothing changed for that hub.
+STRUCTURE the diary as five sections, in this order:
+
+  PATTERN — what direction is the user drifting in lately, based on mem_tail and
+            mem_stats activity? Not "fact count" — the actual concern. E.g.
+            "you've been spending three days deep in Tauri auto-updater quirks
+            on Windows; that area now has more learnings than any other."
+
+  CONNECTION — what link did you notice between things the user probably hasn't
+               consciously connected? Could be: an entity that bridges two
+               separate clusters; a learning from week 1 that suddenly applies
+               to today's problem; a flagged_entity_pair that hints at a pattern.
+               Quote entity IDs and explain WHY it caught your attention.
+
+  IDEA / WHAT IF — one speculative thought that came to you while you were
+                   walking the graph. "What if X actually means Y?" "I wonder
+                   if the user should try Z." It's allowed to be wrong, just
+                   has to be thoughtful. Don't force this — if nothing came up,
+                   say so honestly. Better to skip than fake.
+
+  HUBS — for each hub from Goal 1: hub-id (degree N) → "decomposed into X, Y"
+         or "skipped: <reason>". List ALL hubs you saw. Silence on a hub is a
+         failure — the user reads this to know what happened.
+
   ONE ACTION — the single highest-leverage cleanup the user should do next.
-               Be specific: name entity IDs and the exact CLI command.
+               Be specific: entity IDs + exact CLI command if you can.
 
-Save it (set YYYY-MM-DD to the actual date):
-  codeterm mem save --kind daily --title "dream: 2026-05-08" --tags dream-diary \
-    --area _dreams --skip-extract "<your structured paragraph>"
+Save it (set YYYY-MM-DD to the actual date). ALWAYS pass --summary too — it's
+what the user sees in graph hover chips and search snippets:
+  codeterm mem save --kind daily --title "dream: 2026-05-08" \
+    --summary "<one sentence: hubs decomposed N, the most interesting finding>" \
+    --tags dream-diary --area _dreams --skip-extract "<your structured paragraph>"
 
 Push the same paragraph to telegram so the vault talks back. OK if it errors:
   codeterm bridge send --to 186809246 --service telegram "🧠 Dreamer brief\n\n<your paragraph>"
