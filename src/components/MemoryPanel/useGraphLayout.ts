@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import Graph from "graphology";
 import type { MemEdge, MemNode } from "./types";
 import type {
   PhysicsNode,
@@ -6,6 +7,7 @@ import type {
   PhysicsResponse,
 } from "./physicsProtocol";
 import { seedPosition } from "./seedLayout";
+import { layoutLouvain } from "./louvainLayout";
 
 export interface Position {
   x: number;
@@ -37,6 +39,7 @@ export function useGraphLayout({
   const workerRef = useRef<Worker | null>(null);
   const positionsRef = useRef<Map<string, Position>>(new Map());
   const pinnedRef = useRef<Set<string>>(new Set());
+  const seededRef = useRef(false);
   const [version, setVersion] = useState(0);
   const bumpScheduledRef = useRef(false);
 
@@ -83,6 +86,38 @@ export function useGraphLayout({
     const pinnedSet = pinnedRef.current;
     pinnedSet.clear();
     for (const id of pinnedPositions.keys()) pinnedSet.add(id);
+
+    // First time the graph has any nodes, run Louvain seed layout so the
+    // physics worker starts from community-clustered positions instead of a
+    // random scatter. Pinned positions (set later in the loop) override these.
+    if (!seededRef.current && nodes.size > 0) {
+      seededRef.current = true;
+      const seedGraph = new Graph({ multi: false });
+      for (const id of nodes.keys()) seedGraph.addNode(id);
+      for (const e of edges) {
+        if (!seedGraph.hasNode(e.from) || !seedGraph.hasNode(e.to)) continue;
+        const key = `${e.from}→${e.to}`;
+        if (!seedGraph.hasEdge(key)) {
+          try {
+            seedGraph.addEdgeWithKey(key, e.from, e.to, {
+              weight: e.confidence ?? 0.5,
+            });
+          } catch {
+            /* duplicate — ignore */
+          }
+        }
+      }
+      layoutLouvain(seedGraph);
+      seedGraph.forEachNode((id, attrs) => {
+        const x = attrs.x as number | undefined;
+        const y = attrs.y as number | undefined;
+        if (typeof x === "number" && typeof y === "number" &&
+            Number.isFinite(x) && Number.isFinite(y)) {
+          positions.set(id, { x, y });
+        }
+      });
+      scheduleBump();
+    }
 
     const snapshot: PhysicsNode[] = [];
     const count = nodes.size;
