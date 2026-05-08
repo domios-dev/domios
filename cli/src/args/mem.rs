@@ -244,6 +244,15 @@ pub enum MemDreamAction {
         #[arg(long)]
         db_path: Option<String>,
     },
+    /// Show the most recent dream diary entries (the structured PATTERN /
+    /// CONNECTION / IDEA / WHAT IF / HUBS / ONE ACTION reflections the REM
+    /// agent writes after each dream cycle). Use this to read the Dreamer's
+    /// fresh observations before acting on them.
+    Diary {
+        /// How many entries to return (most-recent first).
+        #[arg(long, default_value_t = 1)]
+        limit: usize,
+    },
 }
 
 #[derive(Subcommand)]
