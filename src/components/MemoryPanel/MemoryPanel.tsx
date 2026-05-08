@@ -190,9 +190,6 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
           >
             Workers (W)
           </button>
-          <button onClick={onClose} className={BTN_CLASS} title="Close (Esc)">
-            &times;
-          </button>
         </div>
       </div>
 

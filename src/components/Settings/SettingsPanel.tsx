@@ -68,7 +68,7 @@ const SECTIONS: { id: SectionId; label: string; desc: string }[] = [
   { id: "agents", label: "Agents", desc: "General Agent and per-provider config" },
   { id: "notifications", label: "Notifications", desc: "Desktop, sound, in-app toasts" },
   { id: "integrations", label: "Integrations", desc: "Telegram, Discord, external bridges" },
-  { id: "secrets", label: "Secrets", desc: "Bitwarden, Keychain — pluggable secret store" },
+  { id: "secrets", label: "Secrets", desc: "Keychain — pluggable secret store" },
   { id: "mesh", label: "Mesh", desc: "Peer discovery, network API reference" },
   { id: "about", label: "About", desc: "Version, updates, creator" },
 ];
@@ -201,8 +201,8 @@ export function SettingsPanel({
         <div className="flex flex-1 min-h-0 relative z-10">
           <div className="flex-1 overflow-y-auto px-5 py-5">
             {top.kind === "root" && (
-              <div className="max-w-3xl mx-auto">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="min-h-full flex items-center justify-center">
+                <div className="w-full max-w-3xl grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {SECTIONS.map((s) => {
                     const Icon = SECTION_ICONS[s.id];
                     return (
@@ -227,7 +227,7 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "general" && (
-              <div className="max-w-2xl mx-auto space-y-6">
+              <div className="max-w-2xl mx-auto space-y-5">
                 <ShellDiagnosticsBanner onDismissSettings={onClose} />
                 <Group title="Color Theme">
                   <label className="block">
@@ -406,7 +406,7 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "notifications" && (
-              <div className="max-w-2xl mx-auto space-y-6">
+              <div className="max-w-2xl mx-auto space-y-5">
                 <Group title="System Notifications">
                   <div className="text-xs text-[var(--ct-muted-fg)] mb-1">
                     Native OS notifications when CodeTerm window is not focused.
@@ -500,7 +500,7 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "about" && (
-              <div className="max-w-2xl mx-auto space-y-6">
+              <div className="max-w-2xl mx-auto space-y-5">
                 {/* Logo + tagline */}
                 <div className="text-center py-4">
                   <img src={logoUrl} alt="CodeTerm" width="64" height="64" className="rounded-xl mb-3 mx-auto" />
@@ -518,8 +518,8 @@ export function SettingsPanel({
 
                 {/* Creator */}
                 <Group title="Created by">
-                  <div className="text-sm text-[var(--ct-fg)]">Andrey Kovalev</div>
-                  <div className="flex flex-wrap gap-3 mt-2">
+                  <div className="text-xs text-[var(--ct-fg)]">Andrey Kovalev</div>
+                  <div className="flex flex-wrap gap-3 mt-1">
                     <AboutLink href="https://github.com/rollacode" label="GitHub" Icon={ExternalLink} />
                     <AboutLink href="https://rollacode.org" label="Website" Icon={ExternalLink} />
                     <AboutLink href="https://www.linkedin.com/in/rollacode" label="LinkedIn" Icon={ExternalLink} />
@@ -535,7 +535,7 @@ export function SettingsPanel({
                         window.location.reload();
                       }).catch(() => {});
                     }}
-                    className="px-3 py-1.5 text-[11px] rounded bg-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-muted)] transition-colors"
+                    className="px-3 py-1.5 text-[11px] rounded bg-[var(--ct-border)] text-[var(--ct-fg)] hover:bg-[var(--ct-muted)] transition-colors self-start"
                   >
                     Reset Onboarding
                   </button>

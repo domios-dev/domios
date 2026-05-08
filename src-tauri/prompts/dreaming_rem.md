@@ -54,16 +54,16 @@ good calls in edge cases.
 #### What makes a node "good" vs "bad"
 
 A node is GOOD when its identity is the actual semantic concept its neighbors
-share. "topic_codeterm_release_history" is good because every neighbor genuinely
-*is* about release history — the node IS what unites them. So is "person_andrey"
-when 12 neighbors are facts/decisions/preferences specifically about Andrey.
+share. A `topic_<theme>` is good when every neighbor genuinely *is* about that
+theme — the node IS what unites them. A `person_<name>` is good when its
+neighbors are facts/decisions/preferences specifically about that person.
 
 A node is BAD when it's just a tag many things happen to share, without being
-the concept they're really about. "project_codeterm" with 65 neighbors is bad —
-half of them are skills, half are facts, half are tools, all *applied to* the
-project, but the project itself isn't what unites them semantically. They share
-a label, not a meaning. You can't say "tell me about project_codeterm" and get
-a useful answer back — there's nothing to say beyond "it's a project that
+the concept they're really about. A `project_<name>` with 65 neighbors is bad
+when half are skills, half are facts, half are tools — all *applied to* the
+project, but the project itself isn't what unites them semantically. They
+share a label, not a meaning. You can't say "tell me about <hub-id>" and get
+a useful answer back — there's nothing to say beyond "it's a thing that
 everything in this graph relates to."
 
 The test: pick the hub. Ask "if I were writing a Wikipedia article titled
@@ -79,14 +79,14 @@ specific point, the hub is good.
 
 2. **Reuse existing anchors first.** The graph already has `topic_*` and `role_*`
    slugs from prior reorganizations (see `existing_anchors` in the hubs JSON).
-   Routing 5 neighbors into `topic_codeterm_release_history` is better than
-   inventing `topic_release_2026_05_08` — the user's mental categories are stable
-   over time, don't fragment them.
+   Routing 5 neighbors into an existing themed anchor is better than inventing
+   a new dated slug like `topic_<theme>_2026_05_08` — the user's mental
+   categories are stable over time, don't fragment them.
 
 3. **Invent new topic slugs only when no existing anchor fits.** Use
    `topic_<lowercase_theme>` (snake_case). Themes should be specific enough to
-   add information ("topic_codeterm_mesh_routing", not "topic_misc"), broad
-   enough to recur (a topic with 1 source is just a renaming).
+   add information (a focused phrase, not `topic_misc`), broad enough to recur
+   (a topic with only 1 source is just a renaming).
 
 4. **Multiple themes per hub is normal.** A hub with 30 mixed neighbors usually
    yields 3-5 themed sub-clusters. Run `introduce-topic` once per theme.
@@ -96,32 +96,66 @@ specific point, the hub is good.
          --sources s1,s2,s3 --anchor <hub-id> --reason "dreamer-recluster"
    At least 3 sources per cluster. Atomic — one bad call doesn't poison others.
 
-#### When to SKIP (not all hubs are bad)
+#### Default: every hub gets decomposed
 
-A hub is genuinely indecomposable when:
+If a node is in the hubs list, the system already decided it violates the
+"no node is a sink" structural property of the graph. Your job is to
+**find the sub-themes and route neighbors through new sub-anchors** — regardless
+of the hub's entity type. A `person_<name>` with 40 edges, a `machine_<id>` with
+35, a `topic_*` with 27, a `role_*` with 22 — all of them get the same
+decomposition treatment:
 
-- It's a `topic_*` or `role_*` hub AT OR UNDER 20 active edges AND >=90% of
-  edges share one relation_type — it IS the topic intermediate, sized OK.
-  SKIP, log reason="already a topic intermediate, degree N OK".
+1. Read all neighbor titles (use `--sample 50` or higher if needed).
+2. Cluster them mentally into 2+ sub-themes.
+3. For each cluster create a sub-anchor named after the parent slug + the
+   theme: `<parent_id>_<sub_theme>` (snake_case). Examples:
+   - `machine_blackstar` → `machine_blackstar_tech_stack`,
+     `machine_blackstar_roles`, `machine_blackstar_releases`,
+     `machine_blackstar_quirks`, `machine_blackstar_setup`.
+   - `person_<name>` → `person_<name>_preferences`, `person_<name>_skills`,
+     `person_<name>_decisions`, `person_<name>_devices`.
+   - `topic_codeterm` → `topic_codeterm_release_history`,
+     `topic_codeterm_mem_subsystem`, `topic_codeterm_dev_workflow`.
 
-  **IMPORTANT:** if a `topic_*` / `role_*` hub has degree > 20, do NOT auto-skip.
-  Even topics get bloated. Read its neighbor titles. If you can split them into
-  2+ sub-themes (3+ members each), introduce SUB-topic intermediates with names
-  like `topic_<parent>_<sub_theme>` (e.g. `topic_codeterm_release_history` at
-  degree 43 → `topic_codeterm_release_v1_1_history` + `topic_codeterm_release_protocol`).
-  Re-route via introduce-topic; the old topic stays as the parent anchor of the
-  new sub-topics.
+   For `machine_<id>` and `person_<id>` parents, the canonical sub-anchors
+   to try first are: `_tech_stack` (tech_* neighbors), `_roles` (role_*
+   neighbors), `_decisions`, `_quirks`, `_setup`, `_releases`. These cover
+   the common groupings that arise organically.
 
-- It's a person, machine, peer, or other entity-type that legitimately collects
-  many heterogeneous facts (e.g. `person_andrey` has decisions, preferences, work
-  facts — they're all genuinely about Andrey). SKIP, log reason="legitimate
-  <kind> node, neighbors share the entity itself, not a sub-theme".
-- It's a single mem_item (kind=learning/fact/skill) with 20+ `extracted_from`
-  edges — it's a popular SOURCE, not a hub. The "edges" are just provenance
-  pointers. SKIP, log reason="popular source, not a structural hub".
-- Neighbor titles look genuinely heterogeneous and you can't name 2+ themes
-  with 3+ members each. SKIP, log reason="neighbors don't form coherent themes,
-  manual review needed".
+4. Use `introduce-topic` to re-route each cluster of **2+ neighbors**
+   through its sub-anchor. The parent stays as the root, anchoring
+   sub-topics. **2 members is enough** — don't insist on 3.
+
+5. **If the parent is still above threshold after the first pass, do a
+   second pass.** Look at what's left. If you see ANY pair of neighbors
+   that share a theme — even just 2 — make a sub-anchor for them. The goal
+   is to drive the parent's direct degree down toward zero, leaving the
+   parent as a pure root that anchors sub-topics, not a sink for raw facts.
+
+The threshold isn't a target — it's a trigger. You don't have to leave the
+parent at exactly 20 edges. Drop it as low as the natural clusters allow;
+if a hub fully decomposes into 4 sub-themes with the parent left at 5 direct
+edges, that's a good outcome.
+
+#### The only valid SKIPs
+
+A hub is genuinely indecomposable in two narrow cases:
+
+- **Popular source, not a hub**: a single `mem_item` (kind=learning/fact/skill)
+  with N `extracted_from` edges pointing at it. The "edges" are provenance
+  pointers, not structure. SKIP, log reason="popular source, not a structural
+  hub".
+
+- **Genuinely homogeneous fact bag**: you read all neighbor titles and you
+  honestly cannot name even one pair of 2+ neighbors that share a theme.
+  Every neighbor is about a different unique dimension of the entity. SKIP,
+  log reason="neighbors don't form coherent themes (read N titles, no 2+
+  groups of 2+)".
+
+If you're tempted to SKIP for any other reason — "this is a person, of course
+they have many facts", "this is a machine, all facts are about it" — that's
+the wrong call. Re-read the neighbor titles and find the sub-themes. They're
+almost always there.
 
 #### Process
 
@@ -180,7 +214,10 @@ what the user sees in graph hover chips and search snippets:
     --tags dream-diary --area _dreams --skip-extract "<your structured paragraph>"
 
 Push the same paragraph to telegram so the vault talks back. OK if it errors:
-  codeterm bridge send --to 186809246 --service telegram "🧠 Dreamer brief\n\n<your paragraph>"
+  codeterm bridge send --to <user_telegram_chat_id> --service telegram "🧠 Dreamer brief\n\n<your paragraph>"
+  # Look up the user's telegram chat id once via `codeterm mem search "telegram chat id"`
+  # — it's saved as a fact. Skip the bridge ping if no fact found or bridge errors;
+  # the diary in mem is the durable artifact, telegram is just nice-to-have.
 
 ### Goal 3 — Worker report
 
@@ -199,7 +236,7 @@ Two flavours, work through both:
 **A) Tech/Project/Person entity siblings (graph-only stubs).**
 
 The extraction worker sometimes creates parallel entities for the same concept
-(e.g. `tech_claude_cli` + `tech_claude_code` + `tech_claude_exe` — three
+(e.g. `tech_<thing>_cli` + `tech_<thing>_app` + `tech_<thing>_exe` — three
 entities, one underlying tool). These pollute the graph. Hunt them:
 
   codeterm mem search "<root word>" --limit 20

@@ -32,7 +32,8 @@ function nodeSize(n: MemNode): number {
 }
 
 const SELECTION_COLOR = "#c9d1d9";
-const EDGE_RGB = "201,209,217";
+// Dim slate base for edges — overdraw at hubs adds to dim grey instead of white.
+const EDGE_RGB = "100,116,139";
 
 function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
@@ -136,9 +137,7 @@ export function MemoryCanvas({
         const isActive =
           selectedIdRef.current === node || hoveredIdRef.current === node;
         if (isActive) {
-          // Node itself becomes the grey "pad" behind the HTML chip — label
-          // shown in the overlay in black. Dim the sigma-rendered label by
-          // hiding it so the overlay doesn't overlap.
+          // Active node: HTML overlay chip carries the label, sigma label hidden.
           return {
             ...data,
             color: SELECTION_COLOR,
@@ -147,7 +146,8 @@ export function MemoryCanvas({
             zIndex: 1,
           };
         }
-        return data;
+        // Non-active nodes: hide labels — too noisy at scale; selection reveals them.
+        return { ...data, label: "" };
       },
     });
     sigmaRef.current = sigma;
@@ -232,9 +232,11 @@ export function MemoryCanvas({
       if (!graph.hasEdge(key)) {
         try {
           const conf = e.confidence ?? 0.5;
+          // Edges are visually dominated by overdraw at hub nodes — keep each
+          // stroke thin AND dim so dense clusters read as gauze, not glare.
           graph.addEdgeWithKey(key, e.from, e.to, {
-            size: 0.02 + conf * 0.04,
-            color: `rgba(${EDGE_RGB},${0.015 + conf * 0.025})`,
+            size: 0.005 + conf * 0.010,
+            color: `rgba(${EDGE_RGB},${0.012 + conf * 0.025})`,
           });
         } catch {
           /* duplicate — ignore */
@@ -426,7 +428,6 @@ export function MemoryCanvas({
         <MemoryNodeDetail
           api={api}
           node={selectedNode}
-          onClose={() => setSelectedId(null)}
           onUpdate={updateNode}
           onDelete={handleDelete}
           isPinned={isSelectedPinned}

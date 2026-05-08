@@ -56,27 +56,27 @@ TASK — execute each step as Bash tool calls, in order:
 
    ── DEDUP CHECK BEFORE CREATING ANY ENTITY (mandatory) ──
    The graph already has many entities. Don't fragment it by creating
-   variants of an existing one ("tech_claude_cli" + "tech_claude_code" +
-   "tech_claude_exe" all mean the same thing — one entity already won).
+   variants of an existing one (e.g. `tech_<thing>_cli` + `tech_<thing>_app`
+   + `tech_<thing>_exe` all mean the same tool — one entity already won).
 
    For each entity you'd create, FIRST run a unified search to find close
    matches across BOTH the entities table AND mem_items:
      codeterm mem search "<core_word>" --limit 10
        # mem search returns BOTH mem_items AND graph entities (entities show
        # up with kind="entity:Tech|Person|Project|...", area="_graph"). Catches
-       # tech_claude_cli + tech_claude_code + tech_claude_exe when you'd be
-       # about to create a 4th. Catches Cyrillic names / emails / properties
-       # too — entities are embedded by id+type+flat properties.
+       # `tech_<thing>_*` siblings when you'd be about to create a 4th. Catches
+       # Cyrillic names / emails / properties too — entities are embedded by
+       # id + type + flat properties.
      codeterm mem graph get <type>_<exact-slug>     # exact-id check (404 = free to create)
 
    If a close-match entity exists (different slug, same concept):
      - REUSE it. Use its existing id as the relation endpoint.
      - DO NOT create a parallel entity. Better to under-link than to create
-       a third "tech_claude_*".
-     - Slight name variations to merge: "claude.exe" / "claude cli" / "claude code"
-       → all map to one slug like `tech_claude_code` (whichever already exists).
-       Versions of same thing ("powershell 5" + "powershell 7") → use the
-       generic slug `tech_powershell` unless TEXT explicitly contrasts versions.
+       a third `tech_<thing>_*` variant.
+     - Slight name variations to merge: surface forms like "<tool>.exe" / "<tool>
+       cli" / "<tool> app" → all map to one slug (whichever already exists).
+       Versions of the same thing ("<tool> v1" + "<tool> v2") → use the generic
+       slug unless TEXT explicitly contrasts versions.
 
    If genuinely new (no near match):
      codeterm mem graph create --id <type>_<slug> --entity-type <Type> --scope global
@@ -89,10 +89,10 @@ TASK — execute each step as Bash tool calls, in order:
    - Snake_case, lowercase, max 30 chars
 
    DO create relations for:
-   - Concrete facts about named entities ("Tima shipped worker pool fix")
-   - Relationships between entities ("Docker runs on BLACKSTAR")
-   - Temporal events with dates ("trip to China in April 2026")
-   - Decisions tied to projects ("decided to use PostgreSQL for codeterm")
+   - Concrete facts about named entities ("<person> shipped worker pool fix")
+   - Relationships between entities ("Docker runs on <machine>")
+   - Temporal events with dates ("trip to <place> in April 2026")
+   - Decisions tied to projects ("decided to use PostgreSQL for <project>")
 
    DO NOT create relations for:
    - Abstract statements ("codeterm is software")
@@ -145,7 +145,8 @@ HARD BANS:
   "fixed it last week" → "fixed recently". Never fabricate specifics.
 - NO speculation. No "probably", "likely". Only what TEXT explicitly states.
 - NO generic entities. "the user" → skip. Only named entities get graph nodes.
-- Canonical names: "Tima"/"Timofey" → person_tima. Pick short form.
+- Canonical names: pick the short form a person actually goes by, then map every
+  variant (full name, nickname, formal form) to the same `person_<short>` slug.
 - When in doubt, extract LESS. "0 entities, 0 relations" is a valid outcome.
 
 ──────────────────────────────────────────────────────────────────────
