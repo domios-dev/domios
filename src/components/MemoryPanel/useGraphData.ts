@@ -121,6 +121,18 @@ export function useGraphData(api: ApiConfig) {
     [api],
   );
 
+  const unpinAllPositions = useCallback(() => {
+    let ids: string[] = [];
+    setState((prev) => {
+      if (prev.pinnedPositions.size === 0) return prev;
+      ids = [...prev.pinnedPositions.keys()];
+      return { ...prev, pinnedPositions: new Map() };
+    });
+    for (const id of ids) {
+      unpinPinnedPosition(api, id).catch(() => {});
+    }
+  }, [api]);
+
   // Event-driven refresh: any write to mem → refetch graph.
   // Positions stay: the worker re-seeds only truly-new nodes.
   useEffect(() => {
@@ -179,5 +191,6 @@ export function useGraphData(api: ApiConfig) {
     removeNode,
     pinPosition,
     unpinPosition,
+    unpinAllPositions,
   };
 }

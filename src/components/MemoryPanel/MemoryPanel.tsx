@@ -52,6 +52,7 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
     removeNode,
     pinPosition,
     unpinPosition,
+    unpinAllPositions,
   } = useGraphData(api);
   const { pulses } = useActivityPulses(api);
   const [workerPanelVisible, setWorkerPanelVisible] = useState(
@@ -206,37 +207,47 @@ export function MemoryPanel({ api, onClose, initialState, onFocusPane }: Props) 
             removeNode={removeNode}
           />
         )}
-        {activeTab === "graph" && (
-          <>
-            {loading && (
-              <div className="absolute inset-0 flex items-center justify-center text-[var(--ct-muted-fg)]">
-                Loading memory graph...
-              </div>
-            )}
-            {error && (
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-2 rounded bg-[var(--ct-red)] text-white text-xs">
-                {error}
-              </div>
-            )}
-            {!loading && !error && (
-              <MemoryCanvas
-                api={api}
-                nodes={nodes}
-                edges={edges}
-                pulses={pulses}
-                pinnedPositions={pinnedPositions}
-                updateNode={updateNode}
-                removeNode={removeNode}
-                pinPosition={pinPosition}
-                unpinPosition={unpinPosition}
-                registerFit={registerFit}
-                registerRecenter={registerRecenter}
-                selectedIdOverride={selectedId}
-                onSelectedIdChange={setSelectedId}
-                physicsEnabled={physicsEnabled}
-              />
-            )}
-          </>
+        {activeTab === "graph" && loading && (
+          <div className="absolute inset-0 flex items-center justify-center text-[var(--ct-muted-fg)]">
+            Loading memory graph...
+          </div>
+        )}
+        {activeTab === "graph" && error && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-2 rounded bg-[var(--ct-red)] text-white text-xs">
+            {error}
+          </div>
+        )}
+        {/* Mount the canvas as soon as data is ready, even on other tabs, so
+            Louvain seed + physics worker get a head start. Hide it (not
+            unmount) when not active so sigma keeps its container size and the
+            settled positions survive tab switches. */}
+        {!loading && !error && (
+          <div
+            className={
+              activeTab === "graph"
+                ? "absolute inset-0"
+                : "absolute inset-0 invisible pointer-events-none"
+            }
+            aria-hidden={activeTab !== "graph"}
+          >
+            <MemoryCanvas
+              api={api}
+              nodes={nodes}
+              edges={edges}
+              pulses={pulses}
+              pinnedPositions={pinnedPositions}
+              updateNode={updateNode}
+              removeNode={removeNode}
+              pinPosition={pinPosition}
+              unpinPosition={unpinPosition}
+              unpinAllPositions={unpinAllPositions}
+              registerFit={registerFit}
+              registerRecenter={registerRecenter}
+              selectedIdOverride={selectedId}
+              onSelectedIdChange={setSelectedId}
+              physicsEnabled={physicsEnabled}
+            />
+          </div>
         )}
         {activeTab === "activity" && (
           <MemoryActivityTab
