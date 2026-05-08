@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Sigma from "sigma";
 import Graph from "graphology";
 import EdgeCurveProgram from "@sigma/edge-curve";
 import type { ApiConfig } from "../../lib/types";
 import { MemoryNodeDetail } from "./MemoryNodeDetail";
 import { colorForKind, KIND_COLORS } from "./nodeKind";
-import { useGraphLayout, type Position } from "./useGraphLayout";
+import { useGraphLayout } from "./useGraphLayout";
 import type { MemEdge, MemNode } from "./types";
 import type { Pulse } from "./useActivityPulses";
 
@@ -14,12 +14,8 @@ interface Props {
   nodes: Map<string, MemNode>;
   edges: MemEdge[];
   pulses: Map<string, Pulse>;
-  pinnedPositions: Map<string, Position>;
   updateNode: (id: string, patch: Partial<MemNode>) => void;
   removeNode: (id: string) => void;
-  pinPosition: (id: string, x: number, y: number) => void;
-  unpinPosition: (id: string) => void;
-  unpinAllPositions: () => void;
   registerFit: (fn: () => void) => void;
   registerRecenter: (fn: () => void) => void;
   selectedIdOverride?: string | null;
@@ -45,12 +41,8 @@ export function MemoryCanvas({
   nodes,
   edges,
   pulses,
-  pinnedPositions,
   updateNode,
   removeNode,
-  pinPosition,
-  unpinPosition,
-  unpinAllPositions,
   registerFit,
   registerRecenter,
   selectedIdOverride,
@@ -76,23 +68,18 @@ export function MemoryCanvas({
   const layout = useGraphLayout({
     nodes,
     edges,
-    pinnedPositions,
     enabled: physicsEnabled,
   });
 
-  // Keep callbacks referenced by event handlers in a ref so the init effect
-  // can run once without re-subscribing when callbacks change.
   const handlersRef = useRef({
     setSelectedId,
-    pin: layout.pin,
     setPos: layout.setPosition,
-    pinPosition,
+    heat: layout.heat,
   });
   handlersRef.current = {
     setSelectedId,
-    pin: layout.pin,
     setPos: layout.setPosition,
-    pinPosition,
+    heat: layout.heat,
   };
 
   // Selection + hover ids live in refs so the nodeReducer (per-frame
@@ -161,12 +148,7 @@ export function MemoryCanvas({
 
     sigma.on("downNode", ({ node }) => {
       draggingRef.current = node;
-      const attrs = graph.getNodeAttributes(node);
-      handlersRef.current.pin(node, {
-        x: attrs.x as number,
-        y: -(attrs.y as number),
-      });
-      // Pin bbox so camera doesn't auto-scroll during drag.
+      // Freeze camera during drag so it doesn't autoscroll.
       if (!sigma.getCustomBBox()) sigma.setCustomBBox(sigma.getBBox());
     });
 
@@ -183,13 +165,10 @@ export function MemoryCanvas({
     });
 
     const handleUp = () => {
-      const id = draggingRef.current;
-      if (!id) return;
-      const attrs = graph.getNodeAttributes(id);
-      const x = attrs.x as number;
-      const y = -(attrs.y as number);
-      handlersRef.current.pinPosition(id, x, y);
+      if (!draggingRef.current) return;
       draggingRef.current = null;
+      // Resume physics so the released node settles back into the layout.
+      handlersRef.current.heat();
     };
     sigma.on("upNode", handleUp);
     sigma.on("upStage", handleUp);
@@ -387,33 +366,9 @@ export function MemoryCanvas({
     [removeNode, setSelectedId],
   );
 
-  const handleUnpin = useCallback(() => {
-    if (selectedId) unpinPosition(selectedId);
-  }, [selectedId, unpinPosition]);
-
-  const handleUnpinAll = useCallback(() => {
-    unpinAllPositions();
-    layout.heat();
-  }, [unpinAllPositions, layout]);
-
-  const isSelectedPinned = useMemo(
-    () => (selectedId ? pinnedPositions.has(selectedId) : false),
-    [selectedId, pinnedPositions],
-  );
-
   return (
     <div className="absolute inset-0 overflow-hidden bg-[var(--ct-bg)]">
       <div ref={containerRef} className="absolute inset-0" />
-
-      {pinnedPositions.size > 0 && (
-        <button
-          onClick={handleUnpinAll}
-          title={`Release ${pinnedPositions.size} pinned node${pinnedPositions.size === 1 ? "" : "s"} back to the force layout`}
-          className="absolute top-3 right-3 px-2.5 py-1 rounded text-[11px] bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)] hover:border-[var(--ct-fg)] cursor-pointer"
-        >
-          Unpin all ({pinnedPositions.size})
-        </button>
-      )}
 
       {chipStyle && (
         <div
@@ -447,8 +402,6 @@ export function MemoryCanvas({
           node={selectedNode}
           onUpdate={updateNode}
           onDelete={handleDelete}
-          isPinned={isSelectedPinned}
-          onUnpin={isSelectedPinned ? handleUnpin : undefined}
           edges={edges}
           nodes={nodes}
           onSelectNode={setSelectedId}
