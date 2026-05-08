@@ -511,18 +511,30 @@ pub enum MemGraphAction {
         /// Entity id (e.g. person_andrey, tech_codeterm).
         id: String,
     },
-    /// Search graph entities by id substring (case-insensitive). Mirrors
-    /// `mem search` (which only hits mem_items) for the entities table —
-    /// helps the extractor avoid creating duplicate siblings before create
-    /// and lets agents look up Person/Tech/Project entities by name.
+    /// Search graph entities. Two strategies:
+    ///   default — case-insensitive substring against `id` AND
+    ///             `properties_json` (catches Cyrillic names, emails, phones
+    ///             stored in entity properties even when the slug is ASCII).
+    ///   --semantic — additionally embed the query, find nearby mem_items
+    ///                via the vector index, and pull entities related to
+    ///                those hits (bridge through embeddings). Daemon must be
+    ///                running for the semantic pass.
+    /// Use this before creating a new entity to avoid duplicate siblings,
+    /// and during dedup to find concept-level matches the slug-only search
+    /// would miss.
     Search {
-        /// Substring to match against entity ids (case-insensitive).
+        /// Query text. Substring for SQL pass, embed-input for --semantic pass.
         query: String,
         /// Filter by entity type (Person, Tech, Project, …). Optional.
         #[arg(long = "type")]
         entity_type: Option<String>,
         #[arg(long, default_value_t = 30)]
         limit: u32,
+        /// Also bridge through mem_items embeddings: find entities related to
+        /// mem_items semantically close to the query. Slower (HTTP call to
+        /// daemon) but catches concept-level matches.
+        #[arg(long)]
+        semantic: bool,
     },
     /// List hub nodes — entities with active degree at or above threshold.
     /// Each hub returns its degree, the relation_type distribution, and a
