@@ -658,12 +658,8 @@ impl ServiceContext {
 
             match svc_outer.resolve_pty_id(&pane_id_outer) {
                 Ok(pty_id) => {
-                    let opts = crate::service::inject_verify::VerifyOpts::default();
-                    let strategy = crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
-                        timeout: std::time::Duration::from_secs(15),
-                    };
-                    if let Err(e) = svc_outer.send_text_verified(&pty_id, &launch_cmd, true, strategy, opts) {
-                        log::error!("[spawn.hidden] verified launch cmd failed: {}", e);
+                    if let Err(e) = svc_outer.send_shell_spawn(&pty_id, &launch_cmd) {
+                        log::error!("[spawn.hidden] shell spawn failed: {}", e);
                     }
                 }
                 Err(e) => log::error!("[spawn.hidden] no pty for pane {}: {}", pane_id_outer, e),
