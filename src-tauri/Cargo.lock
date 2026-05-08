@@ -785,6 +785,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "clipboard-win",
+ "codeterm-mem-store",
  "conpty",
  "cron",
  "dirs",
@@ -836,6 +837,17 @@ dependencies = [
  "which",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "codeterm-mem-store"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
