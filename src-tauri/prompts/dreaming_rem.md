@@ -178,9 +178,40 @@ the user sees in the worker list.
 Find items without an area. Read their bodies. Assign the best-fit area.
 
 ### Goal 5 — Deduplicate
-Find items with similar titles or overlapping content. `mem search` runs FTS + embeddings together:
+
+Two flavours, work through both:
+
+**A) Tech/Project/Person entity siblings (graph-only stubs).**
+
+The extraction worker sometimes creates parallel entities for the same concept
+(e.g. `tech_claude_cli` + `tech_claude_code` + `tech_claude_exe` — three
+entities, one underlying tool). These pollute the graph. Hunt them:
+
+  codeterm mem graph hubs --threshold 1 --sample 1 2>/dev/null > /tmp/_all.json
+  # Or query existing_anchors / similar siblings via prefix:
+  # bash patterns to find suspiciously close entity ids by shared prefix.
+
+The Phase 1 normalize step ALREADY auto-merges entity pairs when their
+suffix-Levenshtein-ratio >= 0.85 AND their degrees differ. Pairs that didn't
+auto-merge appear in the normalize output as `flagged_entity_pairs`. For each
+flagged pair:
+  - Read both: `codeterm mem graph related --id <id_a>` and same for `id_b`.
+  - If they're the same concept (different naming): merge them with alias.
+      codeterm mem graph alias --alias <less-canonical-id> --canonical <better-id>
+    The alias rewires every relation pointing at the lesser to the canonical
+    and deletes the lesser entity.
+  - If genuinely different (e.g. `tech_codeterm_mem` and `tech_codeterm_mesh`
+    are TWO subsystems, not a typo) → leave them. Note in diary HUBS section
+    that you reviewed and kept distinct.
+
+**B) Mem_item content duplicates.**
+
+Find mem_items with similar titles or overlapping content via hybrid search:
   codeterm mem search "<keywords from suspicious title>"
-Read both bodies. If genuinely duplicate → merge into the more complete one, delete the other.
+Read both bodies. If genuinely duplicate → merge into the more complete one
+(`mem update <keeper> --body "<merged>"`), delete the lesser
+(`mem delete <lesser>`). If different angles on same topic → link them with
+`mem graph relate --from <a> --rel similar_to --to <b>` and keep both.
 
 ### Goal 6 — Promote or archive learnings
 Old learnings (>30 days) frequently accessed → promote to fact (bump importance to 4+).
