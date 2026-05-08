@@ -1,0 +1,25 @@
+[workspace]
+members = [
+    "crates/codeterm-mesh-client",
+    "crates/codeterm-pane-api",
+    "crates/codeterm-relay",
+]
+
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["CodeTerm Team"]
+license = "MIT"
+description = "CodeTerm components"
+
+# Common dependencies for all workspace crates
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tracing = "0.1"
+anyhow = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

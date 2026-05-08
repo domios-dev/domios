@@ -1,0 +1,66 @@
+[package]
+name = "codeterm-relay"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight mesh relay for CodeTerm webhooks and remote UI"
+license = "MIT"
+authors = ["CodeTerm Team"]
+
+[[bin]]
+name = "codeterm-relay"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Web framework
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Config
+toml = "0.8"
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# Shared crates
+codeterm-mesh-client = { path = "../codeterm-mesh-client" }
+codeterm-pane-api = { path = "../codeterm-pane-api" }
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Crypto
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+dirs = "6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+parking_lot = "0.12"
+hostname = "0.4"
+regex = "1"
+
+# Async utilities
+futures-core = "0.3"
+async-stream = "0.3"
+
+# Embedded assets (SPA)
+include_dir = "0.7"
+
+[features]
+default = []
+tailscale = ["dep:tailscale-funnel"]
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tailscale-funnel = { version = "0.2", optional = true }

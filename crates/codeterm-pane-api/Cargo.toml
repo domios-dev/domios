@@ -1,0 +1,28 @@
+[package]
+name = "codeterm-pane-api"
+version = "0.1.0"
+edition = "2021"
+description = "Pane API client for CodeTerm relay"
+license = "MIT"
+authors = ["CodeTerm Team"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# Shared mesh client
+codeterm-mesh-client = { path = "../codeterm-mesh-client" }
+
+# Utilities
+thiserror = "1"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio-test = "0.4"
