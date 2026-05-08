@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
+import { canonicalizeShort } from "../../lib/modelLabels";
 import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
 import { WorkerLogPopup } from "./WorkerLogPopup";
 
@@ -259,6 +260,7 @@ function MemoryScheduledTabImpl({ api }: Props) {
     .sort((a, b) => b.worker.spawned_at - a.worker.spawned_at);
 
   const lastDreamRun = dreamWorkers[0] ?? null;
+  const displayDreamingModel = canonicalizeShort(memCfg?.dreaming_model || "");
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-y-auto">
@@ -307,7 +309,7 @@ function MemoryScheduledTabImpl({ api }: Props) {
                     const models = prov?.available_models ?? [];
                     return models.length > 0 ? (
                       <select
-                        value={memCfg.dreaming_model || ""}
+                        value={displayDreamingModel}
                         onChange={(e) => patchMemConfig({ dreaming_model: e.target.value })}
                         className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-1.5 py-0.5 text-[10px] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                       >
@@ -318,7 +320,7 @@ function MemoryScheduledTabImpl({ api }: Props) {
                       </select>
                     ) : (
                       <input
-                        value={memCfg.dreaming_model || ""}
+                        value={displayDreamingModel}
                         onChange={(e) => patchMemConfig({ dreaming_model: e.target.value })}
                         placeholder="Model"
                         className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-1.5 py-0.5 text-[10px] text-[var(--ct-fg)] w-28 focus:border-[var(--ct-accent)] focus:outline-none"
