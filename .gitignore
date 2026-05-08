@@ -1,6 +1,7 @@
 node_modules/
 dist/
 target/
+target-check/
 references/
 !skills/codeterm/references/
 !docs/plans/references/

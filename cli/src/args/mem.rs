@@ -494,6 +494,17 @@ pub enum MemGraphAction {
         #[arg(long)]
         include_invalidated: bool,
     },
+    /// List hub nodes — entities with active degree at or above threshold.
+    /// Each hub returns its degree, the relation_type distribution, and a
+    /// sample of neighbors with titles. Used by the Dreamer recluster phase
+    /// to decide which hubs to decompose into topic_* intermediates.
+    Hubs {
+        #[arg(long, default_value_t = 20)]
+        threshold: u32,
+        /// Per-hub neighbor sample size (default 30).
+        #[arg(long, default_value_t = 30)]
+        sample: u32,
+    },
     /// Merge one entity into another (alias → canonical)
     Alias {
         #[arg(long)]

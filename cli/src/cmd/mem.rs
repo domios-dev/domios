@@ -428,13 +428,15 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 let payload = serde_json::json!({ "alias": alias, "canonical": canonical });
                 mem_post_request(&http, &format!("{}/api/mem/graph/alias", base), &payload)
             }
-            // Local-only mutations: route through the same dispatcher as main()
-            // so a future reorder of main.rs cannot turn this into a panic in
-            // production. The run_* helpers exit; the line after never runs.
+            // Local-only mutations + reads that benefit from direct DB access:
+            // route through the same dispatcher as main() so a future reorder
+            // of main.rs cannot turn this into a panic in production. The
+            // run_* helpers exit; the line after never runs.
             ref local @ (MemGraphAction::Route { .. }
             | MemGraphAction::PurgeInvalidated { .. }
             | MemGraphAction::ReviveBroken { .. }
-            | MemGraphAction::IntroduceTopic { .. }) => {
+            | MemGraphAction::IntroduceTopic { .. }
+            | MemGraphAction::Hubs { .. }) => {
                 crate::cmd::graph_mutate::try_dispatch_local(local);
                 unreachable!("local-only graph variant did not exit")
             }

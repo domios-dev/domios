@@ -1,7 +1,5 @@
 //! Single source of truth for Claude model identifiers. One constant changes per Anthropic rollover.
 
-pub const SHORT_LABELS: &[&str] = &["sonnet", "opus", "haiku"];
-
 const SONNET_ID: &str = "claude-sonnet-4-6";
 const OPUS_ID: &str = "claude-opus-4-7";
 const HAIKU_ID: &str = "claude-haiku-4-5-20251001";
@@ -45,8 +43,9 @@ mod tests {
     }
 
     #[test]
-    fn known_short_labels_are_listed() {
-        let labels: Vec<&str> = SHORT_LABELS.iter().copied().collect();
-        assert_eq!(labels, vec!["sonnet", "opus", "haiku"]);
+    fn known_short_labels_resolve() {
+        for label in ["sonnet", "opus", "haiku"] {
+            assert_ne!(resolve_model_id(label), label, "short label {label} must resolve");
+        }
     }
 }
