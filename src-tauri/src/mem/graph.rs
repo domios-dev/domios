@@ -28,12 +28,20 @@ pub struct Relation {
 pub fn insert_entity(conn: &Connection, e: &Entity) -> Result<(), String> {
     let now = chrono::Utc::now().to_rfc3339();
     let props = serde_json::to_string(&e.properties).unwrap_or_else(|_| "{}".into());
+    // Why ON CONFLICT + json_patch instead of INSERT OR REPLACE:
+    //   INSERT OR REPLACE deletes the existing row entirely, so an extraction
+    //   worker that re-saves person_X with `{}` (just the name + type) would
+    //   wipe email/phone/role that were set by an earlier richer save.
+    //   json_patch(existing, incoming) field-merges with incoming wins on
+    //   collision. entity_type / scope are KEPT (the first creator knew the
+    //   right type; later stubs shouldn't override).
     conn.execute(
-        r#"INSERT OR REPLACE INTO entities
+        r#"INSERT INTO entities
            (id, entity_type, scope, properties_json, created_at, updated_at)
-           VALUES (?1, ?2, ?3, ?4,
-                   COALESCE((SELECT created_at FROM entities WHERE id = ?1), ?5),
-                   ?5)"#,
+           VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+           ON CONFLICT(id) DO UPDATE SET
+             properties_json = json_patch(properties_json, excluded.properties_json),
+             updated_at = excluded.updated_at"#,
         params![&e.id, &e.entity_type, &e.scope, &props, &now],
     )
     .map_err(|e| format!("insert entity: {}", e))?;

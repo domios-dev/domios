@@ -301,8 +301,113 @@ pub fn try_dispatch_local(action: &MemGraphAction) -> Option<()> {
         MemGraphAction::Hubs { threshold, sample } => {
             run_hubs(*threshold, *sample, None)
         }
+        MemGraphAction::Get { id } => run_entity_get(id, None),
+        MemGraphAction::Search { query, entity_type, limit } => {
+            run_entity_search(query, entity_type.as_deref(), *limit, None)
+        }
         _ => None,
     }
+}
+
+pub fn run_entity_get(id: &str, db_path: Option<&str>) -> ! {
+    let result = (|| -> Result<serde_json::Value, String> {
+        let conn = open_conn(db_path)?;
+        let row: Option<(String, String, String, String, String)> = conn
+            .query_row(
+                "SELECT id, entity_type, scope, properties_json, created_at
+                 FROM entities WHERE id = ?1",
+                [id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .ok();
+        let (id, entity_type, scope, props_str, created_at) =
+            row.ok_or_else(|| format!("entity not found: {}", id))?;
+        let in_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM relations WHERE valid_to IS NULL AND to_id = ?1",
+                [&id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let out_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM relations WHERE valid_to IS NULL AND from_id = ?1",
+                [&id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        let props: serde_json::Value =
+            serde_json::from_str(&props_str).unwrap_or(serde_json::Value::Null);
+        Ok(serde_json::json!({
+            "id": id,
+            "entity_type": entity_type,
+            "scope": scope,
+            "properties": props,
+            "created_at": created_at,
+            "active_degree": in_count + out_count,
+            "in_degree": in_count,
+            "out_degree": out_count,
+        }))
+    })();
+    print_or_exit(result);
+}
+
+pub fn run_entity_search(
+    query: &str,
+    entity_type: Option<&str>,
+    limit: u32,
+    db_path: Option<&str>,
+) -> ! {
+    let result = (|| -> Result<serde_json::Value, String> {
+        let conn = open_conn(db_path)?;
+        let q_lower = query.to_lowercase();
+        let pattern = format!("%{}%", q_lower);
+        let mut sql = String::from(
+            "SELECT id, entity_type, scope, properties_json
+             FROM entities WHERE LOWER(id) LIKE ?1",
+        );
+        let mut binds: Vec<String> = vec![pattern];
+        if let Some(t) = entity_type {
+            sql.push_str(" AND entity_type = ?2");
+            binds.push(t.to_string());
+        }
+        sql.push_str(" ORDER BY id LIMIT ");
+        sql.push_str(&limit.to_string());
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let bind_refs: Vec<&dyn rusqlite::ToSql> =
+            binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(bind_refs), |r| {
+                let props_str: String = r.get(3)?;
+                Ok(serde_json::json!({
+                    "id": r.get::<_, String>(0)?,
+                    "entity_type": r.get::<_, String>(1)?,
+                    "scope": r.get::<_, String>(2)?,
+                    "properties": serde_json::from_str::<serde_json::Value>(&props_str)
+                        .unwrap_or(serde_json::Value::Null),
+                }))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| e.to_string())?);
+        }
+        Ok(serde_json::json!({
+            "query": query,
+            "entity_type_filter": entity_type,
+            "matches": out.len(),
+            "entities": out,
+        }))
+    })();
+    print_or_exit(result);
 }
 
 #[cfg(test)]

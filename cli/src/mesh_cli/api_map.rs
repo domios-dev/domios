@@ -463,7 +463,9 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             | MemGraphAction::PurgeInvalidated { .. }
             | MemGraphAction::ReviveBroken { .. }
             | MemGraphAction::IntroduceTopic { .. }
-            | MemGraphAction::Hubs { .. } => {
+            | MemGraphAction::Hubs { .. }
+            | MemGraphAction::Get { .. }
+            | MemGraphAction::Search { .. } => {
                 ("GET".into(), "/api/mem/stats".into(), None)
             }
         },
