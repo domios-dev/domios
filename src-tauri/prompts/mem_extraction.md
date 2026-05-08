@@ -54,7 +54,29 @@ TASK — execute each step as Bash tool calls, in order:
    and relation types for consistency. You may create new types when nothing
    in the list fits. Entity ID format: <type>_<slug> (lowercase, underscores).
 
-   For each entity found:
+   ── DEDUP CHECK BEFORE CREATING ANY ENTITY (mandatory) ──
+   The graph already has many entities. Don't fragment it by creating
+   variants of an existing one ("tech_claude_cli" + "tech_claude_code" +
+   "tech_claude_exe" all mean the same thing — one entity already won).
+
+   For each entity you'd create, FIRST run a graph-related search to find
+   close matches:
+     codeterm mem graph related --id <type>_<exact-slug>     # is this exact id taken?
+     codeterm mem search "<entity name>" --kind "" --limit 5   # any close mem_items?
+
+   You can also list all entities of the type to eyeball siblings:
+     codeterm mem graph related --id <type>_<canonical-prefix>  # e.g. tech_claude
+
+   If a close-match entity exists (different slug, same concept):
+     - REUSE it. Use its existing id as the relation endpoint.
+     - DO NOT create a parallel entity. Better to under-link than to create
+       a third "tech_claude_*".
+     - Slight name variations to merge: "claude.exe" / "claude cli" / "claude code"
+       → all map to one slug like `tech_claude_code` (whichever already exists).
+       Versions of same thing ("powershell 5" + "powershell 7") → use the
+       generic slug `tech_powershell` unless TEXT explicitly contrasts versions.
+
+   If genuinely new (no near match):
      codeterm mem graph create --id <type>_<slug> --entity-type <Type> --scope global
      codeterm mem graph relate --from {id} --rel <predicate> --to <type>_<slug>
 
