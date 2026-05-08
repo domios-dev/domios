@@ -266,3 +266,130 @@ pub fn introduce_topic(
         edges_invalidated,
     })
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EntityDegree {
+    pub id: String,
+    pub entity_type: String,
+    pub degree: u32,
+}
+
+/// Rename active relations matching `from` to `to` for each pair, then drop
+/// any leftover `from`-typed rows (collisions skipped by UPDATE OR IGNORE).
+/// Returns total rows touched (renamed + dropped).
+pub fn canonicalize_relation_types(
+    conn: &Connection,
+    synonyms: &[(&str, &str)],
+) -> MemStoreResult<u64> {
+    let mut total: u64 = 0;
+    for (from, to) in synonyms {
+        let updated = conn.execute(
+            "UPDATE OR IGNORE relations SET relation_type = ?1 \
+             WHERE relation_type = ?2 AND valid_to IS NULL",
+            rusqlite::params![to, from],
+        )? as u64;
+        let dropped = conn.execute(
+            "DELETE FROM relations WHERE relation_type = ?1 AND valid_to IS NULL",
+            rusqlite::params![from],
+        )? as u64;
+        total += updated + dropped;
+    }
+    Ok(total)
+}
+
+/// All entities with their active-relation degree (UNION counts both
+/// from_id and to_id). Invalidated rows excluded.
+pub fn list_entities_with_degree(conn: &Connection) -> MemStoreResult<Vec<EntityDegree>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, entity_type, \
+            (SELECT COUNT(*) FROM relations \
+             WHERE valid_to IS NULL AND (from_id = entities.id OR to_id = entities.id)) \
+         FROM entities ORDER BY id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok(EntityDegree {
+            id: r.get::<_, String>(0)?,
+            entity_type: r.get::<_, String>(1)?,
+            degree: r.get::<_, u32>(2)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
+/// Delete entities whose entity_type is NOT in `protected_types`, created_at
+/// before `cutoff_iso`, and not referenced by any active relation.
+pub fn cleanup_orphan_entities(
+    conn: &Connection,
+    protected_types: &[&str],
+    cutoff_iso: &str,
+) -> MemStoreResult<u64> {
+    let placeholders = protected_types.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "DELETE FROM entities WHERE entity_type NOT IN ({}) \
+         AND created_at < ?{} \
+         AND id NOT IN (SELECT from_id FROM relations WHERE valid_to IS NULL) \
+         AND id NOT IN (SELECT to_id FROM relations WHERE valid_to IS NULL)",
+        placeholders,
+        protected_types.len() + 1,
+    );
+    let mut sql_params: Vec<&dyn rusqlite::ToSql> =
+        protected_types.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    sql_params.push(&cutoff_iso);
+    let n = conn.execute(&sql, sql_params.as_slice())? as u64;
+    Ok(n)
+}
+
+/// Mark active relations as invalid when either endpoint is missing from
+/// both `entities` and `mem_items`. Endpoint may legitimately be a mem_item
+/// id (fact_*, learning_*, ...) — only treat as broken when missing from both.
+pub fn invalidate_broken_relations(conn: &Connection, now_iso: &str) -> MemStoreResult<u64> {
+    let n = conn.execute(
+        "UPDATE relations SET valid_to = ?1 \
+         WHERE valid_to IS NULL \
+         AND (from_id NOT IN (SELECT id FROM entities UNION SELECT id FROM mem_items) \
+              OR to_id NOT IN (SELECT id FROM entities UNION SELECT id FROM mem_items))",
+        rusqlite::params![now_iso],
+    )? as u64;
+    Ok(n)
+}
+
+/// Record `alias_id -> canonical_id`, rewire any relations pointing at the
+/// alias (UPDATE OR IGNORE so collisions get dropped), then delete leftover
+/// alias-referencing relations and the alias entity row.
+pub fn add_alias_with_rewire(
+    conn: &Connection,
+    alias_id: &str,
+    canonical_id: &str,
+) -> MemStoreResult<()> {
+    if alias_id == canonical_id {
+        return Err(MemStoreError::InvalidArgument(
+            "alias cannot equal canonical".into(),
+        ));
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT OR REPLACE INTO entity_aliases (alias_id, canonical_id, created_at) VALUES (?1, ?2, ?3)",
+        rusqlite::params![alias_id, canonical_id, &now],
+    )?;
+    conn.execute(
+        "UPDATE OR IGNORE relations SET from_id = ?1 WHERE from_id = ?2",
+        rusqlite::params![canonical_id, alias_id],
+    )?;
+    conn.execute(
+        "UPDATE OR IGNORE relations SET to_id = ?1 WHERE to_id = ?2",
+        rusqlite::params![canonical_id, alias_id],
+    )?;
+    conn.execute(
+        "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
+        rusqlite::params![alias_id],
+    )?;
+    conn.execute(
+        "DELETE FROM entities WHERE id = ?1",
+        rusqlite::params![alias_id],
+    )?;
+    Ok(())
+}

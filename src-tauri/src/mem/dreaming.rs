@@ -230,18 +230,18 @@ fn deep_expire_tier(conn: &Connection, kind: &str, days: i64) -> Result<u64, Str
 }
 
 // ---------------------------------------------------------------------------
-// Graph normalize phase. Test-only mirror; production runs the SQL inline in
-// `cli::worker_dreaming_normalize`. Keep thresholds, synonym table, and SQL
-// in sync between this file and the CLI worker.
+// Graph normalize phase. Test-only mirror — graph mutations route through
+// codeterm-mem-store; the merge-pass orchestration (Levenshtein loop) is
+// kept here so the CLI worker and this module behave identically against the
+// same DB. Constants live in the CLI worker (caller-owned policy).
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 const NORMALIZE_PROTECTED_TYPES: &[&str] = &["kind", "area", "agent", "workspace"];
 #[cfg(test)]
 const NORMALIZE_ORPHAN_AGE_DAYS: i64 = 14;
-// Thresholds calibrated for typo-class similarity. Ratios are 1 - LD/max(len).
-// Nickname↔fullname (e.g. tima↔timofey) yield ratios ~0.4 and are intentionally
-// ignored — phonetic / synonym matching is out of scope for v1.1.21.
+// Thresholds calibrated for typo-class similarity. Nickname↔fullname pairs
+// (e.g. tima↔timofey) yield ratios ~0.4 and are intentionally ignored.
 #[cfg(test)]
 const NORMALIZE_RATIO_HARD: f64 = 0.85;
 #[cfg(test)]
@@ -316,52 +316,22 @@ fn normalize_run(conn: &Connection) -> Result<NormalizeReport, String> {
     let mut report = NormalizeReport::default();
     let now = chrono::Utc::now().to_rfc3339();
 
-    // 1. Canonicalize synonymous relations.
-    for (from, to) in NORMALIZE_SYNONYMS {
-        let updated = conn.execute(
-            "UPDATE OR IGNORE relations SET relation_type = ?1 \
-             WHERE relation_type = ?2 AND valid_to IS NULL",
-            params![to, from],
-        ).map_err(|e| format!("canonicalize update: {}", e))? as u64;
-        let dropped = conn.execute(
-            "DELETE FROM relations WHERE relation_type = ?1 AND valid_to IS NULL",
-            params![from],
-        ).map_err(|e| format!("canonicalize delete: {}", e))? as u64;
-        report.relations_canonicalized += updated + dropped;
-    }
+    report.relations_canonicalized = codeterm_mem_store::graph::canonicalize_relation_types(
+        conn, NORMALIZE_SYNONYMS,
+    ).map_err(|e| format!("canonicalize: {}", e))?;
 
-    // 2. Detect entity merge candidates and apply policy.
-    let entities: Vec<(String, String)> = {
-        let mut stmt = conn
-            .prepare("SELECT id, entity_type FROM entities ORDER BY id")
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-            .map_err(|e| e.to_string())?;
-        rows.filter_map(|r| r.ok()).collect()
-    };
-
-    let degrees: std::collections::HashMap<String, u32> = {
-        let mut stmt = conn.prepare(
-            "SELECT id, (SELECT COUNT(*) FROM relations \
-             WHERE valid_to IS NULL AND (from_id = entities.id OR to_id = entities.id)) \
-             FROM entities",
-        ).map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u32>(1)?)))
-            .map_err(|e| e.to_string())?;
-        rows.filter_map(|r| r.ok()).collect()
-    };
+    let entities = codeterm_mem_store::graph::list_entities_with_degree(conn)
+        .map_err(|e| format!("list entities: {}", e))?;
 
     use std::collections::HashMap;
-    let mut buckets: HashMap<(String, String), Vec<(String, String)>> = HashMap::new();
-    for (id, etype) in &entities {
-        if let Some((prefix, suffix)) = split_prefix(id) {
+    let mut buckets: HashMap<(String, String), Vec<(String, String, u32)>> = HashMap::new();
+    for e in &entities {
+        if let Some((prefix, suffix)) = split_prefix(&e.id) {
             if suffix.chars().count() >= 2 {
                 buckets
-                    .entry((etype.clone(), prefix.to_string()))
+                    .entry((e.entity_type.clone(), prefix.to_string()))
                     .or_default()
-                    .push((id.clone(), suffix.to_string()));
+                    .push((e.id.clone(), suffix.to_string(), e.degree));
             }
         }
     }
@@ -369,21 +339,19 @@ fn normalize_run(conn: &Connection) -> Result<NormalizeReport, String> {
     for entries in buckets.values() {
         for i in 0..entries.len() {
             for j in (i + 1)..entries.len() {
-                let (a_id, a_suf) = &entries[i];
-                let (b_id, b_suf) = &entries[j];
+                let (a_id, a_suf, a_deg) = &entries[i];
+                let (b_id, b_suf, b_deg) = &entries[j];
                 let ratio = lev_ratio(a_suf, b_suf);
                 if ratio < NORMALIZE_RATIO_FLAG {
                     continue;
                 }
-                let a_deg = degrees.get(a_id).copied().unwrap_or(0);
-                let b_deg = degrees.get(b_id).copied().unwrap_or(0);
                 if ratio >= NORMALIZE_RATIO_HARD && a_deg != b_deg {
                     let (alias, canonical) = if a_deg < b_deg {
                         (a_id.clone(), b_id.clone())
                     } else {
                         (b_id.clone(), a_id.clone())
                     };
-                    if normalize_add_alias(conn, &alias, &canonical).is_ok() {
+                    if codeterm_mem_store::graph::add_alias_with_rewire(conn, &alias, &canonical).is_ok() {
                         report.merged += 1;
                     }
                 } else {
@@ -393,69 +361,16 @@ fn normalize_run(conn: &Connection) -> Result<NormalizeReport, String> {
         }
     }
 
-    // 3. Orphan cleanup. Entities with zero active relations, age > N days,
-    //    not in protected entity_type set.
     let cutoff = (chrono::Utc::now() - chrono::Duration::days(NORMALIZE_ORPHAN_AGE_DAYS)).to_rfc3339();
-    let placeholders = NORMALIZE_PROTECTED_TYPES.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-    let sql = format!(
-        "DELETE FROM entities WHERE entity_type NOT IN ({}) \
-         AND created_at < ?{} \
-         AND id NOT IN (SELECT from_id FROM relations WHERE valid_to IS NULL) \
-         AND id NOT IN (SELECT to_id FROM relations WHERE valid_to IS NULL)",
-        placeholders,
-        NORMALIZE_PROTECTED_TYPES.len() + 1,
-    );
-    let mut sql_params: Vec<&dyn rusqlite::ToSql> =
-        NORMALIZE_PROTECTED_TYPES.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-    sql_params.push(&cutoff);
-    let n = conn.execute(&sql, sql_params.as_slice())
-        .map_err(|e| format!("orphan cleanup: {}", e))? as u64;
-    report.orphans_deleted = n;
+    report.orphans_deleted = codeterm_mem_store::graph::cleanup_orphan_entities(
+        conn, NORMALIZE_PROTECTED_TYPES, &cutoff,
+    ).map_err(|e| format!("orphan cleanup: {}", e))?;
 
-    // 4. Broken-relation invalidation. Endpoint may legitimately be a mem_item
-    //    id (fact_*, learning_*, ...) — only treat as broken when missing from
-    //    both `entities` and `mem_items`.
-    let broken = conn.execute(
-        "UPDATE relations SET valid_to = ?1 \
-         WHERE valid_to IS NULL \
-         AND (from_id NOT IN (SELECT id FROM entities UNION SELECT id FROM mem_items) \
-              OR to_id NOT IN (SELECT id FROM entities UNION SELECT id FROM mem_items))",
-        params![&now],
-    ).map_err(|e| format!("broken invalidate: {}", e))? as u64;
-    report.broken_relations_invalidated = broken;
+    report.broken_relations_invalidated = codeterm_mem_store::graph::invalidate_broken_relations(
+        conn, &now,
+    ).map_err(|e| format!("broken invalidate: {}", e))?;
 
     Ok(report)
-}
-
-/// Inline-only alias creation. Mirrors `crate::mem::graph::add_alias` because
-/// the CLI worker carries no codeterm_lib dep — keep both copies in sync.
-#[cfg(test)]
-fn normalize_add_alias(conn: &Connection, alias_id: &str, canonical_id: &str) -> Result<(), String> {
-    if alias_id == canonical_id {
-        return Err("alias cannot equal canonical".into());
-    }
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "INSERT OR REPLACE INTO entity_aliases (alias_id, canonical_id, created_at) VALUES (?1, ?2, ?3)",
-        params![alias_id, canonical_id, &now],
-    ).map_err(|e| format!("add_alias: {}", e))?;
-    conn.execute(
-        "UPDATE OR IGNORE relations SET from_id = ?1 WHERE from_id = ?2",
-        params![canonical_id, alias_id],
-    ).map_err(|e| format!("rewire from: {}", e))?;
-    conn.execute(
-        "UPDATE OR IGNORE relations SET to_id = ?1 WHERE to_id = ?2",
-        params![canonical_id, alias_id],
-    ).map_err(|e| format!("rewire to: {}", e))?;
-    conn.execute(
-        "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
-        params![alias_id],
-    ).map_err(|e| format!("cleanup alias relations: {}", e))?;
-    conn.execute(
-        "DELETE FROM entities WHERE id = ?1",
-        params![alias_id],
-    ).map_err(|e| format!("delete alias entity: {}", e))?;
-    Ok(())
 }
 
 /// Prepare data for the REM agent — returns a text summary of candidates.
@@ -877,20 +792,31 @@ mod tests {
 
     fn insert_entity(conn: &Connection, id: &str, etype: &str, age_days: i64) {
         let ts = (chrono::Utc::now() - chrono::Duration::days(age_days)).to_rfc3339();
+        crate::mem::graph::insert_entity(conn, &crate::mem::graph::Entity {
+            id: id.into(),
+            entity_type: etype.into(),
+            scope: "global".into(),
+            properties: serde_json::json!({}),
+        }).unwrap();
+        // Backdate so orphan-cleanup tests have an aged entity.
         conn.execute(
-            "INSERT INTO entities (id, entity_type, scope, created_at, updated_at) \
-             VALUES (?1, ?2, 'global', ?3, ?3)",
-            params![id, etype, &ts],
+            "UPDATE entities SET created_at = ?1, updated_at = ?1 WHERE id = ?2",
+            params![&ts, id],
         ).unwrap();
     }
 
     fn insert_relation(conn: &Connection, from: &str, rel: &str, to: &str) {
         let now = chrono::Utc::now().to_rfc3339();
-        conn.execute(
-            "INSERT INTO relations (from_id, relation_type, to_id, scope, valid_from, created_at) \
-             VALUES (?1, ?2, ?3, 'global', ?4, ?4)",
-            params![from, rel, to, &now],
-        ).unwrap();
+        crate::mem::graph::insert_relation(conn, &crate::mem::graph::Relation {
+            from_id: from.into(),
+            relation_type: rel.into(),
+            to_id: to.into(),
+            scope: "global".into(),
+            valid_from: now,
+            valid_to: None,
+            confidence: 1.0,
+            properties: serde_json::json!({}),
+        }).unwrap();
     }
 
     #[tokio::test]
