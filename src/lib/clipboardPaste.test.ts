@@ -3,6 +3,9 @@ import {
   looksLikeAbsolutePath,
   fileUriToPath,
   extractFilePathsFromClipboard,
+  classifyClipboardPayload,
+  type ClipboardItemLike,
+  type ClipboardPayload,
 } from "./clipboardPaste";
 
 let passed = 0;
@@ -212,5 +215,82 @@ assertEq("uri-list mixed with non-file URI keeps only file URIs",
   })),
   ["/Users/me/photo.png"]);
 
-console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) throw new Error(`${failed} test(s) failed`);
+console.log("\nclassifyClipboardPayload:");
+
+function fakeItem(types: Record<string, string | Uint8Array>): ClipboardItemLike {
+  return {
+    types: Object.keys(types),
+    async getType(type: string): Promise<Blob> {
+      const v = types[type];
+      if (v === undefined) throw new Error(`no ${type}`);
+      if (typeof v === "string") return new Blob([v], { type });
+      const buf = v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength) as ArrayBuffer;
+      return new Blob([buf], { type });
+    },
+  };
+}
+
+async function runClassifier(label: string, item: ClipboardItemLike, expectKind: ClipboardPayload["kind"] | null, expectBody?: string) {
+  try {
+    const got = await classifyClipboardPayload(item);
+    if (expectKind === null) {
+      if (got === null) { console.log(`  ✓ ${label}`); passed++; }
+      else { console.error(`  ✗ ${label}: expected null, got ${got.kind}`); failed++; }
+      return;
+    }
+    if (!got) { console.error(`  ✗ ${label}: expected ${expectKind}, got null`); failed++; return; }
+    if (got.kind !== expectKind) { console.error(`  ✗ ${label}: expected ${expectKind}, got ${got.kind}`); failed++; return; }
+    if (expectBody !== undefined) {
+      const body = got.kind === "plain" ? got.text : got.kind === "html" ? got.html : got.mime;
+      if (body !== expectBody) { console.error(`  ✗ ${label}: expected body ${expectBody}, got ${body}`); failed++; return; }
+    }
+    console.log(`  ✓ ${label}`); passed++;
+  } catch (e) {
+    console.error(`  ✗ ${label}: threw ${e}`); failed++;
+  }
+}
+
+(async () => {
+  await runClassifier("plain text alone → plain",
+    fakeItem({ "text/plain": "hello world" }),
+    "plain", "hello world");
+
+  // Regression for issue #57: Windows browser copy puts both on the clipboard
+  // and the old code shadowed text/plain with text/html.
+  await runClassifier("text/plain wins over text/html",
+    fakeItem({ "text/plain": "hello world", "text/html": "<p>hello world</p>" }),
+    "plain", "hello world");
+
+  await runClassifier("html alone → html (file fallback)",
+    fakeItem({ "text/html": "<p>nope</p>" }),
+    "html", "<p>nope</p>");
+
+  await runClassifier("image alone → image",
+    fakeItem({ "image/png": new Uint8Array([0x89, 0x50, 0x4e, 0x47]) }),
+    "image", "image/png");
+
+  await runClassifier("image wins over text/plain (screenshot copy)",
+    fakeItem({
+      "image/png": new Uint8Array([0x89, 0x50]),
+      "text/plain": "fallback alt text",
+    }),
+    "image", "image/png");
+
+  await runClassifier("image wins over text/html",
+    fakeItem({
+      "image/png": new Uint8Array([0x89, 0x50]),
+      "text/html": "<img />",
+    }),
+    "image", "image/png");
+
+  await runClassifier("empty clipboard → null",
+    fakeItem({}),
+    null);
+
+  await runClassifier("empty plain text falls through to html",
+    fakeItem({ "text/plain": "", "text/html": "<p>x</p>" }),
+    "html", "<p>x</p>");
+
+  console.log(`\n${passed} passed, ${failed} failed`);
+  if (failed > 0) throw new Error(`${failed} test(s) failed`);
+})();
