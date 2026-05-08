@@ -34,6 +34,65 @@ pub fn handle_dream(action: MemDreamAction) -> ! {
         MemDreamAction::Apply { plan_file, db_path } => {
             run_apply(&plan_file, db_path.as_deref())
         }
+        MemDreamAction::Diary { limit } => run_diary(limit),
+    }
+}
+
+/// Read the most recent dream diary entries directly from the local DB. The
+/// REM agent saves them as `kind=daily title="dream: YYYY-MM-DD"` items in the
+/// `_dreams` area, with full PATTERN / CONNECTION / IDEA / WHAT IF / HUBS /
+/// ONE ACTION body. The General Agent (and Andrey) call this when they want
+/// to know what the Dreamer noticed last night.
+fn run_diary(limit: usize) -> ! {
+    let result = (|| -> Result<(), String> {
+        let conn = open_conn(None)?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, title, summary, body_inline, created_at
+                 FROM mem_items
+                 WHERE kind = 'daily' AND area = '_dreams'
+                 ORDER BY created_at DESC LIMIT ?1",
+            )
+            .map_err(|e| format!("prepare: {}", e))?;
+        let rows = stmt
+            .query_map(rusqlite::params![limit as i64], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                    r.get::<_, String>(4)?,
+                ))
+            })
+            .map_err(|e| format!("query: {}", e))?;
+
+        let mut count = 0usize;
+        for row in rows {
+            let (id, title, summary, body, created_at) = row.map_err(|e| e.to_string())?;
+            count += 1;
+            println!("─── {} ───────────────────────────────", title);
+            println!("id:      {}", id);
+            println!("created: {}", created_at);
+            if let Some(s) = summary.as_ref().filter(|s| !s.is_empty()) {
+                println!("summary: {}", s);
+            }
+            println!();
+            println!("{}", body.unwrap_or_default());
+            println!();
+        }
+        if count == 0 {
+            println!("No dream diary entries yet — the Dreamer hasn't logged anything in {area}.", area = "_dreams");
+            println!("Trigger a dream cycle with: codeterm mem dream run");
+        }
+        Ok(())
+    })();
+
+    match result {
+        Ok(_) => std::process::exit(0),
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
     }
 }
 
