@@ -5,6 +5,8 @@ pub fn run(conn: &Connection) -> MemStoreResult<()> {
     add_reason_column(conn)?;
     create_graph_purge_log(conn)?;
     add_evolution_columns(conn)?;
+    add_promotion_threshold(conn)?;
+    create_lesson_audit(conn)?;
     Ok(())
 }
 
@@ -32,6 +34,31 @@ fn add_evolution_columns(conn: &Connection) -> MemStoreResult<()> {
             "ALTER TABLE mem_items ADD COLUMN false_fire_count INTEGER NOT NULL DEFAULT 0;",
         )?;
     }
+    Ok(())
+}
+
+fn add_promotion_threshold(conn: &Connection) -> MemStoreResult<()> {
+    let cols: Vec<String> = conn.prepare("PRAGMA table_info(mem_items)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .filter_map(Result::ok).collect();
+    if !cols.iter().any(|c| c == "promotion_threshold") {
+        conn.execute_batch("ALTER TABLE mem_items ADD COLUMN promotion_threshold INTEGER;")?;
+    }
+    Ok(())
+}
+
+fn create_lesson_audit(conn: &Connection) -> MemStoreResult<()> {
+    conn.execute_batch(
+        r#"CREATE TABLE IF NOT EXISTS lesson_audit (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            lesson_uid  TEXT NOT NULL,
+            machine_id  TEXT NOT NULL,
+            action      TEXT NOT NULL CHECK(action IN ('promoted','demoted')),
+            ts          TEXT NOT NULL,
+            reason      TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_lesson_audit_uid ON lesson_audit(lesson_uid, ts DESC);"#,
+    )?;
     Ok(())
 }
 
