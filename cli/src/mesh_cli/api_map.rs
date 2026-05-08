@@ -445,6 +445,15 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 ("GET".into(), path, None)
             }
             MemGraphAction::Alias { .. } => ("POST".into(), "/api/mem/graph/alias".into(), None),
+            // Local-only graph mutations: no mesh relay. Fall through to
+            // /stats so the call still returns valid JSON if a caller
+            // somehow routes it across the wire.
+            MemGraphAction::Route { .. }
+            | MemGraphAction::PurgeInvalidated { .. }
+            | MemGraphAction::ReviveBroken { .. }
+            | MemGraphAction::IntroduceTopic { .. } => {
+                ("GET".into(), "/api/mem/stats".into(), None)
+            }
         },
         // Local-only subcommands. Mesh relay falls through to /stats so callers
         // always get a valid JSON response, but the operation itself never
