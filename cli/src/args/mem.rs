@@ -214,8 +214,8 @@ pub enum MemAction {
         #[command(subcommand)]
         action: MemRepairAction,
     },
-    /// Dreamer review/apply: heuristic re-cluster planner + apply step.
-    /// Opens the DB directly — no daemon round-trip.
+    /// Dreamer review/apply: run a daemon-routed dream phase, or apply a
+    /// reviewed re-cluster plan against the local mem DB.
     Dream {
         #[command(subcommand)]
         action: MemDreamAction,
@@ -232,42 +232,17 @@ pub enum MemDreamAction {
         #[arg(long, default_value = "all")]
         phase: String,
     },
-    /// Heuristic hub detection + dominant-relation cluster proposal. Writes
-    /// a markdown plan with YAML-fenced action blocks to
-    /// `~/.codeterm/mem/dream-plans/<utc-ts>.md` (or --out). The user
-    /// reviews / edits / deletes sections, then runs `mem dream apply`.
-    #[clap(name = "suggest-clusters")]
-    SuggestClusters {
-        /// Hub degree threshold. Defaults to 25 for prod; drop to ~5 for
-        /// dev DBs which have far fewer relations.
-        #[arg(long, default_value = "25")]
-        threshold: u32,
-        /// Override the output plan path.
-        #[arg(long)]
-        out: Option<String>,
-        /// Override the path to knowledge.db.
-        #[arg(long)]
-        db_path: Option<String>,
-    },
     /// Re-parse a plan file and call `introduce_topic` for each YAML-fenced
     /// action block. Malformed individual fences become warnings; the rest
     /// still run. After a successful run the file is renamed to
-    /// `<name>-applied.md` with a summary footer appended.
+    /// `<name>-applied.md` with a summary footer appended. Plans are
+    /// hand-written or produced by a future Dreamer re-cluster phase.
     Apply {
         /// Path to the plan markdown file.
         plan_file: String,
         /// Override the path to knowledge.db.
         #[arg(long)]
         db_path: Option<String>,
-    },
-    /// Placeholder for Track 4b. Returns a non-zero exit with a deferral
-    /// message — actual LLM-driven re-cluster lands in v1.1.23 / v1.1.24.
-    #[clap(name = "llm-recluster")]
-    LlmRecluster {
-        #[arg(long, default_value = "25")]
-        threshold: u32,
-        #[arg(long)]
-        out: Option<String>,
     },
 }
 

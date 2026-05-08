@@ -397,12 +397,10 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                     format!("/api/mem/dream?phase={}", enc(phase)),
                     None,
                 ),
-                // suggest-clusters / apply / llm-recluster open the DB
-                // directly. They never round-trip via mesh — fall through to
-                // /stats so callers still get a valid JSON response.
-                MemDreamAction::SuggestClusters { .. }
-                | MemDreamAction::Apply { .. }
-                | MemDreamAction::LlmRecluster { .. } => {
+                // `apply` opens the DB directly. It never round-trips via
+                // mesh — fall through to /stats so callers still get a valid
+                // JSON response.
+                MemDreamAction::Apply { .. } => {
                     ("GET".into(), "/api/mem/stats".into(), None)
                 }
             }
