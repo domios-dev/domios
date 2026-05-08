@@ -4,6 +4,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
+use crate::service::pty_io::build_spawn_dispatch;
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
 #[tauri::command]
@@ -214,8 +215,14 @@ pub async fn spawn_pty(
                         }
 
                         log::info!("[resume] sending: {}", cmd);
-                        let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
-                        let _ = pty_clone.lock().write(&pty_id_for_write, paste.as_bytes());
+                        match build_spawn_dispatch(&cmd) {
+                            Ok(bytes) => {
+                                let _ = pty_clone.lock().write(&pty_id_for_write, &bytes);
+                            }
+                            Err(e) => {
+                                log::error!("[resume] spawn dispatch build failed: {} — skipping launch", e);
+                            }
+                        }
                     });
                 }
                 should_fresh_launch = false;
@@ -263,8 +270,14 @@ pub async fn spawn_pty(
                         return;
                     }
                     log::info!("[restore-fresh] launching {} (no session): {}", provider_label, cmd);
-                    let paste = format!("\x1b[200~{}\x1b[201~\r", cmd);
-                    let _ = pty_clone.lock().write(&pty_id_for_write, paste.as_bytes());
+                    match build_spawn_dispatch(&cmd) {
+                        Ok(bytes) => {
+                            let _ = pty_clone.lock().write(&pty_id_for_write, &bytes);
+                        }
+                        Err(e) => {
+                            log::error!("[restore-fresh] spawn dispatch build failed: {} — skipping launch", e);
+                        }
+                    }
                 });
             }
         }

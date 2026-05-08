@@ -50,10 +50,10 @@ export function ProviderInstallCard({ provider }: { provider: ProviderDescriptor
   if (!cliBinary) return null;
 
   return (
-    <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+    <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-sm font-medium text-[var(--ct-fg)]">CLI installation</div>
+          <div className="text-xs font-medium text-[var(--ct-fg)]">CLI installation</div>
           <div className="text-[10px] text-[var(--ct-muted-fg)] mt-0.5 font-mono truncate">{cliBinary}</div>
         </div>
         <StatusBadge status={status} />

@@ -10,6 +10,7 @@ use super::misc::{
     ThemeAction, WorkspaceAction,
 };
 use super::sessions::SessionsAction;
+use super::system::SystemAction;
 use super::update::UpdateAction;
 
 #[derive(Parser)]
@@ -207,5 +208,13 @@ pub enum Commands {
     Sessions {
         #[command(subcommand)]
         action: SessionsAction,
+    },
+
+    /// OS-level integration: autostart, supervision, install hooks. Each
+    /// subcommand is local-only and writes to platform-specific places
+    /// (schtasks on Windows, LaunchAgents on macOS, user systemd on Linux).
+    System {
+        #[command(subcommand)]
+        action: SystemAction,
     },
 }

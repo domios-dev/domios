@@ -234,7 +234,7 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
         .prepare(
             r#"SELECT from_id, to_id, relation_type, confidence, valid_from, valid_to
                FROM relations
-               WHERE valid_to IS NULL OR valid_to > datetime('now')"#,
+               WHERE valid_to IS NULL"#,
         )
         .map_err(|e| format!("prepare graph edges: {}", e))?;
     let erows = estmt

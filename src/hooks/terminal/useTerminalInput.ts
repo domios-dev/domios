@@ -37,9 +37,7 @@ export function useTerminalInput({
   const pasteFromClipboard = useCallback(() => {
     const currentPtyId = connectedPtyRef.current;
     if (!currentPtyId) return;
-    navigator.clipboard.readText().then((text) => {
-      if (text) invoke("write_pty_string", { ptyId: currentPtyId, data: text });
-    }).catch(() => {});
+    pasteClipboardToPty(currentPtyId).catch(() => {});
   }, [connectedPtyRef]);
 
   const clearTerminal = useCallback(() => {
@@ -54,7 +52,9 @@ export function useTerminalInput({
     if (!connectedPtyRef.current) return;
 
     // Smart Ctrl+C / Cmd+C: copy if text selected, interrupt if not
-    // Ctrl+V: platform-specific paste (image + text)
+    // Ctrl+V: unified clipboard read (text/image/file). xterm.onData paste
+    // is unreliable inside Tauri webview — we handle the whole paste ourselves
+    // and return false from the keydown handler so xterm doesn't double-write.
     // Read connectedPtyRef.current dynamically in handlers — PTY ID can change
     // when backend replaces the auto-spawned shell (e.g. General Agent lifecycle).
     term.attachCustomKeyEventHandler((e) => {
@@ -76,9 +76,9 @@ export function useTerminalInput({
       if (e.code === "KeyV") {
         const currentPty = connectedPtyRef.current;
         if (currentPty) {
-          pasteClipboardToPty(currentPty, { skipText: true }).catch(() => {});
+          pasteClipboardToPty(currentPty).catch(() => {});
         }
-        return true;
+        return false;
       }
 
       return true;

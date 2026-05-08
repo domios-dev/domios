@@ -138,16 +138,22 @@ function ContentBlockView({
 
 function Thinking({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
-  const preview = text.slice(0, 80).replace(/\n/g, " ");
+  const preview = text.slice(0, 240).replace(/\n+/g, " ");
+  const truncated = text.length > 240;
   return (
     <div className="text-[10px] text-[var(--ct-muted-fg)] italic">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="bg-transparent border-0 text-left text-[var(--ct-muted-fg)] cursor-pointer hover:text-[var(--ct-fg)] p-0"
+        className="bg-transparent border-0 text-left text-[var(--ct-muted-fg)] cursor-pointer hover:text-[var(--ct-fg)] p-0 leading-snug"
       >
-        {open ? "▾" : "▸"} thinking…{" "}
-        {!open && <span className="opacity-70">{preview}</span>}
+        <span>{open ? "▾" : "▸"} thinking</span>
+        {!open && (
+          <span className="opacity-80 ml-1">
+            {preview}
+            {truncated && "…"}
+          </span>
+        )}
       </button>
       {open && (
         <pre className="mt-1 p-2 bg-[var(--ct-bg-alt,rgba(255,255,255,0.03))] rounded text-[10px] whitespace-pre-wrap break-words">
@@ -166,14 +172,16 @@ function ToolUse({ name, input }: { name: string; input: unknown }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="bg-transparent border-0 text-left cursor-pointer flex items-center gap-1.5 p-0 text-[var(--ct-fg)] hover:text-[var(--ct-accent)]"
+        className="bg-transparent border-0 text-left cursor-pointer flex items-start gap-1.5 p-0 text-[var(--ct-fg)] hover:text-[var(--ct-accent)] w-full"
       >
-        <span className="text-[var(--ct-accent)]">●</span>
-        <span className="font-medium">{name}</span>
+        <span className="text-[var(--ct-accent)] shrink-0">●</span>
+        <span className="font-medium shrink-0">{name}</span>
         {summary && (
-          <span className="text-[var(--ct-muted-fg)] truncate">({summary})</span>
+          <span className="text-[var(--ct-muted-fg)] break-all flex-1 min-w-0">
+            ({summary})
+          </span>
         )}
-        <span className="text-[9px] text-[var(--ct-muted-fg)]">
+        <span className="text-[9px] text-[var(--ct-muted-fg)] shrink-0">
           {open ? "▾" : "▸"}
         </span>
       </button>
@@ -195,20 +203,22 @@ function ToolResult({
 }) {
   const [open, setOpen] = useState(false);
   const text = stringifyToolResult(content);
-  const preview = text.slice(0, 100).replace(/\n/g, " ");
+  const preview = text.slice(0, 280).replace(/\n+/g, " ⏎ ");
+  const truncated = text.length > 280;
   const color = isError ? "var(--ct-red)" : "var(--ct-muted-fg)";
   return (
     <div className="text-[10px] ml-3.5">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="bg-transparent border-0 text-left cursor-pointer flex items-start gap-1.5 p-0"
+        className="bg-transparent border-0 text-left cursor-pointer flex items-start gap-1.5 p-0 w-full"
         style={{ color }}
       >
-        <span>⎿</span>
-        <span className="opacity-90">
+        <span className="shrink-0">⎿</span>
+        <span className="opacity-95 break-all flex-1 min-w-0">
           {isError ? "Error: " : ""}
           {open ? "" : preview}
+          {!open && truncated && "…"}
         </span>
       </button>
       {open && (

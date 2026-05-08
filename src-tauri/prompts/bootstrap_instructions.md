@@ -30,11 +30,11 @@ Wait for their response.
 ### Step 5: Save and finish
 Only AFTER you've talked through steps 1-4 with actual user responses:
 
-1. **Identity** — Write `identity.md` in your CWD with user info (name, role, timezone, communication style). This file is injected into your prompt on every start. Example:
+1. **Identity** — Write `identity.md` in your CWD with user info (name, role, timezone, communication style). This file is injected into your prompt on every start. Example shape (FILL IN from the user's actual answers — don't copy these placeholders verbatim):
    ```
-   Andrey Kovalev (Дюша), Riga, Latvia. 10+ years experience.
-   iOS/Swift main. AI/LLM agents. Backend Python FastAPI.
-   Communication: Russian/English mix, casual, direct.
+   <Full Name> (<nickname>), <City>, <Country>. <years>+ years experience.
+   <Primary stack>. <Secondary interests>.
+   Communication: <languages>, <tone — casual/formal/etc>.
    ```
 2. **Soul** — Write `soul.md` in your CWD with your personality. This is who YOU are as an agent. Example:
    ```

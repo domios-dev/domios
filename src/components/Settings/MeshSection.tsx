@@ -209,9 +209,9 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
   };
 
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center gap-1.5 mb-2.5">
+      <div className="flex items-center gap-1.5">
         <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)]">Mesh</h3>
         <button onClick={() => setShowHelp(!showHelp)}
           className="w-3.5 h-3.5 rounded-full border border-[var(--ct-muted)] text-[var(--ct-muted)] text-[8px] flex items-center justify-center hover:text-[var(--ct-fg)] hover:border-[var(--ct-fg)] transition-colors">
@@ -219,14 +219,14 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
         </button>
       </div>
       {showHelp && (
-        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/80 p-3 mb-2.5 text-[10px] text-[var(--ct-muted-fg)] space-y-1.5">
+        <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/80 p-3 text-[10px] text-[var(--ct-muted-fg)] space-y-1.5">
           <p><strong className="text-[var(--ct-fg)]">Mesh Networking</strong> connects CodeTerm instances across machines. Agents discover peers, delegate tasks, and run commands remotely.</p>
           <p><strong className="text-[var(--ct-fg)]">Security:</strong> Ed25519 signed requests. Manual approval for pairing. Paired peers are trusted. Unpair to revoke access.</p>
         </div>
       )}
 
       {/* Identity block: PC Name, toggles */}
-      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2.5">
+      <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2.5">
         {/* Device Name */}
         <div className="flex items-center justify-between text-xs">
           <span className="text-[var(--ct-accent)]">Device</span>
@@ -299,7 +299,7 @@ export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfi
             </button>
           </div>
 
-          <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 divide-y divide-[var(--ct-border)]">
+          <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 divide-y divide-[var(--ct-border)]">
             {/* Paired peers */}
             {peers?.paired.map((peer) => (
               <div key={peer.instance_id} className="p-3 space-y-1.5">

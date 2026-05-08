@@ -54,7 +54,31 @@ TASK — execute each step as Bash tool calls, in order:
    and relation types for consistency. You may create new types when nothing
    in the list fits. Entity ID format: <type>_<slug> (lowercase, underscores).
 
-   For each entity found:
+   ── DEDUP CHECK BEFORE CREATING ANY ENTITY (mandatory) ──
+   The graph already has many entities. Don't fragment it by creating
+   variants of an existing one (e.g. `tech_<thing>_cli` + `tech_<thing>_app`
+   + `tech_<thing>_exe` all mean the same tool — one entity already won).
+
+   For each entity you'd create, FIRST run a unified search to find close
+   matches across BOTH the entities table AND mem_items:
+     codeterm mem search "<core_word>" --limit 10
+       # mem search returns BOTH mem_items AND graph entities (entities show
+       # up with kind="entity:Tech|Person|Project|...", area="_graph"). Catches
+       # `tech_<thing>_*` siblings when you'd be about to create a 4th. Catches
+       # Cyrillic names / emails / properties too — entities are embedded by
+       # id + type + flat properties.
+     codeterm mem graph get <type>_<exact-slug>     # exact-id check (404 = free to create)
+
+   If a close-match entity exists (different slug, same concept):
+     - REUSE it. Use its existing id as the relation endpoint.
+     - DO NOT create a parallel entity. Better to under-link than to create
+       a third `tech_<thing>_*` variant.
+     - Slight name variations to merge: surface forms like "<tool>.exe" / "<tool>
+       cli" / "<tool> app" → all map to one slug (whichever already exists).
+       Versions of the same thing ("<tool> v1" + "<tool> v2") → use the generic
+       slug unless TEXT explicitly contrasts versions.
+
+   If genuinely new (no near match):
      codeterm mem graph create --id <type>_<slug> --entity-type <Type> --scope global
      codeterm mem graph relate --from {id} --rel <predicate> --to <type>_<slug>
 
@@ -65,10 +89,10 @@ TASK — execute each step as Bash tool calls, in order:
    - Snake_case, lowercase, max 30 chars
 
    DO create relations for:
-   - Concrete facts about named entities ("Tima shipped worker pool fix")
-   - Relationships between entities ("Docker runs on BLACKSTAR")
-   - Temporal events with dates ("trip to China in April 2026")
-   - Decisions tied to projects ("decided to use PostgreSQL for codeterm")
+   - Concrete facts about named entities ("<person> shipped worker pool fix")
+   - Relationships between entities ("Docker runs on <machine>")
+   - Temporal events with dates ("trip to <place> in April 2026")
+   - Decisions tied to projects ("decided to use PostgreSQL for <project>")
 
    DO NOT create relations for:
    - Abstract statements ("codeterm is software")
@@ -95,12 +119,16 @@ TASK — execute each step as Bash tool calls, in order:
    Only if TEXT contains explicit patterns:
 
    Decisions ("we decided", "let's use", "better to", "going with"):
-     codeterm mem save --kind fact --title "decision: <short>" --tags auto-extracted,decision --area <area> --importance 2 --skip-extract "<what was decided and why>"
+     codeterm mem save --kind fact --title "decision: <short>" --summary "<one sentence: what + why, 50-150 chars>" --tags auto-extracted,decision --area <area> --importance 2 --skip-extract "<what was decided and why, full body>"
      Then link the new item: codeterm mem graph relate --from <new_id> --rel extracted_from --to {id}
 
    Problems ("bug in", "doesn't work", "the issue was", "broke because"):
-     codeterm mem save --kind learning --title "problem: <short>" --tags auto-extracted,problem --area <area> --importance 2 --skip-extract "<problem and fix if mentioned>"
+     codeterm mem save --kind learning --title "problem: <short>" --summary "<one sentence: symptom + cause/fix, 50-150 chars>" --tags auto-extracted,problem --area <area> --importance 2 --skip-extract "<problem and fix if mentioned, full body>"
      Then link the new item: codeterm mem graph relate --from <new_id> --rel extracted_from --to {id}
+
+   ALWAYS pass --summary. The summary is what shows in graph hover chips,
+   search snippets, and the L1 wake-up brief. Without it the node looks blank
+   to the user. One sentence; aim for 50-150 chars.
 
    The new item's id follows the pattern <kind>_<slug_from_title>.
    Before saving: search first to avoid duplicates.
@@ -117,7 +145,8 @@ HARD BANS:
   "fixed it last week" → "fixed recently". Never fabricate specifics.
 - NO speculation. No "probably", "likely". Only what TEXT explicitly states.
 - NO generic entities. "the user" → skip. Only named entities get graph nodes.
-- Canonical names: "Tima"/"Timofey" → person_tima. Pick short form.
+- Canonical names: pick the short form a person actually goes by, then map every
+  variant (full name, nickname, formal form) to the same `person_<short>` slug.
 - When in doubt, extract LESS. "0 entities, 0 relations" is a valid outcome.
 
 ──────────────────────────────────────────────────────────────────────

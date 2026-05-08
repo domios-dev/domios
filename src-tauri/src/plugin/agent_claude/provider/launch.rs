@@ -193,25 +193,27 @@ mod tests {
 
     #[test]
     fn test_build_launch_visible_with_args_after_task() {
+        let model_id = crate::agent::models::resolve_model_id("haiku");
         let params = AgentLaunchParams {
             agent_name: None,
             task: Some("hello".to_string()),
-            args: Some(vec!["--model".into(), "claude-haiku-4-5-20251001".into()]),
+            args: Some(vec!["--model".into(), model_id.into()]),
             skip_permissions: true,
             headless: false,
             session_id: None,
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains(".ct-task-"));
-        assert!(cmd.contains("--model claude-haiku-4-5-20251001"));
+        assert!(cmd.contains(&format!("--model {}", model_id)));
     }
 
     #[test]
     fn test_build_launch_headless_with_extra_args() {
+        let model_id = crate::agent::models::resolve_model_id("haiku");
         let params = AgentLaunchParams {
             agent_name: None,
             task: Some("do thing --kind fact".to_string()),
-            args: Some(vec!["--model".into(), "claude-haiku-4-5-20251001".into()]),
+            args: Some(vec!["--model".into(), model_id.into()]),
             skip_permissions: true,
             headless: true,
             session_id: None,
@@ -220,7 +222,7 @@ mod tests {
         assert!(cmd.contains(" -p"));
         assert!(cmd.contains("--output-format stream-json"));
         assert!(cmd.contains("--verbose"));
-        assert!(cmd.contains("--model claude-haiku-4-5-20251001"));
+        assert!(cmd.contains(&format!("--model {}", model_id)));
         let claude_pos = cmd.find(" claude").expect("claude in cmd");
         if cfg!(target_os = "windows") {
             let pipe_pos = cmd.find("Get-Content").expect("pipe in cmd");

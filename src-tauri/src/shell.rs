@@ -9,10 +9,11 @@ pub struct ShellSyntax;
 impl ShellSyntax {
     pub const IS_WINDOWS: bool = cfg!(target_os = "windows");
 
-    // Pre-launch shell setup: unset CLAUDECODE + force UTF-8 on Windows so
-    // non-ASCII text round-trips through the PowerShell pipe to claude.
+    // Windows: unset CLAUDECODE, force UTF-8, pin Standard argv-passing
+    // (default on pwsh 7.3+; explicit so older pwsh / 5.1 also pass a
+    // `"$(…)"` result as a single argv element).
     pub const UNSET_CLAUDECODE: &str = if Self::IS_WINDOWS {
-        "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8;"
+        "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';"
     } else {
         "unset CLAUDECODE &&"
     };
@@ -109,6 +110,38 @@ mod tests {
         let expr = ShellSyntax::task_file_expr(body);
         assert!(expr.starts_with('"') && expr.ends_with('"'),
             "Windows form must be wrapped in PS double quotes so the native command sees a single argv element: {expr}");
+    }
+
+    #[test]
+    fn unset_claudecode_pins_standard_argv_passing_on_windows() {
+        if !ShellSyntax::IS_WINDOWS { return; }
+        // Defense-in-depth: explicit `Standard` argv-passing means a `-f`/
+        // `--flag` token inside the task body never re-parses as a claude
+        // CLI option, even on older pwsh versions whose default is Legacy.
+        assert!(
+            ShellSyntax::UNSET_CLAUDECODE.contains("$PSNativeCommandArgumentPassing = 'Standard'"),
+            "preamble must pin Standard argv passing: {}",
+            ShellSyntax::UNSET_CLAUDECODE
+        );
+    }
+
+    #[test]
+    fn task_file_persists_problematic_body_unchanged() {
+        // Body containing patterns that historically broke argv passing or
+        // got re-interpolated by the launching shell: `-f` flag, $vars,
+        // backticks, embedded quotes, multiline, unicode.
+        let body = "step --foo bar\n`whoami`\n$HOME contains 'quotes' and \"more\"\nemoji 🦀 ok";
+        let (prefix, path) = ShellSyntax::task_file_stdin_pipe(body);
+        assert!(prefix.ends_with('|'));
+        let bytes = std::fs::read(&path).expect("temp task file written");
+        let written = if ShellSyntax::IS_WINDOWS {
+            assert!(bytes.starts_with(&[0xEF, 0xBB, 0xBF]));
+            String::from_utf8(bytes[3..].to_vec()).unwrap()
+        } else {
+            String::from_utf8(bytes).unwrap()
+        };
+        assert_eq!(written, body, "task body must round-trip byte-exact");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

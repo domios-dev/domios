@@ -364,9 +364,6 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 "pane": pane_id, "title": title,
             }))
         }
-        MemAction::Dream => {
-            mem_post_request(&http, &format!("{}/api/mem/dream", base), &serde_json::json!({}))
-        }
         MemAction::Sync { path } => {
             let mut url = format!("{}/api/mem/sync", base);
             if let Some(p) = path {
@@ -391,10 +388,11 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/relate", base), &payload)
             }
-            MemGraphAction::Related { id, rel, as_of } => {
+            MemGraphAction::Related { id, rel, as_of, include_invalidated } => {
                 let mut url = format!("{}/api/mem/graph/related?id={}", base, urlencoding::encode(&id));
                 if let Some(r) = &rel { url.push_str(&format!("&rel={}", r)); }
                 if let Some(d) = &as_of { url.push_str(&format!("&as_of={}", urlencoding::encode(d))); }
+                if include_invalidated { url.push_str("&include_invalidated=true"); }
                 mem_get_request(&http, &url)
             }
             MemGraphAction::Invalidate { from, rel, to, ended } => {
@@ -403,27 +401,47 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/invalidate", base), &payload)
             }
-            MemGraphAction::Timeline { entity } => {
-                let url = format!("{}/api/mem/graph/timeline?entity={}", base, urlencoding::encode(&entity));
+            MemGraphAction::Timeline { entity, include_invalidated } => {
+                let mut url = format!("{}/api/mem/graph/timeline?entity={}", base, urlencoding::encode(&entity));
+                if include_invalidated { url.push_str("&include_invalidated=true"); }
                 mem_get_request(&http, &url)
             }
-            MemGraphAction::Traverse { from, hops, max_nodes, as_of } => {
+            MemGraphAction::Traverse { from, hops, max_nodes, as_of, include_invalidated } => {
                 let mut url = format!("{}/api/mem/graph/traverse?from={}&hops={}&max_nodes={}",
                     base, urlencoding::encode(&from), hops, max_nodes);
                 if let Some(d) = &as_of { url.push_str(&format!("&as_of={}", urlencoding::encode(d))); }
+                if include_invalidated { url.push_str("&include_invalidated=true"); }
                 mem_get_request(&http, &url)
             }
-            MemGraphAction::Path { from, to, max_hops } => {
-                let url = format!("{}/api/mem/graph/path?from={}&to={}&max_hops={}",
+            MemGraphAction::Path { from, to, max_hops, include_invalidated } => {
+                let mut url = format!("{}/api/mem/graph/path?from={}&to={}&max_hops={}",
                     base, urlencoding::encode(&from), urlencoding::encode(&to), max_hops);
+                if include_invalidated { url.push_str("&include_invalidated=true"); }
                 mem_get_request(&http, &url)
             }
-            MemGraphAction::Tunnels => {
-                mem_get_request(&http, &format!("{}/api/mem/graph/tunnels", base))
+            MemGraphAction::Tunnels { include_invalidated } => {
+                let mut url = format!("{}/api/mem/graph/tunnels", base);
+                if include_invalidated { url.push_str("?include_invalidated=true"); }
+                mem_get_request(&http, &url)
             }
             MemGraphAction::Alias { alias, canonical } => {
                 let payload = serde_json::json!({ "alias": alias, "canonical": canonical });
                 mem_post_request(&http, &format!("{}/api/mem/graph/alias", base), &payload)
+            }
+            // Local-only mutations + reads that benefit from direct DB access:
+            // route through the same dispatcher as main() so a future reorder
+            // of main.rs cannot turn this into a panic in production. The
+            // run_* helpers exit; the line after never runs.
+            ref local @ (MemGraphAction::Route { .. }
+            | MemGraphAction::PurgeInvalidated { .. }
+            | MemGraphAction::ReviveBroken { .. }
+            | MemGraphAction::IntroduceTopic { .. }
+            | MemGraphAction::Hubs { .. }
+            | MemGraphAction::Islands { .. }
+            | MemGraphAction::Orphans { .. }
+            | MemGraphAction::Get { .. }) => {
+                crate::cmd::graph_mutate::try_dispatch_local(local);
+                unreachable!("local-only graph variant did not exit")
             }
         }
         MemAction::Worker { action } => match action {
@@ -467,6 +485,15 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             }
         }
         MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
+        MemAction::Repair { .. } => unreachable!("Repair is short-circuited in main()"),
+        MemAction::Dream { .. } => unreachable!("Dream is short-circuited in main()"),
+        MemAction::Reembed { scope } => {
+            mem_post_request(
+                &http,
+                &format!("{}/api/mem/reembed?scope={}", base, urlencoding::encode(&scope)),
+                &serde_json::json!({}),
+            )
+        }
         MemAction::Secret { action } => {
             return crate::cmd::mem_secret::handle_mem_secret(json_mode, &http, &base, action);
         }

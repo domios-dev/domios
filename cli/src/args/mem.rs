@@ -171,8 +171,6 @@ pub enum MemAction {
         #[arg(long)]
         title: Option<String>,
     },
-    /// Run dreaming consolidation (light + deep phases)
-    Dream,
     /// Trigger file sync for source-tracked items (Librarian)
     Sync {
         /// Sync one file by path
@@ -183,6 +181,15 @@ pub enum MemAction {
     Graph {
         #[command(subcommand)]
         action: MemGraphAction,
+    },
+    /// Re-embed mem_items and/or graph entities into mem_vectors. Use this
+    /// after swapping the embedder model, or to backfill existing entities
+    /// that pre-date the auto-embed-on-create wiring. Daemon-routed (the
+    /// daemon owns the embedder process). Idempotent.
+    Reembed {
+        /// What to re-embed: items (mem_items) | entities (graph) | all.
+        #[arg(long, default_value = "all")]
+        scope: String,
     },
     /// Graph-worker operations (hidden mem panel agents)
     Worker {
@@ -195,7 +202,7 @@ pub enum MemAction {
     /// or librarian cannot take the API down.
     #[clap(name = "run-worker")]
     RunWorker {
-        /// Which phase to run: dreaming-light | dreaming-deep | librarian-once
+        /// Which phase to run: dreaming-light | dreaming-deep | dreaming-normalize | librarian-once
         kind: String,
         /// Override the path to knowledge.db. Defaults to the same data dir
         /// the CLI uses elsewhere (`~/.codeterm/mem/knowledge.db` for prod,
@@ -209,6 +216,71 @@ pub enum MemAction {
     Secret {
         #[command(subcommand)]
         action: MemSecretAction,
+    },
+    /// Targeted data-repair operations against the mem store. Opens the DB
+    /// directly (no daemon dependency) and runs narrow, idempotent SQL.
+    Repair {
+        #[command(subcommand)]
+        action: MemRepairAction,
+    },
+    /// Dreamer review/apply: run a daemon-routed dream phase, or apply a
+    /// reviewed re-cluster plan against the local mem DB.
+    Dream {
+        #[command(subcommand)]
+        action: MemDreamAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemDreamAction {
+    /// Run dreaming consolidation via the daemon. Phases: light, deep,
+    /// normalize, all (default). Replaces the v1.1.22 `mem dream --phase ...`
+    /// form which is gone in v1.1.23.
+    Run {
+        /// Which phase to run: light | deep | normalize | all
+        #[arg(long, default_value = "all")]
+        phase: String,
+    },
+    /// Re-parse a plan file and call `introduce_topic` for each YAML-fenced
+    /// action block. Malformed individual fences become warnings; the rest
+    /// still run. After a successful run the file is renamed to
+    /// `<name>-applied.md` with a summary footer appended. Plans are
+    /// hand-written or produced by a future Dreamer re-cluster phase.
+    Apply {
+        /// Path to the plan markdown file.
+        plan_file: String,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
+    },
+    /// Show the most recent dream diary entries (the structured PATTERN /
+    /// CONNECTION / IDEA / WHAT IF / HUBS / ONE ACTION reflections the REM
+    /// agent writes after each dream cycle). Use this to read the Dreamer's
+    /// fresh observations before acting on them.
+    Diary {
+        /// How many entries to return (most-recent first).
+        #[arg(long, default_value_t = 1)]
+        limit: usize,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemRepairAction {
+    /// Restore `valid_to = NULL` for relations whose endpoints both still
+    /// exist in `entities` or `mem_items`. Use after a normalize pass that
+    /// over-invalidated mem_item-anchored relations. Use --dry-run first.
+    #[clap(name = "revive-broken-relations")]
+    ReviveBrokenRelations {
+        /// Only revive relations invalidated at or after this RFC 3339
+        /// timestamp (e.g. `2026-05-01T00:00:00Z`). Default = no filter.
+        #[arg(long)]
+        since: Option<String>,
+        /// Print count without modifying any rows.
+        #[arg(long)]
+        dry_run: bool,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
     },
 }
 
@@ -384,6 +456,9 @@ pub enum MemGraphAction {
         /// As-of date (ISO 8601) — filters by valid_from/valid_to
         #[arg(long)]
         as_of: Option<String>,
+        /// Include relations whose valid_to is set (default: active-only)
+        #[arg(long)]
+        include_invalidated: bool,
     },
     /// Invalidate a relation (set valid_to, preserve history)
     Invalidate {
@@ -401,6 +476,9 @@ pub enum MemGraphAction {
     Timeline {
         #[arg(long)]
         entity: String,
+        /// Include relations whose valid_to is set (default: active-only)
+        #[arg(long)]
+        include_invalidated: bool,
     },
     /// BFS traversal from an entity (max_hops cap)
     Traverse {
@@ -412,6 +490,9 @@ pub enum MemGraphAction {
         max_nodes: usize,
         #[arg(long)]
         as_of: Option<String>,
+        /// Include relations whose valid_to is set (default: active-only)
+        #[arg(long)]
+        include_invalidated: bool,
     },
     /// Shortest path between two entities
     Path {
@@ -421,14 +502,138 @@ pub enum MemGraphAction {
         to: String,
         #[arg(long, default_value = "4")]
         max_hops: usize,
+        /// Include relations whose valid_to is set (default: active-only)
+        #[arg(long)]
+        include_invalidated: bool,
     },
     /// List entities bridging 2+ areas (cross-project connections)
-    Tunnels,
+    Tunnels {
+        /// Include relations whose valid_to is set (default: active-only)
+        #[arg(long)]
+        include_invalidated: bool,
+    },
+    /// Inspect a graph entity: properties_json + degree summary. Filling the
+    /// gap that mem search only hits mem_items, not entities. Use this when
+    /// you need email/phone/role/whatever a Person/Tech/Project entity carries
+    /// in its properties — `mem graph related` returns relations only.
+    Get {
+        /// Entity id (e.g. person_andrey, tech_codeterm).
+        id: String,
+    },
+    /// List hub nodes — entities with active degree at or above threshold.
+    /// Each hub returns its degree, the relation_type distribution, and a
+    /// sample of neighbors with titles. Used by the Dreamer recluster phase
+    /// to decide which hubs to decompose into topic_* intermediates.
+    Hubs {
+        #[arg(long, default_value_t = 20)]
+        threshold: u32,
+        /// Per-hub neighbor sample size (default 30).
+        #[arg(long, default_value_t = 30)]
+        sample: u32,
+    },
+    /// List connected components of size <= max-size — disconnected
+    /// "islands" the Dreamer should bridge or delete. Returns component
+    /// member id/kind/title/area, plus a `suggested_anchor` derived from
+    /// shared area / kind / title-keywords across members. JSON mode emits
+    /// JSONL (one component per line, sorted by size asc).
+    Islands {
+        /// Maximum component size to include (default 6 — pairs through
+        /// small clusters; bigger groups are real sub-graphs).
+        #[arg(long, default_value_t = 6)]
+        max_size: usize,
+        /// Maximum number of components to emit (caps verbose output).
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    /// List nodes with degree 0 — true orphans (entities with no relations,
+    /// mem_items not pointed at by anything). Output: id, kind, title,
+    /// area, last access. JSON mode emits a flat array.
+    Orphans {
+        /// Cap the number of orphans emitted.
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+    },
     /// Merge one entity into another (alias → canonical)
     Alias {
         #[arg(long)]
         alias: String,
         #[arg(long)]
         canonical: String,
+    },
+    /// Atomically re-route an active direct edge (from → to) through an
+    /// intermediate (from → via → to). Invalidates the original direct edge.
+    Route {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        #[arg(long)]
+        via: String,
+        /// Relation type for the from→via segment (default = original rel).
+        #[arg(long = "rel-in")]
+        rel_in: Option<String>,
+        /// Relation type for the via→to segment (default = original rel).
+        #[arg(long = "rel-out")]
+        rel_out: Option<String>,
+        /// Free-text reason; written to relations.reason.
+        #[arg(long)]
+        reason: Option<String>,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
+    },
+    /// Hard-delete relations whose valid_to is set. Optional filters by
+    /// cutoff date and reason substring. Audited to graph_purge_log.
+    #[clap(name = "purge-invalidated")]
+    PurgeInvalidated {
+        /// Only purge rows with valid_to before this RFC 3339 timestamp.
+        #[arg(long)]
+        before: Option<String>,
+        /// Match relations.reason via LIKE %substring%.
+        #[arg(long)]
+        reason: Option<String>,
+        /// Print count without modifying any rows or writing audit row.
+        #[arg(long)]
+        dry_run: bool,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
+    },
+    /// Restore valid_to=NULL for relations whose endpoints both still exist
+    /// in entities or mem_items. Idempotent.
+    #[clap(name = "revive-broken")]
+    ReviveBroken {
+        #[arg(long)]
+        since: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
+    },
+    /// Atomically introduce a topic intermediate: insert topic entity (if
+    /// missing), link sources → topic → anchor, invalidate direct
+    /// sources → anchor edges.
+    #[clap(name = "introduce-topic")]
+    IntroduceTopic {
+        #[arg(long = "topic-id")]
+        topic_id: String,
+        #[arg(long = "type")]
+        entity_type: String,
+        /// Comma-separated source ids (s1,s2,s3) OR @path/to/file (one per
+        /// line; '#'-prefixed and blank lines ignored).
+        #[arg(long)]
+        sources: String,
+        #[arg(long)]
+        anchor: String,
+        #[arg(long = "rel-source", default_value = "about")]
+        rel_source: String,
+        #[arg(long = "rel-anchor", default_value = "about")]
+        rel_anchor: String,
+        #[arg(long)]
+        reason: Option<String>,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
     },
 }

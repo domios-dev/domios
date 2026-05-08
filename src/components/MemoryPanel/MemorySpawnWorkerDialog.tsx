@@ -1,4 +1,5 @@
 import { memo, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { SpawnWorkerReq } from "../../lib/types";
 
 interface Props {
@@ -55,9 +56,9 @@ function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
   const btnClass =
     "bg-transparent border border-[var(--ct-border)] text-inherit px-3.5 py-1.5 rounded text-xs cursor-pointer disabled:opacity-50";
 
-  return (
+  return createPortal(
     <div
-      className="absolute inset-0 z-[1050] flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-[1050] flex items-center justify-center bg-black/60"
       onClick={onClose}
     >
       <div
@@ -121,7 +122,8 @@ function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -5,10 +5,9 @@
 // daemon spawns this so a panic / OOM / hang in the maintenance pass
 // cannot take the API down.
 //
-// SQL is duplicated from src-tauri/src/mem/dreaming.rs / file_sync.rs on
-// purpose — keeping the CLI free of the codeterm_lib dependency means it
-// stays standalone and lightweight. The dreaming algorithm is stable;
-// changes need to be applied here too.
+// Graph mutations route through codeterm-mem-store (see Track 3 of v1.1.23).
+// mem_items / mem_fts / mem_vectors SQL stays inline here on purpose — keeping
+// the CLI free of the codeterm_lib dependency means it stays standalone.
 
 use crate::data_dir_name;
 
@@ -26,31 +25,26 @@ pub fn run_mem_worker(kind: &str, db_path_arg: Option<&str>) {
 
     register_sqlite_vec_extension();
 
-    let conn = match rusqlite::Connection::open(&db_path) {
+    let conn = match open_worker_db(&db_path) {
         Ok(c) => c,
         Err(e) => {
-            worker_emit_error(&format!("open {}: {}", db_path.display(), e));
+            worker_emit_error(&e);
             std::process::exit(1);
         }
     };
-    if let Err(e) = conn.busy_timeout(std::time::Duration::from_secs(5)) {
-        worker_emit_error(&format!("busy_timeout: {}", e));
-        std::process::exit(1);
-    }
-    if let Err(e) = conn.execute_batch("PRAGMA synchronous = NORMAL;") {
-        worker_emit_error(&format!("synchronous pragma: {}", e));
-        std::process::exit(1);
-    }
 
     let result = match kind {
         "dreaming-light" => worker_dreaming_light(&conn).map(|r| serde_json::json!({
             "considered": r.considered, "promoted": r.promoted,
             "dropped": r.dropped, "phase": r.phase,
+            "lessons_promoted": r.lessons_promoted,
+            "lessons_already_high_confidence": r.lessons_already_high_confidence,
         })),
         "dreaming-deep" => worker_dreaming_deep(&conn).map(|r| serde_json::json!({
             "considered": r.considered, "promoted": r.promoted,
             "dropped": r.dropped, "phase": r.phase,
         })),
+        "dreaming-normalize" => worker_dreaming_normalize(&conn),
         "librarian-once" => {
             let skills_root = dirs::home_dir().unwrap_or_default()
                 .join(data_dir_name()).join("skills");
@@ -79,6 +73,22 @@ fn resolve_default_db_path() -> Result<std::path::PathBuf, String> {
     Ok(home.join(data_dir_name()).join("mem").join("knowledge.db"))
 }
 
+/// Open a knowledge.db connection, set busy_timeout, run codeterm-mem-store
+/// migrations, and apply the worker's PRAGMAs. Migrations are idempotent;
+/// running them on every worker invocation is the cheap way to guarantee
+/// the schema matches the binary even when the DB is an older backup.
+pub(crate) fn open_worker_db(db_path: &std::path::Path) -> Result<rusqlite::Connection, String> {
+    let conn = rusqlite::Connection::open(db_path)
+        .map_err(|e| format!("open {}: {}", db_path.display(), e))?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|e| format!("busy_timeout: {}", e))?;
+    codeterm_mem_store::migrations::run(&conn)
+        .map_err(|e| format!("migrations: {}", e))?;
+    conn.execute_batch("PRAGMA synchronous = NORMAL;")
+        .map_err(|e| format!("synchronous pragma: {}", e))?;
+    Ok(conn)
+}
+
 fn register_sqlite_vec_extension() {
     use std::sync::Once;
     static REGISTER: Once = Once::new();
@@ -97,6 +107,8 @@ struct WorkerDreamReport {
     promoted: u64,
     dropped: u64,
     phase: String,
+    lessons_promoted: u64,
+    lessons_already_high_confidence: u64,
 }
 
 fn worker_dreaming_light(conn: &rusqlite::Connection) -> Result<WorkerDreamReport, String> {
@@ -171,10 +183,34 @@ fn worker_dreaming_light(conn: &rusqlite::Connection) -> Result<WorkerDreamRepor
         }
     }
 
+    let machine = local_machine_id();
+    let promo = codeterm_mem_store::lesson::promote_high_confidence_lessons(
+        conn,
+        codeterm_mem_store::lesson::DEFAULT_PROMOTION_THRESHOLD,
+        &machine,
+    ).map_err(|e| format!("lesson promotion: {}", e))?;
+
     Ok(WorkerDreamReport {
         considered, promoted, dropped: 0,
         phase: "light".into(),
+        lessons_promoted: promo.promoted,
+        lessons_already_high_confidence: promo.already_high_confidence,
     })
+}
+
+/// Local machine identifier for lesson_audit. Reads `instance_id` from the
+/// mesh identity file when present; falls back to "unknown" so the worker
+/// stays useful before the user has set up mesh.
+fn local_machine_id() -> String {
+    let path = dirs::home_dir()
+        .map(|h| h.join(crate::data_dir_name()).join("mesh").join("identity.json"));
+    let Some(p) = path else { return "unknown".into() };
+    let Ok(content) = std::fs::read_to_string(&p) else { return "unknown".into() };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return "unknown".into();
+    };
+    val.get("instance_id").and_then(|v| v.as_str()).map(str::to_string)
+        .unwrap_or_else(|| "unknown".into())
 }
 
 fn worker_dreaming_deep(conn: &rusqlite::Connection) -> Result<WorkerDreamReport, String> {
@@ -202,7 +238,130 @@ fn worker_dreaming_deep(conn: &rusqlite::Connection) -> Result<WorkerDreamReport
         promoted: 0,
         dropped: total_expired,
         phase: "deep".into(),
+        lessons_promoted: 0,
+        lessons_already_high_confidence: 0,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Graph normalize phase. All graph SQL routes through codeterm-mem-store.
+// Constants + Levenshtein helpers stay here as caller-owned policy + pure utils.
+// ---------------------------------------------------------------------------
+
+const NORMALIZE_PROTECTED_TYPES: &[&str] = &["kind", "area", "agent", "workspace"];
+const NORMALIZE_ORPHAN_AGE_DAYS: i64 = 14;
+const NORMALIZE_RATIO_HARD: f64 = 0.85;
+const NORMALIZE_RATIO_FLAG: f64 = 0.70;
+const NORMALIZE_SYNONYMS: &[(&str, &str)] = &[
+    ("references", "mentions"),
+    ("refers_to", "mentions"),
+    ("contributes_to", "works_on"),
+    ("at_location", "located_at"),
+];
+
+fn lev(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (n, m) = (a.len(), b.len());
+    if n == 0 { return m; }
+    if m == 0 { return n; }
+    let mut prev: Vec<usize> = (0..=m).collect();
+    let mut curr = vec![0usize; m + 1];
+    for i in 1..=n {
+        curr[0] = i;
+        for j in 1..=m {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[m]
+}
+
+fn lev_ratio(a: &str, b: &str) -> f64 {
+    let max = a.chars().count().max(b.chars().count());
+    if max == 0 { return 1.0; }
+    1.0 - (lev(a, b) as f64 / max as f64)
+}
+
+fn split_prefix(id: &str) -> Option<(&str, &str)> {
+    id.find('_').map(|i| (&id[..i], &id[i + 1..]))
+}
+
+fn worker_dreaming_normalize(conn: &rusqlite::Connection) -> Result<serde_json::Value, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(NORMALIZE_ORPHAN_AGE_DAYS)).to_rfc3339();
+
+    let relations_canonicalized = codeterm_mem_store::graph::canonicalize_relation_types(
+        conn, NORMALIZE_SYNONYMS,
+    ).map_err(|e| format!("canonicalize: {}", e))?;
+
+    let (merged, flagged) = run_merge_pass(conn).map_err(|e| format!("merge pass: {}", e))?;
+
+    let orphans_deleted = codeterm_mem_store::graph::cleanup_orphan_entities(
+        conn, NORMALIZE_PROTECTED_TYPES, &cutoff,
+    ).map_err(|e| format!("orphan cleanup: {}", e))?;
+
+    let broken_relations_invalidated = codeterm_mem_store::graph::invalidate_broken_relations(
+        conn, &now,
+    ).map_err(|e| format!("broken invalidate: {}", e))?;
+
+    Ok(serde_json::json!({
+        "phase": "normalize",
+        "merged": merged,
+        "flagged_entity_pairs": flagged,
+        "relations_canonicalized": relations_canonicalized,
+        "orphans_deleted": orphans_deleted,
+        "broken_relations_invalidated": broken_relations_invalidated,
+    }))
+}
+
+fn run_merge_pass(
+    conn: &rusqlite::Connection,
+) -> Result<(u64, Vec<serde_json::Value>), String> {
+    let entities = codeterm_mem_store::graph::list_entities_with_degree(conn)
+        .map_err(|e| e.to_string())?;
+
+    use std::collections::HashMap;
+    let mut buckets: HashMap<(String, String), Vec<(String, String, u32)>> = HashMap::new();
+    for e in &entities {
+        if let Some((prefix, suffix)) = split_prefix(&e.id) {
+            if suffix.chars().count() >= 2 {
+                buckets
+                    .entry((e.entity_type.clone(), prefix.to_string()))
+                    .or_default()
+                    .push((e.id.clone(), suffix.to_string(), e.degree));
+            }
+        }
+    }
+
+    let mut merged: u64 = 0;
+    let mut flagged: Vec<serde_json::Value> = Vec::new();
+    for entries in buckets.values() {
+        for i in 0..entries.len() {
+            for j in (i + 1)..entries.len() {
+                let (a_id, a_suf, a_deg) = &entries[i];
+                let (b_id, b_suf, b_deg) = &entries[j];
+                let ratio = lev_ratio(a_suf, b_suf);
+                if ratio < NORMALIZE_RATIO_FLAG { continue; }
+                if ratio >= NORMALIZE_RATIO_HARD && a_deg != b_deg {
+                    let (alias, canonical) = if a_deg < b_deg {
+                        (a_id.clone(), b_id.clone())
+                    } else {
+                        (b_id.clone(), a_id.clone())
+                    };
+                    if codeterm_mem_store::graph::add_alias_with_rewire(conn, &alias, &canonical).is_ok() {
+                        merged += 1;
+                    }
+                } else {
+                    flagged.push(serde_json::json!({
+                        "a": a_id, "b": b_id, "ratio": ratio,
+                    }));
+                }
+            }
+        }
+    }
+    Ok((merged, flagged))
 }
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -461,4 +620,125 @@ fn librarian_remove_tag(conn: &rusqlite::Connection, item_id: &str, tag: &str) -
         rusqlite::params![&new_json, chrono::Utc::now().to_rfc3339(), item_id],
     ).map_err(|e| format!("update tags: {}", e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    /// Pre-v1.1.23 schema. Mirrors `codeterm_mem_store::tests::init_v1_22_schema`
+    /// but inlined here because that helper is `pub(crate)` to mem-store.
+    fn init_v1_22_schema(conn: &Connection) {
+        conn.execute_batch(
+            "CREATE TABLE relations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL,
+                to_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                valid_from TEXT NOT NULL,
+                valid_to TEXT,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                properties_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                UNIQUE(from_id, relation_type, to_id, valid_from)
+            );
+            CREATE TABLE entities (
+                id TEXT PRIMARY KEY,
+                entity_type TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                properties_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE entity_aliases (
+                alias_id TEXT PRIMARY KEY,
+                canonical_id TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE mem_items (
+                id TEXT PRIMARY KEY, uid TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL, scope TEXT NOT NULL,
+                title TEXT NOT NULL, summary TEXT, area TEXT,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                body_inline TEXT, body_blob_path TEXT,
+                source TEXT, importance REAL NOT NULL DEFAULT 3.0,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                accessed_at TEXT, access_count INTEGER NOT NULL DEFAULT 0,
+                recurrence_count INTEGER NOT NULL DEFAULT 0
+            );",
+        ).unwrap();
+    }
+
+    fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info({})", table))
+            .unwrap();
+        let names: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        names.iter().any(|name| name == column)
+    }
+
+    fn unique_temp_db_path() -> std::path::PathBuf {
+        let pid = std::process::id();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!(
+            "codeterm-worker-test-{}-{}.db",
+            pid, nanos
+        ))
+    }
+
+    /// `mem run-worker` against a pre-v1.1.23 backup must add the new
+    /// `false_fire_count` column on open. Without this, lesson promotion
+    /// crashes with "no such column: false_fire_count".
+    #[test]
+    fn open_worker_db_runs_v1_23_migrations_on_legacy_schema() {
+        let path = unique_temp_db_path();
+        let _ = std::fs::remove_file(&path);
+
+        // Bootstrap a v1.22-era schema and seed a single lesson row.
+        {
+            let conn = Connection::open(&path).unwrap();
+            init_v1_22_schema(&conn);
+            assert!(!column_exists(&conn, "mem_items", "false_fire_count"));
+            conn.execute(
+                "INSERT INTO mem_items
+                   (id, uid, kind, scope, title, tags_json,
+                    body_inline, importance, created_at, updated_at)
+                   VALUES ('lesson_x', 'uid-x', 'lesson', 'global', 'L',
+                           '[]', 'body', 3.0,
+                           '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [],
+            ).unwrap();
+        }
+
+        // Open via the worker bootstrap — should run migrations.
+        let conn = open_worker_db(&path).expect("open_worker_db");
+        assert!(
+            column_exists(&conn, "mem_items", "false_fire_count"),
+            "false_fire_count column must exist after open_worker_db",
+        );
+
+        // Sanity: the seeded row survived the migration.
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM mem_items WHERE kind = 'lesson'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+    }
 }

@@ -1,5 +1,6 @@
 pub mod detector;
 pub mod git_info;
+pub mod models;
 pub mod prompt;
 pub mod provider;
 pub mod registry;
