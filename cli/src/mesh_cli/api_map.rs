@@ -389,11 +389,24 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             };
             ("POST".into(), url, None)
         }
-        MemAction::Dream { phase } => (
-            "POST".into(),
-            format!("/api/mem/dream?phase={}", enc(phase)),
-            None,
-        ),
+        MemAction::Dream { action } => {
+            use crate::MemDreamAction;
+            match action {
+                MemDreamAction::Run { phase } => (
+                    "POST".into(),
+                    format!("/api/mem/dream?phase={}", enc(phase)),
+                    None,
+                ),
+                // suggest-clusters / apply / llm-recluster open the DB
+                // directly. They never round-trip via mesh — fall through to
+                // /stats so callers still get a valid JSON response.
+                MemDreamAction::SuggestClusters { .. }
+                | MemDreamAction::Apply { .. }
+                | MemDreamAction::LlmRecluster { .. } => {
+                    ("GET".into(), "/api/mem/stats".into(), None)
+                }
+            }
+        }
         MemAction::Graph { action } => match action {
             MemGraphAction::Create { id, entity_type, props, scope } => {
                 let props_val: serde_json::Value = serde_json::from_str(props).unwrap_or(json!({}));
