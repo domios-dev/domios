@@ -477,4 +477,80 @@ pub enum MemGraphAction {
         #[arg(long)]
         canonical: String,
     },
+    /// Atomically re-route an active direct edge (from → to) through an
+    /// intermediate (from → via → to). Invalidates the original direct edge.
+    Route {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        #[arg(long)]
+        via: String,
+        /// Relation type for the from→via segment (default = original rel).
+        #[arg(long = "rel-in")]
+        rel_in: Option<String>,
+        /// Relation type for the via→to segment (default = original rel).
+        #[arg(long = "rel-out")]
+        rel_out: Option<String>,
+        /// Free-text reason; written to relations.reason.
+        #[arg(long)]
+        reason: Option<String>,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
+    },
+    /// Hard-delete relations whose valid_to is set. Optional filters by
+    /// cutoff date and reason substring. Audited to graph_purge_log.
+    #[clap(name = "purge-invalidated")]
+    PurgeInvalidated {
+        /// Only purge rows with valid_to before this RFC 3339 timestamp.
+        #[arg(long)]
+        before: Option<String>,
+        /// Match relations.reason via LIKE %substring%.
+        #[arg(long)]
+        reason: Option<String>,
+        /// Print count without modifying any rows or writing audit row.
+        #[arg(long)]
+        dry_run: bool,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
+    },
+    /// Restore valid_to=NULL for relations whose endpoints both still exist
+    /// in entities or mem_items. Idempotent.
+    #[clap(name = "revive-broken")]
+    ReviveBroken {
+        #[arg(long)]
+        since: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
+    },
+    /// Atomically introduce a topic intermediate: insert topic entity (if
+    /// missing), link sources → topic → anchor, invalidate direct
+    /// sources → anchor edges.
+    #[clap(name = "introduce-topic")]
+    IntroduceTopic {
+        #[arg(long = "topic-id")]
+        topic_id: String,
+        #[arg(long = "type")]
+        entity_type: String,
+        /// Comma-separated source ids (s1,s2,s3) OR @path/to/file (one per
+        /// line; '#'-prefixed and blank lines ignored).
+        #[arg(long)]
+        sources: String,
+        #[arg(long)]
+        anchor: String,
+        #[arg(long = "rel-source", default_value = "about")]
+        rel_source: String,
+        #[arg(long = "rel-anchor", default_value = "about")]
+        rel_anchor: String,
+        #[arg(long)]
+        reason: Option<String>,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
+    },
 }

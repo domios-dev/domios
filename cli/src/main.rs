@@ -363,6 +363,37 @@ fn main() {
         return;
     }
 
+    // Local-only graph mutation verbs — open knowledge.db directly, no daemon.
+    if let Commands::Mem { action: MemAction::Graph { ref action } } = cli.command {
+        match action {
+            MemGraphAction::Route { from, to, via, rel_in, rel_out, reason, db_path } => {
+                cmd::graph_mutate::run_route(
+                    from, to, via,
+                    rel_in.as_deref(), rel_out.as_deref(),
+                    reason.as_deref(), db_path.as_deref(),
+                );
+            }
+            MemGraphAction::PurgeInvalidated { before, reason, dry_run, db_path } => {
+                cmd::graph_mutate::run_purge_invalidated(
+                    before.as_deref(), reason.as_deref(), *dry_run, db_path.as_deref(),
+                );
+            }
+            MemGraphAction::ReviveBroken { since, dry_run, db_path } => {
+                cmd::graph_mutate::run_revive_broken(
+                    since.as_deref(), *dry_run, db_path.as_deref(),
+                );
+            }
+            MemGraphAction::IntroduceTopic { topic_id, entity_type, sources, anchor, rel_source, rel_anchor, reason, db_path } => {
+                cmd::graph_mutate::run_introduce_topic(
+                    topic_id, entity_type, sources, anchor,
+                    rel_source, rel_anchor,
+                    reason.as_deref(), db_path.as_deref(),
+                );
+            }
+            _ => { /* daemon-routed graph verbs fall through to the normal flow */ }
+        }
+    }
+
     // `system` writes OS-level autostart triggers (schtasks / launchd /
     // systemd). No daemon dependency — short-circuit so it works pre-install
     // and during recovery when the daemon is wedged.
