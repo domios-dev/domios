@@ -468,6 +468,7 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             }
         }
         MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
+        MemAction::Repair { .. } => unreachable!("Repair is short-circuited in main()"),
         MemAction::Secret { action } => {
             return crate::cmd::mem_secret::handle_mem_secret(json_mode, &http, &base, action);
         }

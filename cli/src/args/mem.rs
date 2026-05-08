@@ -214,6 +214,32 @@ pub enum MemAction {
         #[command(subcommand)]
         action: MemSecretAction,
     },
+    /// Targeted data-repair operations against the mem store. Opens the DB
+    /// directly (no daemon dependency) and runs narrow, idempotent SQL.
+    Repair {
+        #[command(subcommand)]
+        action: MemRepairAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemRepairAction {
+    /// Restore `valid_to = NULL` for relations whose endpoints both still
+    /// exist in `entities` or `mem_items`. Use after a normalize pass that
+    /// over-invalidated mem_item-anchored relations. Use --dry-run first.
+    #[clap(name = "revive-broken-relations")]
+    ReviveBrokenRelations {
+        /// Only revive relations invalidated at or after this RFC 3339
+        /// timestamp (e.g. `2026-05-01T00:00:00Z`). Default = no filter.
+        #[arg(long)]
+        since: Option<String>,
+        /// Print count without modifying any rows.
+        #[arg(long)]
+        dry_run: bool,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

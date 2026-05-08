@@ -297,6 +297,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("POST".into(), path, None)
             }
         }
+        // `system` writes platform-specific files (schtasks/launchd/systemd)
+        // and only makes sense on the local host. Mesh relay falls through
+        // to /identify so callers always get a valid JSON response.
+        Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
     }
 }
 
@@ -438,6 +442,7 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         | MemAction::RunWorker { .. }
         | MemAction::Skill { .. }
         | MemAction::Worker { .. }
-        | MemAction::Secret { .. } => ("GET".into(), "/api/mem/stats".into(), None),
+        | MemAction::Secret { .. }
+        | MemAction::Repair { .. } => ("GET".into(), "/api/mem/stats".into(), None),
     }
 }

@@ -412,13 +412,14 @@ fn normalize_run(conn: &Connection) -> Result<NormalizeReport, String> {
         .map_err(|e| format!("orphan cleanup: {}", e))? as u64;
     report.orphans_deleted = n;
 
-    // 4. Broken-relation invalidation. Active rows whose endpoints no longer
-    //    exist in the entities table get valid_to = now (preserves history).
+    // 4. Broken-relation invalidation. Endpoint may legitimately be a mem_item
+    //    id (fact_*, learning_*, ...) — only treat as broken when missing from
+    //    both `entities` and `mem_items`.
     let broken = conn.execute(
         "UPDATE relations SET valid_to = ?1 \
          WHERE valid_to IS NULL \
-         AND (from_id NOT IN (SELECT id FROM entities) \
-              OR to_id NOT IN (SELECT id FROM entities))",
+         AND (from_id NOT IN (SELECT id FROM entities UNION SELECT id FROM mem_items) \
+              OR to_id NOT IN (SELECT id FROM entities UNION SELECT id FROM mem_items))",
         params![&now],
     ).map_err(|e| format!("broken invalidate: {}", e))? as u64;
     report.broken_relations_invalidated = broken;
@@ -993,6 +994,57 @@ mod tests {
             [], |r| r.get(0),
         ).unwrap();
         assert!(valid_to.is_some(), "broken relation must be invalidated");
+    }
+
+    #[tokio::test]
+    async fn normalize_preserves_relations_anchored_in_mem_items() {
+        let mem = MemManager::open_in_memory().unwrap();
+        let fact_id = mem.save(NewMemItem {
+            kind: MemKind::Fact, scope: MemScope::Global,
+            title: "rust borrow checker".into(), summary: None, area: None,
+            tags: vec![], body: "x".into(), source: None,
+            importance: 3.0, source_path: None,
+        }).unwrap();
+        {
+            let c = mem.conn(); let c = c.lock();
+            insert_entity(&c, "tech_rust", "tech", 0);
+            insert_relation(&c, &fact_id, "mentions", "tech_rust");
+        }
+
+        normalize_phase(&mem).await.unwrap();
+        let valid_to: Option<String> = mem.conn().lock().query_row(
+            "SELECT valid_to FROM relations WHERE to_id='tech_rust'",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert!(valid_to.is_none(), "fact_*→entity relation must survive normalize");
+    }
+
+    #[tokio::test]
+    async fn normalize_preserves_mem_item_to_mem_item_relations() {
+        let mem = MemManager::open_in_memory().unwrap();
+        let parent = mem.save(NewMemItem {
+            kind: MemKind::Conversation, scope: MemScope::Global,
+            title: "parent".into(), summary: None, area: None,
+            tags: vec![], body: "x".into(), source: None,
+            importance: 3.0, source_path: None,
+        }).unwrap();
+        let child = mem.save(NewMemItem {
+            kind: MemKind::Fact, scope: MemScope::Global,
+            title: "child".into(), summary: None, area: None,
+            tags: vec![], body: "x".into(), source: None,
+            importance: 3.0, source_path: None,
+        }).unwrap();
+        {
+            let c = mem.conn(); let c = c.lock();
+            insert_relation(&c, &child, "extracted_from", &parent);
+        }
+
+        normalize_phase(&mem).await.unwrap();
+        let valid_to: Option<String> = mem.conn().lock().query_row(
+            "SELECT valid_to FROM relations WHERE from_id=?1 AND to_id=?2",
+            params![&child, &parent], |r| r.get(0),
+        ).unwrap();
+        assert!(valid_to.is_none(), "mem_item→mem_item relation must survive normalize");
     }
 
     #[tokio::test]
