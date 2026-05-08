@@ -228,7 +228,7 @@ export function MemoryCanvas({
           const conf = e.confidence ?? 0.5;
           graph.addEdgeWithKey(key, e.from, e.to, {
             size: 0.02 + conf * 0.04,
-            color: `rgba(${EDGE_RGB},${0.03 + conf * 0.05})`,
+            color: `rgba(${EDGE_RGB},${0.015 + conf * 0.025})`,
           });
         } catch {
           /* duplicate — ignore */
@@ -295,9 +295,14 @@ export function MemoryCanvas({
       if (!n) return;
       const graph = graphRef.current;
       if (!graph?.hasNode(activeId)) return;
-      const display = sigma.getNodeDisplayData(activeId);
-      if (!display) return;
-      const viewport = sigma.graphToViewport(display);
+      // Use raw graph attributes — getNodeDisplayData returns already-projected
+      // framed coords; passing those through graphToViewport double-transforms
+      // and the chip flies off across the camera origin.
+      const attrs = graph.getNodeAttributes(activeId);
+      const viewport = sigma.graphToViewport({
+        x: attrs.x as number,
+        y: attrs.y as number,
+      });
       setChipStyle((prev) => {
         const next = { x: viewport.x, y: viewport.y, label: n.title };
         if (
