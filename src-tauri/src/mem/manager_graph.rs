@@ -35,9 +35,13 @@ impl MemManager {
         graph::invalidate_relation(&conn, from_id, relation_type, to_id, ended)
     }
 
-    pub fn graph_timeline(&self, entity_id: &str) -> Result<Vec<Relation>, String> {
+    pub fn graph_timeline(
+        &self,
+        entity_id: &str,
+        include_invalidated: bool,
+    ) -> Result<Vec<Relation>, String> {
         let conn = self.conn.lock();
-        graph::timeline(&conn, entity_id)
+        graph::timeline(&conn, entity_id, include_invalidated)
     }
 
     pub fn graph_traverse(

@@ -561,9 +561,7 @@ fn graph_full_excludes_invalidated_relations() {
     )
     .unwrap();
 
-    // Invalidated row whose valid_to shares today's YYYY-MM-DD prefix with
-    // datetime('now'). The broken `valid_to > datetime('now')` SQL leaks
-    // this row because ISO 'T' (0x54) > ' ' (0x20) flips the lex compare.
+    // SQLite's datetime('now') uses space separator; stored ISO uses 'T' (0x54 > 0x20).
     let today: String = conn
         .query_row("SELECT date('now')", [], |r| r.get(0))
         .unwrap();

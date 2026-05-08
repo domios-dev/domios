@@ -129,6 +129,8 @@ pub async fn mem_graph_invalidate(
 #[derive(Deserialize)]
 pub struct GraphTimelineParams {
     pub entity: String,
+    #[serde(default)]
+    pub include_invalidated: bool,
 }
 
 pub async fn mem_graph_timeline(
@@ -137,7 +139,7 @@ pub async fn mem_graph_timeline(
     Query(p): Query<GraphTimelineParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let relations = state.svc.mem.graph_timeline(&p.entity)
+    let relations = state.svc.mem.graph_timeline(&p.entity, p.include_invalidated)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "entity": p.entity, "relations": relations })))
 }

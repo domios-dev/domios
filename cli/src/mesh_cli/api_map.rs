@@ -420,8 +420,10 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 if let Some(e) = ended { payload["ended"] = json!(e); }
                 ("POST".into(), "/api/mem/graph/invalidate".into(), Some(payload.to_string()))
             }
-            MemGraphAction::Timeline { entity } => {
-                ("GET".into(), format!("/api/mem/graph/timeline?entity={}", enc(entity)), None)
+            MemGraphAction::Timeline { entity, include_invalidated } => {
+                let mut path = format!("/api/mem/graph/timeline?entity={}", enc(entity));
+                if *include_invalidated { path.push_str("&include_invalidated=true"); }
+                ("GET".into(), path, None)
             }
             MemGraphAction::Traverse { from, hops, max_nodes, as_of, include_invalidated } => {
                 let mut path = format!("/api/mem/graph/traverse?from={}&hops={}&max_nodes={}", enc(from), hops, max_nodes);
