@@ -1,6 +1,7 @@
 use rusqlite::Connection;
 
 mod cluster;
+mod lesson;
 
 pub(crate) fn init_v1_22_schema(conn: &Connection) {
     conn.execute_batch(

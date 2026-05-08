@@ -45,6 +45,8 @@ pub fn run_mem_worker(kind: &str, db_path_arg: Option<&str>) {
         "dreaming-light" => worker_dreaming_light(&conn).map(|r| serde_json::json!({
             "considered": r.considered, "promoted": r.promoted,
             "dropped": r.dropped, "phase": r.phase,
+            "lessons_promoted": r.lessons_promoted,
+            "lessons_already_high_confidence": r.lessons_already_high_confidence,
         })),
         "dreaming-deep" => worker_dreaming_deep(&conn).map(|r| serde_json::json!({
             "considered": r.considered, "promoted": r.promoted,
@@ -97,6 +99,8 @@ struct WorkerDreamReport {
     promoted: u64,
     dropped: u64,
     phase: String,
+    lessons_promoted: u64,
+    lessons_already_high_confidence: u64,
 }
 
 fn worker_dreaming_light(conn: &rusqlite::Connection) -> Result<WorkerDreamReport, String> {
@@ -171,10 +175,34 @@ fn worker_dreaming_light(conn: &rusqlite::Connection) -> Result<WorkerDreamRepor
         }
     }
 
+    let machine = local_machine_id();
+    let promo = codeterm_mem_store::lesson::promote_high_confidence_lessons(
+        conn,
+        codeterm_mem_store::lesson::DEFAULT_PROMOTION_THRESHOLD,
+        &machine,
+    ).map_err(|e| format!("lesson promotion: {}", e))?;
+
     Ok(WorkerDreamReport {
         considered, promoted, dropped: 0,
         phase: "light".into(),
+        lessons_promoted: promo.promoted,
+        lessons_already_high_confidence: promo.already_high_confidence,
     })
+}
+
+/// Local machine identifier for lesson_audit. Reads `instance_id` from the
+/// mesh identity file when present; falls back to "unknown" so the worker
+/// stays useful before the user has set up mesh.
+fn local_machine_id() -> String {
+    let path = dirs::home_dir()
+        .map(|h| h.join(crate::data_dir_name()).join("mesh").join("identity.json"));
+    let Some(p) = path else { return "unknown".into() };
+    let Ok(content) = std::fs::read_to_string(&p) else { return "unknown".into() };
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return "unknown".into();
+    };
+    val.get("instance_id").and_then(|v| v.as_str()).map(str::to_string)
+        .unwrap_or_else(|| "unknown".into())
 }
 
 fn worker_dreaming_deep(conn: &rusqlite::Connection) -> Result<WorkerDreamReport, String> {
@@ -202,6 +230,8 @@ fn worker_dreaming_deep(conn: &rusqlite::Connection) -> Result<WorkerDreamReport
         promoted: 0,
         dropped: total_expired,
         phase: "deep".into(),
+        lessons_promoted: 0,
+        lessons_already_high_confidence: 0,
     })
 }
 
