@@ -50,6 +50,15 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-green": theme.green,
     "--ct-yellow": theme.yellow,
     "--ct-orange": theme.red,
+    "--ct-blue": theme.blue,
+    "--ct-magenta": theme.magenta,
+    "--ct-cyan": theme.cyan,
+    "--ct-bright-blue": theme.bright_blue,
+    "--ct-bright-magenta": theme.bright_magenta,
+    "--ct-bright-cyan": theme.bright_cyan,
+    "--ct-bright-green": theme.bright_green,
+    "--ct-bright-yellow": theme.bright_yellow,
+    "--ct-bright-red": theme.bright_red,
     ...(theme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy" ? { "--ct-glow": theme.green + "99" } : {}),
   };
 }
