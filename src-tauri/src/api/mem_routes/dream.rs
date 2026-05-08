@@ -40,6 +40,13 @@ pub async fn mem_dream(
     use crate::mem::supervisor::WorkerKind;
 
     let phase = p.phase.as_deref().unwrap_or("all").to_lowercase();
+
+    // recluster is opt-in only: never part of "all", never cron-driven.
+    // Runs in-process so the LLM call has direct access to the mem manager.
+    if phase == "recluster" {
+        return run_recluster_inline(&state).await;
+    }
+
     let phases: Vec<WorkerKind> = match phase.as_str() {
         "light" => vec![WorkerKind::DreamingLight],
         "deep" => vec![WorkerKind::DreamingDeep],
@@ -76,4 +83,28 @@ pub async fn mem_dream_report(
     let report = dreaming::prepare_rem_data(&state.svc.mem)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "report": report })))
+}
+
+async fn run_recluster_inline(
+    state: &AppState,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    use crate::mem::dreaming::recluster::{run_recluster_phase_with_lock, AnthropicCaller};
+
+    let mem_cfg = crate::config::memory_config();
+    let model = if mem_cfg.dreaming_model.is_empty() {
+        "sonnet".to_string()
+    } else {
+        mem_cfg.dreaming_model.clone()
+    };
+
+    let plan_dir = crate::paths::data_dir().join("mem").join("dream-plans");
+
+    let conn_mutex = state.svc.mem.conn();
+    let caller = AnthropicCaller;
+    let report = run_recluster_phase_with_lock(conn_mutex, &model, &plan_dir, &caller).await;
+
+    match report {
+        Ok(r) => Ok(Json(serde_json::json!({ "phase": "recluster", "report": r }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
 }

@@ -1,6 +1,6 @@
 # CodeTerm Memory System
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
 
 Persistent memory for agents. Survives restarts, provider switches
 (Claude ↔ Codex), and CodeTerm upgrades. Agent-agnostic.
@@ -199,6 +199,12 @@ Headless worker spawned after SQL phases. Task:
 3. **Dedup** — items with very similar titles + same kind: read both, delete lower-importance
 4. **Insights** — 2+ items on same topic → create `kind=fact title="insight: <pattern>" tags=dream-insight`
 5. **Diary** — 80-150 word narrative reflection saved as `kind=daily area=_dreams tags=dream-diary`
+
+### Phase 4 — LLM Recluster (`dreaming::recluster::run_recluster_phase`) — opt-in
+
+Hand-invoked only via `codeterm mem dream run --phase recluster`. Never part of the cron-driven nightly pipeline. The phase collects top-N hubs by active degree, their incident relation distributions, neighbor titles/summaries, and the existing `topic_*`/`role_*` anchor list, then asks the configured `dreaming_model` (default `sonnet`) to propose 0–5 cluster operations. The validated proposals are written as a markdown plan to `~/.codeterm/mem/dream-plans/<utc-ts>-recluster.md`. The user reviews the file and runs `codeterm mem dream apply <file>` to execute the `introduce_topic` mutations.
+
+Requires `ANTHROPIC_API_KEY`. The phase is read-only against the DB; all mutations happen in the user-gated apply step.
 
 ### Data helper (`dreaming::prepare_rem_data`)
 

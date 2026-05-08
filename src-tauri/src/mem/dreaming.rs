@@ -8,11 +8,12 @@
 //! top of this baseline in later phases as needed.
 
 use rusqlite::params;
-#[cfg(test)]
-use rusqlite::Connection;
+#[cfg(test)] use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use super::MemManager;
+
+pub mod recluster;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DreamReport {
@@ -229,12 +230,10 @@ fn deep_expire_tier(conn: &Connection, kind: &str, days: i64) -> Result<u64, Str
     Ok(n)
 }
 
-// ---------------------------------------------------------------------------
 // Graph normalize phase. Test-only mirror — graph mutations route through
 // codeterm-mem-store; the merge-pass orchestration (Levenshtein loop) is
 // kept here so the CLI worker and this module behave identically against the
 // same DB. Constants live in the CLI worker (caller-owned policy).
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 const NORMALIZE_PROTECTED_TYPES: &[&str] = &["kind", "area", "agent", "workspace"];
