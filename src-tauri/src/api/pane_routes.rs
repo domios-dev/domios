@@ -333,7 +333,9 @@ pub async fn resize_pane(
 
 #[derive(Deserialize)]
 pub(crate) struct StreamQuery {
-    from: Option<usize>,
+    /// Absolute byte offset (monotonic, survives ring-buffer rotation).
+    /// `0` replays the full retained buffer; omitted = start at current tail.
+    from: Option<u64>,
 }
 
 pub async fn stream_pane_output(
@@ -347,21 +349,21 @@ pub async fn stream_pane_output(
 
     let buf = state.svc.output_buf.clone();
     let pid = pty_id.clone();
-    let initial_len = buf.lock().get_text(&pid).map(|t| t.len()).unwrap_or(0);
-    let mut offset = match query.from {
-        Some(n) => n.min(initial_len),
-        None => initial_len,
+    let initial_total = buf.lock().total_written(&pid);
+    let mut offset: u64 = match query.from {
+        Some(n) => n.min(initial_total),
+        None => initial_total,
     };
 
     let stream = async_stream::stream! {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-            let text = buf.lock().get_text(&pid).unwrap_or_default();
-            if text.len() > offset {
-                let new_data = text[offset..].to_string();
-                offset = text.len();
+            let (chunk, new_total) = buf.lock().read_since(&pid, offset);
+            if !chunk.is_empty() {
+                offset = new_total;
+                let text = String::from_utf8_lossy(&chunk).to_string();
                 yield Ok(axum::response::sse::Event::default()
-                    .data(serde_json::json!({"output": new_data, "offset": offset}).to_string()));
+                    .data(serde_json::json!({"output": text, "offset": offset}).to_string()));
             }
         }
     };

@@ -96,6 +96,39 @@ function scheduleLabel(schedule: string): string {
   return schedule;
 }
 
+function useLiveSecondsTick(active: boolean): number {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+  return tick;
+}
+
+function InlineSwitch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <label className="flex items-center gap-1.5 cursor-pointer">
+      <span className="text-[10px] text-[var(--ct-muted-fg)]">{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+          checked ? "bg-[var(--ct-accent)]" : "bg-[var(--ct-border)]"
+        }`}
+      >
+        <span
+          className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+            checked ? "translate-x-4" : "translate-x-0.5"
+          }`}
+        />
+      </button>
+    </label>
+  );
+}
+
 function MemoryScheduledTabImpl({ api }: Props) {
   const [dreamCron, setDreamCron] = useState<CronJob | null>(null);
   const [cronLoading, setCronLoading] = useState(true);
@@ -259,7 +292,8 @@ function MemoryScheduledTabImpl({ api }: Props) {
     .map((w): RunHistoryItem => ({ type: "dream", worker: w }))
     .sort((a, b) => b.worker.spawned_at - a.worker.spawned_at);
 
-  const lastDreamRun = dreamWorkers[0] ?? null;
+  const hasInflight = dreamWorkers.some((w) => w.status !== "done" && w.status !== "error" && w.status !== "orphaned");
+  useLiveSecondsTick(hasInflight);
   const displayDreamingModel = canonicalizeShort(memCfg?.dreaming_model || "");
 
   return (
@@ -272,17 +306,11 @@ function MemoryScheduledTabImpl({ api }: Props) {
             <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--ct-border)]">
               <span className="text-xs font-semibold text-[var(--ct-fg)]">Dreaming (REM)</span>
               {dreamCron && (
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <span className="text-[10px] text-[var(--ct-muted-fg)]">
-                    {dreamCron.enabled ? "On" : "Off"}
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={dreamCron.enabled}
-                    onChange={(e) => toggleDreamCron(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
-                  />
-                </label>
+                <InlineSwitch
+                  checked={dreamCron.enabled}
+                  onChange={(v) => toggleDreamCron(v)}
+                  label={dreamCron.enabled ? "On" : "Off"}
+                />
               )}
             </div>
             <div className="px-3 py-2 space-y-2">
@@ -329,39 +357,14 @@ function MemoryScheduledTabImpl({ api }: Props) {
                   })()}
                 </div>
               )}
-              {/* Schedule + next run + last run */}
+              {/* Schedule + next run */}
               <div className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)]">
                 <span>{dreamCron ? scheduleLabel(dreamCron.schedule) : "Not configured"}</span>
                 <span className="opacity-40">|</span>
                 <span className="font-mono tabular-nums">
-                  {dreamCron?.next_run ? relativeTime(dreamCron.next_run) : "---"}
+                  next {dreamCron?.next_run ? relativeTime(dreamCron.next_run) : "—"}
                 </span>
               </div>
-              {/* Last run status */}
-              {lastDreamRun && (
-                <div className="flex items-center gap-2">
-                  <span
-                    className="px-1.5 py-px rounded-[3px] text-[9px] font-semibold uppercase"
-                    style={{
-                      background: `${statusColor(lastDreamRun.status)}22`,
-                      color: statusColor(lastDreamRun.status),
-                    }}
-                  >
-                    {lastDreamRun.status}
-                  </span>
-                  <span className="text-[10px] text-[var(--ct-muted-fg)] tabular-nums">
-                    {formatDateTime(lastDreamRun.spawned_at)}
-                  </span>
-                  {lastDreamRun.done_at && (
-                    <span className="text-[10px] text-[var(--ct-muted-fg)] tabular-nums">
-                      {formatDuration(lastDreamRun.spawned_at, lastDreamRun.done_at)}
-                    </span>
-                  )}
-                </div>
-              )}
-              {!lastDreamRun && !cronLoading && (
-                <div className="text-[10px] text-[var(--ct-muted-fg)]">No runs yet</div>
-              )}
             </div>
           </div>
 
@@ -370,17 +373,11 @@ function MemoryScheduledTabImpl({ api }: Props) {
             <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--ct-border)]">
               <span className="text-xs font-semibold text-[var(--ct-fg)]">Librarian (File Sync)</span>
               {memCfg && (
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <span className="text-[10px] text-[var(--ct-muted-fg)]">
-                    {memCfg.file_sync_enabled ? "On" : "Off"}
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={memCfg.file_sync_enabled}
-                    onChange={(e) => patchMemConfig({ file_sync_enabled: e.target.checked })}
-                    className="w-3.5 h-3.5 rounded accent-[var(--ct-accent)]"
-                  />
-                </label>
+                <InlineSwitch
+                  checked={memCfg.file_sync_enabled}
+                  onChange={(v) => patchMemConfig({ file_sync_enabled: v })}
+                  label={memCfg.file_sync_enabled ? "On" : "Off"}
+                />
               )}
             </div>
             <div className="px-3 py-2 space-y-2">
@@ -415,7 +412,9 @@ function MemoryScheduledTabImpl({ api }: Props) {
               const w = item.worker;
               const isDone = w.status === "done" || w.status === "error" || w.status === "orphaned";
               const color = statusColor(w.status);
-              const dur = isDone && w.done_at ? formatDuration(w.spawned_at, w.done_at) : "";
+              const elapsed = isDone && w.done_at
+                ? formatDuration(w.spawned_at, w.done_at)
+                : formatDuration(w.spawned_at, Date.now());
               return (
                 <div
                   key={`dream-${w.worker_id}`}
@@ -440,15 +439,18 @@ function MemoryScheduledTabImpl({ api }: Props) {
                   {w.model && (
                     <span className="text-[9px] text-[var(--ct-muted-fg)]">{w.model}</span>
                   )}
-                  {dur && (
-                    <span className="text-[10px] text-[var(--ct-muted-fg)] ml-auto tabular-nums">{dur}</span>
-                  )}
-                  {!isDone && (
-                    <span className="text-[10px] ml-auto flex items-center gap-1" style={{ color }}>
-                      <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: color }} />
-                      running
-                    </span>
-                  )}
+                  <span
+                    className="text-[10px] ml-auto tabular-nums flex items-center gap-1.5"
+                    style={{ color: isDone ? "var(--ct-muted-fg)" : color }}
+                  >
+                    {!isDone && (
+                      <span
+                        className="inline-block w-1.5 h-1.5 rounded-full animate-pulse"
+                        style={{ background: color }}
+                      />
+                    )}
+                    {elapsed}
+                  </span>
                 </div>
               );
             })}

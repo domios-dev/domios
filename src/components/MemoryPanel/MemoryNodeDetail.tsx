@@ -7,7 +7,6 @@ import { deleteItem, fetchItemFull, patchItem, type ItemPatch } from "./memoryAp
 interface Props {
   api: ApiConfig;
   node: MemNode;
-  onClose: () => void;
   onUpdate: (id: string, patch: Partial<MemNode>) => void;
   onDelete: (id: string) => void;
   isPinned?: boolean;
@@ -47,7 +46,6 @@ function buildEditState(node: MemNode): EditState {
 export function MemoryNodeDetail({
   api,
   node,
-  onClose,
   onUpdate,
   onDelete,
   isPinned,
@@ -56,6 +54,7 @@ export function MemoryNodeDetail({
   nodes,
   onSelectNode,
 }: Props) {
+  const [tucked, setTucked] = useState(false);
   const neighbors: Neighbor[] = useMemo(() => {
     const out: Neighbor[] = [];
     for (const e of edges) {
@@ -81,6 +80,7 @@ export function MemoryNodeDetail({
     setEdit(buildEditState(node));
     setEditing(false);
     setSaveError(null);
+    setTucked(false);
   }, [node.id]);
 
   useEffect(() => {
@@ -188,8 +188,20 @@ export function MemoryNodeDetail({
     "bg-transparent border border-[var(--ct-border)] text-inherit px-2.5 py-1 rounded text-[11px] cursor-pointer";
 
   return (
+    <>
+      {tucked && (
+        <button
+          onClick={() => setTucked(false)}
+          aria-label="Show details"
+          title="Show details"
+          className="absolute top-3 right-0 z-10 px-1.5 py-2 rounded-l bg-[var(--ct-surface)] border border-r-0 border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] cursor-pointer text-xs leading-none"
+        >
+          ‹
+        </button>
+      )}
     <div
-      className="absolute top-0 right-0 bottom-0 w-[360px] p-4 z-10 overflow-y-auto flex flex-col gap-2.5 text-xs bg-[var(--ct-surface)] border-l border-[var(--ct-border)] text-[var(--ct-fg)]"
+      className="absolute top-0 right-0 bottom-0 w-[360px] p-4 z-10 overflow-y-auto flex flex-col gap-2.5 text-xs bg-[var(--ct-surface)] border-l border-[var(--ct-border)] text-[var(--ct-fg)] transition-transform duration-200 ease-out"
+      style={{ transform: tucked ? "translateX(100%)" : "translateX(0)" }}
       onMouseDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
     >
@@ -221,8 +233,13 @@ export function MemoryNodeDetail({
             pinned
           </button>
         )}
-        <button onClick={onClose} className={`${btnClass} !px-2 !py-0.5 !text-base`}>
-          ×
+        <button
+          onClick={() => setTucked(true)}
+          aria-label="Tuck panel"
+          title="Tuck panel"
+          className={`${btnClass} !px-2 !py-0.5 !text-base leading-none`}
+        >
+          ›
         </button>
       </div>
 
@@ -427,5 +444,6 @@ export function MemoryNodeDetail({
         )}
       </div>
     </div>
+    </>
   );
 }

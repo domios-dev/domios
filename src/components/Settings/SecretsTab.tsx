@@ -410,9 +410,9 @@ export function SecretsTab({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-4">
+      <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-4">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-[var(--ct-fg)]">Secret store</div>
+          <div className="text-xs font-medium text-[var(--ct-fg)]">Secret store</div>
           <div className="flex items-center gap-2">
             {statusBadge}
             <button
@@ -546,8 +546,8 @@ export function SecretsTab({
 
       {/* Login forms — only when logged out. */}
       {status?.status?.status === "logged_out" && backend === "bitwarden" && (
-        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
-          <div className="text-sm font-medium text-[var(--ct-fg)]">Sign in to Bitwarden</div>
+        <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+          <div className="text-xs font-medium text-[var(--ct-fg)]">Sign in to Bitwarden</div>
           <div className="flex gap-1 text-[11px]">
             <button
               onClick={() => setActiveTab("password")}
@@ -639,8 +639,8 @@ export function SecretsTab({
 
       {/* Locked → just need password. */}
       {status?.status?.status === "locked" && backend === "bitwarden" && (
-        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
-          <div className="text-sm font-medium text-[var(--ct-fg)]">Unlock vault</div>
+        <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+          <div className="text-xs font-medium text-[var(--ct-fg)]">Unlock vault</div>
           <form onSubmit={submitPasswordLogin} className="space-y-2">
             <input
               type="password"
@@ -663,8 +663,8 @@ export function SecretsTab({
 
       {/* Mock backend has no real auth — just an "unlock" button to flip the flag. */}
       {backend === "mock" && status?.status?.status !== "unlocked" && (
-        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2">
-          <div className="text-sm font-medium text-[var(--ct-fg)]">Mock backend (testing only)</div>
+        <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2">
+          <div className="text-xs font-medium text-[var(--ct-fg)]">Mock backend (testing only)</div>
           <div className="text-xs text-[var(--ct-muted-fg)]">
             In-memory store, no auth. Anything you "save" lives until the daemon restarts. Use{" "}
             <strong>Local secret storage</strong> for real secrets.
@@ -684,9 +684,9 @@ export function SecretsTab({
       {/* Default scope + recent items, only shown when unlocked. */}
       {status?.status?.status === "unlocked" && (
         <>
-          <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+          <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-[var(--ct-fg)]">
+              <div className="text-xs font-medium text-[var(--ct-fg)]">
                 {backend === "bitwarden" ? "Default scope" : "Connected"}
               </div>
               {status.status.endpoint && (
@@ -750,9 +750,9 @@ export function SecretsTab({
             </div>
           </div>
 
-          <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2">
+          <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <div className="text-sm font-medium text-[var(--ct-fg)]">Recently saved</div>
+              <div className="text-xs font-medium text-[var(--ct-fg)]">Recently saved</div>
               <button
                 onClick={refreshItems}
                 className="text-[10px] px-2 py-0.5 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
