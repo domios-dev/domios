@@ -353,12 +353,13 @@ fn worker_dreaming_normalize(conn: &rusqlite::Connection) -> Result<serde_json::
         .execute(&sql, sql_params.as_slice())
         .map_err(|e| format!("orphan cleanup: {}", e))? as u64;
 
-    // 4. Broken-relation invalidation.
+    // 4. Broken-relation invalidation. Endpoint may be a mem_item id
+    //    (fact_*, learning_*, ...) — only broken when missing from both tables.
     let broken_relations_invalidated = conn.execute(
         "UPDATE relations SET valid_to = ?1 \
          WHERE valid_to IS NULL \
-         AND (from_id NOT IN (SELECT id FROM entities) \
-              OR to_id NOT IN (SELECT id FROM entities))",
+         AND (from_id NOT IN (SELECT id FROM entities UNION SELECT id FROM mem_items) \
+              OR to_id NOT IN (SELECT id FROM entities UNION SELECT id FROM mem_items))",
         rusqlite::params![&now],
     ).map_err(|e| format!("broken invalidate: {}", e))? as u64;
 

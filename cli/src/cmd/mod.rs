@@ -7,6 +7,8 @@ pub mod mem_secret;
 pub mod mesh;
 pub mod pane;
 pub mod print;
+pub mod repair;
 pub mod sessions;
+pub mod system;
 pub mod update;
 pub mod worker;

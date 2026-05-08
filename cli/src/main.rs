@@ -148,7 +148,8 @@ pub fn build_http(token: &Option<String>) -> reqwest::blocking::Client {
 mod args;
 pub use args::cli::{Cli, Commands};
 pub use args::sessions::SessionsAction;
-pub use args::mem::{MemAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
+pub use args::system::SystemAction;
+pub use args::mem::{MemAction, MemRepairAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
 pub use args::agent::AgentAction;
 pub use args::cron::CronAction;
 pub use args::update::UpdateAction;
@@ -352,6 +353,25 @@ fn main() {
     // worker exit 1 before it can do any work.
     if let Commands::Mem { action: MemAction::RunWorker { ref kind, ref db_path } } = cli.command {
         cmd::worker::run_mem_worker(kind, db_path.as_deref());
+        return;
+    }
+
+    // `mem repair` opens knowledge.db directly — short-circuit for the same
+    // reason as run-worker so it works while the daemon is wedged.
+    if let Commands::Mem { action: MemAction::Repair { ref action } } = cli.command {
+        cmd::repair::run_mem_repair(action);
+        return;
+    }
+
+    // `system` writes OS-level autostart triggers (schtasks / launchd /
+    // systemd). No daemon dependency — short-circuit so it works pre-install
+    // and during recovery when the daemon is wedged.
+    if matches!(cli.command, Commands::System { .. }) {
+        let json_mode = cli.json;
+        match cli.command {
+            Commands::System { action } => cmd::system::handle_system(json_mode, action),
+            _ => unreachable!(),
+        }
         return;
     }
 
@@ -675,6 +695,10 @@ fn main() {
                 cmd::worker::run_mem_worker(&kind, db_path.as_deref());
                 return;
             }
+            if let MemAction::Repair { action } = action {
+                cmd::repair::run_mem_repair(&action);
+                return;
+            }
             let json_mode = cli.json;
             cmd::mem::handle_mem(json_mode, action);
             return;
@@ -683,6 +707,10 @@ fn main() {
             let (base_url, token) = read_api_config();
             let http = build_http(&token);
             cmd::sessions::handle_sessions(cli.json, action, &http, &base_url, token.as_deref());
+            return;
+        }
+        Commands::System { action } => {
+            cmd::system::handle_system(cli.json, action);
             return;
         }
     };
