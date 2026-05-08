@@ -161,7 +161,8 @@ fn fire_job(
 
     // Model priority: per-job override → mem_cfg.dreaming_model (legacy
     // fallback for the auto-installed dreaming cron) → mem_cfg.worker_model
-    // (shared default, claude-haiku-4-5-*) → provider default.
+    // (shared default). Short labels (haiku|sonnet|opus) resolve at runtime
+    // via agent::models.
     let model = model.map(|s| s.to_string()).or_else(|| {
         let mem_cfg = crate::config::memory_config();
         if !mem_cfg.dreaming_model.is_empty() {
@@ -171,7 +172,7 @@ fn fire_job(
         } else {
             None
         }
-    });
+    }).map(|s| crate::agent::models::canonicalize_short(&s).to_string());
 
     let spec = SpawnPaneSpec {
         workspace_id: if workspace_id.is_empty() {

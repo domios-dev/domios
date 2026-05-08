@@ -621,12 +621,13 @@ pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
         mem_cfg.dreaming_agent.clone()
     };
     // Dreaming REM worker uses `dreaming_model` when set, otherwise falls
-    // back to the shared `worker_model` default (claude-haiku-4-5-*).
-    let model = if mem_cfg.dreaming_model.is_empty() {
+    // back to the shared `worker_model` default ("haiku").
+    let raw_model = if mem_cfg.dreaming_model.is_empty() {
         mem_cfg.worker_model.clone()
     } else {
         mem_cfg.dreaming_model.clone()
     };
+    let model = crate::agent::models::canonicalize_short(&raw_model).to_string();
 
     match super::workers::spawn_headless(
         svc,
@@ -692,7 +693,8 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
         Some(mem_cfg.worker_model.clone())
     } else {
         None
-    };
+    }
+    .map(|s| crate::agent::models::canonicalize_short(&s).to_string());
 
     let _ = cron_store.create(crate::cron::store::CronCreateParams {
         name: DREAMING_CRON_NAME.into(),
