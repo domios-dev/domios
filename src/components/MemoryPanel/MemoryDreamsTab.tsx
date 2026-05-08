@@ -1,5 +1,4 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import {
   Moon,
@@ -8,25 +7,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  X,
 } from "lucide-react";
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
 import { canonicalizeShort } from "../../lib/modelLabels";
 import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
 import { WorkerLogPopup } from "./WorkerLogPopup";
-import { iconForDream, paletteFor, moodLabel } from "./dreamVisuals";
+import { DreamCard, DreamDetailModal, type DreamDiaryEntry } from "./DreamCard";
 
 interface Props {
   api: ApiConfig;
-}
-
-interface DreamDiaryEntry {
-  id: string;
-  title: string;
-  body: string;
-  created_at: string;
-  area: string | null;
-  tags?: string[];
 }
 
 interface SearchHit {
@@ -67,15 +56,6 @@ function formatDuration(startMs: number, endMs: number): string {
   const mins = Math.floor(secs / 60);
   const rem = secs % 60;
   return `${mins}m ${rem}s`;
-}
-
-function dreamDate(iso: string): { day: string; month: string; year: string } {
-  const d = new Date(iso);
-  return {
-    day: d.toLocaleDateString("en-US", { day: "2-digit" }),
-    month: d.toLocaleDateString("en-US", { month: "short" }).toUpperCase(),
-    year: d.toLocaleDateString("en-US", { year: "numeric" }),
-  };
 }
 
 function statusColor(status: string): string {
@@ -309,12 +289,13 @@ function MemoryDreamsTabImpl({ api }: Props) {
 
   return (
     <div className="absolute inset-0 overflow-y-auto bg-[var(--ct-bg)]">
-      {/* Atmospheric backdrop */}
+      {/* Atmospheric backdrop — pulled from the live theme so it always
+          tints with the user's chosen palette instead of fixed indigo. */}
       <div
-        className="pointer-events-none fixed inset-0 -z-0 opacity-30"
+        className="pointer-events-none fixed inset-0 -z-0 opacity-25"
         style={{
           background:
-            "radial-gradient(circle at 20% 0%,rgba(167,139,250,0.10),transparent 45%),radial-gradient(circle at 90% 110%,rgba(96,165,250,0.08),transparent 50%)",
+            "radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--ct-magenta, #a78bfa) 22%, transparent) 0%, transparent 45%), radial-gradient(circle at 90% 110%, color-mix(in srgb, var(--ct-blue, #60a5fa) 18%, transparent) 0%, transparent 50%)",
         }}
       />
 
@@ -345,7 +326,12 @@ function MemoryDreamsTabImpl({ api }: Props) {
         <button
           onClick={runNow}
           disabled={running || !!inflight}
-          className="shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full bg-gradient-to-r from-[#7c3aed] to-[#3b82f6] text-white text-[11px] font-medium tracking-wide hover:shadow-[0_0_18px_rgba(124,58,237,0.6)] disabled:opacity-50 disabled:cursor-wait transition-shadow border-0 cursor-pointer"
+          className="shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full text-[var(--ct-bg)] text-[11px] font-medium tracking-wide hover:shadow-[0_0_18px_color-mix(in_srgb,_var(--ct-accent)_55%,_transparent)] disabled:opacity-50 disabled:cursor-wait transition-shadow border-0 cursor-pointer"
+          style={{
+            background:
+              "linear-gradient(135deg, color-mix(in srgb, var(--ct-magenta, #a78bfa) 75%, var(--ct-accent)) 0%, var(--ct-accent) 100%)",
+            color: "var(--ct-bg)",
+          }}
         >
           {running || inflight ? (
             <>
@@ -572,252 +558,10 @@ function DreamSwitch({ checked, onChange }: { checked: boolean; onChange: (v: bo
   );
 }
 
-function DreamCard({ entry, onOpen }: { entry: DreamDiaryEntry; onOpen: () => void }) {
-  const Icon = iconForDream({
-    area: entry.area,
-    tags: entry.tags,
-    body: entry.body,
-    title: entry.title,
-  });
-  const palette = paletteFor(`${entry.area ?? ""}:${entry.title}`);
-  const mood = moodLabel({ area: entry.area, tags: entry.tags, body: entry.body });
-  const date = dreamDate(entry.created_at);
-  const snippet = entry.body.length > 200 ? `${entry.body.slice(0, 200)}…` : entry.body;
-  const visibleTags = (entry.tags ?? []).filter((t) => t !== "dream-diary").slice(0, 3);
-
-  return (
-    <article
-      data-dream-card
-      onClick={onOpen}
-      className="snap-start shrink-0 w-[260px] h-[280px] rounded-2xl overflow-hidden relative flex flex-col group cursor-pointer hover:scale-[1.02] transition-transform"
-      style={{
-        background: palette.surface,
-        boxShadow: `0 8px 24px -12px ${palette.glow}, inset 0 0 0 1px ${palette.accent}22`,
-      }}
-    >
-      {/* Glow corner */}
-      <div
-        className="absolute top-0 right-0 w-32 h-32 rounded-full pointer-events-none opacity-40 blur-2xl group-hover:opacity-60 transition-opacity"
-        style={{ background: palette.accent, transform: "translate(35%,-35%)" }}
-      />
-      {/* Header: icon + date */}
-      <div className="relative flex items-start justify-between px-4 pt-4">
-        <div
-          className="w-9 h-9 rounded-lg flex items-center justify-center"
-          style={{
-            background: `${palette.accent}1f`,
-            border: `1px solid ${palette.accent}44`,
-            color: palette.accent,
-          }}
-        >
-          <Icon size={16} />
-        </div>
-        <div className="text-right">
-          <div
-            className="text-[28px] leading-none font-light tracking-tight"
-            style={{ color: palette.ink }}
-          >
-            {date.day}
-          </div>
-          <div className="text-[9px] tracking-[0.3em] mt-1 opacity-70" style={{ color: palette.ink }}>
-            {date.month}
-          </div>
-        </div>
-      </div>
-
-      {/* Mood label */}
-      <div className="px-4 mt-3">
-        <span
-          className="inline-block text-[9px] uppercase tracking-[0.25em] px-2 py-0.5 rounded-full"
-          style={{
-            background: `${palette.accent}22`,
-            color: palette.accent,
-          }}
-        >
-          {mood}
-        </span>
-      </div>
-
-      {/* Snippet */}
-      <div
-        className="relative flex-1 px-4 pt-2 pb-3 text-[11px] leading-relaxed overflow-hidden"
-        style={{ color: palette.ink, opacity: 0.85 }}
-      >
-        <span className="line-clamp-6">{snippet}</span>
-      </div>
-
-      {/* Tags / footer */}
-      <div className="relative px-4 pb-3 pt-1 border-t border-white/5 flex items-center gap-1.5 flex-wrap">
-        {visibleTags.length > 0 ? (
-          visibleTags.map((t) => (
-            <span
-              key={t}
-              className="text-[9px] tracking-wide px-1.5 py-0.5 rounded"
-              style={{
-                background: "rgba(255,255,255,0.06)",
-                color: palette.ink,
-                opacity: 0.7,
-              }}
-            >
-              #{t}
-            </span>
-          ))
-        ) : (
-          <span className="text-[9px] tracking-wide opacity-50" style={{ color: palette.ink }}>
-            no tags
-          </span>
-        )}
-      </div>
-    </article>
-  );
-}
-
-function DreamDetailModal({ entry, onClose }: { entry: DreamDiaryEntry; onClose: () => void }) {
-  const Icon = iconForDream({
-    area: entry.area,
-    tags: entry.tags,
-    body: entry.body,
-    title: entry.title,
-  });
-  const palette = paletteFor(`${entry.area ?? ""}:${entry.title}`);
-  const mood = moodLabel({ area: entry.area, tags: entry.tags, body: entry.body });
-  const date = dreamDate(entry.created_at);
-  const visibleTags = (entry.tags ?? []).filter((t) => t !== "dream-diary");
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      onClick={onClose}
-      className="fixed inset-0 z-[70] flex items-center justify-center backdrop-blur-md"
-      style={{ background: "rgba(2,4,12,0.78)" }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="relative flex flex-col rounded-2xl overflow-hidden"
-        style={{
-          width: "min(720px, 92vw)",
-          height: "min(680px, 88vh)",
-          background: palette.surface,
-          boxShadow: `0 20px 60px -12px ${palette.glow}, inset 0 0 0 1px ${palette.accent}33`,
-        }}
-      >
-        <div
-          className="absolute top-0 right-0 w-[280px] h-[280px] rounded-full pointer-events-none opacity-50 blur-3xl"
-          style={{ background: palette.accent, transform: "translate(40%,-40%)" }}
-        />
-        <div
-          className="absolute bottom-0 left-0 w-[200px] h-[200px] rounded-full pointer-events-none opacity-25 blur-3xl"
-          style={{ background: palette.accent, transform: "translate(-40%,40%)" }}
-        />
-
-        {/* Header */}
-        <div className="relative flex items-start gap-4 px-6 pt-6 pb-4">
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-            style={{
-              background: `${palette.accent}26`,
-              border: `1px solid ${palette.accent}55`,
-              color: palette.accent,
-            }}
-          >
-            <Icon size={20} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <span
-              className="inline-block text-[10px] uppercase tracking-[0.3em] px-2 py-0.5 rounded-full mb-2"
-              style={{
-                background: `${palette.accent}26`,
-                color: palette.accent,
-              }}
-            >
-              {mood}
-            </span>
-            <div
-              className="text-[20px] leading-tight font-light"
-              style={{ color: palette.ink }}
-            >
-              {entry.title}
-            </div>
-            <div
-              className="text-[11px] mt-1 opacity-65 tabular-nums"
-              style={{ color: palette.ink }}
-            >
-              {date.month} {date.day}, {date.year}
-            </div>
-          </div>
-          <div className="flex items-start gap-2">
-            <div className="text-right">
-              <div
-                className="text-[36px] leading-none font-light tracking-tight"
-                style={{ color: palette.ink }}
-              >
-                {date.day}
-              </div>
-              <div
-                className="text-[9px] tracking-[0.3em] mt-1.5 opacity-70"
-                style={{ color: palette.ink }}
-              >
-                {date.month}
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              aria-label="Close"
-              className="w-7 h-7 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer text-white/80 hover:text-white"
-            >
-              <X size={13} />
-            </button>
-          </div>
-        </div>
-
-        {/* Body */}
-        <div
-          className="relative flex-1 overflow-y-auto px-6 pb-5"
-          style={{ color: palette.ink }}
-        >
-          <pre
-            className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed m-0"
-            style={{ opacity: 0.92 }}
-          >
-            {entry.body}
-          </pre>
-        </div>
-
-        {/* Tags */}
-        {visibleTags.length > 0 && (
-          <div className="relative px-6 pb-5 pt-3 border-t border-white/8 flex items-center gap-1.5 flex-wrap">
-            {visibleTags.map((t) => (
-              <span
-                key={t}
-                className="text-[10px] tracking-wide px-2 py-0.5 rounded-full"
-                style={{
-                  background: "rgba(255,255,255,0.06)",
-                  color: palette.ink,
-                  opacity: 0.75,
-                }}
-              >
-                #{t}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
 function EmptyDream() {
   return (
     <div className="mx-5 rounded-2xl border border-dashed border-[var(--ct-border)] px-6 py-10 flex flex-col items-center gap-2 text-center">
-      <Moon size={28} className="text-[#a78bfa] opacity-70" />
+      <Moon size={28} className="text-[var(--ct-magenta,#a78bfa)] opacity-70" />
       <div className="text-[12px] text-[var(--ct-fg)]">No dreams yet</div>
       <div className="text-[10px] text-[var(--ct-muted-fg)] max-w-[300px] leading-relaxed">
         The dreamer hasn't been to bed yet. Trigger a session manually or wait for the nightly run.

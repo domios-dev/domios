@@ -172,19 +172,102 @@ export interface DreamPalette {
   ink: string;
 }
 
-const DREAM_PALETTES: DreamPalette[] = [
-  { accent: "#a78bfa", glow: "rgba(167,139,250,0.35)", surface: "linear-gradient(155deg,#1a1530 0%,#2a1f5c 100%)", ink: "#ddd6fe" },
-  { accent: "#60a5fa", glow: "rgba(96,165,250,0.35)", surface: "linear-gradient(155deg,#0e1a2e 0%,#162d52 100%)", ink: "#dbeafe" },
-  { accent: "#34d399", glow: "rgba(52,211,153,0.30)", surface: "linear-gradient(155deg,#0f1f1a 0%,#143f30 100%)", ink: "#d1fae5" },
-  { accent: "#fbbf24", glow: "rgba(251,191,36,0.32)", surface: "linear-gradient(155deg,#1d1808 0%,#3a2a08 100%)", ink: "#fef3c7" },
-  { accent: "#f472b6", glow: "rgba(244,114,182,0.32)", surface: "linear-gradient(155deg,#21111d 0%,#4a1a3a 100%)", ink: "#fce7f3" },
-  { accent: "#fb923c", glow: "rgba(251,146,60,0.32)", surface: "linear-gradient(155deg,#241208 0%,#4d2410 100%)", ink: "#ffedd5" },
-  { accent: "#22d3ee", glow: "rgba(34,211,238,0.32)", surface: "linear-gradient(155deg,#0a1f24 0%,#103a48 100%)", ink: "#cffafe" },
-  { accent: "#f87171", glow: "rgba(248,113,113,0.30)", surface: "linear-gradient(155deg,#21111c 0%,#4a1818 100%)", ink: "#fee2e2" },
-];
+// Build palettes from the live theme palette at call time so the cards stay
+// complementary to whatever theme the user has on. Pulls ANSI colours from
+// CSS vars set by App.tsx (--ct-blue/magenta/cyan/green/yellow/red + bright_*).
+function readVar(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return raw || fallback;
+}
+
+function withAlpha(hex: string, alpha: number): string {
+  const m = hex.replace("#", "").trim();
+  if (m.length !== 3 && m.length !== 6) return hex;
+  const full = m.length === 3 ? m.split("").map((c) => c + c).join("") : m;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function darken(hex: string, factor: number): string {
+  const m = hex.replace("#", "");
+  if (m.length !== 6) return hex;
+  const r = Math.round(parseInt(m.slice(0, 2), 16) * factor);
+  const g = Math.round(parseInt(m.slice(2, 4), 16) * factor);
+  const b = Math.round(parseInt(m.slice(4, 6), 16) * factor);
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function isLightHex(hex: string): boolean {
+  const m = hex.replace("#", "").trim();
+  if (m.length !== 6) return false;
+  const r = parseInt(m.slice(0, 2), 16);
+  const g = parseInt(m.slice(2, 4), 16);
+  const b = parseInt(m.slice(4, 6), 16);
+  return (r + g + b) / 3 > 160;
+}
+
+function paletteFromAccent(accent: string, bg: string): DreamPalette {
+  const light = isLightHex(bg);
+  // Tint the surface toward the accent. On dark themes the gradient stays
+  // dark and saturated; on light themes the gradient is a soft tint of the
+  // accent so the card reads as a coloured paper card.
+  const tinted = blendHex(bg, accent, light ? 0.10 : 0.18);
+  const deep = light ? blendHex(bg, accent, 0.18) : darken(tinted, 0.85);
+  // On dark backgrounds, ink is the accent washed toward white so it pops.
+  // On light backgrounds, ink stays dark so the body is readable.
+  const ink = light
+    ? blendHex(accent, "#101216", 0.78)
+    : blendHex(accent, "#ffffff", 0.65);
+  return {
+    accent,
+    glow: withAlpha(accent, light ? 0.45 : 0.35),
+    surface: light
+      ? `linear-gradient(155deg, ${tinted} 0%, ${deep} 100%)`
+      : `linear-gradient(155deg, ${deep} 0%, ${tinted} 100%)`,
+    ink,
+  };
+}
+
+function blendHex(a: string, b: string, t: number): string {
+  const pa = a.replace("#", "");
+  const pb = b.replace("#", "");
+  if (pa.length !== 6 || pb.length !== 6) return a;
+  const ra = parseInt(pa.slice(0, 2), 16);
+  const ga = parseInt(pa.slice(2, 4), 16);
+  const ba = parseInt(pa.slice(4, 6), 16);
+  const rb = parseInt(pb.slice(0, 2), 16);
+  const gb = parseInt(pb.slice(2, 4), 16);
+  const bb = parseInt(pb.slice(4, 6), 16);
+  const r = Math.round(ra + (rb - ra) * t);
+  const g = Math.round(ga + (gb - ga) * t);
+  const bl = Math.round(ba + (bb - ba) * t);
+  return `#${[r, g, bl].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+// 8 stable slots — pulled from the live theme so cards stay complementary
+// to whatever colours the user picked. Cached per call to avoid re-reading
+// CSS vars 8x per card render.
+function dreamPalettes(): DreamPalette[] {
+  const bg = readVar("--ct-bg", "#0d1117");
+  const accents = [
+    readVar("--ct-magenta", "#a78bfa"),
+    readVar("--ct-blue", "#60a5fa"),
+    readVar("--ct-green", "#34d399"),
+    readVar("--ct-yellow", "#fbbf24"),
+    readVar("--ct-bright-magenta", "#f472b6"),
+    readVar("--ct-bright-yellow", "#fb923c"),
+    readVar("--ct-cyan", "#22d3ee"),
+    readVar("--ct-red", "#f87171"),
+  ];
+  return accents.map((c) => paletteFromAccent(c, bg));
+}
 
 export function paletteFor(seed: string): DreamPalette {
-  return DREAM_PALETTES[hash(seed) % DREAM_PALETTES.length];
+  const palettes = dreamPalettes();
+  return palettes[hash(seed) % palettes.length];
 }
 
 export function moodLabel(opts: {
@@ -193,7 +276,7 @@ export function moodLabel(opts: {
   body?: string | null;
 }): string {
   const { area, tags, body } = opts;
-  if (area && area.length > 0) return area;
+  if (area && area.length > 0 && area !== "_dreams") return area;
   if (tags && tags.length > 0) {
     const interesting = tags.find((t) => t !== "dream-diary");
     if (interesting) return interesting;
@@ -203,4 +286,93 @@ export function moodLabel(opts: {
     if (m) return m[1].toLowerCase();
   }
   return "drift";
+}
+
+export interface ParsedDream {
+  insight: string;
+  log: string | null;
+  icon: string | null;
+  mood: string | null;
+}
+
+const INSIGHT_RE = /<insight>([\s\S]*?)<\/insight>/i;
+const LOG_RE = /<log>([\s\S]*?)<\/log>/i;
+const ICON_RE = /<icon>\s*([a-z][a-z0-9-]*)\s*<\/icon>/i;
+const MOOD_RE = /<mood>\s*([^<\n]+?)\s*<\/mood>/i;
+
+// Pulls the structured `<insight>` / `<log>` / `<icon>` / `<mood>` blocks
+// out of a dream body. Falls back to treating the whole body as insight
+// when the blocks are absent (legacy entries written before the prompt
+// change).
+export function parseDream(body: string): ParsedDream {
+  if (!body) return { insight: "", log: null, icon: null, mood: null };
+  const insightMatch = body.match(INSIGHT_RE);
+  const logMatch = body.match(LOG_RE);
+  const iconMatch = body.match(ICON_RE);
+  const moodMatch = body.match(MOOD_RE);
+  if (insightMatch || logMatch || iconMatch || moodMatch) {
+    return {
+      insight: insightMatch ? insightMatch[1].trim() : "",
+      log: logMatch ? logMatch[1].trim() : null,
+      icon: iconMatch ? iconMatch[1].trim().toLowerCase() : null,
+      mood: moodMatch ? moodMatch[1].trim() : null,
+    };
+  }
+  return { insight: body.trim(), log: null, icon: null, mood: null };
+}
+
+// Map of icon slug → lucide component for slugs the dreamer is allowed to
+// pick. Same set of icons exposed in the prompt; keeping a closed list
+// avoids the dreamer inventing slugs the bundle doesn't ship.
+const NAMED_ICONS: Record<string, LucideIcon> = {
+  moon: Moon,
+  sparkles: Sparkles,
+  star: Star,
+  sun: Sun,
+  cloud: Cloud,
+  atom: Atom,
+  brain: Brain,
+  zap: Zap,
+  flame: Flame,
+  leaf: Leaf,
+  gem: Gem,
+  telescope: Telescope,
+  eye: Eye,
+  feather: Feather,
+  book: Book,
+  compass: Compass,
+  key: Key,
+  globe: Globe,
+  server: Server,
+  terminal: Terminal,
+  code: Code,
+  lock: Lock,
+  database: Database,
+  wifi: Wifi,
+  home: Home,
+  bot: Bot,
+  cpu: Cpu,
+  message: MessageSquare,
+  music: Music,
+  map: Map,
+  hammer: Hammer,
+  headphones: Headphones,
+  wand: Wand2,
+  bug: Bug,
+  branch: GitBranch,
+  ship: Ship,
+  mountain: Mountain,
+  waves: Waves,
+  wind: Wind,
+  anchor: Anchor,
+  heart: Heart,
+  coffee: Coffee,
+  activity: Activity,
+};
+
+export const ALLOWED_ICON_SLUGS = Object.keys(NAMED_ICONS);
+
+export function iconBySlug(slug: string | null | undefined): LucideIcon | null {
+  if (!slug) return null;
+  return NAMED_ICONS[slug.toLowerCase()] ?? null;
 }
