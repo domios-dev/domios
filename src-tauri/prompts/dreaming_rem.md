@@ -187,9 +187,12 @@ The extraction worker sometimes creates parallel entities for the same concept
 (e.g. `tech_claude_cli` + `tech_claude_code` + `tech_claude_exe` — three
 entities, one underlying tool). These pollute the graph. Hunt them:
 
-  codeterm mem graph search "<root word>" --type Tech --limit 30
-    # finds all Tech entities containing 'claude' (or whatever) — eyeball the
-    # list for sibling slugs that mean the same thing.
+  codeterm mem search "<root word>" --limit 20
+    # mem search returns BOTH mem_items AND graph entities. Entities show up
+    # with kind="entity:Person|Tech|Project|..." — filter the hits by that
+    # prefix to see all entity siblings sharing the root word semantically.
+    # Catches Cyrillic names / emails / properties too — entities are embedded
+    # by id+type+flat properties.
   codeterm mem graph get <id>     # read properties to confirm before merging.
 
 The Phase 1 normalize step ALREADY auto-merges entity pairs when their
