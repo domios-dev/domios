@@ -95,7 +95,7 @@ const DEFAULT_CONFIG: AppConfig = {
     dreaming_agent: "",
     dreaming_model: "haiku",
     worker_model: "haiku",
-    worker_timeout_seconds: 150,
+    worker_timeout_seconds: 1800,
     dedup_threshold: 0.15,
     file_sync_enabled: true,
     file_sync_interval_minutes: 60,

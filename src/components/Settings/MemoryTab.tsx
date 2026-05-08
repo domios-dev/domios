@@ -5,7 +5,7 @@ import { canonicalizeShort } from "../../lib/modelLabels";
 import { Group, Label } from "./shared";
 
 export function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
-  const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_agent: "", dreaming_model: "haiku", worker_model: "haiku", worker_timeout_seconds: 150, file_sync_enabled: true, file_sync_interval_minutes: 60, dedup_threshold: 0.15 };
+  const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_agent: "", dreaming_model: "haiku", worker_model: "haiku", worker_timeout_seconds: 1800, file_sync_enabled: true, file_sync_interval_minutes: 60, dedup_threshold: 0.15 };
   const rawMem = { ...defaultMem, ...(config.memory ?? {}) };
   const mem = {
     ...rawMem,
