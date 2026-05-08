@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import { EventRow } from "./EventRenderer";
+import { ClaudeStreamParser, mergeAssistantMessages } from "./streamParser";
 import { useAgentRunStream } from "./useAgentRunStream";
 
 interface Props {
@@ -38,11 +39,23 @@ export function AgentRunLogPopup({
   const isTerminal = TERMINAL_STATUSES.has(status);
   const enabled = !!paneId;
 
-  const { events, rawLines, connected, error } = useAgentRunStream({
+  const { events: liveEvents, rawLines, connected, error } = useAgentRunStream({
     api,
     paneId,
     enabled,
   });
+
+  // Run the fallback log (for terminal workers) through the SAME stream parser
+  // as live runs so completed sessions render with collapsed thinking, tool
+  // calls, and tool results — not a wall of raw JSON.
+  const fallbackEvents = useMemo(() => {
+    if (!fallbackText) return [];
+    const parser = new ClaudeStreamParser();
+    const parsed = parser.feed(fallbackText);
+    return mergeAssistantMessages(parsed.events);
+  }, [fallbackText]);
+
+  const events = liveEvents.length > 0 ? liveEvents : fallbackEvents;
 
   const [showRaw, setShowRaw] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -66,6 +79,8 @@ export function AgentRunLogPopup({
     if (e.target === backdropRef.current) onClose();
   };
 
+  // Only show raw fallback text when the parser couldn't produce a single
+  // event from it (truly garbage output). Otherwise the parsed events render.
   const showFallback =
     events.length === 0 && rawLines.length === 0 && !!fallbackText;
 
