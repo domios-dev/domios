@@ -187,9 +187,10 @@ The extraction worker sometimes creates parallel entities for the same concept
 (e.g. `tech_claude_cli` + `tech_claude_code` + `tech_claude_exe` — three
 entities, one underlying tool). These pollute the graph. Hunt them:
 
-  codeterm mem graph hubs --threshold 1 --sample 1 2>/dev/null > /tmp/_all.json
-  # Or query existing_anchors / similar siblings via prefix:
-  # bash patterns to find suspiciously close entity ids by shared prefix.
+  codeterm mem graph search "<root word>" --type Tech --limit 30
+    # finds all Tech entities containing 'claude' (or whatever) — eyeball the
+    # list for sibling slugs that mean the same thing.
+  codeterm mem graph get <id>     # read properties to confirm before merging.
 
 The Phase 1 normalize step ALREADY auto-merges entity pairs when their
 suffix-Levenshtein-ratio >= 0.85 AND their degrees differ. Pairs that didn't
