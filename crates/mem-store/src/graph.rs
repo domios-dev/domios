@@ -169,13 +169,15 @@ pub fn revive_broken(conn: &Connection, opts: ReviveBrokenOptions) -> MemStoreRe
     };
 
     if !opts.dry_run && count > 0 {
+        let tx = conn.unchecked_transaction()?;
         let upd_sql = format!(
             "UPDATE relations SET valid_to = NULL, reason = COALESCE(reason, 'revive-broken') WHERE {}",
             sql
         );
         let bind_refs: Vec<&dyn rusqlite::ToSql> =
             binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
-        conn.execute(&upd_sql, rusqlite::params_from_iter(bind_refs))?;
+        tx.execute(&upd_sql, rusqlite::params_from_iter(bind_refs))?;
+        tx.commit()?;
     }
 
     Ok(ReviveBrokenReport { revived: count, dry_run: opts.dry_run })
@@ -193,13 +195,22 @@ pub fn introduce_topic(
 
     let tx = conn.unchecked_transaction()?;
 
-    let already: i64 = tx.query_row(
-        "SELECT COUNT(*) FROM entities WHERE id=?1",
-        rusqlite::params![opts.topic_id],
-        |r| r.get(0),
-    )?;
-    let topic_created = already == 0;
-    if topic_created {
+    let existing_type: Option<String> = tx
+        .query_row(
+            "SELECT entity_type FROM entities WHERE id=?1",
+            rusqlite::params![opts.topic_id],
+            |r| r.get::<_, String>(0),
+        )
+        .ok();
+    let topic_created = existing_type.is_none();
+    if let Some(et) = &existing_type {
+        if et != &opts.entity_type {
+            return Err(MemStoreError::Conflict(format!(
+                "entity {} exists with type {} but caller requested {}",
+                opts.topic_id, et, opts.entity_type
+            )));
+        }
+    } else {
         tx.execute(
             "INSERT INTO entities (id, entity_type, scope, properties_json, created_at, updated_at)
              VALUES (?1, ?2, 'global', '{}', ?3, ?3)",

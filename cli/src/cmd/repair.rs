@@ -1,6 +1,5 @@
 // `mem repair` — opens knowledge.db directly so it works while the
-// daemon is wedged. Delegates the actual work to codeterm-mem-store::graph
-// since v1.1.23.
+// daemon is wedged.
 
 use codeterm_mem_store::{graph, migrations};
 

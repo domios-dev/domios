@@ -303,6 +303,32 @@ fn introduce_topic_creates_topic_routes_sources_invalidates_direct() {
 }
 
 #[test]
+fn introduce_topic_conflicts_when_existing_entity_has_different_type() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
+            VALUES ('topic_existing','Document','global','{}','2026-01-01','2026-01-01'),
+                   ('anchor','Hub','global','{}','2026-01-01','2026-01-01'),
+                   ('s1','Source','global','{}','2026-01-01','2026-01-01');"
+    ).unwrap();
+    let err = crate::graph::introduce_topic(&conn, crate::graph::IntroduceTopicOptions {
+        topic_id: "topic_existing".into(),
+        entity_type: "Topic".into(),
+        sources: vec!["s1".into()],
+        anchor: "anchor".into(),
+        rel_source: "about".into(),
+        rel_anchor: "about".into(),
+        reason: None,
+    }).expect_err("must conflict");
+    let msg = format!("{}", err);
+    assert!(msg.contains("topic_existing"), "msg: {}", msg);
+    assert!(msg.contains("Document"), "msg: {}", msg);
+    assert!(msg.contains("Topic"), "msg: {}", msg);
+}
+
+#[test]
 fn introduce_topic_handles_existing_entity_idempotently() {
     let conn = Connection::open_in_memory().unwrap();
     init_v1_22_schema(&conn);
