@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ApiConfig } from "../../lib/types";
 import { EventRow } from "./EventRenderer";
 import { ClaudeStreamParser, mergeAssistantMessages } from "./streamParser";
@@ -101,12 +102,12 @@ export function AgentRunLogPopup({
   const showFallback =
     events.length === 0 && rawLines.length === 0 && !!fallbackText;
 
-  return (
+  return createPortal(
     <div
       ref={backdropRef}
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-[60] flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.4)" }}
+      className="fixed inset-0 z-[60] flex items-center justify-center backdrop-blur-sm"
+      style={{ background: "rgba(0,0,0,0.65)" }}
     >
       <div
         className="flex flex-col bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-lg shadow-2xl"
@@ -201,7 +202,8 @@ export function AgentRunLogPopup({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

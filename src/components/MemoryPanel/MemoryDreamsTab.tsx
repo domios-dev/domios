@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import {
   Moon,
@@ -7,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  X,
 } from "lucide-react";
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
 import { canonicalizeShort } from "../../lib/modelLabels";
@@ -104,6 +106,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
   const [dreamCron, setDreamCron] = useState<CronJob | null>(null);
   const [dreamWorkers, setDreamWorkers] = useState<GraphWorkerInfo[]>([]);
   const [logWorker, setLogWorker] = useState<GraphWorkerInfo | null>(null);
+  const [openDream, setOpenDream] = useState<DreamDiaryEntry | null>(null);
   const [diaryEntries, setDiaryEntries] = useState<DreamDiaryEntry[]>([]);
   const [diaryLoading, setDiaryLoading] = useState(true);
   const [memCfg, setMemCfg] = useState<MemoryConfig | null>(null);
@@ -401,7 +404,11 @@ function MemoryDreamsTabImpl({ api }: Props) {
             style={{ scrollbarWidth: "thin" }}
           >
             {diaryEntries.map((entry) => (
-              <DreamCard key={entry.id} entry={entry} />
+              <DreamCard
+                key={entry.id}
+                entry={entry}
+                onOpen={() => setOpenDream(entry)}
+              />
             ))}
           </div>
         )}
@@ -536,6 +543,9 @@ function MemoryDreamsTabImpl({ api }: Props) {
       {logWorker && (
         <WorkerLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
       )}
+      {openDream && (
+        <DreamDetailModal entry={openDream} onClose={() => setOpenDream(null)} />
+      )}
     </div>
   );
 }
@@ -562,7 +572,7 @@ function DreamSwitch({ checked, onChange }: { checked: boolean; onChange: (v: bo
   );
 }
 
-function DreamCard({ entry }: { entry: DreamDiaryEntry }) {
+function DreamCard({ entry, onOpen }: { entry: DreamDiaryEntry; onOpen: () => void }) {
   const Icon = iconForDream({
     area: entry.area,
     tags: entry.tags,
@@ -578,7 +588,8 @@ function DreamCard({ entry }: { entry: DreamDiaryEntry }) {
   return (
     <article
       data-dream-card
-      className="snap-start shrink-0 w-[260px] h-[280px] rounded-2xl overflow-hidden relative flex flex-col group cursor-default"
+      onClick={onOpen}
+      className="snap-start shrink-0 w-[260px] h-[280px] rounded-2xl overflow-hidden relative flex flex-col group cursor-pointer hover:scale-[1.02] transition-transform"
       style={{
         background: palette.surface,
         boxShadow: `0 8px 24px -12px ${palette.glow}, inset 0 0 0 1px ${palette.accent}22`,
@@ -658,6 +669,148 @@ function DreamCard({ entry }: { entry: DreamDiaryEntry }) {
         )}
       </div>
     </article>
+  );
+}
+
+function DreamDetailModal({ entry, onClose }: { entry: DreamDiaryEntry; onClose: () => void }) {
+  const Icon = iconForDream({
+    area: entry.area,
+    tags: entry.tags,
+    body: entry.body,
+    title: entry.title,
+  });
+  const palette = paletteFor(`${entry.area ?? ""}:${entry.title}`);
+  const mood = moodLabel({ area: entry.area, tags: entry.tags, body: entry.body });
+  const date = dreamDate(entry.created_at);
+  const visibleTags = (entry.tags ?? []).filter((t) => t !== "dream-diary");
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-[70] flex items-center justify-center backdrop-blur-md"
+      style={{ background: "rgba(2,4,12,0.78)" }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative flex flex-col rounded-2xl overflow-hidden"
+        style={{
+          width: "min(720px, 92vw)",
+          height: "min(680px, 88vh)",
+          background: palette.surface,
+          boxShadow: `0 20px 60px -12px ${palette.glow}, inset 0 0 0 1px ${palette.accent}33`,
+        }}
+      >
+        <div
+          className="absolute top-0 right-0 w-[280px] h-[280px] rounded-full pointer-events-none opacity-50 blur-3xl"
+          style={{ background: palette.accent, transform: "translate(40%,-40%)" }}
+        />
+        <div
+          className="absolute bottom-0 left-0 w-[200px] h-[200px] rounded-full pointer-events-none opacity-25 blur-3xl"
+          style={{ background: palette.accent, transform: "translate(-40%,40%)" }}
+        />
+
+        {/* Header */}
+        <div className="relative flex items-start gap-4 px-6 pt-6 pb-4">
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+            style={{
+              background: `${palette.accent}26`,
+              border: `1px solid ${palette.accent}55`,
+              color: palette.accent,
+            }}
+          >
+            <Icon size={20} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <span
+              className="inline-block text-[10px] uppercase tracking-[0.3em] px-2 py-0.5 rounded-full mb-2"
+              style={{
+                background: `${palette.accent}26`,
+                color: palette.accent,
+              }}
+            >
+              {mood}
+            </span>
+            <div
+              className="text-[20px] leading-tight font-light"
+              style={{ color: palette.ink }}
+            >
+              {entry.title}
+            </div>
+            <div
+              className="text-[11px] mt-1 opacity-65 tabular-nums"
+              style={{ color: palette.ink }}
+            >
+              {date.month} {date.day}, {date.year}
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <div className="text-right">
+              <div
+                className="text-[36px] leading-none font-light tracking-tight"
+                style={{ color: palette.ink }}
+              >
+                {date.day}
+              </div>
+              <div
+                className="text-[9px] tracking-[0.3em] mt-1.5 opacity-70"
+                style={{ color: palette.ink }}
+              >
+                {date.month}
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="w-7 h-7 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer text-white/80 hover:text-white"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div
+          className="relative flex-1 overflow-y-auto px-6 pb-5"
+          style={{ color: palette.ink }}
+        >
+          <pre
+            className="whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed m-0"
+            style={{ opacity: 0.92 }}
+          >
+            {entry.body}
+          </pre>
+        </div>
+
+        {/* Tags */}
+        {visibleTags.length > 0 && (
+          <div className="relative px-6 pb-5 pt-3 border-t border-white/8 flex items-center gap-1.5 flex-wrap">
+            {visibleTags.map((t) => (
+              <span
+                key={t}
+                className="text-[10px] tracking-wide px-2 py-0.5 rounded-full"
+                style={{
+                  background: "rgba(255,255,255,0.06)",
+                  color: palette.ink,
+                  opacity: 0.75,
+                }}
+              >
+                #{t}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body,
   );
 }
 
