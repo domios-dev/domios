@@ -171,12 +171,6 @@ pub enum MemAction {
         #[arg(long)]
         title: Option<String>,
     },
-    /// Run dreaming consolidation. Phases: light, deep, normalize, all (default).
-    Dream {
-        /// Which phase to run: light | deep | normalize | all
-        #[arg(long, default_value = "all")]
-        phase: String,
-    },
     /// Trigger file sync for source-tracked items (Librarian)
     Sync {
         /// Sync one file by path
@@ -219,6 +213,61 @@ pub enum MemAction {
     Repair {
         #[command(subcommand)]
         action: MemRepairAction,
+    },
+    /// Dreamer review/apply: heuristic re-cluster planner + apply step.
+    /// Opens the DB directly — no daemon round-trip.
+    Dream {
+        #[command(subcommand)]
+        action: MemDreamAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemDreamAction {
+    /// Run dreaming consolidation via the daemon. Phases: light, deep,
+    /// normalize, all (default). Replaces the v1.1.22 `mem dream --phase ...`
+    /// form which is gone in v1.1.23.
+    Run {
+        /// Which phase to run: light | deep | normalize | all
+        #[arg(long, default_value = "all")]
+        phase: String,
+    },
+    /// Heuristic hub detection + dominant-relation cluster proposal. Writes
+    /// a markdown plan with YAML-fenced action blocks to
+    /// `~/.codeterm/mem/dream-plans/<utc-ts>.md` (or --out). The user
+    /// reviews / edits / deletes sections, then runs `mem dream apply`.
+    #[clap(name = "suggest-clusters")]
+    SuggestClusters {
+        /// Hub degree threshold. Defaults to 25 for prod; drop to ~5 for
+        /// dev DBs which have far fewer relations.
+        #[arg(long, default_value = "25")]
+        threshold: u32,
+        /// Override the output plan path.
+        #[arg(long)]
+        out: Option<String>,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
+    },
+    /// Re-parse a plan file and call `introduce_topic` for each YAML-fenced
+    /// action block. Malformed individual fences become warnings; the rest
+    /// still run. After a successful run the file is renamed to
+    /// `<name>-applied.md` with a summary footer appended.
+    Apply {
+        /// Path to the plan markdown file.
+        plan_file: String,
+        /// Override the path to knowledge.db.
+        #[arg(long)]
+        db_path: Option<String>,
+    },
+    /// Placeholder for Track 4b. Returns a non-zero exit with a deferral
+    /// message — actual LLM-driven re-cluster lands in v1.1.23 / v1.1.24.
+    #[clap(name = "llm-recluster")]
+    LlmRecluster {
+        #[arg(long, default_value = "25")]
+        threshold: u32,
+        #[arg(long)]
+        out: Option<String>,
     },
 }
 

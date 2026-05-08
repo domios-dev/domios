@@ -149,7 +149,7 @@ mod args;
 pub use args::cli::{Cli, Commands};
 pub use args::sessions::SessionsAction;
 pub use args::system::SystemAction;
-pub use args::mem::{MemAction, MemRepairAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
+pub use args::mem::{MemAction, MemDreamAction, MemRepairAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
 pub use args::agent::AgentAction;
 pub use args::cron::CronAction;
 pub use args::update::UpdateAction;
@@ -290,6 +290,18 @@ fn main() {
     if let Commands::Mem { action: MemAction::Graph { ref action } } = cli.command {
         if let Some(()) = cmd::graph_mutate::try_dispatch_local(action) {
             unreachable!("local graph dispatch must exit");
+        }
+    }
+
+    // `mem dream` opens knowledge.db directly. Bridge ping is best-effort
+    // and routed through `discover_socket` itself so a wedged daemon
+    // doesn't break the planner.
+    if let Commands::Mem { action: MemAction::Dream { .. } } = cli.command {
+        match cli.command {
+            Commands::Mem { action: MemAction::Dream { action } } => {
+                cmd::dream::handle_dream(action);
+            }
+            _ => unreachable!(),
         }
     }
 

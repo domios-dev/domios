@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod bridge;
 pub mod cron;
+pub mod dream;
 pub mod graph_mutate;
 pub mod install;
 pub mod mem;

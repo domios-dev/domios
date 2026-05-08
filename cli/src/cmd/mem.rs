@@ -364,10 +364,6 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 "pane": pane_id, "title": title,
             }))
         }
-        MemAction::Dream { phase } => {
-            let url = format!("{}/api/mem/dream?phase={}", base, urlencoding::encode(&phase));
-            mem_post_request(&http, &url, &serde_json::json!({}))
-        }
         MemAction::Sync { path } => {
             let mut url = format!("{}/api/mem/sync", base);
             if let Some(p) = path {
@@ -485,6 +481,7 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
         }
         MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
         MemAction::Repair { .. } => unreachable!("Repair is short-circuited in main()"),
+        MemAction::Dream { .. } => unreachable!("Dream is short-circuited in main()"),
         MemAction::Secret { action } => {
             return crate::cmd::mem_secret::handle_mem_secret(json_mode, &http, &base, action);
         }

@@ -1,5 +1,7 @@
 use rusqlite::Connection;
 
+mod cluster;
+
 pub(crate) fn init_v1_22_schema(conn: &Connection) {
     conn.execute_batch(
         "CREATE TABLE relations (
@@ -542,3 +544,4 @@ fn add_alias_with_rewire_rejects_self_alias() {
     let err = crate::graph::add_alias_with_rewire(&conn, "x", "x").unwrap_err();
     assert!(matches!(err, crate::error::MemStoreError::InvalidArgument(_)));
 }
+
