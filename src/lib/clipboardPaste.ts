@@ -118,16 +118,33 @@ export async function pasteClipboardToPty(ptyId: string): Promise<boolean> {
     return sendFilePathsToPty(ptyId, nativePaths);
   }
 
-  const web = await readWebClipboard();
-  if (web.text !== null) {
-    await invoke("write_pty_string", { ptyId, data: web.text });
+  // Prefer readText() over the read()+classifier path: WebView2 truncates
+  // long blobs returned by ClipboardItem.getType("text/plain"). readText()
+  // reliably delivers the full string.
+  const plain = await readPlainTextSafely();
+  if (plain) {
+    await invoke("write_pty_string", { ptyId, data: plain });
+    return true;
   }
+
+  // No plain text — fall back to the classifier path for images and the
+  // HTML-only edge case (saves the payload to a temp file, paste the path).
+  const web = await readWebClipboard();
   if (web.paths.length > 0) {
     await sendFilePathsToPty(ptyId, web.paths);
+    return true;
   }
-  if (web.text !== null || web.paths.length > 0) return true;
 
-  return fallbackReadText(ptyId);
+  return false;
+}
+
+async function readPlainTextSafely(): Promise<string | null> {
+  try {
+    const text = await navigator.clipboard.readText();
+    return text || null;
+  } catch {
+    return null;
+  }
 }
 
 async function readNativeClipboardFiles(): Promise<string[]> {
@@ -194,17 +211,6 @@ async function saveHtmlPayload(html: string): Promise<string | null> {
     return await invoke<string>("save_clipboard_file", { bytes, filename: "clipboard.html" });
   } catch {
     return null;
-  }
-}
-
-async function fallbackReadText(ptyId: string): Promise<boolean> {
-  try {
-    const text = await navigator.clipboard.readText();
-    if (!text) return false;
-    await invoke("write_pty_string", { ptyId, data: text });
-    return true;
-  } catch {
-    return false;
   }
 }
 
