@@ -326,6 +326,32 @@ pub mod inner {
         chunks
     }
 
+    /// Build the embeddable text for a graph entity. Concatenates id + type
+    /// + flattened properties so vector recall finds the entity by id substring,
+    /// type, name, email, role, etc. — whatever was stuffed into properties_json.
+    pub fn embeddable_text_for_entity(
+        id: &str,
+        entity_type: &str,
+        properties_json: &str,
+    ) -> String {
+        let mut out = format!("{} {}", id, entity_type);
+        if let Ok(serde_json::Value::Object(map)) =
+            serde_json::from_str::<serde_json::Value>(properties_json)
+        {
+            for (k, v) in map.iter() {
+                let v_str = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                out.push(' ');
+                out.push_str(k);
+                out.push_str(": ");
+                out.push_str(&v_str);
+            }
+        }
+        out
+    }
+
     /// Index a single mem_item by id. Chunks long bodies into overlapping
     /// segments and embeds each separately for better recall granularity.
     /// Uses DELETE + INSERT because vec0 virtual tables don't support
@@ -419,9 +445,14 @@ pub mod inner {
     pub fn recall(_conn: &Connection, _query: &str, _k: usize) -> Result<Vec<(String, f64)>, String> {
         Err("embeddings feature not enabled".into())
     }
+    pub fn embeddable_text_for_entity(id: &str, entity_type: &str, _props: &str) -> String {
+        format!("{} {}", id, entity_type)
+    }
 }
 
-pub use inner::{embed, ensure_extension_registered, index, init_extension, recall};
+pub use inner::{
+    embed, embeddable_text_for_entity, ensure_extension_registered, index, init_extension, recall,
+};
 
 #[cfg(test)]
 mod tests {

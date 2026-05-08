@@ -27,8 +27,8 @@ Persistent memory across sessions, provider switches, and upgrades lives in **Co
 codeterm mem search "<query>"               # hybrid: FTS5 + vector embeddings, RRF-fused
 codeterm mem get <id>                       # full body of one item
 codeterm mem wake-up                        # L0 identity + L1 critical facts — already injected into this prompt on every start; only re-run mid-session if you suspect mem changed
-codeterm mem graph search "<name>" --type Person   # find graph entities (Person/Tech/Project) — `mem search` only hits mem_items
 codeterm mem graph get <entity_id>          # entity properties (email/role/etc), in/out degree
+                                            # `mem search` finds entities too (kind="entity:Person" etc) — no separate verb needed
 codeterm mem dream diary                    # latest Dreamer reflection: PATTERN / CONNECTION / IDEA / WHAT IF / HUBS / ONE ACTION
 codeterm mem dream run --phase all          # trigger a fresh Dreamer cycle now
 ```

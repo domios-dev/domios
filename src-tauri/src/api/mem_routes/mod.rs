@@ -18,8 +18,8 @@ pub use graph::{
 };
 pub use items::{
     mem_activity_recent, mem_check_duplicate, mem_delete, mem_flush, mem_forget_area, mem_get,
-    mem_history, mem_learn, mem_promote, mem_save, mem_search, mem_stats, mem_tail, mem_taxonomy,
-    mem_update, mem_wake_up,
+    mem_history, mem_learn, mem_promote, mem_reembed, mem_save, mem_search, mem_stats, mem_tail,
+    mem_taxonomy, mem_update, mem_wake_up,
 };
 pub use pinned::{mem_pinned_positions_delete, mem_pinned_positions_list, mem_pinned_positions_set};
 pub use sync::{mem_sync, mem_sync_status};

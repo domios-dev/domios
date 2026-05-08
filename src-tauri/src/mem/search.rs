@@ -207,7 +207,7 @@ pub fn run_with_config(
     let mut hits: Vec<SearchHit> = Vec::new();
     for row in rows {
         let (id, bm25) = row.map_err(|e| e.to_string())?;
-        let Some(item) = super::store::get(conn, &id, blobs_dir)? else {
+        let Some(item) = super::store::get_or_synthesize_entity(conn, &id, blobs_dir)? else {
             continue;
         };
         let overlap = keyword_overlap(&keywords, &item);
@@ -429,7 +429,7 @@ pub fn hybrid_rrf_with_config(
         let raw = super::embeddings::recall(conn, &q.query, pool).unwrap_or_default();
         let mut out = Vec::new();
         for (id, dist) in raw {
-            if let Ok(Some(item)) = super::store::get(conn, &id, blobs_dir) {
+            if let Ok(Some(item)) = super::store::get_or_synthesize_entity(conn, &id, blobs_dir) {
                 // Filter by kind/scope/area if specified
                 if let Some(ref k) = q.kind { if item.kind != *k { continue; } }
                 if let Some(ref s) = q.scope { if item.scope != *s { continue; } }
@@ -492,7 +492,7 @@ pub fn hybrid_rrf_with_config(
             let rrf = 1.0 / (cfg.rrf_k + rank as f64);
             if let Some(entry) = rrf_scores.get_mut(*gid) {
                 entry.0 += rrf;
-            } else if let Ok(Some(item)) = super::store::get(conn, gid, blobs_dir) {
+            } else if let Ok(Some(item)) = super::store::get_or_synthesize_entity(conn, gid, blobs_dir) {
                 if let Some(ref k) = q.kind { if item.kind != *k { continue; } }
                 if let Some(ref s) = q.scope { if item.scope != *s { continue; } }
                 if let Some(ref a) = q.area { if item.area.as_deref() != Some(a) { continue; } }
@@ -561,7 +561,7 @@ pub fn run_vector_first(
 
     let mut hits: Vec<SearchHit> = Vec::with_capacity(raw.len());
     for (id, dist) in raw {
-        let Some(item) = super::store::get(conn, &id, blobs_dir)? else { continue };
+        let Some(item) = super::store::get_or_synthesize_entity(conn, &id, blobs_dir)? else { continue };
         if let Some(ref k) = q.kind { if item.kind != *k { continue; } }
         if let Some(ref s) = q.scope { if item.scope != *s { continue; } }
         if let Some(ref a) = q.area { if item.area.as_deref() != Some(a) { continue; } }

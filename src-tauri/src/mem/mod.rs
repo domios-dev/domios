@@ -84,6 +84,14 @@ impl MemManager {
             log::warn!("[mem] sqlite-vec init failed: {} — semantic recall disabled", e);
         }
 
+        // Backfill: any entity row that has no mem_vectors entry (typically
+        // entities created before v1.1.23 wired auto-embed-on-create) gets
+        // embedded now. Idempotent — entities already embedded are skipped.
+        // Best-effort: errors logged, never block startup.
+        if let Err(e) = backfill_entity_embeddings(&conn) {
+            log::warn!("[mem] entity-embedding backfill failed: {}", e);
+        }
+
         let heavy_ops_permits = Arc::new(Semaphore::new(HEAVY_OPS_PERMITS));
         let embed_queue = embed_queue::EmbedQueue::start(db_path.clone(), heavy_ops_permits.clone());
 
@@ -241,4 +249,54 @@ pub struct MemStats {
     pub total_entities: u64,
     #[serde(default)]
     pub total_vectors: u64,
+}
+
+/// Embed every graph entity that doesn't already have a row in `mem_vectors`.
+/// Called once on `MemManager::open` so daemon startup auto-backfills entities
+/// created before v1.1.23 wired embed-on-create. Idempotent: existing vectors
+/// are not re-computed; new ones are added; entities are skipped on embed
+/// failure (logged) so one bad row can't block the whole backfill.
+fn backfill_entity_embeddings(conn: &Connection) -> Result<(), String> {
+    use rusqlite::params;
+    // Pull entities lacking any mem_vectors row (matched on the canonical id —
+    // chunked vectors live under `<id>_chunk_N`, but graph-entity bodies are
+    // tiny so we expect one row per id). LEFT JOIN to detect absence.
+    let mut stmt = conn
+        .prepare(
+            "SELECT e.id, e.entity_type, e.properties_json
+             FROM entities e
+             LEFT JOIN mem_vectors v ON v.mem_id = e.id
+             WHERE v.mem_id IS NULL",
+        )
+        .map_err(|e| format!("backfill prepare: {}", e))?;
+    let rows: Vec<(String, String, String)> = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("backfill query: {}", e))?
+        .filter_map(Result::ok)
+        .collect();
+
+    if rows.is_empty() {
+        log::info!("[mem.backfill] entity embeddings already up to date");
+        return Ok(());
+    }
+
+    log::info!("[mem.backfill] embedding {} entities missing from mem_vectors", rows.len());
+    let total = rows.len();
+    let mut ok_count = 0usize;
+    for (id, entity_type, props_json) in rows {
+        let text = embeddings::embeddable_text_for_entity(&id, &entity_type, &props_json);
+        match embeddings::index(conn, &id, &text) {
+            Ok(_) => ok_count += 1,
+            Err(e) => log::warn!("[mem.backfill] embed {} failed: {}", id, e),
+        }
+        let _ = params![]; // silence unused import warning if rusqlite path inactive
+    }
+    log::info!("[mem.backfill] entity embedding backfill done: {}/{} OK", ok_count, total);
+    Ok(())
 }
