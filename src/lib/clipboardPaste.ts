@@ -5,6 +5,57 @@ export interface PasteOptions {
   skipText?: boolean;
 }
 
+export type ClipboardPayload =
+  | { kind: "image"; bytes: Blob; mime: string }
+  | { kind: "plain"; text: string }
+  | { kind: "html"; html: string };
+
+// Minimal subset of ClipboardItem used by the classifier — keeps the helper
+// testable without a real browser ClipboardItem.
+export interface ClipboardItemLike {
+  types: ReadonlyArray<string>;
+  getType(type: string): Promise<Blob>;
+}
+
+// Why text/plain MUST win over text/html:
+// Browsers and rich-text apps put both on the clipboard. Saving text/html
+// to a temp file would shadow the plain text the user actually copied.
+export async function classifyClipboardPayload(
+  item: ClipboardItemLike,
+): Promise<ClipboardPayload | null> {
+  const imageType = item.types.find((t) => t.startsWith("image/"));
+  if (imageType) {
+    try {
+      const bytes = await item.getType(imageType);
+      return { kind: "image", bytes, mime: imageType };
+    } catch {
+      // Image read failed — fall through to text branches.
+    }
+  }
+
+  if (item.types.includes("text/plain")) {
+    try {
+      const blob = await item.getType("text/plain");
+      const text = await blob.text();
+      if (text) return { kind: "plain", text };
+    } catch {
+      // text/plain failed — fall through to html.
+    }
+  }
+
+  if (item.types.includes("text/html")) {
+    try {
+      const blob = await item.getType("text/html");
+      const html = await blob.text();
+      if (html) return { kind: "html", html };
+    } catch {
+      // ignore
+    }
+  }
+
+  return null;
+}
+
 export function looksLikeAbsolutePath(s: string): boolean {
   const t = s.trim();
   return /^([A-Za-z]:[\\/]|\/|~\/)/.test(t) && !t.includes("\n") && t.length < 1000;
@@ -109,15 +160,25 @@ async function readWebClipboard(skipText: boolean): Promise<WebClipboardResult> 
     let text: string | null = null;
 
     for (const item of items) {
-      const imagePath = await saveImageItem(item);
-      if (imagePath) { paths.push(imagePath); continue; }
+      const payload = await classifyClipboardPayload(item);
+      if (!payload) continue;
 
-      const filePath = await saveFileItem(item);
-      if (filePath) { paths.push(filePath); continue; }
-
-      if (!skipText && text === null) {
-        text = await readTextItem(item);
+      if (payload.kind === "image") {
+        const path = await saveImagePayload(payload.bytes, payload.mime);
+        if (path) paths.push(path);
+        continue;
       }
+
+      if (payload.kind === "plain") {
+        if (!skipText && text === null) text = payload.text;
+        continue;
+      }
+
+      // payload.kind === "html" — only reached when text/plain wasn't on the
+      // clipboard. Keeps the old "save HTML to file, paste path" fallback for
+      // edge cases where a source app provides HTML alone.
+      const path = await saveHtmlPayload(payload.html);
+      if (path) paths.push(path);
     }
 
     return { paths, text };
@@ -126,43 +187,23 @@ async function readWebClipboard(skipText: boolean): Promise<WebClipboardResult> 
   }
 }
 
-async function saveImageItem(item: ClipboardItem): Promise<string | null> {
-  const imageType = item.types.find((t) => t.startsWith("image/"));
-  if (!imageType) return null;
+async function saveImagePayload(blob: Blob, mime: string): Promise<string | null> {
   try {
-    const bytes = await blobBytes(await item.getType(imageType));
-    const ext = extFromMime(imageType);
+    const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+    const ext = extFromMime(mime);
     return await invoke<string>("save_clipboard_image", { bytes, ext });
   } catch {
     return null;
   }
 }
 
-async function saveFileItem(item: ClipboardItem): Promise<string | null> {
-  const mimeType = item.types.find((t) => t !== "text/plain" && !t.startsWith("image/"));
-  if (!mimeType) return null;
+async function saveHtmlPayload(html: string): Promise<string | null> {
   try {
-    const bytes = await blobBytes(await item.getType(mimeType));
-    const filename = `clipboard.${extFromMime(mimeType)}`;
-    return await invoke<string>("save_clipboard_file", { bytes, filename });
+    const bytes = Array.from(new TextEncoder().encode(html));
+    return await invoke<string>("save_clipboard_file", { bytes, filename: "clipboard.html" });
   } catch {
     return null;
   }
-}
-
-async function readTextItem(item: ClipboardItem): Promise<string | null> {
-  if (!item.types.includes("text/plain")) return null;
-  try {
-    const blob = await item.getType("text/plain");
-    const text = await blob.text();
-    return text || null;
-  } catch {
-    return null;
-  }
-}
-
-async function blobBytes(blob: Blob): Promise<number[]> {
-  return Array.from(new Uint8Array(await blob.arrayBuffer()));
 }
 
 async function fallbackReadText(ptyId: string): Promise<boolean> {

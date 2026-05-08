@@ -37,9 +37,7 @@ export function useTerminalInput({
   const pasteFromClipboard = useCallback(() => {
     const currentPtyId = connectedPtyRef.current;
     if (!currentPtyId) return;
-    navigator.clipboard.readText().then((text) => {
-      if (text) invoke("write_pty_string", { ptyId: currentPtyId, data: text });
-    }).catch(() => {});
+    pasteClipboardToPty(currentPtyId).catch(() => {});
   }, [connectedPtyRef]);
 
   const clearTerminal = useCallback(() => {
