@@ -30,26 +30,24 @@ where
     if addresses.is_empty() {
         return Err("no addresses".to_string());
     }
+
     let mut sorted: Vec<&PeerAddress> = addresses.iter().collect();
     sorted.sort_by_key(|a| address_tier(a));
-    let mut errors: Vec<String> = Vec::new();
+
     for (idx, addr) in sorted.iter().enumerate() {
         match op(addr).await {
             TryNext::Success(v) => {
                 if idx > 0 {
-                    tracing::info!(
-                        "[mesh/transport] fell back to {} after {} prior failure(s)",
-                        addr.ip,
-                        idx
-                    );
+                    tracing::info!("[mesh/transport] fell back to {} after {} prior failure(s)", addr.ip, idx);
                 }
                 return Ok(v);
             }
             TryNext::Stop(e) => return Err(e),
-            TryNext::Retry(e) => errors.push(format!("{}: {}", addr.ip, e)),
+            TryNext::Retry(e) => tracing::debug!("[mesh/transport] {} failed: {}", addr.ip, e),
         }
     }
-    Err(format!("all addresses failed: {}", errors.join("; ")))
+
+    Err("all addresses failed".to_string())
 }
 
 /// HTTP client for communicating with a paired mesh peer.
@@ -64,10 +62,7 @@ impl PeerClient {
     /// Create a client with signed JWT auth.
     pub fn new_signed(address: &str, port: u16, signed_token: &str) -> Self {
         Self {
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .unwrap_or_default(),
+            client: Self::http_client(),
             base_url: format!("http://{}:{}", address, port),
             signed_token: Some(signed_token.to_string()),
         }
@@ -76,25 +71,37 @@ impl PeerClient {
     /// Create a client without auth (for pairing requests only).
     pub fn new_unauthenticated(address: &str, port: u16) -> Self {
         Self {
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .unwrap_or_default(),
+            client: Self::http_client(),
             base_url: format!("http://{}:{}", address, port),
             signed_token: None,
         }
     }
 
-    fn auth_header(&self) -> Option<(String, String)> {
-        self.signed_token.as_ref().map(|t| {
-            ("Authorization".to_string(), format!("Bearer {}", t))
-        })
+    /// Create a configured HTTP client.
+    fn http_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap_or_default()
+    }
+
+    /// Build request with optional auth header.
+    fn build_request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("{}{}", self.base_url, path);
+        let mut builder = self.client.request(method, &url);
+        if let Some(ref token) = self.signed_token {
+            builder = builder.header("Authorization", format!("Bearer {}", token));
+        }
+        builder
     }
 
     /// Ping a peer — returns true if reachable.
     pub async fn ping(&self) -> bool {
-        let url = format!("{}/api/mesh/ping", self.base_url);
-        matches!(self.client.get(&url).send().await, Ok(resp) if resp.status().is_success())
+        matches!(
+            self.build_request(reqwest::Method::GET, "/api/mesh/ping")
+                .send().await,
+            Ok(resp) if resp.status().is_success()
+        )
     }
 
     /// Authenticated POST, returns parsed JSON.
@@ -103,7 +110,12 @@ impl PeerClient {
         path: &str,
         body: &impl serde::Serialize,
     ) -> Result<serde_json::Value, String> {
-        let resp = self.auth_post(path, body).await?;
+        let resp = self.build_request(reqwest::Method::POST, path)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+
         if resp.status().is_success() {
             resp.json().await.map_err(|e| format!("Bad response: {}", e))
         } else {
@@ -112,18 +124,18 @@ impl PeerClient {
         }
     }
 
-    /// Authenticated POST helper.
-    async fn auth_post(
-        &self,
-        path: &str,
-        body: &impl serde::Serialize,
-    ) -> Result<reqwest::Response, String> {
-        let url = format!("{}{}", self.base_url, path);
-        let mut req = self.client.post(&url);
-        if let Some((k, v)) = self.auth_header() {
-            req = req.header(&k, &v);
+    /// Authenticated DELETE request.
+    pub async fn auth_delete(&self, path: &str) -> Result<(), String> {
+        let resp = self.build_request(reqwest::Method::DELETE, path)
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err("Request failed".to_string())
         }
-        req.json(body).send().await.map_err(|e| format!("Network error: {}", e))
     }
 
     /// Send mesh sync payload and receive theirs.
@@ -131,7 +143,12 @@ impl PeerClient {
         &self,
         payload: &crate::types::MeshSyncPayload,
     ) -> Result<crate::types::MeshSyncPayload, String> {
-        let resp = self.auth_post("/api/mesh/sync", payload).await?;
+        let resp = self.build_request(reqwest::Method::POST, "/api/mesh/sync")
+            .json(payload)
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+
         if resp.status().is_success() {
             resp.json().await.map_err(|e| format!("Bad sync response: {}", e))
         } else {
@@ -144,7 +161,12 @@ impl PeerClient {
         &self,
         cmd: &RelayCommand,
     ) -> Result<RelayResponse, String> {
-        let resp = self.auth_post("/api/mesh/relay", cmd).await?;
+        let resp = self.build_request(reqwest::Method::POST, "/api/mesh/relay")
+            .json(cmd)
+            .send()
+            .await
+            .map_err(|e| format!("Network error: {}", e))?;
+
         if resp.status().is_success() {
             resp.json().await.map_err(|e| format!("Bad relay response: {}", e))
         } else {
@@ -155,17 +177,8 @@ impl PeerClient {
 
     /// Notify a peer that we're unpairing.
     pub async fn send_unpair(&self, our_instance_id: &str) -> Result<(), String> {
-        let url = format!("{}/api/mesh/peers/{}", self.base_url, our_instance_id);
-        let mut req = self.client.delete(&url);
-        if let Some((k, v)) = self.auth_header() {
-            req = req.header(&k, &v);
-        }
-        let resp = req.send().await.map_err(|e| format!("Network error: {}", e))?;
-        if resp.status().is_success() {
-            Ok(())
-        } else {
-            Err("Unpair failed".to_string())
-        }
+        let path = format!("/api/mesh/peers/{}", our_instance_id);
+        self.auth_delete(&path).await
     }
 }
 
@@ -190,29 +203,64 @@ impl FullPeerClient {
         }
     }
 
-    /// Get list of panes on this peer.
-    pub async fn list_panes(&self) -> Result<Vec<crate::types::PaneInfo>, String> {
+    /// Get the HTTP client.
+    fn http_client(&self) -> reqwest::Client {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap_or_default()
+    }
+
+    /// Helper to make an authenticated GET request.
+    async fn get<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, String> {
         try_peer(&self.addresses, |addr| {
-            let url = format!("http://{}:{}/api/panes", addr.ip, self.api_port);
-            let token = (self.sign_fn)()?;
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .unwrap_or_default();
+            let url = format!("http://{}:{}{}", addr.ip, self.api_port, path);
+            let token = (self.sign_fn)();
+            let client = self.http_client();
             async move {
                 match client.get(&url)
-                    .header("Authorization", format!("Bearer {}", token))
+                    .header("Authorization", format!("Bearer {}", token?))
                     .send().await
                 {
                     Ok(resp) if resp.status().is_success() => {
-                        let panes: Vec<crate::types::PaneInfo> = resp.json().await.unwrap_or_default();
-                        TryNext::Success(panes)
+                        resp.json().await.map_err(|e| e.to_string()).map(TryNext::Success)
                     }
                     Ok(resp) => TryNext::Stop(format!("HTTP {}", resp.status())),
                     Err(e) => TryNext::Retry(e.to_string()),
                 }
             }
         }).await
+    }
+
+    /// Helper to make an authenticated POST request.
+    async fn post<T: serde::de::DeserializeOwned, B: serde::Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, String> {
+        try_peer(&self.addresses, |addr| {
+            let url = format!("http://{}:{}{}", addr.ip, self.api_port, path);
+            let token = (self.sign_fn)();
+            let client = self.http_client();
+            async move {
+                match client.post(&url)
+                    .header("Authorization", format!("Bearer {}", token?))
+                    .json(body)
+                    .send().await
+                {
+                    Ok(resp) if resp.status().is_success() => {
+                        resp.json().await.map_err(|e| e.to_string()).map(TryNext::Success)
+                    }
+                    Ok(resp) => TryNext::Stop(format!("HTTP {}", resp.status())),
+                    Err(e) => TryNext::Retry(e.to_string()),
+                }
+            }
+        }).await
+    }
+
+    /// Get list of panes on this peer.
+    pub async fn list_panes(&self) -> Result<Vec<crate::types::PaneInfo>, String> {
+        self.get("/api/panes").await
     }
 
     /// Send text to a pane on this peer.
@@ -222,57 +270,21 @@ impl FullPeerClient {
         text: &str,
         enter: bool,
     ) -> Result<(), String> {
-        try_peer(&self.addresses, |addr| {
-            let url = format!("http://{}:{}/api/panes/{}/send", addr.ip, self.api_port, pane_id);
-            let token = (self.sign_fn)()?;
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .unwrap_or_default();
-            let body = crate::types::SendTextRequest {
-                text: Some(text.to_string()),
-                enter,
-            };
-            async move {
-                match client.post(&url)
-                    .header("Authorization", format!("Bearer {}", token))
-                    .json(&body)
-                    .send().await
-                {
-                    Ok(resp) if resp.status().is_success() => TryNext::Success(()),
-                    Ok(resp) => TryNext::Stop(format!("HTTP {}", resp.status())),
-                    Err(e) => TryNext::Retry(e.to_string()),
-                }
-            }
-        }).await
+        let body = crate::types::SendTextRequest {
+            text: Some(text.to_string()),
+            enter,
+        };
+        let path = format!("/api/panes/{}/send", pane_id);
+        self.post::<(), _>(&path, &body).await
     }
 
     /// Get output from a pane.
     pub async fn get_output(&self, pane_id: &str) -> Result<String, String> {
-        try_peer(&self.addresses, |addr| {
-            let url = format!("http://{}:{}/api/panes/{}/output", addr.ip, self.api_port, pane_id);
-            let token = (self.sign_fn)()?;
-            let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .unwrap_or_default();
-            async move {
-                match client.get(&url)
-                    .header("Authorization", format!("Bearer {}", token))
-                    .send().await
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-                        let output = data.get("output")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        TryNext::Success(output)
-                    }
-                    Ok(resp) => TryNext::Stop(format!("HTTP {}", resp.status())),
-                    Err(e) => TryNext::Retry(e.to_string()),
-                }
-            }
-        }).await
+        #[derive(serde::Deserialize)]
+        struct OutputResponse { output: String }
+
+        let path = format!("/api/panes/{}/output", pane_id);
+        let resp: OutputResponse = self.get(&path).await?;
+        Ok(resp.output)
     }
 }

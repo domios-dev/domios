@@ -12,9 +12,8 @@ mod api;
 mod error;
 
 use std::sync::Arc;
-use parking_lot::Mutex;
 use anyhow::Result;
-use tracing::{info, error, Level};
+use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 use clap::Parser;
 use axum::Router;
@@ -57,37 +56,32 @@ struct Args {
 }
 
 impl Args {
+    /// Returns the config directory path.
+    fn config_dir(&self) -> std::path::PathBuf {
+        dirs::config_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("codeterm-relay")
+    }
+
+    /// Returns the config file path.
     fn config_path(&self) -> std::path::PathBuf {
         self.config.clone()
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| {
-                dirs::config_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from("."))
-                    .join("codeterm-relay")
-                    .join("config.toml")
-            })
+            .unwrap_or_else(|| self.config_dir().join("config.toml"))
     }
 
+    /// Returns the routes file path.
     fn routes_path(&self) -> std::path::PathBuf {
         self.routes.clone()
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| {
-                dirs::config_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from("."))
-                    .join("codeterm-relay")
-                    .join("routes.toml")
-            })
+            .unwrap_or_else(|| self.config_dir().join("routes.toml"))
     }
 
+    /// Returns the identity file path.
     fn identity_path(&self) -> std::path::PathBuf {
         self.identity.clone()
             .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| {
-                dirs::config_dir()
-                    .unwrap_or_else(|| std::path::PathBuf::from("."))
-                    .join("codeterm-relay")
-                    .join("identity.json")
-            })
+            .unwrap_or_else(|| self.config_dir().join("identity.json"))
     }
 }
 
@@ -108,11 +102,10 @@ async fn main() -> Result<()> {
     tracing::subscriber::set_global_default(subscriber)?;
 
     info!("CodeTerm Relay starting...");
-    info!("Args: {:?}", args);
 
     // Ensure config directory exists
-    let config_dir = args.config_path().parent().unwrap();
-    std::fs::create_dir_all(config_dir)?;
+    let config_dir = args.config_dir();
+    std::fs::create_dir_all(&config_dir)?;
 
     // Load or create config
     let config = Config::load_or_create(&args.config_path(), &args)?;

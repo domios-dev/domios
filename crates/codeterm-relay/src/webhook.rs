@@ -5,10 +5,34 @@ use serde_json::Value;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use anyhow::{Result, anyhow};
+use once_cell::sync::Lazy;
+use regex::Regex;
 
-use crate::routes::{Route, WebhookAuth};
+use crate::routes::WebhookAuth;
 
 type HmacSha256 = Hmac<Sha256>;
+
+/// Cached regex patterns for template rendering.
+mod patterns {
+    use once_cell::sync::Lazy;
+    use regex::Regex;
+
+    pub static JSON_TEMPLATE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"\{\{json\.([^\}]+)\}\}").unwrap()
+    });
+
+    pub static HEADER_TEMPLATE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"\{\{header\.([^\}]+)\}\}").unwrap()
+    });
+
+    pub static QUERY_TEMPLATE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"\{\{query\.([^\}]+)\}\}").unwrap()
+    });
+
+    pub static ENV_VAR: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}").unwrap()
+    });
+}
 
 /// A processed webhook event ready to send.
 #[derive(Debug)]
@@ -31,7 +55,6 @@ pub fn verify_webhook(
     payload: &[u8],
     secret: &str,
 ) -> Result<()> {
-    // Expand environment variables in secret
     let secret = expand_env_var(secret);
 
     match auth.auth_type.as_str() {
@@ -40,12 +63,10 @@ pub fn verify_webhook(
             verify_hmac_sha256(sig, payload, &secret)
         }
         "github" => {
-            // GitHub format: sha256=<signature>
             let sig = signature.ok_or_else(|| anyhow!("Missing X-Hub-Signature-256 header"))?;
             verify_github_signature(sig, payload, &secret)
         }
         "stripe" => {
-            // Stripe format: t=<timestamp>,v1=<signature>
             let sig = signature.ok_or_else(|| anyhow!("Missing X-Stripe-Signature header"))?;
             verify_stripe_signature(sig, timestamp, payload, &secret)
         }
@@ -55,14 +76,12 @@ pub fn verify_webhook(
 
 /// Verify HMAC-SHA256 signature.
 fn verify_hmac_sha256(signature: &str, payload: &[u8], secret: &str) -> Result<()> {
+    let sig = signature.trim_start_matches("sha256=");
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
         .map_err(|e| anyhow!("HMAC error: {}", e))?;
     mac.update(payload);
-
     let expected = hex::encode(mac.finalize().into_bytes());
-    let signature = signature.trim_start_matches("sha256=");
-
-    if expected == signature {
+    if expected == sig {
         Ok(())
     } else {
         Err(anyhow!("Signature mismatch"))
@@ -71,8 +90,8 @@ fn verify_hmac_sha256(signature: &str, payload: &[u8], secret: &str) -> Result<(
 
 /// Verify GitHub webhook signature.
 fn verify_github_signature(signature: &str, payload: &[u8], secret: &str) -> Result<()> {
-    let signature = signature.trim_start_matches("sha256=");
-    verify_hmac_sha256(signature, payload, secret)
+    let sig = signature.trim_start_matches("sha256=");
+    verify_hmac_sha256(sig, payload, secret)
 }
 
 /// Verify Stripe webhook signature.
@@ -84,12 +103,11 @@ fn verify_stripe_signature(
 ) -> Result<()> {
     let ts = timestamp.ok_or_else(|| anyhow!("Missing Stripe timestamp"))?;
 
-    // Stripe format: t=<timestamp>,v1=<signature>
-    let parts: Vec<&str> = signature.split(',').collect();
+    // Parse Stripe format: t=<timestamp>,v1=<signature>
     let mut ts_val = String::new();
     let mut sig_val = String::new();
 
-    for part in parts {
+    for part in signature.split(',') {
         if let Some(v) = part.strip_prefix("t=") {
             ts_val = v.to_string();
         } else if let Some(v) = part.strip_prefix("v1=") {
@@ -101,97 +119,8 @@ fn verify_stripe_signature(
         return Err(anyhow!("Timestamp mismatch"));
     }
 
-    // Compute expected signature
     let signed_payload = format!("{}.{}", ts_val, String::from_utf8_lossy(payload));
     verify_hmac_sha256(&sig_val, signed_payload.as_bytes(), secret)
-}
-
-/// Render a template with the given context.
-pub fn render_template(template: &str, ctx: &TemplateContext) -> String {
-    let mut result = template.to_string();
-
-    // Replace {{json.path}} with JSON values
-    let json_regex = regex::Regex::new(r"\{\{json\.([^\}]+)\}\}").unwrap();
-    for cap in json_regex.captures_iter(template) {
-        let jsonpath = &cap[1];
-        let value = get_json_value(&ctx.body, jsonpath);
-        result = result.replace(&cap[0], &value);
-    }
-
-    // Replace {{header.Name}} with header values
-    let header_regex = regex::Regex::new(r"\{\{header\.([^\}]+)\}\}").unwrap();
-    for cap in header_regex.captures_iter(&result) {
-        let header_name = &cap[1].replace('_', "-");
-        let value = ctx.headers.get(&header_name).unwrap_or(&"");
-        result = result.replace(&cap[0], value);
-    }
-
-    // Replace {{path}} with the request path
-    result = result.replace("{{path}}", &ctx.path);
-
-    // Replace {{query.name}} with query params
-    let query_regex = regex::Regex::new(r"\{\{query\.([^\}]+)\}\}").unwrap();
-    for cap in query_regex.captures_iter(&result) {
-        let param_name = &cap[1];
-        let value = ctx.query.get(param_name).unwrap_or(&"");
-        result = result.replace(&cap[0], value);
-    }
-
-    result
-}
-
-/// Get a value from JSON using a simple path expression.
-/// Supports: field, nested.field, array[0], array[0].field
-fn get_json_value(json: &Value, path: &str) -> String {
-    let mut current = json;
-
-    for part in path.split('.') {
-        // Handle array indexing
-        if let Some(arr_part) = part.strip_suffix(".[0]") {
-            // Array shorthand [0]
-            if let Some(arr) = current.get(arr_part).and_then(|v| v.as_array()) {
-                current = match arr.first() {
-                    Some(v) => v,
-                    None => return String::new(),
-                };
-            } else {
-                return String::new();
-            }
-        } else if let Some(idx_str) = part.strip_suffix(']') {
-            // Array indexing with number
-            if let Some(field_part) = idx_str.strip_suffix('[') {
-                let idx: usize = match idx_str.parse() {
-                    Ok(i) => i,
-                    Err(_) => return String::new(),
-                };
-                if let Some(arr) = current.get(field_part).and_then(|v| v.as_array()) {
-                    current = match arr.get(idx) {
-                        Some(v) => v,
-                        None => return String::new(),
-                    };
-                } else {
-                    return String::new();
-                }
-            } else {
-                return String::new();
-            }
-        } else {
-            // Simple field access
-            match current.get(part) {
-                Some(v) => current = v,
-                None => return String::new(),
-            }
-        }
-    }
-
-    // Convert to string
-    match current {
-        Value::String(s) => s.clone(),
-        Value::Number(n) => n.to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Null => String::new(),
-        other => serde_json::to_string(other).unwrap_or_default(),
-    }
 }
 
 /// Context for template rendering.
@@ -206,19 +135,94 @@ pub struct TemplateContext<'a> {
     pub query: &'a HashMap<String, String>,
 }
 
-impl TemplateContext<'_> {
+impl<'a> TemplateContext<'a> {
     pub fn new(
         body: Value,
-        headers: &HashMap<String, String>,
+        headers: &'a HashMap<String, String>,
         path: String,
-        query: &HashMap<String, String>,
+        query: &'a HashMap<String, String>,
     ) -> Self {
-        Self {
-            body,
-            headers,
-            path,
-            query,
+        Self { body, headers, path, query }
+    }
+}
+
+/// Render a template with the given context.
+pub fn render_template(template: &str, ctx: &TemplateContext) -> String {
+    let mut result = template.to_string();
+
+    // Replace {{json.path}} with JSON values
+    for cap in patterns::JSON_TEMPLATE.captures_iter(template) {
+        let jsonpath = &cap[1];
+        let value = get_json_value(&ctx.body, jsonpath);
+        result = result.replace(&cap[0], &value);
+    }
+
+    // Replace {{header.Name}} with header values
+    for cap in patterns::HEADER_TEMPLATE.captures_iter(&result) {
+        let header_name = &cap[1].replace('_', "-");
+        let value = ctx.headers.get(&header_name).unwrap_or(&"");
+        result = result.replace(&cap[0], value);
+    }
+
+    // Replace {{path}} with the request path
+    result = result.replace("{{path}}", &ctx.path);
+
+    // Replace {{query.name}} with query params
+    for cap in patterns::QUERY_TEMPLATE.captures_iter(&result) {
+        let param_name = &cap[1];
+        let value = ctx.query.get(param_name).unwrap_or(&"");
+        result = result.replace(&cap[0], value);
+    }
+
+    result
+}
+
+/// Get a value from JSON using a simple path expression.
+fn get_json_value(json: &Value, path: &str) -> String {
+    let mut current = json;
+
+    for part in path.split('.') {
+        current = match resolve_json_part(current, part) {
+            Some(v) => v,
+            None => return String::new(),
+        };
+    }
+
+    value_to_string(current)
+}
+
+/// Resolve a single part of a JSON path (field access or array indexing).
+fn resolve_json_part<'a>(json: &'a Value, part: &str) -> Option<&'a Value> {
+    // Handle array shorthand [0]
+    if let Some(arr_part) = part.strip_suffix(".[0]") {
+        return json.get(arr_part)
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.first());
+    }
+
+    // Handle array indexing with number: field[0]
+    if let Some(idx_str) = part.strip_suffix(']') {
+        if let Some(field_part) = idx_str.strip_suffix('[') {
+            let idx: usize = idx_str.parse().ok()?;
+            return json.get(field_part)
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.get(idx));
         }
+        return None;
+    }
+
+    // Simple field access
+    json.get(part)
+}
+
+/// Convert a JSON value to a string.
+fn value_to_string(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Null => String::new(),
+        other => serde_json::to_string(other).unwrap_or_default(),
     }
 }
 
@@ -226,9 +230,8 @@ impl TemplateContext<'_> {
 /// Format: ${VAR_NAME}
 fn expand_env_var(s: &str) -> String {
     let mut result = s.to_string();
-    let re = regex::Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}").unwrap();
 
-    for cap in re.captures_iter(s) {
+    for cap in patterns::ENV_VAR.captures_iter(s) {
         let var_name = &cap[1];
         if let Ok(value) = std::env::var(var_name) {
             result = result.replace(&cap[0], &value);
@@ -261,10 +264,7 @@ mod tests {
                 }
             }
         });
-        assert_eq!(
-            get_json_value(&json, "data.user.email"),
-            "test@example.com"
-        );
+        assert_eq!(get_json_value(&json, "data.user.email"), "test@example.com");
     }
 
     #[test]
@@ -272,5 +272,18 @@ mod tests {
         std::env::set_var("TEST_VAR", "hello");
         assert_eq!(expand_env_var("${TEST_VAR}"), "hello");
         assert_eq!(expand_env_var("prefix-${TEST_VAR}-suffix"), "prefix-hello-suffix");
+    }
+
+    #[test]
+    fn test_render_template() {
+        let json: Value = serde_json::json!({
+            "name": "test-event",
+            "count": 42
+        });
+        let headers = HashMap::from([("Content-Type".into(), "application/json".into())]);
+        let ctx = TemplateContext::new(json, &headers, "/webhook/test".into(), &HashMap::new());
+
+        let result = render_template("Event: {{json.name}}, Count: {{json.count}}", &ctx);
+        assert_eq!(result, "Event: test-event, Count: 42");
     }
 }

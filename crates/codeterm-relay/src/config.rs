@@ -28,18 +28,17 @@ impl Default for Config {
     }
 }
 
+/// Relay-specific configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelayConfig {
     /// Instance name (shown in mesh)
-    #[serde(default = "default_relay_name")]
+    #[serde(default = "hostname_or_default")]
     pub name: String,
 
     /// API bind address
-    #[serde(default = "default_relay_bind")]
     pub bind: String,
 
     /// HTTP port
-    #[serde(default = "default_port")]
     pub port: u16,
 
     /// Bearer token for API authentication
@@ -47,35 +46,27 @@ pub struct RelayConfig {
     pub bearer_token: Option<String>,
 }
 
-fn default_relay_name() -> String {
+fn hostname_or_default() -> String {
     hostname::get()
-        .map(|h| h.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "relay".to_string())
-}
-
-fn default_relay_bind() -> String {
-    "0.0.0.0:7690".to_string()
-}
-
-fn default_port() -> u16 {
-    7690
+        .map(|h| h.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "relay".into())
 }
 
 impl Default for RelayConfig {
     fn default() -> Self {
         Self {
-            name: default_relay_name(),
-            bind: default_relay_bind(),
-            port: default_port(),
+            name: hostname_or_default(),
+            bind: "0.0.0.0:7690".into(),
+            port: 7690,
             bearer_token: None,
         }
     }
 }
 
+/// Mesh-specific configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshConfig {
     /// Mesh API port (for full peers to connect)
-    #[serde(default = "default_mesh_port")]
     pub api_port: u16,
 
     /// Ed25519 private key (base64) - generated if not present
@@ -83,19 +74,16 @@ pub struct MeshConfig {
     pub private_key: Option<String>,
 }
 
-fn default_mesh_port() -> u16 {
-    7691
-}
-
 impl Default for MeshConfig {
     fn default() -> Self {
         Self {
-            api_port: default_mesh_port(),
+            api_port: 7691,
             private_key: None,
         }
     }
 }
 
+/// Logging configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoggingConfig {
     /// Log level: trace, debug, info, warn, error
@@ -104,7 +92,7 @@ pub struct LoggingConfig {
 }
 
 fn default_log_level() -> String {
-    "info".to_string()
+    "info".into()
 }
 
 impl Default for LoggingConfig {
@@ -118,136 +106,63 @@ impl Default for LoggingConfig {
 impl Config {
     /// Load config from file or create default.
     pub fn load_or_create(path: &Path, args: &crate::Args) -> Result<Self> {
-        if path.exists() {
+        let mut config = if path.exists() {
             let contents = std::fs::read_to_string(path)
                 .context("Failed to read config file")?;
-            let mut config: Config = toml::from_str(&contents)
-                .context("Failed to parse config file")?;
-
-            // Override with CLI args if provided
-            if let Some(token) = &args.bearer_token {
-                config.relay.bearer_token = Some(token.clone());
-            }
-
-            Ok(config)
+            toml::from_str(&contents)
+                .context("Failed to parse config file")?
         } else {
-            // Create default config
-            let mut config = Config::default();
+            Config::default()
+        };
 
-            // Override with CLI args if provided
-            if let Some(token) = &args.bearer_token {
-                config.relay.bearer_token = Some(token.clone());
-            }
+        // Override with CLI args if provided
+        if let Some(token) = &args.bearer_token {
+            config.relay.bearer_token = Some(token.clone());
+        }
 
-            // Save default config
+        // Save default config if it didn't exist
+        if !path.exists() {
             let contents = toml::to_string_pretty(&config)
                 .context("Failed to serialize config")?;
             std::fs::write(path, &contents)
                 .context("Failed to write config file")?;
-
-            Ok(config)
         }
-    }
-}
 
-/// Identity for mesh participants.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RelayIdentity {
-    pub instance_id: String,
-    pub instance_name: String,
-    /// Ed25519 private key (base64)
-    pub private_key: Option<String>,
-    /// Ed25519 public key (base64)
-    pub public_key: Option<String>,
-}
-
-impl RelayIdentity {
-    /// Load identity from file or create new.
-    pub fn load_or_create(path: &Path) -> Result<Self> {
-        if path.exists() {
-            let contents = std::fs::read_to_string(path)
-                .context("Failed to read identity file")?;
-            let mut identity: RelayIdentity = serde_json::from_str(&contents)
-                .context("Failed to parse identity file")?;
-
-            // Ensure we have a keypair
-            if identity.private_key.is_none() || identity.public_key.is_none() {
-                let (priv_key, pub_key) = generate_peer_keypair();
-                identity.private_key = Some(priv_key);
-                identity.public_key = Some(pub_key);
-                identity.save(path)?;
-            }
-
-            Ok(identity)
-        } else {
-            // Create new identity
-            let (priv_key, pub_key) = generate_peer_keypair();
-            let instance_id = uuid::Uuid::new_v4().to_string();
-            let instance_name = hostname::get()
-                .map(|h| h.to_string_lossy().to_string())
-                .unwrap_or_else(|_| "relay".to_string());
-
-            let identity = Self {
-                instance_id,
-                instance_name,
-                private_key: Some(priv_key),
-                public_key: Some(pub_key),
-            };
-
-            identity.save(path)?;
-
-            Ok(identity)
-        }
-    }
-
-    /// Save identity to file.
-    pub fn save(&self, path: &Path) -> Result<()> {
-        let contents = serde_json::to_string_pretty(&self)
-            .context("Failed to serialize identity")?;
-        std::fs::write(path, &contents)
-            .context("Failed to write identity file")?;
-        Ok(())
-    }
-
-    /// Get the instance name.
-    pub fn instance_name(&self) -> &str {
-        &self.instance_name
+        Ok(config)
     }
 }
 
 impl codeterm_mesh_client::types::MeshIdentity {
-    /// Load or create identity.
+    /// Load identity from file or create new.
     pub fn load_or_create(path: &Path) -> Result<Self> {
-        if path.exists() {
+        let mut identity = if path.exists() {
             let contents = std::fs::read_to_string(path)
                 .context("Failed to read identity file")?;
-            let mut identity: Self = serde_json::from_str(&contents)
-                .context("Failed to parse identity file")?;
-
-            // Ensure we have a keypair
-            if identity.private_key.is_none() || identity.public_key.is_none() {
-                let (priv_key, pub_key) = generate_peer_keypair();
-                identity.private_key = Some(priv_key);
-                identity.public_key = Some(pub_key);
-                identity.save(path)?;
-            }
-
-            Ok(identity)
+            serde_json::from_str(&contents)
+                .context("Failed to parse identity file")?
         } else {
-            // Create new identity
+            // Create new identity with generated keypair
             let (priv_key, pub_key) = generate_peer_keypair();
-            let instance_id = uuid::Uuid::new_v4().to_string();
-
-            let identity = Self {
-                instance_id,
+            Self {
+                instance_id: uuid::Uuid::new_v4().to_string(),
                 private_key: Some(priv_key),
                 public_key: Some(pub_key),
-            };
+            }
+        };
 
-            identity.save(path)?;
-
-            Ok(identity)
+        // Ensure we have a keypair (backwards compatibility)
+        if identity.private_key.is_none() || identity.public_key.is_none() {
+            let (priv_key, pub_key) = generate_peer_keypair();
+            identity.private_key = Some(priv_key);
+            identity.public_key = Some(pub_key);
         }
+
+        // Save if new or missing keys
+        if !path.exists() || identity.public_key.is_none() {
+            identity.save(path)?;
+        }
+
+        Ok(identity)
     }
 
     /// Save identity to file.
@@ -261,8 +176,9 @@ impl codeterm_mesh_client::types::MeshIdentity {
 
     /// Get the instance name (generated from hostname).
     pub fn instance_name(&self) -> String {
+        // Try stored name first, fall back to hostname
         hostname::get()
-            .map(|h| h.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "relay".to_string())
+            .map(|h| h.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| "relay".into())
     }
 }
