@@ -321,11 +321,19 @@ impl Default for GeneralAgentConfig {
 }
 
 fn default_worker_model() -> String {
-    "claude-haiku-4-5-20251001".to_string()
+    "haiku".to_string()
+}
+
+fn default_dreaming_model() -> String {
+    "sonnet".to_string()
 }
 
 fn default_worker_timeout_seconds() -> u64 {
-    150
+    400
+}
+
+fn default_dreaming_timeout_seconds() -> u64 {
+    1800
 }
 
 fn default_dedup_threshold() -> f64 {
@@ -348,22 +356,32 @@ pub struct MemoryConfig {
     pub auto_extract: bool,
     /// Agent provider for dreaming cron (default: same as general_agent)
     pub dreaming_agent: String,
-    /// Model for dreaming agent. Empty string = fall back to `worker_model`.
+    /// Model for dreaming agent. Defaults to "sonnet" — dreaming needs careful
+    /// reasoning over hub topology, haiku tends to give up. Empty string falls
+    /// back to `worker_model` (haiku).
+    #[serde(default = "default_dreaming_model")]
     pub dreaming_model: String,
     /// Global default model for any mem worker (extraction + dreaming). Used
     /// when the more specific `extraction_model` / `dreaming_model` is empty.
-    /// Defaults to claude-haiku-4-5-20251001 — the cheapest model that still
-    /// reasons well enough for structured extraction.
+    /// Defaults to "haiku" (resolves to current concrete id at runtime via
+    /// agent::models::resolve_model_id).
     #[serde(default = "default_worker_model")]
     pub worker_model: String,
     /// Max concurrent workers per agent provider. Further spawns queue
     /// FIFO until a slot frees up.
     pub workers_per_provider: usize,
-    /// Hard timeout for any hidden agent run (mem worker / cron). The auto-
-    /// complete watcher marks the run Failed if claude hasn't emitted a
-    /// stream-json result event within this many seconds. Default 150.
+    /// Hard timeout for non-dreaming hidden agent runs (extraction workers,
+    /// generic cron). The auto-complete watcher marks the run Failed if the
+    /// agent hasn't emitted a stream-json result event within this many seconds.
+    /// Defaults to 400 (~6.5 min). Dreaming uses `dreaming_timeout_seconds`
+    /// instead — dreaming needs longer to reason over hub decompositions.
     #[serde(default = "default_worker_timeout_seconds")]
     pub worker_timeout_seconds: u64,
+    /// Hard timeout for the Dreamer (REM phase) specifically. Default 1800
+    /// (30 min) because hub decomposition + diary + classification all in one
+    /// session needs room to think. Set lower if your dreaming model is fast.
+    #[serde(default = "default_dreaming_timeout_seconds")]
+    pub dreaming_timeout_seconds: u64,
     #[serde(default = "default_dedup_threshold")]
     pub dedup_threshold: f64,
     pub file_sync_enabled: bool,
@@ -378,10 +396,11 @@ impl Default for MemoryConfig {
             extraction_model: String::new(),
             auto_extract: true,
             dreaming_agent: String::new(),
-            dreaming_model: String::new(),
+            dreaming_model: default_dreaming_model(),
             worker_model: default_worker_model(),
             workers_per_provider: 3,
             worker_timeout_seconds: default_worker_timeout_seconds(),
+            dreaming_timeout_seconds: default_dreaming_timeout_seconds(),
             dedup_threshold: default_dedup_threshold(),
             file_sync_enabled: true,
             file_sync_interval_minutes: default_file_sync_interval(),

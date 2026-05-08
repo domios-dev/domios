@@ -2,7 +2,6 @@ export interface PhysicsNode {
   id: string;
   x: number;
   y: number;
-  pinned: boolean;
 }
 
 export interface PhysicsEdge {
@@ -19,7 +18,6 @@ export interface PhysicsPosition {
 
 export type PhysicsRequest =
   | { type: "setGraph"; nodes: PhysicsNode[]; edges: PhysicsEdge[] }
-  | { type: "setPinned"; pinned: string[] }
   | { type: "updatePosition"; id: string; x: number; y: number }
   | { type: "heat" }
   | { type: "setEnabled"; enabled: boolean };

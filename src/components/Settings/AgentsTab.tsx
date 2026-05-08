@@ -22,8 +22,8 @@ export function AgentsOverview({
   return (
     <div className="space-y-5">
       {/* General Agent — shared across all providers */}
-      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
-        <div className="text-sm font-medium text-[var(--ct-fg)]">General Agent</div>
+      <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+        <div className="text-xs font-medium text-[var(--ct-fg)]">General Agent</div>
         <div className="text-xs text-[var(--ct-muted-fg)]">
           Always-on AI assistant in a protected workspace. Starts automatically with CodeTerm.
         </div>
@@ -35,12 +35,12 @@ export function AgentsOverview({
         {config.general_agent?.enabled && (
           <>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-[var(--ct-fg)]">Provider</span>
+              <span className="text-xs text-[var(--ct-muted-fg)]">Provider</span>
               <div className="flex items-center gap-2">
                 <select
                   value={config.general_agent?.agent_provider ?? "claude"}
                   onChange={(e) => onUpdate("general_agent", { agent_provider: e.target.value })}
-                  className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+                  className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                 >
                   {providers.map((p) => (
                     <option key={p.id} value={p.id}>{p.display_name}</option>
@@ -50,7 +50,7 @@ export function AgentsOverview({
                   onClick={() => {
                     invoke("restart_general_agent").catch((e) => console.error("GA restart failed:", e));
                   }}
-                  className="px-2.5 py-1 text-[10px] font-medium rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+                  className="px-2.5 py-1.5 text-[11px] font-medium rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors"
                 >
                   Restart
                 </button>
@@ -70,9 +70,9 @@ export function AgentsOverview({
 
       {/* Skills — CodeTerm-wide source of truth, NOT a provider contribution.
           Skills are a CodeTerm feature that syncs to all providers. */}
-      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+      <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-[var(--ct-fg)]">Skills</div>
+          <div className="text-xs font-medium text-[var(--ct-fg)]">Skills</div>
           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">
             auto-synced
           </span>
@@ -108,7 +108,7 @@ export function AgentsOverview({
             <button
               key={p.id}
               onClick={() => onOpenProvider(p.id)}
-              className="flex items-center gap-3 p-3.5 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-left"
+              className="flex items-center gap-3 p-4 rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 hover:bg-[var(--ct-hover)] hover:border-[var(--ct-accent)]/50 transition-colors text-left"
             >
               <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-[18px] shrink-0">
                 <AgentIcon providerId={p.id} title={p.display_name} />
@@ -177,20 +177,20 @@ export function AgentProviderScreen({
           <AgentIcon providerId={provider.id} title={provider.display_name} />
         </div>
         <div className="min-w-0">
-          <div className="text-sm font-medium text-[var(--ct-fg)]">{provider.display_name}</div>
+          <div className="text-xs font-medium text-[var(--ct-fg)]">{provider.display_name}</div>
           <div className="text-[11px] text-[var(--ct-muted-fg)]">{provider.id}</div>
         </div>
       </div>
       {/* CodeTerm-wide policy: hide this provider from the per-workspace
           'New ... Session' menu. Lives outside the plugin schema because
           it's a host-side filter, not a per-plugin setting. */}
-      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4">
+      <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
         <Toggle
           label="Show in workspace menu"
           checked={visibleInMenu}
           onChange={(v) => onProviderConfigChange(provider.id, { visible_in_menu: v })}
         />
-        <div className="text-[10px] text-[var(--ct-muted)] mt-1">
+        <div className="text-[10px] text-[var(--ct-muted)]">
           When off, the "New {provider.display_name} Session" entry is hidden from workspace context menus. Spawning via CLI / agent hierarchy still works.
         </div>
       </div>

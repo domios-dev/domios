@@ -8,11 +8,12 @@
 //! top of this baseline in later phases as needed.
 
 use rusqlite::params;
-#[cfg(test)]
-use rusqlite::Connection;
+#[cfg(test)] use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use super::MemManager;
+
+pub mod recluster;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DreamReport {
@@ -229,6 +230,148 @@ fn deep_expire_tier(conn: &Connection, kind: &str, days: i64) -> Result<u64, Str
     Ok(n)
 }
 
+// Graph normalize phase. Test-only mirror — graph mutations route through
+// codeterm-mem-store; the merge-pass orchestration (Levenshtein loop) is
+// kept here so the CLI worker and this module behave identically against the
+// same DB. Constants live in the CLI worker (caller-owned policy).
+
+#[cfg(test)]
+const NORMALIZE_PROTECTED_TYPES: &[&str] = &["kind", "area", "agent", "workspace"];
+#[cfg(test)]
+const NORMALIZE_ORPHAN_AGE_DAYS: i64 = 14;
+// Thresholds calibrated for typo-class similarity. Nickname↔fullname pairs
+// (e.g. tima↔timofey) yield ratios ~0.4 and are intentionally ignored.
+#[cfg(test)]
+const NORMALIZE_RATIO_HARD: f64 = 0.85;
+#[cfg(test)]
+const NORMALIZE_RATIO_FLAG: f64 = 0.70;
+#[cfg(test)]
+const NORMALIZE_SYNONYMS: &[(&str, &str)] = &[
+    ("references", "mentions"),
+    ("refers_to", "mentions"),
+    ("contributes_to", "works_on"),
+    ("at_location", "located_at"),
+];
+
+#[cfg(test)]
+#[derive(Default, Debug)]
+pub struct NormalizeReport {
+    pub merged: u64,
+    pub flagged_pairs: Vec<(String, String, f64)>,
+    pub relations_canonicalized: u64,
+    pub orphans_deleted: u64,
+    pub broken_relations_invalidated: u64,
+}
+
+#[cfg(test)]
+fn lev(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (n, m) = (a.len(), b.len());
+    if n == 0 { return m; }
+    if m == 0 { return n; }
+    let mut prev: Vec<usize> = (0..=m).collect();
+    let mut curr = vec![0usize; m + 1];
+    for i in 1..=n {
+        curr[0] = i;
+        for j in 1..=m {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[m]
+}
+
+#[cfg(test)]
+fn lev_ratio(a: &str, b: &str) -> f64 {
+    let max = a.chars().count().max(b.chars().count());
+    if max == 0 { return 1.0; }
+    1.0 - (lev(a, b) as f64 / max as f64)
+}
+
+#[cfg(test)]
+fn split_prefix(id: &str) -> Option<(&str, &str)> {
+    id.find('_').map(|i| (&id[..i], &id[i + 1..]))
+}
+
+/// Test-only fixture; production runs the SQL inline in `cli::worker_dreaming_normalize`.
+#[cfg(test)]
+pub async fn normalize_phase(mem: &MemManager) -> Result<DreamReport, String> {
+    let _permit = mem.acquire_heavy_permit().await;
+    let conn = mem.conn();
+    let conn = conn.lock();
+    let r = normalize_run(&conn)?;
+    Ok(DreamReport {
+        considered: r.flagged_pairs.len() as u64,
+        promoted: r.merged,
+        dropped: r.orphans_deleted + r.broken_relations_invalidated,
+        phase: "normalize".into(),
+    })
+}
+
+#[cfg(test)]
+fn normalize_run(conn: &Connection) -> Result<NormalizeReport, String> {
+    let mut report = NormalizeReport::default();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    report.relations_canonicalized = codeterm_mem_store::graph::canonicalize_relation_types(
+        conn, NORMALIZE_SYNONYMS,
+    ).map_err(|e| format!("canonicalize: {}", e))?;
+
+    let entities = codeterm_mem_store::graph::list_entities_with_degree(conn)
+        .map_err(|e| format!("list entities: {}", e))?;
+
+    use std::collections::HashMap;
+    let mut buckets: HashMap<(String, String), Vec<(String, String, u32)>> = HashMap::new();
+    for e in &entities {
+        if let Some((prefix, suffix)) = split_prefix(&e.id) {
+            if suffix.chars().count() >= 2 {
+                buckets
+                    .entry((e.entity_type.clone(), prefix.to_string()))
+                    .or_default()
+                    .push((e.id.clone(), suffix.to_string(), e.degree));
+            }
+        }
+    }
+
+    for entries in buckets.values() {
+        for i in 0..entries.len() {
+            for j in (i + 1)..entries.len() {
+                let (a_id, a_suf, a_deg) = &entries[i];
+                let (b_id, b_suf, b_deg) = &entries[j];
+                let ratio = lev_ratio(a_suf, b_suf);
+                if ratio < NORMALIZE_RATIO_FLAG {
+                    continue;
+                }
+                if ratio >= NORMALIZE_RATIO_HARD && a_deg != b_deg {
+                    let (alias, canonical) = if a_deg < b_deg {
+                        (a_id.clone(), b_id.clone())
+                    } else {
+                        (b_id.clone(), a_id.clone())
+                    };
+                    if codeterm_mem_store::graph::add_alias_with_rewire(conn, &alias, &canonical).is_ok() {
+                        report.merged += 1;
+                    }
+                } else {
+                    report.flagged_pairs.push((a_id.clone(), b_id.clone(), ratio));
+                }
+            }
+        }
+    }
+
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(NORMALIZE_ORPHAN_AGE_DAYS)).to_rfc3339();
+    report.orphans_deleted = codeterm_mem_store::graph::cleanup_orphan_entities(
+        conn, NORMALIZE_PROTECTED_TYPES, &cutoff,
+    ).map_err(|e| format!("orphan cleanup: {}", e))?;
+
+    report.broken_relations_invalidated = codeterm_mem_store::graph::invalidate_broken_relations(
+        conn, &now,
+    ).map_err(|e| format!("broken invalidate: {}", e))?;
+
+    Ok(report)
+}
+
 /// Prepare data for the REM agent — returns a text summary of candidates.
 /// Called by `codeterm mem dream --report` so the agent gets concrete data.
 pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
@@ -392,16 +535,17 @@ pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
         mem_cfg.dreaming_agent.clone()
     };
     // Dreaming REM worker uses `dreaming_model` when set, otherwise falls
-    // back to the shared `worker_model` default (claude-haiku-4-5-*).
-    let model = if mem_cfg.dreaming_model.is_empty() {
+    // back to the shared `worker_model` default ("haiku").
+    let raw_model = if mem_cfg.dreaming_model.is_empty() {
         mem_cfg.worker_model.clone()
     } else {
         mem_cfg.dreaming_model.clone()
     };
+    let model = crate::agent::models::canonicalize_short(&raw_model).to_string();
 
     match super::workers::spawn_headless(
         svc,
-        "dreaming:rem".into(),
+        format!("{}rem", super::workers::DREAMING_INTENT_PREFIX),
         crate::prompts::DREAMING_REM.to_string(),
         "system:dreaming".into(),
         agent,
@@ -463,7 +607,8 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
         Some(mem_cfg.worker_model.clone())
     } else {
         None
-    };
+    }
+    .map(|s| crate::agent::models::canonicalize_short(&s).to_string());
 
     let _ = cron_store.create(crate::cron::store::CronCreateParams {
         name: DREAMING_CRON_NAME.into(),
@@ -642,6 +787,209 @@ mod tests {
 
         store.set_enabled(&id, true).unwrap();
         assert!(enabled_now(&store, &id), "re-enable must persist through store API");
+    }
+
+    fn insert_entity(conn: &Connection, id: &str, etype: &str, age_days: i64) {
+        let ts = (chrono::Utc::now() - chrono::Duration::days(age_days)).to_rfc3339();
+        crate::mem::graph::insert_entity(conn, &crate::mem::graph::Entity {
+            id: id.into(),
+            entity_type: etype.into(),
+            scope: "global".into(),
+            properties: serde_json::json!({}),
+        }).unwrap();
+        // Backdate so orphan-cleanup tests have an aged entity.
+        conn.execute(
+            "UPDATE entities SET created_at = ?1, updated_at = ?1 WHERE id = ?2",
+            params![&ts, id],
+        ).unwrap();
+    }
+
+    fn insert_relation(conn: &Connection, from: &str, rel: &str, to: &str) {
+        let now = chrono::Utc::now().to_rfc3339();
+        crate::mem::graph::insert_relation(conn, &crate::mem::graph::Relation {
+            from_id: from.into(),
+            relation_type: rel.into(),
+            to_id: to.into(),
+            scope: "global".into(),
+            valid_from: now,
+            valid_to: None,
+            confidence: 1.0,
+            properties: serde_json::json!({}),
+        }).unwrap();
+    }
+
+    #[tokio::test]
+    async fn normalize_merges_high_confidence_asymmetric_pair() {
+        // Typo-class pair: andrey vs andreyy. LD=1, ratio=6/7=0.857 ≥ 0.85.
+        // andreyy has 1 relation, andrey has 3 → andreyy becomes alias of andrey.
+        let mem = MemManager::open_in_memory().unwrap();
+        {
+            let c = mem.conn();
+            let c = c.lock();
+            for id in ["person_owner", "person_ownery", "x", "y", "z"] {
+                let etype = if id.starts_with("person") { "person" } else { "thing" };
+                insert_entity(&c, id, etype, 0);
+            }
+            insert_relation(&c, "person_ownery", "mentions", "x");
+            for to in ["x", "y", "z"] {
+                insert_relation(&c, "person_owner", "mentions", to);
+            }
+        }
+
+        let report = normalize_phase(&mem).await.unwrap();
+        assert_eq!(report.promoted, 1, "exactly one merge expected");
+
+        let canonical: String = mem.conn().lock().query_row(
+            "SELECT canonical_id FROM entity_aliases WHERE alias_id = 'person_ownery'",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(canonical, "person_owner");
+    }
+
+    #[tokio::test]
+    async fn normalize_ignores_nickname_pair_below_flag_threshold() {
+        // Honest documentation: Levenshtein cannot catch nickname↔fullname
+        // (tima vs timofey). Ratio ≈ 0.43 < 0.70 → ignored entirely.
+        let mem = MemManager::open_in_memory().unwrap();
+        {
+            let c = mem.conn();
+            let c = c.lock();
+            insert_entity(&c, "person_tima", "person", 0);
+            insert_entity(&c, "person_timofey", "person", 0);
+        }
+        normalize_phase(&mem).await.unwrap();
+        let aliases: i64 = mem.conn().lock().query_row(
+            "SELECT COUNT(*) FROM entity_aliases", [], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(aliases, 0, "nickname-class pair must not be auto-merged");
+    }
+
+    #[tokio::test]
+    async fn normalize_canonicalizes_synonymous_relations() {
+        let mem = MemManager::open_in_memory().unwrap();
+        {
+            let c = mem.conn();
+            let c = c.lock();
+            insert_entity(&c, "e_a", "thing", 0);
+            insert_entity(&c, "e_b", "thing", 0);
+            insert_relation(&c, "e_a", "references", "e_b");
+        }
+
+        normalize_phase(&mem).await.unwrap();
+        let kind: String = mem.conn().lock().query_row(
+            "SELECT relation_type FROM relations WHERE from_id='e_a' AND to_id='e_b'",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(kind, "mentions");
+    }
+
+    #[tokio::test]
+    async fn normalize_deletes_old_orphan_entities() {
+        let mem = MemManager::open_in_memory().unwrap();
+        {
+            let c = mem.conn();
+            let c = c.lock();
+            insert_entity(&c, "orphan_1", "person", 20);
+            insert_entity(&c, "kind_protected", "kind", 20);
+        }
+
+        normalize_phase(&mem).await.unwrap();
+        let exists_orphan: i64 = mem.conn().lock().query_row(
+            "SELECT COUNT(*) FROM entities WHERE id='orphan_1'", [], |r| r.get(0),
+        ).unwrap();
+        let exists_kind: i64 = mem.conn().lock().query_row(
+            "SELECT COUNT(*) FROM entities WHERE id='kind_protected'", [], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(exists_orphan, 0, "orphan must be deleted");
+        assert_eq!(exists_kind, 1, "protected entity_type must survive");
+    }
+
+    #[tokio::test]
+    async fn normalize_invalidates_broken_relations() {
+        let mem = MemManager::open_in_memory().unwrap();
+        {
+            let c = mem.conn();
+            let c = c.lock();
+            insert_entity(&c, "e_a", "thing", 0);
+            // Relation pointing to non-existent entity 'ghost'.
+            insert_relation(&c, "e_a", "rel", "ghost");
+        }
+
+        normalize_phase(&mem).await.unwrap();
+        let valid_to: Option<String> = mem.conn().lock().query_row(
+            "SELECT valid_to FROM relations WHERE from_id='e_a' AND to_id='ghost'",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert!(valid_to.is_some(), "broken relation must be invalidated");
+    }
+
+    #[tokio::test]
+    async fn normalize_preserves_relations_anchored_in_mem_items() {
+        let mem = MemManager::open_in_memory().unwrap();
+        let fact_id = mem.save(NewMemItem {
+            kind: MemKind::Fact, scope: MemScope::Global,
+            title: "rust borrow checker".into(), summary: None, area: None,
+            tags: vec![], body: "x".into(), source: None,
+            importance: 3.0, source_path: None,
+        }).unwrap();
+        {
+            let c = mem.conn(); let c = c.lock();
+            insert_entity(&c, "tech_rust", "tech", 0);
+            insert_relation(&c, &fact_id, "mentions", "tech_rust");
+        }
+
+        normalize_phase(&mem).await.unwrap();
+        let valid_to: Option<String> = mem.conn().lock().query_row(
+            "SELECT valid_to FROM relations WHERE to_id='tech_rust'",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert!(valid_to.is_none(), "fact_*→entity relation must survive normalize");
+    }
+
+    #[tokio::test]
+    async fn normalize_preserves_mem_item_to_mem_item_relations() {
+        let mem = MemManager::open_in_memory().unwrap();
+        let parent = mem.save(NewMemItem {
+            kind: MemKind::Conversation, scope: MemScope::Global,
+            title: "parent".into(), summary: None, area: None,
+            tags: vec![], body: "x".into(), source: None,
+            importance: 3.0, source_path: None,
+        }).unwrap();
+        let child = mem.save(NewMemItem {
+            kind: MemKind::Fact, scope: MemScope::Global,
+            title: "child".into(), summary: None, area: None,
+            tags: vec![], body: "x".into(), source: None,
+            importance: 3.0, source_path: None,
+        }).unwrap();
+        {
+            let c = mem.conn(); let c = c.lock();
+            insert_relation(&c, &child, "extracted_from", &parent);
+        }
+
+        normalize_phase(&mem).await.unwrap();
+        let valid_to: Option<String> = mem.conn().lock().query_row(
+            "SELECT valid_to FROM relations WHERE from_id=?1 AND to_id=?2",
+            params![&child, &parent], |r| r.get(0),
+        ).unwrap();
+        assert!(valid_to.is_none(), "mem_item→mem_item relation must survive normalize");
+    }
+
+    #[tokio::test]
+    async fn normalize_flags_borderline_pair_without_merging() {
+        let mem = MemManager::open_in_memory().unwrap();
+        {
+            let c = mem.conn();
+            let c = c.lock();
+            insert_entity(&c, "person_anya", "person", 0);
+            insert_entity(&c, "person_anna", "person", 0);
+        }
+
+        normalize_phase(&mem).await.unwrap();
+        let aliases: i64 = mem.conn().lock().query_row(
+            "SELECT COUNT(*) FROM entity_aliases WHERE alias_id IN ('person_anya','person_anna')",
+            [], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(aliases, 0, "borderline pair (ratio < 0.92) must not be auto-merged");
     }
 
     #[tokio::test]

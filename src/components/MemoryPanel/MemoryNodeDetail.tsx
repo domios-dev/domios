@@ -1,17 +1,24 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
-import type { MemNode } from "./types";
+import type { MemEdge, MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
 import { deleteItem, fetchItemFull, patchItem, type ItemPatch } from "./memoryApi";
 
 interface Props {
   api: ApiConfig;
   node: MemNode;
-  onClose: () => void;
   onUpdate: (id: string, patch: Partial<MemNode>) => void;
   onDelete: (id: string) => void;
-  isPinned?: boolean;
-  onUnpin?: () => void;
+  edges: MemEdge[];
+  nodes: Map<string, MemNode>;
+  onSelectNode: (id: string) => void;
+}
+
+interface Neighbor {
+  id: string;
+  rel: string;
+  dir: "out" | "in";
+  node: MemNode | null;
 }
 
 interface EditState {
@@ -37,12 +44,27 @@ function buildEditState(node: MemNode): EditState {
 export function MemoryNodeDetail({
   api,
   node,
-  onClose,
   onUpdate,
   onDelete,
-  isPinned,
-  onUnpin,
+  edges,
+  nodes,
+  onSelectNode,
 }: Props) {
+  const [tucked, setTucked] = useState(false);
+  const neighbors: Neighbor[] = useMemo(() => {
+    const out: Neighbor[] = [];
+    for (const e of edges) {
+      if (e.from === node.id) {
+        out.push({ id: e.to, rel: e.rel, dir: "out", node: nodes.get(e.to) ?? null });
+      } else if (e.to === node.id) {
+        out.push({ id: e.from, rel: e.rel, dir: "in", node: nodes.get(e.from) ?? null });
+      }
+    }
+    return out.sort((a, b) => {
+      if (a.rel !== b.rel) return a.rel.localeCompare(b.rel);
+      return a.id.localeCompare(b.id);
+    });
+  }, [edges, nodes, node.id]);
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState<EditState>(() => buildEditState(node));
   const [tagInput, setTagInput] = useState("");
@@ -54,6 +76,7 @@ export function MemoryNodeDetail({
     setEdit(buildEditState(node));
     setEditing(false);
     setSaveError(null);
+    setTucked(false);
   }, [node.id]);
 
   useEffect(() => {
@@ -161,8 +184,20 @@ export function MemoryNodeDetail({
     "bg-transparent border border-[var(--ct-border)] text-inherit px-2.5 py-1 rounded text-[11px] cursor-pointer";
 
   return (
+    <>
+      {tucked && (
+        <button
+          onClick={() => setTucked(false)}
+          aria-label="Show details"
+          title="Show details"
+          className="absolute top-3 right-0 z-10 px-1.5 py-2 rounded-l bg-[var(--ct-surface)] border border-r-0 border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] cursor-pointer text-xs leading-none"
+        >
+          ‹
+        </button>
+      )}
     <div
-      className="absolute top-0 right-0 bottom-0 w-[360px] p-4 z-10 overflow-y-auto flex flex-col gap-2.5 text-xs bg-[var(--ct-surface)] border-l border-[var(--ct-border)] text-[var(--ct-fg)]"
+      className="absolute top-0 right-0 bottom-0 w-[360px] p-4 z-10 overflow-y-auto flex flex-col gap-2.5 text-xs bg-[var(--ct-surface)] border-l border-[var(--ct-border)] text-[var(--ct-fg)] transition-transform duration-200 ease-out"
+      style={{ transform: tucked ? "translateX(100%)" : "translateX(0)" }}
       onMouseDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
     >
@@ -184,18 +219,13 @@ export function MemoryNodeDetail({
         ) : (
           <strong className="text-sm flex-1 break-words">{node.title}</strong>
         )}
-        {isPinned && onUnpin && !editing && (
-          <button
-            onClick={onUnpin}
-            title="Unpin position (release to force simulation)"
-            aria-label="Unpin"
-            className="shrink-0 mt-[2px] px-1.5 py-0.5 rounded-[3px] bg-transparent border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-fg)] cursor-pointer text-[9px] uppercase tracking-wide leading-none font-semibold"
-          >
-            pinned
-          </button>
-        )}
-        <button onClick={onClose} className={`${btnClass} !px-2 !py-0.5 !text-base`}>
-          ×
+        <button
+          onClick={() => setTucked(true)}
+          aria-label="Tuck panel"
+          title="Tuck panel"
+          className={`${btnClass} !px-2 !py-0.5 !text-base leading-none`}
+        >
+          ›
         </button>
       </div>
 
@@ -303,6 +333,66 @@ export function MemoryNodeDetail({
         </div>
       </div>
 
+      {!editing && (
+        <div>
+          <div className="text-[10px] opacity-60 mb-[3px]">
+            Related ({neighbors.length})
+          </div>
+          {neighbors.length === 0 ? (
+            <div className="text-[10px] opacity-50">orphan — no edges</div>
+          ) : (
+            <div className="flex flex-col gap-0.5 max-h-[260px] overflow-y-auto">
+              {neighbors.map((nb, i) => (
+                <button
+                  key={`${nb.dir}-${nb.id}-${nb.rel}-${i}`}
+                  onClick={() => onSelectNode(nb.id)}
+                  className="flex items-center gap-1.5 text-left text-[11px] px-1.5 py-0.5 rounded hover:bg-[var(--ct-hover)] cursor-pointer w-full"
+                  title={nb.id}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: nb.node ? colorForKind(nb.node.kind) : "#666" }}
+                  />
+                  <span className="opacity-60 text-[9px] uppercase tracking-wide w-3 shrink-0">
+                    {nb.dir === "out" ? "→" : "←"}
+                  </span>
+                  <span className="opacity-70 text-[10px] shrink-0 italic">
+                    {nb.rel}
+                  </span>
+                  <span className="opacity-90 truncate flex-1 min-w-0">
+                    {nb.node?.title ?? nb.id}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!editing && (
+        <div>
+          <div className="text-[10px] opacity-60 mb-[3px]">Stats</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] opacity-75">
+            <span title="Has vector embedding for semantic search">
+              embedding: {node.has_vector ? "✓" : "—"}
+            </span>
+            <span title="Has stored body content (vs entity-only)">
+              body: {node.has_body ? "✓" : "—"}
+            </span>
+            {typeof node.access_count === "number" && (
+              <span title="How many times this item has been read">
+                reads: {node.access_count}
+              </span>
+            )}
+            {typeof node.recurrence_count === "number" && node.recurrence_count > 0 && (
+              <span title="How many similar saves have been deduped into this">
+                merges: {node.recurrence_count}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {(node.created_at || node.updated_at) && !editing && (
         <div className="text-[10px] opacity-50">
           {node.created_at && <div>created: {node.created_at}</div>}
@@ -340,5 +430,6 @@ export function MemoryNodeDetail({
         )}
       </div>
     </div>
+    </>
   );
 }

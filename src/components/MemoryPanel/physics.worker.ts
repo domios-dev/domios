@@ -7,14 +7,15 @@ import type {
   PhysicsResponse,
 } from "./physicsProtocol";
 
-const REPULSION = 18000;
-const SPRING_LENGTH = 250;
-const SPRING_K = 0.015;
-const CENTER_PULL = 0.0003;
+const REPULSION = 120000;
+const SPRING_LENGTH = 700;
+const SPRING_K = 0.010;
+const CENTER_PULL = 0.00001;
 const DAMPING = 0.78;
 const MAX_VEL = 35;
 const ENERGY_SLEEP = 0.05;
 const TICK_INTERVAL_MS = 16;
+const MAX_TICKS_PER_HEAT = 320;
 
 interface NodeState {
   x: number;
@@ -24,11 +25,12 @@ interface NodeState {
 }
 
 const nodes = new Map<string, NodeState>();
-const pinned = new Set<string>();
 let edges: PhysicsEdge[] = [];
 let enabled = true;
 let sleeping = false;
 let timer: ReturnType<typeof setInterval> | null = null;
+let ticksSinceHeat = 0;
+let firstSettleDone = false;
 
 function post(msg: PhysicsResponse) {
   (self as unknown as Worker).postMessage(msg);
@@ -39,6 +41,7 @@ function step() {
   const ids = [...nodes.keys()];
   const n = ids.length;
   if (n === 0) return;
+  ticksSinceHeat++;
 
   const fx = new Map<string, number>();
   const fy = new Map<string, number>();
@@ -98,11 +101,6 @@ function step() {
   let energy = 0;
   for (const id of ids) {
     const node = nodes.get(id)!;
-    if (pinned.has(id)) {
-      node.vx = 0;
-      node.vy = 0;
-      continue;
-    }
     node.vx = (node.vx + fx.get(id)!) * DAMPING;
     node.vy = (node.vy + fy.get(id)!) * DAMPING;
     const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
@@ -118,8 +116,15 @@ function step() {
 
   if (positions.length > 0) post({ type: "tick", positions });
 
-  if (energy / n < ENERGY_SLEEP && pinned.size === 0) {
+  const energySleep = energy / n < ENERGY_SLEEP;
+  const wallclockSleep = ticksSinceHeat >= MAX_TICKS_PER_HEAT;
+  if (energySleep || wallclockSleep) {
+    for (const node of nodes.values()) {
+      node.vx = 0;
+      node.vy = 0;
+    }
     sleeping = true;
+    firstSettleDone = true;
     stopLoop();
   }
 }
@@ -127,6 +132,7 @@ function step() {
 function startLoop() {
   if (timer != null) return;
   sleeping = false;
+  ticksSinceHeat = 0;
   timer = setInterval(step, TICK_INTERVAL_MS);
 }
 
@@ -139,28 +145,23 @@ function stopLoop() {
 
 function setGraph(next: PhysicsNode[], nextEdges: PhysicsEdge[]) {
   const seen = new Set<string>();
+  let topologyChanged = false;
   for (const n of next) {
     seen.add(n.id);
-    const existing = nodes.get(n.id);
-    if (existing) {
-      if (n.pinned) {
-        existing.x = n.x;
-        existing.y = n.y;
-      }
-    } else {
+    if (!nodes.has(n.id)) {
       nodes.set(n.id, { x: n.x, y: n.y, vx: 0, vy: 0 });
+      topologyChanged = true;
     }
-    if (n.pinned) pinned.add(n.id);
-    else pinned.delete(n.id);
   }
   for (const id of [...nodes.keys()]) {
     if (!seen.has(id)) {
       nodes.delete(id);
-      pinned.delete(id);
+      topologyChanged = true;
     }
   }
+  if (edges.length !== nextEdges.length) topologyChanged = true;
   edges = nextEdges;
-  if (enabled) {
+  if (enabled && topologyChanged && !firstSettleDone) {
     sleeping = false;
     startLoop();
   }
@@ -171,14 +172,6 @@ self.addEventListener("message", (ev: MessageEvent<PhysicsRequest>) => {
   switch (msg.type) {
     case "setGraph":
       setGraph(msg.nodes, msg.edges);
-      break;
-    case "setPinned":
-      pinned.clear();
-      for (const id of msg.pinned) pinned.add(id);
-      if (enabled && sleeping) {
-        sleeping = false;
-        startLoop();
-      }
       break;
     case "updatePosition": {
       const node = nodes.get(msg.id);

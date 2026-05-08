@@ -113,9 +113,84 @@ pub async fn mem_get(
     match item {
         Some(item) => {
             emit_activity(&state, &headers, "read", vec![id.clone()]);
+            // Why: served-to-caller is the cleanest signal that a skill/lesson was
+            // injected into someone's context. v1.1.24 will tighten via
+            // EvolutionObserver scoring; here we just bump unconditionally.
+            state.svc.mem.with_conn(|conn| bump_on_get(conn, &item.kind, &id));
             Ok(Json(serde_json::to_value(item).unwrap_or_default()))
         }
         None => Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id))),
+    }
+}
+
+/// Pure helper used by `mem_get`. Bumps evidence_count for kind=skill|lesson;
+/// no-op for any other kind. Best-effort — logs and swallows errors so a graph
+/// hiccup never breaks the read path.
+fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
+    if kind != "skill" && kind != "lesson" {
+        return;
+    }
+    if let Err(e) = codeterm_mem_store::graph::bump_evidence_count(conn, id) {
+        log::debug!("[mem_get] evidence bump failed for {}: {}", id, e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bump_on_get;
+    use rusqlite::Connection;
+
+    fn open_test_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::mem::store::init_schema(&conn).unwrap();
+        conn
+    }
+
+    fn insert(conn: &Connection, id: &str, kind: &str) {
+        conn.execute(
+            "INSERT INTO mem_items (id, uid, kind, scope, title, tags_json, created_at, updated_at)
+             VALUES (?1, ?1, ?2, 'global', 't', '[]', '2026-01-01', '2026-01-01')",
+            rusqlite::params![id, kind],
+        ).unwrap();
+    }
+
+    fn evidence(conn: &Connection, id: &str) -> i64 {
+        conn.query_row(
+            "SELECT evidence_count FROM mem_items WHERE id = ?1",
+            rusqlite::params![id],
+            |r| r.get(0),
+        ).unwrap()
+    }
+
+    #[test]
+    fn bump_on_get_increments_for_lesson() {
+        let conn = open_test_conn();
+        insert(&conn, "lesson_a", "lesson");
+        bump_on_get(&conn, "lesson", "lesson_a");
+        assert_eq!(evidence(&conn, "lesson_a"), 2, "default 1 + 1 bump = 2");
+    }
+
+    #[test]
+    fn bump_on_get_increments_for_skill() {
+        let conn = open_test_conn();
+        insert(&conn, "skill_a", "skill");
+        bump_on_get(&conn, "skill", "skill_a");
+        assert_eq!(evidence(&conn, "skill_a"), 2);
+    }
+
+    #[test]
+    fn bump_on_get_skips_other_kinds() {
+        let conn = open_test_conn();
+        insert(&conn, "note_a", "note");
+        bump_on_get(&conn, "note", "note_a");
+        assert_eq!(evidence(&conn, "note_a"), 1, "kind=note must not bump");
+    }
+
+    #[test]
+    fn bump_on_get_is_safe_when_row_missing() {
+        let conn = open_test_conn();
+        // No insert — must not panic / error.
+        bump_on_get(&conn, "skill", "ghost_id");
     }
 }
 
@@ -344,6 +419,46 @@ pub async fn mem_stats(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let stats = state.svc.mem.stats().map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::to_value(stats).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+pub struct ReembedParams {
+    /// items | entities | all (default).
+    #[serde(default)]
+    pub scope: Option<String>,
+}
+
+/// Bulk re-embed mem_items and/or graph entities into mem_vectors. Use this
+/// after swapping the embedder model OR to backfill entities that pre-date
+/// the auto-embed-on-create wiring (everything created before v1.1.23).
+pub async fn mem_reembed(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<ReembedParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let scope = p.scope.as_deref().unwrap_or("all").to_lowercase();
+    let do_items = matches!(scope.as_str(), "items" | "all");
+    let do_entities = matches!(scope.as_str(), "entities" | "all");
+    if !do_items && !do_entities {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("scope must be items | entities | all, got `{}`", scope),
+        ));
+    }
+
+    let report = state
+        .svc
+        .mem
+        .reembed_bulk(do_items, do_entities)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "scope": scope,
+        "items_reembedded": report.items,
+        "entities_reembedded": report.entities,
+        "errors": report.errors,
+    })))
 }
 
 #[derive(Deserialize)]

@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ApiConfig } from "../../lib/types";
 import { EventRow } from "./EventRenderer";
+import { ClaudeStreamParser, mergeAssistantMessages } from "./streamParser";
 import { useAgentRunStream } from "./useAgentRunStream";
 
 interface Props {
@@ -38,21 +40,50 @@ export function AgentRunLogPopup({
   const isTerminal = TERMINAL_STATUSES.has(status);
   const enabled = !!paneId;
 
-  const { events, rawLines, connected, error } = useAgentRunStream({
+  const { events: liveEvents, rawLines, connected, error } = useAgentRunStream({
     api,
     paneId,
     enabled,
   });
 
+  // Run the fallback log (for terminal workers) through the SAME stream parser
+  // as live runs so completed sessions render with collapsed thinking, tool
+  // calls, and tool results — not a wall of raw JSON.
+  const fallbackEvents = useMemo(() => {
+    if (!fallbackText) return [];
+    const parser = new ClaudeStreamParser();
+    const parsed = parser.feed(fallbackText);
+    return mergeAssistantMessages(parsed.events);
+  }, [fallbackText]);
+
+  const events = liveEvents.length > 0 ? liveEvents : fallbackEvents;
+
   const [showRaw, setShowRaw] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
 
+  // Auto-scroll to bottom on new content UNLESS the user manually scrolled
+  // up (then they're reading history — don't yank). Track stick-to-bottom
+  // state by checking if the container is near its bottom before each new
+  // event lands.
+  const stickyBottomRef = useRef(true);
   useEffect(() => {
-    if (!scrollRef.current) return;
-    if (isTerminal && events.length > 0) return;
-    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [events.length, rawLines.length, isTerminal]);
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+      stickyBottomRef.current = dist < 60;
+    };
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (stickyBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [events, rawLines.length]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -66,15 +97,17 @@ export function AgentRunLogPopup({
     if (e.target === backdropRef.current) onClose();
   };
 
+  // Only show raw fallback text when the parser couldn't produce a single
+  // event from it (truly garbage output). Otherwise the parsed events render.
   const showFallback =
     events.length === 0 && rawLines.length === 0 && !!fallbackText;
 
-  return (
+  return createPortal(
     <div
       ref={backdropRef}
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-[60] flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.4)" }}
+      className="fixed inset-0 z-[60] flex items-center justify-center backdrop-blur-sm"
+      style={{ background: "rgba(0,0,0,0.65)" }}
     >
       <div
         className="flex flex-col bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-lg shadow-2xl"
@@ -169,7 +202,8 @@ export function AgentRunLogPopup({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

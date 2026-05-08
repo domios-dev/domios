@@ -51,7 +51,11 @@ pub struct OutputBuffer {
     buffers: HashMap<String, Vec<u8>>,
     /// Full output history (capped at MAX_FULL_SIZE per PTY). Used by chat view parser.
     full_buffers: HashMap<String, Vec<u8>>,
+    /// Monotonic count of bytes ever written per pty, surviving ring-buffer
+    /// rotation. SSE clients use this as a stable absolute offset.
+    total_written: HashMap<String, u64>,
     max_size: usize,
+    max_full: usize,
 }
 
 /// Maximum size of full_buffers per PTY (2 MB).
@@ -59,10 +63,16 @@ const MAX_FULL_SIZE: usize = 2 * 1024 * 1024;
 
 impl OutputBuffer {
     pub fn new(max_size: usize) -> Self {
+        Self::new_with_caps(max_size, MAX_FULL_SIZE)
+    }
+
+    fn new_with_caps(ring_size: usize, full_size: usize) -> Self {
         Self {
             buffers: HashMap::new(),
             full_buffers: HashMap::new(),
-            max_size,
+            total_written: HashMap::new(),
+            max_size: ring_size,
+            max_full: full_size,
         }
     }
 
@@ -74,13 +84,14 @@ impl OutputBuffer {
             let drain = buf.len() - self.max_size;
             buf.drain(..drain);
         }
-        // Full history (capped at MAX_FULL_SIZE)
+        // Full history (capped at max_full)
         let full = self.full_buffers.entry(pty_id.to_string()).or_default();
         full.extend_from_slice(data);
-        if full.len() > MAX_FULL_SIZE {
-            let excess = full.len() - MAX_FULL_SIZE;
+        if full.len() > self.max_full {
+            let excess = full.len() - self.max_full;
             full.drain(..excess);
         }
+        *self.total_written.entry(pty_id.to_string()).or_insert(0) += data.len() as u64;
     }
 
     pub fn get(&self, pty_id: &str) -> Option<&[u8]> {
@@ -101,9 +112,77 @@ impl OutputBuffer {
         self.get_full(pty_id).map(|b| String::from_utf8_lossy(b).to_string())
     }
 
+    /// Total bytes ever written to this pty (monotonic).
+    pub fn total_written(&self, pty_id: &str) -> u64 {
+        self.total_written.get(pty_id).copied().unwrap_or(0)
+    }
+
+    /// Read everything written after `offset`. If `offset` predates the
+    /// retained full_buffer window (rotated out), starts from the oldest
+    /// retained byte. Returns (data, new_total) — caller advances its
+    /// offset to `new_total` regardless of how much data was returned.
+    pub fn read_since(&self, pty_id: &str, offset: u64) -> (Vec<u8>, u64) {
+        let total = self.total_written(pty_id);
+        let buf = match self.full_buffers.get(pty_id) {
+            Some(b) => b,
+            None => return (Vec::new(), total),
+        };
+        if offset >= total {
+            return (Vec::new(), total);
+        }
+        let buf_start = total.saturating_sub(buf.len() as u64);
+        let read_from = offset.max(buf_start);
+        let local_idx = (read_from - buf_start) as usize;
+        let slice = buf.get(local_idx..).map(|s| s.to_vec()).unwrap_or_default();
+        (slice, total)
+    }
+
     pub fn remove(&mut self, pty_id: &str) {
         self.buffers.remove(pty_id);
         self.full_buffers.remove(pty_id);
+        self.total_written.remove(pty_id);
+    }
+}
+
+#[cfg(test)]
+mod output_buffer_tests {
+    use super::*;
+
+    #[test]
+    fn read_since_survives_ring_rotation() {
+        let mut ob = OutputBuffer::new(8);
+        ob.append("p", b"AAAA");
+        ob.append("p", b"BBBB");
+        ob.append("p", b"CCCC");
+        // ring is 8 bytes — only "BBBBCCCC" remain, total_written = 12.
+        assert_eq!(ob.total_written("p"), 12);
+        let (chunk, new_total) = ob.read_since("p", 4);
+        assert_eq!(new_total, 12);
+        assert_eq!(chunk, b"BBBBCCCC");
+
+        ob.append("p", b"DDDD");
+        let (chunk2, new_total2) = ob.read_since("p", new_total);
+        assert_eq!(new_total2, 16);
+        assert_eq!(chunk2, b"DDDD");
+    }
+
+    #[test]
+    fn read_since_clamps_offset_past_drained_window() {
+        // Tight caps on both ring and full so we can exercise the clamp.
+        let mut ob = OutputBuffer::new_with_caps(4, 4);
+        ob.append("p", b"01234567");
+        let (chunk, total) = ob.read_since("p", 0);
+        assert_eq!(total, 8);
+        assert_eq!(chunk, b"4567");
+    }
+
+    #[test]
+    fn read_since_at_total_returns_empty() {
+        let mut ob = OutputBuffer::new(64);
+        ob.append("p", b"hello");
+        let (chunk, total) = ob.read_since("p", 5);
+        assert_eq!(total, 5);
+        assert!(chunk.is_empty());
     }
 }
 

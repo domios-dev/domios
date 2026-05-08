@@ -297,6 +297,10 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("POST".into(), path, None)
             }
         }
+        // `system` writes platform-specific files (schtasks/launchd/systemd)
+        // and only makes sense on the local host. Mesh relay falls through
+        // to /identify so callers always get a valid JSON response.
+        Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
     }
 }
 
@@ -385,7 +389,22 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             };
             ("POST".into(), url, None)
         }
-        MemAction::Dream => ("POST".into(), "/api/mem/dream".into(), None),
+        MemAction::Dream { action } => {
+            use crate::MemDreamAction;
+            match action {
+                MemDreamAction::Run { phase } => (
+                    "POST".into(),
+                    format!("/api/mem/dream?phase={}", enc(phase)),
+                    None,
+                ),
+                // `apply` and `diary` open the DB directly. They never round-
+                // trip via mesh — fall through to /stats so callers still get
+                // a valid JSON response.
+                MemDreamAction::Apply { .. } | MemDreamAction::Diary { .. } => {
+                    ("GET".into(), "/api/mem/stats".into(), None)
+                }
+            }
+        }
         MemAction::Graph { action } => match action {
             MemGraphAction::Create { id, entity_type, props, scope } => {
                 let props_val: serde_json::Value = serde_json::from_str(props).unwrap_or(json!({}));
@@ -400,10 +419,11 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 if let Some(v) = scope { payload["scope"] = json!(v); }
                 ("POST".into(), "/api/mem/graph/relate".into(), Some(payload.to_string()))
             }
-            MemGraphAction::Related { id, rel, as_of } => {
+            MemGraphAction::Related { id, rel, as_of, include_invalidated } => {
                 let mut path = format!("/api/mem/graph/related?id={}", enc(id));
                 if let Some(r) = rel { path.push_str(&format!("&rel={}", enc(r))); }
                 if let Some(a) = as_of { path.push_str(&format!("&as_of={}", enc(a))); }
+                if *include_invalidated { path.push_str("&include_invalidated=true"); }
                 ("GET".into(), path, None)
             }
             MemGraphAction::Invalidate { from, rel, to, ended } => {
@@ -411,19 +431,44 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 if let Some(e) = ended { payload["ended"] = json!(e); }
                 ("POST".into(), "/api/mem/graph/invalidate".into(), Some(payload.to_string()))
             }
-            MemGraphAction::Timeline { entity } => {
-                ("GET".into(), format!("/api/mem/graph/timeline?entity={}", enc(entity)), None)
-            }
-            MemGraphAction::Traverse { from, hops, max_nodes, as_of } => {
-                let mut path = format!("/api/mem/graph/traverse?from={}&hops={}&max_nodes={}", enc(from), hops, max_nodes);
-                if let Some(a) = as_of { path.push_str(&format!("&as_of={}", enc(a))); }
+            MemGraphAction::Timeline { entity, include_invalidated } => {
+                let mut path = format!("/api/mem/graph/timeline?entity={}", enc(entity));
+                if *include_invalidated { path.push_str("&include_invalidated=true"); }
                 ("GET".into(), path, None)
             }
-            MemGraphAction::Path { from, to, max_hops } => {
-                ("GET".into(), format!("/api/mem/graph/path?from={}&to={}&max_hops={}", enc(from), enc(to), max_hops), None)
+            MemGraphAction::Traverse { from, hops, max_nodes, as_of, include_invalidated } => {
+                let mut path = format!("/api/mem/graph/traverse?from={}&hops={}&max_nodes={}", enc(from), hops, max_nodes);
+                if let Some(a) = as_of { path.push_str(&format!("&as_of={}", enc(a))); }
+                if *include_invalidated { path.push_str("&include_invalidated=true"); }
+                ("GET".into(), path, None)
             }
-            MemGraphAction::Tunnels => ("GET".into(), "/api/mem/graph/tunnels".into(), None),
+            MemGraphAction::Path { from, to, max_hops, include_invalidated } => {
+                let mut path = format!("/api/mem/graph/path?from={}&to={}&max_hops={}", enc(from), enc(to), max_hops);
+                if *include_invalidated { path.push_str("&include_invalidated=true"); }
+                ("GET".into(), path, None)
+            }
+            MemGraphAction::Tunnels { include_invalidated } => {
+                let path = if *include_invalidated {
+                    "/api/mem/graph/tunnels?include_invalidated=true".to_string()
+                } else {
+                    "/api/mem/graph/tunnels".to_string()
+                };
+                ("GET".into(), path, None)
+            }
             MemGraphAction::Alias { .. } => ("POST".into(), "/api/mem/graph/alias".into(), None),
+            // Local-only graph mutations: no mesh relay. Fall through to
+            // /stats so the call still returns valid JSON if a caller
+            // somehow routes it across the wire.
+            MemGraphAction::Route { .. }
+            | MemGraphAction::PurgeInvalidated { .. }
+            | MemGraphAction::ReviveBroken { .. }
+            | MemGraphAction::IntroduceTopic { .. }
+            | MemGraphAction::Hubs { .. }
+            | MemGraphAction::Islands { .. }
+            | MemGraphAction::Orphans { .. }
+            | MemGraphAction::Get { .. } => {
+                ("GET".into(), "/api/mem/stats".into(), None)
+            }
         },
         // Local-only subcommands. Mesh relay falls through to /stats so callers
         // always get a valid JSON response, but the operation itself never
@@ -434,6 +479,12 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         | MemAction::RunWorker { .. }
         | MemAction::Skill { .. }
         | MemAction::Worker { .. }
-        | MemAction::Secret { .. } => ("GET".into(), "/api/mem/stats".into(), None),
+        | MemAction::Secret { .. }
+        | MemAction::Repair { .. } => ("GET".into(), "/api/mem/stats".into(), None),
+        MemAction::Reembed { scope } => (
+            "POST".into(),
+            format!("/api/mem/reembed?scope={}", enc(scope)),
+            None,
+        ),
     }
 }

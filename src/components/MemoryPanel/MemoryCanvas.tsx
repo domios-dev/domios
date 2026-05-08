@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Sigma from "sigma";
 import Graph from "graphology";
 import EdgeCurveProgram from "@sigma/edge-curve";
 import type { ApiConfig } from "../../lib/types";
 import { MemoryNodeDetail } from "./MemoryNodeDetail";
 import { colorForKind, KIND_COLORS } from "./nodeKind";
-import { useGraphLayout, type Position } from "./useGraphLayout";
+import { useGraphLayout } from "./useGraphLayout";
 import type { MemEdge, MemNode } from "./types";
 import type { Pulse } from "./useActivityPulses";
 
@@ -14,11 +14,8 @@ interface Props {
   nodes: Map<string, MemNode>;
   edges: MemEdge[];
   pulses: Map<string, Pulse>;
-  pinnedPositions: Map<string, Position>;
   updateNode: (id: string, patch: Partial<MemNode>) => void;
   removeNode: (id: string) => void;
-  pinPosition: (id: string, x: number, y: number) => void;
-  unpinPosition: (id: string) => void;
   registerFit: (fn: () => void) => void;
   registerRecenter: (fn: () => void) => void;
   selectedIdOverride?: string | null;
@@ -32,18 +29,20 @@ function nodeSize(n: MemNode): number {
 }
 
 const SELECTION_COLOR = "#c9d1d9";
-const EDGE_RGB = "201,209,217";
+// Dim slate base for edges — overdraw at hubs adds to dim grey instead of white.
+const EDGE_RGB = "100,116,139";
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
 
 export function MemoryCanvas({
   api,
   nodes,
   edges,
   pulses,
-  pinnedPositions,
   updateNode,
   removeNode,
-  pinPosition,
-  unpinPosition,
   registerFit,
   registerRecenter,
   selectedIdOverride,
@@ -69,23 +68,18 @@ export function MemoryCanvas({
   const layout = useGraphLayout({
     nodes,
     edges,
-    pinnedPositions,
     enabled: physicsEnabled,
   });
 
-  // Keep callbacks referenced by event handlers in a ref so the init effect
-  // can run once without re-subscribing when callbacks change.
   const handlersRef = useRef({
     setSelectedId,
-    pin: layout.pin,
     setPos: layout.setPosition,
-    pinPosition,
+    heat: layout.heat,
   });
   handlersRef.current = {
     setSelectedId,
-    pin: layout.pin,
     setPos: layout.setPosition,
-    pinPosition,
+    heat: layout.heat,
   };
 
   // Selection + hover ids live in refs so the nodeReducer (per-frame
@@ -106,6 +100,8 @@ export function MemoryCanvas({
     x: number;
     y: number;
     label: string;
+    sub: string;
+    summary: string | null;
   } | null>(null);
 
   useEffect(() => {
@@ -130,9 +126,7 @@ export function MemoryCanvas({
         const isActive =
           selectedIdRef.current === node || hoveredIdRef.current === node;
         if (isActive) {
-          // Node itself becomes the grey "pad" behind the HTML chip — label
-          // shown in the overlay in black. Dim the sigma-rendered label by
-          // hiding it so the overlay doesn't overlap.
+          // Active node: HTML overlay chip carries the label, sigma label hidden.
           return {
             ...data,
             color: SELECTION_COLOR,
@@ -141,7 +135,8 @@ export function MemoryCanvas({
             zIndex: 1,
           };
         }
-        return data;
+        // Non-active nodes: hide labels — too noisy at scale; selection reveals them.
+        return { ...data, label: "" };
       },
     });
     sigmaRef.current = sigma;
@@ -153,12 +148,7 @@ export function MemoryCanvas({
 
     sigma.on("downNode", ({ node }) => {
       draggingRef.current = node;
-      const attrs = graph.getNodeAttributes(node);
-      handlersRef.current.pin(node, {
-        x: attrs.x as number,
-        y: -(attrs.y as number),
-      });
-      // Pin bbox so camera doesn't auto-scroll during drag.
+      // Freeze camera during drag so it doesn't autoscroll.
       if (!sigma.getCustomBBox()) sigma.setCustomBBox(sigma.getBBox());
     });
 
@@ -175,13 +165,10 @@ export function MemoryCanvas({
     });
 
     const handleUp = () => {
-      const id = draggingRef.current;
-      if (!id) return;
-      const attrs = graph.getNodeAttributes(id);
-      const x = attrs.x as number;
-      const y = -(attrs.y as number);
-      handlersRef.current.pinPosition(id, x, y);
+      if (!draggingRef.current) return;
       draggingRef.current = null;
+      // Resume physics so the released node settles back into the layout.
+      handlersRef.current.heat();
     };
     sigma.on("upNode", handleUp);
     sigma.on("upStage", handleUp);
@@ -226,9 +213,11 @@ export function MemoryCanvas({
       if (!graph.hasEdge(key)) {
         try {
           const conf = e.confidence ?? 0.5;
+          // Edges are visually dominated by overdraw at hub nodes — keep each
+          // stroke thin AND dim so dense clusters read as gauze, not glare.
           graph.addEdgeWithKey(key, e.from, e.to, {
-            size: 0.02 + conf * 0.04,
-            color: `rgba(${EDGE_RGB},${0.03 + conf * 0.05})`,
+            size: 0.005 + conf * 0.010,
+            color: `rgba(${EDGE_RGB},${0.012 + conf * 0.025})`,
           });
         } catch {
           /* duplicate — ignore */
@@ -295,16 +284,30 @@ export function MemoryCanvas({
       if (!n) return;
       const graph = graphRef.current;
       if (!graph?.hasNode(activeId)) return;
-      const display = sigma.getNodeDisplayData(activeId);
-      if (!display) return;
-      const viewport = sigma.graphToViewport(display);
+      // Use raw graph attributes — getNodeDisplayData returns already-projected
+      // framed coords; passing those through graphToViewport double-transforms
+      // and the chip flies off across the camera origin.
+      const attrs = graph.getNodeAttributes(activeId);
+      const viewport = sigma.graphToViewport({
+        x: attrs.x as number,
+        y: attrs.y as number,
+      });
       setChipStyle((prev) => {
-        const next = { x: viewport.x, y: viewport.y, label: n.title };
+        const sub = n.area ? `${n.kind} · ${n.area}` : n.kind;
+        const next = {
+          x: viewport.x,
+          y: viewport.y,
+          label: truncate(n.title, 60),
+          sub,
+          summary: n.summary ? truncate(n.summary, 120) : null,
+        };
         if (
           prev &&
           Math.abs(prev.x - next.x) < 0.5 &&
           Math.abs(prev.y - next.y) < 0.5 &&
-          prev.label === next.label
+          prev.label === next.label &&
+          prev.sub === next.sub &&
+          prev.summary === next.summary
         ) {
           return prev;
         }
@@ -363,22 +366,13 @@ export function MemoryCanvas({
     [removeNode, setSelectedId],
   );
 
-  const handleUnpin = useCallback(() => {
-    if (selectedId) unpinPosition(selectedId);
-  }, [selectedId, unpinPosition]);
-
-  const isSelectedPinned = useMemo(
-    () => (selectedId ? pinnedPositions.has(selectedId) : false),
-    [selectedId, pinnedPositions],
-  );
-
   return (
     <div className="absolute inset-0 overflow-hidden bg-[var(--ct-bg)]">
       <div ref={containerRef} className="absolute inset-0" />
 
       {chipStyle && (
         <div
-          className="absolute pointer-events-none select-none px-2 py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap"
+          className="absolute pointer-events-none select-none px-2 py-1 rounded-md max-w-[280px]"
           style={{
             left: chipStyle.x,
             top: chipStyle.y,
@@ -388,7 +382,17 @@ export function MemoryCanvas({
             boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
           }}
         >
-          {chipStyle.label}
+          <div className="text-[11px] font-medium leading-tight break-words">
+            {chipStyle.label}
+          </div>
+          <div className="text-[9px] opacity-70 leading-tight mt-0.5">
+            {chipStyle.sub}
+          </div>
+          {chipStyle.summary && (
+            <div className="text-[10px] opacity-85 leading-snug mt-1 break-words">
+              {chipStyle.summary}
+            </div>
+          )}
         </div>
       )}
 
@@ -396,11 +400,11 @@ export function MemoryCanvas({
         <MemoryNodeDetail
           api={api}
           node={selectedNode}
-          onClose={() => setSelectedId(null)}
           onUpdate={updateNode}
           onDelete={handleDelete}
-          isPinned={isSelectedPinned}
-          onUnpin={isSelectedPinned ? handleUnpin : undefined}
+          edges={edges}
+          nodes={nodes}
+          onSelectNode={setSelectedId}
         />
       )}
       <div className="absolute bottom-3 left-3 right-3 max-w-[520px] flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--ct-muted-fg)] pointer-events-none opacity-55 leading-[1.4]">

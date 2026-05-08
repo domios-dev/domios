@@ -28,15 +28,42 @@ pub struct Relation {
 pub fn insert_entity(conn: &Connection, e: &Entity) -> Result<(), String> {
     let now = chrono::Utc::now().to_rfc3339();
     let props = serde_json::to_string(&e.properties).unwrap_or_else(|_| "{}".into());
+    // Why ON CONFLICT + json_patch instead of INSERT OR REPLACE:
+    //   INSERT OR REPLACE deletes the existing row entirely, so an extraction
+    //   worker that re-saves person_X with `{}` (just the name + type) would
+    //   wipe email/phone/role that were set by an earlier richer save.
+    //   json_patch(existing, incoming) field-merges with incoming wins on
+    //   collision. entity_type / scope are KEPT (the first creator knew the
+    //   right type; later stubs shouldn't override).
     conn.execute(
-        r#"INSERT OR REPLACE INTO entities
+        r#"INSERT INTO entities
            (id, entity_type, scope, properties_json, created_at, updated_at)
-           VALUES (?1, ?2, ?3, ?4,
-                   COALESCE((SELECT created_at FROM entities WHERE id = ?1), ?5),
-                   ?5)"#,
+           VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+           ON CONFLICT(id) DO UPDATE SET
+             properties_json = json_patch(properties_json, excluded.properties_json),
+             updated_at = excluded.updated_at"#,
         params![&e.id, &e.entity_type, &e.scope, &props, &now],
     )
     .map_err(|e| format!("insert entity: {}", e))?;
+
+    // Embed the entity (id + type + properties) into mem_vectors so unified
+    // `mem search` can find it semantically. Best-effort — embedding failures
+    // log a warning but don't fail the upsert.
+    let merged_props: String = conn
+        .query_row(
+            "SELECT properties_json FROM entities WHERE id = ?1",
+            params![&e.id],
+            |r| r.get::<_, String>(0),
+        )
+        .unwrap_or_else(|_| props.clone());
+    let text = super::embeddings::embeddable_text_for_entity(
+        &e.id,
+        &e.entity_type,
+        &merged_props,
+    );
+    if let Err(err) = super::embeddings::index(conn, &e.id, &text) {
+        log::warn!("[graph.insert_entity] embed {} failed: {}", e.id, err);
+    }
     Ok(())
 }
 
@@ -96,20 +123,28 @@ pub fn invalidate_relation(
     Ok(n > 0)
 }
 
-/// Timeline for an entity: all relations where it's subject or object,
-/// sorted by valid_from. Includes expired relations so history is visible.
+/// Timeline for an entity: relations where it's subject or object,
+/// sorted by valid_from. Default: active-only. Pass `include_invalidated = true`
+/// for full history (including closed `valid_to` rows).
 pub fn timeline(
     conn: &Connection,
     entity_id: &str,
+    include_invalidated: bool,
 ) -> Result<Vec<Relation>, String> {
-    let mut stmt = conn.prepare(
+    let mut sql = String::from(
         r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to,
                   confidence, properties_json
            FROM relations
-           WHERE from_id = ?1 OR to_id = ?1
-           ORDER BY valid_from DESC, created_at DESC"#,
-    ).map_err(|e| e.to_string())?;
-    let rows = stmt.query_map(params![entity_id], |r| {
+           WHERE (from_id = ?1 OR to_id = ?1)"#,
+    );
+    let mut binds: Vec<String> = vec![entity_id.to_string()];
+    append_active_filter(&mut sql, &mut binds, include_invalidated, None);
+    sql.push_str(" ORDER BY valid_from DESC, created_at DESC");
+
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let bind_refs: Vec<&dyn rusqlite::ToSql> =
+        binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let rows = stmt.query_map(rusqlite::params_from_iter(bind_refs), |r| {
         let props_json: String = r.get(7)?;
         Ok(Relation {
             from_id: r.get(0)?,
@@ -129,13 +164,40 @@ pub fn timeline(
     Ok(out)
 }
 
+/// Append the active-window filter to a relations SELECT.
+/// - `include_invalidated`: pass-through, no filter.
+/// - `as_of` set: time-travel — `valid_from <= as_of AND (valid_to IS NULL OR datetime(valid_to) > datetime(as_of))`.
+/// - default: `valid_to IS NULL` (active-only).
+fn append_active_filter(
+    sql: &mut String,
+    binds: &mut Vec<String>,
+    include_invalidated: bool,
+    as_of: Option<&str>,
+) {
+    if include_invalidated {
+        return;
+    }
+    if let Some(date) = as_of {
+        let n = binds.len() + 1;
+        sql.push_str(&format!(
+            " AND valid_from <= ?{0} AND (valid_to IS NULL OR datetime(valid_to) > datetime(?{0}))",
+            n
+        ));
+        binds.push(date.to_string());
+    } else {
+        sql.push_str(" AND valid_to IS NULL");
+    }
+}
+
 /// Relations connected to `id` (both incoming and outgoing).
-/// Optional type filter and as-of date.
+/// Default: active-only. Pass `include_invalidated = true` for full history,
+/// or `as_of = Some(date)` for time-travel reads.
 pub fn related(
     conn: &Connection,
     id: &str,
     rel_type: Option<&str>,
     as_of: Option<&str>,
+    include_invalidated: bool,
 ) -> Result<Vec<Relation>, String> {
     let mut sql = String::from(
         r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to,
@@ -147,14 +209,7 @@ pub fn related(
         sql.push_str(" AND relation_type = ?2");
         binds.push(t.to_string());
     }
-    if let Some(date) = as_of {
-        let n = binds.len() + 1;
-        sql.push_str(&format!(
-            " AND valid_from <= ?{0} AND (valid_to IS NULL OR valid_to > ?{0})",
-            n
-        ));
-        binds.push(date.to_string());
-    }
+    append_active_filter(&mut sql, &mut binds, include_invalidated, as_of);
 
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let bind_refs: Vec<&dyn rusqlite::ToSql> =
@@ -188,14 +243,15 @@ pub struct TraversalResult {
     pub hops_used: usize,
 }
 
-/// BFS traversal from an entity. Respects as_of filter. Caps total nodes
-/// to prevent explosion. Returns both nodes visited and edges followed.
+/// BFS traversal from an entity. Default: active-only. Respects `as_of` for
+/// time-travel reads, or skip the filter via `include_invalidated`.
 pub fn traverse(
     conn: &Connection,
     start: &str,
     max_hops: usize,
     max_nodes: usize,
     as_of: Option<&str>,
+    include_invalidated: bool,
 ) -> Result<TraversalResult, String> {
     use std::collections::{HashSet, VecDeque};
 
@@ -212,16 +268,12 @@ pub fn traverse(
         if visited.len() >= max_nodes { break; }
         hops_used = hops_used.max(hop + 1);
 
-        // Outgoing + incoming relations
         let mut sql = String::from(
             r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json
                FROM relations WHERE (from_id = ?1 OR to_id = ?1)"#,
         );
         let mut binds: Vec<String> = vec![node.clone()];
-        if let Some(date) = as_of {
-            sql.push_str(" AND valid_from <= ?2 AND (valid_to IS NULL OR valid_to > ?2)");
-            binds.push(date.to_string());
-        }
+        append_active_filter(&mut sql, &mut binds, include_invalidated, as_of);
 
         let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
         let bind_refs: Vec<&dyn rusqlite::ToSql> =
@@ -258,13 +310,14 @@ pub fn traverse(
     })
 }
 
-/// Shortest path between two entities using BFS. Returns sequence of relations
-/// or None if unreachable within max_hops.
+/// Shortest path between two entities using BFS. Default: active-only.
+/// Pass `include_invalidated = true` to walk historical edges too.
 pub fn shortest_path(
     conn: &Connection,
     from: &str,
     to: &str,
     max_hops: usize,
+    include_invalidated: bool,
 ) -> Result<Option<Vec<Relation>>, String> {
     use std::collections::{HashMap, VecDeque};
 
@@ -277,11 +330,16 @@ pub fn shortest_path(
     while let Some((node, hop)) = frontier.pop_front() {
         if hop >= max_hops { continue; }
 
-        let mut stmt = conn.prepare(
+        let mut sql = String::from(
             r#"SELECT from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json
-               FROM relations WHERE from_id = ?1 OR to_id = ?1"#,
-        ).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map(params![&node], |r| {
+               FROM relations WHERE (from_id = ?1 OR to_id = ?1)"#,
+        );
+        let mut binds: Vec<String> = vec![node.clone()];
+        append_active_filter(&mut sql, &mut binds, include_invalidated, None);
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let bind_refs: Vec<&dyn rusqlite::ToSql> =
+            binds.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+        let rows = stmt.query_map(rusqlite::params_from_iter(bind_refs), |r| {
             let props_json: String = r.get(7)?;
             Ok(Relation {
                 from_id: r.get(0)?,
@@ -385,9 +443,11 @@ pub fn list_aliases(conn: &Connection, canonical_id: &str) -> Result<Vec<String>
 }
 
 /// Tunnels: entities that appear in 2+ distinct areas (cross-project bridges).
-/// Returns entities sorted by area count descending.
-pub fn tunnels(conn: &Connection) -> Result<Vec<serde_json::Value>, String> {
-    let mut stmt = conn.prepare(
+/// Returns entities sorted by area count descending. Default: active relations
+/// only. Pass `include_invalidated = true` to walk historical edges.
+pub fn tunnels(conn: &Connection, include_invalidated: bool) -> Result<Vec<serde_json::Value>, String> {
+    let active_clause = if include_invalidated { "" } else { " AND r.valid_to IS NULL" };
+    let sql = format!(
         r#"SELECT e.id, e.entity_type, COUNT(DISTINCT m.area) AS area_count,
                   GROUP_CONCAT(DISTINCT m.area) AS areas
            FROM entities e
@@ -395,12 +455,14 @@ pub fn tunnels(conn: &Connection) -> Result<Vec<serde_json::Value>, String> {
            JOIN mem_items m ON (m.id = r.from_id OR m.id = r.to_id)
            WHERE m.area IS NOT NULL AND m.area != ''
              AND e.id NOT LIKE 'kind\_%' ESCAPE '\'
-             AND e.id NOT LIKE 'area\_%' ESCAPE '\'
+             AND e.id NOT LIKE 'area\_%' ESCAPE '\'{}
            GROUP BY e.id
            HAVING area_count >= 2
            ORDER BY area_count DESC
            LIMIT 50"#,
-    ).map_err(|e| e.to_string())?;
+        active_clause,
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |r| {
         Ok(serde_json::json!({
             "id": r.get::<_, String>(0)?,
@@ -474,17 +536,22 @@ mod tests {
         .unwrap();
 
         // As of 2026-02-01: should see project_a only
-        let r = related(&conn, "person_kai", None, Some("2026-02-01T00:00:00Z")).unwrap();
+        let r = related(&conn, "person_kai", None, Some("2026-02-01T00:00:00Z"), false).unwrap();
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].to_id, "project_a");
 
         // As of 2026-04-01: should see project_b only
-        let r = related(&conn, "person_kai", None, Some("2026-04-01T00:00:00Z")).unwrap();
+        let r = related(&conn, "person_kai", None, Some("2026-04-01T00:00:00Z"), false).unwrap();
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].to_id, "project_b");
 
-        // No date filter: should see both
-        let r = related(&conn, "person_kai", None, None).unwrap();
+        // Default (active-only): only the open relation (project_b).
+        let r = related(&conn, "person_kai", None, None, false).unwrap();
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].to_id, "project_b");
+
+        // include_invalidated=true returns full history.
+        let r = related(&conn, "person_kai", None, None, true).unwrap();
         assert_eq!(r.len(), 2);
     }
 
@@ -507,13 +574,13 @@ mod tests {
         .unwrap();
 
         // Query target entity — should find the incoming relation
-        let r = related(&conn, "person_alex", None, None).unwrap();
+        let r = related(&conn, "person_alex", None, None, false).unwrap();
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].from_id, "note_a");
         assert_eq!(r[0].to_id, "person_alex");
 
         // Query source — should also find it
-        let r = related(&conn, "note_a", None, None).unwrap();
+        let r = related(&conn, "note_a", None, None, false).unwrap();
         assert_eq!(r.len(), 1);
     }
 
@@ -532,7 +599,197 @@ mod tests {
         };
         insert_relation(&conn, &r).unwrap();
         insert_relation(&conn, &r).unwrap();
-        let all = related(&conn, "a", None, None).unwrap();
+        let all = related(&conn, "a", None, None, false).unwrap();
         assert_eq!(all.len(), 1);
+    }
+
+    fn pair_entities(conn: &Connection) {
+        insert_entity(conn, &Entity {
+            id: "e_a".into(), entity_type: "Person".into(),
+            scope: "global".into(), properties: serde_json::Value::Null,
+        }).unwrap();
+        insert_entity(conn, &Entity {
+            id: "e_b".into(), entity_type: "Person".into(),
+            scope: "global".into(), properties: serde_json::Value::Null,
+        }).unwrap();
+    }
+
+    fn active_rel() -> Relation {
+        Relation {
+            from_id: "e_a".into(), relation_type: "knows".into(), to_id: "e_b".into(),
+            scope: "global".into(),
+            valid_from: "2026-01-01T00:00:00.000000+00:00".into(),
+            valid_to: None,
+            confidence: 1.0, properties: serde_json::Value::Null,
+        }
+    }
+
+    fn dead_rel() -> Relation {
+        Relation {
+            from_id: "e_a".into(), relation_type: "loved".into(), to_id: "e_b".into(),
+            scope: "global".into(),
+            valid_from: "2024-01-01T00:00:00.000000+00:00".into(),
+            valid_to: Some("2025-06-01T00:00:00.000000+00:00".into()),
+            confidence: 1.0, properties: serde_json::Value::Null,
+        }
+    }
+
+    #[test]
+    fn related_excludes_invalidated_by_default() {
+        let conn = fresh();
+        pair_entities(&conn);
+        insert_relation(&conn, &active_rel()).unwrap();
+        insert_relation(&conn, &dead_rel()).unwrap();
+
+        let rs = related(&conn, "e_a", None, None, false).unwrap();
+        assert_eq!(rs.len(), 1, "exactly one active relation");
+        assert_eq!(rs[0].valid_to, None);
+    }
+
+    #[test]
+    fn related_include_invalidated_returns_both() {
+        let conn = fresh();
+        pair_entities(&conn);
+        insert_relation(&conn, &active_rel()).unwrap();
+        insert_relation(&conn, &dead_rel()).unwrap();
+
+        let rs = related(&conn, "e_a", None, None, true).unwrap();
+        assert_eq!(rs.len(), 2);
+    }
+
+    #[test]
+    fn traverse_excludes_invalidated_by_default() {
+        let conn = fresh();
+        pair_entities(&conn);
+        insert_relation(&conn, &active_rel()).unwrap();
+        insert_relation(&conn, &dead_rel()).unwrap();
+
+        let res = traverse(&conn, "e_a", 2, 100, None, false).unwrap();
+        let kinds: std::collections::HashSet<&str> =
+            res.edges.iter().map(|r| r.relation_type.as_str()).collect();
+        assert_eq!(kinds, std::collections::HashSet::from(["knows"]),
+            "only the active edge is followed; dead_rel must not appear");
+    }
+
+    #[test]
+    fn shortest_path_skips_invalidated_edges() {
+        let conn = fresh();
+        // A -> B (dead) and A -> C -> B (alive): path must go through C
+        for id in ["e_a", "e_b", "e_c"] {
+            insert_entity(&conn, &Entity {
+                id: id.into(), entity_type: "X".into(),
+                scope: "global".into(), properties: serde_json::Value::Null,
+            }).unwrap();
+        }
+        insert_relation(&conn, &Relation {
+            from_id: "e_a".into(), relation_type: "direct".into(), to_id: "e_b".into(),
+            scope: "global".into(),
+            valid_from: "2024-01-01T00:00:00.000000+00:00".into(),
+            valid_to: Some("2025-01-01T00:00:00.000000+00:00".into()),
+            confidence: 1.0, properties: serde_json::Value::Null,
+        }).unwrap();
+        insert_relation(&conn, &Relation {
+            from_id: "e_a".into(), relation_type: "via".into(), to_id: "e_c".into(),
+            scope: "global".into(),
+            valid_from: "2026-01-01T00:00:00.000000+00:00".into(),
+            valid_to: None,
+            confidence: 1.0, properties: serde_json::Value::Null,
+        }).unwrap();
+        insert_relation(&conn, &Relation {
+            from_id: "e_c".into(), relation_type: "via".into(), to_id: "e_b".into(),
+            scope: "global".into(),
+            valid_from: "2026-01-01T00:00:00.000000+00:00".into(),
+            valid_to: None,
+            confidence: 1.0, properties: serde_json::Value::Null,
+        }).unwrap();
+
+        let path = shortest_path(&conn, "e_a", "e_b", 4, false).unwrap().unwrap();
+        assert_eq!(path.len(), 2, "two-hop path through e_c");
+        assert!(path.iter().all(|r| r.relation_type == "via"));
+    }
+
+    #[test]
+    fn tunnels_excludes_entities_only_on_invalidated_edges() {
+        let conn = fresh();
+        let now = chrono::Utc::now().to_rfc3339();
+        // Two mem_items with distinct areas + an entity
+        for (id, area) in [("m_a", "alpha"), ("m_b", "beta")] {
+            conn.execute(
+                "INSERT INTO mem_items (id, uid, kind, scope, title, tags_json, area, created_at, updated_at)
+                 VALUES (?1, ?1, 'note', 'global', ?1, '[]', ?2, ?3, ?3)",
+                params![id, area, &now],
+            ).unwrap();
+        }
+        insert_entity(&conn, &Entity {
+            id: "person_only_dead".into(), entity_type: "Person".into(),
+            scope: "global".into(), properties: serde_json::Value::Null,
+        }).unwrap();
+        // ONLY invalidated edges connect this entity to the two areas
+        for src in ["m_a", "m_b"] {
+            insert_relation(&conn, &Relation {
+                from_id: src.into(), relation_type: "mentions".into(),
+                to_id: "person_only_dead".into(), scope: "global".into(),
+                valid_from: "2024-01-01T00:00:00.000000+00:00".into(),
+                valid_to: Some("2025-06-01T00:00:00.000000+00:00".into()),
+                confidence: 1.0, properties: serde_json::Value::Null,
+            }).unwrap();
+        }
+
+        let tnls = tunnels(&conn, false).unwrap();
+        let ids: Vec<String> = tnls.iter()
+            .filter_map(|v| v.get("id").and_then(|s| s.as_str()).map(String::from))
+            .collect();
+        assert!(!ids.contains(&"person_only_dead".to_string()),
+            "entity reachable only via invalidated relations must NOT appear in tunnels");
+    }
+
+    #[test]
+    fn timeline_excludes_invalidated_by_default() {
+        let conn = fresh();
+        insert_entity(&conn, &Entity {
+            id: "e_a".into(), entity_type: "X".into(),
+            scope: "global".into(), properties: serde_json::Value::Null,
+        }).unwrap();
+        insert_entity(&conn, &Entity {
+            id: "e_b".into(), entity_type: "X".into(),
+            scope: "global".into(), properties: serde_json::Value::Null,
+        }).unwrap();
+        insert_relation(&conn, &Relation {
+            from_id: "e_a".into(), relation_type: "active".into(), to_id: "e_b".into(),
+            scope: "global".into(),
+            valid_from: "2026-01-01T00:00:00.000000+00:00".into(),
+            valid_to: None,
+            confidence: 1.0, properties: serde_json::Value::Null,
+        }).unwrap();
+        insert_relation(&conn, &Relation {
+            from_id: "e_a".into(), relation_type: "dead".into(), to_id: "e_b".into(),
+            scope: "global".into(),
+            valid_from: "2025-01-01T00:00:00.000000+00:00".into(),
+            valid_to: Some("2025-06-01T00:00:00.000000+00:00".into()),
+            confidence: 1.0, properties: serde_json::Value::Null,
+        }).unwrap();
+
+        let active = timeline(&conn, "e_a", false).unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].relation_type, "active");
+
+        let all = timeline(&conn, "e_a", true).unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn iso_t_separator_does_not_leak_through_string_compare() {
+        let conn = fresh();
+        pair_entities(&conn);
+        let dead = Relation {
+            from_id: "e_a".into(), relation_type: "k".into(), to_id: "e_b".into(),
+            scope: "global".into(),
+            valid_from: "2025-01-01T00:00:00.000000+00:00".into(),
+            valid_to: Some("2025-06-01T00:00:00.000000+00:00".into()),
+            confidence: 1.0, properties: serde_json::Value::Null,
+        };
+        insert_relation(&conn, &dead).unwrap();
+        let rs = related(&conn, "e_a", None, None, false).unwrap();
+        assert!(rs.is_empty(), "ISO-T-separated invalidated row must NOT leak");
     }
 }

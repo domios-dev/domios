@@ -9,9 +9,9 @@ export function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpd
 
   return (
     <div className="space-y-5">
-      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+      <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-[var(--ct-fg)]">Telegram</div>
+          <div className="text-xs font-medium text-[var(--ct-fg)]">Telegram</div>
           {config.integrations?.telegram_enabled && (
             <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">enabled</span>
           )}
@@ -50,9 +50,9 @@ export function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpd
         )}
       </div>
 
-      <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3 opacity-50">
+      <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3 opacity-50">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-[var(--ct-fg)]">Discord</div>
+          <div className="text-xs font-medium text-[var(--ct-fg)]">Discord</div>
           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-border)] text-[var(--ct-muted-fg)]">coming soon</span>
         </div>
         <div className="text-xs text-[var(--ct-muted-fg)]">

@@ -3,6 +3,43 @@
 use serde::Deserialize;
 use super::ServiceContext;
 
+/// Build the byte sequence written to a freshly-attached pty to launch a
+/// shell-level command (agent spawn, mem worker spawn, anything that goes
+/// through bash/cmd to start a process). On Unix we write the launch_cmd
+/// to a temp script and exec via `bash <path>` to bypass bracketed-paste
+/// markers entirely.
+///
+/// macOS system bash 3.2 has no bracketed-paste readline binding, so the
+/// markers leak as literal `00~` / `01~` text into the shell command and
+/// break spawn (mem worker spawns silently broken on Intel Mac mini hosts
+/// whose login shell is still /bin/bash). The script-file path is shell-
+/// agnostic — markers stay only in the interactive Claude TUI input path
+/// where they are still needed.
+///
+/// Script self-cleans via `trap 'rm -f $0' EXIT` so /tmp doesn't accumulate.
+/// Errors propagate — no fallback to known-broken bracketed paste.
+#[cfg(unix)]
+pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let script_path = format!("/tmp/codeterm-spawn-{}.sh", uuid::Uuid::new_v4());
+    {
+        let mut f = std::fs::File::create(&script_path)?;
+        writeln!(f, "#!/usr/bin/env bash")?;
+        writeln!(f, "trap 'rm -f \"$0\"' EXIT")?;
+        writeln!(f, "{}", cmd)?;
+    }
+    std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))?;
+    Ok(format!("bash {}\r", script_path).into_bytes())
+}
+
+/// Windows pty + cmd.exe handle bracketed-paste markers correctly and there
+/// is no /bin/bash to script-exec with, so we keep the original behavior.
+#[cfg(windows)]
+pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
+    Ok(format!("\x1b[200~{}\x1b[201~\r", cmd).into_bytes())
+}
+
 impl ServiceContext {
     /// Send text to PTY via bracket paste mode (ESC[200~ ... ESC[201~).
     /// Standard terminal paste protocol — all TUI apps handle it correctly.
@@ -14,6 +51,18 @@ impl ServiceContext {
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
         self.send_text_to_pty(&pty_id, text, enter)
+    }
+
+    /// Launch a shell-level command in an attached pty (agent spawn, mem worker
+    /// spawn, etc). Bypasses bracketed-paste — see `build_spawn_dispatch` for
+    /// the rationale (bash 3.2 cannot interpret paste markers, the launch
+    /// pipeline must arrive as a normal shell command line). Distinct from the
+    /// interactive TUI input paths (`send_text_*`), which still use bracketed
+    /// paste because Claude / Codex TUIs require it.
+    pub fn send_shell_spawn(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
+        let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
+        self.pty.lock().write(pty_id, &bytes).map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     fn await_pty_link_blocking(
@@ -64,6 +113,17 @@ impl ServiceContext {
 
     /// Verified text injection. Holds NO ScreenState lock across the helper
     /// calls; callers must not hold mux / output_buf when invoking this.
+    ///
+    /// **Delivery is always best-effort: if `enter` is true, Enter (`\r`) is
+    /// written to the PTY UNCONDITIONALLY after the bracket-paste payload.**
+    /// Echo and submit verification are reporting fields on `InjectionResult`,
+    /// not gates: a verify-timeout returns `Ok(... echo_observed: false ...)`
+    /// rather than an error, and Enter still fires. This is the design fix for
+    /// the long-standing bug where an echo-verify timeout (e.g. paste-placeholder
+    /// matching, scroll-out, or TUIs that take >3s to render) caused Enter to
+    /// be skipped entirely, leaving the recipient stuck in paste-mode forever.
+    /// Hard errors are reserved for situations that genuinely prevent delivery
+    /// (PTY closed, prompt never became ready when the caller required it).
     pub fn send_text_verified(
         &self,
         pty_id: &str,
@@ -97,32 +157,41 @@ impl ServiceContext {
             .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
         let bytes_written = paste.len();
 
+        // Echo verify: informational only. Timeout means we couldn't confirm,
+        // not that the paste failed. PtyUnknown is the only real failure here
+        // and surfaces as PtyClosed.
         let echo_observed = if opts.verify_echo {
             match wait_for_echo(&self.screen_state, pty_id, text, opts.echo_timeout, tail_rows) {
                 Ok(_) => true,
                 Err(HelperErr::PtyUnknown(id)) => {
                     return Err(InjectionError::PtyClosed { pty_id: id });
                 }
-                Err(HelperErr::Timeout(tail)) => {
-                    return Err(InjectionError::EchoMismatch {
-                        expected_substr: text.chars().take(80).collect(),
-                        screen_tail: tail.chars().take(400).collect(),
-                    });
+                Err(HelperErr::Timeout(_)) => {
+                    log::debug!(
+                        "echo verify timed out for pty {} (text len={}); proceeding to submit Enter anyway",
+                        pty_id,
+                        text.len()
+                    );
+                    false
                 }
             }
         } else {
             false
         };
 
+        // Enter ALWAYS fires when the caller asked for it. This is the
+        // load-bearing line — no early-return above this point can skip it
+        // unless the PTY is already gone.
         let submit_observed = if enter {
             // Brief settle: TUIs (claude/codex/opencode) buffer bracket paste async;
-            // a same-instant \r can be eaten. Echo verify already proved arrival.
+            // a same-instant \r can be eaten.
             std::thread::sleep(std::time::Duration::from_millis(120));
             self.pty
                 .lock()
                 .write(pty_id, b"\r")
                 .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
 
+            // Submit verify: also informational. Timeout no longer aborts.
             if opts.verify_submit {
                 let res = match submit_strategy {
                     VerifySubmitStrategy::ShellPrompt { timeout } => wait_for_submit_shell(
@@ -149,11 +218,12 @@ impl ServiceContext {
                     Err(HelperErr::PtyUnknown(id)) => {
                         return Err(InjectionError::PtyClosed { pty_id: id });
                     }
-                    Err(HelperErr::Timeout(tail)) => {
-                        return Err(InjectionError::SubmitNeverConfirmed {
-                            waited: started.elapsed(),
-                            screen_tail: tail.chars().take(400).collect(),
-                        });
+                    Err(HelperErr::Timeout(_)) => {
+                        log::debug!(
+                            "submit verify timed out for pty {}; Enter was sent, recipient may still be processing",
+                            pty_id
+                        );
+                        false
                     }
                 }
             } else {

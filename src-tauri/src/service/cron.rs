@@ -184,7 +184,7 @@ impl ServiceContext {
             } else {
                 None
             }
-        });
+        }).map(|s| crate::agent::models::canonicalize_short(&s).to_string());
 
         let spec = SpawnPaneSpec {
             workspace_id: if workspace_id.is_empty() {

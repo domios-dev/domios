@@ -21,7 +21,7 @@ export function NetworkTab({
   const apiEnabled = cfg.api?.enabled ?? false;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <MeshSection config={cfg} onUpdate={onUpdate} apiEnabled={apiEnabled} />
 
       <Collapsible title="API Endpoints Reference">
@@ -61,16 +61,16 @@ export function NetworkTab({
 function Collapsible({ title, children }: { title: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="border border-[var(--ct-border)] rounded-md overflow-hidden">
+    <div className="border border-[var(--ct-border)] rounded-xl overflow-hidden bg-[var(--ct-bg)]/40">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center justify-between w-full px-3 py-2 text-xs font-medium text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors"
+        className="flex items-center justify-between w-full px-4 py-2 text-xs font-medium text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-hover)] transition-colors"
       >
         <span>{title}</span>
         <span className="text-[10px]">{open ? "▴" : "▾"}</span>
       </button>
       {open && (
-        <div className="px-3 py-2 border-t border-[var(--ct-border)] bg-[var(--ct-bg)]/50">
+        <div className="px-4 py-3 border-t border-[var(--ct-border)] bg-[var(--ct-bg)]/30">
           {children}
         </div>
       )}

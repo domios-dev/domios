@@ -206,6 +206,7 @@ dependencies = [
  "base64",
  "chrono",
  "clap",
+ "codeterm-mem-store",
  "dirs",
  "ed25519-dalek",
  "interprocess",
@@ -217,6 +218,17 @@ dependencies = [
  "toml",
  "urlencoding",
  "uuid",
+]
+
+[[package]]
+name = "codeterm-mem-store"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

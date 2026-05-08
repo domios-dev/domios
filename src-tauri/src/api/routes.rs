@@ -139,6 +139,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/forget/{area}", delete(mem_routes::mem_forget_area))
         .route("/api/mem/wake-up", get(mem_routes::mem_wake_up))
         .route("/api/mem/stats", get(mem_routes::mem_stats))
+        .route("/api/mem/reembed", post(mem_routes::mem_reembed))
         .route("/api/mem/graph/entities", post(mem_routes::mem_graph_create))
         .route("/api/mem/graph/relate", post(mem_routes::mem_graph_relate))
         .route("/api/mem/graph/related", get(mem_routes::mem_graph_related))
