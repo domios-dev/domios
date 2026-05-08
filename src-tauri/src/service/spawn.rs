@@ -583,7 +583,7 @@ impl ServiceContext {
             // starts with "dreaming:" gets the dreaming-specific timeout.
             let mem_cfg = crate::config::memory_config();
             let intent = self.workers.get(worker_id).map(|w| w.intent.clone()).unwrap_or_default();
-            let timeout = if intent.starts_with("dreaming:") {
+            let timeout = if crate::mem::workers::is_dreaming_intent(&intent) {
                 mem_cfg.dreaming_timeout_seconds
             } else {
                 mem_cfg.worker_timeout_seconds
