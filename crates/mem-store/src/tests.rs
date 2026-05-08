@@ -352,3 +352,193 @@ fn introduce_topic_handles_existing_entity_idempotently() {
     assert_eq!(report.edges_invalidated, 1);
     assert_eq!(report.edges_created, 2);
 }
+
+#[test]
+fn canonicalize_relation_types_renames_and_drops_duplicates() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
+            VALUES ('a','X','global','{}','2026-01-01','2026-01-01'),
+                   ('b','X','global','{}','2026-01-01','2026-01-01'),
+                   ('c','X','global','{}','2026-01-01','2026-01-01');
+         INSERT INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
+            VALUES ('a','references','b','global','2026-01-01',NULL,1.0,'{}','2026-01-01'),
+                   ('a','mentions','b','global','2026-01-01',NULL,1.0,'{}','2026-01-01'),
+                   ('a','references','c','global','2026-01-01',NULL,1.0,'{}','2026-01-01');"
+    ).unwrap();
+
+    let n = crate::graph::canonicalize_relation_types(
+        &conn,
+        &[("references", "mentions")],
+    ).unwrap();
+    assert!(n >= 2, "must report renames + drops, got {}", n);
+
+    let still_references: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE relation_type='references' AND valid_to IS NULL",
+        [], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(still_references, 0, "no leftover 'references' rows after canonicalize");
+
+    let mentions_a_b: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND relation_type='mentions' AND valid_to IS NULL",
+        [], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(mentions_a_b, 1, "the (a,b) pair survives once after dup-drop");
+
+    let mentions_a_c: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='c' AND relation_type='mentions' AND valid_to IS NULL",
+        [], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(mentions_a_c, 1, "(a,c) gets renamed to mentions");
+}
+
+#[test]
+fn list_entities_with_degree_counts_active_relations_only() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
+            VALUES ('hub','Hub','global','{}','2026-01-01','2026-01-01'),
+                   ('a','X','global','{}','2026-01-01','2026-01-01'),
+                   ('b','X','global','{}','2026-01-01','2026-01-01'),
+                   ('lonely','X','global','{}','2026-01-01','2026-01-01');
+         INSERT INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
+            VALUES ('hub','r1','a','global','2026-01-01',NULL,1.0,'{}','2026-01-01'),
+                   ('hub','r2','b','global','2026-01-01',NULL,1.0,'{}','2026-01-01'),
+                   ('hub','r3','a','global','2025-01-01','2025-06-01',1.0,'{}','2025-01-01');"
+    ).unwrap();
+
+    let mut entities = crate::graph::list_entities_with_degree(&conn).unwrap();
+    entities.sort_by(|a, b| a.id.cmp(&b.id));
+    let by_id: std::collections::HashMap<String, &crate::graph::EntityDegree> =
+        entities.iter().map(|e| (e.id.clone(), e)).collect();
+
+    assert_eq!(entities.len(), 4);
+    assert_eq!(by_id.get("hub").unwrap().degree, 2,
+        "invalidated edge must NOT count");
+    assert_eq!(by_id.get("a").unwrap().degree, 1);
+    assert_eq!(by_id.get("b").unwrap().degree, 1);
+    assert_eq!(by_id.get("lonely").unwrap().degree, 0);
+    assert_eq!(by_id.get("hub").unwrap().entity_type, "Hub");
+}
+
+#[test]
+fn cleanup_orphan_entities_skips_protected_types_and_recent_entities() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    let old = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
+    let recent = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+    conn.execute(
+        "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
+            VALUES ('orphan_old','person','global','{}',?1,?1),
+                   ('orphan_recent','person','global','{}',?2,?2),
+                   ('protected_old','kind','global','{}',?1,?1),
+                   ('connected_old','person','global','{}',?1,?1),
+                   ('peer','person','global','{}',?1,?1);",
+        rusqlite::params![&old, &recent],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
+            VALUES ('connected_old','knows','peer','global',?1,NULL,1.0,'{}',?1);",
+        rusqlite::params![&old],
+    ).unwrap();
+
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(14)).to_rfc3339();
+    let n = crate::graph::cleanup_orphan_entities(
+        &conn,
+        &["kind", "area", "agent", "workspace"],
+        &cutoff,
+    ).unwrap();
+    assert_eq!(n, 1, "only 'orphan_old' should be deleted");
+
+    let exists = |id: &str| -> bool {
+        let c: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM entities WHERE id=?1", rusqlite::params![id], |r| r.get(0),
+        ).unwrap();
+        c > 0
+    };
+    assert!(!exists("orphan_old"), "old orphan deleted");
+    assert!(exists("orphan_recent"), "recent orphan kept");
+    assert!(exists("protected_old"), "protected entity_type kept");
+    assert!(exists("connected_old"), "entity with active relation kept");
+}
+
+#[test]
+fn invalidate_broken_relations_targets_only_truly_broken() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
+            VALUES ('a','X','global','{}','2026-01-01','2026-01-01');
+         INSERT INTO mem_items (id,uid,kind,scope,title,tags_json,created_at,updated_at)
+            VALUES ('m1','m1','note','global','t','[]','2026-01-01','2026-01-01');
+         INSERT INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
+            VALUES ('a','okrel','m1','global','2026-01-01',NULL,1.0,'{}','2026-01-01'),
+                   ('a','badrel','ghost','global','2026-01-01',NULL,1.0,'{}','2026-01-01'),
+                   ('ghost','badrel2','m1','global','2026-01-01',NULL,1.0,'{}','2026-01-01');"
+    ).unwrap();
+    let now = chrono::Utc::now().to_rfc3339();
+    let n = crate::graph::invalidate_broken_relations(&conn, &now).unwrap();
+    assert_eq!(n, 2);
+    let active: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE valid_to IS NULL", [], |r| r.get(0)).unwrap();
+    assert_eq!(active, 1, "only the (a,m1) row stays active");
+}
+
+#[test]
+fn add_alias_with_rewire_merges_relations_and_deletes_alias() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
+            VALUES ('canonical','person','global','{}','2026-01-01','2026-01-01'),
+                   ('alias','person','global','{}','2026-01-01','2026-01-01'),
+                   ('peer1','thing','global','{}','2026-01-01','2026-01-01'),
+                   ('peer2','thing','global','{}','2026-01-01','2026-01-01');
+         INSERT INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
+            VALUES ('alias','knows','peer1','global','2026-01-01',NULL,1.0,'{}','2026-01-01'),
+                   ('peer2','knows','alias','global','2026-01-01',NULL,1.0,'{}','2026-01-01'),
+                   ('canonical','knows','peer1','global','2026-01-01',NULL,1.0,'{}','2026-01-01');"
+    ).unwrap();
+
+    crate::graph::add_alias_with_rewire(&conn, "alias", "canonical").unwrap();
+
+    let alias_entity: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM entities WHERE id='alias'", [], |r| r.get(0)).unwrap();
+    assert_eq!(alias_entity, 0, "alias entity deleted");
+
+    let alias_row: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM entity_aliases WHERE alias_id='alias' AND canonical_id='canonical'",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(alias_row, 1, "alias mapping recorded");
+
+    let leftover: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='alias' OR to_id='alias'",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(leftover, 0, "no relations reference alias_id after rewire");
+
+    let peer2_to_canonical: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='peer2' AND to_id='canonical'",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(peer2_to_canonical, 1, "peer2->alias rewired to peer2->canonical");
+
+    let canonical_to_peer1: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='canonical' AND to_id='peer1'",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(canonical_to_peer1, 1, "duplicate alias->peer1 dropped, canonical->peer1 survives once");
+}
+
+#[test]
+fn add_alias_with_rewire_rejects_self_alias() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    let err = crate::graph::add_alias_with_rewire(&conn, "x", "x").unwrap_err();
+    assert!(matches!(err, crate::error::MemStoreError::InvalidArgument(_)));
+}
