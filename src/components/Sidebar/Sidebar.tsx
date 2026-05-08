@@ -91,8 +91,12 @@ export function Sidebar({
   // is unchanged — returning to workspace restores the visual highlight.
   const isWorkspaceMode = mainView === "workspace";
 
-  // Agent spawn modal state
-  const [agentSpawnModal, setAgentSpawnModal] = useState<{ folder: string; agentId: string } | null>(null);
+  // Agent spawn modal state. `workspaceId` is captured up front so the
+  // confirm step targets the workspace that opened the menu, not whatever
+  // happens to be active when the user clicks Continue.
+  const [agentSpawnModal, setAgentSpawnModal] = useState<
+    { folder: string; agentId: string; workspaceId: string } | null
+  >(null);
   const [claudeSkipPerms, setClaudeSkipPerms] = useState(() => {
     try { return localStorage.getItem("codeterm-claude-skip-perms") === "true"; } catch { return false; }
   });
@@ -100,24 +104,36 @@ export function Sidebar({
     try { return localStorage.getItem("codeterm-claude-remember") === "true"; } catch { return false; }
   });
 
-  const handleAgentSpawn = useCallback(async (agentId: string) => {
-    const provider = getAgentProvider(agentId);
-    let folder: string | null;
-    try {
-      folder = await open({ directory: true, multiple: false, title: `Choose project folder for ${provider?.displayName ?? agentId}` });
-    } catch (err) {
-      console.error(`[agent-spawn] folder picker failed:`, err);
-      return;
+  const handleAgentSpawn = useCallback(async (
+    agentId: string,
+    workspaceId: string,
+    workspaceCwd: string | null,
+  ) => {
+    // Spawning from a workspace's 3-dot menu — the workspace folder is the
+    // implicit choice; no need for a folder picker. Older versions opened a
+    // dialog here even though the user had already selected the workspace.
+    let folder: string | null = workspaceCwd;
+    if (!folder) {
+      const provider = getAgentProvider(agentId);
+      try {
+        folder = await open({
+          directory: true,
+          multiple: false,
+          title: `Choose project folder for ${provider?.displayName ?? agentId}`,
+        });
+      } catch (err) {
+        console.error(`[agent-spawn] folder picker failed:`, err);
+        return;
+      }
+      if (!folder) return;
     }
-    if (!folder) return;
     // If user chose "remember", skip the modal and spawn directly
     if (claudeRememberChoice) {
-      const wsId = state.active_workspace_id ?? state.workspaces[0]?.id;
-      if (wsId) spawnAgentTab(wsId, agentId, claudeSkipPerms, folder);
+      spawnAgentTab(workspaceId, agentId, claudeSkipPerms, folder);
       return;
     }
-    setAgentSpawnModal({ folder, agentId });
-  }, [state.active_workspace_id, state.workspaces, spawnAgentTab, claudeRememberChoice, claudeSkipPerms]);
+    setAgentSpawnModal({ folder, agentId, workspaceId });
+  }, [spawnAgentTab, claudeRememberChoice, claudeSkipPerms]);
 
   const handleClaudeConfirm = useCallback(() => {
     if (!agentSpawnModal) return;
@@ -127,10 +143,14 @@ export function Sidebar({
         localStorage.setItem("codeterm-claude-remember", "true");
       } catch { /* ignore */ }
     }
-    const wsId = state.active_workspace_id ?? state.workspaces[0]?.id;
-    if (wsId) spawnAgentTab(wsId, agentSpawnModal.agentId, claudeSkipPerms, agentSpawnModal.folder);
+    spawnAgentTab(
+      agentSpawnModal.workspaceId,
+      agentSpawnModal.agentId,
+      claudeSkipPerms,
+      agentSpawnModal.folder,
+    );
     setAgentSpawnModal(null);
-  }, [agentSpawnModal, claudeSkipPerms, claudeRememberChoice, state.active_workspace_id, state.workspaces, spawnAgentTab]);
+  }, [agentSpawnModal, claudeSkipPerms, claudeRememberChoice, spawnAgentTab]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
@@ -374,7 +394,7 @@ export function Sidebar({
                   onClose={() => closeWorkspace(ws.id)}
                   onRename={(name) => renameWorkspace(ws.id, name)}
                   onNewTerminal={() => createTab(ws.id)}
-                  onNewAgent={handleAgentSpawn}
+                  onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
                   canClose={true}
                   status={wsStatus}
                   hasWaiting={hasWaiting}
