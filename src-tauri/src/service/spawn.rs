@@ -577,7 +577,17 @@ impl ServiceContext {
         // Register run for auto-complete via stream-json result event / idle / timeout.
         // Cron kind is resolved later (after the cron registry links pane→run).
         if let Some(ref worker_id) = agent.worker_id {
-            let timeout = crate::config::memory_config().worker_timeout_seconds;
+            // Dreamer (REM phase) needs a longer timeout than the default
+            // worker — hub decomposition + diary + classification all in one
+            // session takes a while. Pick by intent: any worker whose intent
+            // starts with "dreaming:" gets the dreaming-specific timeout.
+            let mem_cfg = crate::config::memory_config();
+            let intent = self.workers.get(worker_id).map(|w| w.intent.clone()).unwrap_or_default();
+            let timeout = if intent.starts_with("dreaming:") {
+                mem_cfg.dreaming_timeout_seconds
+            } else {
+                mem_cfg.worker_timeout_seconds
+            };
             self.run_watcher.register(
                 self.clone(),
                 pty_id.clone(),
