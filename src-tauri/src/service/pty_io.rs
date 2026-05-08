@@ -3,6 +3,43 @@
 use serde::Deserialize;
 use super::ServiceContext;
 
+/// Build the byte sequence written to a freshly-attached pty to launch a
+/// shell-level command (agent spawn, mem worker spawn, anything that goes
+/// through bash/cmd to start a process). On Unix we write the launch_cmd
+/// to a temp script and exec via `bash <path>` to bypass bracketed-paste
+/// markers entirely.
+///
+/// macOS system bash 3.2 has no bracketed-paste readline binding, so the
+/// markers leak as literal `00~` / `01~` text into the shell command and
+/// break spawn (mem worker spawns silently broken on Intel Mac mini hosts
+/// whose login shell is still /bin/bash). The script-file path is shell-
+/// agnostic — markers stay only in the interactive Claude TUI input path
+/// where they are still needed.
+///
+/// Script self-cleans via `trap 'rm -f $0' EXIT` so /tmp doesn't accumulate.
+/// Errors propagate — no fallback to known-broken bracketed paste.
+#[cfg(unix)]
+pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let script_path = format!("/tmp/codeterm-spawn-{}.sh", uuid::Uuid::new_v4());
+    {
+        let mut f = std::fs::File::create(&script_path)?;
+        writeln!(f, "#!/usr/bin/env bash")?;
+        writeln!(f, "trap 'rm -f \"$0\"' EXIT")?;
+        writeln!(f, "{}", cmd)?;
+    }
+    std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))?;
+    Ok(format!("bash {}\r", script_path).into_bytes())
+}
+
+/// Windows pty + cmd.exe handle bracketed-paste markers correctly and there
+/// is no /bin/bash to script-exec with, so we keep the original behavior.
+#[cfg(windows)]
+pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
+    Ok(format!("\x1b[200~{}\x1b[201~\r", cmd).into_bytes())
+}
+
 impl ServiceContext {
     /// Send text to PTY via bracket paste mode (ESC[200~ ... ESC[201~).
     /// Standard terminal paste protocol — all TUI apps handle it correctly.
@@ -14,6 +51,18 @@ impl ServiceContext {
     pub fn send_text(&self, pane_id: &str, text: &str, enter: bool) -> Result<(), String> {
         let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
         self.send_text_to_pty(&pty_id, text, enter)
+    }
+
+    /// Launch a shell-level command in an attached pty (agent spawn, mem worker
+    /// spawn, etc). Bypasses bracketed-paste — see `build_spawn_dispatch` for
+    /// the rationale (bash 3.2 cannot interpret paste markers, the launch
+    /// pipeline must arrive as a normal shell command line). Distinct from the
+    /// interactive TUI input paths (`send_text_*`), which still use bracketed
+    /// paste because Claude / Codex TUIs require it.
+    pub fn send_shell_spawn(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
+        let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
+        self.pty.lock().write(pty_id, &bytes).map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     fn await_pty_link_blocking(
