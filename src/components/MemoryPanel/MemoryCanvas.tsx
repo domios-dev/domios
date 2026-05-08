@@ -431,6 +431,9 @@ export function MemoryCanvas({
           onDelete={handleDelete}
           isPinned={isSelectedPinned}
           onUnpin={isSelectedPinned ? handleUnpin : undefined}
+          edges={edges}
+          nodes={nodes}
+          onSelectNode={setSelectedId}
         />
       )}
       <div className="absolute bottom-3 left-3 right-3 max-w-[520px] flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--ct-muted-fg)] pointer-events-none opacity-55 leading-[1.4]">
