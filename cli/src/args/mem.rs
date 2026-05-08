@@ -503,6 +503,27 @@ pub enum MemGraphAction {
         #[arg(long)]
         include_invalidated: bool,
     },
+    /// Inspect a graph entity: properties_json + degree summary. Filling the
+    /// gap that mem search only hits mem_items, not entities. Use this when
+    /// you need email/phone/role/whatever a Person/Tech/Project entity carries
+    /// in its properties — `mem graph related` returns relations only.
+    Get {
+        /// Entity id (e.g. person_owner, tech_codeterm).
+        id: String,
+    },
+    /// Search graph entities by id substring (case-insensitive). Mirrors
+    /// `mem search` (which only hits mem_items) for the entities table —
+    /// helps the extractor avoid creating duplicate siblings before create
+    /// and lets agents look up Person/Tech/Project entities by name.
+    Search {
+        /// Substring to match against entity ids (case-insensitive).
+        query: String,
+        /// Filter by entity type (Person, Tech, Project, …). Optional.
+        #[arg(long = "type")]
+        entity_type: Option<String>,
+        #[arg(long, default_value_t = 30)]
+        limit: u32,
+    },
     /// List hub nodes — entities with active degree at or above threshold.
     /// Each hub returns its degree, the relation_type distribution, and a
     /// sample of neighbors with titles. Used by the Dreamer recluster phase

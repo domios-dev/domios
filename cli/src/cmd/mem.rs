@@ -436,7 +436,9 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             | MemGraphAction::PurgeInvalidated { .. }
             | MemGraphAction::ReviveBroken { .. }
             | MemGraphAction::IntroduceTopic { .. }
-            | MemGraphAction::Hubs { .. }) => {
+            | MemGraphAction::Hubs { .. }
+            | MemGraphAction::Get { .. }
+            | MemGraphAction::Search { .. }) => {
                 crate::cmd::graph_mutate::try_dispatch_local(local);
                 unreachable!("local-only graph variant did not exit")
             }
