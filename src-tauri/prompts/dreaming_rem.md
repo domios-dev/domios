@@ -100,15 +100,15 @@ specific point, the hub is good.
 
 A hub is genuinely indecomposable when:
 
-- It's a `topic_*` or `role_*` hub AT OR UNDER 30 active edges AND >=90% of
+- It's a `topic_*` or `role_*` hub AT OR UNDER 20 active edges AND >=90% of
   edges share one relation_type — it IS the topic intermediate, sized OK.
   SKIP, log reason="already a topic intermediate, degree N OK".
 
-  **IMPORTANT:** if a `topic_*` / `role_*` hub has degree > 30, do NOT auto-skip.
+  **IMPORTANT:** if a `topic_*` / `role_*` hub has degree > 20, do NOT auto-skip.
   Even topics get bloated. Read its neighbor titles. If you can split them into
   2+ sub-themes (3+ members each), introduce SUB-topic intermediates with names
   like `topic_<parent>_<sub_theme>` (e.g. `topic_codeterm_release_history` at
-  degree 50 → `topic_codeterm_release_v1_1_history` + `topic_codeterm_release_protocol`).
+  degree 43 → `topic_codeterm_release_v1_1_history` + `topic_codeterm_release_protocol`).
   Re-route via introduce-topic; the old topic stays as the parent anchor of the
   new sub-topics.
 
