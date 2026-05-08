@@ -263,10 +263,26 @@ Walk the islands JSON top-to-bottom. For each component:
   alias`). Count the deletions for the log block.
 
 For ORPHANS (degree 0): same decision, but they have no peers to lean
-on. If kind is `rule` / `skill` / `preference` — these are top-level
-guidance, link them to `topic_<area>` or `project_<area>` with `relate`.
-If kind is `fact` / `note` / `learning` and the title looks like
-auto-extracted noise, delete.
+on.
+
+- `kind=rule` / `skill` / `preference` with a clear `area` — link with
+  `relate` to `topic_<area>` or the area's `project_<area>` entity.
+- `kind=peer` — these document a remote machine. Almost always
+  legitimately orphan (no semantic parent). Leave them. Don't bridge.
+- `kind=document` with `source_path` — Librarian-tracked docs may sit
+  alone; leave unless their topic is obviously covered elsewhere.
+- `kind=conversation` / `summary` (auto-generated session flushes) —
+  these are noise that piled up without extraction edges. Delete after
+  reading the title to confirm it's a flush stub.
+- `kind=fact` / `note` / `learning` whose title looks like auto-
+  extracted scaffolding (`auto: User has mentioned (...)`, "instead_of
+  the targeted item", etc.) — delete on sight, they're never useful.
+
+Don't try to bridge an orphan into the main graph just for the sake of
+graph density. The metric isn't "every node connected" — it's "every
+node *findable through its topic*". A rule with no area is a real
+orphan; a peer entity that documents a laptop is just a top-level
+node, not an orphan.
 
 Don't try to drain the list. Process the **first 15-20 islands and the
 first 20 orphans**, log how many you did, log how many remain. The
