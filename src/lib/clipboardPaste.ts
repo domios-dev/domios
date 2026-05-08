@@ -1,10 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export interface PasteOptions {
-  /** Skip text items — on macOS Cmd+V native handling writes text itself. */
-  skipText?: boolean;
-}
-
 export type ClipboardPayload =
   | { kind: "image"; bytes: Blob; mime: string }
   | { kind: "plain"; text: string }
@@ -117,16 +112,13 @@ export async function sendFilePathsToPty(ptyId: string, paths: string[]): Promis
 }
 
 /** Read clipboard via web API + native file-ref fallback, route to PTY. */
-export async function pasteClipboardToPty(ptyId: string, opts: PasteOptions = {}): Promise<boolean> {
-  const skipText = opts.skipText ?? false;
+export async function pasteClipboardToPty(ptyId: string): Promise<boolean> {
   const nativePaths = await readNativeClipboardFiles();
   if (nativePaths.length > 0) {
     return sendFilePathsToPty(ptyId, nativePaths);
   }
 
-  // skipText: xterm.onData already delivers text from a Cmd+V / Ctrl+V; only
-  // images and saved files need our handling.
-  const web = await readWebClipboard(skipText);
+  const web = await readWebClipboard();
   if (web.text !== null) {
     await invoke("write_pty_string", { ptyId, data: web.text });
   }
@@ -135,7 +127,6 @@ export async function pasteClipboardToPty(ptyId: string, opts: PasteOptions = {}
   }
   if (web.text !== null || web.paths.length > 0) return true;
 
-  if (skipText) return false;
   return fallbackReadText(ptyId);
 }
 
@@ -153,7 +144,7 @@ interface WebClipboardResult {
   text: string | null;
 }
 
-async function readWebClipboard(skipText: boolean): Promise<WebClipboardResult> {
+async function readWebClipboard(): Promise<WebClipboardResult> {
   try {
     const items = await navigator.clipboard.read();
     const paths: string[] = [];
@@ -170,13 +161,13 @@ async function readWebClipboard(skipText: boolean): Promise<WebClipboardResult> 
       }
 
       if (payload.kind === "plain") {
-        if (!skipText && text === null) text = payload.text;
+        if (text === null) text = payload.text;
         continue;
       }
 
       // payload.kind === "html" — only reached when text/plain wasn't on the
-      // clipboard. Keeps the old "save HTML to file, paste path" fallback for
-      // edge cases where a source app provides HTML alone.
+      // clipboard; keeps the "save HTML to file, paste path" fallback for
+      // sources that provide HTML alone.
       const path = await saveHtmlPayload(payload.html);
       if (path) paths.push(path);
     }
