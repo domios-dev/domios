@@ -34,6 +34,10 @@ function nodeSize(n: MemNode): number {
 const SELECTION_COLOR = "#c9d1d9";
 const EDGE_RGB = "201,209,217";
 
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
+
 export function MemoryCanvas({
   api,
   nodes,
@@ -106,6 +110,8 @@ export function MemoryCanvas({
     x: number;
     y: number;
     label: string;
+    sub: string;
+    summary: string | null;
   } | null>(null);
 
   useEffect(() => {
@@ -304,12 +310,21 @@ export function MemoryCanvas({
         y: attrs.y as number,
       });
       setChipStyle((prev) => {
-        const next = { x: viewport.x, y: viewport.y, label: n.title };
+        const sub = n.area ? `${n.kind} · ${n.area}` : n.kind;
+        const next = {
+          x: viewport.x,
+          y: viewport.y,
+          label: truncate(n.title, 60),
+          sub,
+          summary: n.summary ? truncate(n.summary, 120) : null,
+        };
         if (
           prev &&
           Math.abs(prev.x - next.x) < 0.5 &&
           Math.abs(prev.y - next.y) < 0.5 &&
-          prev.label === next.label
+          prev.label === next.label &&
+          prev.sub === next.sub &&
+          prev.summary === next.summary
         ) {
           return prev;
         }
@@ -383,7 +398,7 @@ export function MemoryCanvas({
 
       {chipStyle && (
         <div
-          className="absolute pointer-events-none select-none px-2 py-0.5 rounded-md text-[11px] font-medium whitespace-nowrap"
+          className="absolute pointer-events-none select-none px-2 py-1 rounded-md max-w-[280px]"
           style={{
             left: chipStyle.x,
             top: chipStyle.y,
@@ -393,7 +408,17 @@ export function MemoryCanvas({
             boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
           }}
         >
-          {chipStyle.label}
+          <div className="text-[11px] font-medium leading-tight break-words">
+            {chipStyle.label}
+          </div>
+          <div className="text-[9px] opacity-70 leading-tight mt-0.5">
+            {chipStyle.sub}
+          </div>
+          {chipStyle.summary && (
+            <div className="text-[10px] opacity-85 leading-snug mt-1 break-words">
+              {chipStyle.summary}
+            </div>
+          )}
         </div>
       )}
 
