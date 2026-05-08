@@ -19,6 +19,7 @@ interface Props {
   removeNode: (id: string) => void;
   pinPosition: (id: string, x: number, y: number) => void;
   unpinPosition: (id: string) => void;
+  unpinAllPositions: () => void;
   registerFit: (fn: () => void) => void;
   registerRecenter: (fn: () => void) => void;
   selectedIdOverride?: string | null;
@@ -49,6 +50,7 @@ export function MemoryCanvas({
   removeNode,
   pinPosition,
   unpinPosition,
+  unpinAllPositions,
   registerFit,
   registerRecenter,
   selectedIdOverride,
@@ -389,6 +391,11 @@ export function MemoryCanvas({
     if (selectedId) unpinPosition(selectedId);
   }, [selectedId, unpinPosition]);
 
+  const handleUnpinAll = useCallback(() => {
+    unpinAllPositions();
+    layout.heat();
+  }, [unpinAllPositions, layout]);
+
   const isSelectedPinned = useMemo(
     () => (selectedId ? pinnedPositions.has(selectedId) : false),
     [selectedId, pinnedPositions],
@@ -397,6 +404,16 @@ export function MemoryCanvas({
   return (
     <div className="absolute inset-0 overflow-hidden bg-[var(--ct-bg)]">
       <div ref={containerRef} className="absolute inset-0" />
+
+      {pinnedPositions.size > 0 && (
+        <button
+          onClick={handleUnpinAll}
+          title={`Release ${pinnedPositions.size} pinned node${pinnedPositions.size === 1 ? "" : "s"} back to the force layout`}
+          className="absolute top-3 right-3 px-2.5 py-1 rounded text-[11px] bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] text-[var(--ct-fg)] hover:border-[var(--ct-fg)] cursor-pointer"
+        >
+          Unpin all ({pinnedPositions.size})
+        </button>
+      )}
 
       {chipStyle && (
         <div

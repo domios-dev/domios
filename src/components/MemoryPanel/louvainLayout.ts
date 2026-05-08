@@ -1,11 +1,8 @@
 import type Graph from "graphology";
 import louvain from "graphology-communities-louvain";
-import forceAtlas2 from "graphology-layout-forceatlas2";
-import noverlap from "graphology-layout-noverlap";
 
-const CENTROID_RADIUS = 1500;
-const MIN_INNER_RADIUS = 80;
-const INNER_RADIUS_BASE = 300;
+const CENTROID_RADIUS_FACTOR = 80;
+const INNER_RADIUS_FACTOR = 60;
 
 export function layoutLouvain(graph: Graph): void {
   if (graph.order === 0) return;
@@ -23,35 +20,29 @@ export function layoutLouvain(graph: Graph): void {
     arr.push(id);
   });
 
-  const communities = [...buckets.keys()];
+  // Big clusters first so they get adjacent ring slots; singletons fill the
+  // tail. The physics worker animates from this seed (no fa2/noverlap pass).
+  const communities = [...buckets.values()].sort((a, b) => b.length - a.length);
   const k = Math.max(1, communities.length);
-  const seed = new Map<string, { x: number; y: number }>();
+  const N = graph.order;
+  const centroidRadius = CENTROID_RADIUS_FACTOR * Math.sqrt(N);
 
-  communities.forEach((c, i) => {
-    const members = buckets.get(c)!;
+  communities.forEach((members, i) => {
     const angle = (Math.PI * 2 * i) / k;
-    const cx = CENTROID_RADIUS * Math.cos(angle);
-    const cy = CENTROID_RADIUS * Math.sin(angle);
+    const cx = centroidRadius * Math.cos(angle);
+    const cy = centroidRadius * Math.sin(angle);
     const n = members.length;
-    const innerRadius = Math.max(
-      MIN_INNER_RADIUS,
-      INNER_RADIUS_BASE / Math.sqrt(Math.max(1, n)),
-    );
+    if (n === 1) {
+      graph.mergeNodeAttributes(members[0], { x: cx, y: cy });
+      return;
+    }
+    const innerRadius = INNER_RADIUS_FACTOR * Math.sqrt(n);
     members.forEach((id, j) => {
-      const nodeAngle = (Math.PI * 2 * j) / Math.max(1, n);
-      seed.set(id, {
+      const nodeAngle = (Math.PI * 2 * j) / n;
+      graph.mergeNodeAttributes(id, {
         x: cx + innerRadius * Math.cos(nodeAngle),
         y: cy + innerRadius * Math.sin(nodeAngle),
       });
     });
   });
-
-  graph.updateEachNodeAttributes((id, attrs) => {
-    const p = seed.get(id);
-    if (!p) return attrs;
-    return { ...attrs, x: p.x, y: p.y };
-  });
-
-  forceAtlas2.assign(graph, { iterations: 100 });
-  noverlap.assign(graph, { maxIterations: 50 });
 }
