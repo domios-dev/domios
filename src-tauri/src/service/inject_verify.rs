@@ -75,7 +75,7 @@ impl std::error::Error for InjectionError {}
 const POLL_INTERVAL: Duration = Duration::from_millis(40);
 
 #[derive(Debug, Clone)]
-pub(crate) enum HelperErr {
+pub enum HelperErr {
     Timeout(String),    // screen tail captured at timeout
     PtyUnknown(String), // pty_id with no bound parser
 }
