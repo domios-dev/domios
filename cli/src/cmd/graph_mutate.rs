@@ -218,6 +218,219 @@ pub fn run_hubs(threshold: u32, sample: u32, db_path: Option<&str>) -> ! {
     print_or_exit(result);
 }
 
+// --- Connected components / orphans ----------------------------------------
+
+#[derive(Debug, Clone)]
+struct NodeMeta {
+    kind: String,
+    title: String,
+    area: Option<String>,
+    is_entity: bool,
+}
+
+fn load_node_meta(conn: &rusqlite::Connection) -> Result<std::collections::HashMap<String, NodeMeta>, String> {
+    let mut meta: std::collections::HashMap<String, NodeMeta> = std::collections::HashMap::new();
+    // mem_items: id → kind/title/area
+    let mut stmt = conn.prepare("SELECT id, kind, COALESCE(title,''), area FROM mem_items")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, Option<String>>(3)?,
+        ))
+    }).map_err(|e| e.to_string())?;
+    for row in rows.flatten() {
+        meta.insert(row.0, NodeMeta { kind: row.1, title: row.2, area: row.3, is_entity: false });
+    }
+    // entities: id → entity_type as "kind"
+    let mut estmt = conn.prepare("SELECT id, entity_type FROM entities")
+        .map_err(|e| e.to_string())?;
+    let erows = estmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?;
+    for row in erows.flatten() {
+        meta.entry(row.0.clone()).or_insert(NodeMeta {
+            kind: format!("entity:{}", row.1),
+            title: row.0,
+            area: None,
+            is_entity: true,
+        });
+    }
+    Ok(meta)
+}
+
+fn load_active_edges(conn: &rusqlite::Connection) -> Result<Vec<(String, String)>, String> {
+    let mut stmt = conn.prepare(
+        "SELECT from_id, to_id FROM relations WHERE valid_to IS NULL"
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?;
+    Ok(rows.flatten().collect())
+}
+
+// Pick a single anchor candidate from a component's members. Heuristic:
+// 1. Most common non-empty area among members → topic_<area>.
+// 2. Else most common entity:Tech / entity:Project / entity:Topic in the
+//    component (with the assumption that one of the members already names
+//    the cluster).
+// 3. Else fall back to "topic_misc".
+fn suggested_anchor(members: &[(&str, &NodeMeta)]) -> String {
+    let mut area_count: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (_, m) in members {
+        if let Some(a) = &m.area {
+            if !a.is_empty() && a != "_dreams" {
+                *area_count.entry(a.as_str()).or_default() += 1;
+            }
+        }
+    }
+    if let Some((a, _)) = area_count.into_iter().max_by_key(|(_, c)| *c) {
+        return format!("topic_{}", a.to_lowercase().replace([' ', '-'], "_"));
+    }
+    // No shared area — see if a Tech/Project/Topic entity is in the cluster
+    // and use it as anchor candidate (it usually names the cluster best).
+    for (id, m) in members {
+        if m.is_entity {
+            let prefixes = ["topic_", "project_", "tech_"];
+            if prefixes.iter().any(|p| id.starts_with(p)) {
+                return (*id).to_string();
+            }
+        }
+    }
+    "topic_misc".into()
+}
+
+pub fn run_islands(max_size: usize, limit: usize, db_path: Option<&str>) -> ! {
+    let result = (|| -> Result<serde_json::Value, String> {
+        let conn = open_conn(db_path)?;
+        let meta = load_node_meta(&conn)?;
+        let edges = load_active_edges(&conn)?;
+
+        // Owned adjacency map over all known node ids. Both mem_items and
+        // entities live in `meta`; isolated entities still get a zero-edge
+        // entry so BFS treats them as their own component.
+        let mut adj: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            std::collections::HashMap::new();
+        for id in meta.keys() {
+            adj.insert(id.clone(), std::collections::HashSet::new());
+        }
+        for (a, b) in &edges {
+            if meta.contains_key(a) && meta.contains_key(b) {
+                adj.entry(a.clone()).or_default().insert(b.clone());
+                adj.entry(b.clone()).or_default().insert(a.clone());
+            }
+        }
+
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut components: Vec<Vec<String>> = Vec::new();
+        for id in meta.keys() {
+            if seen.contains(id) {
+                continue;
+            }
+            let mut comp: Vec<String> = Vec::new();
+            let mut stack = vec![id.clone()];
+            while let Some(x) = stack.pop() {
+                if !seen.insert(x.clone()) {
+                    continue;
+                }
+                comp.push(x.clone());
+                if let Some(ns) = adj.get(&x) {
+                    for n in ns {
+                        if !seen.contains(n) {
+                            stack.push(n.clone());
+                        }
+                    }
+                }
+            }
+            components.push(comp);
+        }
+
+        let total_components = components.len();
+        let mut filtered: Vec<Vec<String>> = components
+            .into_iter()
+            .filter(|c| c.len() >= 2 && c.len() <= max_size)
+            .collect();
+        filtered.sort_by_key(|c| c.len());
+        filtered.truncate(limit);
+
+        let out: Vec<serde_json::Value> = filtered
+            .into_iter()
+            .map(|comp| {
+                let members_with_meta: Vec<(&str, &NodeMeta)> = comp
+                    .iter()
+                    .filter_map(|id| meta.get_key_value(id).map(|(k, v)| (k.as_str(), v)))
+                    .collect();
+                let anchor = suggested_anchor(&members_with_meta);
+                let member_objs: Vec<serde_json::Value> = members_with_meta
+                    .iter()
+                    .map(|(id, m)| {
+                        serde_json::json!({
+                            "id": id,
+                            "kind": m.kind,
+                            "title": m.title,
+                            "area": m.area,
+                        })
+                    })
+                    .collect();
+                serde_json::json!({
+                    "size": comp.len(),
+                    "members": member_objs,
+                    "suggested_anchor": anchor,
+                })
+            })
+            .collect();
+
+        Ok(serde_json::json!({
+            "max_size": max_size,
+            "total_components": total_components,
+            "count": out.len(),
+            "islands": out,
+        }))
+    })();
+    print_or_exit(result);
+}
+
+pub fn run_orphans(limit: usize, db_path: Option<&str>) -> ! {
+    let result = (|| -> Result<serde_json::Value, String> {
+        let conn = open_conn(db_path)?;
+        let meta = load_node_meta(&conn)?;
+        let edges = load_active_edges(&conn)?;
+
+        let mut degree: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for id in meta.keys() { degree.insert(id.as_str(), 0); }
+        for (a, b) in &edges {
+            if let Some(d) = degree.get_mut(a.as_str()) { *d += 1; }
+            if let Some(d) = degree.get_mut(b.as_str()) { *d += 1; }
+        }
+
+        let mut orphans: Vec<(&str, &NodeMeta)> = degree.iter()
+            .filter(|(_, d)| **d == 0)
+            .filter_map(|(id, _)| meta.get_key_value(*id).map(|(k, v)| (k.as_str(), v)))
+            // Filter to interesting kinds — entities-only nodes with degree 0
+            // are usually trash from extraction (e.g. tech_foo created but
+            // never linked). Mem_items with degree 0 are real orphans the
+            // user might want to keep but shouldn't be invisible in graph.
+            .collect();
+        // Sort: real mem_items first (the user likely wants these bridged),
+        // then loose entities (often delete candidates).
+        orphans.sort_by_key(|(_, m)| (m.is_entity, m.kind.clone()));
+        orphans.truncate(limit);
+
+        let out: Vec<serde_json::Value> = orphans.into_iter().map(|(id, m)| serde_json::json!({
+            "id": id,
+            "kind": m.kind,
+            "title": m.title,
+            "area": m.area,
+        })).collect();
+
+        Ok(serde_json::json!({
+            "count": out.len(),
+            "orphans": out,
+        }))
+    })();
+    print_or_exit(result);
+}
+
 pub fn run_introduce_topic(
     topic_id: &str,
     entity_type: &str,
@@ -300,6 +513,12 @@ pub fn try_dispatch_local(action: &MemGraphAction) -> Option<()> {
         }
         MemGraphAction::Hubs { threshold, sample } => {
             run_hubs(*threshold, *sample, None)
+        }
+        MemGraphAction::Islands { max_size, limit } => {
+            run_islands(*max_size, *limit, None)
+        }
+        MemGraphAction::Orphans { limit } => {
+            run_orphans(*limit, None)
         }
         MemGraphAction::Get { id } => run_entity_get(id, None),
         _ => None,

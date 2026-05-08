@@ -531,6 +531,28 @@ pub enum MemGraphAction {
         #[arg(long, default_value_t = 30)]
         sample: u32,
     },
+    /// List connected components of size <= max-size — disconnected
+    /// "islands" the Dreamer should bridge or delete. Returns component
+    /// member id/kind/title/area, plus a `suggested_anchor` derived from
+    /// shared area / kind / title-keywords across members. JSON mode emits
+    /// JSONL (one component per line, sorted by size asc).
+    Islands {
+        /// Maximum component size to include (default 6 — pairs through
+        /// small clusters; bigger groups are real sub-graphs).
+        #[arg(long, default_value_t = 6)]
+        max_size: usize,
+        /// Maximum number of components to emit (caps verbose output).
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    /// List nodes with degree 0 — true orphans (entities with no relations,
+    /// mem_items not pointed at by anything). Output: id, kind, title,
+    /// area, last access. JSON mode emits a flat array.
+    Orphans {
+        /// Cap the number of orphans emitted.
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+    },
     /// Merge one entity into another (alias → canonical)
     Alias {
         #[arg(long)]

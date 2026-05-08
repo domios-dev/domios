@@ -10,11 +10,19 @@ mutation work.
   English-dominant.
 - Use `--skip-extract` on every save — dream outputs must not spawn
   extraction workers (they create new orphans we'd then have to clean up).
+- **NO FABRICATION.** Every number you put in the `<log>` block (HUBS:
+  count, ISLANDS: bridged=N, DEDUP: aliases=N, etc.) must come from a
+  command output you ran THIS session. If you didn't run the command,
+  the number stays 0 — never invent numbers from memory or "what feels
+  right". Diary is a receipt, not an essay.
 - Every stage has a VERIFY step. Do not move past a stage until its verify
   passes. Skipping a stage is a failed run, not a fast run.
 - No stage is "optional" or "the rest of your job". You finish all of them.
-- If the model is rate-limited mid-run, write the diary FIRST with what you
-  did + what you didn't, then exit. Half a run is better than silence.
+- **DIARY IS WRITTEN INCREMENTALLY.** Save a skeleton diary right after
+  Stage A.1 with placeholder zeros, then `mem update <id>` after each
+  subsequent stage to fill in real numbers. If the model is rate-limited
+  or exits mid-run, a partial diary is still in mem and the user knows
+  what happened. Half a run logged is infinitely better than silence.
 
 ## Tools at your disposal
 
@@ -33,12 +41,28 @@ mutation work.
                                                  # relation_type histogram + neighbor titles +
                                                  # existing topic_*/role_* anchors. PRIMARY input
                                                  # for hub decomposition (Stage A.1).
+  codeterm mem graph islands --max-size 6 --limit 50
+                                                 # connected components of size 2..max — the
+                                                 # disconnected sub-graphs that need bridging.
+                                                 # Each component returns members
+                                                 # (id/kind/title/area) + suggested_anchor.
+                                                 # PRIMARY input for Stage A.2.
+  codeterm mem graph orphans --limit 100         # nodes with degree 0 (true orphans —
+                                                 # no relations at all). Stage A.2 also.
   codeterm mem graph route --from A --to B --via C --reason "..."
                                                  # invalidate A->B, create A->C->B atomically
   codeterm mem graph introduce-topic --topic-id topic_X --type Topic \
       --sources s1,s2,s3 --anchor HUB --reason "dreamer-recluster"
                                                  # atomic: create topic_X, link s1/s2/s3 -> topic_X,
                                                  # link topic_X -> HUB, invalidate the direct edges.
+                                                 # Use this for ISLAND PROMOTION too — pass the
+                                                 # island's members as --sources and a topic_<theme>
+                                                 # as --topic-id, with --anchor pointing at a real
+                                                 # central entity (project_*, area's main topic_*).
+  codeterm mem graph relate --from A --rel R --to B --reason "..."
+                                                 # single edge — used for bridging a SMALL
+                                                 # island (2-3 members) into an existing topic
+                                                 # without inventing a new one.
   codeterm mem graph invalidate --from F --rel R --to T   # close one relation
   codeterm mem graph alias --alias <less> --canonical <better>
                                                  # merges entities, rewires edges, deletes the alias.
@@ -46,6 +70,47 @@ mutation work.
   codeterm mem graph purge-invalidated --before YYYY-MM-DD --dry-run
 
 Explore the store yourself. Don't wait for data to be handed to you.
+
+# EXECUTION WALKTHROUGH (the order you actually run things)
+
+Read this once. It's the workflow you follow; the stages below are
+reference material for *what* each step means. The walkthrough shows
+*when*.
+
+```
+1.  codeterm mem stats                          # situational awareness
+2.  codeterm mem graph hubs --threshold 20      # capture HUBS_RAW
+        → decide+act on each (Stage A.1)
+3.  codeterm mem graph hubs --threshold 20      # capture HUBS_AFTER (verify)
+
+4.  codeterm mem save --kind daily              # SKELETON DIARY — id captured for updates
+        --title "dream: <UTC YYYY-MM-DD HH:MM>" \
+        --tags dream-diary --area _dreams --skip-extract \
+        --summary "WIP: dreaming…" \
+        "<insight></insight><log>STARTED: <UTC>\nHUBS: <pasted HUBS_RAW summary>\n</log>"
+    → save the returned id; you'll mem update it after each stage.
+
+5.  codeterm mem graph islands --max-size 6 --limit 50    # capture ISLANDS_RAW
+6.  codeterm mem graph orphans --limit 100                 # capture ORPHANS_RAW
+        → bridge / promote / delete (Stage A.2). Cap at 15-20 actions.
+7.  codeterm mem graph islands --max-size 6 --limit 100    # ISLANDS_AFTER
+        codeterm mem graph orphans --limit 1000              # ORPHANS_AFTER
+        → mem update <diary_id> with the new totals.
+
+8.  Stage A.3 dedup (entity siblings + content duplicates).
+9.  codeterm mem stats                                       # ENTITY_COUNT_AFTER
+        → mem update <diary_id> with DEDUP totals.
+
+10. Stage C maintenance (classify, promote/archive, revive-broken).
+11. Build the FINAL <insight> prose now that you've seen everything.
+12. mem update <diary_id> with the final body (insight + completed log).
+13. codeterm bridge send --to <chat_id> ...    # telegram (insight only)
+14. codeterm mem worker report "Hubs: …. Islands: …. Diary saved."
+```
+
+The diary id from step 4 is the anchor for the whole run. If you exit
+between any two steps, the diary already has what's been done up to
+that point. Never delay creating it past step 4.
 
 # STAGE A — Structural cleanup (graph health)
 
@@ -147,55 +212,78 @@ clusters of 2–6 nodes connected to each other but unreachable from the
 main mass. Search misses them, walks dead-end, the user looks at the graph
 and sees fairy-dust around the edges. Your job: bridge them.
 
-### Find islands
+### Find islands and orphans (one batch call each)
 
-The graph CLI doesn't expose components directly, so triangulate:
+    codeterm mem graph islands --max-size 6 --limit 50
+    # Returns up to 50 components of size 2..6 (ordered by size asc), each
+    # with member id/kind/title/area + suggested_anchor. Save the JSON
+    # output — you'll iterate over it.
+    #
+    # Example output structure:
+    # { "ok": true, "total_components": 65, "count": 22, "islands": [
+    #     { "size": 2, "members": [{"id":"…","kind":"…","title":"…","area":"…"}, …],
+    #       "suggested_anchor": "topic_auth" }, … ] }
 
-1. Sample recently-written items the user hasn't connected to anything yet:
-       codeterm mem tail --limit 30
-   For each, `codeterm mem graph related --id <id>`. If it has zero
-   relations OR only points to other recent unconnected items, it's the
-   tip of an island.
+    codeterm mem graph orphans --limit 100
+    # Returns up to 100 nodes with degree 0 (no relations whatsoever). Each
+    # has id/kind/title/area. Sorted: real mem_items first, loose entities
+    # (often delete candidates) after.
 
-2. Sample by area: pick 3–5 areas from `mem stats`, search them:
-       codeterm mem search "" --area <area> --limit 20
-   Items returned with no `extracted_from` parent and no `applies_to`
-   target are island candidates.
+### Decide and act
 
-3. Browse low-degree entities:
-       codeterm mem search "" --kind entity --limit 30
-   `mem graph related --id <e>` on each. Entities with 1–2 self-referential
-   edges are usually island anchors that should hang off a real topic.
+Walk the islands JSON top-to-bottom. For each component:
 
-### Bridge them
+- **Pre-fab anchor — `suggested_anchor` is an existing entity** (starts
+  with `project_`, `tech_`, or an existing `topic_<x>` you've seen
+  before): bridge with one `relate` call:
 
-For each island:
+      codeterm mem graph relate --from <one_member_id> --rel applies_to \
+        --to <suggested_anchor> --reason "dreamer-island-bridge"
 
-- **If the island is on-theme with an existing topic_*/area:**
-      codeterm mem graph relate --from <island_member> --rel applies_to \
-        --to <topic_id> --reason "dreamer-island-bridge"
-  Bridge 1–2 representative members, not all of them — adjacency lets the
-  rest reach the topic via the island's internal edges.
+  Pick the most "central" member (largest degree within the island, or
+  first member in the list) — adjacency lets the rest reach the anchor
+  via the island's internal edges.
 
-- **If the island represents a new coherent theme (3+ members):**
+- **No good pre-fab anchor — `suggested_anchor` is `topic_misc` or you
+  see a coherent theme the heuristic missed**: invent the topic and
+  promote in one shot:
+
       codeterm mem graph introduce-topic --topic-id topic_<theme> --type Topic \
-        --sources <member1>,<member2>,<member3> --anchor <area_root_or_main_topic> \
+        --sources id1,id2,id3 --anchor <project_or_main_topic> \
         --reason "dreamer-island-promote"
-  This both creates the topic and roots it in the main graph in one shot.
 
-- **If the island is genuinely useless (test scratch, abandoned ideas, no
-  entities, never read):** `codeterm mem delete <id>` for each member.
-  Log the count for the diary.
+  Use 2+ members as sources. Pick the most appropriate `--anchor` from
+  existing top hubs (run `mem graph hubs --threshold 5 --sample 0`
+  earlier and remember the top 3-5 names).
 
-Keep the island where it is ONLY when each member already has a clear
-local meaning AND the island's existence is intentional (e.g. an external
-project's notes that shouldn't pollute the main vault).
+- **Garbage island** — extraction-worker leftovers like `auto: User has
+  mentioned (instead_of): …` joined to nothing real, or duplicate
+  `tech_*` stubs that already have a canonical sibling: delete each
+  member with `mem delete <id>` (or alias the entity with `mem graph
+  alias`). Count the deletions for the log block.
 
-### Verify A.2
+For ORPHANS (degree 0): same decision, but they have no peers to lean
+on. If kind is `rule` / `skill` / `preference` — these are top-level
+guidance, link them to `topic_<area>` or `project_<area>` with `relate`.
+If kind is `fact` / `note` / `learning` and the title looks like
+auto-extracted noise, delete.
 
-For each bridged island, re-run `mem graph related --id <member>` and
-confirm a path to a top-3 hub now exists. Log the count of bridges
-created and items deleted.
+Don't try to drain the list. Process the **first 15-20 islands and the
+first 20 orphans**, log how many you did, log how many remain. The
+next REM run finishes the queue.
+
+### Verify A.2 (paste this into the log)
+
+After you finish the bridging round, run:
+
+    codeterm mem graph islands --max-size 6 --limit 100 \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'islands_remaining: {d[\"count\"]}/{d[\"total_components\"]}')"
+    codeterm mem graph orphans --limit 1000 \
+      | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'orphans_remaining: {d[\"count\"]}')"
+
+Capture both numbers — they go in the log block as `ISLANDS_AFTER:`
+and `ORPHANS_AFTER:`. If they didn't drop, your bridging round didn't
+land — re-check what you ran.
 
 ## A.3 — Dedup pass
 
@@ -320,13 +408,25 @@ The technical receipt of what changed. Plain text, fixed labels,
 machine-friendly. The user collapses this by default; agents and the
 audit reader expand it.
 
+**Every numeric line is a receipt** — the number must come from a
+command output captured this session. If you didn't run the command,
+the field is `0` or `n/a`, never an estimate.
+
 Required lines, in this order:
 
     PATTERN: <one short line on user activity drift, mem_stats trend>
+    HUBS_BEFORE: <count from initial `mem graph hubs` output>
     HUBS: <for each hub from A.1: hub-id (degree N) -> "decomposed into X, Y" OR "skipped: reason">
           (one hub per line; list ALL of them — silence on a hub is failure)
-    ISLANDS: bridged=N deleted=M
+    HUBS_AFTER: <count from re-run after A.1>
+    ISLANDS_BEFORE: <total_components from initial `mem graph islands` output>
+    ISLANDS: bridged=N promoted=M deleted=K
+    ISLANDS_AFTER: <count from re-run after A.2>
+    ORPHANS_BEFORE: <count from initial `mem graph orphans` output>
+    ORPHANS: bridged=N deleted=M
+    ORPHANS_AFTER: <count from re-run after A.2>
     DEDUP: aliases=N duplicates=M
+    ENTITY_COUNT_AFTER: <from `mem stats`>
     ACTION: <single highest-leverage next step the user should run, with exact CLI>
 
 ### Full body shape
@@ -340,9 +440,16 @@ Required lines, in this order:
 
     <log>
     PATTERN: ...
+    HUBS_BEFORE: 6
     HUBS: hub_id_1 (degree 23) -> decomposed into topic_X, topic_Y
     HUBS: hub_id_2 (degree 21) -> skipped: popular source, not a structural hub
-    ISLANDS: bridged=4 deleted=2
+    HUBS_AFTER: 1
+    ISLANDS_BEFORE: 22
+    ISLANDS: bridged=14 promoted=2 deleted=3
+    ISLANDS_AFTER: 5
+    ORPHANS_BEFORE: 37
+    ORPHANS: bridged=18 deleted=4
+    ORPHANS_AFTER: 15
     DEDUP: aliases=3 duplicates=1
     ACTION: codeterm mem update fact_x42 --area auth   # currently mis-classified
     </log>
