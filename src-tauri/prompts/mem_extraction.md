@@ -59,13 +59,14 @@ TASK — execute each step as Bash tool calls, in order:
    variants of an existing one ("tech_claude_cli" + "tech_claude_code" +
    "tech_claude_exe" all mean the same thing — one entity already won).
 
-   For each entity you'd create, FIRST run a graph-related search to find
-   close matches:
-     codeterm mem graph related --id <type>_<exact-slug>     # is this exact id taken?
-     codeterm mem search "<entity name>" --kind "" --limit 5   # any close mem_items?
-
-   You can also list all entities of the type to eyeball siblings:
-     codeterm mem graph related --id <type>_<canonical-prefix>  # e.g. tech_claude
+   For each entity you'd create, FIRST search for close matches in BOTH
+   the entities table AND the mem_items table:
+     codeterm mem graph search "<core_word>" --type <Type> --limit 10
+       # entities table — finds tech_claude_cli, tech_claude_code,
+       # tech_claude_exe when you'd be about to create a 4th. Always check
+       # this first; it's the cheap way to see siblings.
+     codeterm mem graph get <type>_<exact-slug>     # exact-id check (404 = free to create)
+     codeterm mem search "<entity name>" --limit 5  # any close mem_items?
 
    If a close-match entity exists (different slug, same concept):
      - REUSE it. Use its existing id as the relation endpoint.
