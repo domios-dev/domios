@@ -1,9 +1,9 @@
-// Local-only graph mutation verbs. Open knowledge.db directly and call into
-// the codeterm-mem-store crate. No daemon round-trip, no mesh routing.
+// No daemon round-trip — these mutations are local-only.
 
 use codeterm_mem_store::{graph, migrations};
 
 use crate::data_dir_name;
+use crate::MemGraphAction;
 
 fn default_db_path() -> Result<std::path::PathBuf, String> {
     let home = dirs::home_dir().ok_or("home dir not found")?;
@@ -167,6 +167,37 @@ fn parse_sources(arg: &str) -> Result<Vec<String>, String> {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect())
+    }
+}
+
+/// Returns `Some(())` if the action was handled locally; `None` if the caller
+/// should continue normal dispatch. The `run_*` functions all call
+/// `std::process::exit`, so `Some(())` is unreachable in practice.
+pub fn try_dispatch_local(action: &MemGraphAction) -> Option<()> {
+    match action {
+        MemGraphAction::Route { from, to, via, rel_in, rel_out, reason, db_path } => {
+            run_route(
+                from, to, via,
+                rel_in.as_deref(), rel_out.as_deref(),
+                reason.as_deref(), db_path.as_deref(),
+            )
+        }
+        MemGraphAction::PurgeInvalidated { before, reason, dry_run, db_path } => {
+            run_purge_invalidated(
+                before.as_deref(), reason.as_deref(), *dry_run, db_path.as_deref(),
+            )
+        }
+        MemGraphAction::ReviveBroken { since, dry_run, db_path } => {
+            run_revive_broken(since.as_deref(), *dry_run, db_path.as_deref())
+        }
+        MemGraphAction::IntroduceTopic { topic_id, entity_type, sources, anchor, rel_source, rel_anchor, reason, db_path } => {
+            run_introduce_topic(
+                topic_id, entity_type, sources, anchor,
+                rel_source, rel_anchor,
+                reason.as_deref(), db_path.as_deref(),
+            )
+        }
+        _ => None,
     }
 }
 

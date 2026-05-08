@@ -9,6 +9,7 @@ pub mod mesh;
 pub mod pane;
 pub mod print;
 pub mod repair;
+pub mod send_text;
 pub mod sessions;
 pub mod system;
 pub mod update;

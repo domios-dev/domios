@@ -155,83 +155,6 @@ pub use args::cron::CronAction;
 pub use args::update::UpdateAction;
 pub use args::misc::{WorkspaceAction, PaneAction, BrowserAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction};
 
-/// Detect content that's almost certainly the result of bash command-substitution
-/// eating the agent's intended text — e.g. unquoted `mesh peers` inside a
-/// double-quoted argv string causes bash to execute `mesh peers` and splice the
-/// resulting "command not found" stderr into the payload before send-text sees
-/// any of it.
-///
-/// Returns Err(reason) if the text matches a known mangled-shell pattern. The
-/// caller surfaces a hint pointing at --from-file / --from-stdin.
-fn guard_against_shell_mangle(text: &str) -> Result<(), String> {
-    const SUSPICIOUS: &[&str] = &[
-        ": command not found",
-        "/usr/bin/bash: line ",
-        "bash: line ",
-        "syntax error near unexpected token",
-    ];
-    let scrubbed = strip_fenced_code_blocks(text);
-    for needle in SUSPICIOUS {
-        if scrubbed.contains(needle) {
-            return Err(format!(
-                "send-text payload looks shell-mangled (matched marker: {:?})",
-                needle
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// Handles the response from `pane.send_text`, branching on the verified
-/// fields surfaced by Bundle E. Falls back to the legacy printer when the
-/// response shape lacks `verified` (older daemon, batch/raw mode).
-fn handle_send_text_result(json: bool, result: Result<serde_json::Value, String>) {
-    match result {
-        Ok(value) => {
-            if json {
-                println!("{}", serde_json::to_string_pretty(&value).unwrap());
-                return;
-            }
-            if let Some(verified) = value.get("verified").and_then(|v| v.as_bool()) {
-                if verified {
-                    let elapsed = value.get("elapsed_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let echo = value.get("echo_observed").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let submit = value.get("submit_observed").and_then(|v| v.as_bool()).unwrap_or(false);
-                    println!("OK (verified in {}ms; echo={}, submit={})", elapsed, echo, submit);
-                } else {
-                    let err = value.get("error").and_then(|v| v.as_str()).unwrap_or("verification failed");
-                    eprintln!("Error: {}", err);
-                    std::process::exit(2);
-                }
-                return;
-            }
-            print_human(&value);
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    }
-}
-
-/// Removes the contents of all triple-backtick fenced code blocks from
-/// `text`, leaving the surrounding prose.
-fn strip_fenced_code_blocks(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut in_block = false;
-    for line in text.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") {
-            in_block = !in_block;
-            continue;
-        }
-        if !in_block {
-            out.push_str(line);
-        }
-    }
-    out
-}
-
 /// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
 ///
 /// When running inside CodeTerm, $CODETERM_PANE_ID is set automatically by the PTY.
@@ -365,32 +288,8 @@ fn main() {
 
     // Local-only graph mutation verbs — open knowledge.db directly, no daemon.
     if let Commands::Mem { action: MemAction::Graph { ref action } } = cli.command {
-        match action {
-            MemGraphAction::Route { from, to, via, rel_in, rel_out, reason, db_path } => {
-                cmd::graph_mutate::run_route(
-                    from, to, via,
-                    rel_in.as_deref(), rel_out.as_deref(),
-                    reason.as_deref(), db_path.as_deref(),
-                );
-            }
-            MemGraphAction::PurgeInvalidated { before, reason, dry_run, db_path } => {
-                cmd::graph_mutate::run_purge_invalidated(
-                    before.as_deref(), reason.as_deref(), *dry_run, db_path.as_deref(),
-                );
-            }
-            MemGraphAction::ReviveBroken { since, dry_run, db_path } => {
-                cmd::graph_mutate::run_revive_broken(
-                    since.as_deref(), *dry_run, db_path.as_deref(),
-                );
-            }
-            MemGraphAction::IntroduceTopic { topic_id, entity_type, sources, anchor, rel_source, rel_anchor, reason, db_path } => {
-                cmd::graph_mutate::run_introduce_topic(
-                    topic_id, entity_type, sources, anchor,
-                    rel_source, rel_anchor,
-                    reason.as_deref(), db_path.as_deref(),
-                );
-            }
-            _ => { /* daemon-routed graph verbs fall through to the normal flow */ }
+        if let Some(()) = cmd::graph_mutate::try_dispatch_local(action) {
+            unreachable!("local graph dispatch must exit");
         }
     }
 
@@ -509,52 +408,7 @@ fn main() {
         }
 
         Commands::SendText { pane, text, from_file, from_stdin, no_wait } => {
-            let (resolved_text, source) = if from_stdin {
-                use std::io::Read;
-                let mut buf = String::new();
-                if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
-                    eprintln!("Error: failed to read --from-stdin: {}", e);
-                    std::process::exit(1);
-                }
-                (buf, "--from-stdin")
-            } else if let Some(path) = from_file {
-                match std::fs::read_to_string(&path) {
-                    Ok(s) => (s, "--from-file"),
-                    Err(e) => {
-                        eprintln!("Error: failed to read --from-file {}: {}", path, e);
-                        std::process::exit(1);
-                    }
-                }
-            } else {
-                (text, "positional")
-            };
-            // Reject empty payloads loudly. Silent zero-byte sends were the
-            // bug behind several "mesh sent but recipient saw empty" reports
-            // (shell heredoc dropped, --from-file pointed at empty file,
-            // positional swallowed by command substitution that returned empty).
-            if resolved_text.trim().is_empty() {
-                eprintln!("Error: send-text payload is empty (source: {})", source);
-                eprintln!("hint: if using --from-stdin, ensure the heredoc actually delivered content;");
-                eprintln!("      if --from-file, verify the path exists and isn't 0 bytes;");
-                eprintln!("      if positional, your shell may have eaten the content.");
-                std::process::exit(2);
-            }
-            if let Err(msg) = guard_against_shell_mangle(&resolved_text) {
-                eprintln!("Error: {}", msg);
-                eprintln!("hint: your shell expanded a command-substitution before codeterm-CLI received it.");
-                eprintln!("      Use --from-file <path> or --from-stdin <<'EOF' ... EOF for content with backticks/$/code.");
-                std::process::exit(2);
-            }
-            let pane_id = resolve_pane(&mut client, pane);
-            let mut params = serde_json::json!({
-                "pane_id": pane_id,
-                "text": resolved_text,
-            });
-            if no_wait {
-                params["verify"] = serde_json::json!(false);
-            }
-            let result = client.call("pane.send_text", Some(params));
-            handle_send_text_result(cli.json, result);
+            cmd::send_text::handle_send_text(&mut client, cli.json, pane, text, from_file, from_stdin, no_wait);
             return;
         }
 
@@ -751,62 +605,6 @@ fn main() {
 
 
 
-
-#[cfg(test)]
-mod send_text_guard_tests {
-    use super::guard_against_shell_mangle;
-
-    #[test]
-    fn legitimate_text_passes() {
-        assert!(guard_against_shell_mangle("hello world").is_ok());
-        assert!(guard_against_shell_mangle("PR #28 — looks fine").is_ok());
-        assert!(guard_against_shell_mangle("status code: 200").is_ok());
-    }
-
-    #[test]
-    fn bash_command_not_found_rejected() {
-        let payload = "/usr/bin/bash: line 3: mesh: command not found\nactual content";
-        assert!(guard_against_shell_mangle(payload).is_err());
-    }
-
-    #[test]
-    fn bare_command_not_found_rejected() {
-        let payload = "mesh: command not found\nfollowed by intended message";
-        assert!(guard_against_shell_mangle(payload).is_err());
-    }
-
-    #[test]
-    fn syntax_error_rejected() {
-        let payload = "bash: -c: line 1: syntax error near unexpected token `('";
-        assert!(guard_against_shell_mangle(payload).is_err());
-    }
-
-    #[test]
-    fn guard_ignores_marker_inside_fenced_code_block() {
-        let payload = "Here is the repro:\n```\npunset: command not found\n```\nEnd.";
-        assert!(guard_against_shell_mangle(payload).is_ok());
-    }
-
-    #[test]
-    fn guard_still_fires_on_marker_outside_code_block() {
-        let payload = "this is just /usr/bin/bash: line 5: foo not in a code block";
-        assert!(guard_against_shell_mangle(payload).is_err());
-    }
-
-    #[test]
-    fn guard_handles_unterminated_fence_safely() {
-        // Unterminated fence treats the rest as code-block — better to skip a
-        // potentially-spurious guard than reject legitimate content.
-        let payload = "```\n: command not found\nstill open\n";
-        assert!(guard_against_shell_mangle(payload).is_ok());
-    }
-
-    #[test]
-    fn guard_with_multiple_fences_strips_only_inside() {
-        let payload = "outside ok\n```\n: command not found\n```\nbetween\n```\nbash: line 1: x\n```\ntrailing";
-        assert!(guard_against_shell_mangle(payload).is_ok());
-    }
-}
 
 #[cfg(test)]
 mod subcommand_contract_tests {
