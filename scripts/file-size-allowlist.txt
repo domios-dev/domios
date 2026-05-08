@@ -7,6 +7,6 @@
 #
 # Adding a new line to this list = admitting we shipped a >800 file. Don't.
 
-src-tauri/src/service/spawn.rs	890
-src-tauri/src/plugin/agent_codex/provider.rs	808
-src-tauri/src/plugin/agent_opencode/provider.rs	1082
+src-tauri/src/agent/provider.rs	822
+src-tauri/src/service/orchestrator.rs	838
+src-tauri/src/mem/dreaming.rs	1028
