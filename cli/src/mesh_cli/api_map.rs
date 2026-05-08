@@ -408,10 +408,11 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 if let Some(v) = scope { payload["scope"] = json!(v); }
                 ("POST".into(), "/api/mem/graph/relate".into(), Some(payload.to_string()))
             }
-            MemGraphAction::Related { id, rel, as_of } => {
+            MemGraphAction::Related { id, rel, as_of, include_invalidated } => {
                 let mut path = format!("/api/mem/graph/related?id={}", enc(id));
                 if let Some(r) = rel { path.push_str(&format!("&rel={}", enc(r))); }
                 if let Some(a) = as_of { path.push_str(&format!("&as_of={}", enc(a))); }
+                if *include_invalidated { path.push_str("&include_invalidated=true"); }
                 ("GET".into(), path, None)
             }
             MemGraphAction::Invalidate { from, rel, to, ended } => {
@@ -422,15 +423,25 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             MemGraphAction::Timeline { entity } => {
                 ("GET".into(), format!("/api/mem/graph/timeline?entity={}", enc(entity)), None)
             }
-            MemGraphAction::Traverse { from, hops, max_nodes, as_of } => {
+            MemGraphAction::Traverse { from, hops, max_nodes, as_of, include_invalidated } => {
                 let mut path = format!("/api/mem/graph/traverse?from={}&hops={}&max_nodes={}", enc(from), hops, max_nodes);
                 if let Some(a) = as_of { path.push_str(&format!("&as_of={}", enc(a))); }
+                if *include_invalidated { path.push_str("&include_invalidated=true"); }
                 ("GET".into(), path, None)
             }
-            MemGraphAction::Path { from, to, max_hops } => {
-                ("GET".into(), format!("/api/mem/graph/path?from={}&to={}&max_hops={}", enc(from), enc(to), max_hops), None)
+            MemGraphAction::Path { from, to, max_hops, include_invalidated } => {
+                let mut path = format!("/api/mem/graph/path?from={}&to={}&max_hops={}", enc(from), enc(to), max_hops);
+                if *include_invalidated { path.push_str("&include_invalidated=true"); }
+                ("GET".into(), path, None)
             }
-            MemGraphAction::Tunnels => ("GET".into(), "/api/mem/graph/tunnels".into(), None),
+            MemGraphAction::Tunnels { include_invalidated } => {
+                let path = if *include_invalidated {
+                    "/api/mem/graph/tunnels?include_invalidated=true".to_string()
+                } else {
+                    "/api/mem/graph/tunnels".to_string()
+                };
+                ("GET".into(), path, None)
+            }
             MemGraphAction::Alias { .. } => ("POST".into(), "/api/mem/graph/alias".into(), None),
         },
         // Local-only subcommands. Mesh relay falls through to /stats so callers

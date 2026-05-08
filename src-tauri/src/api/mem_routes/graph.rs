@@ -50,6 +50,8 @@ pub struct GraphRelatedParams {
     pub rel: Option<String>,
     #[serde(default)]
     pub as_of: Option<String>,
+    #[serde(default)]
+    pub include_invalidated: bool,
 }
 
 pub async fn mem_graph_related(
@@ -61,7 +63,7 @@ pub async fn mem_graph_related(
     let rels = state
         .svc
         .mem
-        .graph_related(&p.id, p.rel.as_deref(), p.as_of.as_deref())
+        .graph_related(&p.id, p.rel.as_deref(), p.as_of.as_deref(), p.include_invalidated)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "relations": rels })))
 }
@@ -149,6 +151,8 @@ pub struct GraphTraverseParams {
     pub max_nodes: Option<usize>,
     #[serde(default)]
     pub as_of: Option<String>,
+    #[serde(default)]
+    pub include_invalidated: bool,
 }
 
 pub async fn mem_graph_traverse(
@@ -159,7 +163,7 @@ pub async fn mem_graph_traverse(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let hops = p.hops.unwrap_or(2).min(5);
     let max_nodes = p.max_nodes.unwrap_or(100).min(500);
-    let result = state.svc.mem.graph_traverse(&p.from, hops, max_nodes, p.as_of.as_deref())
+    let result = state.svc.mem.graph_traverse(&p.from, hops, max_nodes, p.as_of.as_deref(), p.include_invalidated)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!(result)))
 }
@@ -170,6 +174,8 @@ pub struct GraphPathParams {
     pub to: String,
     #[serde(default)]
     pub max_hops: Option<usize>,
+    #[serde(default)]
+    pub include_invalidated: bool,
 }
 
 pub async fn mem_graph_path(
@@ -179,7 +185,7 @@ pub async fn mem_graph_path(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let max_hops = p.max_hops.unwrap_or(4).min(8);
-    let path = state.svc.mem.graph_shortest_path(&p.from, &p.to, max_hops)
+    let path = state.svc.mem.graph_shortest_path(&p.from, &p.to, max_hops, p.include_invalidated)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "from": p.from, "to": p.to, "path": path })))
 }
@@ -204,12 +210,19 @@ pub async fn mem_graph_alias(
     Ok(Json(serde_json::json!({ "ok": true, "alias": b.alias, "canonical": b.canonical })))
 }
 
+#[derive(Deserialize)]
+pub struct GraphTunnelsParams {
+    #[serde(default)]
+    pub include_invalidated: bool,
+}
+
 pub async fn mem_graph_tunnels(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    Query(p): Query<GraphTunnelsParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let tunnels = state.svc.mem.graph_tunnels()
+    let tunnels = state.svc.mem.graph_tunnels(p.include_invalidated)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "tunnels": tunnels })))
 }

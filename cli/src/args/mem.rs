@@ -414,6 +414,9 @@ pub enum MemGraphAction {
         /// As-of date (ISO 8601) — filters by valid_from/valid_to
         #[arg(long)]
         as_of: Option<String>,
+        /// Include relations whose valid_to is set (default: active-only)
+        #[arg(long)]
+        include_invalidated: bool,
     },
     /// Invalidate a relation (set valid_to, preserve history)
     Invalidate {
@@ -442,6 +445,9 @@ pub enum MemGraphAction {
         max_nodes: usize,
         #[arg(long)]
         as_of: Option<String>,
+        /// Include relations whose valid_to is set (default: active-only)
+        #[arg(long)]
+        include_invalidated: bool,
     },
     /// Shortest path between two entities
     Path {
@@ -451,9 +457,16 @@ pub enum MemGraphAction {
         to: String,
         #[arg(long, default_value = "4")]
         max_hops: usize,
+        /// Include relations whose valid_to is set (default: active-only)
+        #[arg(long)]
+        include_invalidated: bool,
     },
     /// List entities bridging 2+ areas (cross-project connections)
-    Tunnels,
+    Tunnels {
+        /// Include relations whose valid_to is set (default: active-only)
+        #[arg(long)]
+        include_invalidated: bool,
+    },
     /// Merge one entity into another (alias → canonical)
     Alias {
         #[arg(long)]

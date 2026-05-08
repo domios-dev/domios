@@ -539,3 +539,44 @@ fn tail_recent_returns_items_newest_first() {
     assert_eq!(rows[0].changed_by, "dreaming:rem");
     assert_eq!(rows[1].changed_by, "user");
 }
+
+#[test]
+fn graph_full_excludes_invalidated_relations() {
+    let conn = Connection::open_in_memory().unwrap();
+    init_schema(&conn).unwrap();
+
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO mem_items (id, uid, kind, scope, title, tags_json, created_at, updated_at)
+         VALUES ('m_a','m_a','note','global','A','[]',?1,?1),
+                ('m_b','m_b','note','global','B','[]',?1,?1)",
+        params![now],
+    )
+    .unwrap();
+
+    conn.execute(
+        "INSERT INTO relations (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, created_at)
+         VALUES ('m_a','active_rel','m_b','global','2026-01-01T00:00:00.000000+00:00', NULL, 1.0, '{}', '2026-01-01T00:00:00')",
+        [],
+    )
+    .unwrap();
+
+    // Invalidated row whose valid_to shares today's YYYY-MM-DD prefix with
+    // datetime('now'). The broken `valid_to > datetime('now')` SQL leaks
+    // this row because ISO 'T' (0x54) > ' ' (0x20) flips the lex compare.
+    let today: String = conn
+        .query_row("SELECT date('now')", [], |r| r.get(0))
+        .unwrap();
+    let dead_valid_to = format!("{}T00:00:00.000000+00:00", today);
+    conn.execute(
+        "INSERT INTO relations (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, created_at)
+         VALUES ('m_a','dead_rel','m_b','global','2024-01-01T00:00:00.000000+00:00', ?1, 1.0, '{}', '2024-01-01T00:00:00')",
+        params![dead_valid_to],
+    )
+    .unwrap();
+
+    let dump = graph_full(&conn).unwrap();
+    let rels: Vec<&str> = dump.edges.iter().map(|e| e.rel.as_str()).collect();
+    assert!(rels.contains(&"active_rel"), "active relation must be present");
+    assert!(!rels.contains(&"dead_rel"), "invalidated relation must be filtered out");
+}

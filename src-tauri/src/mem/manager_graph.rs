@@ -18,9 +18,10 @@ impl MemManager {
         id: &str,
         rel: Option<&str>,
         as_of: Option<&str>,
+        include_invalidated: bool,
     ) -> Result<Vec<Relation>, String> {
         let conn = self.conn.lock();
-        graph::related(&conn, id, rel, as_of)
+        graph::related(&conn, id, rel, as_of, include_invalidated)
     }
 
     pub fn graph_invalidate(
@@ -45,9 +46,10 @@ impl MemManager {
         max_hops: usize,
         max_nodes: usize,
         as_of: Option<&str>,
+        include_invalidated: bool,
     ) -> Result<graph::TraversalResult, String> {
         let conn = self.conn.lock();
-        graph::traverse(&conn, start, max_hops, max_nodes, as_of)
+        graph::traverse(&conn, start, max_hops, max_nodes, as_of, include_invalidated)
     }
 
     /// Shortest path between two entities (BFS).
@@ -56,14 +58,15 @@ impl MemManager {
         from: &str,
         to: &str,
         max_hops: usize,
+        include_invalidated: bool,
     ) -> Result<Option<Vec<Relation>>, String> {
         let conn = self.conn.lock();
-        graph::shortest_path(&conn, from, to, max_hops)
+        graph::shortest_path(&conn, from, to, max_hops, include_invalidated)
     }
 
-    pub fn graph_tunnels(&self) -> Result<Vec<serde_json::Value>, String> {
+    pub fn graph_tunnels(&self, include_invalidated: bool) -> Result<Vec<serde_json::Value>, String> {
         let conn = self.conn.lock();
-        graph::tunnels(&conn)
+        graph::tunnels(&conn, include_invalidated)
     }
 
     pub fn graph_alias(&self, alias_id: &str, canonical_id: &str) -> Result<(), String> {
