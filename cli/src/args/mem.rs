@@ -182,6 +182,15 @@ pub enum MemAction {
         #[command(subcommand)]
         action: MemGraphAction,
     },
+    /// Re-embed mem_items and/or graph entities into mem_vectors. Use this
+    /// after swapping the embedder model, or to backfill existing entities
+    /// that pre-date the auto-embed-on-create wiring. Daemon-routed (the
+    /// daemon owns the embedder process). Idempotent.
+    Reembed {
+        /// What to re-embed: items (mem_items) | entities (graph) | all.
+        #[arg(long, default_value = "all")]
+        scope: String,
+    },
     /// Graph-worker operations (hidden mem panel agents)
     Worker {
         #[command(subcommand)]
@@ -510,31 +519,6 @@ pub enum MemGraphAction {
     Get {
         /// Entity id (e.g. person_owner, tech_codeterm).
         id: String,
-    },
-    /// Search graph entities. Two strategies:
-    ///   default — case-insensitive substring against `id` AND
-    ///             `properties_json` (catches Cyrillic names, emails, phones
-    ///             stored in entity properties even when the slug is ASCII).
-    ///   --semantic — additionally embed the query, find nearby mem_items
-    ///                via the vector index, and pull entities related to
-    ///                those hits (bridge through embeddings). Daemon must be
-    ///                running for the semantic pass.
-    /// Use this before creating a new entity to avoid duplicate siblings,
-    /// and during dedup to find concept-level matches the slug-only search
-    /// would miss.
-    Search {
-        /// Query text. Substring for SQL pass, embed-input for --semantic pass.
-        query: String,
-        /// Filter by entity type (Person, Tech, Project, …). Optional.
-        #[arg(long = "type")]
-        entity_type: Option<String>,
-        #[arg(long, default_value_t = 30)]
-        limit: u32,
-        /// Also bridge through mem_items embeddings: find entities related to
-        /// mem_items semantically close to the query. Slower (HTTP call to
-        /// daemon) but catches concept-level matches.
-        #[arg(long)]
-        semantic: bool,
     },
     /// List hub nodes — entities with active degree at or above threshold.
     /// Each hub returns its degree, the relation_type distribution, and a

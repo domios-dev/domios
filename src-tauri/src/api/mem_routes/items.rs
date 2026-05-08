@@ -422,6 +422,46 @@ pub async fn mem_stats(
 }
 
 #[derive(Deserialize)]
+pub struct ReembedParams {
+    /// items | entities | all (default).
+    #[serde(default)]
+    pub scope: Option<String>,
+}
+
+/// Bulk re-embed mem_items and/or graph entities into mem_vectors. Use this
+/// after swapping the embedder model OR to backfill entities that pre-date
+/// the auto-embed-on-create wiring (everything created before v1.1.23).
+pub async fn mem_reembed(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<ReembedParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let scope = p.scope.as_deref().unwrap_or("all").to_lowercase();
+    let do_items = matches!(scope.as_str(), "items" | "all");
+    let do_entities = matches!(scope.as_str(), "entities" | "all");
+    if !do_items && !do_entities {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("scope must be items | entities | all, got `{}`", scope),
+        ));
+    }
+
+    let report = state
+        .svc
+        .mem
+        .reembed_bulk(do_items, do_entities)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "scope": scope,
+        "items_reembedded": report.items,
+        "entities_reembedded": report.entities,
+        "errors": report.errors,
+    })))
+}
+
+#[derive(Deserialize)]
 pub struct LearnBody {
     pub text: String,
     #[serde(default)]

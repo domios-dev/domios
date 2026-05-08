@@ -239,6 +239,92 @@ pub fn get(
     }))
 }
 
+/// Retrieve `id` as a MemItem, falling back to a synthesized MemItem from
+/// the entities table if there's no mem_item with this id but an entity
+/// exists. Used by mem_search so vector recall hits on entity ids surface
+/// to the user as proper search results (with kind="entity:Person" / etc).
+///
+/// The synthesized MemItem has:
+///   kind  = "entity:<EntityType>"  (e.g. "entity:Person")
+///   title = properties.name when present, else the entity id
+///   summary = brief properties summary
+///   body = pretty-printed properties_json
+///   area = "_graph"
+///   importance = 3.0 (default)
+pub fn get_or_synthesize_entity(
+    conn: &Connection,
+    id: &str,
+    blobs_dir: &Path,
+) -> Result<Option<MemItem>, String> {
+    if let Some(item) = get(conn, id, blobs_dir)? {
+        return Ok(Some(item));
+    }
+    let row: Option<(String, String, String, String, String, String)> = conn
+        .query_row(
+            "SELECT id, entity_type, scope, properties_json, created_at, updated_at
+             FROM entities WHERE id = ?1",
+            params![id],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|e| format!("query entity: {}", e))?;
+    let Some((id, entity_type, scope, props_json, created_at, updated_at)) = row else {
+        return Ok(None);
+    };
+    let props_val: serde_json::Value =
+        serde_json::from_str(&props_json).unwrap_or(serde_json::Value::Null);
+    let title = props_val
+        .as_object()
+        .and_then(|m| m.get("name"))
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .unwrap_or_else(|| id.clone());
+    let summary = match &props_val {
+        serde_json::Value::Object(m) if !m.is_empty() => Some(
+            m.iter()
+                .filter(|(k, _)| k.as_str() != "name")
+                .map(|(k, v)| {
+                    let v_str = match v {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    };
+                    format!("{}: {}", k, v_str)
+                })
+                .collect::<Vec<_>>()
+                .join(" · "),
+        ),
+        _ => None,
+    };
+    let body = serde_json::to_string_pretty(&props_val).unwrap_or(props_json);
+    Ok(Some(MemItem {
+        id: id.clone(),
+        uid: id,
+        kind: format!("entity:{}", entity_type),
+        scope,
+        title,
+        summary,
+        area: Some("_graph".to_string()),
+        tags: vec!["graph-entity".to_string(), entity_type.to_lowercase()],
+        body,
+        source: None,
+        importance: 3.0,
+        created_at,
+        updated_at,
+        accessed_at: None,
+        access_count: 0,
+        recurrence_count: 0,
+    }))
+}
+
 pub fn update(
     conn: &Connection,
     id: &str,

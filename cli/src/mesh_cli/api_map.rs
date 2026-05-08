@@ -464,8 +464,7 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             | MemGraphAction::ReviveBroken { .. }
             | MemGraphAction::IntroduceTopic { .. }
             | MemGraphAction::Hubs { .. }
-            | MemGraphAction::Get { .. }
-            | MemGraphAction::Search { .. } => {
+            | MemGraphAction::Get { .. } => {
                 ("GET".into(), "/api/mem/stats".into(), None)
             }
         },
@@ -480,5 +479,10 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         | MemAction::Worker { .. }
         | MemAction::Secret { .. }
         | MemAction::Repair { .. } => ("GET".into(), "/api/mem/stats".into(), None),
+        MemAction::Reembed { scope } => (
+            "POST".into(),
+            format!("/api/mem/reembed?scope={}", enc(scope)),
+            None,
+        ),
     }
 }

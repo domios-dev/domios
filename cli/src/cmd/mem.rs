@@ -437,8 +437,7 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             | MemGraphAction::ReviveBroken { .. }
             | MemGraphAction::IntroduceTopic { .. }
             | MemGraphAction::Hubs { .. }
-            | MemGraphAction::Get { .. }
-            | MemGraphAction::Search { .. }) => {
+            | MemGraphAction::Get { .. }) => {
                 crate::cmd::graph_mutate::try_dispatch_local(local);
                 unreachable!("local-only graph variant did not exit")
             }
@@ -486,6 +485,13 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
         MemAction::RunWorker { .. } => unreachable!("RunWorker is short-circuited in main()"),
         MemAction::Repair { .. } => unreachable!("Repair is short-circuited in main()"),
         MemAction::Dream { .. } => unreachable!("Dream is short-circuited in main()"),
+        MemAction::Reembed { scope } => {
+            mem_post_request(
+                &http,
+                &format!("{}/api/mem/reembed?scope={}", base, urlencoding::encode(&scope)),
+                &serde_json::json!({}),
+            )
+        }
         MemAction::Secret { action } => {
             return crate::cmd::mem_secret::handle_mem_secret(json_mode, &http, &base, action);
         }
