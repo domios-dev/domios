@@ -58,11 +58,12 @@ pub async fn workers_spawn(
     });
     let parent = b.parent.clone().unwrap_or_else(|| "user:memory-panel".to_string());
 
-    let model = if mem_cfg.extraction_model.is_empty() {
+    let raw_model = if mem_cfg.extraction_model.is_empty() {
         mem_cfg.worker_model.clone()
     } else {
         mem_cfg.extraction_model.clone()
     };
+    let model = crate::agent::models::canonicalize_short(&raw_model).to_string();
 
     let svc = state.svc.clone();
     let intent = b.intent.clone();

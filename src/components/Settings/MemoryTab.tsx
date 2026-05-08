@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AppConfig, CronJob } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
+import { canonicalizeShort } from "../../lib/modelLabels";
 import { Group, Label } from "./shared";
 
 export function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
-  const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_agent: "", dreaming_model: "haiku", worker_model: "claude-haiku-4-5-20251001", worker_timeout_seconds: 150, file_sync_enabled: true, file_sync_interval_minutes: 60, dedup_threshold: 0.15 };
-  const mem = { ...defaultMem, ...(config.memory ?? {}) };
+  const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_agent: "", dreaming_model: "haiku", worker_model: "haiku", worker_timeout_seconds: 150, file_sync_enabled: true, file_sync_interval_minutes: 60, dedup_threshold: 0.15 };
+  const rawMem = { ...defaultMem, ...(config.memory ?? {}) };
+  const mem = {
+    ...rawMem,
+    extraction_model: canonicalizeShort(rawMem.extraction_model),
+    dreaming_model: canonicalizeShort(rawMem.dreaming_model),
+    worker_model: canonicalizeShort(rawMem.worker_model),
+  };
   const { providers } = useAgentProviders();
   const inputClass = "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
 

@@ -116,9 +116,10 @@ fn build_local(_config: &RerankConfig) -> Option<Box<dyn Reranker>> {
 fn build_anthropic(config: &RerankConfig) -> Option<Box<dyn Reranker>> {
     let key_env = config.api_key_env.as_deref().unwrap_or("ANTHROPIC_API_KEY");
     let key = std::env::var(key_env).ok().filter(|k| !k.is_empty())?;
+    let raw = config.model.clone().unwrap_or_else(|| "haiku".into());
     Some(Box::new(AnthropicReranker {
         api_key: key,
-        model: config.model.clone().unwrap_or_else(|| "claude-haiku-4-5-20251001".into()),
+        model: crate::agent::models::resolve_model_id(&raw).to_string(),
     }))
 }
 
@@ -133,9 +134,10 @@ fn build_openai(config: &RerankConfig) -> Option<Box<dyn Reranker>> {
 
 fn build_claude_cli(config: &RerankConfig) -> Option<Box<dyn Reranker>> {
     let bin = which_on_path("claude")?;
+    let raw = config.model.clone().unwrap_or_else(|| "haiku".into());
     Some(Box::new(ClaudeCliReranker {
         binary: bin,
-        model: config.model.clone().unwrap_or_else(|| "claude-haiku-4-5".into()),
+        model: crate::agent::models::canonicalize_short(&raw).to_string(),
     }))
 }
 

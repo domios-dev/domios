@@ -321,7 +321,7 @@ impl Default for GeneralAgentConfig {
 }
 
 fn default_worker_model() -> String {
-    "claude-haiku-4-5-20251001".to_string()
+    "haiku".to_string()
 }
 
 fn default_worker_timeout_seconds() -> u64 {
@@ -352,8 +352,8 @@ pub struct MemoryConfig {
     pub dreaming_model: String,
     /// Global default model for any mem worker (extraction + dreaming). Used
     /// when the more specific `extraction_model` / `dreaming_model` is empty.
-    /// Defaults to claude-haiku-4-5-20251001 — the cheapest model that still
-    /// reasons well enough for structured extraction.
+    /// Defaults to "haiku" (resolves to current concrete id at runtime via
+    /// agent::models::resolve_model_id).
     #[serde(default = "default_worker_model")]
     pub worker_model: String,
     /// Max concurrent workers per agent provider. Further spawns queue

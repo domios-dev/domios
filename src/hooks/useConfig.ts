@@ -94,7 +94,7 @@ const DEFAULT_CONFIG: AppConfig = {
     auto_extract: true,
     dreaming_agent: "",
     dreaming_model: "haiku",
-    worker_model: "claude-haiku-4-5-20251001",
+    worker_model: "haiku",
     worker_timeout_seconds: 150,
     dedup_threshold: 0.15,
     file_sync_enabled: true,
