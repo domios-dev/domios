@@ -25,21 +25,13 @@ pub fn run_mem_worker(kind: &str, db_path_arg: Option<&str>) {
 
     register_sqlite_vec_extension();
 
-    let conn = match rusqlite::Connection::open(&db_path) {
+    let conn = match open_worker_db(&db_path) {
         Ok(c) => c,
         Err(e) => {
-            worker_emit_error(&format!("open {}: {}", db_path.display(), e));
+            worker_emit_error(&e);
             std::process::exit(1);
         }
     };
-    if let Err(e) = conn.busy_timeout(std::time::Duration::from_secs(5)) {
-        worker_emit_error(&format!("busy_timeout: {}", e));
-        std::process::exit(1);
-    }
-    if let Err(e) = conn.execute_batch("PRAGMA synchronous = NORMAL;") {
-        worker_emit_error(&format!("synchronous pragma: {}", e));
-        std::process::exit(1);
-    }
 
     let result = match kind {
         "dreaming-light" => worker_dreaming_light(&conn).map(|r| serde_json::json!({
@@ -79,6 +71,22 @@ fn worker_emit_error(msg: &str) {
 fn resolve_default_db_path() -> Result<std::path::PathBuf, String> {
     let home = dirs::home_dir().ok_or("home dir not found")?;
     Ok(home.join(data_dir_name()).join("mem").join("knowledge.db"))
+}
+
+/// Open a knowledge.db connection, set busy_timeout, run codeterm-mem-store
+/// migrations, and apply the worker's PRAGMAs. Migrations are idempotent;
+/// running them on every worker invocation is the cheap way to guarantee
+/// the schema matches the binary even when the DB is an older backup.
+pub(crate) fn open_worker_db(db_path: &std::path::Path) -> Result<rusqlite::Connection, String> {
+    let conn = rusqlite::Connection::open(db_path)
+        .map_err(|e| format!("open {}: {}", db_path.display(), e))?;
+    conn.busy_timeout(std::time::Duration::from_secs(5))
+        .map_err(|e| format!("busy_timeout: {}", e))?;
+    codeterm_mem_store::migrations::run(&conn)
+        .map_err(|e| format!("migrations: {}", e))?;
+    conn.execute_batch("PRAGMA synchronous = NORMAL;")
+        .map_err(|e| format!("synchronous pragma: {}", e))?;
+    Ok(conn)
 }
 
 fn register_sqlite_vec_extension() {
@@ -612,4 +620,125 @@ fn librarian_remove_tag(conn: &rusqlite::Connection, item_id: &str, tag: &str) -
         rusqlite::params![&new_json, chrono::Utc::now().to_rfc3339(), item_id],
     ).map_err(|e| format!("update tags: {}", e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    /// Pre-v1.1.23 schema. Mirrors `codeterm_mem_store::tests::init_v1_22_schema`
+    /// but inlined here because that helper is `pub(crate)` to mem-store.
+    fn init_v1_22_schema(conn: &Connection) {
+        conn.execute_batch(
+            "CREATE TABLE relations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL,
+                to_id TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                valid_from TEXT NOT NULL,
+                valid_to TEXT,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                properties_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                UNIQUE(from_id, relation_type, to_id, valid_from)
+            );
+            CREATE TABLE entities (
+                id TEXT PRIMARY KEY,
+                entity_type TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                properties_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE entity_aliases (
+                alias_id TEXT PRIMARY KEY,
+                canonical_id TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE mem_items (
+                id TEXT PRIMARY KEY, uid TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL, scope TEXT NOT NULL,
+                title TEXT NOT NULL, summary TEXT, area TEXT,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                body_inline TEXT, body_blob_path TEXT,
+                source TEXT, importance REAL NOT NULL DEFAULT 3.0,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                accessed_at TEXT, access_count INTEGER NOT NULL DEFAULT 0,
+                recurrence_count INTEGER NOT NULL DEFAULT 0
+            );",
+        ).unwrap();
+    }
+
+    fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info({})", table))
+            .unwrap();
+        let names: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        names.iter().any(|name| name == column)
+    }
+
+    fn unique_temp_db_path() -> std::path::PathBuf {
+        let pid = std::process::id();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!(
+            "codeterm-worker-test-{}-{}.db",
+            pid, nanos
+        ))
+    }
+
+    /// `mem run-worker` against a pre-v1.1.23 backup must add the new
+    /// `false_fire_count` column on open. Without this, lesson promotion
+    /// crashes with "no such column: false_fire_count".
+    #[test]
+    fn open_worker_db_runs_v1_23_migrations_on_legacy_schema() {
+        let path = unique_temp_db_path();
+        let _ = std::fs::remove_file(&path);
+
+        // Bootstrap a v1.22-era schema and seed a single lesson row.
+        {
+            let conn = Connection::open(&path).unwrap();
+            init_v1_22_schema(&conn);
+            assert!(!column_exists(&conn, "mem_items", "false_fire_count"));
+            conn.execute(
+                "INSERT INTO mem_items
+                   (id, uid, kind, scope, title, tags_json,
+                    body_inline, importance, created_at, updated_at)
+                   VALUES ('lesson_x', 'uid-x', 'lesson', 'global', 'L',
+                           '[]', 'body', 3.0,
+                           '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [],
+            ).unwrap();
+        }
+
+        // Open via the worker bootstrap — should run migrations.
+        let conn = open_worker_db(&path).expect("open_worker_db");
+        assert!(
+            column_exists(&conn, "mem_items", "false_fire_count"),
+            "false_fire_count column must exist after open_worker_db",
+        );
+
+        // Sanity: the seeded row survived the migration.
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM mem_items WHERE kind = 'lesson'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+
+        drop(conn);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+    }
 }
