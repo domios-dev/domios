@@ -60,6 +60,18 @@ impl WorkerStatus {
     }
 }
 
+/// Intent-string prefix for any dreaming-phase agent worker (currently only
+/// `"dreaming:rem"`). Spawn site sets it; timeout-selection in service::spawn
+/// matches via [`is_dreaming_intent`]. Single source of truth.
+pub const DREAMING_INTENT_PREFIX: &str = "dreaming:";
+
+/// Returns true if the worker intent identifies a dreaming-phase agent (uses
+/// `dreaming_timeout_seconds` instead of the default `worker_timeout_seconds`).
+#[inline]
+pub fn is_dreaming_intent(intent: &str) -> bool {
+    intent.starts_with(DREAMING_INTENT_PREFIX)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GraphWorkerInfo {
     pub worker_id: String,

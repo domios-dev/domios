@@ -545,7 +545,7 @@ pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
 
     match super::workers::spawn_headless(
         svc,
-        "dreaming:rem".into(),
+        format!("{}rem", super::workers::DREAMING_INTENT_PREFIX),
         crate::prompts::DREAMING_REM.to_string(),
         "system:dreaming".into(),
         agent,
