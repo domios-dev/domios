@@ -392,10 +392,11 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/relate", base), &payload)
             }
-            MemGraphAction::Related { id, rel, as_of } => {
+            MemGraphAction::Related { id, rel, as_of, include_invalidated } => {
                 let mut url = format!("{}/api/mem/graph/related?id={}", base, urlencoding::encode(&id));
                 if let Some(r) = &rel { url.push_str(&format!("&rel={}", r)); }
                 if let Some(d) = &as_of { url.push_str(&format!("&as_of={}", urlencoding::encode(d))); }
+                if include_invalidated { url.push_str("&include_invalidated=true"); }
                 mem_get_request(&http, &url)
             }
             MemGraphAction::Invalidate { from, rel, to, ended } => {
@@ -408,19 +409,23 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 let url = format!("{}/api/mem/graph/timeline?entity={}", base, urlencoding::encode(&entity));
                 mem_get_request(&http, &url)
             }
-            MemGraphAction::Traverse { from, hops, max_nodes, as_of } => {
+            MemGraphAction::Traverse { from, hops, max_nodes, as_of, include_invalidated } => {
                 let mut url = format!("{}/api/mem/graph/traverse?from={}&hops={}&max_nodes={}",
                     base, urlencoding::encode(&from), hops, max_nodes);
                 if let Some(d) = &as_of { url.push_str(&format!("&as_of={}", urlencoding::encode(d))); }
+                if include_invalidated { url.push_str("&include_invalidated=true"); }
                 mem_get_request(&http, &url)
             }
-            MemGraphAction::Path { from, to, max_hops } => {
-                let url = format!("{}/api/mem/graph/path?from={}&to={}&max_hops={}",
+            MemGraphAction::Path { from, to, max_hops, include_invalidated } => {
+                let mut url = format!("{}/api/mem/graph/path?from={}&to={}&max_hops={}",
                     base, urlencoding::encode(&from), urlencoding::encode(&to), max_hops);
+                if include_invalidated { url.push_str("&include_invalidated=true"); }
                 mem_get_request(&http, &url)
             }
-            MemGraphAction::Tunnels => {
-                mem_get_request(&http, &format!("{}/api/mem/graph/tunnels", base))
+            MemGraphAction::Tunnels { include_invalidated } => {
+                let mut url = format!("{}/api/mem/graph/tunnels", base);
+                if include_invalidated { url.push_str("?include_invalidated=true"); }
+                mem_get_request(&http, &url)
             }
             MemGraphAction::Alias { alias, canonical } => {
                 let payload = serde_json::json!({ "alias": alias, "canonical": canonical });
