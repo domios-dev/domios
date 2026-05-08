@@ -99,9 +99,19 @@ specific point, the hub is good.
 #### When to SKIP (not all hubs are bad)
 
 A hub is genuinely indecomposable when:
-- Its id already starts with `topic_` or `role_` AND >=90% of edges share one
-  relation_type — it IS the topic intermediate. SKIP, log
-  reason="already a topic intermediate".
+
+- It's a `topic_*` or `role_*` hub AT OR UNDER 30 active edges AND >=90% of
+  edges share one relation_type — it IS the topic intermediate, sized OK.
+  SKIP, log reason="already a topic intermediate, degree N OK".
+
+  **IMPORTANT:** if a `topic_*` / `role_*` hub has degree > 30, do NOT auto-skip.
+  Even topics get bloated. Read its neighbor titles. If you can split them into
+  2+ sub-themes (3+ members each), introduce SUB-topic intermediates with names
+  like `topic_<parent>_<sub_theme>` (e.g. `topic_codeterm_release_history` at
+  degree 50 → `topic_codeterm_release_v1_1_history` + `topic_codeterm_release_protocol`).
+  Re-route via introduce-topic; the old topic stays as the parent anchor of the
+  new sub-topics.
+
 - It's a person, machine, peer, or other entity-type that legitimately collects
   many heterogeneous facts (e.g. `person_andrey` has decisions, preferences, work
   facts — they're all genuinely about Andrey). SKIP, log reason="legitimate
@@ -131,6 +141,11 @@ This is what the user reads in the morning. Don't write a status report — writ
 like a thinking partner who just spent the night reading the user's notes and
 wants to share what came up. Stats are uninteresting; observations and questions
 are interesting.
+
+**ALWAYS save a NEW diary entry for this run, even if today's date already has
+one.** Use a unique title with a timestamp suffix like
+`dream: 2026-05-08 16:04` (current UTC HH:MM). Each cron run is a separate
+reflection; do not overwrite or skip because today's date already exists.
 
 STRUCTURE the diary as five sections, in this order:
 

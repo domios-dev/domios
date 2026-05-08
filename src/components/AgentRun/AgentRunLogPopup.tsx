@@ -61,11 +61,28 @@ export function AgentRunLogPopup({
   const scrollRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
 
+  // Auto-scroll to bottom on new content UNLESS the user manually scrolled
+  // up (then they're reading history — don't yank). Track stick-to-bottom
+  // state by checking if the container is near its bottom before each new
+  // event lands.
+  const stickyBottomRef = useRef(true);
   useEffect(() => {
-    if (!scrollRef.current) return;
-    if (isTerminal && events.length > 0) return;
-    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [events.length, rawLines.length, isTerminal]);
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+      stickyBottomRef.current = dist < 60;
+    };
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (stickyBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [events, rawLines.length]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
