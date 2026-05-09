@@ -198,15 +198,28 @@ pub struct GraphAliasBody {
     pub canonical: String,
 }
 
+const ALLOWED_CANONICAL_PREFIXES: &[&str] = &[
+    "person_", "project_", "machine_", "tech_", "topic_", "role_",
+];
+
+fn validate_canonical_prefix(canonical: &str) -> Result<(), String> {
+    if ALLOWED_CANONICAL_PREFIXES.iter().any(|p| canonical.starts_with(p)) {
+        Ok(())
+    } else {
+        Err(format!(
+            "canonical must start with one of: {}",
+            ALLOWED_CANONICAL_PREFIXES.join(", ")
+        ))
+    }
+}
+
 pub async fn mem_graph_alias(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(b): Json<GraphAliasBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    if !b.canonical.starts_with("person_") && !b.canonical.starts_with("project_") {
-        return Err((StatusCode::BAD_REQUEST, "canonical must be person_* or project_*".into()));
-    }
+    validate_canonical_prefix(&b.canonical).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     state.svc.mem.graph_alias(&b.alias, &b.canonical)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "ok": true, "alias": b.alias, "canonical": b.canonical })))
@@ -263,4 +276,52 @@ pub async fn mem_graph_full(
             "edge_count": dump.stats.edge_count,
         }
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_canonical_prefix;
+
+    #[test]
+    fn accepts_person_prefix() {
+        assert!(validate_canonical_prefix("person_alpha").is_ok());
+    }
+
+    #[test]
+    fn accepts_project_prefix() {
+        assert!(validate_canonical_prefix("project_alpha").is_ok());
+    }
+
+    #[test]
+    fn accepts_machine_prefix() {
+        assert!(validate_canonical_prefix("machine_alpha").is_ok());
+    }
+
+    #[test]
+    fn accepts_tech_prefix() {
+        assert!(validate_canonical_prefix("tech_alpha").is_ok());
+    }
+
+    #[test]
+    fn accepts_topic_prefix() {
+        assert!(validate_canonical_prefix("topic_alpha").is_ok());
+    }
+
+    #[test]
+    fn accepts_role_prefix() {
+        assert!(validate_canonical_prefix("role_alpha").is_ok());
+    }
+
+    #[test]
+    fn rejects_unknown_prefix() {
+        let err = validate_canonical_prefix("garbage_id").unwrap_err();
+        assert!(err.contains("person_"));
+        assert!(err.contains("machine_"));
+        assert!(err.contains("topic_"));
+    }
+
+    #[test]
+    fn rejects_no_prefix() {
+        assert!(validate_canonical_prefix("naked-id").is_err());
+    }
 }
