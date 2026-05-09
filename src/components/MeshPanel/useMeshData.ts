@@ -29,12 +29,49 @@ const DEFAULT_DATA: MeshData = {
   error: null,
 };
 
+const CACHE_KEY = "mesh-tab-cache-v1";
+const CACHE_MAX_AGE_MS = 24 * 3600 * 1000;
+
+interface CachePayload {
+  thisMachine: MeshData["thisMachine"];
+  peers: PeerStatus[];
+  services: Service[];
+  saved_at: number;
+}
+
+function readCache(): CachePayload | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as CachePayload;
+    if (!p.saved_at || Date.now() - p.saved_at > CACHE_MAX_AGE_MS) return null;
+    return p;
+  } catch { return null; }
+}
+
+function writeCache(d: Pick<MeshData, "thisMachine" | "peers" | "services">) {
+  try {
+    const payload: CachePayload = { ...d, saved_at: Date.now() };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+  } catch {}
+}
+
 export interface MeshDataResult extends MeshData {
   refresh: () => void;
 }
 
 export function useMeshData(refreshKey: number): MeshDataResult {
-  const [data, setData] = useState<MeshData>(DEFAULT_DATA);
+  const [data, setData] = useState<MeshData>(() => {
+    const cached = readCache();
+    if (!cached) return DEFAULT_DATA;
+    return {
+      thisMachine: cached.thisMachine,
+      peers: cached.peers,
+      services: cached.services,
+      loading: true,
+      error: null,
+    };
+  });
 
   const loadAll = useCallback(async () => {
     setData((d) => ({ ...d, loading: true }));
@@ -72,16 +109,16 @@ export function useMeshData(refreshKey: number): MeshDataResult {
       const remoteResults = await Promise.all(remotePromises);
       const remote = remoteResults.flat();
 
-      setData({
+      const next = {
         thisMachine: {
           name: status?.instance_name ?? "this",
           ip: status?.local_ip ?? status?.tailscale_ip ?? "",
         },
         peers: paired,
         services: [...local, ...remote],
-        loading: false,
-        error: null,
-      });
+      };
+      writeCache(next);
+      setData({ ...next, loading: false, error: null });
     } catch (e) {
       setData((d) => ({ ...d, loading: false, error: String(e) }));
     }
