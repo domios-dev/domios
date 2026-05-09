@@ -6,6 +6,7 @@ import {
   servicesDelete,
   servicesRegenerateToken,
 } from "./meshApi";
+import { CronDrawerSection } from "./CronDrawerSection";
 
 type AccessLevel = "full" | "read_only" | "agent_isolated";
 
@@ -239,11 +240,17 @@ function SvcDrawer({
     }
   };
 
+  const isCron = service.kind === "cron";
+
   const handleDelete = async () => {
     if (!confirm(`Delete service "${service.name}"?`)) return;
     setBusy(true);
     try {
-      await servicesDelete(service.id);
+      if (isCron) {
+        await invoke("cron_delete", { id: service.id });
+      } else {
+        await servicesDelete(service.id);
+      }
       onActionDone();
       onClose();
     } catch (e) {
@@ -252,8 +259,6 @@ function SvcDrawer({
       setBusy(false);
     }
   };
-
-  const isCron = service.kind === "cron";
 
   return (
     <div className={PANEL_BASE} style={{ width: 400 }}>
@@ -353,29 +358,7 @@ function SvcDrawer({
       )}
 
       {isCron && (
-        <>
-          <Section label="Schedule">
-            <div className="font-mono text-[10px] text-[var(--ct-fg)]">
-              {service.schedule ?? "(unset)"}
-            </div>
-          </Section>
-          <Section label="Runs">
-            <div className="text-[10px] text-[var(--ct-fg)] flex flex-col gap-0.5">
-              <div>
-                next:{" "}
-                <span className="font-mono">
-                  {service.next_run ? fmtTime(service.next_run) : "—"}
-                </span>
-              </div>
-              <div>
-                last:{" "}
-                <span className="font-mono">
-                  {service.last_run_status ?? "—"}
-                </span>
-              </div>
-            </div>
-          </Section>
-        </>
+        <CronDrawerSection service={service} onUpdate={onActionDone} />
       )}
 
       {showToken && (
@@ -390,13 +373,15 @@ function SvcDrawer({
       )}
 
       <div className="mt-auto flex flex-col gap-1.5">
-        <button
-          onClick={handleProbe}
-          disabled={busy}
-          className="py-1.5 bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded text-[10px] cursor-pointer disabled:opacity-50"
-        >
-          Probe now
-        </button>
+        {!isCron && (
+          <button
+            onClick={handleProbe}
+            disabled={busy}
+            className="py-1.5 bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded text-[10px] cursor-pointer disabled:opacity-50"
+          >
+            Probe now
+          </button>
+        )}
         {service.push_enabled && (
           <button
             onClick={handleRotate}
