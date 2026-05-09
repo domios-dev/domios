@@ -1,22 +1,26 @@
 use std::time::Duration;
 use tauri::Emitter;
 
+use crate::config::ConfigState;
 use crate::MeshStateHandle;
 
 const PING_INTERVAL_SECS: u64 = 20;
 const PING_TIMEOUT_SECS: u64 = 4;
 
-pub fn start(mesh: MeshStateHandle, app_handle: tauri::AppHandle) {
+pub fn start(mesh: MeshStateHandle, config: ConfigState, app_handle: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         log::info!("[mesh/ping] peer-ping scheduler started (interval {}s)", PING_INTERVAL_SECS);
         loop {
-            tick(&mesh, &app_handle).await;
+            tick(&mesh, &config, &app_handle).await;
             tokio::time::sleep(Duration::from_secs(PING_INTERVAL_SECS)).await;
         }
     });
 }
 
-async fn tick(mesh: &MeshStateHandle, app_handle: &tauri::AppHandle) {
+async fn tick(mesh: &MeshStateHandle, config: &ConfigState, app_handle: &tauri::AppHandle) {
+    if !config.lock().mesh.enabled {
+        return;
+    }
     let targets: Vec<(String, String, u16, bool)> = {
         let m = mesh.lock();
         m.paired_peers.values()
