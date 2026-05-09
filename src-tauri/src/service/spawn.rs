@@ -583,11 +583,20 @@ impl ServiceContext {
             // starts with "dreaming:" gets the dreaming-specific timeout.
             let mem_cfg = crate::config::memory_config();
             let intent = self.workers.get(worker_id).map(|w| w.intent.clone()).unwrap_or_default();
-            let timeout = if crate::mem::workers::is_dreaming_intent(&intent) {
+            let dreaming = crate::mem::workers::is_dreaming_intent(&intent);
+            let timeout = if dreaming {
                 mem_cfg.dreaming_timeout_seconds
             } else {
                 mem_cfg.worker_timeout_seconds
             };
+            // Surface the timeout choice so reports of "dreaming worker died at
+            // 150s" (= worker_timeout_seconds, not dreaming_timeout_seconds=1800)
+            // can be diagnosed: either intent lookup returned empty, or
+            // is_dreaming_intent didn't match.
+            log::info!(
+                "[run-watcher] register worker={} intent='{}' dreaming={} timeout={}s",
+                worker_id, intent, dreaming, timeout
+            );
             self.run_watcher.register(
                 self.clone(),
                 pty_id.clone(),

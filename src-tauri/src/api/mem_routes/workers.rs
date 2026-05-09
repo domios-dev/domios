@@ -142,6 +142,11 @@ pub async fn workers_report(
                 Err(e) => log::warn!("[graph-workers] save log: {}", e),
             }
         }
+        // Disarm the run-watcher so the post-report 30s of PTY silence
+        // (claude can take that long to clean up after the report tool
+        // returned, especially on haiku) does not trip the idle reaper
+        // and overwrite the just-set "done" status with a Failed.
+        state.svc.run_watcher.mark_completed_externally(pty_id);
     }
 
     let info = state
