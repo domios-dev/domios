@@ -78,6 +78,20 @@ impl ActivityEvent {
         }
     }
 
+    pub fn peer_relay(peer_id: &str, peer_name: &str, target_pane: &str, body_preview: &str) -> Self {
+        Self {
+            id: None,
+            occurred_at: now_ms(),
+            source: ActivitySource::Push,
+            source_id: Some(peer_id.into()),
+            target: Some(target_pane.into()),
+            source_peer: Some(peer_name.into()),
+            level: ActivityLevel::Info,
+            message: format!("{} → pane {}: {}", peer_name, target_pane, body_preview),
+            meta: serde_json::json!({"kind": "mesh_relay", "body_preview": body_preview}),
+        }
+    }
+
     pub fn health(service_id: &str, transition: (&str, &str)) -> Self {
         Self {
             id: None,
