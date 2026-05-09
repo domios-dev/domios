@@ -129,7 +129,11 @@ impl ServicesStore {
                     s.registered_at, s.updated_at, s.enabled,
                     h.status, h.probed_at, h.latency_ms, h.response
              FROM services s
-             LEFT JOIN service_health h ON h.service_id = s.id
+             LEFT JOIN (
+                SELECT service_id, status, probed_at, latency_ms, response,
+                       ROW_NUMBER() OVER (PARTITION BY service_id ORDER BY probed_at DESC) AS rn
+                FROM service_health
+             ) h ON h.service_id = s.id AND h.rn = 1
              WHERE s.id = ?1",
             [id],
             row_to_service,
@@ -151,7 +155,11 @@ impl ServicesStore {
                     s.registered_at, s.updated_at, s.enabled,
                     h.status, h.probed_at, h.latency_ms, h.response
              FROM services s
-             LEFT JOIN service_health h ON h.service_id = s.id
+             LEFT JOIN (
+                SELECT service_id, status, probed_at, latency_ms, response,
+                       ROW_NUMBER() OVER (PARTITION BY service_id ORDER BY probed_at DESC) AS rn
+                FROM service_health
+             ) h ON h.service_id = s.id AND h.rn = 1
              WHERE 1=1",
         );
         if let Some(k) = &kind {
