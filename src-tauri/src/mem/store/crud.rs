@@ -89,6 +89,7 @@ fn insert_with_options(
     let (source_size, source_mtime) = item
         .source_path
         .as_ref()
+        .map(|p| p.strip_prefix("file:").unwrap_or(p))
         .and_then(|p| std::fs::metadata(p).ok())
         .map(|m| {
             let size = m.len() as i64;
@@ -174,11 +175,12 @@ pub fn get(
     id: &str,
     blobs_dir: &Path,
 ) -> Result<Option<MemItem>, String> {
-    let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String, Option<String>, Option<String>, Option<String>, f64, String, String, Option<String>, i64, i64)> = conn
+    let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String, Option<String>, Option<String>, Option<String>, f64, String, String, Option<String>, i64, i64, Option<i64>, Option<String>)> = conn
         .query_row(
             r#"SELECT id, uid, kind, scope, title, summary, area, tags_json,
                       body_inline, body_blob_path, source, importance,
-                      created_at, updated_at, accessed_at, access_count, recurrence_count
+                      created_at, updated_at, accessed_at, access_count, recurrence_count,
+                      source_size, source_mtime
                FROM mem_items WHERE id = ?1"#,
             params![id],
             |r| {
@@ -186,7 +188,7 @@ pub fn get(
                     r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
                     r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
                     r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?, r.get(14)?,
-                    r.get(15)?, r.get(16)?,
+                    r.get(15)?, r.get(16)?, r.get(17)?, r.get(18)?,
                 ))
             },
         )
@@ -195,7 +197,8 @@ pub fn get(
 
     let Some((id, uid, kind, scope, title, summary, area, tags_json,
               body_inline, body_blob_path, source, importance,
-              created_at, updated_at, accessed_at, access_count, recurrence_count)) = row else {
+              created_at, mut updated_at, accessed_at, access_count, recurrence_count,
+              stored_source_size, stored_source_mtime)) = row else {
         return Ok(None);
     };
 
@@ -209,6 +212,25 @@ pub fn get(
 
     if let Some(ref src) = source {
         if let Some(path) = src.strip_prefix("file:") {
+            if let Ok(meta) = std::fs::metadata(path) {
+                let current_size = meta.len() as i64;
+                let current_mtime = meta
+                    .modified()
+                    .ok()
+                    .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
+                let size_diff = stored_source_size != Some(current_size);
+                let mtime_diff = stored_source_mtime != current_mtime;
+                if size_diff || mtime_diff {
+                    let bumped = chrono::Utc::now().to_rfc3339();
+                    if conn.execute(
+                        "UPDATE mem_items SET source_size = ?1, source_mtime = ?2, updated_at = ?3 \
+                         WHERE id = ?4",
+                        params![current_size, &current_mtime, &bumped, &id],
+                    ).is_ok() {
+                        updated_at = bumped;
+                    }
+                }
+            }
             if let Ok(disk_content) = std::fs::read_to_string(path) {
                 let trimmed = disk_content.trim();
                 if !trimmed.is_empty() {

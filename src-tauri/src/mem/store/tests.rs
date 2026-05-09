@@ -541,6 +541,102 @@ fn tail_recent_returns_items_newest_first() {
 }
 
 #[test]
+fn insert_with_file_prefix_source_path_populates_source_size_and_mtime() {
+    let (conn, blobs) = fresh();
+    let dir = std::env::temp_dir().join(format!("memstore-skill-{}", ulid::Ulid::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let skill_md = dir.join("SKILL.md");
+    std::fs::write(&skill_md, "# Test skill\n\nbody content here").unwrap();
+
+    let source_with_prefix = format!("file:{}", skill_md.display());
+    let id = insert(
+        &conn,
+        &NewMemItem {
+            kind: MemKind::Skill,
+            scope: MemScope::Global,
+            title: "test prefix skill".into(),
+            summary: None,
+            area: None,
+            tags: vec!["folder-skill".into()],
+            body: "# Test skill\n\nbody content here".into(),
+            source: Some(source_with_prefix.clone()),
+            importance: 4.0,
+            source_path: Some(source_with_prefix),
+        },
+        &blobs,
+    )
+    .unwrap();
+
+    let (size, mtime): (Option<i64>, Option<String>) = conn
+        .query_row(
+            "SELECT source_size, source_mtime FROM mem_items WHERE id = ?1",
+            params![&id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    let expected_size = std::fs::metadata(&skill_md).unwrap().len() as i64;
+    assert_eq!(
+        size,
+        Some(expected_size),
+        "source_size must be populated on insert when source_path uses file: prefix"
+    );
+    assert!(
+        mtime.is_some(),
+        "source_mtime must be populated on insert when source_path uses file: prefix"
+    );
+}
+
+#[test]
+fn get_bumps_updated_at_when_source_file_changes() {
+    let (conn, blobs) = fresh();
+    let dir = std::env::temp_dir().join(format!("memstore-getbump-{}", ulid::Ulid::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let skill_md = dir.join("SKILL.md");
+    std::fs::write(&skill_md, "# v1\n\noriginal").unwrap();
+
+    let source = format!("file:{}", skill_md.display());
+    let id = insert(
+        &conn,
+        &NewMemItem {
+            kind: MemKind::Skill,
+            scope: MemScope::Global,
+            title: "bump skill".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "# v1\n\noriginal".into(),
+            source: Some(source.clone()),
+            importance: 4.0,
+            source_path: Some(source),
+        },
+        &blobs,
+    )
+    .unwrap();
+
+    let initial_updated_at: String = conn
+        .query_row(
+            "SELECT updated_at FROM mem_items WHERE id = ?1",
+            params![&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    let new_body = "# v2\n\nedited content longer to change size";
+    std::fs::write(&skill_md, new_body).unwrap();
+
+    let got = get(&conn, &id, &blobs).unwrap().unwrap();
+    assert_eq!(got.body, new_body, "body must be re-read from disk");
+    assert!(
+        got.updated_at > initial_updated_at,
+        "updated_at must bump when source file content changes (initial={}, after_get={})",
+        initial_updated_at,
+        got.updated_at,
+    );
+}
+
+#[test]
 fn graph_full_excludes_invalidated_relations() {
     let conn = Connection::open_in_memory().unwrap();
     init_schema(&conn).unwrap();
