@@ -145,6 +145,14 @@ pub async fn auth_middleware(
     let path = req.uri().path().to_string();
     let method = req.method().clone();
 
+    if path.starts_with("/api/mesh/") && path != "/api/mesh/ping" {
+        let mesh_enabled = state.config.lock().mesh.enabled;
+        if !mesh_enabled {
+            log::warn!("[auth] Rejecting {} {} — mesh disabled in config", method, path);
+            return (StatusCode::SERVICE_UNAVAILABLE, "Mesh networking is disabled").into_response();
+        }
+    }
+
     if PUBLIC_PATHS.iter().any(|p| path == *p) || is_custom_auth(&path) {
         return next.run(req).await;
     }
