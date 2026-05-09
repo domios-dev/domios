@@ -5,6 +5,7 @@ import { servicesList } from "./meshApi";
 import type { Service } from "./types";
 
 export interface PeerStatus {
+  instance_id: string;
   name: string;
   ip: string;
   online: boolean;
@@ -42,6 +43,7 @@ export function useMeshData(refreshKey: number): MeshData {
       );
       const paired: PeerStatus[] = (meshPeers.paired ?? []).map(
         (p: PairedPeer) => ({
+          instance_id: p.instance_id,
           name: p.instance_name,
           ip: p.addresses[0]?.ip ?? "",
           online: p.online,

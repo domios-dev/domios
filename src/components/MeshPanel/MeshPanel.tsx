@@ -3,6 +3,7 @@ import type { ApiConfig } from "../../lib/types";
 import type { MeshTab, Service } from "./types";
 import { MeshCanvas } from "./MeshCanvas";
 import { ServicesTable } from "./ServicesTable";
+import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
 
 const TAB_BASE =
@@ -13,16 +14,6 @@ const TAB_INACTIVE = `${TAB_BASE} border-transparent text-[var(--ct-muted-fg)] h
 const TABS: MeshTab[] = ["map", "activity", "settings"];
 
 const CANVAS_HEIGHT = 400;
-
-interface PeerDrawerCtx {
-  kind: "peer";
-  id: string;
-}
-interface ServiceDrawerCtx {
-  kind: "service";
-  id: string;
-}
-type DrawerState = PeerDrawerCtx | ServiceDrawerCtx | null;
 
 interface Props {
   api: ApiConfig;
@@ -35,7 +26,7 @@ export function MeshPanel({ onClose }: Props) {
   const data = useMeshData(refreshKey);
   const mapRef = useRef<HTMLDivElement>(null);
   const [mapWidth, setMapWidth] = useState(800);
-  const [, setSelectedDrawer] = useState<DrawerState>(null);
+  const [drawerState, setDrawerState] = useState<DrawerState>(null);
   const [, setShowAddServiceWizard] = useState<boolean>(false);
 
   useEffect(() => {
@@ -76,9 +67,9 @@ export function MeshPanel({ onClose }: Props) {
   }, [onClose]);
 
   const handlePeerClick = (name: string) =>
-    setSelectedDrawer({ kind: "peer", id: name });
+    setDrawerState({ kind: "peer", id: name });
   const handleServiceClick = (s: Service) =>
-    setSelectedDrawer({ kind: "service", id: s.id });
+    setDrawerState({ kind: "service", id: s.id });
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)]">
@@ -150,6 +141,13 @@ export function MeshPanel({ onClose }: Props) {
             Settings (Phase 9)
           </div>
         )}
+        <ServiceDrawer
+          state={drawerState}
+          services={data.services}
+          peers={data.peers}
+          onClose={() => setDrawerState(null)}
+          onActionDone={() => setRefreshKey((k) => k + 1)}
+        />
       </div>
     </div>
   );
