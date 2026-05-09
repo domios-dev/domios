@@ -319,6 +319,21 @@ Jitter is applied on top of the cron/oneshot fire time. A job with `0 * * * *` a
 
 Cron runs spawn agents in **hidden panes** — no visible tab or split. Observe progress via the cron panel in the sidebar, the frontend log viewer, or `codeterm cron history ID`. Use `cron_read_log` (Tauri IPC) / the live pane fallback to tail a running run's output.
 
+## UI feature gates
+
+Controls which sidebar buttons are visible. Set in `[ui]` in `config.toml`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `ui.memory_tab_enabled` | `bool` | `true` | Show/hide the Memory sidebar button |
+| `ui.mesh_tab_enabled` | `bool` | `true` | Show/hide the Mesh sidebar button |
+
+```toml
+[ui]
+memory_tab_enabled = true
+mesh_tab_enabled = true
+```
+
 ## Memory
 
 Mem state lives in `~/.codeterm/mem.sqlite` (dev: `~/.codeterm-dev/mem.sqlite`). Config knobs that affect mem are under `[memory]` in `config.toml`.
@@ -332,6 +347,21 @@ Vector indexing uses a **single-worker** pattern: one background thread owns the
 Saving a mem item triggers an extraction cascade that pulls structured entities and relationships out of the body. Extraction runs in hidden panes spawned through `workers::spawn_headless`, and is capped at **4 concurrent workers** globally via `ServiceContext::extract_semaphore` (a `tokio::sync::Semaphore` created at startup). A fifth concurrent save queues until one of the running extractions releases its permit.
 
 To suppress extraction on a specific save — used by seed loaders to avoid re-extracting bundled items on every boot — pass `skip_extract: true` on the `POST /api/mem/items` body (or via the matching socket method). Items tagged `auto-extracted` or sourced from `extracted_from:*` are also skipped automatically.
+
+### Librarian
+
+The Librarian is a background skill vectorizer that watches skill folders and re-indexes `SKILL.md` files when they change on disk.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `memory.librarian_enabled` | `bool` | `true` | Enable the Librarian background vectorizer |
+
+```toml
+[memory]
+librarian_enabled = true
+```
+
+**Note:** as of v1.1.25 the runtime gate is stored in config but not yet wired to the Librarian startup path. Setting `librarian_enabled = false` persists the preference but does not stop the Librarian in the current release.
 
 ## Past Agent Sessions
 
@@ -356,4 +386,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

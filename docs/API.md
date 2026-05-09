@@ -328,6 +328,27 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 | POST | `/api/setup/hooks/install` | — | Install Claude hooks |
 | POST | `/api/setup/hooks/uninstall` | — | Uninstall Claude hooks |
 
+#### Services
+
+Daemon-kind services are registered here; cron jobs are projected as virtual `cron`-kind services but managed via `/api/crons`. Only `daemon` can be created through this API.
+
+`POST /api/panes/{id}/send` accepts `Authorization: Bearer <service_token>` (the per-service push token returned at create or rotation time) in addition to the normal access token. This lets a registered daemon write to a pane without holding the global access token.
+
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/services` | `?kind=cron\|daemon&enabled=true\|false` | List all services (cron projection + registered daemons), optionally filtered |
+| POST | `/api/services` | `{name, kind, health_mode, health_interval, push_enabled, url?, host?, port?, process_label?, script_path?, health_path?, description?}` | Register a new daemon-kind service. Returns `{service, token}` — save the token, it is shown only once. |
+| GET | `/api/services/{id}` | — | Get service by ID |
+| PUT | `/api/services/{id}` | `{name?, url?, enabled?}` | Update service fields |
+| DELETE | `/api/services/{id}` | — | Delete service + its push token + activity |
+| POST | `/api/services/{id}/regenerate-token` | — | Rotate push token. Returns `{token}` — old token is immediately invalidated. |
+
+**Health modes:** `http` (HTTP GET to `url` + optional `health_path`), `tcp` (TCP connect to `host:port`), `process` (launchctl/systemd unit via `process_label`), `script` (exit 0 = healthy, `script_path`).
+
+**Tauri events:**
+- `service-health-changed` — fired by the health probe scheduler on status transitions
+- `service-pushed` — fired when a daemon writes to a pane via its push token
+
 #### Cron Jobs
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -1055,4 +1076,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 37 -->
+<!-- revision: 38 -->

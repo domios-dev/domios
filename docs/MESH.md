@@ -110,6 +110,47 @@ Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` fro
 | `6` | Usage error (e.g. ran via `--mesh` — must run on the source machine) |
 | `7` | Split-brain (rollback also failed — manual repair needed) |
 
+## Mesh tab and service registry
+
+The Mesh tab is the UI surface for the local service registry and peer services. It replaces the old standalone Cron Panel.
+
+### Service entity
+
+Services have `kind = cron | daemon`. Cron jobs registered via `/api/crons` are projected as virtual `cron`-kind services — no data migration, they share the same cron store. Daemons are created via `codeterm service add` (see `--help`) or `POST /api/services`.
+
+### Discovery
+
+Peer services are not gossiped. When a peer node is expanded in the Mesh canvas, the UI fetches that peer's `/api/services` in real time via mesh relay. Services are never cached in the local store — they reflect the remote peer's live state at view time.
+
+### Push tokens
+
+Each daemon service has a per-service push token stored in a local token file. The token is returned once (at create or rotation). Daemons send `Authorization: Bearer <token>` on `POST /api/panes/<pane_id>/send` to write to a pane without the global access token. Comparison is constant-time.
+
+### Activity log
+
+Every service push and health event is recorded in the activity log. Bounded to 10 000 rows / 30 days; old rows are evicted on every 100th insert. Viewable in the Mesh tab's Activity sub-tab.
+
+### Health probes
+
+Four modes, configured per service:
+
+| Mode | Trigger | Healthy condition |
+|------|---------|-------------------|
+| `http` | GET `url` + optional `health_path` | 2xx response |
+| `tcp` | TCP connect to `host:port` | connection succeeds |
+| `process` | launchctl / systemd `process_label` | unit is running |
+| `script` | run `script_path` | exit code 0 |
+
+Probe interval is per-service (`health_interval`, default 30 s).
+
+### Live canvas
+
+The Mesh canvas renders peers as terminal-window-shaped nodes. Health and push events update the canvas in real time via Tauri events `service-health-changed` and `service-pushed` — no polling.
+
+The ServicesTable lists local services with health badges. ServiceDrawer shows full config and recent activity for a selected service. AddServiceWizard handles manual daemon registration with a Smart-Add heuristic that inspects running processes to pre-fill fields.
+
+Full architecture spec: `docs/superpowers/specs/2026-05-09-mesh-tab-design.md`.
+
 ## Architecture
 
 ```
@@ -124,4 +165,4 @@ mesh/
   transport.rs      — HTTP client for peer communication
 ```
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
