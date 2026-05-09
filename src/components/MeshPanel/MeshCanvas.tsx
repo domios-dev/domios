@@ -48,7 +48,10 @@ export function MeshCanvas({
   const layout = useMemo<PeerLayout[]>(() => {
     const cx = width / 2;
     const cy = height / 2;
-    const radius = Math.max(150, Math.min(width, height) / 2 - 130);
+    const cardSpacing = 320;
+    const minRadius = 280;
+    const dynamicRadius = peers.length > 0 ? cardSpacing / (2 * Math.sin(Math.PI / Math.max(peers.length, 3))) : minRadius;
+    const radius = Math.max(minRadius, dynamicRadius);
     const items: PeerLayout[] = [
       {
         name: thisMachine.name,
@@ -196,7 +199,7 @@ export function MeshCanvas({
             );
             return (
               <ConnectionLine
-                key={`${p.name}-${i}`}
+                key={`hub-${p.name}-${i}`}
                 fromX={local.x}
                 fromY={local.y}
                 toX={p.x}
@@ -206,6 +209,19 @@ export function MeshCanvas({
               />
             );
           })}
+          {layout.slice(1).flatMap((a, i) =>
+            layout.slice(i + 2).map((b, j) => (
+              <ConnectionLine
+                key={`p2p-${a.name}-${b.name}-${i}-${j}`}
+                fromX={a.x}
+                fromY={a.y}
+                toX={b.x}
+                toY={b.y}
+                pushCount={0}
+                pulsing={false}
+              />
+            ))
+          )}
         </svg>
         {layout.map((p, i) => (
           <div
