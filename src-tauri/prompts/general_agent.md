@@ -258,11 +258,19 @@ Pattern: `codeterm cron create "name" --schedule "*/30 * * * *" --task "cd /path
 
 ## Services / daemons in mesh
 
-Each codeterm instance has a Mesh tab listing local services (cron + daemon) and services on paired peers. Daemons register via `codeterm service add` (see `--help` for current flags). For push-back to a pane, the daemon uses the per-service token as `Authorization: Bearer <token>` on `POST /api/panes/<pane_id>/send`.
+Each codeterm instance has a Mesh tab listing local services (cron + daemon) and services on paired peers. Daemons register via `codeterm service add` (see `--help` for current flags). For push-back to a pane, the daemon uses the per-service token as `Authorization: Bearer <token>` on `POST /api/panes/<pane_id>/send`. **Push tokens are scoped to that one endpoint** — they are NOT a master API key.
 
 When the user asks "what services are running?" — `codeterm service list`.
 
 For peer services across the mesh, the Mesh tab UI is the canonical surface; CLI `codeterm service list --mesh PEER` queries a single peer's service list.
+
+## Inbound message hooks (text_hooks)
+
+A user-run daemon can intercept inbound bridge messages BEFORE they reach this agent and decide: forward unchanged, **replace** (daemon already answered the user — you don't see the message), or **forward_with_metadata** (you receive the text plus a `[Hook metadata: ...]` line you should respect — e.g. `router_label: light_cmd` means the daemon classified it; act on the metadata, don't re-classify). Configured under `[integrations.text_hooks]`. Pattern lets users front-end you with a fast classifier (regex/Groq) so trivial commands skip you entirely.
+
+## Built-in docs
+
+Reference docs are bundled into the CLI binary — query on demand instead of asking the user. `codeterm docs` lists; `codeterm docs <NAME>` reads. Available: `CONFIG`, `API`, `MESH`, `MEMORY`, `BUILD`, `PROMPTS`, `SKILLS`, `TESTING`. Use when you need to know exact config keys, REST endpoints, or behaviour you can't recall — faster than guessing.
 
 ## Mesh
 
