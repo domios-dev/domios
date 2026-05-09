@@ -4,10 +4,11 @@ import type { MeshTab, Service } from "./types";
 import { MeshCanvas, type RecentPush } from "./MeshCanvas";
 import { ServicesTable } from "./ServicesTable";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
-import { AddServiceWizard } from "./AddServiceWizard";
 import { useMeshData } from "./useMeshData";
 import { MeshSettingsTab } from "./MeshSettingsTab";
 import { ActivityTab } from "./ActivityTab";
+import { BroadcastToggle } from "./BroadcastToggle";
+import { AddPeerPopup } from "./AddPeerPopup";
 
 const TAB_BASE =
   "px-3 py-2 text-xs border-b-2 bg-transparent cursor-pointer capitalize";
@@ -65,7 +66,7 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const [mapWidth, setMapWidth] = useState(800);
   const [drawerState, setDrawerState] = useState<DrawerState>(null);
-  const [showAddWizard, setShowAddWizard] = useState<boolean>(false);
+  const [showAddPeer, setShowAddPeer] = useState(false);
 
   useEffect(() => {
     const el = mapRef.current;
@@ -140,13 +141,14 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
             </button>
           ))}
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <BroadcastToggle />
           <button
-            onClick={() => setShowAddWizard(true)}
+            onClick={() => setShowAddPeer(true)}
             className="text-[11px] text-[var(--ct-accent)] hover:text-[var(--ct-fg)] bg-transparent border border-[var(--ct-border)] hover:border-[var(--ct-accent)] rounded px-2 py-1 cursor-pointer"
-            title="Add service"
+            title="Discover and add a peer"
           >
-            + Service
+            + Peer
           </button>
         </div>
       </div>
@@ -164,7 +166,6 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
                 services={data.services}
                 recentPushes={recentPushes}
                 onPeerClick={handlePeerClick}
-                onAddService={() => setShowAddWizard(true)}
                 width={mapWidth}
                 height={CANVAS_HEIGHT}
               />
@@ -192,14 +193,13 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
           state={drawerState}
           services={data.services}
           peers={data.peers}
+          thisMachineName={data.thisMachine.name}
+          thisMachineIp={data.thisMachine.ip}
           onClose={() => setDrawerState(null)}
           onActionDone={() => setRefreshKey((k) => k + 1)}
         />
-        {showAddWizard && (
-          <AddServiceWizard
-            onClose={() => setShowAddWizard(false)}
-            onCreated={() => setRefreshKey((k) => k + 1)}
-          />
+        {showAddPeer && (
+          <AddPeerPopup onClose={() => setShowAddPeer(false)} />
         )}
       </div>
     </div>

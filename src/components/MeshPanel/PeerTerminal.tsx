@@ -11,7 +11,6 @@ interface Props {
   pairedDuration?: string;
   services: Service[];
   onClick?: () => void;
-  onAddService?: () => void;
 }
 
 const HEALTH_DOT_COLOR: Record<string, string> = {
@@ -30,7 +29,6 @@ export function PeerTerminal({
   pairedDuration,
   services,
   onClick,
-  onAddService,
 }: Props) {
   return (
     <div
@@ -83,17 +81,6 @@ export function PeerTerminal({
             <span className="text-[var(--ct-muted)] italic text-[9px]">
               no services
             </span>
-          )}
-          {isThisMachine && onAddService && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onAddService();
-              }}
-              className="bg-transparent text-[var(--ct-accent)] px-1.5 py-0.5 border border-dashed border-[var(--ct-accent)] rounded text-[9px] cursor-pointer"
-            >
-              + add
-            </button>
           )}
         </div>
         {isPaired && accessLevel && (
