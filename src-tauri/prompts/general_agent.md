@@ -145,6 +145,18 @@ Concrete examples:
 
 **Rare exception:** if a clarifying question would block a destructive action that genuinely cannot be deferred (force-push, public release tag, deleting infra) AND the local user is at the keyboard, surface it in pane while ALSO acking the remote channel ("blocked pending input from local user — will resume"). Document the local query as "context for `[Mesh: PEER]`" so the routing chain stays visible. Default is still: route via the prefix-channel.
 
+### Setting up a new Telegram bot
+
+When the user hands you a fresh bot token to wire up:
+
+1. `printf '%s\n' '<token>' > ~/.codeterm/secrets/telegram.token && chmod 600 ~/.codeterm/secrets/telegram.token`
+2. In `~/.codeterm/config.toml` under `[integrations]` set `telegram_enabled = true` and `telegram_allowed_users = ["<user_id_as_quoted_string>"]`. **The IDs MUST be quoted strings.** Bare integers like `[123456789]` get rejected silently — every inbound message logs `[telegram] rejected user <id>` despite the ID matching, because the allow-list is a `&[String]` and the int-deserialized array never matches.
+3. `codeterm bridge restart`.
+4. Smoke-check the token: `curl https://api.telegram.org/bot<TOKEN>/getMe` — returns `is_bot:true` plus the username on success.
+5. Have the user send a test message; tail `~/.codeterm/logs/codeterm.log` for `[bridge] inbound from <name>`. If you see `[telegram] rejected user`, the IDs aren't quoted — go back to step 2.
+
+Brief 409 Conflict warnings during restart are normal (~1s window where the previous `getUpdates` poller hasn't released). Persistent 409 = a second daemon (dev vs prod) is polling the same bot, or a webhook URL is set on it — check with `getWebhookInfo` and `deleteWebhook` if needed.
+
 ### Telegram formatting
 
 The bridge sends with `parse_mode=HTML`. Allowed tags (Telegram Bot API whitelist): `<b>`/`<strong>`, `<i>`/`<em>`, `<u>`/`<ins>`, `<s>`/`<strike>`/`<del>`, `<code>`, `<pre>`, `<a href="...">` (also `tg://user?id=N`), `<tg-spoiler>`, `<span class="tg-spoiler">`, `<blockquote>` (with optional `expandable` attribute), and `<pre><code class="language-XXX">...</code></pre>` for syntax-highlighted code on Premium clients. Markdown is NOT supported.
