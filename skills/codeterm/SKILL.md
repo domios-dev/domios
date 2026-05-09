@@ -175,6 +175,8 @@ codeterm cron list
 codeterm cron edit ID [--name N] [--schedule S] [--task T]                      # modify in place
 ```
 
+**Before composing a non-trivial cron, run `codeterm cron create --help` and `codeterm cron edit --help`.** Flags evolve (timezone, per-cron timeout, jitter, etc.) and `--help` is the source of truth.
+
 Full cron reference, oneshot schedules, and lifecycle details: `references/cron.md`.
 
 ## Telegram bridge

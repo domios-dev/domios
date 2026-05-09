@@ -24,6 +24,8 @@ fn make_params(name: &str, ws: &str, schedule: &str) -> CronCreateParams {
         max_history: None,
         oneshot: None,
         jitter_max_ms: Some(0),
+        tz: None,
+        timeout_seconds: None,
     }
 }
 
@@ -121,6 +123,8 @@ fn test_cron_crud() {
                 agent: None,
                 model: None,
                 jitter_max_ms: None,
+                tz: None,
+                timeout_seconds: None,
             },
         )
         .unwrap();
@@ -238,4 +242,94 @@ fn test_oneshot_create_and_record_run() {
     let j = store.get(&job.id).unwrap();
     assert!(!j.enabled);
     assert!(j.next_run.is_none());
+}
+
+#[test]
+fn create_accepts_tz_and_recomputes_next_run() {
+    let mut store = temp_store();
+    let job_utc = store.create(make_params("UTC job", "ws", "0 3 * * *")).unwrap();
+    let job_riga = store.create(CronCreateParams {
+        tz: Some("Europe/Riga".into()),
+        ..make_params("Riga job", "ws", "0 3 * * *")
+    }).unwrap();
+    assert_eq!(job_utc.tz, None);
+    assert_eq!(job_riga.tz.as_deref(), Some("Europe/Riga"));
+    // Same schedule in different tz must yield different fire time.
+    assert_ne!(job_utc.next_run, job_riga.next_run);
+}
+
+#[test]
+fn create_rejects_invalid_tz() {
+    let mut store = temp_store();
+    let r = store.create(CronCreateParams {
+        tz: Some("Mars/Time".into()),
+        ..make_params("Bad", "ws", "0 3 * * *")
+    });
+    assert!(r.is_err());
+}
+
+#[test]
+fn create_empty_tz_normalizes_to_none() {
+    let mut store = temp_store();
+    let job = store.create(CronCreateParams {
+        tz: Some("   ".into()),
+        ..make_params("EmptyTz", "ws", "0 3 * * *")
+    }).unwrap();
+    assert_eq!(job.tz, None);
+}
+
+#[test]
+fn create_accepts_timeout_seconds() {
+    let mut store = temp_store();
+    let none_job = store.create(make_params("NoTimeout", "ws", "0 * * * *")).unwrap();
+    let with_job = store.create(CronCreateParams {
+        timeout_seconds: Some(1800),
+        ..make_params("HasTimeout", "ws", "0 * * * *")
+    }).unwrap();
+    let zeroed = store.create(CronCreateParams {
+        timeout_seconds: Some(0),
+        ..make_params("ZeroTimeout", "ws", "0 * * * *")
+    }).unwrap();
+    assert_eq!(none_job.timeout_seconds, None);
+    assert_eq!(with_job.timeout_seconds, Some(1800));
+    // 0 means "no override" — normalized to None on create.
+    assert_eq!(zeroed.timeout_seconds, None);
+}
+
+#[test]
+fn update_can_set_clear_tz_and_timeout() {
+    let mut store = temp_store();
+    let job = store.create(make_params("ToPatch", "ws", "0 3 * * *")).unwrap();
+
+    let updated = store.update(&job.id, CronUpdateParams {
+        name: None, description: None, schedule: None, task: None, cwd: None, role: None,
+        enabled: None, max_history: None, agent: None, model: None, jitter_max_ms: None,
+        tz: Some("Europe/Riga".into()),
+        timeout_seconds: Some(900),
+    }).unwrap();
+    assert_eq!(updated.tz.as_deref(), Some("Europe/Riga"));
+    assert_eq!(updated.timeout_seconds, Some(900));
+
+    // Empty tz string clears back to UTC; timeout 0 clears override.
+    let cleared = store.update(&job.id, CronUpdateParams {
+        name: None, description: None, schedule: None, task: None, cwd: None, role: None,
+        enabled: None, max_history: None, agent: None, model: None, jitter_max_ms: None,
+        tz: Some("".into()),
+        timeout_seconds: Some(0),
+    }).unwrap();
+    assert_eq!(cleared.tz, None);
+    assert_eq!(cleared.timeout_seconds, None);
+}
+
+#[test]
+fn update_rejects_invalid_tz() {
+    let mut store = temp_store();
+    let job = store.create(make_params("X", "ws", "0 3 * * *")).unwrap();
+    let r = store.update(&job.id, CronUpdateParams {
+        name: None, description: None, schedule: None, task: None, cwd: None, role: None,
+        enabled: None, max_history: None, agent: None, model: None, jitter_max_ms: None,
+        tz: Some("Imaginary/Place".into()),
+        timeout_seconds: None,
+    });
+    assert!(r.is_err());
 }

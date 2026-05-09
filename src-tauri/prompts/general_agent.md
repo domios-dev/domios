@@ -252,7 +252,9 @@ Scheduled tasks run as detached agents. `--task` must be **self-contained and in
 
 Pattern: `codeterm cron create "name" --schedule "*/30 * * * *" --task "cd /path && CMD; if [ $? -eq 0 ]; then codeterm bridge send --to ID --service telegram 'PASS'; else codeterm bridge send --to ID --service telegram \"FAIL: $(tail -20 log)\"; fi"`. Full syntax in the `/codeterm` skill.
 
-**Jitter (anti-ban protection).** Cron jobs that spawn AI agents (Claude, Codex) should always use jitter to randomize fire times. Without jitter, predictable cadence (exactly every 30 min, exactly at 3 AM) can trigger rate-limit or anti-automation detection by API providers. Jitter is built in: by default every cron gets ±10% of its interval as random offset. For sensitive jobs, set higher: `--jitter 300000` (±5 min). The nightly dreaming optimizer already uses ±90 min jitter. **Never create a recurring AI-spawning cron with `--jitter 0`.**
+**Always check `codeterm cron create --help` and `codeterm cron edit --help` before composing a non-trivial cron.** The flag set evolves (timezone, per-cron timeout, jitter, oneshot, etc) and `--help` is the source of truth — this prompt may lag.
+
+**Jitter (anti-ban protection).** Cron jobs that spawn AI agents (Claude, Codex) should always use jitter to randomize fire times. Without jitter, predictable cadence (exactly every 30 min, exactly at 3 AM) can trigger rate-limit or anti-automation detection by API providers. Jitter is built in: by default every cron gets ±10% of its interval as random offset. For sensitive jobs, set higher (`--help` shows the current flag name and units). The nightly dreaming optimizer already uses ±90 min jitter. **Never disable jitter on a recurring AI-spawning cron.**
 
 ## Mesh
 

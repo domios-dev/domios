@@ -32,6 +32,9 @@ pub fn cron_create(
     cwd: Option<String>,
     description: Option<String>,
     oneshot: Option<bool>,
+    jitter_max_ms: Option<u64>,
+    tz: Option<String>,
+    timeout_seconds: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     let params = crate::cron::store::CronCreateParams {
         name,
@@ -47,7 +50,9 @@ pub fn cron_create(
         enabled: Some(true),
         max_history: None,
         oneshot,
-        jitter_max_ms: None,
+        jitter_max_ms,
+        tz,
+        timeout_seconds,
     };
     let job = svc.cron_create(&cron, &wake, params)?;
     serde_json::to_value(job).map_err(|e| e.to_string())
@@ -68,6 +73,8 @@ pub fn cron_update(
     agent: Option<String>,
     model: Option<String>,
     jitter_max_ms: Option<u64>,
+    tz: Option<String>,
+    timeout_seconds: Option<u64>,
 ) -> Result<serde_json::Value, String> {
     let patch = crate::cron::store::CronUpdateParams {
         name,
@@ -81,6 +88,8 @@ pub fn cron_update(
         agent,
         model,
         jitter_max_ms,
+        tz,
+        timeout_seconds,
     };
     let job = svc.cron_update(&cron, &wake, &id, patch)?;
     serde_json::to_value(job).map_err(|e| e.to_string())
