@@ -3,6 +3,7 @@ import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab, Service } from "./types";
 import { MeshCanvas, type RecentPush } from "./MeshCanvas";
 import { ServicesTable } from "./ServicesTable";
+import { CronsTable } from "./CronsTable";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
 import { MeshSettingsTab } from "./MeshSettingsTab";
@@ -170,7 +171,12 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
                 height={CANVAS_HEIGHT}
               />
             </div>
-            <div className="flex-1 min-h-0 overflow-auto">
+            <div className="flex-1 min-h-0 overflow-auto flex">
+              <CronsTable
+                services={data.services}
+                thisMachineName={data.thisMachine.name}
+                onServiceClick={handleServiceClick}
+              />
               <ServicesTable
                 services={data.services}
                 thisMachineName={data.thisMachine.name}

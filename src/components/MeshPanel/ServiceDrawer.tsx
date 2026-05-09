@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
-import type { Service } from "./types";
+import { serviceIdToCronId, type Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
 import {
   servicesDelete,
@@ -309,7 +309,7 @@ function SvcDrawer({
     setBusy(true);
     try {
       if (isCron) {
-        await invoke("cron_delete", { id: service.id });
+        await invoke("cron_delete", { id: serviceIdToCronId(service.id) });
       } else {
         await servicesDelete(service.id);
       }

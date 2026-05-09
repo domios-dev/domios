@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import type { CronRunInfo } from "../../lib/types";
+import { serviceIdToCronId } from "./types";
 import { describeSchedule, formatTime } from "../../lib/formatters";
 import type { Service } from "./types";
 
@@ -14,19 +15,20 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
   const [scheduleInput, setScheduleInput] = useState(service.schedule ?? "");
   const [runs, setRuns] = useState<CronRunInfo[]>([]);
   const [busy, setBusy] = useState(false);
+  const cronId = serviceIdToCronId(service.id);
 
   useEffect(() => {
     let cancelled = false;
-    invoke<CronRunInfo[]>("cron_history", { id: service.id })
+    invoke<CronRunInfo[]>("cron_history", { id: cronId })
       .then((r) => { if (!cancelled) setRuns(Array.isArray(r) ? r.slice(-5).reverse() : []); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [service.id]);
+  }, [cronId]);
 
   const handleTrigger = async () => {
     setBusy(true);
     try {
-      await invoke("cron_trigger", { id: service.id });
+      await invoke("cron_trigger", { id: cronId });
       onUpdate();
     } catch (e) {
       alert(`Trigger failed: ${e}`);
@@ -38,7 +40,7 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
   const handleToggle = async () => {
     setBusy(true);
     try {
-      await invoke("cron_toggle", { id: service.id, enabled: !service.enabled });
+      await invoke("cron_toggle", { id: cronId, enabled: !service.enabled });
       onUpdate();
     } catch (e) {
       alert(`Toggle failed: ${e}`);
@@ -51,7 +53,7 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
     if (!scheduleInput.trim()) return;
     setBusy(true);
     try {
-      await invoke("cron_update", { id: service.id, schedule: scheduleInput.trim() });
+      await invoke("cron_update", { id: cronId, schedule: scheduleInput.trim() });
       setEditingSchedule(false);
       onUpdate();
     } catch (e) {
