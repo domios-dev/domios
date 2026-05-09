@@ -117,15 +117,13 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
         <div className="flex items-center gap-3 mr-4">
           <strong>Mesh</strong>
           <span className="text-[11px] opacity-70">
-            {data.loading
-              ? "loading…"
-              : data.error
-                ? `error: ${data.error}`
-                : `${data.peers.length} peer${data.peers.length === 1 ? "" : "s"} · ${data.services.length} service${data.services.length === 1 ? "" : "s"}`}
+            {data.error
+              ? `error: ${data.error}`
+              : `${data.peers.length} peer${data.peers.length === 1 ? "" : "s"} · ${data.services.length} service${data.services.length === 1 ? "" : "s"}`}
           </span>
           <button
             onClick={() => setRefreshKey((k) => k + 1)}
-            className="text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] bg-transparent border-none cursor-pointer"
+            className={`text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] bg-transparent border-none cursor-pointer ${data.loading ? "animate-spin" : ""}`}
             title="Refresh"
           >
             ↻
