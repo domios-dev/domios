@@ -1,5 +1,6 @@
 pub mod http;
 pub mod process;
+pub mod scheduler;
 pub mod script;
 pub mod tcp;
 

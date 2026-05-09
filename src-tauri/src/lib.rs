@@ -393,6 +393,12 @@ pub fn run() {
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
 
+            {
+                let store = service_state.services_store.clone();
+                let activity = crate::services::activity::ActivityWriter::new(store.conn());
+                crate::services::health::scheduler::start(store, activity, app.handle().clone());
+            }
+
             // SecretStore::init() runs inside start_servers BEFORE the
             // API listener binds — see start_servers below. That's the
             // single race-free seam for "wait until secrets are ready".
