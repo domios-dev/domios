@@ -4,6 +4,7 @@ import type { MeshTab, Service } from "./types";
 import { MeshCanvas } from "./MeshCanvas";
 import { ServicesTable } from "./ServicesTable";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
+import { AddServiceWizard } from "./AddServiceWizard";
 import { useMeshData } from "./useMeshData";
 
 const TAB_BASE =
@@ -27,7 +28,7 @@ export function MeshPanel({ onClose }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const [mapWidth, setMapWidth] = useState(800);
   const [drawerState, setDrawerState] = useState<DrawerState>(null);
-  const [, setShowAddServiceWizard] = useState<boolean>(false);
+  const [showAddWizard, setShowAddWizard] = useState<boolean>(false);
 
   useEffect(() => {
     const el = mapRef.current;
@@ -102,6 +103,15 @@ export function MeshPanel({ onClose }: Props) {
             </button>
           ))}
         </div>
+        <div className="ml-auto">
+          <button
+            onClick={() => setShowAddWizard(true)}
+            className="text-[11px] text-[var(--ct-accent)] hover:text-[var(--ct-fg)] bg-transparent border border-[var(--ct-border)] hover:border-[var(--ct-accent)] rounded px-2 py-1 cursor-pointer"
+            title="Add service"
+          >
+            + Service
+          </button>
+        </div>
       </div>
       <div className="relative flex-1 min-h-0 overflow-hidden">
         {activeTab === "map" && (
@@ -117,7 +127,7 @@ export function MeshPanel({ onClose }: Props) {
                 services={data.services}
                 recentPushes={[]}
                 onPeerClick={handlePeerClick}
-                onAddService={() => setShowAddServiceWizard(true)}
+                onAddService={() => setShowAddWizard(true)}
                 width={mapWidth}
                 height={CANVAS_HEIGHT}
               />
@@ -148,6 +158,12 @@ export function MeshPanel({ onClose }: Props) {
           onClose={() => setDrawerState(null)}
           onActionDone={() => setRefreshKey((k) => k + 1)}
         />
+        {showAddWizard && (
+          <AddServiceWizard
+            onClose={() => setShowAddWizard(false)}
+            onCreated={() => setRefreshKey((k) => k + 1)}
+          />
+        )}
       </div>
     </div>
   );
