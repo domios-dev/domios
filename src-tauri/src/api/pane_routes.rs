@@ -92,7 +92,18 @@ pub async fn send_text(
     Path(raw_pane_id): Path<String>,
     Json(body): Json<SendTextBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+    let svc_token_match = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| {
+            crate::services::push::validate_push(v, &state.svc.tokens, &state.svc.services_store)
+                .ok()
+                .flatten()
+        });
+
+    if svc_token_match.is_none() {
+        check_auth(&state, &headers)?;
+    }
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
     if !await_pty_link(&state, &pane_id).await {
