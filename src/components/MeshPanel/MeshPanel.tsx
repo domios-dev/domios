@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
-import type { MeshTab } from "./types";
+import type { MeshTab, Service } from "./types";
 import { MeshCanvas } from "./MeshCanvas";
+import { ServicesTable } from "./ServicesTable";
 import { useMeshData } from "./useMeshData";
 
 const TAB_BASE =
@@ -10,6 +11,18 @@ const TAB_ACTIVE = `${TAB_BASE} border-[var(--ct-accent)] text-[var(--ct-fg)]`;
 const TAB_INACTIVE = `${TAB_BASE} border-transparent text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]`;
 
 const TABS: MeshTab[] = ["map", "activity", "settings"];
+
+const CANVAS_HEIGHT = 400;
+
+interface PeerDrawerCtx {
+  kind: "peer";
+  id: string;
+}
+interface ServiceDrawerCtx {
+  kind: "service";
+  id: string;
+}
+type DrawerState = PeerDrawerCtx | ServiceDrawerCtx | null;
 
 interface Props {
   api: ApiConfig;
@@ -21,16 +34,16 @@ export function MeshPanel({ onClose }: Props) {
   const [refreshKey, setRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
   const mapRef = useRef<HTMLDivElement>(null);
-  const [mapSize, setMapSize] = useState({ width: 800, height: 480 });
+  const [mapWidth, setMapWidth] = useState(800);
+  const [, setSelectedDrawer] = useState<DrawerState>(null);
+  const [, setShowAddServiceWizard] = useState<boolean>(false);
 
   useEffect(() => {
     const el = mapRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
       const r = el.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0) {
-        setMapSize({ width: r.width, height: r.height });
-      }
+      if (r.width > 0) setMapWidth(r.width);
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -61,6 +74,11 @@ export function MeshPanel({ onClose }: Props) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
+
+  const handlePeerClick = (name: string) =>
+    setSelectedDrawer({ kind: "peer", id: name });
+  const handleServiceClick = (s: Service) =>
+    setSelectedDrawer({ kind: "service", id: s.id });
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)]">
@@ -94,19 +112,32 @@ export function MeshPanel({ onClose }: Props) {
           ))}
         </div>
       </div>
-      <div className="relative flex-1 min-h-0 overflow-auto">
+      <div className="relative flex-1 min-h-0 overflow-hidden">
         {activeTab === "map" && (
-          <div ref={mapRef} className="absolute inset-0">
-            <MeshCanvas
-              thisMachine={data.thisMachine}
-              peers={data.peers}
-              services={data.services}
-              recentPushes={[]}
-              onPeerClick={() => {}}
-              onAddService={() => {}}
-              width={mapSize.width}
-              height={mapSize.height}
-            />
+          <div className="absolute inset-0 flex flex-col">
+            <div
+              ref={mapRef}
+              className="flex-shrink-0"
+              style={{ height: CANVAS_HEIGHT }}
+            >
+              <MeshCanvas
+                thisMachine={data.thisMachine}
+                peers={data.peers}
+                services={data.services}
+                recentPushes={[]}
+                onPeerClick={handlePeerClick}
+                onAddService={() => setShowAddServiceWizard(true)}
+                width={mapWidth}
+                height={CANVAS_HEIGHT}
+              />
+            </div>
+            <div className="flex-1 min-h-0 overflow-auto">
+              <ServicesTable
+                services={data.services}
+                thisMachineName={data.thisMachine.name}
+                onServiceClick={handleServiceClick}
+              />
+            </div>
           </div>
         )}
         {activeTab === "activity" && (
