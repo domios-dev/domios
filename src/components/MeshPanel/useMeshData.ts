@@ -61,11 +61,9 @@ export function useMeshData(refreshKey: number): MeshDataResult {
         .filter((p) => p.online && p.ip)
         .map(async (p) => {
           try {
-            const r = await fetch(`http://${p.ip}:${p.api_port}/api/services`, {
-              signal: AbortSignal.timeout(3000),
+            const arr = await invoke<Service[]>("mesh_peer_services_list", {
+              instanceId: p.instance_id,
             });
-            if (!r.ok) return [];
-            const arr: Service[] = await r.json();
             return arr.map((s) => ({ ...s, source_peer: p.name }));
           } catch {
             return [];

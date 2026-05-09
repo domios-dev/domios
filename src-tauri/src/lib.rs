@@ -245,6 +245,7 @@ pub fn run() {
             commands_mesh::mesh_start_broadcast,
             commands_mesh::mesh_stop_broadcast,
             commands_mesh::mesh_set_access,
+            commands_mesh::mesh_peer_services_list,
             // Keep-awake commands
             keepawake::keepawake_start,
             keepawake::keepawake_stop,
