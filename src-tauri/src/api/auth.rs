@@ -167,6 +167,13 @@ pub async fn auth_middleware(
     match identify_caller(&state, &auth) {
         Ok(CallerIdentity::Local) => next.run(req).await,
         Ok(CallerIdentity::Peer { ref instance_id, ref access_level }) => {
+            if !state.config.lock().mesh.enabled {
+                log::warn!(
+                    "[auth] Rejecting peer {} on {} {} — mesh disabled in config",
+                    instance_id, method, path
+                );
+                return (StatusCode::SERVICE_UNAVAILABLE, "Mesh networking is disabled").into_response();
+            }
             if check_access(access_level, &method, &path) {
                 next.run(req).await
             } else {
