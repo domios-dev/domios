@@ -75,19 +75,20 @@ pub(super) fn dispatch(
                 return Ok(match svc_ref.send_text_verified(&pty_id, &text, enter, strategy, opts) {
                     Ok(r) => serde_json::json!({
                         "ok": true,
-                        // `verified` reflects best-available evidence: both echo
-                        // (text rendered on screen) AND submit (Enter consumed
-                        // by the TUI) were observed. Falsy here does NOT mean
-                        // delivery failed — Enter is always sent regardless;
-                        // it just means we couldn't confirm via screen state.
-                        "verified": r.echo_observed && (!enter || r.submit_observed),
+                        // Advisory: best-available evidence that the TTY echoed
+                        // the bytes (and consumed Enter when requested). Falsy
+                        // here does NOT mean delivery failed — bytes are always
+                        // written; long messages may scroll past the capture
+                        // window before the verifier polls. Treat `error` as
+                        // the only delivery gate.
+                        "pty_echo_seen": r.echo_observed && (!enter || r.submit_observed),
                         "echo_observed": r.echo_observed,
                         "submit_observed": r.submit_observed,
                         "elapsed_ms": r.elapsed.as_millis() as u64,
                     }),
                     Err(e) => serde_json::json!({
                         "ok": false,
-                        "verified": false,
+                        "pty_echo_seen": false,
                         "error": format!("{}", e),
                     }),
                 });
