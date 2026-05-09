@@ -1,6 +1,7 @@
 import type { Service } from "./types";
+import { formatFuture } from "../../lib/formatters";
 
-const GRID_COLS = "14px 2fr 1fr 90px 70px 24px";
+const GRID_COLS = "14px 2fr 1fr 110px 70px 24px";
 
 interface Props {
   service: Service;
@@ -8,21 +9,11 @@ interface Props {
   onClick: () => void;
 }
 
-function fmtNextRun(ts?: number | null): string {
-  if (!ts) return "-";
-  const d = new Date(ts);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  return sameDay
-    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
 function statusInfo(svc: Service): { label: string; color: string } {
   if (!svc.enabled) return { label: "disabled", color: "var(--ct-muted)" };
   if (svc.last_run_status === "running") return { label: "running", color: "var(--ct-yellow)" };
   if (svc.last_run_status === "failed") return { label: "failed", color: "var(--ct-red)" };
-  if (svc.next_run) return { label: `next ${fmtNextRun(svc.next_run)}`, color: "var(--ct-fg)" };
+  if (svc.next_run) return { label: formatFuture(svc.next_run), color: "var(--ct-fg)" };
   return { label: "idle", color: "var(--ct-muted)" };
 }
 
