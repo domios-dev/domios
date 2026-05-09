@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import type { ApiConfig } from "../../lib/types";
+import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab, Service } from "./types";
 import { MeshCanvas } from "./MeshCanvas";
 import { ServicesTable } from "./ServicesTable";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { AddServiceWizard } from "./AddServiceWizard";
 import { useMeshData } from "./useMeshData";
+import { MeshSettingsTab } from "./MeshSettingsTab";
 
 const TAB_BASE =
   "px-3 py-2 text-xs border-b-2 bg-transparent cursor-pointer capitalize";
@@ -18,10 +19,25 @@ const CANVAS_HEIGHT = 400;
 
 interface Props {
   api: ApiConfig;
+  config: AppConfig;
+  onConfigUpdate: (config: AppConfig) => Promise<void>;
   onClose: () => void;
 }
 
-export function MeshPanel({ onClose }: Props) {
+export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
+  const [localConfig, setLocalConfig] = useState<AppConfig>(config);
+
+  // Sync when parent config changes
+  useEffect(() => { setLocalConfig(config); }, [config]);
+
+  const updateConfig = <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => {
+    setLocalConfig((prev) => {
+      const next = { ...prev, [section]: Object.assign({}, prev[section], patch) };
+      onConfigUpdate(next).catch(() => {});
+      return next;
+    });
+  };
+
   const [activeTab, setActiveTab] = useState<MeshTab>("map");
   const [refreshKey, setRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
@@ -147,8 +163,12 @@ export function MeshPanel({ onClose }: Props) {
           </div>
         )}
         {activeTab === "settings" && (
-          <div className="p-4 text-xs text-[var(--ct-muted-fg)]">
-            Settings (Phase 9)
+          <div className="p-4 overflow-y-auto h-full">
+            <MeshSettingsTab
+              config={localConfig}
+              onUpdate={updateConfig}
+              apiEnabled={localConfig.api?.enabled ?? false}
+            />
           </div>
         )}
         <ServiceDrawer

@@ -602,6 +602,8 @@ function AppInner() {
             >
               <MeshPanel
                 api={config.api}
+                config={config}
+                onConfigUpdate={updateConfig}
                 onClose={() => setMeshOpen(false)}
               />
             </div>

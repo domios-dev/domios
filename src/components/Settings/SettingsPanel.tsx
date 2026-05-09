@@ -492,10 +492,7 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "mesh" && (
               <div className="max-w-2xl mx-auto">
-                <NetworkTab
-                  config={localConfig}
-                  onUpdate={(section, patch) => update(section, patch)}
-                />
+                <NetworkTab />
               </div>
             )}
 

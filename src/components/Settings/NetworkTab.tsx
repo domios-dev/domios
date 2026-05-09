@@ -1,29 +1,8 @@
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import type { AppConfig } from "../../lib/types";
-import { MeshSection } from "./MeshSection";
+import { useState } from "react";
 
-export function NetworkTab({
-  config: cfg,
-  onUpdate,
-}: {
-  config: AppConfig;
-  onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
-}) {
-  const [net, setNet] = useState<{
-    local_ip: string; tailscale_ip: string | null;
-    api_port: number; api_url: string; tailscale_url: string | null;
-  } | null>(null);
-  useEffect(() => {
-    invoke<typeof net>("get_network_info").then(setNet).catch(() => {});
-  }, []);
-
-  const apiEnabled = cfg.api?.enabled ?? false;
-
+export function NetworkTab() {
   return (
     <div className="space-y-5">
-      <MeshSection config={cfg} onUpdate={onUpdate} apiEnabled={apiEnabled} />
-
       <Collapsible title="API Endpoints Reference">
         <div className="space-y-3">
           <EndpointGroup title="Workspaces" endpoints={[
