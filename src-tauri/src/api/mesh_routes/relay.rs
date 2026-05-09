@@ -180,6 +180,20 @@ pub async fn mesh_relay(
 
     let status = resp.status().as_u16();
     let data: serde_json::Value = resp.json().await.unwrap_or(serde_json::json!(null));
+
+    if status < 400 && cmd.path.contains("/send") && cmd.method.eq_ignore_ascii_case("POST") {
+        let target_pane = cmd.path.split('/').nth(3).unwrap_or("unknown").to_string();
+        let preview = cmd.body.get("text").and_then(|v| v.as_str()).unwrap_or("").chars().take(80).collect::<String>();
+        let writer = crate::services::activity::ActivityWriter::new(state.svc.services_store.conn());
+        let _ = writer.record(crate::services::activity::ActivityEvent::peer_relay(
+            &sender_id, &sender_name, &target_pane, &preview,
+        ));
+        let _ = state.svc.app_handle.emit(
+            "service-pushed",
+            serde_json::json!({"source_id": sender_name, "target": target_pane, "kind": "mesh"}),
+        );
+    }
+
     Ok(Json(crate::mesh::types::RelayResponse {
         ok: status < 400, status, data: Some(data),
         error: if status >= 400 { Some(format!("HTTP {}", status)) } else { None },
