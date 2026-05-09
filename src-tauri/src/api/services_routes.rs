@@ -6,7 +6,39 @@ use axum::{
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
+use crate::services::activity::{ActivityEvent, ActivitySource, ActivityWriter};
 use crate::services::store::{self, Service, ServiceCreate, ServiceKind, ServiceUpdate};
+
+#[derive(Deserialize)]
+pub struct ActivityQuery {
+    pub source: Option<String>,
+    pub since: Option<i64>,
+    pub limit: Option<usize>,
+}
+
+pub async fn list_activity(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ActivityQuery>,
+) -> Result<Json<Vec<ActivityEvent>>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let writer = ActivityWriter::new(state.svc.services_store.conn());
+    let source = q.source.as_deref().and_then(parse_activity_source);
+    writer
+        .list(source, q.since, q.limit)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+fn parse_activity_source(s: &str) -> Option<ActivitySource> {
+    match s {
+        "push" => Some(ActivitySource::Push),
+        "health" => Some(ActivitySource::Health),
+        "peer" => Some(ActivitySource::Peer),
+        "cron" => Some(ActivitySource::Cron),
+        _ => None,
+    }
+}
 
 #[derive(Deserialize)]
 pub struct ListQuery {
