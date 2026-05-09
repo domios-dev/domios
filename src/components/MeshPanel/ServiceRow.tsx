@@ -7,7 +7,7 @@ const STATUS_COLOR: Record<string, string> = {
   unknown: "var(--ct-muted)",
 };
 
-const GRID_COLS = "14px 2fr 1fr 1fr 80px 70px 24px";
+const GRID_COLS = "14px 2fr 1fr 80px 70px 24px";
 
 interface Props {
   service: Service;
@@ -32,9 +32,6 @@ export function ServiceRow({ service, host, onClick }: Props) {
       </span>
       <span className="text-[var(--ct-muted)] text-[11px] truncate" title={host}>
         {host}
-      </span>
-      <span className="text-[var(--ct-muted)] text-[11px] truncate">
-        {service.kind} · {service.health_mode}
       </span>
       <span className="text-[10px] uppercase" style={{ color }}>
         {service.health.status}
