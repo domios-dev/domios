@@ -3,12 +3,13 @@ import { MemoryCanvas } from "./MemoryCanvas";
 import { MemoryListTab } from "./MemoryListTab";
 import { MemoryActivityTab } from "./MemoryActivityTab";
 import { MemoryDreamsTab } from "./MemoryDreamsTab";
+import { MemorySettingsTab } from "./MemorySettingsTab";
 import { useGraphData } from "./useGraphData";
 import { useActivityPulses } from "./useActivityPulses";
 import { fetchStats, isTauriEnv, type MemStats } from "./memoryApi";
-import type { ApiConfig } from "../../lib/types";
+import type { ApiConfig, AppConfig } from "../../lib/types";
 
-export type MemoryTab = "dreams" | "graph" | "list" | "activity";
+export type MemoryTab = "dreams" | "graph" | "list" | "activity" | "settings";
 
 export interface MemoryInitialState {
   selectedId: string | null;
@@ -22,16 +23,18 @@ const TAB_BASE =
 const TAB_ACTIVE = `${TAB_BASE} border-[var(--ct-accent)] text-[var(--ct-fg)]`;
 const TAB_INACTIVE = `${TAB_BASE} border-transparent text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]`;
 
-const TABS: MemoryTab[] = ["dreams", "graph", "list", "activity"];
+const TABS: MemoryTab[] = ["dreams", "graph", "list", "activity", "settings"];
 
 interface Props {
   api: ApiConfig;
   onClose: () => void;
   initialState?: MemoryInitialState;
   onFocusPane?: (paneId: string) => void;
+  config?: AppConfig;
+  onConfigUpdate?: (config: AppConfig) => Promise<void>;
 }
 
-export function MemoryPanel({ api, onClose, initialState }: Props) {
+export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate }: Props) {
   const [activeTab, setActiveTab] = useState<MemoryTab>(initialState?.activeTab ?? "dreams");
   const {
     nodes,
@@ -105,6 +108,7 @@ export function MemoryPanel({ api, onClose, initialState }: Props) {
       else if (e.key === "2") { e.preventDefault(); setActiveTab("graph"); }
       else if (e.key === "3") { e.preventDefault(); setActiveTab("list"); }
       else if (e.key === "4") { e.preventDefault(); setActiveTab("activity"); }
+      else if (e.key === "5") { e.preventDefault(); setActiveTab("settings"); }
       else if (e.key === "f" || e.key === "F") { if (activeTab === "graph") { e.preventDefault(); fitRef.current(); } }
       else if (e.key === "0") { if (activeTab === "graph") { e.preventDefault(); recenterRef.current(); } }
       else if (e.key === "p" || e.key === "P") { if (activeTab === "graph") { e.preventDefault(); setPhysicsEnabled((v) => !v); } }
@@ -206,6 +210,19 @@ export function MemoryPanel({ api, onClose, initialState }: Props) {
             nodes={nodes}
             onNavigateToItem={handleNavigateToItem}
           />
+        )}
+        {activeTab === "settings" && config && onConfigUpdate && (
+          <div className="absolute inset-0 overflow-y-auto px-5 py-5">
+            <div className="max-w-2xl mx-auto">
+              <MemorySettingsTab
+                config={config}
+                onUpdate={(section, patch) => {
+                  const next = { ...config, [section]: Object.assign({}, config[section], patch) };
+                  onConfigUpdate(next).catch(() => {});
+                }}
+              />
+            </div>
+          </div>
         )}
       </div>
     </div>
