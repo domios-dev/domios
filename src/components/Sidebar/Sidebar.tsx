@@ -2,16 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useMultiplexer } from "../../store/multiplexer";
-import { useCrons } from "../../store/crons";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { TitleLevel } from "../../lib/types";
-import type { Tab, SplitNode, PaneStatus, Pane } from "../../lib/types";
+import type { Tab, SplitNode, PaneStatus, Pane, AppConfig } from "../../lib/types";
 import { Plus } from "lucide-react";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
-import { CronSection } from "./CronSection";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
 
@@ -52,22 +50,19 @@ function aggregateStatus(
 interface SidebarProps {
   onOpenSettings?: () => void;
   onOpenMemory?: () => void;
-  onOpenCron?: (jobId?: string) => void;
+  onOpenMesh?: () => void;
   onNavigateToTab?: () => void;
-  mainView?: "workspace" | "settings" | "memory" | "cron";
-  /** Cron job currently shown in the detail view of CronPanel — used to
-   *  highlight the matching sidebar row with the same bg-[var(--ct-active)]
-   *  treatment as Settings/Memory get. */
-  activeCronId?: string;
+  mainView?: "workspace" | "settings" | "memory" | "mesh";
+  config?: AppConfig;
 }
 
 export function Sidebar({
   onOpenSettings,
   onOpenMemory,
-  onOpenCron,
+  onOpenMesh,
   onNavigateToTab,
   mainView = "workspace",
-  activeCronId,
+  config,
 }: SidebarProps) {
   const {
     state,
@@ -83,8 +78,6 @@ export function Sidebar({
     spawnClaudeTab,
     spawnAgentTab,
   } = useMultiplexer();
-  const { cronPaneIds } = useCrons();
-
   // When mainView leaves the workspace (Memory / Settings open), suppress the
   // "active" highlight on the current workspace + tab so the sidebar clearly
   // shows where the user actually is in the hierarchy. Backend focus state
@@ -488,13 +481,12 @@ export function Sidebar({
                         );
                       };
 
-                      // Only render top-level tabs (not children, not cron-owned)
+                      // Only render top-level tabs (not children)
                       return ws.tabs
                         .filter((tab) => {
                           const pids = collectPaneIds(tab.split_tree, state.panes);
                           if (pids.length === 0) return false;
                           if (childPaneIds.has(pids[0])) return false;
-                          if (pids.some((pid) => cronPaneIds.has(pid))) return false;
                           return true;
                         })
                         .map((tab, index) => renderTab(tab, index, 0));
@@ -516,12 +508,6 @@ export function Sidebar({
                       <Plus size={10} strokeWidth={1.5} />
                       <span className="text-[11px]">New session</span>
                     </button>
-                    {/* Cron jobs section */}
-                    <CronSection
-                      workspaceId={ws.id}
-                      onOpenCron={onOpenCron}
-                      activeCronId={mainView === "cron" ? activeCronId : undefined}
-                    />
                   </>
                   </div>
                 </div>
@@ -565,26 +551,52 @@ export function Sidebar({
 
         {/* Memory + Settings buttons at bottom */}
         <div className={`border-t border-[var(--ct-border)] ${isCompact ? "px-1 py-2 flex flex-col items-center gap-1" : "px-3 py-2 flex flex-col gap-1"}`}>
-          <button
-            onClick={onOpenMemory}
-            className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
-              mainView === "memory"
-                ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-            }`}
-            title="Memory Graph (Ctrl+Shift+M)"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-              <circle cx="12" cy="5" r="2" />
-              <circle cx="5" cy="19" r="2" />
-              <circle cx="19" cy="19" r="2" />
-              <circle cx="12" cy="13" r="2" />
-              <line x1="12" y1="7" x2="12" y2="11" />
-              <line x1="10.5" y1="14.5" x2="6.5" y2="17.5" />
-              <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
-            </svg>
-            {!isCompact && <span className="text-[11px]">Memory</span>}
-          </button>
+          {(config?.ui?.memory_tab_enabled ?? true) && (
+            <button
+              onClick={onOpenMemory}
+              className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
+                mainView === "memory"
+                  ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                  : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+              }`}
+              title="Memory Graph (Ctrl+Shift+M)"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                <circle cx="12" cy="5" r="2" />
+                <circle cx="5" cy="19" r="2" />
+                <circle cx="19" cy="19" r="2" />
+                <circle cx="12" cy="13" r="2" />
+                <line x1="12" y1="7" x2="12" y2="11" />
+                <line x1="10.5" y1="14.5" x2="6.5" y2="17.5" />
+                <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
+              </svg>
+              {!isCompact && <span className="text-[11px]">Memory</span>}
+            </button>
+          )}
+          {(config?.ui?.mesh_tab_enabled ?? true) && (
+            <button
+              onClick={onOpenMesh}
+              className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
+                mainView === "mesh"
+                  ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                  : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+              }`}
+              title="Mesh"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                <circle cx="12" cy="12" r="2" />
+                <circle cx="4" cy="6" r="2" />
+                <circle cx="20" cy="6" r="2" />
+                <circle cx="4" cy="18" r="2" />
+                <circle cx="20" cy="18" r="2" />
+                <line x1="6" y1="6" x2="10.5" y2="11" />
+                <line x1="18" y1="6" x2="13.5" y2="11" />
+                <line x1="6" y1="18" x2="10.5" y2="13" />
+                <line x1="18" y1="18" x2="13.5" y2="13" />
+              </svg>
+              {!isCompact && <span className="text-[11px]">Mesh</span>}
+            </button>
+          )}
           <button
             onClick={onOpenSettings}
             className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${

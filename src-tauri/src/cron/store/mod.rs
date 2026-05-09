@@ -22,8 +22,9 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 pub use schedule::{
-    compute_backoff, compute_next_run, compute_next_run_jittered, parse_oneshot_schedule,
-    to_6field, validate_schedule, MAX_CONSECUTIVE_FAILURES,
+    compute_backoff, compute_next_run, compute_next_run_in, compute_next_run_jittered,
+    compute_next_run_jittered_in, parse_oneshot_schedule, parse_tz, to_6field, validate_schedule,
+    validate_tz, MAX_CONSECUTIVE_FAILURES,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -75,6 +76,12 @@ pub struct CronJob {
     /// None → 10% of interval clamped to [1m, 30m]. Some(0) → off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jitter_max_ms: Option<u64>,
+    /// IANA timezone (e.g. "Europe/Riga"). None → UTC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tz: Option<String>,
+    /// Per-cron run timeout. None → fall back to global memory.worker_timeout_seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_seconds: Option<u64>,
     /// Auto-disables at >= 5.
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub consecutive_failures: u32,
@@ -176,6 +183,10 @@ pub struct CronCreateParams {
     pub oneshot: Option<bool>,
     #[serde(default)]
     pub jitter_max_ms: Option<u64>,
+    #[serde(default)]
+    pub tz: Option<String>,
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -202,4 +213,10 @@ pub struct CronUpdateParams {
     pub model: Option<String>,
     #[serde(default)]
     pub jitter_max_ms: Option<u64>,
+    /// `Some("")` clears tz back to UTC. `Some(non-empty)` sets it. `None` leaves unchanged.
+    #[serde(default)]
+    pub tz: Option<String>,
+    /// `Some(0)` clears the override (back to global). `Some(non-zero)` sets it. `None` leaves unchanged.
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
 }

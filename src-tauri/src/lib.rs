@@ -21,6 +21,7 @@ pub mod process_util;
 pub mod pty;
 pub mod secrets;
 pub mod service;
+pub mod services;
 pub mod shell;
 pub mod session;
 mod socket;
@@ -221,6 +222,15 @@ pub fn run() {
             commands::cron_trigger,
             commands::cron_history,
             commands::cron_read_log,
+            // Services commands
+            commands::services_list,
+            commands::services_create,
+            commands::services_get,
+            commands::services_update,
+            commands::services_delete,
+            commands::services_regenerate_token,
+            commands::activity_list,
+            commands::services_smart_add_inspect,
             // Mesh commands
             commands_mesh::mesh_get_status,
             commands_mesh::mesh_list_peers,
@@ -235,6 +245,7 @@ pub fn run() {
             commands_mesh::mesh_start_broadcast,
             commands_mesh::mesh_stop_broadcast,
             commands_mesh::mesh_set_access,
+            commands_mesh::mesh_peer_services_list,
             // Keep-awake commands
             keepawake::keepawake_start,
             keepawake::keepawake_stop,
@@ -373,9 +384,23 @@ pub fn run() {
                     crate::secrets::new_state(&cfg)
                 },
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                services_store: Arc::new(
+                    crate::services::store::ServicesStore::open(
+                        &crate::paths::data_dir().join("services.db"),
+                    )
+                    .expect("services.db init"),
+                ),
+                tokens: Arc::new(crate::services::tokens::TokenStore::new()),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
+
+            {
+                let store = service_state.services_store.clone();
+                let activity = crate::services::activity::ActivityWriter::new(store.conn());
+                crate::services::health::scheduler::start(store, activity, app.handle().clone());
+            }
+            crate::mesh::ping_scheduler::start(states.mesh.clone(), states.config.clone(), app.handle().clone());
 
             // SecretStore::init() runs inside start_servers BEFORE the
             // API listener binds — see start_servers below. That's the

@@ -198,15 +198,26 @@ pub struct GraphAliasBody {
     pub canonical: String,
 }
 
+fn validate_canonical(id: &str) -> Result<(), String> {
+    if id.trim().is_empty() {
+        return Err("canonical must not be empty".into());
+    }
+    if id.chars().any(|c| c.is_whitespace()) {
+        return Err("canonical must not contain whitespace".into());
+    }
+    if !id.contains('_') {
+        return Err("canonical must contain '_' (entity ids look like type_slug)".into());
+    }
+    Ok(())
+}
+
 pub async fn mem_graph_alias(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(b): Json<GraphAliasBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    if !b.canonical.starts_with("person_") && !b.canonical.starts_with("project_") {
-        return Err((StatusCode::BAD_REQUEST, "canonical must be person_* or project_*".into()));
-    }
+    validate_canonical(&b.canonical).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     state.svc.mem.graph_alias(&b.alias, &b.canonical)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "ok": true, "alias": b.alias, "canonical": b.canonical })))
@@ -263,4 +274,54 @@ pub async fn mem_graph_full(
             "edge_count": dump.stats.edge_count,
         }
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_canonical;
+
+    #[test]
+    fn accepts_known_entity_prefixes() {
+        for id in [
+            "person_alpha",
+            "project_alpha",
+            "machine_alpha",
+            "tech_alpha",
+            "topic_alpha",
+            "role_alpha",
+        ] {
+            assert!(validate_canonical(id).is_ok(), "should accept: {}", id);
+        }
+    }
+
+    #[test]
+    fn accepts_future_entity_prefixes() {
+        // Anything shaped like type_slug works — validation must not lock
+        // the API to today's ontology.
+        for id in ["org_alpha", "team_alpha", "flow_step_one"] {
+            assert!(validate_canonical(id).is_ok(), "should accept: {}", id);
+        }
+    }
+
+    #[test]
+    fn rejects_empty_string() {
+        assert!(validate_canonical("").is_err());
+    }
+
+    #[test]
+    fn rejects_whitespace_only() {
+        assert!(validate_canonical("   ").is_err());
+    }
+
+    #[test]
+    fn rejects_internal_whitespace() {
+        let err = validate_canonical("topic alpha").unwrap_err();
+        assert!(err.contains("whitespace"));
+    }
+
+    #[test]
+    fn rejects_no_separator() {
+        let err = validate_canonical("nakedid").unwrap_err();
+        assert!(err.contains("'_'"));
+    }
 }

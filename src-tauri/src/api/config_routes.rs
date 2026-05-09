@@ -4,6 +4,7 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use tauri::Emitter;
 
 use crate::api::routes::{check_auth, AppState};
 
@@ -69,12 +70,28 @@ pub async fn patch_config_api(
     // Detect rename so we can sync mesh state + push the new name to peers.
     // Mirror of the same logic in the Tauri update_config command.
     let prev_name = state.config.lock().mesh.instance_name.clone();
+    let prev_mesh_enabled = state.config.lock().mesh.enabled;
     let new_name = new_cfg.mesh.instance_name.clone();
+    let new_mesh_enabled = new_cfg.mesh.enabled;
     let renamed = !new_name.is_empty() && new_name != prev_name;
+    let mesh_disabled = prev_mesh_enabled && !new_mesh_enabled;
 
     *state.config.lock() = new_cfg.clone();
     if let Err(e) = crate::config::save_config_pub(&new_cfg) {
         log::error!("Config save failed: {}", e);
+    }
+
+    if mesh_disabled {
+        log::info!("[mesh] disabled mid-session — stopping broadcast + marking peers offline");
+        crate::mesh::discovery::stop_broadcast(&state.mesh);
+        {
+            let mut m = state.mesh.lock();
+            for peer in m.paired_peers.values_mut() {
+                peer.online = false;
+            }
+            m.discovered_peers.clear();
+        }
+        let _ = state.svc.app_handle.emit("mesh-state-changed", ());
     }
 
     if renamed {

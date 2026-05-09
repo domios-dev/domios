@@ -43,3 +43,17 @@ export function timeAgo(ts: number): string {
 export function formatTime(ms: number): string {
   return new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
+
+/** Relative future time — "in 5m", "in 2h", "tomorrow 14:30", or absolute date. */
+export function formatFuture(ms: number): string {
+  const diff = ms - Date.now();
+  if (diff < 0) return "overdue";
+  if (diff < 60_000) return "<1m";
+  if (diff < 3_600_000) return `in ${Math.floor(diff / 60_000)}m`;
+  if (diff < 86_400_000) return `in ${Math.floor(diff / 3_600_000)}h`;
+  if (diff < 2 * 86_400_000) {
+    const d = new Date(ms);
+    return `tomorrow ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  }
+  return formatTime(ms);
+}

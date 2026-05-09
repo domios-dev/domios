@@ -8,6 +8,7 @@ pub mod sanitize;
 pub mod supervisor;
 pub mod telegram;
 pub mod voice_transcribe;
+pub mod text_hooks;
 
 #[cfg(test)]
 mod migrate_test;

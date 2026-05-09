@@ -395,3 +395,34 @@ pub fn mesh_set_access(
     log::info!("[mesh] Set access level for {} to {}", instance_id, access_level);
     Ok(())
 }
+
+#[tauri::command]
+pub async fn mesh_peer_services_list(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    instance_id: String,
+) -> Result<serde_json::Value, String> {
+    let (addr, port, token) = {
+        let m = mesh.lock();
+        let peer = m.paired_peers.get(&instance_id)
+            .ok_or_else(|| format!("Peer {} not paired", instance_id))?;
+        let addr = peer.addresses.iter()
+            .min_by_key(|a| crate::mesh::types::address_tier(a))
+            .ok_or_else(|| "Peer has no addresses".to_string())?
+            .ip.clone();
+        let token = m.sign_request().map_err(|e| format!("sign_request: {}", e))?;
+        (addr, peer.api_port, token)
+    };
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let url = format!("http://{}:{}/api/services", addr, port);
+    let resp = client.get(&url)
+        .header("Authorization", format!("Bearer {}", token))
+        .send().await
+        .map_err(|e| format!("request: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    resp.json::<serde_json::Value>().await.map_err(|e| format!("parse: {}", e))
+}

@@ -123,7 +123,8 @@ export async function pasteClipboardToPty(ptyId: string): Promise<boolean> {
   // reliably delivers the full string.
   const plain = await readPlainTextSafely();
   if (plain) {
-    await invoke("write_pty_string", { ptyId, data: plain });
+    const bracketed = `\x1b[200~${plain}\x1b[201~`;
+    await invoke("write_pty_string", { ptyId, data: bracketed });
     return true;
   }
 

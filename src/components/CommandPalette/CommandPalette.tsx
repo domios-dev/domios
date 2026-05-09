@@ -464,7 +464,6 @@ interface CommandActions {
   openSettings: () => void;
   toggleSidebar: () => void;
   spawnClaude: () => void;
-  openCronPanel?: () => void;
   openAgentHierarchy?: () => void;
   openNotifications?: () => void;
 }
@@ -523,13 +522,6 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
       icon: ICONS.claude,
       section: "Agents",
       action: actions.spawnClaude,
-    },
-    {
-      id: "cron-jobs",
-      label: "Periodic Tasks",
-      icon: ICONS.cron,
-      section: "Tools",
-      action: actions.openCronPanel || (() => {}),
     },
     {
       id: "agent-hierarchy",
