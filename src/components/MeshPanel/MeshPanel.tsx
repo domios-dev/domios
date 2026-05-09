@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import type { MeshTab } from "./types";
+import { MeshCanvas } from "./MeshCanvas";
+import { useMeshData } from "./useMeshData";
 
 const TAB_BASE =
   "px-3 py-2 text-xs border-b-2 bg-transparent cursor-pointer capitalize";
@@ -16,6 +18,23 @@ interface Props {
 
 export function MeshPanel({ onClose }: Props) {
   const [activeTab, setActiveTab] = useState<MeshTab>("map");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const data = useMeshData(refreshKey);
+  const mapRef = useRef<HTMLDivElement>(null);
+  const [mapSize, setMapSize] = useState({ width: 800, height: 480 });
+
+  useEffect(() => {
+    const el = mapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        setMapSize({ width: r.width, height: r.height });
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [activeTab]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -48,7 +67,20 @@ export function MeshPanel({ onClose }: Props) {
       <div className="flex items-center gap-0 px-4 py-0 text-[13px] bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)]">
         <div className="flex items-center gap-3 mr-4">
           <strong>Mesh</strong>
-          <span className="text-[11px] opacity-70">loading…</span>
+          <span className="text-[11px] opacity-70">
+            {data.loading
+              ? "loading…"
+              : data.error
+                ? `error: ${data.error}`
+                : `${data.peers.length} peer${data.peers.length === 1 ? "" : "s"} · ${data.services.length} service${data.services.length === 1 ? "" : "s"}`}
+          </span>
+          <button
+            onClick={() => setRefreshKey((k) => k + 1)}
+            className="text-[11px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] bg-transparent border-none cursor-pointer"
+            title="Refresh"
+          >
+            ↻
+          </button>
         </div>
         <div className="flex items-center gap-0 border-l border-[var(--ct-border)] pl-2">
           {TABS.map((tab) => (
@@ -64,8 +96,17 @@ export function MeshPanel({ onClose }: Props) {
       </div>
       <div className="relative flex-1 min-h-0 overflow-auto">
         {activeTab === "map" && (
-          <div className="p-4 text-xs text-[var(--ct-muted-fg)]">
-            Map view (Phase 5 Task 5.2)
+          <div ref={mapRef} className="absolute inset-0">
+            <MeshCanvas
+              thisMachine={data.thisMachine}
+              peers={data.peers}
+              services={data.services}
+              recentPushes={[]}
+              onPeerClick={() => {}}
+              onAddService={() => {}}
+              width={mapSize.width}
+              height={mapSize.height}
+            />
           </div>
         )}
         {activeTab === "activity" && (
