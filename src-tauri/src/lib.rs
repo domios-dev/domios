@@ -229,6 +229,7 @@ pub fn run() {
             commands::services_update,
             commands::services_delete,
             commands::services_regenerate_token,
+            commands::activity_list,
             // Mesh commands
             commands_mesh::mesh_get_status,
             commands_mesh::mesh_list_peers,

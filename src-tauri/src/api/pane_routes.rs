@@ -86,6 +86,13 @@ async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
     false
 }
 
+fn record_push_activity(state: &AppState, svc_id: &Option<String>, pane_id: &str, text: &str) {
+    let Some(svc_id) = svc_id else { return };
+    let writer = crate::services::activity::ActivityWriter::new(state.svc.services_store.conn());
+    let preview = text.chars().take(200).collect::<String>();
+    let _ = writer.record(crate::services::activity::ActivityEvent::push(svc_id, pane_id, &preview));
+}
+
 pub async fn send_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -111,19 +118,23 @@ pub async fn send_text(
     }
 
     if let Some(batch) = body.batch {
+        let preview = batch.iter().map(|c| c.text.as_str()).collect::<Vec<_>>().join(" ; ");
         let items: Vec<crate::service::pty_io::SendBatchItem> = batch.into_iter().map(|c| {
             crate::service::pty_io::SendBatchItem { text: c.text, enter: c.enter, delay_ms: c.delay_ms }
         }).collect();
         state.svc.send_text_batch(&pane_id, items)
             .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        record_push_activity(&state, &svc_token_match, &pane_id, &preview);
         return Ok(Json(serde_json::json!({"ok": true, "batch": true})));
     }
 
     if body.raw {
-        let mut buf = body.text.clone().unwrap_or_default();
+        let raw_text = body.text.clone().unwrap_or_default();
+        let mut buf = raw_text.clone();
         if body.enter && !buf.ends_with('\r') { buf.push('\r'); }
         state.svc.write_raw(&pane_id, buf.as_bytes())
             .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
@@ -137,13 +148,16 @@ pub async fn send_text(
         };
         let text_owned = body.text.clone().unwrap_or_default();
         return match state.svc.send_text_verified(&pty_id, &text_owned, body.enter, strategy, opts) {
-            Ok(r) => Ok(Json(serde_json::json!({
-                "ok": true,
-                "verified": r.echo_observed && (!body.enter || r.submit_observed),
-                "echo_observed": r.echo_observed,
-                "submit_observed": r.submit_observed,
-                "elapsed_ms": r.elapsed.as_millis() as u64,
-            }))),
+            Ok(r) => {
+                record_push_activity(&state, &svc_token_match, &pane_id, &text_owned);
+                Ok(Json(serde_json::json!({
+                    "ok": true,
+                    "verified": r.echo_observed && (!body.enter || r.submit_observed),
+                    "echo_observed": r.echo_observed,
+                    "submit_observed": r.submit_observed,
+                    "elapsed_ms": r.elapsed.as_millis() as u64,
+                })))
+            }
             Err(e) => Ok(Json(serde_json::json!({
                 "ok": false,
                 "verified": false,
@@ -153,9 +167,10 @@ pub async fn send_text(
     }
 
     let text = body.text.unwrap_or_default();
-    let cmd = crate::dispatch::Command::SendText { pane_id, text, enter: body.enter };
+    let cmd = crate::dispatch::Command::SendText { pane_id: pane_id.clone(), text: text.clone(), enter: body.enter };
     let result = crate::dispatch::dispatch(&cmd, &state.svc)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    record_push_activity(&state, &svc_token_match, &pane_id, &text);
     Ok(Json(result.into_json()))
 }
 
