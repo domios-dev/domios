@@ -348,6 +348,13 @@ Saving a mem item triggers an extraction cascade that pulls structured entities 
 
 To suppress extraction on a specific save — used by seed loaders to avoid re-extracting bundled items on every boot — pass `skip_extract: true` on the `POST /api/mem/items` body (or via the matching socket method). Items tagged `auto-extracted` or sourced from `extracted_from:*` are also skipped automatically.
 
+### Worker timeouts
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `memory.worker_timeout_seconds` | `u64` | `300` | Hard timeout for non-dreaming hidden agent runs (extraction workers, generic cron). The auto-complete watcher marks the run `Failed` if the agent has not emitted a stream-json result event within this many seconds. Was `400` before v1.2.0; lowered because real-world extractions complete well under 5 min and the longer wait was just delaying retries on stuck workers. |
+| `memory.dreaming_timeout_seconds` | `u64` | `1800` | Hard timeout for the Dreamer (REM phase) specifically. Hub decomposition + diary + classification in one session needs room to think. Lower if your dreaming model is fast. |
+
 ### Librarian
 
 The Librarian is a background skill vectorizer that watches skill folders and re-indexes `SKILL.md` files when they change on disk.
@@ -361,7 +368,7 @@ The Librarian is a background skill vectorizer that watches skill folders and re
 librarian_enabled = true
 ```
 
-**Note:** as of v1.1.25 the runtime gate is stored in config but not yet wired to the Librarian startup path. Setting `librarian_enabled = false` persists the preference but does not stop the Librarian in the current release.
+**Note:** as of v1.2.0 the runtime gate is stored in config but not yet wired to the Librarian startup path. Setting `librarian_enabled = false` persists the preference but does not stop the Librarian in the current release.
 
 ## Past Agent Sessions
 
@@ -386,4 +393,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

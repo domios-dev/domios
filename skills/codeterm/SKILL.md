@@ -279,4 +279,4 @@ codeterm sessions search "<query>"                                 # past chat c
 
 Full reference (every command, kinds table, filters, graph queries, search-strategy fallbacks, skill-folder workflow, sessions API, keepawake): `references/mem.md`.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->
