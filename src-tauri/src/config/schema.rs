@@ -329,7 +329,7 @@ fn default_dreaming_model() -> String {
 }
 
 fn default_worker_timeout_seconds() -> u64 {
-    400
+    300
 }
 
 fn default_dreaming_timeout_seconds() -> u64 {
@@ -373,7 +373,7 @@ pub struct MemoryConfig {
     /// Hard timeout for non-dreaming hidden agent runs (extraction workers,
     /// generic cron). The auto-complete watcher marks the run Failed if the
     /// agent hasn't emitted a stream-json result event within this many seconds.
-    /// Defaults to 400 (~6.5 min). Dreaming uses `dreaming_timeout_seconds`
+    /// Defaults to 300 (5 min). Dreaming uses `dreaming_timeout_seconds`
     /// instead — dreaming needs longer to reason over hub decompositions.
     #[serde(default = "default_worker_timeout_seconds")]
     pub worker_timeout_seconds: u64,
