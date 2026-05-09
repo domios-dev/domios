@@ -128,14 +128,14 @@ pub async fn send_text(
         return match state.svc.send_text_verified(&pty_id, &text_owned, body.enter, strategy, opts) {
             Ok(r) => Ok(Json(serde_json::json!({
                 "ok": true,
-                "verified": r.echo_observed && (!body.enter || r.submit_observed),
+                "pty_echo_seen": r.echo_observed && (!body.enter || r.submit_observed),
                 "echo_observed": r.echo_observed,
                 "submit_observed": r.submit_observed,
                 "elapsed_ms": r.elapsed.as_millis() as u64,
             }))),
             Err(e) => Ok(Json(serde_json::json!({
                 "ok": false,
-                "verified": false,
+                "pty_echo_seen": false,
                 "error": format!("{}", e),
             }))),
         };
