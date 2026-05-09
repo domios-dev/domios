@@ -130,15 +130,9 @@ jobs:
           # If the signing key is encrypted, add TAURI_KEY_PASSWORD to
           # repo secrets — this evaluates to an empty string otherwise.
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-          # TODO(release-ci): Apple notarization disabled. The configured
-          # APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID secrets fail with HTTP 401
-          # against the Apple notary service ("Invalid credentials"). Until the
-          # app-specific password is rotated, builds are codesigned but NOT
-          # notarized — Gatekeeper will require a manual right-click "Open"
-          # on first launch. See docs/release/CI.md for the unblock steps.
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
