@@ -15,7 +15,7 @@ const TCP_TIMEOUT_MS: u64 = 3_000;
 const SCRIPT_TIMEOUT_MS: u64 = 30_000;
 
 pub fn start(store: Arc<ServicesStore>, activity: ActivityWriter, app_handle: tauri::AppHandle) {
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         log::info!("[services] health scheduler started (tick {}s)", TICK_SECS);
         let mut last_status: HashMap<String, HealthStatus> = HashMap::new();
         loop {
