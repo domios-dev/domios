@@ -1,3 +1,4 @@
+mod crud;
 mod schema;
 #[cfg(test)]
 mod tests;
