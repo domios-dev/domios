@@ -393,9 +393,18 @@ function SvcDrawer({
 
       {service.url && (
         <Section label="URL">
-          <div className="font-mono text-[10px] text-[var(--ct-fg)] break-all">
+          <button
+            type="button"
+            onClick={() => {
+              invoke("open_url", { url: service.url }).catch(() => {
+                window.open(service.url, "_blank");
+              });
+            }}
+            title="Open in browser"
+            className="font-mono text-[10px] text-[var(--ct-blue)] underline break-all text-left hover:opacity-80 cursor-pointer"
+          >
             {service.url}
-          </div>
+          </button>
         </Section>
       )}
       {service.host && (
