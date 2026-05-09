@@ -1,3 +1,4 @@
+use crate::services::activity::{ActivityEvent, ActivitySource, ActivityWriter};
 use crate::services::store::{self, Service, ServiceCreate, ServiceKind, ServiceUpdate};
 
 #[tauri::command]
@@ -81,10 +82,32 @@ pub fn services_regenerate_token(
     svc.tokens.generate(&id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub fn activity_list(
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    source: Option<String>,
+    since: Option<i64>,
+    limit: Option<usize>,
+) -> Result<Vec<ActivityEvent>, String> {
+    let source = source.as_deref().and_then(parse_activity_source);
+    let writer = ActivityWriter::new(svc.services_store.conn());
+    writer.list(source, since, limit).map_err(|e| e.to_string())
+}
+
 fn parse_kind(s: &str) -> Option<ServiceKind> {
     match s {
         "cron" => Some(ServiceKind::Cron),
         "daemon" => Some(ServiceKind::Daemon),
+        _ => None,
+    }
+}
+
+fn parse_activity_source(s: &str) -> Option<ActivitySource> {
+    match s {
+        "push" => Some(ActivitySource::Push),
+        "health" => Some(ActivitySource::Health),
+        "peer" => Some(ActivitySource::Peer),
+        "cron" => Some(ActivitySource::Cron),
         _ => None,
     }
 }

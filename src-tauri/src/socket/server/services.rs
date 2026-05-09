@@ -4,6 +4,7 @@ use serde_json::Value;
 use tauri::AppHandle;
 
 use crate::service::ServiceState;
+use crate::services::activity::{ActivitySource, ActivityWriter};
 use crate::services::store::{ServiceCreate, ServiceKind, ServiceUpdate};
 
 use super::{get_string_param, JsonRpcError};
@@ -90,6 +91,26 @@ pub(super) fn dispatch(
             Ok(serde_json::json!({ "token": token }))
         }
 
+        "activity.list" => {
+            let source = params
+                .as_ref()
+                .and_then(|p| p.get("source"))
+                .and_then(|v| v.as_str())
+                .and_then(parse_activity_source);
+            let since = params
+                .as_ref()
+                .and_then(|p| p.get("since"))
+                .and_then(|v| v.as_i64());
+            let limit = params
+                .as_ref()
+                .and_then(|p| p.get("limit"))
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize);
+            let writer = ActivityWriter::new(svc.services_store.conn());
+            let events = writer.list(source, since, limit).map_err(internal_err)?;
+            serde_json::to_value(&events).map_err(|e| internal_err(e.to_string()))
+        }
+
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
@@ -101,6 +122,16 @@ fn parse_kind(s: &str) -> Option<ServiceKind> {
     match s {
         "cron" => Some(ServiceKind::Cron),
         "daemon" => Some(ServiceKind::Daemon),
+        _ => None,
+    }
+}
+
+fn parse_activity_source(s: &str) -> Option<ActivitySource> {
+    match s {
+        "push" => Some(ActivitySource::Push),
+        "health" => Some(ActivitySource::Health),
+        "peer" => Some(ActivitySource::Peer),
+        "cron" => Some(ActivitySource::Cron),
         _ => None,
     }
 }

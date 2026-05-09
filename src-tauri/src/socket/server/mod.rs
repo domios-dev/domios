@@ -338,6 +338,7 @@ fn dispatch(
                     "cron.history", "cron.complete",
                     "services.list", "services.create", "services.get", "services.update",
                     "services.delete", "services.regenerate_token",
+                    "activity.list",
                     "bridge.send", "bridge.react", "bridge.restart"
                 ]
             }));
@@ -354,7 +355,7 @@ fn dispatch(
         "notification" => notification::dispatch(method, &params, notif, app),
         "agent" => agent::dispatch(method, &params, app, svc),
         "cron" => cron::dispatch(method, &params, app, svc),
-        "services" => services::dispatch(method, &params, app, svc),
+        "services" | "activity" => services::dispatch(method, &params, app, svc),
         "bridge" => bridge::dispatch(method, &params, svc),
         _ => Err(JsonRpcError {
             code: -32601,
