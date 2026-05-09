@@ -32,9 +32,12 @@ pub async fn mesh_pair_accept(
 
     {
         let mut mesh = state.mesh.lock();
-        let b_name = mesh.discovered_peers.get(&b_instance_id)
-            .map(|p| p.instance_name.clone())
-            .unwrap_or_else(|| accept.from_instance_name.clone());
+        let discovered_name = mesh.discovered_peers.get(&b_instance_id)
+            .map(|p| p.instance_name.clone());
+        let b_name = match discovered_name {
+            Some(n) if !n.contains(':') => n,
+            _ => accept.from_instance_name.clone(),
+        };
         let peer = crate::mesh::types::PairedPeer {
             instance_id: accept.from_instance_id.clone(),
             instance_name: b_name,

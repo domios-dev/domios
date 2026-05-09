@@ -8,6 +8,7 @@ export interface PeerStatus {
   instance_id: string;
   name: string;
   ip: string;
+  api_port: number;
   online: boolean;
   access_level: string;
 }
@@ -50,6 +51,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           instance_id: p.instance_id,
           name: p.instance_name,
           ip: p.addresses[0]?.ip ?? "",
+          api_port: p.api_port,
           online: p.online,
           access_level: p.access_level,
         }),
@@ -59,7 +61,7 @@ export function useMeshData(refreshKey: number): MeshDataResult {
         .filter((p) => p.online && p.ip)
         .map(async (p) => {
           try {
-            const r = await fetch(`http://${p.ip}:7685/api/services`, {
+            const r = await fetch(`http://${p.ip}:${p.api_port}/api/services`, {
               signal: AbortSignal.timeout(3000),
             });
             if (!r.ok) return [];
