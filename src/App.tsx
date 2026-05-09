@@ -595,6 +595,8 @@ function AppInner() {
                 }}
                 initialState={memoryInitial}
                 onFocusPane={handleMemoryFocusPane}
+                config={config}
+                onConfigUpdate={updateConfig}
               />
             </div>
           )}
