@@ -90,7 +90,6 @@ export function ServicesTable({
         <span />
         <span>Name</span>
         <span>Host</span>
-        <span>Type · Mode</span>
         <span>Status</span>
         <span>Uptime</span>
         <span />
