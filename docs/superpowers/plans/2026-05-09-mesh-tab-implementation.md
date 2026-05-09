@@ -3364,6 +3364,150 @@ git diff
 
 ---
 
+## Phase 17: End-to-end mesh testing on dev consoles (REQUIRED)
+
+Added per Andrey 2026-05-09: "вы можете закомуницировать потом в самом конце с rollacode-bot и на дев консолях запэйриться и протестировать что все работает".
+
+**Goal:** Validate the full Mesh tab feature works end-to-end across two REAL dev instances (Mac-Air dev + rollacode-bot dev) before declaring feature complete. Catches integration issues that unit/component tests miss: mesh peer pairing, cross-machine service visibility, real push lifecycle, UI reactivity to live events.
+
+### CRITICAL safety constraints
+
+- **DEV ONLY.** Mac-Air dev runs on port 7686. Prod runs on port 7685. NEVER touch prod port. Verify before EACH curl/CLI command via:
+  ```bash
+  source evals/_lib/lib.sh   # asserts dev-targeted env, fails exit 7 if dev down
+  dc ...                      # the dc wrapper is locked to dev
+  ```
+- All cross-machine tests use rollacode-bot's `--mesh PEER` routing through paired Tailscale identity. NEVER pair prod with anything.
+- Reset dev state between tests: `dc service list | dc service delete ...` to clean up test services.
+
+### Task 17.1: Brainstorm test plan with Andrey-approval gate
+
+**Files:** Create `docs/superpowers/specs/2026-05-09-mesh-tab-e2e-test-plan.md`
+
+- [ ] **Step 1:** Inventory the user-facing surfaces from spec §6:
+  - Mesh tab opens; canvas renders this-machine + paired peers as terminal-windows
+  - "+ Service" wizard registers a daemon, prints token once
+  - Service health probe runs on schedule, transitions reflect in canvas color
+  - Click peer → drawer opens with peer-context (access dropdown, disconnect)
+  - Click service row → drawer opens with service-context (probe, rotate token, delete)
+  - Daemon pushes via Bearer token → pane receives message, activity log records, canvas line pulses
+  - Activity sub-tab shows merged events (push/health/peer/cron)
+  - Settings sub-tab inside Mesh tab handles all 460-line peer-management functionality
+  - Settings panel slim — Memory + Mesh sections gone, "Tabs" toggles + Go-to deep-links present
+  - Cron panel deleted — cron management only via Mesh drawer
+
+- [ ] **Step 2:** Decide which surface needs which test type:
+  - Backend functional → `cargo test` (already covered by Phases 1-4)
+  - REST round-trip → `curl` against dev port 7686 with API token
+  - UI reactivity → Playwright (existing infra: `./build.sh webdriver`)
+  - Cross-machine mesh → mesh-ping rollacode-bot pane, run command on their side, verify result on Mac-Air
+
+- [ ] **Step 3:** Write test plan doc covering 8-12 concrete scenarios with expected outputs, save + commit.
+
+### Task 17.2: Pair Mac-Air dev with rollacode-bot dev
+
+- [ ] **Step 1:** Verify rollacode-bot dev daemon running:
+  ```bash
+  codeterm send-text "Phase 17 ping — is your DEV daemon (port 7686) alive? Need to pair Mac-Air dev for E2E mesh tests. Do NOT use prod (7685)." --pane 004c7c5c --mesh rollacode-bot
+  ```
+
+- [ ] **Step 2:** From Mac-Air dev, initiate pairing with rollacode-bot dev:
+  ```bash
+  source evals/_lib/lib.sh
+  dc mesh peers     # see rollacode-bot in discovered list (DEV-flagged)
+  dc mesh connect <rollacode-bot-dev-instance-id>
+  ```
+
+- [ ] **Step 3:** Coordinate with rollacode-bot to approve pairing on their side via mesh-ping. Verify both see paired status.
+
+### Task 17.3: Service registration + cross-machine visibility test
+
+- [ ] **Step 1:** On Mac-Air dev, register a test daemon:
+  ```bash
+  dc service add test-mac --kind daemon --health-mode http --url http://127.0.0.1:9999/healthz
+  ```
+
+- [ ] **Step 2:** On rollacode-bot dev (via mesh-ping), have them register a test daemon:
+  ```bash
+  codeterm send-text "Phase 17 step: please run on YOUR dev (port 7686): \`codeterm service add test-rolla --kind daemon --health-mode http --url http://127.0.0.1:9998/healthz\` then confirm via cron list" --pane 004c7c5c --mesh rollacode-bot
+  ```
+
+- [ ] **Step 3:** Open Mesh tab on Mac-Air dev (via Playwright or manually). Verify:
+  - Canvas shows both Mac-Air + rollacode-bot terminals
+  - test-mac visible inside Mac-Air terminal
+  - test-rolla visible inside rollacode-bot terminal (pulled via mesh)
+  - Flat table below shows BOTH services with correct Host columns
+
+### Task 17.4: Push API E2E test
+
+- [ ] **Step 1:** Create push-enabled service on Mac-Air dev:
+  ```bash
+  dc service add push-test --kind daemon --health-mode http --url http://127.0.0.1:9999/healthz --push
+  # captures token from output
+  ```
+
+- [ ] **Step 2:** Use the token to push a message:
+  ```bash
+  PANE=$(dc workspace list --json | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['pane_ids'][0])")
+  curl -X POST http://127.0.0.1:7686/api/panes/$PANE/send \
+    -H "Authorization: Bearer <token-from-step-1>" \
+    -H "Content-Type: application/json" \
+    -d '{"text":"Phase 17 push test message","enter":true}'
+  ```
+
+- [ ] **Step 3:** Verify in dev UI:
+  - Pane received "Phase 17 push test message"
+  - Activity sub-tab shows the push event with source=push, target=$PANE, message preview
+  - Canvas connection line for push-test → pane pulses purple (live)
+
+- [ ] **Step 4:** Negative test — invalid token:
+  ```bash
+  curl -X POST http://127.0.0.1:7686/api/panes/$PANE/send \
+    -H "Authorization: Bearer invalid-token" \
+    -d '{"text":"should fail"}'
+  # Expect 401 Unauthorized
+  ```
+
+### Task 17.5: Health probe + transition test
+
+- [ ] **Step 1:** Coordinate with rollacode-bot for live mail-watcher kill (per their offered protocol):
+  ```bash
+  codeterm send-text "Phase 17 health-transition test: please \`launchctl unload ~/Library/LaunchAgents/com.codeterm.mail-watcher.plist\` (DEV target). Wait 35-40s, then I'll verify Mac-Air UI shows degraded. Then \`launchctl load\` to restore and verify recovery." --pane 004c7c5c --mesh rollacode-bot
+  ```
+
+- [ ] **Step 2:** Watch Mac-Air dev UI: mail-watcher service status transitions to red/down within 60s, activity log records the transition.
+
+- [ ] **Step 3:** After load: status returns to green, activity log records recovery.
+
+### Task 17.6: Settings reorg verification (Playwright)
+
+- [ ] **Step 1:** Use Playwright to:
+  - Open Settings panel
+  - Verify NO "Memory" section, NO "Mesh" section
+  - Verify "Tabs" section with Memory + Mesh toggles + "Go to →" buttons
+  - Click "Go to Mesh →" — verify Mesh tab activates
+  - In Mesh tab → settings sub-tab → verify all 460 lines of peer UX functional (refresh, broadcast Start/Stop, Disconnect, Manual add)
+
+- [ ] **Step 2:** Verify cron panel toolbar entry GONE. Verify cron-kind service rows in Mesh table open drawer with full edit/history/log functionality.
+
+### Task 17.7: Cleanup + final report
+
+- [ ] **Step 1:** Delete all test services on both peers (script the cleanup).
+
+- [ ] **Step 2:** Unpair Mac-Air dev from rollacode-bot dev (leave prod state untouched).
+
+- [ ] **Step 3:** Write E2E test results doc: `docs/superpowers/specs/2026-05-09-mesh-tab-e2e-results.md` with pass/fail per scenario + screenshots/logs for any failures.
+
+- [ ] **Step 4:** Mesh-notify rollacode-bot of completion + thank for live-test cooperation.
+
+- [ ] **Step 5:** Final commit + report Andrey for sign-off:
+  ```bash
+  git add docs/superpowers/specs/2026-05-09-mesh-tab-e2e-*.md
+  git commit -m "test(mesh): E2E results from Phase 17 dev-console mesh-pair testing"
+  ```
+
+---
+
 ## Self-review summary
 
 This plan covers all 16 phases from spec §8.4. Each phase is independently revertable:
