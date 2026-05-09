@@ -123,11 +123,14 @@ impl ServicesStore {
         let conn = self.conn();
         let conn = conn.lock();
         conn.query_row(
-            "SELECT id, name, kind, description, url, host, port,
-                    process_label, script_path, health_mode, health_path,
-                    health_interval, health_ttl, field_mapping, push_enabled,
-                    registered_at, updated_at, enabled
-             FROM services WHERE id = ?1",
+            "SELECT s.id, s.name, s.kind, s.description, s.url, s.host, s.port,
+                    s.process_label, s.script_path, s.health_mode, s.health_path,
+                    s.health_interval, s.health_ttl, s.field_mapping, s.push_enabled,
+                    s.registered_at, s.updated_at, s.enabled,
+                    h.status, h.probed_at, h.latency_ms, h.response
+             FROM services s
+             LEFT JOIN service_health h ON h.service_id = s.id
+             WHERE s.id = ?1",
             [id],
             row_to_service,
         )
@@ -142,19 +145,22 @@ impl ServicesStore {
         let conn = self.conn();
         let conn = conn.lock();
         let mut sql = String::from(
-            "SELECT id, name, kind, description, url, host, port,
-                    process_label, script_path, health_mode, health_path,
-                    health_interval, health_ttl, field_mapping, push_enabled,
-                    registered_at, updated_at, enabled
-             FROM services WHERE 1=1",
+            "SELECT s.id, s.name, s.kind, s.description, s.url, s.host, s.port,
+                    s.process_label, s.script_path, s.health_mode, s.health_path,
+                    s.health_interval, s.health_ttl, s.field_mapping, s.push_enabled,
+                    s.registered_at, s.updated_at, s.enabled,
+                    h.status, h.probed_at, h.latency_ms, h.response
+             FROM services s
+             LEFT JOIN service_health h ON h.service_id = s.id
+             WHERE 1=1",
         );
         if let Some(k) = &kind {
-            sql.push_str(&format!(" AND kind = '{}'", kind_to_str(k)));
+            sql.push_str(&format!(" AND s.kind = '{}'", kind_to_str(k)));
         }
         if let Some(e) = enabled {
-            sql.push_str(&format!(" AND enabled = {}", if e { 1 } else { 0 }));
+            sql.push_str(&format!(" AND s.enabled = {}", if e { 1 } else { 0 }));
         }
-        sql.push_str(" ORDER BY name");
+        sql.push_str(" ORDER BY s.name");
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], row_to_service)?;
         rows.collect()
@@ -259,6 +265,25 @@ fn row_to_service(row: &rusqlite::Row) -> rusqlite::Result<Service> {
     let field_mapping_str: Option<String> = row.get(13)?;
     let field_mapping = field_mapping_str.and_then(|s| serde_json::from_str(&s).ok());
 
+    let status_str: Option<String> = row.get(18).ok();
+    let probed_at: Option<i64> = row.get(19).ok();
+    let latency_ms: Option<i64> = row.get(20).ok();
+    let response_str: Option<String> = row.get(21).ok().flatten();
+    let extra_json: serde_json::Value = response_str
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let version = extra_json.get("version").and_then(|v| v.as_str()).map(String::from);
+    let uptime_secs = extra_json.get("uptime_secs").and_then(|v| v.as_u64());
+    let health = HealthSnapshot {
+        status: status_str.as_deref().map(parse_status).unwrap_or_default(),
+        probed_at,
+        latency_ms: latency_ms.map(|v| v as u64),
+        version,
+        uptime_secs,
+        extra: extra_json,
+    };
+
     Ok(Service {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -278,9 +303,18 @@ fn row_to_service(row: &rusqlite::Row) -> rusqlite::Result<Service> {
         registered_at: row.get(15)?,
         updated_at: row.get(16)?,
         enabled: row.get(17)?,
-        health: HealthSnapshot::default(),
+        health,
         schedule: None,
         next_run: None,
         last_run_status: None,
     })
+}
+
+fn parse_status(s: &str) -> HealthStatus {
+    match s {
+        "healthy" => HealthStatus::Healthy,
+        "degraded" => HealthStatus::Degraded,
+        "down" => HealthStatus::Down,
+        _ => HealthStatus::Unknown,
+    }
 }
