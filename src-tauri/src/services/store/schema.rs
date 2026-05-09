@@ -1,5 +1,3 @@
-//! services.db schema initialization.
-
 use rusqlite::Connection;
 
 pub const SCHEMA_VERSION: u32 = 1;
@@ -55,17 +53,16 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_activity_time ON activity(occurred_at DESC);
         CREATE INDEX IF NOT EXISTS idx_activity_source ON activity(source, occurred_at DESC);
 
-        CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS schema_version (
+            id      INTEGER PRIMARY KEY CHECK (id = 1),
+            version INTEGER NOT NULL
+        );
     "#,
     )?;
 
-    let mut stmt = conn.prepare("SELECT version FROM schema_version LIMIT 1")?;
-    let exists: bool = stmt.exists([])?;
-    if !exists {
-        conn.execute(
-            "INSERT INTO schema_version (version) VALUES (?1)",
-            [SCHEMA_VERSION],
-        )?;
-    }
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, ?1)",
+        [SCHEMA_VERSION],
+    )?;
     Ok(())
 }

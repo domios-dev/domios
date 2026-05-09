@@ -1,5 +1,3 @@
-//! Service registry persistence — types, schema, and CRUD modules.
-
 mod schema;
 #[cfg(test)]
 mod tests;
@@ -10,7 +8,7 @@ pub use types::*;
 
 use parking_lot::Mutex;
 use rusqlite::Connection;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 
 pub struct ServicesStore {
@@ -18,7 +16,7 @@ pub struct ServicesStore {
 }
 
 impl ServicesStore {
-    pub fn open(path: &PathBuf) -> rusqlite::Result<Self> {
+    pub fn open(path: &Path) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute("PRAGMA foreign_keys = ON", [])?;
         init_schema(&conn)?;

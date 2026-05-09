@@ -1,5 +1,3 @@
-//! Service entity types — single source of truth for backend + REST + frontend.
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
