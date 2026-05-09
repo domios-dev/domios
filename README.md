@@ -75,6 +75,12 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Voice transcription** — when `integrations.voice_transcribe.enabled = true`, voice / video-note attachments are transcribed by a local Whisper daemon (`http://127.0.0.1:7891` by default) before reaching any agent — Claude, Codex, future clients, all covered by one upstream change
 - **Webhook bridge** — register URLs for agent events (`agent.permission_request`, `agent.task_complete`, `agent.report`)
 
+### Mesh tab & service registry (v1.2.0)
+- **Mesh canvas** — radial peer terminals with live connection lines (width / opacity by recent push volume, bidirectional pulse on every event), pan/zoom, fit-to-view. Replaces the old standalone Crons panel.
+- **Service registry** — register daemons (HTTP / TCP / process / script health probes) via `codeterm service add` or the Mesh tab's Smart-Add wizard. Cron jobs are projected as virtual `cron`-kind services. Per-service Bearer tokens let daemons write to panes via `POST /api/panes/<id>/send` without the global API token.
+- **Activity log** — bounded (10 000 rows / 30 days) feed of every push, health transition, peer event, and cron lifecycle event. `GET /api/activity?source=push|health|peer|cron`.
+- **Auto online/offline** — backend ping scheduler (20 s interval) flips peer `online` flags and emits `mesh-state-changed` so the canvas updates without polling. Toggling `mesh.enabled = false` makes every `/api/mesh/*` route return `503` for both local and peer callers — kill-switch with no restart.
+
 ### Self-update & resilience
 - **Self-update** — `codeterm update --check / --apply / --channel <stable|rc|nightly>`. Manifests are signed with ed25519 and verified before any binary is touched; auto-install runs a 9-step graceful shutdown (mem WAL checkpoint, supervisor stop, signed binary swap), then panes auto-resume so context survives the upgrade
 - **Subprocess supervisor** — heavy mem operations (dreaming, librarian extraction) run as child processes with a circuit breaker (3 failures in 60s → open). Worker death does not take the API down; `503` timeouts on heavy mem requests keep the daemon responsive

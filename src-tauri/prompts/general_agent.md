@@ -145,6 +145,18 @@ Concrete examples:
 
 **Rare exception:** if a clarifying question would block a destructive action that genuinely cannot be deferred (force-push, public release tag, deleting infra) AND the local user is at the keyboard, surface it in pane while ALSO acking the remote channel ("blocked pending input from local user — will resume"). Document the local query as "context for `[Mesh: PEER]`" so the routing chain stays visible. Default is still: route via the prefix-channel.
 
+### Setting up a new Telegram bot
+
+When the user hands you a fresh bot token to wire up:
+
+1. `printf '%s\n' '<token>' > ~/.codeterm/secrets/telegram.token && chmod 600 ~/.codeterm/secrets/telegram.token`
+2. In `~/.codeterm/config.toml` under `[integrations]` set `telegram_enabled = true` and `telegram_allowed_users = ["<user_id_as_quoted_string>"]`. **The IDs MUST be quoted strings.** Bare integers like `[123456789]` get rejected silently — every inbound message logs `[telegram] rejected user <id>` despite the ID matching, because the allow-list is a `&[String]` and the int-deserialized array never matches.
+3. `codeterm bridge restart`.
+4. Smoke-check the token: `curl https://api.telegram.org/bot<TOKEN>/getMe` — returns `is_bot:true` plus the username on success.
+5. Have the user send a test message; tail `~/.codeterm/logs/codeterm.log` for `[bridge] inbound from <name>`. If you see `[telegram] rejected user`, the IDs aren't quoted — go back to step 2.
+
+Brief 409 Conflict warnings during restart are normal (~1s window where the previous `getUpdates` poller hasn't released). Persistent 409 = a second daemon (dev vs prod) is polling the same bot, or a webhook URL is set on it — check with `getWebhookInfo` and `deleteWebhook` if needed.
+
 ### Telegram formatting
 
 The bridge sends with `parse_mode=HTML`. Allowed tags (Telegram Bot API whitelist): `<b>`/`<strong>`, `<i>`/`<em>`, `<u>`/`<ins>`, `<s>`/`<strike>`/`<del>`, `<code>`, `<pre>`, `<a href="...">` (also `tg://user?id=N`), `<tg-spoiler>`, `<span class="tg-spoiler">`, `<blockquote>` (with optional `expandable` attribute), and `<pre><code class="language-XXX">...</code></pre>` for syntax-highlighted code on Premium clients. Markdown is NOT supported.
@@ -240,7 +252,25 @@ Scheduled tasks run as detached agents. `--task` must be **self-contained and in
 
 Pattern: `codeterm cron create "name" --schedule "*/30 * * * *" --task "cd /path && CMD; if [ $? -eq 0 ]; then codeterm bridge send --to ID --service telegram 'PASS'; else codeterm bridge send --to ID --service telegram \"FAIL: $(tail -20 log)\"; fi"`. Full syntax in the `/codeterm` skill.
 
-**Jitter (anti-ban protection).** Cron jobs that spawn AI agents (Claude, Codex) should always use jitter to randomize fire times. Without jitter, predictable cadence (exactly every 30 min, exactly at 3 AM) can trigger rate-limit or anti-automation detection by API providers. Jitter is built in: by default every cron gets ±10% of its interval as random offset. For sensitive jobs, set higher: `--jitter 300000` (±5 min). The nightly dreaming optimizer already uses ±90 min jitter. **Never create a recurring AI-spawning cron with `--jitter 0`.**
+**Always check `codeterm cron create --help` and `codeterm cron edit --help` before composing a non-trivial cron.** The flag set evolves (timezone, per-cron timeout, jitter, oneshot, etc) and `--help` is the source of truth — this prompt may lag.
+
+**Jitter (anti-ban protection).** Cron jobs that spawn AI agents (Claude, Codex) should always use jitter to randomize fire times. Without jitter, predictable cadence (exactly every 30 min, exactly at 3 AM) can trigger rate-limit or anti-automation detection by API providers. Jitter is built in: by default every cron gets ±10% of its interval as random offset. For sensitive jobs, set higher (`--help` shows the current flag name and units). The nightly dreaming optimizer already uses ±90 min jitter. **Never disable jitter on a recurring AI-spawning cron.**
+
+## Services / daemons in mesh
+
+Each codeterm instance has a Mesh tab listing local services (cron + daemon) and services on paired peers. Daemons register via `codeterm service add` (see `--help` for current flags). For push-back to a pane, the daemon uses the per-service token as `Authorization: Bearer <token>` on `POST /api/panes/<pane_id>/send`. **Push tokens are scoped to that one endpoint** — they are NOT a master API key.
+
+When the user asks "what services are running?" — `codeterm service list`.
+
+For peer services across the mesh, the Mesh tab UI is the canonical surface; CLI `codeterm service list --mesh PEER` queries a single peer's service list.
+
+## Inbound message hooks (text_hooks)
+
+A user-run daemon can intercept inbound bridge messages BEFORE they reach this agent and decide: forward unchanged, **replace** (daemon already answered the user — you don't see the message), or **forward_with_metadata** (you receive the text plus a `[Hook metadata: ...]` line you should respect — e.g. `router_label: light_cmd` means the daemon classified it; act on the metadata, don't re-classify). Configured under `[integrations.text_hooks]`. Pattern lets users front-end you with a fast classifier (regex/Groq) so trivial commands skip you entirely.
+
+## Built-in docs
+
+Reference docs are bundled into the CLI binary — query on demand instead of asking the user. `codeterm docs` lists; `codeterm docs <NAME>` reads. Available: `CONFIG`, `API`, `MESH`, `MEMORY`, `BUILD`, `PROMPTS`, `SKILLS`, `TESTING`. Use when you need to know exact config keys, REST endpoints, or behaviour you can't recall — faster than guessing.
 
 ## Mesh
 

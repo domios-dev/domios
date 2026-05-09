@@ -12,7 +12,8 @@ use parking_lot::Mutex;
 
 use super::traits::{InboundAttachment, InboundMessage, InlineKeyboard, MessagingService, OutboundContent, ReplyContext};
 use super::voice_transcribe;
-use crate::config::schema::VoiceTranscribeConfig;
+use super::text_hooks;
+use crate::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 use crate::service::general_agent;
 use crate::service::ServiceContext;
 
@@ -142,8 +143,10 @@ impl BridgeManager {
                         reply_ctx: first.reply_ctx.clone(),
                     };
 
-                    let voice_cfg = crate::config::load_config().integrations.voice_transcribe.clone();
-                    if let Err(e) = inject_message(&svc, &merged_msg, &voice_cfg).await {
+                    let cfg = crate::config::load_config();
+                    let voice_cfg = cfg.integrations.voice_transcribe.clone();
+                    let text_hooks_cfg = cfg.integrations.text_hooks.clone();
+                    if let Err(e) = inject_message(&svc, &merged_msg, &voice_cfg, &text_hooks_cfg).await {
                         log::error!("[bridge] inject failed: {}", e);
                     }
                 }
@@ -453,10 +456,99 @@ async fn format_attachment_line(att: &InboundAttachment, voice_cfg: &VoiceTransc
     format!("{} {}", desc, file_uri)
 }
 
+enum HookOutcome {
+    Forward,
+    Annotated(String),
+    Replaced,
+}
+
+async fn run_pre_forward_hook(
+    svc: &ServiceContext,
+    msg: &InboundMessage,
+    pane_id: &str,
+    body: &str,
+    cfg: &TextHooksConfig,
+) -> HookOutcome {
+    apply_hook(&svc.bridge_outbound, msg, pane_id, body, cfg).await
+}
+
+async fn apply_hook(
+    outbound: &OutboundSender,
+    msg: &InboundMessage,
+    pane_id: &str,
+    body: &str,
+    cfg: &TextHooksConfig,
+) -> HookOutcome {
+    if !cfg.enabled {
+        return HookOutcome::Forward;
+    }
+    let req = text_hooks::PreForwardRequest {
+        text: body.to_string(),
+        channel: msg.service.clone(),
+        user_id: msg.user_id.to_string(),
+        msg_id: msg.message_id.map(|id| id.to_string()),
+        pane_id: pane_id.to_string(),
+        attachments: msg.attachments.iter().map(|a| text_hooks::HookAttachment {
+            kind: a.kind.clone(),
+            path: a.path.clone(),
+            filename: a.filename.clone(),
+        }).collect(),
+    };
+
+    let decision = match text_hooks::pre_forward(&req, cfg).await {
+        Ok(d) => d,
+        Err(e) => {
+            log::warn!("[bridge] text_hooks pre_forward failed: {} (fallback={})", e, cfg.fallback_on_error);
+            return match cfg.fallback_on_error.as_str() {
+                "drop" => HookOutcome::Replaced,
+                _ => HookOutcome::Forward,
+            };
+        }
+    };
+
+    match decision {
+        text_hooks::HookDecision::Forward => HookOutcome::Forward,
+        text_hooks::HookDecision::ForwardWithMetadata { metadata } => {
+            let json = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".into());
+            HookOutcome::Annotated(format!("{}\n\n[Hook metadata: {}]", body, json))
+        }
+        text_hooks::HookDecision::Replace { respond } => {
+            for reply in respond {
+                if reply.channel != "telegram" {
+                    log::warn!("[bridge] text_hooks replace: unsupported channel {}, skipping", reply.channel);
+                    continue;
+                }
+                let chat_id: i64 = match reply.to.parse() {
+                    Ok(n) => n,
+                    Err(_) => {
+                        log::warn!("[bridge] text_hooks replace: invalid telegram to={}", reply.to);
+                        continue;
+                    }
+                };
+                let out = OutboundMessage {
+                    user_id: Some(chat_id),
+                    content: OutboundContent::Text { text: reply.text },
+                    append: false,
+                    buttons: None,
+                };
+                if let Some(ref tx) = *outbound.lock() {
+                    if let Err(e) = tx.send(out) {
+                        log::error!("[bridge] text_hooks replace send failed: {}", e);
+                    }
+                } else {
+                    log::warn!("[bridge] text_hooks replace: no outbound sender");
+                }
+            }
+            HookOutcome::Replaced
+        }
+    }
+}
+
 async fn inject_message(
     svc: &ServiceContext,
     msg: &InboundMessage,
     voice_cfg: &VoiceTranscribeConfig,
+    text_hooks_cfg: &TextHooksConfig,
 ) -> Result<(), String> {
     let (pane_id, agent_type) = {
         let mux = svc.mux.lock();
@@ -467,6 +559,13 @@ async fn inject_message(
     };
 
     let body = build_message_body(msg, voice_cfg).await;
+
+    let body = match run_pre_forward_hook(svc, msg, &pane_id, &body, text_hooks_cfg).await {
+        HookOutcome::Forward => body,
+        HookOutcome::Annotated(annotated) => annotated,
+        HookOutcome::Replaced => return Ok(()),
+    };
+
     let msg_id_suffix = msg.message_id.map(|id| format!(" msg_id={}", id)).unwrap_or_default();
     let prefixed = format!("[{}: {}{}] {}",
         capitalize(&msg.service), msg.user_id, msg_id_suffix, body);
@@ -506,268 +605,6 @@ fn capitalize(s: &str) -> String {
     }
 }
 
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-
-    #[test]
-    fn test_create_outbound_channel() {
-        let (sender, _rx) = create_outbound_channel();
-        assert!(sender.lock().is_some());
-    }
-
-    #[test]
-    fn test_parse_inline_buttons() {
-        let json = r#"[[{"text":"Да","data":"yes"},{"text":"Нет","data":"no"}]]"#;
-        let buttons: super::InlineKeyboard = serde_json::from_str(json).unwrap();
-        assert_eq!(buttons.len(), 1);
-        assert_eq!(buttons[0].len(), 2);
-        assert_eq!(buttons[0][0].text, "Да");
-        assert_eq!(buttons[0][0].data.as_deref(), Some("yes"));
-        assert!(buttons[0][0].url.is_none());
-    }
-
-    fn voice_msg(path: &str) -> InboundMessage {
-        InboundMessage {
-            service: "telegram".into(),
-            user_id: 42,
-            user_name: "tester".into(),
-            text: String::new(),
-            attachments: vec![InboundAttachment {
-                path: path.into(),
-                kind: "voice".into(),
-                filename: None,
-                mime_type: Some("audio/ogg".into()),
-            }],
-            message_id: Some(7),
-            reply_ctx: ReplyContext::Telegram { chat_id: 99 },
-        }
-    }
-
-    fn photo_msg(path: &str) -> InboundMessage {
-        InboundMessage {
-            service: "telegram".into(),
-            user_id: 42,
-            user_name: "tester".into(),
-            text: String::new(),
-            attachments: vec![InboundAttachment {
-                path: path.into(),
-                kind: "photo".into(),
-                filename: Some("pic.jpg".into()),
-                mime_type: Some("image/jpeg".into()),
-            }],
-            message_id: None,
-            reply_ctx: ReplyContext::Telegram { chat_id: 99 },
-        }
-    }
-
-    fn enabled_cfg(url: &str) -> VoiceTranscribeConfig {
-        VoiceTranscribeConfig {
-            enabled: true,
-            daemon_url: url.into(),
-            timeout_ms: 5_000,
-            language: String::new(),
-            fallback_raw_on_error: true,
-            health_check_ttl_secs: 60,
-        }
-    }
-
-    async fn spawn_transcribe_server(
-        text: &'static str,
-    ) -> (std::net::SocketAddr, tokio::sync::oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
-        use axum::{routing::{get, post}, Json, Router};
-        let router = Router::new()
-            .route("/healthz", get(|| async { "ok" }))
-            .route("/transcribe", post(move || async move {
-                Json(serde_json::json!({ "text": text }))
-            }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-        let handle = tokio::spawn(async move {
-            let _ = axum::serve(listener, router)
-                .with_graceful_shutdown(async move { let _ = rx.await; })
-                .await;
-        });
-        (addr, tx, handle)
-    }
-
-    #[tokio::test]
-    async fn body_includes_transcript_and_file_uri() {
-        voice_transcribe::reset_health_cache();
-        let (addr, stop, handle) = spawn_transcribe_server("привет мир").await;
-        let cfg = enabled_cfg(&format!("http://{}", addr));
-
-        let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
-        assert!(body.contains("(voice transcript: \"привет мир\")"), "body: {}", body);
-        assert!(body.contains("file:///tmp/voice.oga"), "body: {}", body);
-
-        let _ = stop.send(());
-        let _ = handle.await;
-    }
-
-    #[tokio::test]
-    async fn body_falls_back_to_raw_when_daemon_down() {
-        voice_transcribe::reset_health_cache();
-        // Reserve a port and drop the listener so nothing answers.
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        drop(listener);
-        let cfg = enabled_cfg(&format!("http://{}", addr));
-
-        let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
-        assert!(!body.contains("voice transcript"), "should not have transcript: {}", body);
-        assert_eq!(body, "[voice] file:///tmp/voice.oga");
-    }
-
-    #[tokio::test]
-    async fn disabled_cfg_preserves_legacy_format() {
-        voice_transcribe::reset_health_cache();
-        let mut cfg = enabled_cfg("http://127.0.0.1:1");
-        cfg.enabled = false;
-
-        let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
-        assert_eq!(body, "[voice] file:///tmp/voice.oga");
-    }
-
-    #[tokio::test]
-    async fn non_voice_attachments_not_transcribed() {
-        voice_transcribe::reset_health_cache();
-        // Daemon URL points nowhere; if we accidentally hit it, the test fails
-        // because we'd see fallback path. With photo kind we never call it.
-        let cfg = enabled_cfg("http://127.0.0.1:1");
-
-        let body = build_message_body(&photo_msg("/tmp/pic.jpg"), &cfg).await;
-        assert_eq!(body, "[photo: pic.jpg] file:///tmp/pic.jpg");
-    }
-
-    #[tokio::test]
-    async fn empty_attachment_path_skips_transcription() {
-        voice_transcribe::reset_health_cache();
-        let cfg = enabled_cfg("http://127.0.0.1:1");
-
-        let body = build_message_body(&voice_msg(""), &cfg).await;
-        assert_eq!(body, "[voice] file://");
-    }
-
-    #[tokio::test]
-    async fn multiple_voice_attachments_each_transcribed() {
-        voice_transcribe::reset_health_cache();
-        let (addr, stop, handle) = spawn_transcribe_server("ok").await;
-        let cfg = enabled_cfg(&format!("http://{}", addr));
-
-        let mut msg = voice_msg("/tmp/a.oga");
-        msg.attachments.push(InboundAttachment {
-            path: "/tmp/b.oga".into(),
-            kind: "voice".into(),
-            filename: None,
-            mime_type: Some("audio/ogg".into()),
-        });
-
-        let body = build_message_body(&msg, &cfg).await;
-        let occurrences = body.matches("(voice transcript: \"ok\")").count();
-        assert_eq!(occurrences, 2, "body: {}", body);
-        assert!(body.contains("/a.oga"));
-        assert!(body.contains("/b.oga"));
-
-        let _ = stop.send(());
-        let _ = handle.await;
-    }
-
-    #[tokio::test]
-    async fn malformed_url_falls_back_to_raw() {
-        voice_transcribe::reset_health_cache();
-        let mut cfg = enabled_cfg("not-a-url");
-        cfg.daemon_url = "not a url".into();
-
-        let body = build_message_body(&voice_msg("/tmp/voice.oga"), &cfg).await;
-        assert_eq!(body, "[voice] file:///tmp/voice.oga");
-    }
-
-    #[test]
-    fn test_reply_markup_serialization() {
-        use crate::bridge::traits::{InlineButton, InlineKeyboard};
-        let kb: InlineKeyboard = vec![vec![
-            InlineButton { text: "Yes".into(), data: Some("yes".into()), url: None },
-            InlineButton { text: "No".into(), data: Some("no".into()), url: None },
-        ]];
-        let payload = serde_json::json!({ "inline_keyboard": kb });
-        let s = payload.to_string();
-        assert!(s.contains("\"callback_data\""), "should serialize as callback_data: {}", s);
-        assert!(!s.contains("\"data\""), "should not contain raw 'data' key: {}", s);
-        let rows = payload["inline_keyboard"].as_array().unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].as_array().unwrap().len(), 2);
-    }
-
-    use std::sync::Arc;
-    use parking_lot::Mutex as PLMutex;
-
-    async fn spawn_fake_telegram(captured: Arc<PLMutex<Vec<serde_json::Value>>>) -> String {
-        use axum::{routing::post, Router, Json};
-
-        let captured_a = captured.clone();
-        let captured_b = captured.clone();
-
-        let app = Router::new()
-            .route("/bot:method", post(move |Json(body): Json<serde_json::Value>| {
-                let captured = captured_a.clone();
-                async move {
-                    captured.lock().push(body);
-                    Json(serde_json::json!({"ok": true, "result": {"message_id": 42}}))
-                }
-            }))
-            .fallback(move |Json(body): Json<serde_json::Value>| {
-                let captured = captured_b.clone();
-                async move {
-                    captured.lock().push(body);
-                    Json(serde_json::json!({"ok": true, "result": {"message_id": 42}}))
-                }
-            });
-
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
-            let _ = axum::serve(listener, app).await;
-        });
-        format!("http://{}", addr)
-    }
-
-    #[tokio::test]
-    async fn integration_send_message_sanitizes_reproducer() {
-        let captured = Arc::new(PLMutex::new(Vec::new()));
-        let base = spawn_fake_telegram(captured.clone()).await;
-        let client = reqwest::Client::new();
-
-        let original = "<code>--valid-to <date></code>";
-        let sanitized = super::super::sanitize::sanitize_html_for_telegram(original);
-        let result = send_message(&client, &base, "FAKETOKEN", 12345, &sanitized).await;
-
-        assert_eq!(result, Some(42), "send should succeed via fake server");
-        let recorded = captured.lock();
-        assert_eq!(recorded.len(), 1, "must NOT trigger fallback retry, got {} requests", recorded.len());
-        let body = &recorded[0];
-        assert_eq!(body.get("parse_mode").and_then(|v| v.as_str()), Some("HTML"),
-            "first request must be HTML mode (cold-path fallback only)");
-        let text = body.get("text").and_then(|v| v.as_str()).unwrap();
-        assert!(!text.contains("<date>"), "raw <date> must be sanitized; got: {}", text);
-        assert!(text.contains("&lt;date&gt;"), "must contain escaped &lt;date&gt;; got: {}", text);
-        assert!(text.contains("<code>"), "must keep <code> wrapper; got: {}", text);
-    }
-
-    #[tokio::test]
-    async fn integration_send_message_no_fallback_for_valid_html() {
-        let captured = Arc::new(PLMutex::new(Vec::new()));
-        let base = spawn_fake_telegram(captured.clone()).await;
-        let client = reqwest::Client::new();
-
-        let original = "<b>bold</b> and <i>italic</i>";
-        let sanitized = super::super::sanitize::sanitize_html_for_telegram(original);
-        assert_eq!(sanitized, original);
-
-        let result = send_message(&client, &base, "FAKETOKEN", 12345, &sanitized).await;
-        assert_eq!(result, Some(42));
-        assert_eq!(captured.lock().len(), 1);
-    }
-}
+mod tests;
