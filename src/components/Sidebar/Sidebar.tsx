@@ -52,9 +52,10 @@ function aggregateStatus(
 interface SidebarProps {
   onOpenSettings?: () => void;
   onOpenMemory?: () => void;
+  onOpenMesh?: () => void;
   onOpenCron?: (jobId?: string) => void;
   onNavigateToTab?: () => void;
-  mainView?: "workspace" | "settings" | "memory" | "cron";
+  mainView?: "workspace" | "settings" | "memory" | "cron" | "mesh";
   /** Cron job currently shown in the detail view of CronPanel — used to
    *  highlight the matching sidebar row with the same bg-[var(--ct-active)]
    *  treatment as Settings/Memory get. */
@@ -64,6 +65,7 @@ interface SidebarProps {
 export function Sidebar({
   onOpenSettings,
   onOpenMemory,
+  onOpenMesh,
   onOpenCron,
   onNavigateToTab,
   mainView = "workspace",
@@ -584,6 +586,28 @@ export function Sidebar({
               <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
             </svg>
             {!isCompact && <span className="text-[11px]">Memory</span>}
+          </button>
+          <button
+            onClick={onOpenMesh}
+            className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : "gap-2 w-full px-2 py-1.5"} rounded-md transition-colors ${
+              mainView === "mesh"
+                ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+            }`}
+            title="Mesh"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <circle cx="12" cy="12" r="2" />
+              <circle cx="4" cy="6" r="2" />
+              <circle cx="20" cy="6" r="2" />
+              <circle cx="4" cy="18" r="2" />
+              <circle cx="20" cy="18" r="2" />
+              <line x1="6" y1="6" x2="10.5" y2="11" />
+              <line x1="18" y1="6" x2="13.5" y2="11" />
+              <line x1="6" y1="18" x2="10.5" y2="13" />
+              <line x1="18" y1="18" x2="13.5" y2="13" />
+            </svg>
+            {!isCompact && <span className="text-[11px]">Mesh</span>}
           </button>
           <button
             onClick={onOpenSettings}
