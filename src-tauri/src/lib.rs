@@ -374,6 +374,13 @@ pub fn run() {
                     crate::secrets::new_state(&cfg)
                 },
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                services_store: Arc::new(
+                    crate::services::store::ServicesStore::open(
+                        &crate::paths::data_dir().join("services.db"),
+                    )
+                    .expect("services.db init"),
+                ),
+                tokens: Arc::new(crate::services::tokens::TokenStore::new()),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
