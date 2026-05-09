@@ -332,9 +332,9 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/crons` | `?workspace_id=ID` | List all cron jobs (optionally filter by workspace) |
-| POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?}` | Create cron job |
+| POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?, tz?, timeout_seconds?}` | Create cron job |
 | GET | `/api/crons/:id` | — | Get cron job by ID |
-| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?, agent?, model?, jitter_max_ms?}` | Update cron job (prefer over delete+recreate) |
+| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?, agent?, model?, jitter_max_ms?, tz?, timeout_seconds?}` | Update cron job (prefer over delete+recreate). `tz: ""` clears back to UTC; `timeout_seconds: 0` clears the per-cron override. |
 | DELETE | `/api/crons/:id` | — | Delete cron job |
 | POST | `/api/crons/:id/enable` | — | Enable cron job |
 | POST | `/api/crons/:id/disable` | — | Disable cron job |
@@ -349,6 +349,10 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 **`model`** — optional per-job override of the agent's model (e.g. `"opus"`, `"haiku"`, `"gpt-5.4-mini"`). Valid values depend on the `agent` provider; query `/api/agents/providers` for the list. Unset → use provider default.
 
 **`jitter_max_ms`** — max random delay added to each scheduled fire. `null`/omitted → auto (10% of interval, clamped to `[1m, 30m]`). `0` → disabled (fires exactly on schedule). Positive → cap in milliseconds.
+
+**`tz`** — IANA timezone string (e.g. `"Europe/Riga"`, `"UTC"`, `"America/New_York"`) the schedule is interpreted in. `null`/omitted → UTC. Invalid zones are rejected on create/update. DST transitions are handled by `chrono-tz`.
+
+**`timeout_seconds`** — per-cron run timeout override. When set, this overrides the global `memory.worker_timeout_seconds` for runs of this job. `null`/omitted → fall back to global default. `0` (on update) → clear the override. Use a higher value for long-running tasks like memory dreaming (e.g. `1800` for 30 minutes).
 
 **`CronRunStatus` enum:** `Running`, `Success`, `Failed`, `Cancelled`. `Cancelled` is set by `POST /api/crons/:id/cancel` on any runs currently in `Running` state.
 
@@ -1051,4 +1055,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->
