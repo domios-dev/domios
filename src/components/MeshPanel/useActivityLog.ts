@@ -13,7 +13,7 @@ export function useActivityLog(active: boolean) {
       if (cancelled) return;
       if (latest.length > 0) {
         lastSeen = latest[0].occurred_at;
-        setEvents(prev => [...latest.reverse(), ...prev].slice(0, 500));
+        setEvents(prev => [...latest, ...prev].slice(0, 500));
       }
     };
     tick();

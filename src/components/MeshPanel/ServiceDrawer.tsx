@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
 import {
@@ -32,7 +32,26 @@ interface Props {
 }
 
 const PANEL_BASE =
-  "fixed top-0 right-0 bottom-0 bg-[var(--ct-titlebar-bg)] border-l border-[var(--ct-border)] p-4 flex flex-col gap-3 z-50 overflow-auto";
+  "fixed top-9 right-0 bottom-0 bg-[var(--ct-titlebar-bg)] border-l border-[var(--ct-border)] p-4 flex flex-col gap-3 z-50 overflow-auto";
+
+const CLOSE_BUTTON_CLASS =
+  "text-[var(--ct-fg)] bg-[var(--ct-bg)] border border-[var(--ct-border)] hover:border-[var(--ct-accent)] hover:text-[var(--ct-accent)] cursor-pointer rounded w-7 h-7 flex items-center justify-center text-lg leading-none";
+
+function DrawerBackdrop({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      className="fixed top-9 left-0 right-0 bottom-0 bg-black/30 z-40"
+      onClick={onClose}
+    />
+  );
+}
 
 export function ServiceDrawer({
   state,
@@ -47,7 +66,7 @@ export function ServiceDrawer({
   if (state.kind === "peer") {
     const isSelf = state.id === thisMachineName;
     const peer = peers.find((p) => p.name === state.id) ?? (isSelf
-      ? { instance_id: "self", name: thisMachineName, ip: thisMachineIp ?? "", online: true, access_level: "full" } satisfies PeerStatus
+      ? { instance_id: "self", name: thisMachineName, ip: thisMachineIp ?? "", api_port: 0, online: true, access_level: "full" } satisfies PeerStatus
       : null);
     if (!peer) return null;
     return (
@@ -119,13 +138,15 @@ function PeerDrawer({
   };
 
   return (
-    <div className={PANEL_BASE} style={{ width: 360 }}>
+    <>
+      <DrawerBackdrop onClose={onClose} />
+      <div className={PANEL_BASE} style={{ width: 360 }}>
       <div className="flex items-center justify-between">
         <strong className="text-[var(--ct-fg)] truncate">{peer.name}</strong>
         <button
           onClick={onClose}
-          className="text-[var(--ct-muted)] bg-transparent border-none cursor-pointer text-base"
-          title="Close"
+          className={CLOSE_BUTTON_CLASS}
+          title="Close (Esc)"
         >
           ×
         </button>
@@ -238,7 +259,8 @@ function PeerDrawer({
           onCreated={() => { onActionDone(); setShowAddWizard(false); }}
         />
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -301,13 +323,15 @@ function SvcDrawer({
   };
 
   return (
-    <div className={PANEL_BASE} style={{ width: 400 }}>
+    <>
+      <DrawerBackdrop onClose={onClose} />
+      <div className={PANEL_BASE} style={{ width: 400 }}>
       <div className="flex items-center justify-between">
         <strong className="text-[var(--ct-fg)] truncate">{service.name}</strong>
         <button
           onClick={onClose}
-          className="text-[var(--ct-muted)] bg-transparent border-none cursor-pointer text-base"
-          title="Close"
+          className={CLOSE_BUTTON_CLASS}
+          title="Close (Esc)"
         >
           ×
         </button>
@@ -439,7 +463,8 @@ function SvcDrawer({
           Delete service
         </button>
       </div>
-    </div>
+      </div>
+    </>
   );
 }
 
