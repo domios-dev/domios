@@ -546,6 +546,7 @@ function AppInner() {
             onNavigateToTab={() => setMainView("workspace")}
             mainView={mainView}
             activeCronId={activeCronId}
+            config={config}
           />
         )}
 
@@ -568,6 +569,12 @@ function AppInner() {
                 onUpdateConfig={updateConfig}
                 onClose={() => { setSettingsSection(undefined); setSettingsOpen(false); }}
                 initialSection={settingsSection}
+                onNavigateToTab={(tab) => {
+                  setSettingsOpen(false);
+                  setSettingsSection(undefined);
+                  if (tab === "memory") setMemoryOpen(true);
+                  else if (tab === "mesh") setMeshOpen(true);
+                }}
               />
             </div>
           )}
