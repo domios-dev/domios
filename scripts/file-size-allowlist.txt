@@ -9,4 +9,4 @@
 
 src-tauri/src/agent/provider.rs	822
 src-tauri/src/service/orchestrator.rs	838
-src-tauri/src/mem/dreaming.rs	1028
+src-tauri/src/mem/dreaming.rs	1029
