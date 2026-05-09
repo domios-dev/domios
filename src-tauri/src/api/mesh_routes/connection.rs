@@ -1,7 +1,7 @@
 //! High-level peer management (CLI-friendly): connect / approve / reject / disconnect.
 
 use axum::{
-    extract::State as AxumState,
+    extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode},
     Json,
 };
@@ -287,4 +287,28 @@ pub async fn mesh_disconnect_peer(
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
     log::info!("[mesh/api] Disconnected from {}", instance_id);
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn mesh_approve_peer_by_id(
+    state: AxumState<AppState>,
+    headers: HeaderMap,
+    Path(request_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    mesh_approve_peer(state, headers, Json(serde_json::json!({"request_id": request_id}))).await
+}
+
+pub async fn mesh_reject_peer_by_id(
+    state: AxumState<AppState>,
+    headers: HeaderMap,
+    Path(request_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    mesh_reject_peer(state, headers, Json(serde_json::json!({"request_id": request_id}))).await
+}
+
+pub async fn mesh_disconnect_peer_by_id(
+    state: AxumState<AppState>,
+    headers: HeaderMap,
+    Path(instance_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    mesh_disconnect_peer(state, headers, Json(serde_json::json!({"instance_id": instance_id}))).await
 }

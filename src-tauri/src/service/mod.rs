@@ -88,6 +88,8 @@ pub struct ServiceContext {
     pub secrets: crate::secrets::SecretStoreState,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
+    pub services_store: Arc<crate::services::store::ServicesStore>,
+    pub tokens: Arc<crate::services::tokens::TokenStore>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;

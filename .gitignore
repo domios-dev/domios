@@ -20,3 +20,4 @@ NUL
 src-tauri/.fastembed_cache/
 src-tauri/bundled-embed-libs/
 .fastembed_cache/
+.superpowers/

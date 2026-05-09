@@ -90,14 +90,18 @@ impl ServiceContext {
                 store.unregister_pane(pane_id);
             }
             if let Some(history) = store.get_history_mut(id) {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
                 for run in history.iter_mut() {
                     if matches!(run.status, super::super::cron::store::CronRunStatus::Running) {
                         run.status = super::super::cron::store::CronRunStatus::Cancelled;
-                        run.finished_at = Some(
-                            std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_millis() as u64,
+                        run.finished_at = Some(now_ms);
+                        // Observability parity with update_run_status — see crud::update_run_status.
+                        log::info!(
+                            "Cron run completed: job={}, run={}, status=Cancelled, elapsed_ms={}",
+                            id, run.run_id, now_ms.saturating_sub(run.started_at)
                         );
                     }
                 }
@@ -136,7 +140,7 @@ impl ServiceContext {
             AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec,
         };
 
-        let (agent, model, task, cwd, role, workspace_id, creator_pane_id) = {
+        let (agent, model, task, cwd, role, workspace_id, creator_pane_id, job_name, job_timeout) = {
             let store = cron.lock();
             let job = store.get(id).ok_or_else(|| format!("Cron job not found: {}", id))?;
             if store.is_job_running(id) {
@@ -150,6 +154,8 @@ impl ServiceContext {
                 job.role.clone(),
                 job.workspace_id.clone(),
                 job.creator_pane_id.clone(),
+                job.name.clone(),
+                job.timeout_seconds,
             )
         };
 
@@ -194,7 +200,7 @@ impl ServiceContext {
             },
             parent_pane_id: None,
             cwd,
-            title: None,
+            title: Some(format!("cron:{}", job_name)),
             visibility: PaneVisibility::Hidden,
             command: PaneCommand::Agent(AgentSpawnSpec {
                 provider: agent,
@@ -220,7 +226,14 @@ impl ServiceContext {
                     .get(&handle.pane_id)
                     .cloned()
                 {
-                    let timeout = crate::config::memory_config().worker_timeout_seconds;
+                    let global_timeout = crate::config::memory_config().worker_timeout_seconds;
+                    let timeout = job_timeout.unwrap_or(global_timeout);
+                    if job_timeout.is_some() {
+                        log::info!(
+                            "[cron] manual trigger {} run={} timeout={}s (per-job override)",
+                            id, run_id, timeout
+                        );
+                    }
                     self.run_watcher.register(
                         self.clone(),
                         pty_id,

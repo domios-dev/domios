@@ -4,13 +4,12 @@ import type { AppConfig } from "../../lib/types";
 import { CloseXIcon } from "../Icons";
 import {
   Sliders,
-  Database,
   Bot,
   Bell,
   Plug,
-  Network,
   Info,
   KeyRound,
+  LayoutGrid,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -23,27 +22,25 @@ import { KeybindGroup } from "./KeybindGroup";
 import { UpdateSection } from "./UpdateSection";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { ProviderNotifications } from "./ProviderNotifications";
-import { MemoryTab } from "./MemoryTab";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
-import { NetworkTab } from "./NetworkTab";
 
 interface SettingsPanelProps {
   config: AppConfig;
   onUpdateConfig: (config: AppConfig) => Promise<void>;
   onClose: () => void;
   initialSection?: SectionId;
+  onNavigateToTab?: (tab: "memory" | "mesh") => void;
 }
 
 export type SectionId =
   | "general"
-  | "memory"
+  | "tabs"
   | "agents"
   | "notifications"
   | "integrations"
   | "secrets"
-  | "mesh"
   | "about";
 
 type Route =
@@ -53,23 +50,21 @@ type Route =
 
 const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   general: Sliders,
-  memory: Database,
+  tabs: LayoutGrid,
   agents: Bot,
   notifications: Bell,
   integrations: Plug,
   secrets: KeyRound,
-  mesh: Network,
   about: Info,
 };
 
 const SECTIONS: { id: SectionId; label: string; desc: string }[] = [
   { id: "general", label: "General", desc: "Theme, fonts, cursor, keybindings" },
-  { id: "memory", label: "Memory", desc: "Extraction workers and nightly dreaming" },
+  { id: "tabs", label: "Tabs", desc: "Toggle Memory and Mesh tabs in the sidebar" },
   { id: "agents", label: "Agents", desc: "General Agent and per-provider config" },
   { id: "notifications", label: "Notifications", desc: "Desktop, sound, in-app toasts" },
   { id: "integrations", label: "Integrations", desc: "Telegram, Discord, external bridges" },
   { id: "secrets", label: "Secrets", desc: "Keychain — pluggable secret store" },
-  { id: "mesh", label: "Mesh", desc: "Peer discovery, network API reference" },
   { id: "about", label: "About", desc: "Version, updates, creator" },
 ];
 
@@ -82,6 +77,7 @@ export function SettingsPanel({
   onUpdateConfig,
   onClose,
   initialSection,
+  onNavigateToTab,
 }: SettingsPanelProps) {
   const [stack, setStack] = useState<Route[]>(
     initialSection
@@ -379,6 +375,11 @@ export function SettingsPanel({
                     Adds CodeTerm to the OS login items so the daemon, mesh,
                     and crons resume without you opening the app manually.
                   </p>
+                  <Toggle
+                    label="Enable Librarian (background skill vectorizer)"
+                    checked={localConfig.memory?.librarian_enabled ?? true}
+                    onChange={(v) => update("memory", { librarian_enabled: v })}
+                  />
                 </Group>
 
                 <KeybindGroup title="Tabs" bindings={[
@@ -444,9 +445,35 @@ export function SettingsPanel({
               </div>
             )}
 
-            {top.kind === "section" && top.id === "memory" && (
-              <div className="max-w-2xl mx-auto">
-                <MemoryTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
+            {top.kind === "section" && top.id === "tabs" && (
+              <div className="max-w-2xl mx-auto space-y-5">
+                <Group title="Sidebar Tabs">
+                  <Toggle
+                    label="Enable Memory tab"
+                    checked={localConfig.ui?.memory_tab_enabled ?? true}
+                    onChange={(v) => update("ui", { memory_tab_enabled: v })}
+                  />
+                  <button
+                    onClick={() => { onNavigateToTab?.("memory"); onClose(); }}
+                    className="text-[var(--ct-accent)] text-[10px] hover:underline ml-6"
+                  >
+                    Go to Memory →
+                  </button>
+                  <Toggle
+                    label="Enable Mesh tab"
+                    checked={localConfig.ui?.mesh_tab_enabled ?? true}
+                    onChange={(v) => {
+                      update("ui", { mesh_tab_enabled: v });
+                      if (v && !localConfig.mesh?.enabled) update("mesh", { enabled: true });
+                    }}
+                  />
+                  <button
+                    onClick={() => { onNavigateToTab?.("mesh"); onClose(); }}
+                    className="text-[var(--ct-accent)] text-[10px] hover:underline ml-6"
+                  >
+                    Go to Mesh →
+                  </button>
+                </Group>
               </div>
             )}
 
@@ -486,15 +513,6 @@ export function SettingsPanel({
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
                   onCloseSettings={onClose}
-                />
-              </div>
-            )}
-
-            {top.kind === "section" && top.id === "mesh" && (
-              <div className="max-w-2xl mx-auto">
-                <NetworkTab
-                  config={localConfig}
-                  onUpdate={(section, patch) => update(section, patch)}
                 />
               </div>
             )}

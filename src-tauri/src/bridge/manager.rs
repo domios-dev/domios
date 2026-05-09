@@ -12,7 +12,8 @@ use parking_lot::Mutex;
 
 use super::traits::{InboundAttachment, InboundMessage, InlineKeyboard, MessagingService, OutboundContent, ReplyContext};
 use super::voice_transcribe;
-use crate::config::schema::VoiceTranscribeConfig;
+use super::text_hooks;
+use crate::config::schema::{TextHooksConfig, VoiceTranscribeConfig};
 use crate::service::general_agent;
 use crate::service::ServiceContext;
 
@@ -142,8 +143,10 @@ impl BridgeManager {
                         reply_ctx: first.reply_ctx.clone(),
                     };
 
-                    let voice_cfg = crate::config::load_config().integrations.voice_transcribe.clone();
-                    if let Err(e) = inject_message(&svc, &merged_msg, &voice_cfg).await {
+                    let cfg = crate::config::load_config();
+                    let voice_cfg = cfg.integrations.voice_transcribe.clone();
+                    let text_hooks_cfg = cfg.integrations.text_hooks.clone();
+                    if let Err(e) = inject_message(&svc, &merged_msg, &voice_cfg, &text_hooks_cfg).await {
                         log::error!("[bridge] inject failed: {}", e);
                     }
                 }
@@ -453,10 +456,99 @@ async fn format_attachment_line(att: &InboundAttachment, voice_cfg: &VoiceTransc
     format!("{} {}", desc, file_uri)
 }
 
+enum HookOutcome {
+    Forward,
+    Annotated(String),
+    Replaced,
+}
+
+async fn run_pre_forward_hook(
+    svc: &ServiceContext,
+    msg: &InboundMessage,
+    pane_id: &str,
+    body: &str,
+    cfg: &TextHooksConfig,
+) -> HookOutcome {
+    apply_hook(&svc.bridge_outbound, msg, pane_id, body, cfg).await
+}
+
+async fn apply_hook(
+    outbound: &OutboundSender,
+    msg: &InboundMessage,
+    pane_id: &str,
+    body: &str,
+    cfg: &TextHooksConfig,
+) -> HookOutcome {
+    if !cfg.enabled {
+        return HookOutcome::Forward;
+    }
+    let req = text_hooks::PreForwardRequest {
+        text: body.to_string(),
+        channel: msg.service.clone(),
+        user_id: msg.user_id.to_string(),
+        msg_id: msg.message_id.map(|id| id.to_string()),
+        pane_id: pane_id.to_string(),
+        attachments: msg.attachments.iter().map(|a| text_hooks::HookAttachment {
+            kind: a.kind.clone(),
+            path: a.path.clone(),
+            filename: a.filename.clone(),
+        }).collect(),
+    };
+
+    let decision = match text_hooks::pre_forward(&req, cfg).await {
+        Ok(d) => d,
+        Err(e) => {
+            log::warn!("[bridge] text_hooks pre_forward failed: {} (fallback={})", e, cfg.fallback_on_error);
+            return match cfg.fallback_on_error.as_str() {
+                "drop" => HookOutcome::Replaced,
+                _ => HookOutcome::Forward,
+            };
+        }
+    };
+
+    match decision {
+        text_hooks::HookDecision::Forward => HookOutcome::Forward,
+        text_hooks::HookDecision::ForwardWithMetadata { metadata } => {
+            let json = serde_json::to_string(&metadata).unwrap_or_else(|_| "{}".into());
+            HookOutcome::Annotated(format!("{}\n\n[Hook metadata: {}]", body, json))
+        }
+        text_hooks::HookDecision::Replace { respond } => {
+            for reply in respond {
+                if reply.channel != "telegram" {
+                    log::warn!("[bridge] text_hooks replace: unsupported channel {}, skipping", reply.channel);
+                    continue;
+                }
+                let chat_id: i64 = match reply.to.parse() {
+                    Ok(n) => n,
+                    Err(_) => {
+                        log::warn!("[bridge] text_hooks replace: invalid telegram to={}", reply.to);
+                        continue;
+                    }
+                };
+                let out = OutboundMessage {
+                    user_id: Some(chat_id),
+                    content: OutboundContent::Text { text: reply.text },
+                    append: false,
+                    buttons: None,
+                };
+                if let Some(ref tx) = *outbound.lock() {
+                    if let Err(e) = tx.send(out) {
+                        log::error!("[bridge] text_hooks replace send failed: {}", e);
+                    }
+                } else {
+                    log::warn!("[bridge] text_hooks replace: no outbound sender");
+                }
+            }
+            HookOutcome::Replaced
+        }
+    }
+}
+
 async fn inject_message(
     svc: &ServiceContext,
     msg: &InboundMessage,
     voice_cfg: &VoiceTranscribeConfig,
+    text_hooks_cfg: &TextHooksConfig,
 ) -> Result<(), String> {
     let (pane_id, agent_type) = {
         let mux = svc.mux.lock();
@@ -467,6 +559,13 @@ async fn inject_message(
     };
 
     let body = build_message_body(msg, voice_cfg).await;
+
+    let body = match run_pre_forward_hook(svc, msg, &pane_id, &body, text_hooks_cfg).await {
+        HookOutcome::Forward => body,
+        HookOutcome::Annotated(annotated) => annotated,
+        HookOutcome::Replaced => return Ok(()),
+    };
+
     let msg_id_suffix = msg.message_id.map(|id| format!(" msg_id={}", id)).unwrap_or_default();
     let prefixed = format!("[{}: {}{}] {}",
         capitalize(&msg.service), msg.user_id, msg_id_suffix, body);
@@ -515,6 +614,165 @@ mod tests {
     fn test_create_outbound_channel() {
         let (sender, _rx) = create_outbound_channel();
         assert!(sender.lock().is_some());
+    }
+
+    use super::text_hooks;
+    use crate::config::schema::TextHooksConfig;
+    use axum::{routing::{get, post}, Json, Router};
+    use std::net::SocketAddr;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+
+    fn text_msg() -> InboundMessage {
+        InboundMessage {
+            service: "telegram".into(),
+            user_id: 186809246,
+            user_name: "andrey".into(),
+            text: "включи свет на 1 этаже".into(),
+            attachments: vec![],
+            message_id: Some(12345),
+            reply_ctx: ReplyContext::Telegram { chat_id: 186809246 },
+        }
+    }
+
+    async fn spawn_hook_server(router: Router) -> (String, oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        let (tx, rx) = oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            let _ = axum::serve(listener, router)
+                .with_graceful_shutdown(async move { let _ = rx.await; })
+                .await;
+        });
+        (format!("http://{}", addr), tx, handle)
+    }
+
+    fn cfg(url: &str) -> TextHooksConfig {
+        TextHooksConfig {
+            enabled: true,
+            daemon_url: url.into(),
+            timeout_ms: 5_000,
+            health_check_ttl_secs: 60,
+            fallback_on_error: "forward".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_hook_forward_passes_through() {
+        text_hooks::reset_health_cache();
+        let router = Router::new()
+            .route("/healthz", get(|| async { "ok" }))
+            .route("/pre_forward", post(|| async { Json(serde_json::json!({"action": "forward"})) }));
+        let (url, shutdown, handle) = spawn_hook_server(router).await;
+        let (outbound, _rx) = create_outbound_channel();
+
+        let outcome = apply_hook(&outbound, &text_msg(), "general", "включи свет", &cfg(&url)).await;
+        assert!(matches!(outcome, HookOutcome::Forward));
+
+        let _ = shutdown.send(());
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn apply_hook_replace_emits_outbound() {
+        text_hooks::reset_health_cache();
+        let router = Router::new()
+            .route("/healthz", get(|| async { "ok" }))
+            .route("/pre_forward", post(|| async {
+                Json(serde_json::json!({
+                    "action": "replace",
+                    "respond": [
+                        {"channel": "telegram", "to": "186809246", "text": "🦝 включил свет на 1 этаже"}
+                    ]
+                }))
+            }));
+        let (url, shutdown, handle) = spawn_hook_server(router).await;
+        let (outbound, mut rx) = create_outbound_channel();
+
+        let outcome = apply_hook(&outbound, &text_msg(), "general", "включи свет", &cfg(&url)).await;
+        assert!(matches!(outcome, HookOutcome::Replaced));
+
+        // Daemon's reply must land in the outbound channel as a Telegram message.
+        let received = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv()).await
+            .expect("outbound recv timed out").expect("channel closed");
+        assert_eq!(received.user_id, Some(186809246));
+        match received.content {
+            OutboundContent::Text { text } => assert!(text.contains("включил свет")),
+            other => panic!("expected Text, got {:?}", other),
+        }
+
+        let _ = shutdown.send(());
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn apply_hook_metadata_appends_annotation() {
+        text_hooks::reset_health_cache();
+        let router = Router::new()
+            .route("/healthz", get(|| async { "ok" }))
+            .route("/pre_forward", post(|| async {
+                Json(serde_json::json!({
+                    "action": "forward_with_metadata",
+                    "metadata": {"router_label": "light_cmd"}
+                }))
+            }));
+        let (url, shutdown, handle) = spawn_hook_server(router).await;
+        let (outbound, _rx) = create_outbound_channel();
+
+        let body = "включи свет";
+        let outcome = apply_hook(&outbound, &text_msg(), "general", body, &cfg(&url)).await;
+        match outcome {
+            HookOutcome::Annotated(annotated) => {
+                assert!(annotated.starts_with(body));
+                assert!(annotated.contains("[Hook metadata:"));
+                assert!(annotated.contains("light_cmd"));
+            }
+            other => panic!("expected Annotated, got matches={}", matches!(other, HookOutcome::Forward)),
+        }
+
+        let _ = shutdown.send(());
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn apply_hook_disabled_skips_daemon() {
+        text_hooks::reset_health_cache();
+        let hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let hits_clone = hits.clone();
+        let router = Router::new()
+            .route("/healthz", get(move || {
+                let hits = hits_clone.clone();
+                async move { hits.fetch_add(1, Ordering::SeqCst); "ok" }
+            }))
+            .route("/pre_forward", post(|| async { Json(serde_json::json!({"action": "forward"})) }));
+        let (url, shutdown, handle) = spawn_hook_server(router).await;
+        let (outbound, _rx) = create_outbound_channel();
+
+        let mut c = cfg(&url);
+        c.enabled = false;
+        let outcome = apply_hook(&outbound, &text_msg(), "general", "x", &c).await;
+        assert!(matches!(outcome, HookOutcome::Forward));
+        assert_eq!(hits.load(Ordering::SeqCst), 0, "disabled hook must not contact daemon");
+
+        let _ = shutdown.send(());
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn apply_hook_fallback_drop_returns_replaced_on_error() {
+        text_hooks::reset_health_cache();
+        // No server bound to this port — every call fails health check.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let mut c = cfg(&format!("http://{}", addr));
+        c.fallback_on_error = "drop".into();
+        let (outbound, _rx) = create_outbound_channel();
+
+        let outcome = apply_hook(&outbound, &text_msg(), "general", "x", &c).await;
+        assert!(matches!(outcome, HookOutcome::Replaced));
     }
 
     #[test]

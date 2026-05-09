@@ -31,6 +31,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub updater: UpdaterConfig,
     #[serde(default)]
+    pub ui: UiConfig,
+    #[serde(default)]
     pub onboarding_completed: bool,
 }
 
@@ -51,6 +53,7 @@ impl Default for AppConfig {
             integrations: IntegrationsConfig::default(),
             mesh: MeshConfig::default(),
             updater: UpdaterConfig::default(),
+            ui: UiConfig::default(),
             onboarding_completed: false,
         }
     }
@@ -320,6 +323,8 @@ impl Default for GeneralAgentConfig {
     }
 }
 
+fn default_true() -> bool { true }
+
 fn default_worker_model() -> String {
     "haiku".to_string()
 }
@@ -329,7 +334,7 @@ fn default_dreaming_model() -> String {
 }
 
 fn default_worker_timeout_seconds() -> u64 {
-    400
+    300
 }
 
 fn default_dreaming_timeout_seconds() -> u64 {
@@ -373,7 +378,7 @@ pub struct MemoryConfig {
     /// Hard timeout for non-dreaming hidden agent runs (extraction workers,
     /// generic cron). The auto-complete watcher marks the run Failed if the
     /// agent hasn't emitted a stream-json result event within this many seconds.
-    /// Defaults to 400 (~6.5 min). Dreaming uses `dreaming_timeout_seconds`
+    /// Defaults to 300 (5 min). Dreaming uses `dreaming_timeout_seconds`
     /// instead — dreaming needs longer to reason over hub decompositions.
     #[serde(default = "default_worker_timeout_seconds")]
     pub worker_timeout_seconds: u64,
@@ -387,6 +392,8 @@ pub struct MemoryConfig {
     pub file_sync_enabled: bool,
     #[serde(default = "default_file_sync_interval")]
     pub file_sync_interval_minutes: u64,
+    #[serde(default = "default_true")]
+    pub librarian_enabled: bool,
 }
 
 impl Default for MemoryConfig {
@@ -404,7 +411,22 @@ impl Default for MemoryConfig {
             dedup_threshold: default_dedup_threshold(),
             file_sync_enabled: true,
             file_sync_interval_minutes: default_file_sync_interval(),
+            librarian_enabled: true,
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UiConfig {
+    #[serde(default = "default_true")]
+    pub memory_tab_enabled: bool,
+    #[serde(default = "default_true")]
+    pub mesh_tab_enabled: bool,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self { memory_tab_enabled: true, mesh_tab_enabled: true }
     }
 }
 
@@ -418,6 +440,7 @@ pub struct IntegrationsConfig {
     pub webhook_enabled: bool,
     pub webhook_port: u16,
     pub voice_transcribe: VoiceTranscribeConfig,
+    pub text_hooks: TextHooksConfig,
     pub secrets: SecretsConfig,
 }
 
@@ -431,6 +454,7 @@ impl Default for IntegrationsConfig {
             webhook_enabled: false,
             webhook_port: 7687,
             voice_transcribe: VoiceTranscribeConfig::default(),
+            text_hooks: TextHooksConfig::default(),
             secrets: SecretsConfig::default(),
         }
     }
@@ -527,6 +551,36 @@ impl Default for VoiceTranscribeConfig {
             language: String::new(),
             fallback_raw_on_error: default_voice_fallback_raw(),
             health_check_ttl_secs: default_voice_health_ttl_secs(),
+        }
+    }
+}
+
+fn default_text_hooks_url() -> String { "http://127.0.0.1:7892".to_string() }
+fn default_text_hooks_timeout_ms() -> u64 { 2000 }
+fn default_text_hooks_fallback() -> String { "forward".to_string() }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TextHooksConfig {
+    pub enabled: bool,
+    #[serde(default = "default_text_hooks_url")]
+    pub daemon_url: String,
+    #[serde(default = "default_text_hooks_timeout_ms")]
+    pub timeout_ms: u64,
+    #[serde(default = "default_voice_health_ttl_secs")]
+    pub health_check_ttl_secs: u64,
+    #[serde(default = "default_text_hooks_fallback")]
+    pub fallback_on_error: String,
+}
+
+impl Default for TextHooksConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            daemon_url: default_text_hooks_url(),
+            timeout_ms: default_text_hooks_timeout_ms(),
+            health_check_ttl_secs: default_voice_health_ttl_secs(),
+            fallback_on_error: default_text_hooks_fallback(),
         }
     }
 }

@@ -183,3 +183,44 @@ jobs:
           gh release upload "${{ steps.tag.outputs.name }}" \
             "${{ steps.channel.outputs.manifest }}" \
             --clobber --repo "${{ github.repository }}"
+
+      # Mirror updater bundle, signature, and merged manifest to the public
+      # release repo so the auto-updater endpoint
+      # (rollacode/codeterm-releases/releases/latest/download/latest.json) can
+      # serve them anonymously. Skip on workflow_dispatch — only mirror on the
+      # actual tag push that produces the canonical release.
+      - name: Mirror to public release repo
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+          TAG: ${{ steps.tag.outputs.name }}
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+          PRERELEASE: ${{ steps.channel.outputs.prerelease }}
+          MIRROR_REPO: rollacode/codeterm-releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
+          UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.tar.gz.sig' 2>/dev/null | head -n1)
+          if [ -z "$UPDATER_SIG" ]; then
+            UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.sig' 2>/dev/null | head -n1)
+          fi
+          [ -n "$UPDATER_SIG" ] || { echo "::error::No AppImage signature under $BUNDLE_ROOT/appimage"; exit 1; }
+          UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
+          [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
+
+          # Idempotent: create the release in the mirror only if missing.
+          # Each platform workflow may run this step in any order; first one
+          # wins, the rest just upload assets to the existing release.
+          if ! gh release view "$TAG" --repo "$MIRROR_REPO" >/dev/null 2>&1; then
+            EXTRA_FLAGS=()
+            if [ "$PRERELEASE" = "true" ]; then EXTRA_FLAGS+=(--prerelease); fi
+            gh release create "$TAG" \
+              --repo "$MIRROR_REPO" \
+              --title "CodeTerm $TAG" \
+              --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes." \
+              "${EXTRA_FLAGS[@]}"
+          fi
+
+          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" "$MANIFEST" \
+            --clobber --repo "$MIRROR_REPO"

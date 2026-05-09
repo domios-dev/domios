@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { AppConfig, CronJob } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { canonicalizeShort } from "../../lib/modelLabels";
-import { Group, Label, Toggle } from "./shared";
+import { Group, Label, Toggle } from "../Settings/shared";
 
-export function MemoryTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
+export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
   const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_agent: "", dreaming_model: "haiku", worker_model: "haiku", worker_timeout_seconds: 1800, file_sync_enabled: true, file_sync_interval_minutes: 60, dedup_threshold: 0.15 };
   const rawMem = { ...defaultMem, ...(config.memory ?? {}) };
   const mem = {

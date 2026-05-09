@@ -5,6 +5,7 @@ use crate::mesh_cli::MeshAction;
 use super::agent::AgentAction;
 use super::cron::CronAction;
 use super::mem::MemAction;
+use super::service::ServiceAction;
 use super::misc::{
     BridgeAction, BrowserAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction,
     ThemeAction, WorkspaceAction,
@@ -142,6 +143,12 @@ pub enum Commands {
         action: CronAction,
     },
 
+    /// Manage daemon services (long-running processes monitored by codeterm)
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
+
     /// Check for updates and manage CodeTerm version
     Update {
         #[command(subcommand)]
@@ -216,5 +223,15 @@ pub enum Commands {
     System {
         #[command(subcommand)]
         action: SystemAction,
+    },
+
+    /// Read embedded CodeTerm documentation. Docs are bundled into the
+    /// CLI binary at compile time so agents can request them on demand
+    /// without bloating the system prompt. `codeterm docs` lists, `codeterm
+    /// docs <name>` cats. Names are case-insensitive and match the .md
+    /// stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING).
+    Docs {
+        /// Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs.
+        name: Option<String>,
     },
 }

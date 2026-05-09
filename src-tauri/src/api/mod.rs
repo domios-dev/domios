@@ -14,6 +14,7 @@ pub mod network_routes;
 pub mod notification_routes;
 pub mod os_notify;
 pub mod pane_routes;
+pub mod services_routes;
 pub mod session_routes;
 pub mod theme_routes;
 pub mod updater_routes;

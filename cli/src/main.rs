@@ -152,6 +152,7 @@ pub use args::system::SystemAction;
 pub use args::mem::{MemAction, MemDreamAction, MemRepairAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
 pub use args::agent::AgentAction;
 pub use args::cron::CronAction;
+pub use args::service::ServiceAction;
 pub use args::update::UpdateAction;
 pub use args::misc::{WorkspaceAction, PaneAction, BrowserAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction};
 
@@ -569,6 +570,11 @@ fn main() {
             return;
         }
 
+        Commands::Service { action } => {
+            cmd::service::handle_service(&mut client, cli.json, action);
+            return;
+        }
+
         Commands::Update { action, check, apply, channel, manifest_url } => {
             cmd::update::handle_update(cli.json, action, check, apply, channel, manifest_url);
             return;
@@ -576,6 +582,11 @@ fn main() {
 
         Commands::SelfUpdate { check, apply, rollback, channel } => {
             cmd::update::handle_self_update(cli.json, check, apply, rollback, channel);
+            return;
+        }
+
+        Commands::Docs { name } => {
+            cmd::docs::handle(name);
             return;
         }
 

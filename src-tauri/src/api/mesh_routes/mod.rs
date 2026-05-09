@@ -17,7 +17,8 @@ pub mod relay;
 
 pub use announce::{mesh_announce_all, mesh_announce_inbound, mesh_refresh, mesh_set_peer_addr};
 pub use connection::{
-    mesh_approve_peer, mesh_connect_peer, mesh_disconnect_peer, mesh_reject_peer,
+    mesh_approve_peer, mesh_approve_peer_by_id, mesh_connect_peer, mesh_disconnect_peer,
+    mesh_disconnect_peer_by_id, mesh_reject_peer, mesh_reject_peer_by_id,
 };
 pub use introduction::mesh_introduce;
 pub use pairing::{
@@ -61,6 +62,39 @@ pub async fn mesh_stop_broadcast(
     crate::mesh::discovery::stop_broadcast(&state.mesh);
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(serde::Deserialize)]
+pub struct AddManualBody {
+    pub address: String,
+    pub port: u16,
+}
+
+pub async fn mesh_add_manual(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<AddManualBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let peer = crate::mesh::types::DiscoveredPeer {
+        instance_id: format!("manual-{}", uuid::Uuid::new_v4()),
+        instance_name: format!("{}:{}", body.address, body.port),
+        addresses: vec![crate::mesh::types::PeerAddress::from_ip(&body.address)],
+        api_port: body.port,
+        discovery_method: crate::mesh::types::DiscoveryMethod::Manual,
+        last_seen: now,
+        dev: false,
+        mesh_id: None,
+        vouched_by: Vec::new(),
+    };
+    let id = peer.instance_id.clone();
+    state.mesh.lock().discovered_peers.insert(id.clone(), peer);
+    let _ = state.svc.app_handle.emit("mesh-state-changed", ());
+    Ok(Json(serde_json::json!({"ok": true, "instance_id": id})))
 }
 
 pub async fn mesh_status(
