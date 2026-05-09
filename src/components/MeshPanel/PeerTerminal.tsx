@@ -20,6 +20,8 @@ const HEALTH_DOT_COLOR: Record<string, string> = {
   unknown: "var(--ct-muted)",
 };
 
+const MAX_SERVICES_ON_CARD = 5;
+
 export function PeerTerminal({
   name,
   ip,
@@ -38,7 +40,7 @@ export function PeerTerminal({
           ? "border-2 border-[var(--ct-accent)] shadow-[0_8px_24px_rgba(203,166,247,0.2)]"
           : "border border-[var(--ct-border)] shadow-md"
       }`}
-      style={{ width: isThisMachine ? 280 : 230 }}
+      style={{ width: 240 }}
     >
       <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] rounded-t-md">
         <span className="w-2.5 h-2.5 rounded-full bg-[#f38ba8]" />
@@ -63,7 +65,7 @@ export function PeerTerminal({
           $ codeterm services list
         </div>
         <div className="flex gap-1 flex-wrap">
-          {services.map((s) => (
+          {services.slice(0, MAX_SERVICES_ON_CARD).map((s) => (
             <span
               key={s.id}
               className="bg-[var(--ct-titlebar-bg)] px-1.5 py-0.5 rounded text-[9px] inline-flex items-center gap-1"
@@ -77,6 +79,11 @@ export function PeerTerminal({
               <span className="opacity-50">·{s.kind}</span>
             </span>
           ))}
+          {services.length > MAX_SERVICES_ON_CARD && (
+            <span className="text-[var(--ct-muted)] text-[9px] italic">
+              +{services.length - MAX_SERVICES_ON_CARD} more…
+            </span>
+          )}
           {services.length === 0 && (
             <span className="text-[var(--ct-muted)] italic text-[9px]">
               no services

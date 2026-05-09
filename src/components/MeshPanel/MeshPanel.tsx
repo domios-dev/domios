@@ -177,6 +177,7 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
                 thisMachineName={data.thisMachine.name}
                 onServiceClick={handleServiceClick}
               />
+              <div className="w-px bg-[var(--ct-accent)]/30 shadow-[0_0_4px_var(--ct-accent)]" />
               <ServicesTable
                 services={data.services}
                 thisMachineName={data.thisMachine.name}
