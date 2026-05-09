@@ -8,6 +8,7 @@ import { SettingsPanel, type SectionId } from "./components/Settings/SettingsPan
 import { CronPanel } from "./components/CronPanel/CronPanel";
 import { Onboarding } from "./components/Onboarding/Onboarding";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
+import { MeshPanel } from "./components/MeshPanel/MeshPanel";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
@@ -67,7 +68,7 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
 function AppInner() {
   useAgentProviders();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "cron">("workspace");
+  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "cron" | "mesh">("workspace");
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   const [cronInitialId, setCronInitialId] = useState<string | undefined>(undefined);
@@ -79,10 +80,12 @@ function AppInner() {
   const [mountedSettings, setMountedSettings] = useState(false);
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedCron, setMountedCron] = useState(false);
+  const [mountedMesh, setMountedMesh] = useState(false);
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
     if (mainView === "cron") setMountedCron(true);
+    if (mainView === "mesh") setMountedMesh(true);
   }, [mainView]);
   const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
@@ -96,6 +99,13 @@ function AppInner() {
       const wasOpen = cur === "memory";
       const open = typeof next === "function" ? next(wasOpen) : next;
       return open ? "memory" : "workspace";
+    });
+  }, []);
+  const setMeshOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
+    setMainView((cur) => {
+      const wasOpen = cur === "mesh";
+      const open = typeof next === "function" ? next(wasOpen) : next;
+      return open ? "mesh" : "workspace";
     });
   }, []);
   const openCronPanel = useCallback((jobId?: string) => {
@@ -531,6 +541,7 @@ function AppInner() {
           <Sidebar
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenMemory={() => setMemoryOpen(true)}
+            onOpenMesh={() => setMeshOpen(true)}
             onOpenCron={openCronPanel}
             onNavigateToTab={() => setMainView("workspace")}
             mainView={mainView}
@@ -577,6 +588,21 @@ function AppInner() {
                 }}
                 initialState={memoryInitial}
                 onFocusPane={handleMemoryFocusPane}
+              />
+            </div>
+          )}
+          {mountedMesh && (
+            <div
+              className="absolute inset-0"
+              style={{
+                zIndex: mainView === "mesh" ? 2 : 0,
+                visibility: mainView === "mesh" ? "visible" : "hidden",
+                pointerEvents: mainView === "mesh" ? "auto" : "none",
+              }}
+            >
+              <MeshPanel
+                api={config.api}
+                onClose={() => setMeshOpen(false)}
               />
             </div>
           )}
