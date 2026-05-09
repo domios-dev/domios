@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -139,21 +139,34 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         let idle_secs = state.last_byte_at.lock().elapsed().as_secs();
 
         if idle_secs >= IDLE_COMPLETE_SECS {
-            if state.completed.swap(true, Ordering::AcqRel) {
+            // Defer the kill while a tool call is mid-flight: claude's PTY
+            // can stay silent for >30s during a slow Bash subprocess (mem
+            // graph hubs on a busy graph, large `mem search`, etc.) even
+            // though the run is alive. Hard timeout still bounds runaway
+            // tools.
+            let busy = state.scanner.lock().in_flight();
+            if busy {
+                log::debug!(
+                    "[run-watcher] idle {}s but tool in-flight — deferring reap: pane={}",
+                    idle_secs, state.pane_id
+                );
+            } else {
+                if state.completed.swap(true, Ordering::AcqRel) {
+                    return;
+                }
+                log::info!(
+                    "[run-watcher] idle complete: pane={} idle={}s",
+                    state.pane_id, idle_secs
+                );
+                finish_run(
+                    &svc,
+                    &state,
+                    false,
+                    format!("idle for {}s — claude exited without result event", idle_secs),
+                );
+                svc.run_watcher.runs.lock().remove(&state.pty_id);
                 return;
             }
-            log::info!(
-                "[run-watcher] idle complete: pane={} idle={}s",
-                state.pane_id, idle_secs
-            );
-            finish_run(
-                &svc,
-                &state,
-                false,
-                format!("idle for {}s — claude exited without result event", idle_secs),
-            );
-            svc.run_watcher.runs.lock().remove(&state.pty_id);
-            return;
         }
 
         if elapsed_total >= timeout_secs {
@@ -217,33 +230,71 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
     }
 }
 
-// Detects only the TOP-LEVEL {"type":"result"} event that claude CLI emits
-// once per run, at the very end of the multi-turn flow. Do NOT match nested
-// message_stop events — those fire after every assistant turn in a tool-use
-// loop and would complete the run mid-flight, killing the pane before claude
-// can process the tool result.
+// Detects:
+//   1. The TOP-LEVEL {"type":"result"} event that claude CLI emits once per
+//      run at the very end of the multi-turn flow. Do NOT match nested
+//      message_stop events — those fire after every assistant turn in a
+//      tool-use loop and would complete the run mid-flight.
+//   2. Tool-call lifecycle: each {"type":"tool_use","id":"toolu_…"} block
+//      registers an in-flight tool; the matching tool_result with the same
+//      tool_use_id clears it. The watchdog uses this to suppress idle-reaper
+//      kills while a tool is actively executing — claude's PTY can stay
+//      silent for >30s during a slow Bash subprocess even though the run
+//      itself is alive.
 struct ResultEventScanner {
     buffer: String,
+    tool_scan_pos: usize,
+    in_flight_tools: HashSet<String>,
 }
 
 const RESULT_NEEDLE: &str = "{\"type\":\"result\"";
+const TOOL_USE_NEEDLE: &str = "{\"type\":\"tool_use\"";
+const TOOL_RESULT_NEEDLE: &str = "{\"type\":\"tool_result\"";
+
+#[derive(Debug, Deserialize, Default)]
+struct ToolUseHeader {
+    #[serde(default)]
+    id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ToolResultHeader {
+    #[serde(default)]
+    tool_use_id: Option<String>,
+}
 
 impl ResultEventScanner {
     fn new() -> Self {
-        Self { buffer: String::new() }
+        Self {
+            buffer: String::new(),
+            tool_scan_pos: 0,
+            in_flight_tools: HashSet::new(),
+        }
+    }
+
+    fn in_flight(&self) -> bool {
+        !self.in_flight_tools.is_empty()
     }
 
     fn feed(&mut self, chunk: &str) -> Option<CompletionSignal> {
         let cleaned = crate::pty::ansi::strip_ansi_codes(chunk);
         self.buffer.push_str(&cleaned);
 
+        // Pass 1: tool-use / tool-result lifecycle. Done first so a buffer
+        // drain after the result-event pass below cannot lose unscanned
+        // tool events.
+        self.scan_tool_events();
+
         let mut search_from = 0;
         let mut found: Option<CompletionSignal> = None;
-        let consumed;
+        // Floor the drain at the tool scanner's cursor: it may be parked
+        // mid-object waiting for the closing brace to arrive in the next
+        // chunk, and dropping bytes past that cursor would lose the
+        // partial tool_use we're tracking.
+        let mut consumed = 0usize;
 
         loop {
             let Some(start_rel) = self.buffer[search_from..].find(RESULT_NEEDLE) else {
-                consumed = self.buffer.len();
                 break;
             };
             let start = search_from + start_rel;
@@ -263,20 +314,71 @@ impl ResultEventScanner {
                     }
                 }
                 None => {
-                    consumed = start;
                     break;
                 }
             }
         }
 
-        if consumed > 0 {
-            self.buffer.drain(..consumed);
+        let safe_consume = consumed.min(self.tool_scan_pos);
+        if safe_consume > 0 {
+            self.buffer.drain(..safe_consume);
+            self.tool_scan_pos = self.tool_scan_pos.saturating_sub(safe_consume);
         }
         if self.buffer.len() > SCANNER_BUFFER_CAP {
             let cut = self.buffer.len() - SCANNER_BUFFER_CAP / 2;
             self.buffer = self.buffer.split_off(cut);
+            self.tool_scan_pos = self.tool_scan_pos.saturating_sub(cut);
         }
         found
+    }
+
+    fn scan_tool_events(&mut self) {
+        let mut pos = self.tool_scan_pos;
+        let mut max_consumed = pos;
+        loop {
+            let next_use = self.buffer[pos..]
+                .find(TOOL_USE_NEEDLE)
+                .map(|r| pos + r);
+            let next_result = self.buffer[pos..]
+                .find(TOOL_RESULT_NEEDLE)
+                .map(|r| pos + r);
+
+            // Pick whichever needle comes first.
+            let (start, is_use) = match (next_use, next_result) {
+                (Some(u), Some(r)) if u < r => (u, true),
+                (Some(_), Some(r)) => (r, false),
+                (Some(u), None) => (u, true),
+                (None, Some(r)) => (r, false),
+                (None, None) => break,
+            };
+
+            match find_balanced_end(&self.buffer, start) {
+                Some(end) => {
+                    let candidate = &self.buffer[start..=end];
+                    if is_use {
+                        if let Ok(parsed) = serde_json::from_str::<ToolUseHeader>(candidate) {
+                            if let Some(id) = parsed.id {
+                                self.in_flight_tools.insert(id);
+                            }
+                        }
+                    } else {
+                        if let Ok(parsed) = serde_json::from_str::<ToolResultHeader>(candidate) {
+                            if let Some(id) = parsed.tool_use_id {
+                                self.in_flight_tools.remove(&id);
+                            }
+                        }
+                    }
+                    pos = end + 1;
+                    max_consumed = pos;
+                }
+                None => {
+                    // Object incomplete — leave tool_scan_pos here so the next
+                    // chunk re-attempts from the same start.
+                    break;
+                }
+            }
+        }
+        self.tool_scan_pos = max_consumed;
     }
 }
 
@@ -385,5 +487,72 @@ mod tests {
         let big = "x".repeat(SCANNER_BUFFER_CAP * 2);
         let _ = s.feed(&big);
         assert!(s.buffer.len() <= SCANNER_BUFFER_CAP);
+    }
+
+    #[test]
+    fn scanner_in_flight_starts_false() {
+        let s = ResultEventScanner::new();
+        assert!(!s.in_flight());
+    }
+
+    #[test]
+    fn scanner_marks_tool_use_in_flight() {
+        let mut s = ResultEventScanner::new();
+        let chunk = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_ABC","name":"Bash","input":{}}]}}"#;
+        let _ = s.feed(chunk);
+        assert!(s.in_flight(), "tool_use should mark scanner busy");
+    }
+
+    #[test]
+    fn scanner_clears_on_tool_result() {
+        let mut s = ResultEventScanner::new();
+        let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_X","name":"Bash","input":{}}]}}"#);
+        assert!(s.in_flight());
+        let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_X","content":"done"}]}}"#);
+        assert!(!s.in_flight(), "matching tool_result should clear in-flight");
+    }
+
+    #[test]
+    fn scanner_tracks_parallel_tools() {
+        let mut s = ResultEventScanner::new();
+        let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_A","name":"Bash","input":{}},{"type":"tool_use","id":"toolu_B","name":"Read","input":{}}]}}"#);
+        assert!(s.in_flight());
+        let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_A","content":"ok"}]}}"#);
+        assert!(s.in_flight(), "second tool still pending");
+        let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_B","content":"ok"}]}}"#);
+        assert!(!s.in_flight(), "all tools resolved");
+    }
+
+    #[test]
+    fn scanner_handles_split_tool_use_across_chunks() {
+        let mut s = ResultEventScanner::new();
+        let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_"#);
+        assert!(!s.in_flight(), "incomplete object — id not yet visible");
+        let _ = s.feed(r#"SPLIT","name":"Bash","input":{}}]}}"#);
+        assert!(s.in_flight(), "completes once the closing brace arrives");
+    }
+
+    #[test]
+    fn scanner_picks_up_partial_message_content_block() {
+        // --include-partial-messages emits content_block_start with the
+        // tool_use shape nested inside. We must catch that form too.
+        let mut s = ResultEventScanner::new();
+        let chunk = r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_PM","name":"Bash","input":{}}}}"#;
+        let _ = s.feed(chunk);
+        assert!(s.in_flight(), "partial-message tool_use must register in-flight");
+    }
+
+    #[test]
+    fn scanner_result_event_still_works_with_tool_tracking() {
+        // Sanity: extending the scanner must not break the existing
+        // top-level result detection.
+        let mut s = ResultEventScanner::new();
+        let _ = s.feed(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_F","name":"Bash","input":{}}]}}"#);
+        let _ = s.feed(r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_F","content":"ok"}]}}"#);
+        let r = s
+            .feed(r#"{"type":"result","subtype":"success","is_error":false,"result":"done"}"#)
+            .expect("completion");
+        assert_eq!(r.subtype.as_deref(), Some("success"));
+        assert!(!s.in_flight());
     }
 }
