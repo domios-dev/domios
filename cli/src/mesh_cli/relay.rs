@@ -71,17 +71,17 @@ pub fn mesh_relay_cmd(http: &reqwest::blocking::Client, base: &str, token: &Opti
 
 /// Generic relay — send any API call through mesh to a remote peer.
 pub fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &Option<String>, target: &str, method: &str, path: &str, body: Option<&str>, json_mode: bool) {
-    let peers_resp = http.get(format!("{}/api/mesh/peers", base))
-        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
-        .send().ok().and_then(|r| r.json::<serde_json::Value>().ok());
-    let peer = peers_resp.as_ref()
-        .and_then(|v| v.get("paired")).and_then(|v| v.as_array())
-        .and_then(|arr| arr.iter().find(|p| {
-            p.get("instance_name").and_then(|v| v.as_str()) == Some(target)
-            || p.get("instance_id").and_then(|v| v.as_str()) == Some(target)
-        }));
+    let mut peers_json = fetch_peers(http, base, token);
+    let mut peer = find_peer(&peers_json, target).cloned();
+    if peer.is_none() {
+        let _ = http.post(format!("{}/api/mesh/refresh", base))
+            .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+            .send();
+        peers_json = fetch_peers(http, base, token);
+        peer = find_peer(&peers_json, target).cloned();
+    }
     let Some(peer) = peer else {
-        eprintln!("Peer '{}' not found", target);
+        eprintln!("Peer '{}' not found (after refresh)", target);
         std::process::exit(1);
     };
     let ip = peer.get("addresses").and_then(|v| v.as_array())
@@ -142,4 +142,19 @@ pub fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &
         }
         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
     }
+}
+
+fn fetch_peers(http: &reqwest::blocking::Client, base: &str, token: &Option<String>) -> serde_json::Value {
+    http.get(format!("{}/api/mesh/peers", base))
+        .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
+        .send().ok().and_then(|r| r.json::<serde_json::Value>().ok())
+        .unwrap_or(serde_json::json!({}))
+}
+
+fn find_peer<'a>(peers_json: &'a serde_json::Value, target: &str) -> Option<&'a serde_json::Value> {
+    peers_json.get("paired").and_then(|v| v.as_array())
+        .and_then(|arr| arr.iter().find(|p| {
+            p.get("instance_name").and_then(|v| v.as_str()) == Some(target)
+            || p.get("instance_id").and_then(|v| v.as_str()) == Some(target)
+        }))
 }
