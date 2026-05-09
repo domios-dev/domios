@@ -32,9 +32,12 @@ interface Props {
 
 const VOLUME_WINDOW_MS = 60 * 1000;
 const PULSE_WINDOW_MS = 3000;
-const MIN_SCALE = 0.4;
+const MIN_SCALE = 0.25;
 const MAX_SCALE = 2.5;
-const ZOOM_STEP = 0.15;
+const ZOOM_STEP = 0.06;
+const FIT_PADDING = 80;
+const CARD_HALF_WIDTH = 130;
+const CARD_HALF_HEIGHT = 80;
 
 export function MeshCanvas({
   thisMachine,
@@ -83,6 +86,37 @@ export function MeshCanvas({
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const fitToView = useCallback(() => {
+    if (!layout.length || width <= 0 || height <= 0) return;
+    const minX = Math.min(...layout.map((p) => p.x - CARD_HALF_WIDTH));
+    const maxX = Math.max(...layout.map((p) => p.x + CARD_HALF_WIDTH));
+    const minY = Math.min(...layout.map((p) => p.y - CARD_HALF_HEIGHT));
+    const maxY = Math.max(...layout.map((p) => p.y + CARD_HALF_HEIGHT));
+    const w = maxX - minX;
+    const h = maxY - minY;
+    const scaleX = (width - FIT_PADDING * 2) / w;
+    const scaleY = (height - FIT_PADDING * 2) / h;
+    const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.min(scaleX, scaleY, 1)));
+    const cxView = width / 2;
+    const cyView = height / 2;
+    const cxModel = (minX + maxX) / 2;
+    const cyModel = (minY + maxY) / 2;
+    setTransform({
+      x: cxView - cxModel * scale,
+      y: cyView - cyModel * scale,
+      scale,
+    });
+  }, [layout, width, height]);
+
+  const didFitRef = useRef(false);
+  useEffect(() => {
+    if (didFitRef.current) return;
+    if (layout.length > 0 && width > 0 && height > 0) {
+      fitToView();
+      didFitRef.current = true;
+    }
+  }, [fitToView, layout.length, width, height]);
 
   const onMouseDown = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("[data-peer-card]")) return;
@@ -133,7 +167,7 @@ export function MeshCanvas({
     });
   }, []);
 
-  const reset = () => setTransform({ x: 0, y: 0, scale: 1 });
+  const reset = () => fitToView();
 
   return (
     <div
