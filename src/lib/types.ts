@@ -401,6 +401,12 @@ export interface MemoryConfig {
   dedup_threshold: number;
   file_sync_enabled: boolean;
   file_sync_interval_minutes: number;
+  librarian_enabled?: boolean;
+}
+
+export interface UiConfig {
+  memory_tab_enabled?: boolean;
+  mesh_tab_enabled?: boolean;
 }
 
 export interface AppConfig {
@@ -417,6 +423,7 @@ export interface AppConfig {
   memory: MemoryConfig;
   integrations: IntegrationsConfig;
   mesh: MeshConfig;
+  ui?: UiConfig;
   onboarding_completed: boolean;
 }
 

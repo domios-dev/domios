@@ -31,6 +31,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub updater: UpdaterConfig,
     #[serde(default)]
+    pub ui: UiConfig,
+    #[serde(default)]
     pub onboarding_completed: bool,
 }
 
@@ -51,6 +53,7 @@ impl Default for AppConfig {
             integrations: IntegrationsConfig::default(),
             mesh: MeshConfig::default(),
             updater: UpdaterConfig::default(),
+            ui: UiConfig::default(),
             onboarding_completed: false,
         }
     }
@@ -320,6 +323,8 @@ impl Default for GeneralAgentConfig {
     }
 }
 
+fn default_true() -> bool { true }
+
 fn default_worker_model() -> String {
     "haiku".to_string()
 }
@@ -387,6 +392,8 @@ pub struct MemoryConfig {
     pub file_sync_enabled: bool,
     #[serde(default = "default_file_sync_interval")]
     pub file_sync_interval_minutes: u64,
+    #[serde(default = "default_true")]
+    pub librarian_enabled: bool,
 }
 
 impl Default for MemoryConfig {
@@ -404,7 +411,22 @@ impl Default for MemoryConfig {
             dedup_threshold: default_dedup_threshold(),
             file_sync_enabled: true,
             file_sync_interval_minutes: default_file_sync_interval(),
+            librarian_enabled: true,
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UiConfig {
+    #[serde(default = "default_true")]
+    pub memory_tab_enabled: bool,
+    #[serde(default = "default_true")]
+    pub mesh_tab_enabled: bool,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self { memory_tab_enabled: true, mesh_tab_enabled: true }
     }
 }
 
