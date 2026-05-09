@@ -111,3 +111,10 @@ fn parse_activity_source(s: &str) -> Option<ActivitySource> {
         _ => None,
     }
 }
+
+#[tauri::command]
+pub async fn services_smart_add_inspect(
+    url: String,
+) -> Result<crate::services::smart_add::SmartAddResult, String> {
+    crate::services::smart_add::inspect(&url).await
+}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { servicesCreate } from "./meshApi";
+import { servicesCreate, servicesSmartAddInspect } from "./meshApi";
 import type { HealthMode } from "./types";
 
 interface Props {
@@ -24,6 +24,8 @@ export function AddServiceWizard({ onClose, onCreated }: Props) {
   const [token, setToken] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inspecting, setInspecting] = useState(false);
+  const [inspectHint, setInspectHint] = useState<string | null>(null);
 
   const canSubmit =
     !!name.trim() &&
@@ -67,6 +69,27 @@ export function AddServiceWizard({ onClose, onCreated }: Props) {
       setError(String(e));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleInspect = async () => {
+    setInspecting(true);
+    setInspectHint(null);
+    try {
+      const result = await servicesSmartAddInspect(url.trim());
+      if (result.recommended_health_path && healthPath === "/healthz") {
+        setHealthPath(result.recommended_health_path);
+      }
+      const detected = Object.keys(result.field_mapping);
+      setInspectHint(
+        detected.length > 0
+          ? `Detected: ${detected.map((k) => k.replace("ui_", "")).join(", ")}`
+          : "No standard fields detected",
+      );
+    } catch (e) {
+      setInspectHint(`Inspect failed: ${String(e)}`);
+    } finally {
+      setInspecting(false);
     }
   };
 
@@ -144,12 +167,29 @@ export function AddServiceWizard({ onClose, onCreated }: Props) {
         {healthMode === "http" && (
           <>
             <Field label="URL">
-              <input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="http://127.0.0.1:7891"
-                className={INPUT_MONO}
-              />
+              <div className="flex gap-2">
+                <input
+                  value={url}
+                  onChange={(e) => {
+                    setUrl(e.target.value);
+                    setInspectHint(null);
+                  }}
+                  placeholder="http://127.0.0.1:7891"
+                  className={`${INPUT_MONO} flex-1`}
+                />
+                <button
+                  onClick={handleInspect}
+                  disabled={!url.trim() || inspecting}
+                  className="px-3 py-1 bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] rounded text-xs text-[var(--ct-fg)] cursor-pointer disabled:opacity-40 whitespace-nowrap"
+                >
+                  {inspecting ? "…" : "Inspect"}
+                </button>
+              </div>
+              {inspectHint && (
+                <p className="text-[10px] text-[var(--ct-muted)] mt-1">
+                  {inspectHint}
+                </p>
+              )}
             </Field>
             <Field label="Health path">
               <input

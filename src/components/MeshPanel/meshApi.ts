@@ -36,3 +36,13 @@ export async function activityList(opts?: {
 }): Promise<ActivityEvent[]> {
   return invoke("activity_list", opts ?? {});
 }
+
+export async function servicesSmartAddInspect(url: string): Promise<{
+  suggested_name?: string;
+  recommended_health_mode: string;
+  recommended_health_path?: string;
+  field_mapping: Record<string, string>;
+  raw_response: unknown;
+}> {
+  return invoke("services_smart_add_inspect", { url });
+}
