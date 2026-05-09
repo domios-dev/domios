@@ -20,6 +20,7 @@ pub async fn probe_script(path: &str, timeout_ms: u64) -> std::io::Result<Health
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    crate::process_util::no_window_tokio(&mut cmd);
 
     let fut = async {
         let child = cmd.spawn();
