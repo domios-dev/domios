@@ -430,12 +430,38 @@ impl Default for UiConfig {
     }
 }
 
+/// Accept user-id lists as either quoted strings (`["123"]`) or bare
+/// integers (`[123]`) in TOML. Telegram/Discord chat ids are big ints,
+/// so unquoted integers are the obvious thing for users to type. The
+/// runtime keys off `i64.to_string()`, so we coerce to `Vec<String>`.
+fn deserialize_user_id_list<'de, D>(d: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrInt {
+        Str(String),
+        Int(i64),
+    }
+    let list: Vec<StringOrInt> = Vec::deserialize(d)?;
+    Ok(list
+        .into_iter()
+        .map(|v| match v {
+            StringOrInt::Str(s) => s,
+            StringOrInt::Int(i) => i.to_string(),
+        })
+        .collect())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IntegrationsConfig {
     pub telegram_enabled: bool,
+    #[serde(deserialize_with = "deserialize_user_id_list")]
     pub telegram_allowed_users: Vec<String>,
     pub discord_enabled: bool,
+    #[serde(deserialize_with = "deserialize_user_id_list")]
     pub discord_allowed_users: Vec<String>,
     pub webhook_enabled: bool,
     pub webhook_port: u16,
@@ -708,4 +734,55 @@ pub fn list_all_theme_ids() -> Vec<String> {
     let mut ids = list_builtin_theme_ids();
     ids.extend(list_custom_theme_ids());
     ids
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IntegrationsConfig;
+
+    #[test]
+    fn telegram_allowed_users_accepts_quoted_strings() {
+        let toml = r#"
+            telegram_enabled = true
+            telegram_allowed_users = ["186809246"]
+        "#;
+        let cfg: IntegrationsConfig = toml::from_str(toml).unwrap();
+        assert_eq!(cfg.telegram_allowed_users, vec!["186809246".to_string()]);
+    }
+
+    #[test]
+    fn telegram_allowed_users_accepts_bare_integers() {
+        let toml = r#"
+            telegram_enabled = true
+            telegram_allowed_users = [186809246]
+        "#;
+        let cfg: IntegrationsConfig = toml::from_str(toml).unwrap();
+        assert_eq!(
+            cfg.telegram_allowed_users,
+            vec!["186809246".to_string()],
+            "bare integer chat ids must coerce to strings — was silent rejection"
+        );
+    }
+
+    #[test]
+    fn telegram_allowed_users_accepts_mixed() {
+        let toml = r#"
+            telegram_allowed_users = [186809246, "789012345"]
+        "#;
+        let cfg: IntegrationsConfig = toml::from_str(toml).unwrap();
+        assert_eq!(
+            cfg.telegram_allowed_users,
+            vec!["186809246".to_string(), "789012345".to_string()]
+        );
+    }
+
+    #[test]
+    fn discord_allowed_users_also_tolerant() {
+        let toml = "discord_allowed_users = [555, \"666\"]";
+        let cfg: IntegrationsConfig = toml::from_str(toml).unwrap();
+        assert_eq!(
+            cfg.discord_allowed_users,
+            vec!["555".to_string(), "666".to_string()]
+        );
+    }
 }
