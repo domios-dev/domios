@@ -132,17 +132,25 @@ function PeerDrawer({
       </div>
 
       <div className="flex gap-1.5 flex-wrap">
-        <span className="bg-[var(--ct-green)] text-[var(--ct-bg)] px-1.5 py-0.5 rounded text-[9px] font-medium">
-          paired
-        </span>
-        <span
-          className={`px-1.5 py-0.5 rounded text-[9px] ${peer.online ? "bg-[var(--ct-green)] text-[var(--ct-bg)]" : "bg-[var(--ct-bg)] text-[var(--ct-muted)]"}`}
-        >
-          {peer.online ? "online" : "offline"}
-        </span>
-        <span className="bg-[var(--ct-bg)] text-[var(--ct-muted)] px-1.5 py-0.5 rounded text-[9px]">
-          {peer.access_level}
-        </span>
+        {isSelf ? (
+          <span className="bg-[var(--ct-accent)] text-[var(--ct-bg)] px-1.5 py-0.5 rounded text-[9px] font-medium">
+            this machine
+          </span>
+        ) : (
+          <>
+            <span className="bg-[var(--ct-green)] text-[var(--ct-bg)] px-1.5 py-0.5 rounded text-[9px] font-medium">
+              paired
+            </span>
+            <span
+              className={`px-1.5 py-0.5 rounded text-[9px] ${peer.online ? "bg-[var(--ct-green)] text-[var(--ct-bg)]" : "bg-[var(--ct-bg)] text-[var(--ct-muted)]"}`}
+            >
+              {peer.online ? "online" : "offline"}
+            </span>
+            <span className="bg-[var(--ct-bg)] text-[var(--ct-muted)] px-1.5 py-0.5 rounded text-[9px]">
+              {peer.access_level}
+            </span>
+          </>
+        )}
       </div>
 
       <Section label="IP">
@@ -157,20 +165,22 @@ function PeerDrawer({
         </div>
       </Section>
 
-      <Section label="Access level">
-        <select
-          value={peer.access_level}
-          disabled={busy}
-          onChange={(e) =>
-            handleAccessChange(e.target.value as AccessLevel)
-          }
-          className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-[10px] text-[var(--ct-fg)] w-full"
-        >
-          <option value="full">full</option>
-          <option value="read_only">read_only</option>
-          <option value="agent_isolated">agent_isolated</option>
-        </select>
-      </Section>
+      {!isSelf && (
+        <Section label="Access level">
+          <select
+            value={peer.access_level}
+            disabled={busy}
+            onChange={(e) =>
+              handleAccessChange(e.target.value as AccessLevel)
+            }
+            className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-[10px] text-[var(--ct-fg)] w-full"
+          >
+            <option value="full">full</option>
+            <option value="read_only">read_only</option>
+            <option value="agent_isolated">agent_isolated</option>
+          </select>
+        </Section>
+      )}
 
       <Section label={`Services on this peer (${services.length})`}>
         <div className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded p-2 flex flex-col gap-1 text-[10px]">
