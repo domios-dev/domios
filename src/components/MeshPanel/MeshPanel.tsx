@@ -7,6 +7,7 @@ import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { AddServiceWizard } from "./AddServiceWizard";
 import { useMeshData } from "./useMeshData";
 import { MeshSettingsTab } from "./MeshSettingsTab";
+import { ActivityTab } from "./ActivityTab";
 
 const TAB_BASE =
   "px-3 py-2 text-xs border-b-2 bg-transparent cursor-pointer capitalize";
@@ -157,11 +158,7 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
             </div>
           </div>
         )}
-        {activeTab === "activity" && (
-          <div className="p-4 text-xs text-[var(--ct-muted-fg)]">
-            Activity (Phase 12)
-          </div>
-        )}
+        {activeTab === "activity" && <ActivityTab active={activeTab === "activity"} />}
         {activeTab === "settings" && (
           <div className="p-4 overflow-y-auto h-full">
             <MeshSettingsTab
