@@ -21,6 +21,7 @@ pub mod process_util;
 pub mod pty;
 pub mod secrets;
 pub mod service;
+pub mod services;
 pub mod shell;
 pub mod session;
 mod socket;
