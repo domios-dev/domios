@@ -7,6 +7,7 @@ import {
   servicesRegenerateToken,
 } from "./meshApi";
 import { CronDrawerSection } from "./CronDrawerSection";
+import { AddServiceWizard } from "./AddServiceWizard";
 
 type AccessLevel = "full" | "read_only" | "agent_isolated";
 
@@ -24,6 +25,8 @@ interface Props {
   state: DrawerState;
   services: Service[];
   peers: PeerStatus[];
+  thisMachineName: string;
+  thisMachineIp?: string;
   onClose: () => void;
   onActionDone: () => void;
 }
@@ -35,17 +38,23 @@ export function ServiceDrawer({
   state,
   services,
   peers,
+  thisMachineName,
+  thisMachineIp,
   onClose,
   onActionDone,
 }: Props) {
   if (!state) return null;
   if (state.kind === "peer") {
-    const peer = peers.find((p) => p.name === state.id);
+    const isSelf = state.id === thisMachineName;
+    const peer = peers.find((p) => p.name === state.id) ?? (isSelf
+      ? { instance_id: "self", name: thisMachineName, ip: thisMachineIp ?? "", online: true, access_level: "full" } satisfies PeerStatus
+      : null);
     if (!peer) return null;
     return (
       <PeerDrawer
         peer={peer}
-        services={services.filter((s) => s.source_peer === state.id)}
+        isSelf={isSelf}
+        services={services.filter((s) => isSelf ? !s.source_peer : s.source_peer === state.id)}
         onClose={onClose}
         onActionDone={onActionDone}
       />
@@ -64,16 +73,19 @@ export function ServiceDrawer({
 
 function PeerDrawer({
   peer,
+  isSelf,
   services,
   onClose,
   onActionDone,
 }: {
   peer: PeerStatus;
+  isSelf: boolean;
   services: Service[];
   onClose: () => void;
   onActionDone: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [showAddWizard, setShowAddWizard] = useState(false);
 
   const handleDisconnect = async () => {
     if (!confirm(`Disconnect from ${peer.name}?`)) return;
@@ -182,22 +194,40 @@ function PeerDrawer({
         </div>
       </Section>
 
-      <div className="mt-auto flex gap-1.5">
-        <button
-          onClick={onActionDone}
-          disabled={busy}
-          className="flex-1 py-1.5 bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded text-[10px] cursor-pointer disabled:opacity-50"
-        >
-          Refresh
-        </button>
-        <button
-          onClick={handleDisconnect}
-          disabled={busy}
-          className="flex-1 py-1.5 bg-[var(--ct-red)] text-[var(--ct-bg)] border-none rounded text-[10px] cursor-pointer font-medium disabled:opacity-50"
-        >
-          Disconnect
-        </button>
+      <div className="mt-auto flex flex-col gap-1.5">
+        {isSelf && (
+          <button
+            onClick={() => setShowAddWizard(true)}
+            className="py-1.5 bg-transparent text-[var(--ct-accent)] border border-dashed border-[var(--ct-accent)] rounded text-[10px] cursor-pointer hover:bg-[var(--ct-accent)]/10"
+          >
+            + Add service
+          </button>
+        )}
+        <div className="flex gap-1.5">
+          <button
+            onClick={onActionDone}
+            disabled={busy}
+            className="flex-1 py-1.5 bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded text-[10px] cursor-pointer disabled:opacity-50"
+          >
+            Refresh
+          </button>
+          {!isSelf && (
+            <button
+              onClick={handleDisconnect}
+              disabled={busy}
+              className="flex-1 py-1.5 bg-[var(--ct-red)] text-[var(--ct-bg)] border-none rounded text-[10px] cursor-pointer font-medium disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+          )}
+        </div>
       </div>
+      {showAddWizard && (
+        <AddServiceWizard
+          onClose={() => setShowAddWizard(false)}
+          onCreated={() => { onActionDone(); setShowAddWizard(false); }}
+        />
+      )}
     </div>
   );
 }

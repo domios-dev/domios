@@ -26,7 +26,6 @@ interface Props {
   services: Service[];
   recentPushes: RecentPush[];
   onPeerClick: (peerName: string) => void;
-  onAddService: () => void;
   width: number;
   height: number;
 }
@@ -40,7 +39,6 @@ export function MeshCanvas({
   services,
   recentPushes,
   onPeerClick,
-  onAddService,
   width,
   height,
 }: Props) {
@@ -133,7 +131,6 @@ export function MeshCanvas({
               p.isThisMachine ? !s.source_peer : s.source_peer === p.name,
             )}
             onClick={() => onPeerClick(p.name)}
-            onAddService={p.isThisMachine ? onAddService : undefined}
           />
         </div>
       ))}
