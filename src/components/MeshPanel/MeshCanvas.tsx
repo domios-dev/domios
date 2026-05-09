@@ -51,8 +51,8 @@ export function MeshCanvas({
   const layout = useMemo<PeerLayout[]>(() => {
     const cx = width / 2;
     const cy = height / 2;
-    const cardSpacing = 320;
-    const minRadius = 280;
+    const cardSpacing = 460;
+    const minRadius = 380;
     const dynamicRadius = peers.length > 0 ? cardSpacing / (2 * Math.sin(Math.PI / Math.max(peers.length, 3))) : minRadius;
     const radius = Math.max(minRadius, dynamicRadius);
     const items: PeerLayout[] = [
