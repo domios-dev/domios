@@ -440,6 +440,7 @@ pub struct IntegrationsConfig {
     pub webhook_enabled: bool,
     pub webhook_port: u16,
     pub voice_transcribe: VoiceTranscribeConfig,
+    pub text_hooks: TextHooksConfig,
     pub secrets: SecretsConfig,
 }
 
@@ -453,6 +454,7 @@ impl Default for IntegrationsConfig {
             webhook_enabled: false,
             webhook_port: 7687,
             voice_transcribe: VoiceTranscribeConfig::default(),
+            text_hooks: TextHooksConfig::default(),
             secrets: SecretsConfig::default(),
         }
     }
@@ -549,6 +551,36 @@ impl Default for VoiceTranscribeConfig {
             language: String::new(),
             fallback_raw_on_error: default_voice_fallback_raw(),
             health_check_ttl_secs: default_voice_health_ttl_secs(),
+        }
+    }
+}
+
+fn default_text_hooks_url() -> String { "http://127.0.0.1:7892".to_string() }
+fn default_text_hooks_timeout_ms() -> u64 { 2000 }
+fn default_text_hooks_fallback() -> String { "forward".to_string() }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TextHooksConfig {
+    pub enabled: bool,
+    #[serde(default = "default_text_hooks_url")]
+    pub daemon_url: String,
+    #[serde(default = "default_text_hooks_timeout_ms")]
+    pub timeout_ms: u64,
+    #[serde(default = "default_voice_health_ttl_secs")]
+    pub health_check_ttl_secs: u64,
+    #[serde(default = "default_text_hooks_fallback")]
+    pub fallback_on_error: String,
+}
+
+impl Default for TextHooksConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            daemon_url: default_text_hooks_url(),
+            timeout_ms: default_text_hooks_timeout_ms(),
+            health_check_ttl_secs: default_voice_health_ttl_secs(),
+            fallback_on_error: default_text_hooks_fallback(),
         }
     }
 }
