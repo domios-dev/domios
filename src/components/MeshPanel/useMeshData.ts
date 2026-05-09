@@ -28,7 +28,11 @@ const DEFAULT_DATA: MeshData = {
   error: null,
 };
 
-export function useMeshData(refreshKey: number): MeshData {
+export interface MeshDataResult extends MeshData {
+  refresh: () => void;
+}
+
+export function useMeshData(refreshKey: number): MeshDataResult {
   const [data, setData] = useState<MeshData>(DEFAULT_DATA);
 
   const loadAll = useCallback(async () => {
@@ -87,5 +91,5 @@ export function useMeshData(refreshKey: number): MeshData {
     loadAll();
   }, [loadAll, refreshKey]);
 
-  return data;
+  return { ...data, refresh: loadAll };
 }

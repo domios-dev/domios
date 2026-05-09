@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab, Service } from "./types";
-import { MeshCanvas } from "./MeshCanvas";
+import { MeshCanvas, type RecentPush } from "./MeshCanvas";
 import { ServicesTable } from "./ServicesTable";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { AddServiceWizard } from "./AddServiceWizard";
@@ -42,6 +42,26 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
   const [activeTab, setActiveTab] = useState<MeshTab>("map");
   const [refreshKey, setRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
+  const [recentPushes, setRecentPushes] = useState<RecentPush[]>([]);
+
+  const triggerRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+
+  useEffect(() => {
+    let unlistenHealth: (() => void) | null = null;
+    let unlistenPush: (() => void) | null = null;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<{ service_id: string; status: string }>("service-health-changed", () => {
+        triggerRefresh();
+      }).then((fn) => { unlistenHealth = fn; });
+      listen<{ source_id: string; target: string }>("service-pushed", (ev) => {
+        setRecentPushes((prev) =>
+          [...prev, { ...ev.payload, at: Date.now() }].slice(-20)
+        );
+      }).then((fn) => { unlistenPush = fn; });
+    });
+    return () => { unlistenHealth?.(); unlistenPush?.(); };
+  }, [triggerRefresh]);
+
   const mapRef = useRef<HTMLDivElement>(null);
   const [mapWidth, setMapWidth] = useState(800);
   const [drawerState, setDrawerState] = useState<DrawerState>(null);
@@ -142,7 +162,7 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
                 thisMachine={data.thisMachine}
                 peers={data.peers}
                 services={data.services}
-                recentPushes={[]}
+                recentPushes={recentPushes}
                 onPeerClick={handlePeerClick}
                 onAddService={() => setShowAddWizard(true)}
                 width={mapWidth}
