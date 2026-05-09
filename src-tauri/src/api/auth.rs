@@ -41,6 +41,14 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
         }
     }
 
+    if let Ok(Some(_svc_id)) = crate::services::push::validate_push(
+        auth_header,
+        &state.svc.tokens,
+        &state.svc.services_store,
+    ) {
+        return Ok(CallerIdentity::Local);
+    }
+
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
     let own_id = mesh.ident.identity.instance_id.clone();
