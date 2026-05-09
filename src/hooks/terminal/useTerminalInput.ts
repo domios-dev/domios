@@ -105,9 +105,20 @@ export function useTerminalInput({
     const focusXterm = () => term.focus();
     el?.addEventListener("mousedown", focusXterm);
 
+    // WebView2 on Windows fires a synthesized DOM `paste` event in addition
+    // to the keydown we already intercept above — xterm.js's own paste
+    // listener then writes the clipboard a second time, producing duplicate
+    // pastes. Capture-phase preventDefault stops xterm before it sees it.
+    const swallowPaste = (e: ClipboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    el?.addEventListener("paste", swallowPaste, true);
+
     return () => {
       onDataDisposable.dispose();
       el?.removeEventListener("mousedown", focusXterm);
+      el?.removeEventListener("paste", swallowPaste, true);
     };
   }, [termReady, termRef, connectedPtyRef, containerRef, onTabKey, onNonTabKey, onInputData]);
 
