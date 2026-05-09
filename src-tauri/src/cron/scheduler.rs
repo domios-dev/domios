@@ -174,6 +174,16 @@ fn fire_job(
         }
     }).map(|s| crate::agent::models::canonicalize_short(&s).to_string());
 
+    // Carry the cron job's human name into the pane title so that
+    // [Report from <title>] shows "cron:my-job" instead of the
+    // default "Terminal" when the agent reports back to its creator.
+    let job_name = cron_state
+        .lock()
+        .get(job_id)
+        .map(|j| j.name.clone())
+        .unwrap_or_else(|| job_id.to_string());
+    let pane_title = format!("cron:{}", job_name);
+
     let spec = SpawnPaneSpec {
         workspace_id: if workspace_id.is_empty() {
             None
@@ -182,7 +192,7 @@ fn fire_job(
         },
         parent_pane_id: None,
         cwd: cwd.map(|s| s.to_string()),
-        title: None,
+        title: Some(pane_title),
         // Hidden — user observes cron runs via the cron history log
         // viewer, not as a live tab. Mirrors the mem worker pattern.
         visibility: PaneVisibility::Hidden,
