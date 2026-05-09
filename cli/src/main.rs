@@ -585,6 +585,11 @@ fn main() {
             return;
         }
 
+        Commands::Docs { name } => {
+            cmd::docs::handle(name);
+            return;
+        }
+
         // Config is handled before socket connect (uses HTTP API)
         Commands::Config { .. } => unreachable!(),
 

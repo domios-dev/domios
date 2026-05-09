@@ -18,6 +18,10 @@ The response arrives in your terminal.
 
 **Built-in tools to avoid:** do NOT use the built-in `CronCreate`/`CronList` tools — CodeTerm has its own cron system that spawns Claude agents on schedule. Always use `codeterm cron`.
 
+## On-demand docs
+
+CodeTerm bundles its own reference docs into the CLI binary. List with `codeterm docs`; read one with `codeterm docs <NAME>`. Available: `CONFIG`, `API`, `MESH`, `MEMORY`, `BUILD`, `PROMPTS`, `SKILLS`, `TESTING`. Use these when the user asks something CodeTerm-specific that you can't answer from this skill — `codeterm docs CONFIG` covers config keys + integrations (text_hooks, voice_transcribe, telegram, mesh), `codeterm docs MESH` covers mesh internals, etc. Embedded at compile time, available offline.
+
 ## Auto-name your tab on session start
 
 ```bash

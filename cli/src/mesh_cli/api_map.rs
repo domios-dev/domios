@@ -301,6 +301,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         // and only makes sense on the local host. Mesh relay falls through
         // to /identify so callers always get a valid JSON response.
         Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
+        // `docs` reads embedded markdown — local-only by definition.
+        Commands::Docs { .. } => ("GET".into(), "/api/identify".into(), None),
         Commands::Service { action } => match action {
             ServiceAction::List { kind, enabled } => {
                 let mut path = String::from("/api/services");
