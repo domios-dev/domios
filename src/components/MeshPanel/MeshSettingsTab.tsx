@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AppConfig, MeshPeersResponse, MeshStatus } from "../../lib/types";
-import { Toggle, CopyRow } from "./shared";
+import { Toggle, CopyRow } from "../Settings/shared";
 
 // localStorage keys for the mesh-section cache. Keep small + namespaced
 // so a future schema change can be invalidated by bumping the suffix.
@@ -23,7 +23,7 @@ function loadCachedStatus(): MeshStatus | null {
   } catch { return null; }
 }
 
-export function MeshSection({ config, onUpdate, apiEnabled }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void; apiEnabled: boolean }) {
+export function MeshSettingsTab({ config, onUpdate, apiEnabled }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void; apiEnabled: boolean }) {
   // Hydrate from localStorage so the panel never flashes empty when the user
   // re-opens Settings — the cached snapshot from last session shows
   // immediately, then the live fetch + discovery refresh overwrite it.
