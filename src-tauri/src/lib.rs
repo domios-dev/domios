@@ -222,6 +222,13 @@ pub fn run() {
             commands::cron_trigger,
             commands::cron_history,
             commands::cron_read_log,
+            // Services commands
+            commands::services_list,
+            commands::services_create,
+            commands::services_get,
+            commands::services_update,
+            commands::services_delete,
+            commands::services_regenerate_token,
             // Mesh commands
             commands_mesh::mesh_get_status,
             commands_mesh::mesh_list_peers,

@@ -10,6 +10,7 @@ mod bridge;
 mod cron;
 mod notification;
 mod pane;
+mod services;
 mod workspace;
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -335,6 +336,8 @@ fn dispatch(
                     "cron.list", "cron.get", "cron.create", "cron.update", "cron.delete",
                     "cron.enable", "cron.disable", "cron.trigger", "cron.cancel",
                     "cron.history", "cron.complete",
+                    "services.list", "services.create", "services.get", "services.update",
+                    "services.delete", "services.regenerate_token",
                     "bridge.send", "bridge.react", "bridge.restart"
                 ]
             }));
@@ -351,6 +354,7 @@ fn dispatch(
         "notification" => notification::dispatch(method, &params, notif, app),
         "agent" => agent::dispatch(method, &params, app, svc),
         "cron" => cron::dispatch(method, &params, app, svc),
+        "services" => services::dispatch(method, &params, app, svc),
         "bridge" => bridge::dispatch(method, &params, svc),
         _ => Err(JsonRpcError {
             code: -32601,
