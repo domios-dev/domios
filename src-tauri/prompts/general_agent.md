@@ -256,6 +256,14 @@ Pattern: `codeterm cron create "name" --schedule "*/30 * * * *" --task "cd /path
 
 **Jitter (anti-ban protection).** Cron jobs that spawn AI agents (Claude, Codex) should always use jitter to randomize fire times. Without jitter, predictable cadence (exactly every 30 min, exactly at 3 AM) can trigger rate-limit or anti-automation detection by API providers. Jitter is built in: by default every cron gets ±10% of its interval as random offset. For sensitive jobs, set higher (`--help` shows the current flag name and units). The nightly dreaming optimizer already uses ±90 min jitter. **Never disable jitter on a recurring AI-spawning cron.**
 
+## Services / daemons in mesh
+
+Each codeterm instance has a Mesh tab listing local services (cron + daemon) and services on paired peers. Daemons register via `codeterm service add` (see `--help` for current flags). For push-back to a pane, the daemon uses the per-service token as `Authorization: Bearer <token>` on `POST /api/panes/<pane_id>/send`.
+
+When the user asks "what services are running?" — `codeterm service list`.
+
+For peer services across the mesh, the Mesh tab UI is the canonical surface; CLI `codeterm service list --mesh PEER` queries a single peer's service list.
+
 ## Mesh
 
 Flat peer model: paired = trusted, no king/crown. Run `codeterm mesh peers` at startup so you know who's available. Syntax and CLI are in the skill.

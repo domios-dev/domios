@@ -155,7 +155,7 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/CONFIG.md` — config options, themes, keybindings
 - `docs/SKILLS.md` — Claude Code skill for CodeTerm control
 - `docs/BUILD.md` — build instructions
-- `docs/MESH.md` — mesh networking (flat peer model) + bridge migration
+- `docs/MESH.md` — mesh networking (flat peer model) + bridge migration + Mesh tab (service registry, health probes, activity log, push tokens)
 - `docs/MEMORY.md` — memory subsystem (storage, search, workers, dreaming)
 - `docs/PROMPTS.md` — prompt templates: where they live, how they compile
 - `docs/TESTING.md` — full test guide
