@@ -1,9 +1,19 @@
 use super::types::*;
 use crate::cron::store::{CronJob, CronStore};
 
+pub const CRON_ID_PREFIX: &str = "cron_";
+
+pub fn cron_id_to_service_id(cron_id: &str) -> String {
+    format!("{}{}", CRON_ID_PREFIX, cron_id)
+}
+
+pub fn service_id_to_cron_id(service_id: &str) -> &str {
+    service_id.strip_prefix(CRON_ID_PREFIX).unwrap_or(service_id)
+}
+
 pub fn cron_to_service(job: &CronJob) -> Service {
     Service {
-        id: format!("cron_{}", job.id),
+        id: cron_id_to_service_id(&job.id),
         name: job.name.clone(),
         kind: ServiceKind::Cron,
         description: job.description.clone(),

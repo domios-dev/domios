@@ -51,3 +51,11 @@ export interface ActivityEvent {
 }
 
 export type MeshTab = "map" | "activity" | "settings";
+
+export const CRON_ID_PREFIX = "cron_";
+
+export function serviceIdToCronId(serviceId: string): string {
+  return serviceId.startsWith(CRON_ID_PREFIX)
+    ? serviceId.slice(CRON_ID_PREFIX.length)
+    : serviceId;
+}

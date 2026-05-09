@@ -24,20 +24,19 @@ export function ServicesTable({
   onServiceClick,
 }: Props) {
   const [hostFilter, setHostFilter] = useState<string>("all");
-  const [kindFilter, setKindFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
+  const daemons = useMemo(() => services.filter((s) => s.kind === "daemon"), [services]);
   const hosts = useMemo(() => {
     const set = new Set<string>([thisMachineName]);
-    for (const s of services) set.add(s.source_peer ?? thisMachineName);
+    for (const s of daemons) set.add(s.source_peer ?? thisMachineName);
     return Array.from(set);
-  }, [services, thisMachineName]);
+  }, [daemons, thisMachineName]);
 
   const filtered = useMemo(() => {
-    const out = services.filter((s) => {
+    const out = daemons.filter((s) => {
       const host = s.source_peer ?? thisMachineName;
       if (hostFilter !== "all" && host !== hostFilter) return false;
-      if (kindFilter !== "all" && s.kind !== kindFilter) return false;
       if (statusFilter !== "all" && s.health.status !== statusFilter)
         return false;
       return true;
@@ -52,13 +51,13 @@ export function ServicesTable({
       return a.name.localeCompare(b.name);
     });
     return out;
-  }, [services, hostFilter, kindFilter, statusFilter, thisMachineName]);
+  }, [daemons, hostFilter, statusFilter, thisMachineName]);
 
   return (
-    <div className="bg-[var(--ct-bg)] border-t border-[var(--ct-border)]">
+    <div className="bg-[var(--ct-bg)] border-t border-[var(--ct-border)] flex-1 min-w-0">
       <div className="flex items-center gap-3 px-4 py-2 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[10px] uppercase text-[var(--ct-muted)]">
         <span className="flex-1">
-          All services ({filtered.length} of {services.length})
+          Services ({filtered.length})
         </span>
         <select
           value={hostFilter}
@@ -71,15 +70,6 @@ export function ServicesTable({
               {h}
             </option>
           ))}
-        </select>
-        <select
-          value={kindFilter}
-          onChange={(e) => setKindFilter(e.target.value)}
-          className={SELECT_CLASS}
-        >
-          <option value="all">all kinds</option>
-          <option value="cron">cron</option>
-          <option value="daemon">daemon</option>
         </select>
         <select
           value={statusFilter}
