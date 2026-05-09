@@ -1,9 +1,11 @@
 mod crud;
+mod cron_view;
 mod schema;
 #[cfg(test)]
 mod tests;
 mod types;
 
+pub use cron_view::list_local;
 pub use schema::{init_schema, SCHEMA_VERSION};
 pub use types::*;
 
