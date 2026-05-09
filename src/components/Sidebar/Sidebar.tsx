@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useMultiplexer } from "../../store/multiplexer";
-import { useCrons } from "../../store/crons";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { TitleLevel } from "../../lib/types";
 import type { Tab, SplitNode, PaneStatus, Pane, AppConfig } from "../../lib/types";
@@ -11,7 +10,6 @@ import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
-import { CronSection } from "./CronSection";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
 
@@ -53,13 +51,8 @@ interface SidebarProps {
   onOpenSettings?: () => void;
   onOpenMemory?: () => void;
   onOpenMesh?: () => void;
-  onOpenCron?: (jobId?: string) => void;
   onNavigateToTab?: () => void;
-  mainView?: "workspace" | "settings" | "memory" | "cron" | "mesh";
-  /** Cron job currently shown in the detail view of CronPanel — used to
-   *  highlight the matching sidebar row with the same bg-[var(--ct-active)]
-   *  treatment as Settings/Memory get. */
-  activeCronId?: string;
+  mainView?: "workspace" | "settings" | "memory" | "mesh";
   config?: AppConfig;
 }
 
@@ -67,10 +60,8 @@ export function Sidebar({
   onOpenSettings,
   onOpenMemory,
   onOpenMesh,
-  onOpenCron,
   onNavigateToTab,
   mainView = "workspace",
-  activeCronId,
   config,
 }: SidebarProps) {
   const {
@@ -87,8 +78,6 @@ export function Sidebar({
     spawnClaudeTab,
     spawnAgentTab,
   } = useMultiplexer();
-  const { cronPaneIds } = useCrons();
-
   // When mainView leaves the workspace (Memory / Settings open), suppress the
   // "active" highlight on the current workspace + tab so the sidebar clearly
   // shows where the user actually is in the hierarchy. Backend focus state
@@ -492,13 +481,12 @@ export function Sidebar({
                         );
                       };
 
-                      // Only render top-level tabs (not children, not cron-owned)
+                      // Only render top-level tabs (not children)
                       return ws.tabs
                         .filter((tab) => {
                           const pids = collectPaneIds(tab.split_tree, state.panes);
                           if (pids.length === 0) return false;
                           if (childPaneIds.has(pids[0])) return false;
-                          if (pids.some((pid) => cronPaneIds.has(pid))) return false;
                           return true;
                         })
                         .map((tab, index) => renderTab(tab, index, 0));
@@ -520,12 +508,6 @@ export function Sidebar({
                       <Plus size={10} strokeWidth={1.5} />
                       <span className="text-[11px]">New session</span>
                     </button>
-                    {/* Cron jobs section */}
-                    <CronSection
-                      workspaceId={ws.id}
-                      onOpenCron={onOpenCron}
-                      activeCronId={mainView === "cron" ? activeCronId : undefined}
-                    />
                   </>
                   </div>
                 </div>
