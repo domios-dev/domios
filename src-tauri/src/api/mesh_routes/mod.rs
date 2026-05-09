@@ -17,7 +17,8 @@ pub mod relay;
 
 pub use announce::{mesh_announce_all, mesh_announce_inbound, mesh_refresh, mesh_set_peer_addr};
 pub use connection::{
-    mesh_approve_peer, mesh_connect_peer, mesh_disconnect_peer, mesh_reject_peer,
+    mesh_approve_peer, mesh_approve_peer_by_id, mesh_connect_peer, mesh_disconnect_peer,
+    mesh_disconnect_peer_by_id, mesh_reject_peer, mesh_reject_peer_by_id,
 };
 pub use introduction::mesh_introduce;
 pub use pairing::{

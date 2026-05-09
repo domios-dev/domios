@@ -13,13 +13,21 @@ const TICK_SECS: u64 = 30;
 const HTTP_TIMEOUT_MS: u64 = 5_000;
 const TCP_TIMEOUT_MS: u64 = 3_000;
 const SCRIPT_TIMEOUT_MS: u64 = 30_000;
+const TRANSITION_DEBOUNCE_TICKS: u8 = 3;
+
+#[derive(Default)]
+struct DebounceState {
+    confirmed: HealthStatus,
+    pending: HealthStatus,
+    pending_count: u8,
+}
 
 pub fn start(store: Arc<ServicesStore>, activity: ActivityWriter, app_handle: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
-        log::info!("[services] health scheduler started (tick {}s)", TICK_SECS);
-        let mut last_status: HashMap<String, HealthStatus> = HashMap::new();
+        log::info!("[services] health scheduler started (tick {}s, debounce {} ticks)", TICK_SECS, TRANSITION_DEBOUNCE_TICKS);
+        let mut state: HashMap<String, DebounceState> = HashMap::new();
         loop {
-            run_tick(&store, &activity, &app_handle, &mut last_status).await;
+            run_tick(&store, &activity, &app_handle, &mut state).await;
             tokio::time::sleep(Duration::from_secs(TICK_SECS)).await;
         }
     });
@@ -29,7 +37,7 @@ async fn run_tick(
     store: &Arc<ServicesStore>,
     activity: &ActivityWriter,
     app_handle: &tauri::AppHandle,
-    last_status: &mut HashMap<String, HealthStatus>,
+    state: &mut HashMap<String, DebounceState>,
 ) {
     let services = match store.list(None, Some(true)) {
         Ok(s) => s,
@@ -48,11 +56,23 @@ async fn run_tick(
         let snap = probe_one(&svc).await;
         persist_snapshot(&conn, &svc.id, &snap);
 
-        let prev = last_status
-            .get(&svc.id)
-            .copied()
-            .unwrap_or(HealthStatus::Unknown);
-        if snap.status != prev {
+        let entry = state.entry(svc.id.clone()).or_default();
+        let confirmed = entry.confirmed;
+        if snap.status == confirmed {
+            entry.pending = confirmed;
+            entry.pending_count = 0;
+            continue;
+        }
+        if snap.status == entry.pending {
+            entry.pending_count = entry.pending_count.saturating_add(1);
+        } else {
+            entry.pending = snap.status;
+            entry.pending_count = 1;
+        }
+        if entry.pending_count >= TRANSITION_DEBOUNCE_TICKS {
+            let prev = confirmed;
+            entry.confirmed = snap.status;
+            entry.pending_count = 0;
             let _ = activity.record(ActivityEvent::health(
                 &svc.id,
                 (status_str(prev), status_str(snap.status)),
@@ -62,7 +82,6 @@ async fn run_tick(
                 serde_json::json!({"service_id": svc.id, "status": snap.status}),
             );
         }
-        last_status.insert(svc.id.clone(), snap.status);
     }
 }
 

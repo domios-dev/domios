@@ -1,5 +1,18 @@
 use crate::{build_http, mesh_cli, read_api_config, MeshAction, MeshPeerAction};
 
+fn handle_resp(
+    resp: reqwest::blocking::Response,
+) -> Result<serde_json::Value, String> {
+    let status = resp.status();
+    if status.is_success() {
+        resp.json::<serde_json::Value>()
+            .map_err(|e| format!("Bad JSON: {}", e))
+    } else {
+        let body = resp.text().unwrap_or_default();
+        Err(format!("HTTP {} — {}", status.as_u16(), body.trim()))
+    }
+}
+
 pub fn handle_mesh(json: bool, action: MeshAction) {
     let (base, token) = read_api_config();
     let http = build_http(&token);
@@ -77,22 +90,20 @@ pub fn handle_mesh(json: bool, action: MeshAction) {
         }
         MeshAction::Connect { instance_id } => {
             let body = serde_json::json!({"instance_id": instance_id});
-            match http.post(format!("{}/api/mesh/connect", base))
+            let result = http.post(format!("{}/api/mesh/connect", base))
                 .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
-                .json(&body).send() {
-                Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
+                .json(&body).send()
+                .map_err(|e| e.to_string())
+                .and_then(handle_resp);
+            match result {
+                Ok(val) => {
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
+                    } else {
                         println!("Pairing request sent to {}", instance_id);
                         if let Some(rid) = val.get("request_id").and_then(|v| v.as_str()) {
                             println!("Request ID: {}", rid);
                         }
-                    } else {
-                        let err = val.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
-                        eprintln!("Error: {}", err);
-                        std::process::exit(1);
                     }
                 }
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
@@ -100,19 +111,17 @@ pub fn handle_mesh(json: bool, action: MeshAction) {
         }
         MeshAction::Approve { request_id } => {
             let body = serde_json::json!({"request_id": request_id});
-            match http.post(format!("{}/api/mesh/approve", base))
+            let result = http.post(format!("{}/api/mesh/approve", base))
                 .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
-                .json(&body).send() {
-                Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
+                .json(&body).send()
+                .map_err(|e| e.to_string())
+                .and_then(handle_resp);
+            match result {
+                Ok(val) => {
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
-                        println!("Pairing request {} approved", request_id);
                     } else {
-                        let err = val.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
-                        eprintln!("Error: {}", err);
-                        std::process::exit(1);
+                        println!("Pairing request {} approved", request_id);
                     }
                 }
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
@@ -120,19 +129,17 @@ pub fn handle_mesh(json: bool, action: MeshAction) {
         }
         MeshAction::Reject { request_id } => {
             let body = serde_json::json!({"request_id": request_id});
-            match http.post(format!("{}/api/mesh/reject", base))
+            let result = http.post(format!("{}/api/mesh/reject", base))
                 .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
-                .json(&body).send() {
-                Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
+                .json(&body).send()
+                .map_err(|e| e.to_string())
+                .and_then(handle_resp);
+            match result {
+                Ok(val) => {
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
-                        println!("Pairing request {} rejected and blocked", request_id);
                     } else {
-                        let err = val.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
-                        eprintln!("Error: {}", err);
-                        std::process::exit(1);
+                        println!("Pairing request {} rejected and blocked", request_id);
                     }
                 }
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
@@ -140,19 +147,17 @@ pub fn handle_mesh(json: bool, action: MeshAction) {
         }
         MeshAction::Disconnect { instance_id } => {
             let body = serde_json::json!({"instance_id": instance_id});
-            match http.post(format!("{}/api/mesh/disconnect", base))
+            let result = http.post(format!("{}/api/mesh/disconnect", base))
                 .header("Authorization", format!("Bearer {}", token.as_deref().unwrap_or("")))
-                .json(&body).send() {
-                Ok(resp) => {
-                    let val: serde_json::Value = resp.json().unwrap_or_default();
+                .json(&body).send()
+                .map_err(|e| e.to_string())
+                .and_then(handle_resp);
+            match result {
+                Ok(val) => {
                     if json {
                         println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else if val.get("ok").and_then(|v| v.as_bool()) == Some(true) {
-                        println!("Disconnected from {}", instance_id);
                     } else {
-                        let err = val.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
-                        eprintln!("Error: {}", err);
-                        std::process::exit(1);
+                        println!("Disconnected from {}", instance_id);
                     }
                 }
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }

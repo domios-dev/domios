@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import type { CronRunInfo } from "../../lib/types";
 import { serviceIdToCronId } from "./types";
-import { describeSchedule, formatTime } from "../../lib/formatters";
+import { describeSchedule, formatFuture, formatTime } from "../../lib/formatters";
 import type { Service } from "./types";
 
 interface Props {
@@ -130,7 +130,7 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
           <div>
             next:{" "}
             <span className="font-mono">
-              {service.next_run ? formatTime(service.next_run * 1000) : "—"}
+              {service.next_run ? `${formatFuture(service.next_run)} (${formatTime(service.next_run)})` : "—"}
             </span>
           </div>
           <div>
