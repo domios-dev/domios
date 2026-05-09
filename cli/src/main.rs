@@ -152,6 +152,7 @@ pub use args::system::SystemAction;
 pub use args::mem::{MemAction, MemDreamAction, MemRepairAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
 pub use args::agent::AgentAction;
 pub use args::cron::CronAction;
+pub use args::service::ServiceAction;
 pub use args::update::UpdateAction;
 pub use args::misc::{WorkspaceAction, PaneAction, BrowserAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction};
 
@@ -566,6 +567,11 @@ fn main() {
 
         Commands::Cron { action } => {
             cmd::cron::handle_cron(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Service { action } => {
+            cmd::service::handle_service(&mut client, cli.json, action);
             return;
         }
 

@@ -5,6 +5,7 @@ use crate::mesh_cli::MeshAction;
 use super::agent::AgentAction;
 use super::cron::CronAction;
 use super::mem::MemAction;
+use super::service::ServiceAction;
 use super::misc::{
     BridgeAction, BrowserAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction,
     ThemeAction, WorkspaceAction,
@@ -140,6 +141,12 @@ pub enum Commands {
     Cron {
         #[command(subcommand)]
         action: CronAction,
+    },
+
+    /// Manage daemon services (long-running processes monitored by codeterm)
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
     },
 
     /// Check for updates and manage CodeTerm version

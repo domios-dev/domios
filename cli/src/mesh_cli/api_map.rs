@@ -4,7 +4,7 @@
 //! One large match — the dispatch table for every CLI subcommand. Adding a
 //! new subcommand to `super::Commands` requires adding an arm here.
 
-use crate::{Commands, UpdateAction};
+use crate::{Commands, ServiceAction, UpdateAction};
 
 use super::{parse_ip_port, MeshAction, MeshPeerAction};
 use super::update::resolve_update_action;
@@ -301,6 +301,48 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         // and only makes sense on the local host. Mesh relay falls through
         // to /identify so callers always get a valid JSON response.
         Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
+        Commands::Service { action } => match action {
+            ServiceAction::List { kind, enabled } => {
+                let mut path = String::from("/api/services");
+                let mut sep = '?';
+                if let Some(k) = kind { path.push(sep); sep = '&'; path.push_str(&format!("kind={}", urlencoding::encode(k))); }
+                if let Some(e) = enabled { path.push(sep); let _ = sep; path.push_str(&format!("enabled={}", e)); }
+                ("GET".into(), path, None)
+            }
+            ServiceAction::Add { name, kind, health_mode, url, host, port, process_label, script_path, health_path, health_interval, description, push } => {
+                let mut body = serde_json::json!({
+                    "name": name,
+                    "kind": kind,
+                    "health_mode": health_mode,
+                    "health_interval": health_interval,
+                    "push_enabled": push,
+                });
+                if let Some(v) = url { body["url"] = serde_json::json!(v); }
+                if let Some(v) = host { body["host"] = serde_json::json!(v); }
+                if let Some(v) = port { body["port"] = serde_json::json!(v); }
+                if let Some(v) = process_label { body["process_label"] = serde_json::json!(v); }
+                if let Some(v) = script_path { body["script_path"] = serde_json::json!(v); }
+                if let Some(v) = health_path { body["health_path"] = serde_json::json!(v); }
+                if let Some(v) = description { body["description"] = serde_json::json!(v); }
+                ("POST".into(), "/api/services".into(), Some(body.to_string()))
+            }
+            ServiceAction::Show { id } => ("GET".into(), format!("/api/services/{}", urlencoding::encode(id)), None),
+            ServiceAction::Edit { id, name, url, enabled } => {
+                let mut body = serde_json::json!({});
+                if let Some(v) = name { body["name"] = serde_json::json!(v); }
+                if let Some(v) = url { body["url"] = serde_json::json!(v); }
+                if let Some(v) = enabled { body["enabled"] = serde_json::json!(v); }
+                ("PUT".into(), format!("/api/services/{}", urlencoding::encode(id)), Some(body.to_string()))
+            }
+            ServiceAction::Delete { id } => ("DELETE".into(), format!("/api/services/{}", urlencoding::encode(id)), None),
+            ServiceAction::Token { id, rotate } => {
+                if *rotate {
+                    ("POST".into(), format!("/api/services/{}/regenerate-token", urlencoding::encode(id)), None)
+                } else {
+                    ("GET".into(), format!("/api/services/{}", urlencoding::encode(id)), None)
+                }
+            }
+        },
     }
 }
 
