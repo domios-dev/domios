@@ -11,6 +11,7 @@ pub mod pairing;
 pub mod transport;
 pub mod crown;
 pub mod identity;
+pub mod ping_scheduler;
 
 use std::collections::HashMap;
 use std::sync::Arc;

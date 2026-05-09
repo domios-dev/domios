@@ -89,6 +89,8 @@ export function useMeshData(refreshKey: number): MeshDataResult {
 
   useEffect(() => {
     loadAll();
+    const handle = setInterval(() => { loadAll(); }, 5000);
+    return () => clearInterval(handle);
   }, [loadAll, refreshKey]);
 
   return { ...data, refresh: loadAll };
