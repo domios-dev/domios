@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui-dart/tauri/HEAD/core/tauri-config-schema/schema.json",
   "productName": "CodeTerm",
-  "version": "1.1.23",
+  "version": "1.2.0",
   "identifier": "com.codeterm.app",
   "build": {
     "frontendDist": "../dist",
