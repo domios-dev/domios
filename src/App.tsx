@@ -5,9 +5,9 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { SplitContainer } from "./components/Terminal/SplitContainer";
 import { NotificationToastContainer } from "./components/Notifications/NotificationToast";
 import { SettingsPanel, type SectionId } from "./components/Settings/SettingsPanel";
-import { CronPanel } from "./components/CronPanel/CronPanel";
 import { Onboarding } from "./components/Onboarding/Onboarding";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
+import { MeshPanel } from "./components/MeshPanel/MeshPanel";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
@@ -19,7 +19,6 @@ import {
   MultiplexerProvider,
   useMultiplexer,
 } from "./store/multiplexer";
-import { CronProvider } from "./store/crons";
 import type { ThemeConfig } from "./lib/types";
 import { matchesBinding, isMac } from "./lib/keybindings";
 import { blendColor, deriveColor } from "./lib/colors";
@@ -67,22 +66,17 @@ function themeToCSS(theme: ThemeConfig): Record<string, string> {
 function AppInner() {
   useAgentProviders();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "cron">("workspace");
+  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh">("workspace");
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
-  const [cronInitialId, setCronInitialId] = useState<string | undefined>(undefined);
-  const [activeCronId, setActiveCronId] = useState<string | undefined>(undefined);
-  // Lazy-mount panels: each panel mounts only after its first open, then stays
-  // mounted so subsequent view switches are instant. Cuts startup cost (don't
-  // pay for Memory/Settings/Cron initial fetches until the user actually looks
-  // at them) while keeping switching smooth.
+  // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
   const [mountedSettings, setMountedSettings] = useState(false);
   const [mountedMemory, setMountedMemory] = useState(false);
-  const [mountedCron, setMountedCron] = useState(false);
+  const [mountedMesh, setMountedMesh] = useState(false);
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
-    if (mainView === "cron") setMountedCron(true);
+    if (mainView === "mesh") setMountedMesh(true);
   }, [mainView]);
   const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
@@ -98,15 +92,12 @@ function AppInner() {
       return open ? "memory" : "workspace";
     });
   }, []);
-  const openCronPanel = useCallback((jobId?: string) => {
-    setCronInitialId(jobId);
-    setActiveCronId(jobId);
-    setMainView("cron");
-  }, []);
-  const closeCronPanel = useCallback(() => {
-    setCronInitialId(undefined);
-    setActiveCronId(undefined);
-    setMainView("workspace");
+  const setMeshOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
+    setMainView((cur) => {
+      const wasOpen = cur === "mesh";
+      const open = typeof next === "function" ? next(wasOpen) : next;
+      return open ? "mesh" : "workspace";
+    });
   }, []);
   const [showOnboarding, setShowOnboarding] = useState(false);
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
@@ -531,10 +522,10 @@ function AppInner() {
           <Sidebar
             onOpenSettings={() => setSettingsOpen(true)}
             onOpenMemory={() => setMemoryOpen(true)}
-            onOpenCron={openCronPanel}
+            onOpenMesh={() => setMeshOpen(true)}
             onNavigateToTab={() => setMainView("workspace")}
             mainView={mainView}
-            activeCronId={activeCronId}
+            config={config}
           />
         )}
 
@@ -557,6 +548,12 @@ function AppInner() {
                 onUpdateConfig={updateConfig}
                 onClose={() => { setSettingsSection(undefined); setSettingsOpen(false); }}
                 initialSection={settingsSection}
+                onNavigateToTab={(tab) => {
+                  setSettingsOpen(false);
+                  setSettingsSection(undefined);
+                  if (tab === "memory") setMemoryOpen(true);
+                  else if (tab === "mesh") setMeshOpen(true);
+                }}
               />
             </div>
           )}
@@ -577,26 +574,25 @@ function AppInner() {
                 }}
                 initialState={memoryInitial}
                 onFocusPane={handleMemoryFocusPane}
+                config={config}
+                onConfigUpdate={updateConfig}
               />
             </div>
           )}
-          {mountedCron && (
+          {mountedMesh && (
             <div
               className="absolute inset-0"
               style={{
-                zIndex: mainView === "cron" ? 2 : 0,
-                visibility: mainView === "cron" ? "visible" : "hidden",
-                pointerEvents: mainView === "cron" ? "auto" : "none",
+                zIndex: mainView === "mesh" ? 2 : 0,
+                visibility: mainView === "mesh" ? "visible" : "hidden",
+                pointerEvents: mainView === "mesh" ? "auto" : "none",
               }}
             >
-              <CronPanel
-                initialView={
-                  cronInitialId
-                    ? { type: "detail", cronId: cronInitialId }
-                    : { type: "dashboard" }
-                }
-                onClose={closeCronPanel}
-                onActiveCronChange={setActiveCronId}
+              <MeshPanel
+                api={config.api}
+                config={config}
+                onConfigUpdate={updateConfig}
+                onClose={() => setMeshOpen(false)}
               />
             </div>
           )}
@@ -668,9 +664,7 @@ function AppInner() {
 export function App() {
   return (
     <MultiplexerProvider>
-      <CronProvider>
-        <AppInner />
-      </CronProvider>
+      <AppInner />
     </MultiplexerProvider>
   );
 }

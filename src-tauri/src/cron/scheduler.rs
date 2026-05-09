@@ -35,21 +35,23 @@ pub fn start(
     });
 }
 
+struct FireSpec {
+    job_id: String,
+    agent: String,
+    model: Option<String>,
+    task: String,
+    cwd: Option<String>,
+    role: Option<String>,
+    workspace_id: String,
+    creator_pane_id: Option<String>,
+    timeout_seconds: Option<u64>,
+}
+
 /// One scheduler tick: fire any overdue jobs, return ms until next fire.
 fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
     let now_ms = now();
     let mut next_fire: Option<u64> = None;
-    // (job_id, agent, model, task, cwd, role, workspace_id, creator_pane_id)
-    let mut to_fire: Vec<(
-        String,
-        String,
-        Option<String>,
-        String,
-        Option<String>,
-        Option<String>,
-        String,
-        Option<String>,
-    )> = Vec::new();
+    let mut to_fire: Vec<FireSpec> = Vec::new();
 
     {
         let store = cron_state.lock();
@@ -58,7 +60,6 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
                 if nr <= now_ms {
                     if store.is_job_running(&job.id) {
                         log::info!("[cron] skip {}: previous run still active", job.id);
-                        // recheck in 30s instead of busy-looping on an overdue next_run
                         let recheck = now_ms + 30_000;
                         next_fire = Some(match next_fire {
                             Some(current) => current.min(recheck),
@@ -66,16 +67,17 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
                         });
                         continue;
                     }
-                    to_fire.push((
-                        job.id.clone(),
-                        job.agent.clone(),
-                        job.model.clone(),
-                        job.task.clone(),
-                        job.cwd.clone(),
-                        job.role.clone(),
-                        job.workspace_id.clone(),
-                        job.creator_pane_id.clone(),
-                    ));
+                    to_fire.push(FireSpec {
+                        job_id: job.id.clone(),
+                        agent: job.agent.clone(),
+                        model: job.model.clone(),
+                        task: job.task.clone(),
+                        cwd: job.cwd.clone(),
+                        role: job.role.clone(),
+                        workspace_id: job.workspace_id.clone(),
+                        creator_pane_id: job.creator_pane_id.clone(),
+                        timeout_seconds: job.timeout_seconds,
+                    });
                 } else {
                     next_fire = Some(match next_fire {
                         Some(current) => current.min(nr),
@@ -86,10 +88,9 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
         }
     }
 
-    // Fire jobs
     let fired_any = !to_fire.is_empty();
-    for (job_id, agent, model, task, cwd, role, workspace_id, creator_pane_id) in to_fire {
-        fire_job(cron_state, service, &job_id, &agent, model.as_deref(), &task, cwd.as_deref(), role.as_deref(), &workspace_id, creator_pane_id.as_deref());
+    for spec in to_fire {
+        fire_job(cron_state, service, &spec);
     }
 
     // Recalculate next fire after firing
@@ -122,15 +123,18 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
 fn fire_job(
     cron_state: &CronState,
     service: &ServiceState,
-    job_id: &str,
-    agent: &str,
-    model: Option<&str>,
-    task: &str,
-    cwd: Option<&str>,
-    role: Option<&str>,
-    workspace_id: &str,
-    creator_pane_id: Option<&str>,
+    spec: &FireSpec,
 ) {
+    let job_id = spec.job_id.as_str();
+    let agent = spec.agent.as_str();
+    let model = spec.model.as_deref();
+    let task = spec.task.as_str();
+    let cwd = spec.cwd.as_deref();
+    let role = spec.role.as_deref();
+    let workspace_id = spec.workspace_id.as_str();
+    let creator_pane_id = spec.creator_pane_id.as_deref();
+    let job_timeout = spec.timeout_seconds;
+
     let run_id = uuid::Uuid::new_v4().to_string();
     log::info!("Cron fired: job={}, run={}", job_id, run_id);
 
@@ -174,6 +178,16 @@ fn fire_job(
         }
     }).map(|s| crate::agent::models::canonicalize_short(&s).to_string());
 
+    // Carry the cron job's human name into the pane title so that
+    // [Report from <title>] shows "cron:my-job" instead of the
+    // default "Terminal" when the agent reports back to its creator.
+    let job_name = cron_state
+        .lock()
+        .get(job_id)
+        .map(|j| j.name.clone())
+        .unwrap_or_else(|| job_id.to_string());
+    let pane_title = format!("cron:{}", job_name);
+
     let spec = SpawnPaneSpec {
         workspace_id: if workspace_id.is_empty() {
             None
@@ -182,7 +196,7 @@ fn fire_job(
         },
         parent_pane_id: None,
         cwd: cwd.map(|s| s.to_string()),
-        title: None,
+        title: Some(pane_title),
         // Hidden — user observes cron runs via the cron history log
         // viewer, not as a live tab. Mirrors the mem worker pattern.
         visibility: PaneVisibility::Hidden,
@@ -234,7 +248,14 @@ fn fire_job(
                 .get(&handle.pane_id)
                 .cloned()
             {
-                let timeout = crate::config::memory_config().worker_timeout_seconds;
+                let global_timeout = crate::config::memory_config().worker_timeout_seconds;
+                let timeout = job_timeout.unwrap_or(global_timeout);
+                if job_timeout.is_some() {
+                    log::info!(
+                        "[cron] fire {} run={} timeout={}s (per-job override)",
+                        job_id, run_id, timeout
+                    );
+                }
                 service.run_watcher.register(
                     (**service).clone(),
                     pty_id,
@@ -322,6 +343,8 @@ mod tests {
             max_history: None,
             oneshot: None,
             jitter_max_ms: Some(0),
+            tz: None,
+            timeout_seconds: None,
         }).unwrap();
 
         store.create(CronCreateParams {
@@ -339,6 +362,8 @@ mod tests {
             max_history: None,
             oneshot: None,
             jitter_max_ms: Some(0),
+            tz: None,
+            timeout_seconds: None,
         }).unwrap();
 
         let enabled = store.list_enabled();

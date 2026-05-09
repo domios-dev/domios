@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod bridge;
 pub mod cron;
+pub mod docs;
 pub mod dream;
 pub mod graph_mutate;
 pub mod install;
@@ -11,6 +12,7 @@ pub mod pane;
 pub mod print;
 pub mod repair;
 pub mod send_text;
+pub mod service;
 pub mod sessions;
 pub mod system;
 pub mod update;

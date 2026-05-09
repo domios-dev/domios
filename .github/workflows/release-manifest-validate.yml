@@ -1,0 +1,62 @@
+name: release-manifest-validate
+
+# Asserts that the public auto-update manifest (latest.json hosted on the
+# rollacode/codeterm-releases mirror) declares the right artifact extensions
+# per platform. Tauri's updater silently fails if it gets a .dmg / .msi where
+# it expects an updater bundle (.app.tar.gz / .nsis.zip / .AppImage.tar.gz),
+# so this guard catches a broken manifest before users try to update.
+#
+# Triggers:
+#   - workflow_run after release-macos / release-windows / release-linux
+#     finish on a tag push. The mirror step inside each release workflow
+#     uploads/refreshes latest.json, so by the time all three complete the
+#     manifest should be correct.
+#   - workflow_dispatch for manual re-checks.
+
+on:
+  workflow_run:
+    workflows: [release-macos, release-windows, release-linux]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    # Skip when the upstream workflow itself failed — there is nothing new to
+    # validate, and we don't want to spam failures on top of failures.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Fetch latest.json from public mirror and validate per-platform URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json"
+          JSON=$(curl -sfL "$URL")
+          echo "$JSON" | jq .
+
+          darwin=$(echo "$JSON" | jq -r '.platforms["darwin-x86_64"].url // .platforms["darwin-aarch64"].url // empty')
+          windows=$(echo "$JSON" | jq -r '.platforms["windows-x86_64"].url // empty')
+          linux=$(echo "$JSON" | jq -r '.platforms["linux-x86_64"].url // empty')
+
+          fail=0
+          if [ -z "$darwin" ]; then
+            echo "::error::manifest missing both darwin-aarch64 and darwin-x86_64 entries"
+            fail=1
+          else
+            echo "$darwin" | grep -qE '\.app\.tar\.gz(\?|$)' || { echo "::error::darwin url missing .app.tar.gz: $darwin"; fail=1; }
+          fi
+          if [ -z "$windows" ]; then
+            echo "::error::manifest missing windows-x86_64 entry"
+            fail=1
+          else
+            echo "$windows" | grep -qE '\.nsis\.zip(\?|$)' || { echo "::error::windows url missing .nsis.zip: $windows"; fail=1; }
+          fi
+          if [ -z "$linux" ]; then
+            echo "::error::manifest missing linux-x86_64 entry"
+            fail=1
+          else
+            echo "$linux" | grep -qE '\.AppImage\.tar\.gz(\?|$)' || { echo "::error::linux url missing .AppImage.tar.gz: $linux"; fail=1; }
+          fi
+
+          if [ "$fail" -ne 0 ]; then exit 1; fi
+          echo "OK — manifest looks correct"

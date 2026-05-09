@@ -40,6 +40,17 @@ pub enum CronAction {
         /// Oneshot: fire once at scheduled time, then auto-delete
         #[arg(long)]
         once: bool,
+        /// Max jitter in milliseconds added to each scheduled fire. 0 = off.
+        /// Omit for default (10% of interval, clamped to [1m, 30m]).
+        #[arg(long)]
+        jitter_max_ms: Option<u64>,
+        /// IANA timezone for the schedule (e.g. "Europe/Riga"). Default: UTC.
+        #[arg(long)]
+        tz: Option<String>,
+        /// Per-cron run timeout (seconds). Overrides global memory.worker_timeout_seconds.
+        /// Set high (e.g. 1800) for long-running tasks like memory dreaming.
+        #[arg(long)]
+        timeout_secs: Option<u64>,
     },
     /// Edit a cron job
     Edit {
@@ -65,6 +76,12 @@ pub enum CronAction {
         /// 0 to disable jitter. Omit to leave unchanged.
         #[arg(long)]
         jitter_max_ms: Option<u64>,
+        /// IANA timezone (e.g. "Europe/Riga"). Pass empty string to clear back to UTC.
+        #[arg(long)]
+        tz: Option<String>,
+        /// Per-cron run timeout (seconds). 0 clears the override (back to global default).
+        #[arg(long)]
+        timeout_secs: Option<u64>,
     },
     /// Delete a cron job
     Delete {

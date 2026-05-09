@@ -80,7 +80,12 @@ impl ServiceContext {
         // fixed — guard against that explicitly.
         if let Some(ref target_id) = target_opt {
             if target_id != pane_id {
-                let notify_msg = format!("[Report from {}] {}", from_title, message);
+                // Include a short pane id alongside the title so the user can
+                // disambiguate concurrent runs of the same job (e.g. two
+                // overlapping cron fires that share `cron:my-job`).
+                let short_pane = pane_id.split('-').next().unwrap_or(pane_id);
+                let notify_msg =
+                    format!("[Report from {} pane={}] {}", from_title, short_pane, message);
                 let _ = self.send_text(target_id, &notify_msg, true);
             }
         }

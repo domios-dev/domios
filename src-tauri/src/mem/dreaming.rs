@@ -625,6 +625,8 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
         max_history: Some(30),
         oneshot: Some(false),
         jitter_max_ms: Some(5_400_000),
+        tz: None,
+        timeout_seconds: Some(mem_cfg.dreaming_timeout_seconds),
     })?;
     // Mark as protected after creation
     if let Some(job) = cron_store.list().iter().find(|j| j.name == DREAMING_CRON_NAME) {

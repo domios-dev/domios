@@ -8,8 +8,8 @@ use tower_http::cors::CorsLayer;
 
 use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, health_routes, hook_routes,
-    mem_routes, mesh_routes, network_routes, notification_routes, pane_routes, session_routes,
-    theme_routes, updater_routes, webhook_routes, workspace_routes,
+    mem_routes, mesh_routes, network_routes, notification_routes, pane_routes, services_routes,
+    session_routes, theme_routes, updater_routes, webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -92,6 +92,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/crons/{id}/trigger", post(cron_routes::cron_trigger))
         .route("/api/crons/{id}/cancel", post(cron_routes::cron_cancel))
         .route("/api/crons/{id}/history", get(cron_routes::cron_history))
+        .route("/api/services", get(services_routes::list_services).post(services_routes::create_service))
+        .route("/api/services/{id}", get(services_routes::get_service).put(services_routes::update_service).delete(services_routes::delete_service))
+        .route("/api/services/{id}/regenerate-token", post(services_routes::regenerate_token))
+        .route("/api/activity", get(services_routes::list_activity))
         .route("/api/config", get(config_routes::get_config_api).patch(config_routes::patch_config_api))
         .route("/api/update/check", get(updater_routes::check_update))
         .route("/api/update/status", get(updater_routes::update_status))
@@ -127,6 +131,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/relay", post(mesh_routes::mesh_relay))
         .route("/api/mesh/peers/{id}", axum::routing::delete(mesh_routes::mesh_unpair))
         .route("/api/mesh/refresh", post(mesh_routes::mesh_refresh))
+        .route("/api/mesh/peers/add-manual", post(mesh_routes::mesh_add_manual))
+        .route("/api/mesh/peers/approve/{id}", post(mesh_routes::mesh_approve_peer_by_id))
+        .route("/api/mesh/peers/reject/{id}", post(mesh_routes::mesh_reject_peer_by_id))
+        .route("/api/mesh/peers/disconnect/{id}", post(mesh_routes::mesh_disconnect_peer_by_id))
         .route("/api/mesh/announce", post(mesh_routes::mesh_announce_inbound))
         .route("/api/mesh/announce/all", post(mesh_routes::mesh_announce_all))
         .route("/api/mesh/peers/{id}/addr", post(mesh_routes::mesh_set_peer_addr))

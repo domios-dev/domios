@@ -18,6 +18,10 @@ The response arrives in your terminal.
 
 **Built-in tools to avoid:** do NOT use the built-in `CronCreate`/`CronList` tools — CodeTerm has its own cron system that spawns Claude agents on schedule. Always use `codeterm cron`.
 
+## On-demand docs
+
+CodeTerm bundles its own reference docs into the CLI binary. List with `codeterm docs`; read one with `codeterm docs <NAME>`. Available: `CONFIG`, `API`, `MESH`, `MEMORY`, `BUILD`, `PROMPTS`, `SKILLS`, `TESTING`. Use these when the user asks something CodeTerm-specific that you can't answer from this skill — `codeterm docs CONFIG` covers config keys + integrations (text_hooks, voice_transcribe, telegram, mesh), `codeterm docs MESH` covers mesh internals, etc. Embedded at compile time, available offline.
+
 ## Auto-name your tab on session start
 
 ```bash
@@ -175,7 +179,29 @@ codeterm cron list
 codeterm cron edit ID [--name N] [--schedule S] [--task T]                      # modify in place
 ```
 
+**Before composing a non-trivial cron, run `codeterm cron create --help` and `codeterm cron edit --help`.** Flags evolve (timezone, per-cron timeout, jitter, etc.) and `--help` is the source of truth.
+
 Full cron reference, oneshot schedules, and lifecycle details: `references/cron.md`.
+
+### codeterm service
+
+Manage local services in the Mesh tab — register daemons, list cron+daemon entries, get/rotate push tokens.
+
+```bash
+codeterm service list                            # all registered services (cron + daemon)
+codeterm service list --kind daemon              # daemons only
+codeterm service add <name> [--help]             # register a daemon (see --help for health probe flags)
+codeterm service show <id>                       # detail + recent activity
+codeterm service edit <id> [--help]              # update fields
+codeterm service delete <id>                     # remove service + token + activity
+codeterm service token <id> --rotate             # rotate push token (old invalidated immediately)
+```
+
+For peer services across the mesh, the Mesh tab UI is the canonical surface. CLI: `codeterm service list --mesh PEER` queries a single peer's service list.
+
+**Push from a daemon:** `POST /api/panes/<pane_id>/send` with `Authorization: Bearer <service_token>` — the token returned at `add` or `token --rotate` time.
+
+**Before composing a non-trivial `service add`, run `codeterm service add --help`.** Health probe flags (http/tcp/process/script modes, intervals) evolve and `--help` is the source of truth.
 
 ## Telegram bridge
 
@@ -257,4 +283,4 @@ codeterm sessions search "<query>"                                 # past chat c
 
 Full reference (every command, kinds table, filters, graph queries, search-strategy fallbacks, skill-folder workflow, sessions API, keepawake): `references/mem.md`.
 
-<!-- revision: 34 -->
+<!-- revision: 36 -->

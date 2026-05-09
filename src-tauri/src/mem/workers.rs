@@ -394,10 +394,15 @@ pub fn spawn_headless(
         let model_for_spawn = model.clone();
         let spawned_by_for_spawn = spawned_by.clone();
         let intent_for_spawn = intent.clone();
+        let intent_title = intent_for_spawn.clone();
         let spawn_result = tokio::task::spawn_blocking(move || {
             use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
             let spec = SpawnPaneSpec {
                 visibility: PaneVisibility::Hidden,
+                // Title carries the worker intent (e.g. "mem:dreaming:rem",
+                // "mem:extract:auto:save") so [Report from <title>] is
+                // self-identifying instead of the generic "Terminal".
+                title: Some(format!("mem:{}", intent_title)),
                 command: PaneCommand::Agent(AgentSpawnSpec {
                     provider: agent_for_spawn,
                     model: if model_for_spawn.is_empty() {

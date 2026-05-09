@@ -199,6 +199,14 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/mesh/disconnect` | `{instance_id}` | Unpair from a paired peer (notifies remote side) |
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
 | DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (used internally by disconnect broadcast) |
+| POST | `/api/mesh/peers/add-manual` | `{address, port}` | Inject a `Manual` discovered peer by Tailscale IP / port (skips mDNS / UDP scan). Returns `{ok, instance_id}` and emits `mesh-state-changed`. |
+| POST | `/api/mesh/peers/approve/{id}` | — | Path-style alias for `POST /api/mesh/approve` (`request_id` in URL). |
+| POST | `/api/mesh/peers/reject/{id}` | — | Path-style alias for `POST /api/mesh/reject`. |
+| POST | `/api/mesh/peers/disconnect/{id}` | — | Path-style alias for `POST /api/mesh/disconnect` (`instance_id` in URL). |
+
+**Mesh-disabled gate (503).** When `config.mesh.enabled = false`, the auth middleware short-circuits every `/api/mesh/*` path other than `/api/mesh/ping` with `503 Mesh networking is disabled`. The same 503 also fires for any caller authenticated via the mesh signed-token path (i.e. another peer relaying to us) — the local Bearer token still works. Toggle the config back on to restore mesh routing without restarting the daemon.
+
+**Peer-ping scheduler.** A background scheduler (`mesh::ping_scheduler`) pings each paired peer's `/api/mesh/ping` every 20 s with a 4 s timeout. On any online/offline transition, the peer record's `online` flag flips, `last_seen` updates on coming back, and `mesh-state-changed` fires so the UI re-renders without polling.
 
 **Tauri IPC (Mesh):**
 | Command | Params | Description |
@@ -328,13 +336,46 @@ Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge i
 | POST | `/api/setup/hooks/install` | — | Install Claude hooks |
 | POST | `/api/setup/hooks/uninstall` | — | Uninstall Claude hooks |
 
+#### Services
+
+Daemon-kind services are registered here; cron jobs are projected as virtual `cron`-kind services but managed via `/api/crons`. Only `daemon` can be created through this API.
+
+`POST /api/panes/{id}/send` accepts `Authorization: Bearer <service_token>` (the per-service push token returned at create or rotation time) in addition to the normal access token. This lets a registered daemon write to a pane without holding the global access token.
+
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/services` | `?kind=cron\|daemon&enabled=true\|false` | List all services (cron projection + registered daemons), optionally filtered |
+| POST | `/api/services` | `{name, kind:"daemon", health_mode, health_interval?, push_enabled?, url?, host?, port?, process_label?, script_path?, health_path?, description?, field_mapping?}` | Register a new daemon-kind service. `kind` other than `daemon` returns 400 (cron jobs go through `/api/crons`). Returns `{service, token}` — save the token, it is shown only once. `health_interval` defaults to 30 s. `push_enabled` defaults to false; set true to allow Bearer-token writes to panes. |
+| GET | `/api/services/{id}` | — | Get service by ID. Body includes the latest health snapshot (joined from `service_health` via `ROW_NUMBER` window — most recent row only). |
+| PUT | `/api/services/{id}` | `{name?, description?, url?, host?, port?, process_label?, script_path?, health_mode?, health_path?, health_interval?, field_mapping?, push_enabled?, enabled?}` | Update service fields. Each field is a sparse patch (only provided keys are written). |
+| DELETE | `/api/services/{id}` | — | Delete service + its push token + activity |
+| POST | `/api/services/{id}/regenerate-token` | — | Rotate push token. Returns `{token, push_enabled: true}` — old token is immediately invalidated, and `push_enabled` is auto-set to true (rotating implies you intend to push). |
+
+**Health modes:** `http` (HTTP GET to `url` + optional `health_path`, default `/healthz`), `tcp` (TCP connect to `host:port`), `process` (launchctl/systemd unit via `process_label`), `script` (exit 0 = healthy, `script_path`). The probe scheduler ticks every 30 s and requires **3 consecutive identical observations** before firing a transition event — single-tick blips never page the UI.
+
+**Push-token middleware.** `POST /api/panes/{id}/send` accepts `Authorization: Bearer <service_token>` (the per-service push token returned at create or rotation time) in addition to the normal API token. Token files live at `<data_dir>/services/<service_id>/token` (mode `0600` on Unix), are 64-hex-char random, and are matched constant-time. Every accepted push is mirrored into the activity log as a `push` event.
+
+**Tauri events:**
+- `service-health-changed` — `{service_id, status}` — fired by the health probe scheduler on confirmed status transitions only (3-tick debounced).
+- `service-pushed` — `{service_id, pane_id, body_preview}` — fired when a daemon writes to a pane via its push token. Also fired by the mesh-relay path when a paired peer relays a `/send` to us, so the activity log reflects cross-peer push traffic the same way as local pushes.
+
+#### Activity Log
+
+Every service push, health transition, peer event, and cron lifecycle event is recorded in the bounded activity log (sqlite, capped at 10 000 rows / 30 days, evicted every 100 inserts).
+
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/activity` | `?source=push\|health\|peer\|cron&since=<ms>&limit=<N>` | List recent activity events newest-first. `source` filters by event source; `since` filters to `occurred_at > since` (unix ms); `limit` defaults to 500. |
+
+Each event: `{id, occurred_at, source, source_id?, target?, source_peer?, level: info\|warn\|error, message, meta}`.
+
 #### Cron Jobs
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/crons` | `?workspace_id=ID` | List all cron jobs (optionally filter by workspace) |
-| POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?}` | Create cron job |
+| POST | `/api/crons` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?, tz?, timeout_seconds?}` | Create cron job |
 | GET | `/api/crons/:id` | — | Get cron job by ID |
-| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?, agent?, model?, jitter_max_ms?}` | Update cron job (prefer over delete+recreate) |
+| PUT | `/api/crons/:id` | `{name?, schedule?, task?, cwd?, description?, enabled?, agent?, model?, jitter_max_ms?, tz?, timeout_seconds?}` | Update cron job (prefer over delete+recreate). `tz: ""` clears back to UTC; `timeout_seconds: 0` clears the per-cron override. |
 | DELETE | `/api/crons/:id` | — | Delete cron job |
 | POST | `/api/crons/:id/enable` | — | Enable cron job |
 | POST | `/api/crons/:id/disable` | — | Disable cron job |
@@ -349,6 +390,10 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 **`model`** — optional per-job override of the agent's model (e.g. `"opus"`, `"haiku"`, `"gpt-5.4-mini"`). Valid values depend on the `agent` provider; query `/api/agents/providers` for the list. Unset → use provider default.
 
 **`jitter_max_ms`** — max random delay added to each scheduled fire. `null`/omitted → auto (10% of interval, clamped to `[1m, 30m]`). `0` → disabled (fires exactly on schedule). Positive → cap in milliseconds.
+
+**`tz`** — IANA timezone string (e.g. `"Europe/Riga"`, `"UTC"`, `"America/New_York"`) the schedule is interpreted in. `null`/omitted → UTC. Invalid zones are rejected on create/update. DST transitions are handled by `chrono-tz`.
+
+**`timeout_seconds`** — per-cron run timeout override. When set, this overrides the global `memory.worker_timeout_seconds` for runs of this job. `null`/omitted → fall back to global default. `0` (on update) → clear the override. Use a higher value for long-running tasks like memory dreaming (e.g. `1800` for 30 minutes).
 
 **`CronRunStatus` enum:** `Running`, `Success`, `Failed`, `Cancelled`. `Cancelled` is set by `POST /api/crons/:id/cancel` on any runs currently in `Running` state.
 
@@ -808,6 +853,13 @@ Newline-delimited JSON:
 | `cron.cancel` | `{id}` | Stop currently-running executions (`{cancelled: N}`) without deleting the job |
 | `cron.history` | `{id}` | Get run history |
 | `cron.complete` | `{run_id, summary?}` | Mark a cron run as complete |
+| `services.list` | `{kind?, enabled?}` | List registered services (cron + daemon). |
+| `services.create` | `{name, kind:"daemon", health_mode, ...}` | Register a daemon-kind service. Same body shape as `POST /api/services`. Returns `{service, token}`; rejects non-daemon kinds with `-32602` (use `cron.create` for cron jobs). |
+| `services.get` | `{id}` | Get one service (with latest health snapshot). |
+| `services.update` | `{id, ...patch}` | Sparse update; same fields as `PUT /api/services/{id}`. |
+| `services.delete` | `{id}` | Delete service + its push token + activity. |
+| `services.regenerate_token` | `{id}` | Rotate push token. Returns `{token}`. |
+| `activity.list` | `{source?, since?, limit?}` | Read recent activity events (push / health / peer / cron). Defaults: `limit=500`. |
 | `bridge.send` | `{text, chat_id?, service?, append?, type?, file?, caption?, filename?}` | Send message or media to external service (Telegram). `type`: `text`/`photo`/`document`/`voice`/`animation`/`video`/`sticker`. `file`: absolute path for media. `append`: concatenate to previous message. |
 
 ## CLI
@@ -898,6 +950,21 @@ codeterm cron trigger ID                       # Manually trigger cron job
 codeterm cron history ID                       # Show run history
 codeterm cron complete --run-id UUID --summary "result"
                                                # Mark cron run as complete (called by spawned agent)
+
+# Services (daemon registry — local cron + daemon services for the Mesh tab)
+codeterm service list [--kind cron|daemon] [--enabled true|false]
+                                               # List services. Cron jobs are projected as virtual `cron`-kind services.
+codeterm service add NAME [--kind daemon] [--health-mode http|tcp|process|script] \
+                          [--url URL] [--host H] [--port P] [--process-label L] [--script-path P] \
+                          [--health-path /healthz] [--health-interval 30] [--description D] [--push]
+                                               # Register a daemon. With --push, a 64-hex Bearer token is generated and
+                                               # printed ONCE — daemons send it on POST /api/panes/{id}/send to write
+                                               # to a pane without the global API token.
+codeterm service show ID                       # Detail (config, health snapshot, recent activity)
+codeterm service edit ID [--name N] [--url U] [--enabled true|false]
+codeterm service delete ID                     # Removes service + push token + activity
+codeterm service token ID --rotate             # Rotate push token (old invalidated immediately, new printed once).
+                                               # Without --rotate the command refuses — tokens are write-only after creation.
 
 # Configuration
 codeterm config get <key>                      # Get config value (dot-notation, e.g. "integrations.telegram_enabled")
@@ -1051,4 +1118,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 36 -->
+<!-- revision: 39 -->

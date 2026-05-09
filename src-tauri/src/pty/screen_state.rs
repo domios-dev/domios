@@ -159,6 +159,8 @@ impl ScreenState {
 /// ready-for-input — they appear when the previous command was incomplete
 /// (unclosed quote, mid-pipe, etc). Sending a launch command into that state
 /// dumps the literal text as further input instead of starting the agent.
+///
+/// Also recognizes `❯` (U+276F) used by Claude Code TUI as an input cursor.
 pub fn screen_has_shell_prompt(screen_text: &str) -> bool {
     let last_line = screen_text.lines().rev().find(|l| !l.trim().is_empty());
     match last_line {
@@ -172,6 +174,12 @@ pub fn screen_has_shell_prompt(screen_text: &str) -> bool {
             // Bare `>` alone is also a continuation indicator (cmd.exe / sh heredoc); reject.
             if trimmed == ">" || trimmed == "> " {
                 return false;
+            }
+            // Claude Code TUI idle input cursor: `❯` (U+276F), optional trailing space.
+            // Some agent TUIs use `›` (U+203A) similarly. Match anywhere on the
+            // last line so this still fires when the cursor sits inside a box.
+            if trimmed.contains('\u{276F}') || trimmed.contains('\u{203A}') {
+                return true;
             }
             trimmed.ends_with("$ ")
                 || trimmed.ends_with('$')
@@ -214,6 +222,22 @@ mod tests {
         assert!(screen_has_shell_prompt("C:\\Users\\User>"));
         assert!(screen_has_shell_prompt("user@host:~$ "));
         assert!(screen_has_shell_prompt("user@host:~%"));
+    }
+
+    #[test]
+    fn claude_tui_input_cursor_is_recognized() {
+        // Issue #72: idle Claude TUI shows `❯` (U+276F) as the input cursor.
+        // `send-text --verify` was timing out with PromptNeverReady because the
+        // matcher only knew POSIX/Windows shell markers.
+        assert!(screen_has_shell_prompt("❯ "));
+        assert!(screen_has_shell_prompt("❯"));
+        // Cursor inside a box border (typical Claude TUI layout).
+        assert!(screen_has_shell_prompt("│ ❯                                        │"));
+        // Some agent TUIs use the lighter single-arrow glyph.
+        assert!(screen_has_shell_prompt("› hello"));
+        // Mid-action TUI screens must still report not-ready.
+        assert!(!screen_has_shell_prompt("working..."));
+        assert!(!screen_has_shell_prompt("Esc to interrupt"));
     }
 
     #[test]

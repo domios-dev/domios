@@ -11,7 +11,21 @@ use crate::mesh::types::AccessLevel;
 #[derive(Clone, Debug)]
 pub enum CallerIdentity {
     Local,
+    ServicePush { service_id: String },
     Peer { instance_id: String, access_level: AccessLevel },
+}
+
+pub fn is_service_push_allowed(method: &str, path: &str) -> bool {
+    if method != "POST" {
+        return false;
+    }
+    let Some(rest) = path.strip_prefix("/api/panes/") else {
+        return false;
+    };
+    let Some(pane_id) = rest.strip_suffix("/send") else {
+        return false;
+    };
+    !pane_id.is_empty() && !pane_id.contains('/')
 }
 
 const PUBLIC_PATHS: &[&str] = &[
@@ -39,6 +53,14 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
         if !api_token.is_empty() && token == api_token {
             return Ok(CallerIdentity::Local);
         }
+    }
+
+    if let Ok(Some(svc_id)) = crate::services::push::validate_push(
+        auth_header,
+        &state.svc.tokens,
+        &state.svc.services_store,
+    ) {
+        return Ok(CallerIdentity::ServicePush { service_id: svc_id });
     }
 
     let mesh = state.mesh.lock();
@@ -137,6 +159,18 @@ pub async fn auth_middleware(
     let path = req.uri().path().to_string();
     let method = req.method().clone();
 
+    // Mesh-disabled gate: blocks /api/mesh/* except /api/mesh/ping (so paired
+    // peers detect us as down without retrying forever). Also blocks
+    // /api/mesh/pair/* by design — re-enabling mesh requires a local config
+    // change, not a remote pair request.
+    if path.starts_with("/api/mesh/") && path != "/api/mesh/ping" {
+        let mesh_enabled = state.config.lock().mesh.enabled;
+        if !mesh_enabled {
+            log::warn!("[auth] Rejecting {} {} — mesh disabled in config", method, path);
+            return (StatusCode::SERVICE_UNAVAILABLE, "Mesh networking is disabled").into_response();
+        }
+    }
+
     if PUBLIC_PATHS.iter().any(|p| path == *p) || is_custom_auth(&path) {
         return next.run(req).await;
     }
@@ -150,7 +184,25 @@ pub async fn auth_middleware(
 
     match identify_caller(&state, &auth) {
         Ok(CallerIdentity::Local) => next.run(req).await,
+        Ok(CallerIdentity::ServicePush { ref service_id }) => {
+            if is_service_push_allowed(method.as_str(), &path) {
+                next.run(req).await
+            } else {
+                log::warn!(
+                    "[auth] Service push token {} denied on {} {} — push tokens are scoped to POST /api/panes/<id>/send only",
+                    service_id, method, path
+                );
+                (StatusCode::FORBIDDEN, "Service push tokens are scoped to POST /api/panes/<id>/send").into_response()
+            }
+        }
         Ok(CallerIdentity::Peer { ref instance_id, ref access_level }) => {
+            if !state.config.lock().mesh.enabled {
+                log::warn!(
+                    "[auth] Rejecting peer {} on {} {} — mesh disabled in config",
+                    instance_id, method, path
+                );
+                return (StatusCode::SERVICE_UNAVAILABLE, "Mesh networking is disabled").into_response();
+            }
             if check_access(access_level, &method, &path) {
                 next.run(req).await
             } else {
@@ -230,5 +282,39 @@ mod tests {
         assert!(!is_custom_auth("/api/mesh/peers"));
         assert!(!is_custom_auth("/api/mesh/status"));
         assert!(!is_custom_auth("/api/panes/abc/send"));
+    }
+
+    #[test]
+    fn service_push_allowed_on_send() {
+        assert!(is_service_push_allowed("POST", "/api/panes/abc123/send"));
+        assert!(is_service_push_allowed("POST", "/api/panes/general/send"));
+        assert!(is_service_push_allowed("POST", "/api/panes/pane-with-dashes_and_underscores/send"));
+    }
+
+    #[test]
+    fn service_push_rejected_on_config() {
+        assert!(!is_service_push_allowed("POST", "/api/config"));
+    }
+
+    #[test]
+    fn service_push_rejected_on_spawn() {
+        assert!(!is_service_push_allowed("POST", "/api/agents/spawn"));
+    }
+
+    #[test]
+    fn service_push_rejected_on_get() {
+        assert!(!is_service_push_allowed("GET", "/api/panes/abc123/send"));
+        assert!(!is_service_push_allowed("DELETE", "/api/panes/abc123/send"));
+        assert!(!is_service_push_allowed("PUT", "/api/panes/abc123/send"));
+    }
+
+    #[test]
+    fn service_push_rejected_on_pane_root() {
+        assert!(!is_service_push_allowed("POST", "/api/panes/abc123"));
+        assert!(!is_service_push_allowed("POST", "/api/panes/abc123/exec"));
+        assert!(!is_service_push_allowed("POST", "/api/panes/abc123/clear"));
+        assert!(!is_service_push_allowed("POST", "/api/panes//send"));
+        assert!(!is_service_push_allowed("POST", "/api/panes/abc/extra/send"));
+        assert!(!is_service_push_allowed("POST", "/api/panes"));
     }
 }
