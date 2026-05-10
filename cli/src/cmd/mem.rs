@@ -125,7 +125,7 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
         MemAction::Tail { follow, limit } => {
             return run_mem_tail(&http, &base, json_mode, follow, limit);
         }
-        MemAction::Update { id, title, summary, area, tags, body, importance } => {
+        MemAction::Update { id, title, summary, area, tags, body, importance, changed_by } => {
             let tag_list: Option<Vec<String>> = tags.map(|t|
                 t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
             );
@@ -133,10 +133,16 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 "title": title, "summary": summary, "area": area,
                 "tags": tag_list, "body": body, "importance": importance,
             });
-            let resp = http.patch(format!("{}/api/mem/items/{}", base, id))
-                .json(&payload)
-                .send()
-                .map_err(|e| e.to_string());
+            let mut req = http.patch(format!("{}/api/mem/items/{}", base, id)).json(&payload);
+            if let Some(actor) = &changed_by {
+                let trimmed = actor.trim();
+                if trimmed.is_empty() {
+                    eprintln!("Error: --changed-by requires a non-empty actor label");
+                    std::process::exit(1);
+                }
+                req = req.header("X-CodeTerm-Actor", trimmed);
+            }
+            let resp = req.send().map_err(|e| e.to_string());
             match resp {
                 Ok(r) => {
                     let status = r.status();
@@ -644,6 +650,32 @@ mod tests {
         match cli.command {
             Commands::Mem { action: MemAction::WakeUp { explain, .. } } => assert!(!explain),
             _ => panic!("expected WakeUp"),
+        }
+    }
+
+    #[test]
+    fn update_accepts_changed_by_flag() {
+        let cli = Cli::try_parse_from([
+            "codeterm","mem","update","fact_a","--changed-by","dreamer-calibration"
+        ]).unwrap();
+        match cli.command {
+            Commands::Mem { action: MemAction::Update { changed_by, .. } } => {
+                assert_eq!(changed_by.as_deref(), Some("dreamer-calibration"));
+            }
+            _ => panic!("expected Update"),
+        }
+    }
+
+    #[test]
+    fn update_without_changed_by_is_none() {
+        let cli = Cli::try_parse_from([
+            "codeterm","mem","update","fact_a","--importance","4.0"
+        ]).unwrap();
+        match cli.command {
+            Commands::Mem { action: MemAction::Update { changed_by, .. } } => {
+                assert!(changed_by.is_none());
+            }
+            _ => panic!("expected Update"),
         }
     }
 }

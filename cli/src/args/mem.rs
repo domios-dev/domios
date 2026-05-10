@@ -71,6 +71,9 @@ pub enum MemAction {
         /// New importance 1-5
         #[arg(long)]
         importance: Option<f64>,
+        /// Actor label for audit trail (defaults to "user"). Used by automated workflows.
+        #[arg(long)]
+        changed_by: Option<String>,
     },
     /// Pin a mem item so it always loads in L1 wake-up.
     Pin {
