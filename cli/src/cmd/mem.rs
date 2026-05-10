@@ -1,7 +1,7 @@
 use crate::cmd::print::{handle_result, print_history_timeline, print_taxonomy};
 use crate::{
-    build_http, data_dir_name, read_api_config, MemAction, MemGraphAction, MemSkillAction,
-    MemWorkerAction,
+    build_http, data_dir_name, read_api_config, MemAction, MemCalibrationAction, MemGraphAction,
+    MemSkillAction, MemWorkerAction,
 };
 
 // Lightweight frontmatter parser for SKILL.md.
@@ -555,6 +555,36 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 &serde_json::json!({}),
             )
         }
+        MemAction::Calibration { action } => match action {
+            MemCalibrationAction::Log { since, limit, count } => {
+                let mut url = format!("{}/api/mem/calibration/log", base);
+                let mut sep = '?';
+                if let Some(s) = &since {
+                    url.push(sep);
+                    sep = '&';
+                    url.push_str(&format!("since={}", urlencoding::encode(s)));
+                }
+                if let Some(l) = &limit {
+                    url.push(sep);
+                    sep = '&';
+                    url.push_str(&format!("limit={}", l));
+                }
+                if count {
+                    url.push(sep);
+                    let _ = sep;
+                    url.push_str("count=true");
+                }
+                mem_get_request(&http, &url)
+            }
+            MemCalibrationAction::Sweep { force } => {
+                let url = if force {
+                    format!("{}/api/mem/calibration/sweep?force=true", base)
+                } else {
+                    format!("{}/api/mem/calibration/sweep", base)
+                };
+                mem_post_request(&http, &url, &serde_json::json!({}))
+            }
+        },
         MemAction::Secret { action } => {
             return crate::cmd::mem_secret::handle_mem_secret(json_mode, &http, &base, action);
         }
@@ -676,6 +706,61 @@ mod tests {
                 assert!(changed_by.is_none());
             }
             _ => panic!("expected Update"),
+        }
+    }
+
+    #[test]
+    fn calibration_log_subcommand_parses() {
+        use crate::MemCalibrationAction;
+        let cli = Cli::try_parse_from([
+            "codeterm","mem","calibration","log","--limit","10","--count"
+        ]).unwrap();
+        match cli.command {
+            Commands::Mem {
+                action: MemAction::Calibration {
+                    action: MemCalibrationAction::Log { limit, count, .. },
+                },
+            } => {
+                assert_eq!(limit, Some(10));
+                assert!(count);
+            }
+            _ => panic!("expected calibration log"),
+        }
+    }
+
+    #[test]
+    fn calibration_sweep_subcommand_parses() {
+        use crate::MemCalibrationAction;
+        let cli = Cli::try_parse_from([
+            "codeterm","mem","calibration","sweep","--force"
+        ]).unwrap();
+        match cli.command {
+            Commands::Mem {
+                action: MemAction::Calibration {
+                    action: MemCalibrationAction::Sweep { force },
+                },
+            } => {
+                assert!(force);
+            }
+            _ => panic!("expected calibration sweep"),
+        }
+    }
+
+    #[test]
+    fn calibration_sweep_no_force_defaults_false() {
+        use crate::MemCalibrationAction;
+        let cli = Cli::try_parse_from([
+            "codeterm","mem","calibration","sweep"
+        ]).unwrap();
+        match cli.command {
+            Commands::Mem {
+                action: MemAction::Calibration {
+                    action: MemCalibrationAction::Sweep { force },
+                },
+            } => {
+                assert!(!force);
+            }
+            _ => panic!("expected calibration sweep"),
         }
     }
 }
