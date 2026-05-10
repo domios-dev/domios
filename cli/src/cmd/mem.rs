@@ -146,6 +146,43 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 Err(e) => Err(e),
             }
         }
+        MemAction::Pin { id } => {
+            let payload = serde_json::json!({ "pinned": true });
+            let resp = http.patch(format!("{}/api/mem/items/{}", base, id))
+                .json(&payload)
+                .send()
+                .map_err(|e| e.to_string());
+            match resp {
+                Ok(r) => {
+                    let status = r.status();
+                    let val: serde_json::Value = r.json().unwrap_or_default();
+                    if status.is_success() { Ok(val) } else { Err(val.to_string()) }
+                }
+                Err(e) => Err(e),
+            }
+        }
+        MemAction::Unpin { id } => {
+            let payload = serde_json::json!({ "pinned": false });
+            let resp = http.patch(format!("{}/api/mem/items/{}", base, id))
+                .json(&payload)
+                .send()
+                .map_err(|e| e.to_string());
+            match resp {
+                Ok(r) => {
+                    let status = r.status();
+                    let val: serde_json::Value = r.json().unwrap_or_default();
+                    if status.is_success() { Ok(val) } else { Err(val.to_string()) }
+                }
+                Err(e) => Err(e),
+            }
+        }
+        MemAction::Pinned { limit } => {
+            let url = match limit {
+                Some(n) => format!("{}/api/mem/pinned?limit={}", base, n),
+                None => format!("{}/api/mem/pinned", base),
+            };
+            mem_get_request(&http, &url)
+        }
         MemAction::Save { kind, title, body, summary, tags, area, importance, scope, source_path, replace, skip_extract } => {
             // Body: positional arg, else read stdin if piped
             let resolved_body = match body {
@@ -507,6 +544,48 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
         }
     }
     handle_result(json_mode, result);
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+    use crate::{Cli, Commands, MemAction};
+
+    #[test]
+    fn pin_subcommand_parses_id() {
+        let cli = Cli::try_parse_from(["codeterm", "mem", "pin", "fact_abc"]).unwrap();
+        match cli.command {
+            Commands::Mem { action: MemAction::Pin { id } } => assert_eq!(id, "fact_abc"),
+            _ => panic!("expected Pin"),
+        }
+    }
+
+    #[test]
+    fn unpin_subcommand_parses_id() {
+        let cli = Cli::try_parse_from(["codeterm", "mem", "unpin", "fact_abc"]).unwrap();
+        match cli.command {
+            Commands::Mem { action: MemAction::Unpin { id } } => assert_eq!(id, "fact_abc"),
+            _ => panic!("expected Unpin"),
+        }
+    }
+
+    #[test]
+    fn pinned_subcommand_parses_with_limit() {
+        let cli = Cli::try_parse_from(["codeterm", "mem", "pinned", "--limit", "10"]).unwrap();
+        match cli.command {
+            Commands::Mem { action: MemAction::Pinned { limit } } => assert_eq!(limit, Some(10)),
+            _ => panic!("expected Pinned"),
+        }
+    }
+
+    #[test]
+    fn pinned_subcommand_no_limit_is_none() {
+        let cli = Cli::try_parse_from(["codeterm", "mem", "pinned"]).unwrap();
+        match cli.command {
+            Commands::Mem { action: MemAction::Pinned { limit } } => assert_eq!(limit, None),
+            _ => panic!("expected Pinned"),
+        }
+    }
 }
 
 fn run_mem_tail(

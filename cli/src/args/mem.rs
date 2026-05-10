@@ -72,6 +72,21 @@ pub enum MemAction {
         #[arg(long)]
         importance: Option<f64>,
     },
+    /// Pin a mem item so it always loads in L1 wake-up.
+    Pin {
+        /// Mem item id (e.g. fact_my_thing)
+        id: String,
+    },
+    /// Unpin a previously pinned item.
+    Unpin {
+        id: String,
+    },
+    /// List all currently pinned items, ordered by importance/evidence/recency.
+    Pinned {
+        /// Max results (default 100, max 500)
+        #[arg(long)]
+        limit: Option<usize>,
+    },
     /// Save a new mem item
     Save {
         /// Item kind: skill | fact | note | conversation | script | peer | preference | daily | learning | rule | summary
