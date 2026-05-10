@@ -136,7 +136,7 @@ fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::bump_on_get;
+    use super::{bump_on_get, UpdateBody};
     use rusqlite::Connection;
 
     fn open_test_conn() -> Connection {
@@ -151,6 +151,16 @@ mod tests {
              VALUES (?1, ?1, ?2, 'global', 't', '[]', '2026-01-01', '2026-01-01')",
             rusqlite::params![id, kind],
         ).unwrap();
+    }
+
+    fn apply_update(conn: &Connection, id: &str, body: UpdateBody) -> Result<(), String> {
+        if let Some(p) = body.pinned {
+            conn.execute(
+                "UPDATE mem_items SET is_pinned_wakeup = ?1, updated_at = datetime('now') WHERE id = ?2",
+                rusqlite::params![if p { 1i64 } else { 0i64 }, id],
+            ).map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 
     fn evidence(conn: &Connection, id: &str) -> i64 {
@@ -214,6 +224,45 @@ mod tests {
         let conn = open_test_conn();
         // No insert — must not panic / error.
         bump_on_get(&conn, "skill", "ghost_id");
+    }
+
+    #[test]
+    fn update_sets_is_pinned_wakeup() {
+        let conn = open_test_conn();
+        insert(&conn, "fact_a", "fact");
+        apply_update(&conn, "fact_a", UpdateBody { pinned: Some(true), ..Default::default() }).unwrap();
+        let pinned: i64 = conn.query_row(
+            "SELECT is_pinned_wakeup FROM mem_items WHERE id = ?1",
+            ["fact_a"], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(pinned, 1);
+    }
+
+    #[test]
+    fn update_can_unpin() {
+        let conn = open_test_conn();
+        insert(&conn, "fact_a", "fact");
+        apply_update(&conn, "fact_a", UpdateBody { pinned: Some(true), ..Default::default() }).unwrap();
+        apply_update(&conn, "fact_a", UpdateBody { pinned: Some(false), ..Default::default() }).unwrap();
+        let pinned: i64 = conn.query_row(
+            "SELECT is_pinned_wakeup FROM mem_items WHERE id = ?1",
+            ["fact_a"], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(pinned, 0);
+    }
+
+    #[test]
+    fn update_pinned_only_does_not_touch_other_fields() {
+        let conn = open_test_conn();
+        insert(&conn, "fact_a", "fact");
+        let old_imp: f64 = conn.query_row(
+            "SELECT importance FROM mem_items WHERE id = 'fact_a'", [], |r| r.get(0)
+        ).unwrap();
+        apply_update(&conn, "fact_a", UpdateBody { pinned: Some(true), ..Default::default() }).unwrap();
+        let new_imp: f64 = conn.query_row(
+            "SELECT importance FROM mem_items WHERE id = 'fact_a'", [], |r| r.get(0)
+        ).unwrap();
+        assert!((old_imp - new_imp).abs() < 1e-9, "pinning must not bump importance");
     }
 }
 
@@ -329,7 +378,7 @@ pub async fn mem_forget_area(
     Ok(Json(serde_json::json!({ "deleted": count, "area": area })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct UpdateBody {
     #[serde(default)]
     pub title: Option<String>,
@@ -343,6 +392,8 @@ pub struct UpdateBody {
     pub body: Option<String>,
     #[serde(default)]
     pub importance: Option<f64>,
+    #[serde(default)]
+    pub pinned: Option<bool>,
 }
 
 pub async fn mem_update(
@@ -391,6 +442,7 @@ pub async fn mem_update(
         body: body.body,
         importance: body.importance,
         bump_recurrence: None,
+        pinned: body.pinned,
     };
     let changed_by = changed_by_from_headers(&headers);
     let updated = crate::mem::store::with_changed_by(&changed_by, || {

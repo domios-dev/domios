@@ -297,6 +297,7 @@ pub struct PinnedPosition {
     pub y: f64,
 }
 
+#[derive(Default)]
 pub struct MemUpdate {
     pub title: Option<String>,
     pub summary: Option<String>,
@@ -305,6 +306,7 @@ pub struct MemUpdate {
     pub body: Option<String>,
     pub importance: Option<f64>,
     pub bump_recurrence: Option<i64>,
+    pub pinned: Option<bool>,
 }
 
 /// One row returned by [`tail_recent`]. Uses `mem_item_history.changed_by`

@@ -58,6 +58,7 @@ fn history_tracks_full_lifecycle_with_promote() {
             body: Some("refined body".into()),
             importance: Some(3.5),
             bump_recurrence: None,
+            pinned: None,
         },
     )
     .unwrap();
