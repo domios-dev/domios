@@ -159,11 +159,21 @@ git commit -m "feat(mem): add is_pinned_wakeup column with conditional index"
 This **must precede** the scoring change (Task 5). Without it, `evidence_count` stays at default 1 for the new kinds and the new score term contributes nothing.
 
 > **DEEP RISK — feedback poisoning from internal sweeps.**
-> The dreamer prompt (`dreaming_rem.md:31`) and extraction prompt (`mem_extraction.md:35`) both call `codeterm mem get <id>` in batch loops. The Memory Panel UI also calls `GET /api/mem/items/{id}` (`memoryApi.ts:36`) every time the user opens an item. With the broadened filter, every dreamer sweep would bump fact/rule/preference items, inflating `evidence_count` and creating a runaway: high score → loaded into L1 → dreamer/UI reads it → bumps again → score climbs.
+> The dreamer prompt (`dreaming_rem.md:31`) and extraction prompt (`mem_extraction.md:35`) both call `codeterm mem get <id>` in batch loops. With the broadened filter, every dreamer sweep would bump fact/rule/preference items: high score → loaded into L1 → dreamer reads it next sweep → bumps again → score climbs into the stratosphere.
 >
-> **Mitigation (mandatory in this task):** debounce by item via `accessed_at`. Skip the bump if the item was last touched within the last 12 hours. User reading the same fact 30× in a day = +1. Dreamer sweeping all items every Sunday = +1/week (since 7d ≫ 12h). Real "frequently used" items still accumulate steadily.
+> **Mitigation: skip bump for worker callers.** The CLI already auto-propagates `CODETERM_WORKER_ID` env → `X-CodeTerm-Worker-Id` header (`cli/src/main.rs:135`). When the dreamer / extraction / any worker runs `codeterm mem get`, the request already carries that header. The Memory Panel UI does NOT (it's an in-process Tauri call, not a worker). User CLI from a normal terminal pane does NOT (no worker id). Real human/agent reads still bump; internal sweeps don't.
 >
-> Implementation note: the `accessed_at` column already exists on `mem_items` (see `schema.rs:25`). It's set on every CRUD touch. Read it in `bump_on_get`; if `< 12h ago`, return without calling `bump_evidence_count`. Add an explicit test (`bump_on_get_debounces_within_12h`).
+> **Implementation:** the gate moves to the **caller** of `bump_on_get` (the `mem_get` HTTP handler), not the function itself. The function stays a pure "do the bump" helper; the handler decides whether to call it.
+>
+> ```rust
+> // in mem_get handler:
+> let is_worker_call = headers.get("x-codeterm-worker-id").is_some();
+> if !is_worker_call {
+>     state.svc.mem.with_conn(|conn| bump_on_get(conn, &item.kind, &id));
+> }
+> ```
+>
+> Add a regression test that POSTs a `GET /api/mem/items/{id}` with the worker-id header and asserts `evidence_count` did NOT advance. Then a second test without the header and asserts it DID advance.
 
 - [ ] **Step 1: Write the failing test**
 
