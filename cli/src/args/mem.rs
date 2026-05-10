@@ -143,6 +143,9 @@ pub enum MemAction {
         /// Append a per-item L1 score breakdown for debugging selection.
         #[arg(long)]
         explain: bool,
+        /// Current workspace id — boosts pinned-in-workspace items in L1.
+        #[arg(long)]
+        workspace: Option<String>,
     },
     /// Re-run extraction workers for items that haven't been extracted yet.
     /// Useful after LLM API failures, quota resets, or bulk imports with
