@@ -8,6 +8,7 @@ pub(super) const WORKER_ID_HEADER: &str = "x-codeterm-worker-id";
 pub(super) const WORKER_INTENT_HEADER: &str = "x-codeterm-worker-intent";
 pub(super) const ACTOR_HEADER: &str = "x-codeterm-actor";
 
+pub mod calibration;
 pub mod dream;
 pub mod graph;
 pub mod items;
@@ -15,6 +16,7 @@ pub mod pinned;
 pub mod sync;
 pub mod workers;
 
+pub use calibration::{mem_calibration_log, mem_calibration_sweep};
 pub use dream::{mem_dream, mem_dream_report, mem_extract_pending};
 pub use graph::{
     mem_graph_alias, mem_graph_create, mem_graph_full, mem_graph_invalidate, mem_graph_path,

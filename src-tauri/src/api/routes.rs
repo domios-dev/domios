@@ -173,6 +173,8 @@ pub fn create_router(state: AppState) -> Router {
                 .delete(mem_routes::mem_pinned_positions_delete),
         )
         .route("/api/mem/activity/recent", get(mem_routes::mem_activity_recent))
+        .route("/api/mem/calibration/sweep", post(mem_routes::mem_calibration_sweep))
+        .route("/api/mem/calibration/log", get(mem_routes::mem_calibration_log))
         .route("/api/mem/workers", get(mem_routes::workers_list).post(mem_routes::workers_spawn))
         .route("/api/mem/workers/{id}", get(mem_routes::workers_get).delete(mem_routes::workers_kill))
         .route("/api/mem/workers/{id}/progress", post(mem_routes::workers_progress))
