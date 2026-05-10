@@ -54,6 +54,11 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
     if let Some(err) = value.get("error").and_then(|v| v.as_str()) {
         return SendTextOutcome::Error { msg: err.to_string(), exit_code: 2 };
     }
+    if value.get("fire_and_forget").and_then(|v| v.as_bool()).unwrap_or(false) {
+        return SendTextOutcome::Success(
+            "OK (sent; fire-and-forget, verification skipped)".to_string(),
+        );
+    }
     if value.get("pty_echo_seen").is_none() {
         return SendTextOutcome::Other;
     }
@@ -106,6 +111,7 @@ pub fn handle_send_text(
     text: String,
     from_file: Option<String>,
     from_stdin: bool,
+    verify: bool,
     no_wait: bool,
 ) {
     let (resolved_text, source) = if from_stdin {
@@ -147,7 +153,11 @@ pub fn handle_send_text(
         "pane_id": pane_id,
         "text": resolved_text,
     });
-    if no_wait {
+    if verify {
+        params["verify"] = serde_json::json!(true);
+    } else if no_wait {
+        // Deprecated compatibility path: keep accepting `--no-wait`, but the
+        // default is already fire-and-forget so there is nothing to override.
         params["verify"] = serde_json::json!(false);
     }
     let result = client.call("pane.send_text", Some(params));
@@ -197,6 +207,19 @@ mod tests {
                 assert!(msg.contains("PTY closed"));
             }
             other => panic!("expected Error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fire_and_forget_response_is_success() {
+        let v = serde_json::json!({
+            "ok": true,
+            "fire_and_forget": true,
+            "verified": false,
+        });
+        match analyze_send_text_response(&v) {
+            SendTextOutcome::Success(msg) => assert!(msg.contains("fire-and-forget")),
+            other => panic!("expected Success, got {:?}", other),
         }
     }
 

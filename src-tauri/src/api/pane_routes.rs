@@ -59,9 +59,8 @@ pub(crate) struct SendTextBody {
     /// Use for keystrokes that need to be interpreted by TUI (e.g. vim j/k navigation).
     #[serde(default)]
     raw: bool,
-    /// When `Some(true)` (or absent — default true), block until echo + submit
-    /// confirmed and report verified. `Some(false)` opts back into the
-    /// legacy fire-and-forget path.
+    /// When `Some(true)`, block until echo + submit are observed.
+    /// Default is fire-and-forget when the caller omits the field.
     verify: Option<bool>,
 }
 
@@ -143,7 +142,7 @@ pub async fn send_text(
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
-    let verify = body.verify.unwrap_or(true);
+    let verify = body.verify.unwrap_or(false);
     if verify {
         let pty_id = state.svc.resolve_pty_id(&pane_id)
             .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
@@ -172,11 +171,14 @@ pub async fn send_text(
     }
 
     let text = body.text.unwrap_or_default();
-    let cmd = crate::dispatch::Command::SendText { pane_id: pane_id.clone(), text: text.clone(), enter: body.enter };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc)
+    state.svc.send_text(&pane_id, &text, body.enter)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     record_push_activity(&state, &svc_token_match, &pane_id, &text);
-    Ok(Json(result.into_json()))
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "fire_and_forget": true,
+        "verified": false,
+    })))
 }
 
 pub async fn focus_pane(
@@ -672,8 +674,8 @@ mod tests_send_text_body {
         let json = r#"{"text":"hi"}"#;
         let body: SendTextBody = serde_json::from_str(json).unwrap();
         assert_eq!(body.verify, None);
-        assert_eq!(body.verify.unwrap_or(true), true,
-            "absent verify resolves to verified=true (default policy)");
+        assert_eq!(body.verify.unwrap_or(false), false,
+            "absent verify resolves to fire-and-forget by default");
     }
 
     #[test]
@@ -681,8 +683,8 @@ mod tests_send_text_body {
         let json = r#"{"text":"hi","verify":false}"#;
         let body: SendTextBody = serde_json::from_str(json).unwrap();
         assert_eq!(body.verify, Some(false));
-        assert_eq!(body.verify.unwrap_or(true), false,
-            "explicit verify=false opts out of verified path");
+        assert_eq!(body.verify.unwrap_or(false), false,
+            "explicit verify=false keeps fire-and-forget path");
     }
 
     #[test]

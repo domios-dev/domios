@@ -83,8 +83,13 @@ pub enum Commands {
         #[arg(long)]
         from_stdin: bool,
 
-        /// Skip server-side echo+submit verification — fire-and-forget.
-        /// Default is verified send (waits up to ~10s for echo and submit).
+        /// Wait for server-side echo+submit verification before returning.
+        /// Off by default: `send-text` is fire-and-forget unless you opt in.
+        #[arg(long, default_value_t = false)]
+        verify: bool,
+
+        /// Deprecated compatibility flag. `send-text` is already fire-and-forget
+        /// by default, so this flag is now a no-op.
         #[arg(long, default_value_t = false)]
         no_wait: bool,
     },
