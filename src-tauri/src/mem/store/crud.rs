@@ -411,6 +411,13 @@ pub fn update(
         ],
     ).map_err(|e| format!("update mem_item: {}", e))?;
 
+    if let Some(p) = patch.pinned {
+        conn.execute(
+            "UPDATE mem_items SET is_pinned_wakeup = ?1, updated_at = ?2 WHERE id = ?3",
+            params![if p { 1i64 } else { 0i64 }, &now, &id],
+        ).map_err(|e| format!("update is_pinned_wakeup: {}", e))?;
+    }
+
     let tags_text = new_tags.join(" ");
     let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&id]);
     conn.execute(

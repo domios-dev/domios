@@ -135,6 +135,7 @@ fn update_partial_only_changes_provided_fields() {
         body: None,
         importance: Some(4.5),
         bump_recurrence: None,
+        pinned: None,
     }, &blobs).unwrap();
     assert!(updated);
 
@@ -153,6 +154,7 @@ fn update_returns_false_for_unknown_id() {
     let r = update(&conn, "nonexistent", &MemUpdate {
         title: Some("x".into()), summary: None, area: None,
         tags: None, body: None, importance: None, bump_recurrence: None,
+        pinned: None,
     }, &blobs).unwrap();
     assert!(!r);
 }
@@ -176,6 +178,7 @@ fn update_body_refreshes_fts() {
         title: None, summary: None, area: None, tags: None,
         body: Some("changed to grey wolf".into()),
         importance: None, bump_recurrence: None,
+        pinned: None,
     }, &blobs).unwrap();
     let n: i64 = conn.query_row(
         "SELECT COUNT(*) FROM mem_fts WHERE mem_id = ?1 AND body LIKE '%grey wolf%'",
@@ -419,6 +422,7 @@ fn history_logs_create_update_delete_events() {
                 body: Some("new body".into()),
                 importance: Some(4.5),
                 bump_recurrence: None,
+                pinned: None,
             },
             &blobs,
         )
