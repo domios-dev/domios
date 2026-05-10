@@ -157,7 +157,7 @@ fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::bump_on_get;
+    use super::{bump_on_get, wake_up_options_from_params, WakeUpParams};
     use rusqlite::Connection;
 
     fn open_test_conn() -> Connection {
@@ -235,6 +235,54 @@ mod tests {
         let conn = open_test_conn();
         // No insert — must not panic / error.
         bump_on_get(&conn, "skill", "ghost_id");
+    }
+
+    #[test]
+    fn wake_up_budget_below_l0_floor_does_not_underflow() {
+        let opts = wake_up_options_from_params(&WakeUpParams {
+            budget: Some(10),
+            l0_only: None,
+            no_l0: None,
+        });
+
+        assert_eq!(opts.l0_budget_tokens, 10);
+        assert_eq!(opts.l1_budget_tokens, 0);
+    }
+
+    #[test]
+    fn wake_up_no_l0_uses_full_budget_for_l1() {
+        let opts = wake_up_options_from_params(&WakeUpParams {
+            budget: Some(10),
+            l0_only: None,
+            no_l0: Some(true),
+        });
+
+        assert_eq!(opts.l0_budget_tokens, 0);
+        assert_eq!(opts.l1_budget_tokens, 10);
+        assert!(!opts.include_l0);
+        assert!(opts.include_l1);
+    }
+
+    #[test]
+    fn wake_up_large_budget_caps_l0_share() {
+        let opts = wake_up_options_from_params(&WakeUpParams {
+            budget: Some(2_000),
+            l0_only: None,
+            no_l0: None,
+        });
+
+        assert_eq!(opts.l0_budget_tokens, 100);
+        assert_eq!(opts.l1_budget_tokens, 1_900);
+    }
+
+    #[test]
+    fn wake_up_no_budget_uses_config_default() {
+        let opts = wake_up_options_from_params(&WakeUpParams {
+            budget: None,
+            l0_only: None,
+            no_l0: None,
+        });
+        assert_eq!(opts.l1_budget_tokens, crate::config::memory_config().l1_budget_tokens);
     }
 }
 
@@ -444,19 +492,42 @@ pub async fn mem_wake_up(
     Query(p): Query<WakeUpParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let mut opts = WakeUpOptions::default();
-    if let Some(b) = p.budget {
-        opts.l0_budget_tokens = (b / 8).max(50);
-        opts.l1_budget_tokens = b - opts.l0_budget_tokens;
-    }
-    if p.l0_only.unwrap_or(false) {
-        opts.include_l1 = false;
-    }
-    if p.no_l0.unwrap_or(false) {
-        opts.include_l0 = false;
-    }
+    let opts = wake_up_options_from_params(&p);
     let text = state.svc.mem.wake_up(&opts).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "text": text })))
+}
+
+fn wake_up_options_from_params(p: &WakeUpParams) -> WakeUpOptions {
+    let mut opts = WakeUpOptions::default();
+    opts.include_l0 = !p.no_l0.unwrap_or(false);
+    opts.include_l1 = !p.l0_only.unwrap_or(false);
+
+    if let Some(total) = p.budget {
+        let total = total.max(1);
+        match (opts.include_l0, opts.include_l1) {
+            (true, true) => {
+                let l0 = (total / 8).clamp(50, 100).min(total);
+                opts.l0_budget_tokens = l0;
+                opts.l1_budget_tokens = total.saturating_sub(l0);
+            }
+            (true, false) => {
+                opts.l0_budget_tokens = total;
+                opts.l1_budget_tokens = 0;
+            }
+            (false, true) => {
+                opts.l0_budget_tokens = 0;
+                opts.l1_budget_tokens = total;
+            }
+            (false, false) => {
+                opts.l0_budget_tokens = 0;
+                opts.l1_budget_tokens = 0;
+            }
+        }
+    } else {
+        opts.l1_budget_tokens = crate::config::memory_config().l1_budget_tokens;
+    }
+
+    opts
 }
 
 pub async fn mem_stats(
