@@ -17,8 +17,8 @@ fi
 
 TEST_TITLE="bench-pin-ws1-$(date +%s)-$$"
 
-SAVE_OUT=$(dc mem save --kind fact --workspace W1 --pin --title "$TEST_TITLE" "load-bearing fact body for eval")
-ITEM_ID=$(echo "$SAVE_OUT" | python -c "import sys, json
+SAVE_OUT=$(dc --json mem save --kind fact --workspace W1 --pin --title "$TEST_TITLE" "load-bearing fact body for eval")
+ITEM_ID=$(echo "$SAVE_OUT" | python3 -c "import sys, json
 try:
     print(json.loads(sys.stdin.read()).get('id', ''))
 except Exception:
