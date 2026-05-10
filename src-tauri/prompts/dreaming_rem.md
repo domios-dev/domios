@@ -102,6 +102,8 @@ reference material for *what* each step means. The walkthrough shows
         → mem update <diary_id> with DEDUP totals.
 
 10. Stage C maintenance (classify, promote/archive, revive-broken).
+10b. Stage D calibration sweep (server skips on non-Sunday; run regardless).
+        → mem update <diary_id> with CALIBRATION line.
 11. Build the FINAL <insight> prose now that you've seen everything.
 12. mem update <diary_id> with the final body (insight + completed log).
 13. codeterm bridge send --to <chat_id> ...    # telegram (insight only)
@@ -475,6 +477,7 @@ Required lines, in this order:
     ORPHANS_AFTER: <count from re-run after A.2>
     DEDUP: aliases=N duplicates=M
     ENTITY_COUNT_AFTER: <from `mem stats`>
+    CALIBRATION: skipped=<reason|none> applied=<N> archived=<N>
     ACTION: <single highest-leverage next step the user should run, with exact CLI>
 
 ### Full body shape
@@ -499,6 +502,8 @@ Required lines, in this order:
     ORPHANS: bridged=18 deleted=4
     ORPHANS_AFTER: 15
     DEDUP: aliases=3 duplicates=1
+    ENTITY_COUNT_AFTER: 412
+    CALIBRATION: skipped=not_sunday applied=0 archived=0
     ACTION: codeterm mem update fact_x42 --area auth   # currently mis-classified
     </log>
 
@@ -549,6 +554,60 @@ Recent sessions list:
     # Edges that were invalidated but both endpoints exist again. Revive
     # the ones that still describe reality:
     codeterm mem graph relate --from <a> --rel <r> --to <b>
+
+# STAGE D — Memory calibration (Sunday only)
+
+The server enforces the day-of-week gate, re-entry guard (6 h), candidate
+cap (100), per-session change cap (30), and triple-gate archive thresholds.
+Your job is to invoke and summarize. No client-side heuristics.
+
+## D.1 — Sweep
+
+```bash
+SWEEP=$(codeterm mem calibration sweep)
+echo "$SWEEP"
+```
+
+Parse the result. If the response is not valid JSON or contains an error
+string, record `CALIBRATION: error=<first 80 chars>` in the log and skip
+the rest of this stage.
+
+## D.2 — Interpret and conditionally fetch log
+
+```bash
+SKIP_REASON=$(echo "$SWEEP" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('skipped_reason',''))" 2>/dev/null || echo "parse_error")
+APPLIED=$(echo "$SWEEP" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('applied',0))" 2>/dev/null || echo 0)
+ARCHIVED=$(echo "$SWEEP" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('archived',0))" 2>/dev/null || echo 0)
+echo "skip=$SKIP_REASON applied=$APPLIED archived=$ARCHIVED"
+```
+
+If `APPLIED != 0` or `ARCHIVED != 0`, fetch the change log:
+
+```bash
+if [ "$APPLIED" != "0" ] || [ "$ARCHIVED" != "0" ]; then
+  codeterm mem calibration log \
+    --since "$(date -u -v-1d +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u --date='1 day ago' +'%Y-%m-%dT%H:%M:%SZ')" \
+    --limit 30
+fi
+```
+
+## D.3 — Update diary
+
+`mem update <diary_id>` to append the CALIBRATION line to the `<log>` block:
+
+- Skipped: `CALIBRATION: skipped=<SKIP_REASON> applied=0 archived=0`
+- Applied: `CALIBRATION: skipped=none applied=<N> archived=<M>`
+
+### Verify D
+
+The `$SWEEP` variable contains valid JSON. Confirm:
+
+```bash
+echo "$SWEEP" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print('ok' if 'day_of_week' in d else 'missing day_of_week')"
+```
+
+Expected output: `ok`. If it prints `missing day_of_week` or errors, log
+`CALIBRATION: error=missing_day_of_week` and continue — do not abort the run.
 
 # RULES OF THUMB (apply at every stage)
 
