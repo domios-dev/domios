@@ -364,7 +364,7 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 }
             }
         },
-        MemAction::WakeUp { budget, l0_only, no_l0 } => {
+        MemAction::WakeUp { budget, l0_only, no_l0, explain } => {
             let mut url = format!("{}/api/mem/wake-up", base);
             let mut sep = '?';
             if let Some(b) = budget {
@@ -372,7 +372,8 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 sep = '&';
             }
             if l0_only { url.push_str(&format!("{}l0_only=true", sep)); sep = '&'; }
-            if no_l0 { url.push_str(&format!("{}no_l0=true", sep)); let _ = sep; }
+            if no_l0 { url.push_str(&format!("{}no_l0=true", sep)); sep = '&'; }
+            if explain { url.push_str(&format!("{}explain=true", sep)); let _ = sep; }
             mem_get_request(&http, &url)
         }
         MemAction::Stats => {
@@ -621,6 +622,24 @@ mod tests {
                 assert_eq!(workspace.as_deref(), Some("W1"));
             }
             _ => panic!("expected Save"),
+        }
+    }
+
+    #[test]
+    fn wakeup_accepts_explain_flag() {
+        let cli = Cli::try_parse_from(["codeterm","mem","wake-up","--explain"]).unwrap();
+        match cli.command {
+            Commands::Mem { action: MemAction::WakeUp { explain, .. } } => assert!(explain),
+            _ => panic!("expected WakeUp"),
+        }
+    }
+
+    #[test]
+    fn wakeup_no_explain_default_false() {
+        let cli = Cli::try_parse_from(["codeterm","mem","wake-up"]).unwrap();
+        match cli.command {
+            Commands::Mem { action: MemAction::WakeUp { explain, .. } } => assert!(!explain),
+            _ => panic!("expected WakeUp"),
         }
     }
 }

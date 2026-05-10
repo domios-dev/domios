@@ -243,6 +243,7 @@ mod tests {
             budget: Some(10),
             l0_only: None,
             no_l0: None,
+            explain: None,
         });
 
         assert_eq!(opts.l0_budget_tokens, 10);
@@ -255,6 +256,7 @@ mod tests {
             budget: Some(10),
             l0_only: None,
             no_l0: Some(true),
+            explain: None,
         });
 
         assert_eq!(opts.l0_budget_tokens, 0);
@@ -269,6 +271,7 @@ mod tests {
             budget: Some(2_000),
             l0_only: None,
             no_l0: None,
+            explain: None,
         });
 
         assert_eq!(opts.l0_budget_tokens, 100);
@@ -281,6 +284,7 @@ mod tests {
             budget: None,
             l0_only: None,
             no_l0: None,
+            explain: None,
         });
         assert_eq!(opts.l1_budget_tokens, crate::config::schema::MemoryConfig::default().l1_budget_tokens);
     }
@@ -487,6 +491,8 @@ pub struct WakeUpParams {
     pub l0_only: Option<bool>,
     #[serde(default)]
     pub no_l0: Option<bool>,
+    #[serde(default)]
+    pub explain: Option<bool>,
 }
 
 pub async fn mem_wake_up(
@@ -504,6 +510,7 @@ fn wake_up_options_from_params(p: &WakeUpParams) -> WakeUpOptions {
     let mut opts = WakeUpOptions::default();
     opts.include_l0 = !p.no_l0.unwrap_or(false);
     opts.include_l1 = !p.l0_only.unwrap_or(false);
+    opts.explain = p.explain.unwrap_or(false);
 
     if let Some(total) = p.budget {
         let total = total.max(1);

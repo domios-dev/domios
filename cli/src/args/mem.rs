@@ -140,6 +140,9 @@ pub enum MemAction {
         /// Skip identity layer (return L1 only)
         #[arg(long)]
         no_l0: bool,
+        /// Append a per-item L1 score breakdown for debugging selection.
+        #[arg(long)]
+        explain: bool,
     },
     /// Re-run extraction workers for items that haven't been extracted yet.
     /// Useful after LLM API failures, quota resets, or bulk imports with

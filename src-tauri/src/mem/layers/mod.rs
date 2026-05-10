@@ -80,7 +80,7 @@ pub fn generate(
 
     if opts.include_l1 {
         let ws = opts.current_workspace.as_deref();
-        let (pinned, ranked) = collect_l1_candidates(conn, blobs_dir, ws)?;
+        let (pinned, ranked, breakdown) = collect_l1_candidates(conn, blobs_dir, ws, opts.explain)?;
         let (rendered, used, evicted_pinned) = render_l1(&pinned, &ranked, opts.l1_budget_tokens);
         l1_tokens = used;
         if evicted_pinned > 0 {
@@ -95,6 +95,15 @@ pub fn generate(
         }
         out.push_str("## L1 — Critical context\n\n");
         out.push_str(&rendered);
+        if opts.explain {
+            out.push_str("\n<!-- L1 score breakdown -->\n");
+            for p in &breakdown {
+                out.push_str(&format!(
+                    "[L1 score] id={} kind={} score={:.2} importance={:.1} evidence={} ws_match={} recent={}\n",
+                    p.id, p.kind, p.score, p.importance, p.evidence_count, p.ws_match, p.recent_30d,
+                ));
+            }
+        }
     }
 
     out.push_str(&format!(
@@ -106,11 +115,23 @@ pub fn generate(
     Ok(out)
 }
 
+#[derive(Debug, Clone)]
+pub struct ScoreParts {
+    pub id: String,
+    pub kind: String,
+    pub importance: f64,
+    pub evidence_count: i64,
+    pub ws_match: bool,
+    pub recent_30d: bool,
+    pub score: f64,
+}
+
 fn collect_l1_candidates(
     conn: &Connection,
     blobs_dir: &Path,
     current_ws: Option<&str>,
-) -> Result<(Vec<MemItem>, Vec<MemItem>), String> {
+    explain: bool,
+) -> Result<(Vec<MemItem>, Vec<MemItem>, Vec<ScoreParts>), String> {
     let scope_param = current_ws.map(|w| format!("workspace:{w}"));
     let bind: Option<&str> = scope_param.as_deref();
 
@@ -125,7 +146,15 @@ fn collect_l1_candidates(
         }
     }
 
-    let mut scored: Vec<(String, f64)> = Vec::new();
+    struct Pass2Row {
+        id: String,
+        importance: f64,
+        evidence: i64,
+        ws_match: bool,
+        recent: bool,
+        score: f64,
+    }
+    let mut scored: Vec<Pass2Row> = Vec::new();
     {
         let mut stmt = conn.prepare(score::PASS2_SQL).map_err(|e| e.to_string())?;
         let rows = stmt
@@ -143,26 +172,49 @@ fn collect_l1_candidates(
             if pinned_ids.contains(&id) {
                 continue;
             }
-            scored.push((id, score::score_for(importance, evidence, ws_match, recent)));
+            let score = score::score_for(importance, evidence, ws_match, recent);
+            scored.push(Pass2Row { id, importance, evidence, ws_match, recent, score });
         }
     }
     // Score desc, id asc tiebreaker (deterministic ordering for tests / explain).
     scored.sort_by(|a, b| {
-        b.1.partial_cmp(&a.1)
+        b.score
+            .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.0.cmp(&b.0))
+            .then_with(|| a.id.cmp(&b.id))
     });
-    let ranked_ids: Vec<String> = scored
-        .into_iter()
-        .take(PASS2_LIMIT)
-        .map(|(id, _)| id)
-        .collect();
+    scored.truncate(PASS2_LIMIT);
+    let ranked_ids: Vec<String> = scored.iter().map(|r| r.id.clone()).collect();
 
     // N+1 load is acceptable for ≤150 items. Don't batch prematurely —
     // store::get also handles blob inflation and source-freshness debounce.
     let pinned = load_items(conn, blobs_dir, &pinned_ids)?;
     let ranked = load_items(conn, blobs_dir, &ranked_ids)?;
-    Ok((pinned, ranked))
+
+    let breakdown = if explain {
+        let mut out = Vec::with_capacity(scored.len());
+        for row in &scored {
+            let kind = ranked
+                .iter()
+                .find(|m| m.id == row.id)
+                .map(|m| m.kind.clone())
+                .unwrap_or_default();
+            out.push(ScoreParts {
+                id: row.id.clone(),
+                kind,
+                importance: row.importance,
+                evidence_count: row.evidence,
+                ws_match: row.ws_match,
+                recent_30d: row.recent,
+                score: row.score,
+            });
+        }
+        out
+    } else {
+        Vec::new()
+    };
+
+    Ok((pinned, ranked, breakdown))
 }
 
 fn load_items(conn: &Connection, blobs_dir: &Path, ids: &[String]) -> Result<Vec<MemItem>, String> {
