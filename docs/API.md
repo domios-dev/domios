@@ -413,12 +413,20 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/mem/search` | `?q=...&kind=...&area=...&scope=...&limit=N&mode=hybrid_rrf\|vector_first_rerank&weight=0.30&rerank=true` | Hybrid retrieval. Default mode is `hybrid_rrf` (FTS5+vector RRF fusion). `mode=vector_first_rerank` switches to the a reference memory system-style pipeline (vector recall + keyword/temporal rerank); `weight` tunes its keyword-overlap strength (0.0..=1.0, default 0.30). `rerank=true` layers an LLM second-pass on top. |
-| GET | `/api/mem/items/{id}` | — | Get one item (full body) |
-| POST | `/api/mem/items` | `{kind, title, body, scope?, summary?, area?, tags?, source?, importance?, replace?, skip_extract?}` | Save a mem item. `skip_extract: true` suppresses the auto-extraction cascade (seed loaders use this to avoid re-extracting bundled items on every startup). |
-| PATCH | `/api/mem/items/{id}` | partial | Update an existing item |
+| GET | `/api/mem/items/{id}` | — | Get one item (full body). On real (non-worker) reads, `evidence_count` is bumped for kinds `skill | lesson | rule | fact | preference`. Bump is suppressed when the request carries `X-CodeTerm-Worker-Id` so internal sweeps (dreamer, extraction) don't poison the score. |
+| GET | `/api/mem/pinned` | `?limit=N` | List items with `is_pinned_wakeup = 1`, ordered by `importance DESC, evidence_count DESC, updated_at DESC`. `limit` defaults to 100, hard-capped at 500. |
+| POST | `/api/mem/items` | `{kind, title, body, scope?, summary?, area?, tags?, source?, importance?, replace?, skip_extract?, source_path?, pinned?}` | Save a mem item. `pinned: true` atomically sets `is_pinned_wakeup = 1` in the same INSERT (no follow-up PATCH). `scope` accepts `"global"` (default) or `"workspace:<id>"`. `skip_extract: true` suppresses the auto-extraction cascade (seed loaders use this to avoid re-extracting bundled items on every startup). |
+| PATCH | `/api/mem/items/{id}` | `{title?, summary?, area?, tags?, body?, importance?, pinned?}` | Partial update. `pinned: true|false` toggles `is_pinned_wakeup`; the change is recorded in `mem_item_history` so the audit trail captures explicit pin intent. |
 | DELETE | `/api/mem/items/{id}` | — | Delete an item |
-| GET | `/api/mem/wake-up` | — | L0 + L1 critical-context digest (identity + top-N important items) |
+| GET | `/api/mem/wake-up` | `?budget=N&l0_only=true&no_l0=true&workspace=<ws>&explain=true` | L0 + L1 critical-context digest. `workspace` boosts items scoped to that workspace (`scope = "workspace:<ws>"`) by `+0.5` in the L1 score and admits them alongside global rows. `explain=true` appends a per-item score breakdown comment block. L1 budget defaults to `[memory] l1_budget_tokens` (default 800) when `budget` is omitted. |
 | GET | `/api/mem/stats` | — | Counts per kind, totals, index health |
+| POST | `/api/mem/calibration/sweep` | `?force=true` | Run the dreamer's importance / archive sweep against the local store. Server-side gate: `strftime('%w','now') == '0'` (Sunday) unless `force=true` is passed. Hard caps: 30 mutations per session, abort if candidate set > 100, refuse with `skipped_reason: "recent_run"` if any `changed_by LIKE 'dreamer-calibration%'` row landed in the last 6h. Returns `{day_of_week, examined, applied, archived, skipped_reason?}`. |
+| GET | `/api/mem/calibration/log` | `?since=ISO8601&limit=N&count=true` | Audit trail of calibration mutations. Filters `mem_item_history WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at >= since`. `count=true` returns `{count: N}`; otherwise `{entries: [...]}` with `item_id`, `changed_at`, `changed_by` (`dreamer-calibration:promote\|demote\|archive`), `change_type`, `old_importance`, `new_importance`, `old_kind`, `new_kind`. `limit` defaults to 50, hard-capped at 500. |
+
+**Actor / worker headers.** Two request headers shape mem-write semantics:
+
+- `X-CodeTerm-Worker-Id` — set automatically by the CLI when `CODETERM_WORKER_ID` is in the environment (extraction workers, dreamer, REM phase). Any `GET /api/mem/items/{id}` with this header skips the `evidence_count` bump so internal sweeps don't feedback-loop the L1 score.
+- `X-CodeTerm-Actor` — stored in `mem_item_history.changed_by`. Defaults to `"user"`; set explicitly via `codeterm mem update --changed-by <actor>` (e.g. `dreamer-calibration:promote`). The calibration sweep populates this with `dreamer-calibration:{promote|demote|archive}` so the calibration log can filter cleanly.
 
 **Extraction concurrency:** `ServiceContext::extract_semaphore` caps auto-extraction at **4 concurrent workers** across the whole process. Every `mem_save` (except items tagged `auto-extracted`, sourced from `extracted_from:*`, or sent with `skip_extract: true`) schedules an extraction task that acquires a permit from this semaphore before spawning a hidden extraction pane. Additional graph routes (`/api/mem/graph/*`), learnings, dreaming, and worker endpoints exist but are not documented here — read `src-tauri/src/api/mem_routes.rs` for the full surface.
 
@@ -977,6 +985,51 @@ codeterm update --channel                      # Print current channel
 codeterm update --channel <stable|rc|nightly>  # Switch channel (persists to config.toml)
 codeterm update --apply --manifest-url URL     # Override manifest URL (dev/test only; release builds reject non-https)
 
+# Memory (mem)
+codeterm mem search "<query>" [--kind K] [--area A] [--scope S] [--limit N] [--rerank]
+                                               # Hybrid search (FTS5 + vector). --rerank layers an LLM second-pass.
+codeterm mem get <id>                          # Print one item (full body). Bumps evidence_count for skill|lesson|rule|fact|preference (skipped when called from a worker pane via $CODETERM_WORKER_ID).
+codeterm mem save --kind K --title T [--area A] [--tags csv] [--scope S] [--workspace WS] [--pin] [--importance N] [--source-path P] [--replace] [--skip-extract] "<body>"
+                                               # Atomic create. --pin sets is_pinned_wakeup=1 in the same INSERT. --workspace WS is shorthand for --scope workspace:WS.
+codeterm mem update <id> [--title T] [--summary S] [--area A] [--tags csv] [--body B] [--importance N] [--changed-by ACTOR]
+                                               # Partial update. --changed-by sets the X-CodeTerm-Actor header (lands in mem_item_history.changed_by; default "user").
+codeterm mem delete <id>                       # Remove an item (also vectors + relations)
+codeterm mem forget AREA                       # Batch delete every item in one area
+codeterm mem history <id>                      # Full audit trail (create/update/promote/delete)
+codeterm mem taxonomy [--workspace W]          # {area -> {kind -> count}} for the store or one workspace
+codeterm mem tail [--follow] [--limit N]       # Recent mem writes, newest first
+codeterm mem stats                             # Counts by kind + blob sizes
+codeterm mem wake-up [--budget N] [--l0-only] [--no-l0] [--workspace WS] [--explain]
+                                               # L0 + L1 wake-up digest. --workspace boosts ws-scoped items in L1 ranking. --explain appends a per-item score breakdown.
+codeterm mem pin <id>                          # Set is_pinned_wakeup=1 (always loaded in L1, subject to budget)
+codeterm mem unpin <id>                        # Clear is_pinned_wakeup
+codeterm mem pinned [--limit N]                # List pinned items (default 100, max 500)
+codeterm mem learn "<text>" [--kind insight|error|feature]   # Quick capture
+codeterm mem sync [--path P]                   # Trigger Librarian re-index for source-tracked items
+codeterm mem extract-pending [--limit N]       # Re-queue extraction workers for unprocessed items
+codeterm mem calibration log [--since ISO] [--limit N] [--count]
+                                               # Audit log of dreamer-calibration changes
+codeterm mem calibration sweep [--force]       # Run the importance/archive sweep. Server-gated to Sunday unless --force.
+codeterm mem skill new <slug> [--area A]       # Scaffold a skill folder + register
+codeterm mem skill add <folder> [--area A]     # Register an existing skill folder
+codeterm mem skill list                        # List registered skills
+codeterm mem graph related --id <id>           # Outgoing relations
+codeterm mem graph create --id <id> --type <T> [--props JSON] [--scope S]
+codeterm mem graph relate --from <id> --rel <r> --to <id> [--valid-from ISO] [--valid-to ISO]
+codeterm mem graph timeline --entity <id>     # Full temporal history
+codeterm mem graph traverse --from <id> [--hops N]
+codeterm mem graph path --from <id> --to <id>
+codeterm mem reembed [--scope items|entities|all]
+                                               # Re-embed mem_items / graph entities into mem_vectors
+codeterm mem dream run [--phase light|deep|normalize|all]
+                                               # Manually trigger dreaming (server-routed)
+codeterm mem dream diary [--limit N]           # Print recent dream-diary entries
+codeterm mem worker spawn --intent NAME --task "..." [--agent claude] [--parent ID]
+                                               # Ad-hoc graph worker
+codeterm mem worker list                       # List all workers (running + done)
+codeterm mem worker progress "<status>"        # From inside a worker (uses $CODETERM_WORKER_ID)
+codeterm mem worker report "<summary>"         # Final report + mark done
+
 # Secrets — pluggable secret store (local OS keychain / Bitwarden / mock / future backends)
 codeterm mem secret status                     # Show backend + auth status (json with --json)
 codeterm mem secret sync                       # Pull latest from remote vault (Bitwarden); no-op for local/mock
@@ -1118,4 +1171,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->

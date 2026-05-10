@@ -420,6 +420,21 @@ To suppress extraction on a specific save — used by seed loaders to avoid re-e
 | `memory.worker_timeout_seconds` | `u64` | `300` | Hard timeout for non-dreaming hidden agent runs (extraction workers, generic cron). The auto-complete watcher marks the run `Failed` if the agent has not emitted a stream-json result event within this many seconds. Was `400` before v1.2.0; lowered because real-world extractions complete well under 5 min and the longer wait was just delaying retries on stuck workers. |
 | `memory.dreaming_timeout_seconds` | `u64` | `1800` | Hard timeout for the Dreamer (REM phase) specifically. Hub decomposition + diary + classification in one session needs room to think. Lower if your dreaming model is fast. |
 
+### Wake-up budget
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `memory.l1_budget_tokens` | `usize` | `800` | Token budget for the L1 critical-context layer in `codeterm mem wake-up` (and `GET /api/mem/wake-up` when no `?budget=` is passed). L0 identity always renders first (~100 tok); L1 fills the remainder. Pinned items beat the score-ranked fill but still respect this budget — when the pinned set alone overflows it, the rendered output starts with `<!-- WARN: N pinned items did not fit L1 budget … -->` and a `[wake-up] pinned-eviction` log line fires. |
+
+```toml
+[memory]
+l1_budget_tokens = 800
+```
+
+### Dreamer schedule
+
+The bundled `mem-dreaming-auto` cron runs the dreamer at `0 6 * * *` (6 AM local time) with a `±30 min` jitter window — so it fires anywhere in 5:30–6:30 AM. Schedule and jitter are managed by `ensure_dreaming_cron` (`src-tauri/src/mem/dreaming.rs`) and not exposed as config keys. Legacy installs that still hold the v1.1 `0 3 * * *` schedule with `±90 min` jitter are auto-migrated to the new values on the next daemon startup. Custom schedules a user has set explicitly are left alone. The dreamer additionally runs **STAGE D — Memory calibration** on Sundays only (server-gated via `strftime('%w','now') == '0'`); see `POST /api/mem/calibration/sweep` and `GET /api/mem/calibration/log` in `docs/API.md`.
+
 ### Librarian
 
 The Librarian is a background skill vectorizer that watches skill folders and re-indexes `SKILL.md` files when they change on disk.
@@ -458,4 +473,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->
