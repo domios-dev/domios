@@ -113,21 +113,27 @@ pub async fn mem_get(
     match item {
         Some(item) => {
             emit_activity(&state, &headers, "read", vec![id.clone()]);
-            // Why: served-to-caller is the cleanest signal that a skill/lesson was
-            // injected into someone's context. v1.1.24 will tighten via
-            // EvolutionObserver scoring; here we just bump unconditionally.
-            state.svc.mem.with_conn(|conn| bump_on_get(conn, &item.kind, &id));
+            // Why: served-to-caller is the cleanest signal that an item was
+            // injected into someone's context. Skip when called from a worker
+            // (X-CodeTerm-Worker-Id present) — dreamer / extraction sweeps
+            // must not poison evidence_count by re-reading items in batches.
+            let is_worker_call = headers.get("x-codeterm-worker-id").is_some();
+            if !is_worker_call {
+                state.svc.mem.with_conn(|conn| bump_on_get(conn, &item.kind, &id));
+            }
             Ok(Json(serde_json::to_value(item).unwrap_or_default()))
         }
         None => Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id))),
     }
 }
 
-/// Pure helper used by `mem_get`. Bumps evidence_count for kind=skill|lesson;
-/// no-op for any other kind. Best-effort — logs and swallows errors so a graph
-/// hiccup never breaks the read path.
+/// Pure helper used by `mem_get`. Bumps evidence_count for kinds that drive L1
+/// wake-up selection (skill | lesson | rule | fact | preference); no-op for
+/// any other kind. Best-effort — logs and swallows errors so a graph hiccup
+/// never breaks the read path. Caller decides whether to invoke (e.g. worker
+/// sweeps skip to avoid poisoning the signal).
 fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
-    if kind != "skill" && kind != "lesson" {
+    if !matches!(kind, "skill" | "lesson" | "rule" | "fact" | "preference") {
         return;
     }
     if let Err(e) = codeterm_mem_store::graph::bump_evidence_count(conn, id) {
@@ -184,6 +190,30 @@ mod tests {
         insert(&conn, "note_a", "note");
         bump_on_get(&conn, "note", "note_a");
         assert_eq!(evidence(&conn, "note_a"), 1, "kind=note must not bump");
+    }
+
+    #[test]
+    fn bump_on_get_fires_for_fact() {
+        let conn = open_test_conn();
+        insert(&conn, "fact_a", "fact");
+        bump_on_get(&conn, "fact", "fact_a");
+        assert_eq!(evidence(&conn, "fact_a"), 2);
+    }
+
+    #[test]
+    fn bump_on_get_fires_for_rule() {
+        let conn = open_test_conn();
+        insert(&conn, "rule_a", "rule");
+        bump_on_get(&conn, "rule", "rule_a");
+        assert_eq!(evidence(&conn, "rule_a"), 2);
+    }
+
+    #[test]
+    fn bump_on_get_fires_for_preference() {
+        let conn = open_test_conn();
+        insert(&conn, "pref_a", "preference");
+        bump_on_get(&conn, "preference", "pref_a");
+        assert_eq!(evidence(&conn, "pref_a"), 2);
     }
 
     #[test]
