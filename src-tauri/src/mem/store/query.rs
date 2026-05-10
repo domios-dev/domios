@@ -22,7 +22,7 @@ pub fn stats(conn: &Connection) -> Result<MemStats, String> {
 
     let mut by_kind: HashMap<String, u64> = HashMap::new();
     let mut stmt = conn
-        .prepare("SELECT kind, COUNT(*) FROM mem_items GROUP BY kind")
+        .prepare("SELECT kind, COUNT(*) FROM mem_items WHERE kind != 'archived' GROUP BY kind")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
@@ -52,13 +52,14 @@ pub fn get_taxonomy(
         Some(ws) => (
             r#"SELECT COALESCE(NULLIF(area, ''), '(none)') AS area_k, kind, COUNT(*)
                FROM mem_items
-               WHERE scope = ?1
+               WHERE scope = ?1 AND kind != 'archived'
                GROUP BY area_k, kind"#,
             Some(format!("workspace:{}", ws)),
         ),
         None => (
             r#"SELECT COALESCE(NULLIF(area, ''), '(none)') AS area_k, kind, COUNT(*)
                FROM mem_items
+               WHERE kind != 'archived'
                GROUP BY area_k, kind"#,
             None,
         ),
@@ -155,7 +156,7 @@ pub fn list_pinned(
     let mut stmt = conn
         .prepare(
             "SELECT id FROM mem_items
-             WHERE is_pinned_wakeup = 1
+             WHERE is_pinned_wakeup = 1 AND kind != 'archived'
              ORDER BY importance DESC, evidence_count DESC, updated_at DESC
              LIMIT ?1",
         )
@@ -193,7 +194,8 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
             r#"SELECT id, kind, title, summary, area, tags_json, importance,
                       body_inline, body_blob_path,
                       access_count, recurrence_count
-               FROM mem_items"#,
+               FROM mem_items
+               WHERE kind != 'archived'"#,
         )
         .map_err(|e| format!("prepare graph nodes: {}", e))?;
     let rows = stmt
