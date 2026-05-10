@@ -229,6 +229,8 @@ fn mem_save_relays_to_items_post() {
             area: Some("release".into()),
             importance: 4.0,
             scope: None,
+            workspace: None,
+            pin: false,
             source_path: None,
             replace: false,
             skip_extract: false,

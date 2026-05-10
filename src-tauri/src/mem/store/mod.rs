@@ -264,6 +264,8 @@ pub struct NewMemItem {
     pub importance: f64,
     #[serde(default)]
     pub source_path: Option<String>,
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

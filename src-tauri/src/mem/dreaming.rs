@@ -681,6 +681,7 @@ mod tests {
                 source: None,
                 importance: 3.0,
                 source_path: None,
+                pinned: false,
             })
             .unwrap();
 
@@ -719,6 +720,7 @@ mod tests {
                 source: None,
                 importance: 2.0,
                 source_path: None,
+                pinned: false,
             })
             .unwrap();
 
@@ -995,7 +997,7 @@ mod tests {
             kind: MemKind::Fact, scope: MemScope::Global,
             title: "rust borrow checker".into(), summary: None, area: None,
             tags: vec![], body: "x".into(), source: None,
-            importance: 3.0, source_path: None,
+            importance: 3.0, source_path: None, pinned: false,
         }).unwrap();
         {
             let c = mem.conn(); let c = c.lock();
@@ -1018,13 +1020,13 @@ mod tests {
             kind: MemKind::Conversation, scope: MemScope::Global,
             title: "parent".into(), summary: None, area: None,
             tags: vec![], body: "x".into(), source: None,
-            importance: 3.0, source_path: None,
+            importance: 3.0, source_path: None, pinned: false,
         }).unwrap();
         let child = mem.save(NewMemItem {
             kind: MemKind::Fact, scope: MemScope::Global,
             title: "child".into(), summary: None, area: None,
             tags: vec![], body: "x".into(), source: None,
-            importance: 3.0, source_path: None,
+            importance: 3.0, source_path: None, pinned: false,
         }).unwrap();
         {
             let c = mem.conn(); let c = c.lock();
@@ -1072,6 +1074,7 @@ mod tests {
                 source: None,
                 importance: 4.5,
                 source_path: None,
+                pinned: false,
             })
             .unwrap();
         {

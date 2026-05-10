@@ -617,13 +617,13 @@ mod tests {
             kind: MemKind::Skill, scope: MemScope::Global,
             title: "home assistant".into(), summary: None, area: Some("home".into()),
             tags: vec!["automation".into()], body: "control HA entities, scenes, automations".into(),
-            source: None, importance: 3.0, source_path: None,
+            source: None, importance: 3.0, source_path: None, pinned: false,
         }, &blobs).unwrap();
         insert(&conn, &NewMemItem {
             kind: MemKind::Fact, scope: MemScope::Global,
             title: "deploy pipeline".into(), summary: None, area: Some("deploy".into()),
             tags: vec![], body: "uses ./build.sh build for production".into(),
-            source: None, importance: 3.0, source_path: None,
+            source: None, importance: 3.0, source_path: None, pinned: false,
         }, &blobs).unwrap();
 
         let r = run(&conn, &SearchQuery {
@@ -640,13 +640,13 @@ mod tests {
             kind: MemKind::Skill, scope: MemScope::Global,
             title: "auth skill".into(), summary: None, area: None,
             tags: vec![], body: "authentication helpers".into(),
-            source: None, importance: 3.0, source_path: None,
+            source: None, importance: 3.0, source_path: None, pinned: false,
         }, &blobs).unwrap();
         insert(&conn, &NewMemItem {
             kind: MemKind::Fact, scope: MemScope::Global,
             title: "auth fact".into(), summary: None, area: None,
             tags: vec![], body: "authentication broken on staging".into(),
-            source: None, importance: 3.0, source_path: None,
+            source: None, importance: 3.0, source_path: None, pinned: false,
         }, &blobs).unwrap();
 
         let r = run(&conn, &SearchQuery {
@@ -699,7 +699,7 @@ mod tests {
         insert(&conn, &NewMemItem {
             kind: MemKind::Fact, scope: MemScope::Global,
             title: "a".into(), summary: None, area: None, tags: vec![],
-            body: "b".into(), source: None, importance: 3.0, source_path: None,
+            body: "b".into(), source: None, importance: 3.0, source_path: None, pinned: false,
         }, &blobs).unwrap();
         let cfg = SearchConfig {
             mode: SearchMode::VectorFirstRerank,
@@ -720,7 +720,7 @@ mod tests {
             kind: MemKind::Skill, scope: MemScope::Global,
             title: "home assistant".into(), summary: None, area: None,
             tags: vec![], body: "scenes and automations".into(),
-            source: None, importance: 3.0, source_path: None,
+            source: None, importance: 3.0, source_path: None, pinned: false,
         }, &blobs).unwrap();
         let cfg_a = SearchConfig::default();
         let cfg_b = SearchConfig {

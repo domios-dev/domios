@@ -18,19 +18,19 @@ fn wake_up_includes_l0_l1() {
         kind: MemKind::Preference, scope: MemScope::Global,
         title: "identity".into(), summary: None, area: None, tags: vec![],
         body: "I am Rollo, the GA on this machine.".into(),
-        source: None, importance: 5.0, source_path: None,
+        source: None, importance: 5.0, source_path: None, pinned: false,
     }, &blobs).unwrap();
     insert(&conn, &NewMemItem {
         kind: MemKind::Rule, scope: MemScope::Global,
         title: "never edit autogen".into(), summary: None, area: None, tags: vec![],
         body: "Never edit CLAUDE.md or AGENTS.md".into(),
-        source: None, importance: 5.0, source_path: None,
+        source: None, importance: 5.0, source_path: None, pinned: false,
     }, &blobs).unwrap();
     insert(&conn, &NewMemItem {
         kind: MemKind::Peer, scope: MemScope::Global,
         title: "ainyiva-bot".into(), summary: Some("mac mini, paired".into()), area: None,
         tags: vec![], body: "ainyiva-bot is the Mac mini peer".into(),
-        source: None, importance: 4.0, source_path: None,
+        source: None, importance: 4.0, source_path: None, pinned: false,
     }, &blobs).unwrap();
 
     let out = generate(&conn, &WakeUpOptions::default(), &blobs).unwrap();
@@ -57,13 +57,13 @@ fn budget_drops_low_priority_first() {
         insert(&conn, &NewMemItem {
             kind: MemKind::Summary, scope: MemScope::Global,
             title: format!("summary {}", i), summary: None, area: None, tags: vec![],
-            body: "x".repeat(200), source: None, importance: 4.5, source_path: None,
+            body: "x".repeat(200), source: None, importance: 4.5, source_path: None, pinned: false,
         }, &blobs).unwrap();
     }
     insert(&conn, &NewMemItem {
         kind: MemKind::Rule, scope: MemScope::Global,
         title: "important rule".into(), summary: None, area: None, tags: vec![],
-        body: "this rule must always survive".into(), source: None, importance: 5.0, source_path: None,
+        body: "this rule must always survive".into(), source: None, importance: 5.0, source_path: None, pinned: false,
     }, &blobs).unwrap();
 
     let out = generate(&conn, &WakeUpOptions {
@@ -123,7 +123,7 @@ fn insert_item(conn: &Connection, blobs: &PathBuf, title: &str, kind: &str, impo
     let id = insert(conn, &NewMemItem {
         kind: mem_kind, scope: mem_scope,
         title: title.to_string(), summary: None, area: None, tags: vec![],
-        body: format!("body of {title}"), source: None, importance, source_path: None,
+        body: format!("body of {title}"), source: None, importance, source_path: None, pinned: false,
     }, blobs).unwrap();
     if pinned {
         update(conn, &id, &MemUpdate { pinned: Some(true), ..Default::default() }, blobs).unwrap();

@@ -104,13 +104,14 @@ fn insert_with_options(
         })
         .unwrap_or((None, None));
 
+    let pinned_int: i64 = if item.pinned { 1 } else { 0 };
     conn.execute(
         r#"INSERT INTO mem_items
            (id, uid, kind, scope, title, summary, area, tags_json,
             body_inline, body_blob_path, source, importance,
             created_at, updated_at, accessed_at,
-            source_path, source_size, source_mtime)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17)"#,
+            source_path, source_size, source_mtime, is_pinned_wakeup)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17, ?18)"#,
         params![
             &id,
             &uid,
@@ -129,6 +130,7 @@ fn insert_with_options(
             &item.source_path,
             source_size,
             &source_mtime,
+            pinned_int,
         ],
     )
     .map_err(|e| format!("insert mem_item: {}", e))?;

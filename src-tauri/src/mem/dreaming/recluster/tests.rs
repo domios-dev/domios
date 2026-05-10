@@ -213,6 +213,7 @@ async fn recluster_writes_plan_file_to_disk() {
         source: None,
         importance: 3.0,
         source_path: None,
+        pinned: false,
     }).unwrap();
     let dir = tempfile::tempdir().unwrap();
 

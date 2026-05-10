@@ -22,6 +22,7 @@ fn save_and_get_roundtrip() {
             source: None,
             importance: 3.0,
             source_path: None,
+            pinned: false,
         })
         .unwrap();
     assert!(id.starts_with("fact_"));
@@ -45,6 +46,7 @@ fn history_tracks_full_lifecycle_with_promote() {
             source: None,
             importance: 2.0,
             source_path: None,
+            pinned: false,
         })
         .unwrap();
 
@@ -94,6 +96,7 @@ fn taxonomy_manager_aggregates_by_area_and_kind() {
             source: None,
             importance: 3.0,
             source_path: None,
+            pinned: false,
         })
         .unwrap();
     }
@@ -116,6 +119,7 @@ fn preference_auto_extracted_from_note() {
         source: None,
         importance: 3.0,
         source_path: None,
+        pinned: false,
     })
     .unwrap();
     let stats = mem.stats().unwrap();

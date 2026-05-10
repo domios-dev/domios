@@ -109,9 +109,15 @@ pub enum MemAction {
         /// Importance 1-5 (default 3.0). Higher = more likely in L1 wake-up.
         #[arg(long, default_value = "3.0")]
         importance: f64,
-        /// Scope: global (default) or workspace
+        /// Scope: global (default) or workspace:<id>
         #[arg(long)]
         scope: Option<String>,
+        /// Convenience: scope this item to workspace ID. Maps to scope="workspace:<ws>".
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Pin the item for L1 wake-up (always loaded).
+        #[arg(long)]
+        pin: bool,
         /// Path to source file on disk. Enables Librarian auto-sync.
         #[arg(long)]
         source_path: Option<String>,

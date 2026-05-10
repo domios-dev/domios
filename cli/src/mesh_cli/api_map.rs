@@ -387,17 +387,23 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             ("PATCH".into(), format!("/api/mem/items/{}", enc(id)),
                 Some(serde_json::Value::Object(payload).to_string()))
         }
-        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, source_path, replace, skip_extract } => {
+        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, workspace, pin, source_path, replace, skip_extract } => {
             let mut payload = json!({"kind": kind, "importance": importance});
             if let Some(v) = title { payload["title"] = json!(v); }
             if let Some(v) = body { payload["body"] = json!(v); }
             if let Some(v) = summary { payload["summary"] = json!(v); }
             if let Some(v) = tags { payload["tags"] = json!(v); }
             if let Some(v) = area { payload["area"] = json!(v); }
-            if let Some(v) = scope { payload["scope"] = json!(v); }
+            let resolved_scope = match (workspace, scope) {
+                (Some(ws), _) => Some(format!("workspace:{ws}")),
+                (None, Some(s)) => Some(s.clone()),
+                (None, None) => None,
+            };
+            if let Some(v) = resolved_scope { payload["scope"] = json!(v); }
             if let Some(v) = source_path { payload["source_path"] = json!(v); }
             if *replace { payload["replace"] = json!(true); }
             if *skip_extract { payload["skip_extract"] = json!(true); }
+            if *pin { payload["pinned"] = json!(true); }
             ("POST".into(), "/api/mem/items".into(), Some(payload.to_string()))
         }
         MemAction::WakeUp { budget, l0_only, no_l0 } => {
