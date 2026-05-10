@@ -53,7 +53,7 @@ pub(super) fn dispatch(
 
         "pane.send_text" => {
             let pane_id = get_string_param(params, "pane_id")?;
-            let text = get_string_param(params, "text")?;
+            let raw_text = get_string_param(params, "text")?;
             let enter = params
                 .as_ref()
                 .and_then(|p| p.get("enter"))
@@ -64,6 +64,21 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("verify"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
+            let source_pane = params
+                .as_ref()
+                .and_then(|p| p.get("source_pane"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .filter(|s| !s.is_empty() && s != &pane_id);
+            let text = match source_pane.as_deref() {
+                Some(src) => {
+                    let title = mux.lock().get_pane(src).map(|p| p.title.clone()).unwrap_or_default();
+                    let short = src.chars().take(8).collect::<String>();
+                    let label = if title.is_empty() { short.clone() } else { title };
+                    format!("[from {} pane={}] {}", label, short, raw_text)
+                }
+                None => raw_text,
+            };
             let svc_ref = svc.as_ref();
             if verify {
                 let pty_id = svc_ref.resolve_pty_id(&pane_id)
