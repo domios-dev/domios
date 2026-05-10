@@ -376,7 +376,8 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         MemAction::Tail { limit, .. } => {
             ("GET".into(), format!("/api/mem/tail?limit={}", limit), None)
         }
-        MemAction::Update { id, title, summary, area, tags, body, importance } => {
+        // --changed-by is local-only; mesh relay strips per-call headers
+        MemAction::Update { id, title, summary, area, tags, body, importance, changed_by: _ } => {
             let mut payload = serde_json::Map::new();
             if let Some(v) = title { payload.insert("title".into(), json!(v)); }
             if let Some(v) = summary { payload.insert("summary".into(), json!(v)); }
