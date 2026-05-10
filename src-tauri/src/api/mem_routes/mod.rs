@@ -4,6 +4,10 @@ use tauri::Emitter;
 use crate::api::routes::AppState;
 use crate::mem::activity::{now_ms, MemActivityEvent, MemActivitySource};
 
+pub(super) const WORKER_ID_HEADER: &str = "x-codeterm-worker-id";
+pub(super) const WORKER_INTENT_HEADER: &str = "x-codeterm-worker-intent";
+pub(super) const ACTOR_HEADER: &str = "x-codeterm-actor";
+
 pub mod dream;
 pub mod graph;
 pub mod items;
@@ -80,16 +84,16 @@ pub(super) fn validate_item_fields(
 /// - Otherwise → `user`
 pub(super) fn changed_by_from_headers(headers: &HeaderMap) -> String {
     let worker_id = headers
-        .get("x-codeterm-worker-id")
+        .get(WORKER_ID_HEADER)
         .and_then(|v| v.to_str().ok());
     if let Some(_wid) = worker_id {
         let intent = headers
-            .get("x-codeterm-worker-intent")
+            .get(WORKER_INTENT_HEADER)
             .and_then(|v| v.to_str().ok())
             .unwrap_or("other");
         return format!("worker:{}", intent);
     }
-    if let Some(actor) = headers.get("x-codeterm-actor").and_then(|v| v.to_str().ok()) {
+    if let Some(actor) = headers.get(ACTOR_HEADER).and_then(|v| v.to_str().ok()) {
         return actor.to_string();
     }
     "user".to_string()
@@ -101,7 +105,7 @@ pub(super) fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem
         .and_then(|v| v.to_str().ok())
         .map(String::from);
     let worker_id = headers
-        .get("x-codeterm-worker-id")
+        .get(WORKER_ID_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(String::from);
     let kind = if worker_id.is_some() { "worker" } else { "rest" }.to_string();

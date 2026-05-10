@@ -15,7 +15,7 @@ use crate::mem::{
     store::{MemKind, MemScope, MemUpdate, NewMemItem},
 };
 
-use super::{changed_by_from_headers, emit_activity, validate_item_fields};
+use super::{changed_by_from_headers, emit_activity, validate_item_fields, WORKER_ID_HEADER};
 
 #[derive(Deserialize)]
 pub struct ActivityRecentParams {
@@ -113,11 +113,8 @@ pub async fn mem_get(
     match item {
         Some(item) => {
             emit_activity(&state, &headers, "read", vec![id.clone()]);
-            // Why: served-to-caller is the cleanest signal that an item was
-            // injected into someone's context. Skip when called from a worker
-            // (X-CodeTerm-Worker-Id present) — dreamer / extraction sweeps
-            // must not poison evidence_count by re-reading items in batches.
-            let is_worker_call = headers.get("x-codeterm-worker-id").is_some();
+            // Skip evidence bump on worker-driven reads (extraction/dreamer sweeps would poison the signal).
+            let is_worker_call = headers.get(WORKER_ID_HEADER).is_some();
             if !is_worker_call {
                 state.svc.mem.with_conn(|conn| bump_on_get(conn, &item.kind, &id));
             }
@@ -127,11 +124,7 @@ pub async fn mem_get(
     }
 }
 
-/// Pure helper used by `mem_get`. Bumps evidence_count for kinds that drive L1
-/// wake-up selection (skill | lesson | rule | fact | preference); no-op for
-/// any other kind. Best-effort — logs and swallows errors so a graph hiccup
-/// never breaks the read path. Caller decides whether to invoke (e.g. worker
-/// sweeps skip to avoid poisoning the signal).
+/// Bumps `evidence_count` for L1-selectable kinds (skill|lesson|rule|fact|preference); no-op otherwise. Caller decides whether to invoke.
 fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
     if !matches!(kind, "skill" | "lesson" | "rule" | "fact" | "preference") {
         return;
