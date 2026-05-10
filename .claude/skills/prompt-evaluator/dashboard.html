@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>eval · live</title>
+  <link rel="preconnect" href="https://fonts.bunny.net">
+  <link href="https://fonts.bunny.net/css?family=jetbrains-mono:400,500,700&family=ibm-plex-mono:300,400,500,600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #0c0c10;
+      --bg-soft:   #14141a;
+      --bg-row:    #1a1a22;
+      --bg-row-hl: #1f1f29;
+      --fg:        #d6d6e0;
+      --fg-mute:   #6a6a7a;
+      --fg-faint:  #44444f;
+      --grid:      #1f1f2c;
+      --pass:      #4af07c;
+      --pass-soft: #1c3324;
+      --warn:      #f5b042;
+      --warn-soft: #3a2a18;
+      --fail:      #ef5454;
+      --fail-soft: #3a1c1f;
+      --info:      #56b6c2;
+      --accent:    #c896ff;
+      --shadow:    0 0 0 1px var(--grid), 0 24px 48px -24px rgba(0,0,0,.6);
+    }
+    [data-theme="light"] {
+      --bg:        #f4f1ea;
+      --bg-soft:   #ebe7dd;
+      --bg-row:    #ffffff;
+      --bg-row-hl: #f7f3eb;
+      --fg:        #1a1a1f;
+      --fg-mute:   #6a655c;
+      --fg-faint:  #a6a09a;
+      --grid:      #d6d0c4;
+      --pass:      #1a7a3c;
+      --pass-soft: #d6efd9;
+      --warn:      #b5750c;
+      --warn-soft: #f4e4c0;
+      --fail:      #b62a2a;
+      --fail-soft: #f4d6d6;
+      --info:      #2b7a83;
+      --accent:    #6a3eb5;
+      --shadow:    0 0 0 1px var(--grid), 0 12px 32px -16px rgba(60,40,20,.18);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin:0; padding:0; }
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 13px;
+      line-height: 1.55;
+      min-height: 100vh;
+      letter-spacing: .005em;
+      background-image:
+        radial-gradient(circle at 12% 0%, rgba(200,150,255,.06), transparent 35%),
+        radial-gradient(circle at 88% 100%, rgba(74,240,124,.04), transparent 40%);
+    }
+    [data-theme="light"] body {
+      background-image:
+        radial-gradient(circle at 12% 0%, rgba(106,62,181,.05), transparent 35%),
+        radial-gradient(circle at 88% 100%, rgba(26,122,60,.04), transparent 40%);
+    }
+
+    /* ─ Header ─────────────────────────────────────────────── */
+    header {
+      position: sticky; top: 0; z-index: 10;
+      backdrop-filter: blur(12px);
+      background: color-mix(in srgb, var(--bg) 88%, transparent);
+      border-bottom: 1px solid var(--grid);
+      padding: 14px 28px 12px;
+      display: grid;
+      grid-template-columns: auto 1fr auto auto;
+      gap: 28px;
+      align-items: baseline;
+    }
+    .brand {
+      font-weight: 700; font-size: 14px; letter-spacing: .12em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    .brand::before { content: "▌"; margin-right: 6px; opacity: .7; }
+    .meta { color: var(--fg-mute); font-size: 11px; letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .meta b { color: var(--fg); font-weight: 500; }
+    .meta .sep { color: var(--fg-faint); padding: 0 8px; }
+    .live-dot {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      background: var(--pass);
+      box-shadow: 0 0 8px var(--pass);
+      animation: pulse 1.4s ease-in-out infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+    .live-dot.idle { background: var(--fg-faint); box-shadow: none; animation: none; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .35; transform: scale(.85); }
+    }
+    .toggle {
+      cursor: pointer; user-select: none;
+      color: var(--fg-mute);
+      padding: 4px 8px; border: 1px solid var(--grid); border-radius: 2px;
+      font-size: 12px;
+      transition: color .15s, border-color .15s;
+    }
+    .toggle:hover { color: var(--fg); border-color: var(--fg-mute); }
+
+    /* ─ Progress band ─────────────────────────────────────── */
+    .progress-band {
+      padding: 18px 28px 8px;
+      border-bottom: 1px solid var(--grid);
+      background: var(--bg-soft);
+    }
+    .progress-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto auto auto auto;
+      gap: 18px;
+      align-items: center;
+      font-size: 11px;
+      color: var(--fg-mute);
+      letter-spacing: .04em;
+    }
+    .progress-row .num { color: var(--fg); font-weight: 500; font-size: 13px; font-variant-numeric: tabular-nums; }
+    .progress-row .num.pass { color: var(--pass); }
+    .progress-row .num.warn { color: var(--warn); }
+    .progress-row .num.fail { color: var(--fail); }
+    .bar {
+      height: 4px; background: var(--bg-row);
+      border-radius: 1px; overflow: hidden;
+      grid-column: 1 / -1;
+      margin-top: 12px;
+      position: relative;
+    }
+    .bar::before {
+      content: ""; position: absolute; inset: 0;
+      background-image: repeating-linear-gradient(90deg, transparent 0, transparent 39px, var(--grid) 39px, var(--grid) 40px);
+      opacity: .6;
+    }
+    .bar .fill {
+      height: 100%; width: 0;
+      background: linear-gradient(90deg, var(--accent), var(--info));
+      transition: width .8s cubic-bezier(.2,.7,.3,1);
+      box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 50%, transparent);
+    }
+
+    /* ─ Eval list ─────────────────────────────────────────── */
+    main { padding: 16px 28px 64px; max-width: 1280px; margin: 0 auto; }
+    .empty {
+      color: var(--fg-mute); text-align: center; padding: 80px 0;
+      font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+    }
+    .empty::before { content: "◌  "; opacity: .5; }
+    .ev-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; background: var(--grid); border: 1px solid var(--grid); }
+    .ev {
+      background: var(--bg-row);
+      transition: background .15s;
+    }
+    .ev:hover { background: var(--bg-row-hl); }
+    .ev-head {
+      display: grid;
+      grid-template-columns: 38px 1fr auto auto auto;
+      gap: 18px;
+      align-items: center;
+      padding: 11px 16px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .ev-id { color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+    .ev-name { color: var(--fg); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ev-name .side {
+      color: var(--accent); font-size: 10px; padding: 1px 5px; border: 1px solid var(--accent);
+      border-radius: 2px; margin-left: 8px; letter-spacing: .08em; vertical-align: middle;
+    }
+    .ev-runs {
+      color: var(--fg-mute); font-size: 11px; font-variant-numeric: tabular-nums;
+      letter-spacing: .04em;
+    }
+    .pill {
+      font-size: 10px; padding: 2px 8px; border-radius: 2px;
+      font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+      font-variant-numeric: tabular-nums;
+    }
+    .pill.pass { color: var(--pass); background: var(--pass-soft); }
+    .pill.warn { color: var(--warn); background: var(--warn-soft); }
+    .pill.fail { color: var(--fail); background: var(--fail-soft); }
+    .pill.run  { color: var(--info); background: color-mix(in srgb, var(--info) 12%, transparent); }
+    .pill.idle { color: var(--fg-mute); background: var(--bg-soft); }
+    .chev { color: var(--fg-faint); font-size: 11px; transition: transform .2s; }
+    .ev[open] .chev { transform: rotate(90deg); color: var(--accent); }
+
+    .ev-body {
+      display: none;
+      padding: 0 16px 18px 56px;
+      border-top: 1px dashed var(--grid);
+    }
+    .ev[open] .ev-body { display: block; }
+    .ev-section {
+      margin-top: 14px;
+    }
+    .ev-section h4 {
+      margin: 0 0 6px; font-size: 10px; font-weight: 600;
+      letter-spacing: .14em; text-transform: uppercase; color: var(--fg-mute);
+    }
+    .ev-section h4::before { content: "» "; color: var(--fg-faint); }
+    .code {
+      background: var(--bg);
+      padding: 10px 12px; border-left: 2px solid var(--grid);
+      white-space: pre-wrap; word-break: break-word;
+      font-size: 12px; color: var(--fg);
+      max-height: 280px; overflow: auto;
+    }
+    .code.exp { border-left-color: var(--accent); }
+    .expects { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+    .expects li {
+      display: grid; grid-template-columns: 18px 1fr; gap: 8px;
+      font-size: 12px; padding: 4px 0;
+      border-bottom: 1px dotted var(--grid);
+    }
+    .expects li:last-child { border-bottom: none; }
+    .expects li .v { font-weight: 600; }
+    .v.pass { color: var(--pass); }
+    .v.fail { color: var(--fail); }
+    .v.idle { color: var(--fg-faint); }
+
+    .runs { display: grid; gap: 14px; }
+    .run {
+      border: 1px solid var(--grid);
+      border-radius: 2px;
+      overflow: hidden;
+      background: var(--bg-row);
+    }
+    .run-head {
+      display: grid; grid-template-columns: auto 1fr auto; gap: 12px;
+      padding: 8px 12px;
+      font-size: 11px; letter-spacing: .04em;
+      background: var(--bg-soft);
+      align-items: center;
+    }
+    .run-head .label { color: var(--fg-mute); }
+    .run-head .label b { color: var(--fg); margin-right: 6px; }
+    .run-head .side-tag { color: var(--accent); font-size: 10px; }
+    .run-body { padding: 10px 12px; display: grid; gap: 12px; }
+
+    /* ─ Footer / report ───────────────────────────────────── */
+    footer {
+      max-width: 1280px; margin: 32px auto 0; padding: 16px 28px;
+      border-top: 1px dashed var(--grid);
+      color: var(--fg-mute); font-size: 11px; letter-spacing: .04em;
+    }
+    footer details summary { cursor: pointer; color: var(--fg); padding: 6px 0; }
+    footer pre { background: var(--bg-soft); padding: 12px; max-height: 480px; overflow: auto; font-size: 11px; }
+
+    /* ─ Scrollbars (subtle, terminal-feeling) ───────────── */
+    *::-webkit-scrollbar { width: 8px; height: 8px; }
+    *::-webkit-scrollbar-track { background: transparent; }
+    *::-webkit-scrollbar-thumb { background: var(--grid); border-radius: 0; }
+    *::-webkit-scrollbar-thumb:hover { background: var(--fg-faint); }
+
+    @media (max-width: 640px) {
+      header, .progress-band, main, footer { padding-left: 14px; padding-right: 14px; }
+      .ev-head { grid-template-columns: 32px 1fr auto auto; gap: 10px; padding: 10px 12px; }
+      .ev-runs { display: none; }
+      .ev-body { padding: 0 12px 14px 44px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">eval·runner</div>
+    <div class="meta" id="meta">
+      <span class="live-dot idle" id="dot"></span><span id="status">connecting…</span>
+    </div>
+    <div class="toggle" id="auto-toggle" title="Auto-refresh">↻ auto</div>
+    <div class="toggle" id="theme-toggle" title="Theme">◐ theme</div>
+  </header>
+
+  <section class="progress-band">
+    <div class="progress-row">
+      <div><span class="num" id="evals-done">0</span> / <span id="evals-total">0</span> evals</div>
+      <div></div>
+      <div><span class="num pass" id="ct-pass">0</span> ✓</div>
+      <div><span class="num warn" id="ct-warn">0</span> ⚠</div>
+      <div><span class="num fail" id="ct-fail">0</span> ✗</div>
+      <div><span class="num" id="calls-done">0</span> / <span id="calls-total">0</span> calls</div>
+      <div class="bar"><div class="fill" id="fill"></div></div>
+    </div>
+  </section>
+
+  <main>
+    <div class="empty" id="empty">waiting for first eval…</div>
+    <ul class="ev-list" id="evals"></ul>
+  </main>
+
+  <footer>
+    <div id="footer-meta">started: — · finished: —</div>
+    <details id="report-wrap" style="margin-top:10px;display:none;">
+      <summary>final report (markdown)</summary>
+      <pre id="report"></pre>
+    </details>
+  </footer>
+
+  <script>
+    // ─ Theme persistence ───────────────────────────────
+    const themeKey = "eval-dash-theme";
+    const savedTheme = localStorage.getItem(themeKey);
+    if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+    document.getElementById("theme-toggle").onclick = () => {
+      const cur = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      document.documentElement.dataset.theme = cur;
+      localStorage.setItem(themeKey, cur);
+    };
+
+    // ─ Auto-refresh toggle ─────────────────────────────
+    let autoOn = true;
+    const autoBtn = document.getElementById("auto-toggle");
+    autoBtn.onclick = () => {
+      autoOn = !autoOn;
+      autoBtn.style.color = autoOn ? "" : "var(--fg-faint)";
+      if (autoOn) tick();
+    };
+
+    // ─ Render helpers ──────────────────────────────────
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    const fmtTs = (iso) => iso ? new Date(iso).toLocaleTimeString() : "—";
+    const fmtDur = (a, b) => {
+      if (!a) return "—";
+      const start = new Date(a).getTime();
+      const end = b ? new Date(b).getTime() : Date.now();
+      const sec = Math.max(0, Math.round((end - start) / 1000));
+      if (sec < 60) return `${sec}s`;
+      const m = Math.floor(sec / 60); return `${m}m ${sec % 60}s`;
+    };
+
+    function statusOf(ev) {
+      if (ev.status !== "done") return "run";
+      const p = ev.runs_passed ?? 0;
+      const t = ev.total_runs ?? ev.runs?.length ?? 0;
+      if (p === t && t > 0) return "pass";
+      if (p === 0) return "fail";
+      return "warn";
+    }
+
+    // Track which evals are user-expanded so re-render preserves state.
+    const expandedSet = new Set();
+
+    function render(s) {
+      $("status").textContent = s.finished_at
+        ? `complete · ${fmtDur(s.started_at, s.finished_at)}`
+        : `running · ${fmtDur(s.started_at)}`;
+      $("dot").classList.toggle("idle", !!s.finished_at);
+
+      $("calls-done").textContent = s.calls_done ?? 0;
+      $("calls-total").textContent = s.total_calls ?? 0;
+      const pct = s.total_calls ? (s.calls_done / s.total_calls) * 100 : 0;
+      $("fill").style.width = `${Math.min(100, pct)}%`;
+
+      const evs = s.evals ?? [];
+      $("evals-done").textContent = evs.filter(e => e.status === "done").length;
+      $("evals-total").textContent = evs.length;
+      $("ct-pass").textContent = evs.filter(e => statusOf(e) === "pass").length;
+      $("ct-warn").textContent = evs.filter(e => statusOf(e) === "warn").length;
+      $("ct-fail").textContent = evs.filter(e => statusOf(e) === "fail").length;
+
+      $("empty").style.display = evs.length ? "none" : "";
+
+      const list = $("evals");
+      const sorted = [...evs].sort((a, b) => (a.id - b.id) || ((a.side || "") < (b.side || "") ? -1 : 1));
+      list.innerHTML = sorted.map(ev => renderEval(ev)).join("");
+      // restore open state
+      for (const li of list.querySelectorAll(".ev")) {
+        if (expandedSet.has(li.dataset.key)) li.setAttribute("open", "");
+      }
+      // wire toggles
+      for (const head of list.querySelectorAll(".ev-head")) {
+        head.onclick = () => {
+          const li = head.parentElement;
+          const k = li.dataset.key;
+          if (li.hasAttribute("open")) { li.removeAttribute("open"); expandedSet.delete(k); }
+          else { li.setAttribute("open", ""); expandedSet.add(k); }
+        };
+      }
+
+      // footer
+      $("footer-meta").textContent = `started: ${fmtTs(s.started_at)} · finished: ${fmtTs(s.finished_at)} · ${s.prompt_label || ""}`;
+      if (s.report_md) {
+        $("report").textContent = s.report_md;
+        $("report-wrap").style.display = "";
+      }
+
+      document.title = s.finished_at
+        ? `eval · done (${$("ct-pass").textContent}✓ ${$("ct-warn").textContent}⚠ ${$("ct-fail").textContent}✗)`
+        : `eval · ${s.calls_done}/${s.total_calls}`;
+    }
+
+    function renderEval(ev) {
+      const status = statusOf(ev);
+      const pillLabel = status === "run" ? "RUN" :
+        `${ev.runs_passed ?? 0}/${ev.total_runs ?? ev.runs?.length ?? 0}`;
+      const sideTag = ev.side ? `<span class="side">${ev.side}</span>` : "";
+      const key = `${ev.id}-${ev.side || ""}`;
+      const idStr = String(ev.id).padStart(2, "0");
+      return `
+        <li class="ev" data-key="${esc(key)}">
+          <div class="ev-head">
+            <div class="ev-id">${idStr}</div>
+            <div class="ev-name">${esc(ev.name || "?")}${sideTag}</div>
+            <div class="ev-runs">${ev.runs?.length ?? 0} run${(ev.runs?.length ?? 0) === 1 ? "" : "s"}</div>
+            <div class="pill ${status}">${pillLabel}</div>
+            <div class="chev">▸</div>
+          </div>
+          <div class="ev-body">${renderBody(ev)}</div>
+        </li>`;
+    }
+
+    function renderBody(ev) {
+      const parts = [];
+      if (ev.expected) parts.push(`
+        <div class="ev-section">
+          <h4>expected</h4>
+          <div class="code">${esc(ev.expected)}</div>
+        </div>`);
+      if (ev.prompt) parts.push(`
+        <div class="ev-section">
+          <h4>prompt</h4>
+          <div class="code">${esc(ev.prompt)}</div>
+        </div>`);
+      if (ev.expectations?.length) {
+        parts.push(`<div class="ev-section">
+          <h4>expectations</h4>
+          <ul class="expects">${ev.expectations.map(e => `<li><span class="v idle">·</span><span>${esc(e)}</span></li>`).join("")}</ul>
+        </div>`);
+      }
+      if (ev.runs?.length) {
+        parts.push(`<div class="ev-section">
+          <h4>runs (${ev.runs.length})</h4>
+          <div class="runs">${ev.runs.sort((a,b)=>a.run_idx-b.run_idx).map(r => renderRun(r, ev.expectations || [])).join("")}</div>
+        </div>`);
+      }
+      return parts.join("");
+    }
+
+    function renderRun(r, expectations) {
+      const verdict = r.passed ? "pass" : "fail";
+      const sym = r.passed ? "PASS" : "FAIL";
+      const pairs = (r.matches || []).map((m, i) => {
+        const exp = expectations[i] ?? `expectation ${i + 1}`;
+        const v = m.passed ? "pass" : "fail";
+        const sym = m.passed ? "✓" : "✗";
+        const reason = m.reason ? ` <span style="color:var(--fg-mute);">— ${esc(m.reason)}</span>` : "";
+        return `<li><span class="v ${v}">${sym}</span><span>${esc(exp)}${reason}</span></li>`;
+      }).join("");
+      const sideTag = r.side ? `<span class="side-tag">prompt ${r.side}</span>` : "";
+      return `
+        <div class="run">
+          <div class="run-head">
+            <div class="label"><b>run ${r.run_idx + 1}</b> ${sideTag}</div>
+            <div></div>
+            <div class="pill ${verdict}">${sym}</div>
+          </div>
+          <div class="run-body">
+            ${pairs ? `<ul class="expects">${pairs}</ul>` : ""}
+            ${r.response ? `<div class="code">${esc(r.response)}</div>` : ""}
+          </div>
+        </div>`;
+    }
+
+    // ─ Polling loop ────────────────────────────────────
+    let pollTimer = null;
+    async function tick() {
+      if (!autoOn) return;
+      try {
+        const r = await fetch("/state.json", { cache: "no-store" });
+        if (r.ok) render(await r.json());
+        $("dot").classList.toggle("idle", false);
+      } catch (e) {
+        $("status").textContent = "disconnected";
+        $("dot").classList.add("idle");
+      }
+      const s = $("status").textContent;
+      const interval = s.startsWith("complete") ? 8000 : 1500;
+      pollTimer = setTimeout(tick, interval);
+    }
+    tick();
+  </script>
+</body>
+</html>

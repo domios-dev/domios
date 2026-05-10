@@ -77,6 +77,29 @@ python .claude/skills/prompt-evaluator/runner.py \
 
 Reports directory is gitignored — they're per-machine artifacts.
 
+### Live dashboard (long runs)
+
+For long `--thorough` A/B runs the user often wants to *watch* progress. Add `--http-port <N>` and the runner spawns a tiny in-process HTTP server (pure stdlib — no Flask/Tornado) that serves a single-page dashboard:
+
+```bash
+python .claude/skills/prompt-evaluator/runner.py \
+  --prompt-a HEAD~1:src-tauri/prompts/general_agent.md \
+  --prompt-b src-tauri/prompts/general_agent.md \
+  --eval-set evals/general-agent/evals.json \
+  --runs 3 \
+  --http-port 7779
+```
+
+The page (default browser opens automatically; pass `--no-open` to suppress) polls `/state.json` ~every 1.5s and renders:
+
+- Top progress bar — calls done / total + ✓/⚠/✗ counts
+- Per-eval row with status pill, expand to see prompt + every run's response + per-expectation matcher verdicts (pass/fail + reason)
+- Final markdown report embedded at the bottom on completion
+
+The HTTP server stays up after the run finishes so you can browse the final state. `Ctrl-C` to stop.
+
+Pick a free port — `7685` (prod CodeTerm) and `7686` (dev) are taken; `7779` / `7780` are good defaults.
+
 ## How to interpret a report
 
 ```
@@ -140,7 +163,9 @@ Tips for writing good evals:
 
 ## Existing eval sets
 
-- `evals/general-agent/evals.json` — 12 evals covering message routing, role selection, mesh delegation, recon-before-action, persistent memory, mono-repo workspace creation, photo replies via Telegram bridge.
+- `evals/general-agent/evals.json` — 21 evals covering message routing (Telegram/mesh prefix), role selection, mesh delegation, recon-before-action, persistent memory protocol, mono-repo workspace handling, photo replies via Telegram bridge, identity wake-up.
+- `evals/mem-protocol/evals.json` — 8 evals for the slim `bridge_mem.md` rule shipped to non-GA agents (remember-now, search-before-answering, identity-via-wake-up, no-id-guessing, English-in-mem, sessions-vs-mem-routing, no side-store writes).
+- `evals/dreaming/evals.json` — 5 evals for the REM (dreaming) prompt — Stage A.1 hub decomposition with RED ZONE rule + Stage A.2 island bridging.
 
 When you write a new eval set, drop a one-line entry in this list.
 
@@ -157,6 +182,7 @@ When you write a new eval set, drop a one-line entry in this list.
 
 - `runner.py` — orchestration, CLI argument parsing, A/B aggregation, report rendering
 - `matcher.py` — hybrid expectation matcher (regex + LLM-as-judge)
+- `dashboard.py` + `dashboard.html` — optional in-process HTTP server for `--http-port`
 - `reports/` — gitignored output directory
 
 To debug a single eval without rerunning the whole set: `python runner.py --prompt-file ... --eval-set ... --only-id 8 --runs 1 --verbose`. The runner will print the full agent response and matcher decisions for that one eval.
