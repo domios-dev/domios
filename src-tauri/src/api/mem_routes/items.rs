@@ -309,6 +309,8 @@ pub struct SaveBody {
     pub skip_extract: bool,
     #[serde(default)]
     pub source_path: Option<String>,
+    #[serde(default)]
+    pub pinned: Option<bool>,
 }
 
 pub async fn mem_save(
@@ -336,6 +338,7 @@ pub async fn mem_save(
         source: body.source,
         importance: body.importance.unwrap_or(3.0),
         source_path: body.source_path,
+        pinned: body.pinned.unwrap_or(false),
     };
     let title_clone = item.title.clone();
     let body_clone = item.body.clone();

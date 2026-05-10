@@ -35,6 +35,7 @@ fn insert_and_get_inline() {
             source: None,
             importance: 3.0,
             source_path: None,
+            pinned: false,
         },
         &blobs,
     )
@@ -61,6 +62,7 @@ fn get_updates_accessed_at_and_access_count() {
             source: None,
             importance: 3.0,
             source_path: None,
+            pinned: false,
         },
         &blobs,
     )
@@ -104,6 +106,7 @@ fn insert_blob_when_body_large() {
             source: None,
             importance: 3.0,
             source_path: None,
+            pinned: false,
         },
         &blobs,
     )
@@ -126,6 +129,7 @@ fn update_partial_only_changes_provided_fields() {
         source: None,
         importance: 3.0,
         source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
 
     // Update only tags + importance
@@ -162,6 +166,7 @@ fn update_sets_is_pinned_wakeup() {
         source: None,
         importance: 3.0,
         source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
 
     let updated = update(&conn, &id, &MemUpdate {
@@ -191,6 +196,7 @@ fn update_can_unpin() {
         source: None,
         importance: 3.0,
         source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
 
     update(&conn, &id, &MemUpdate {
@@ -223,6 +229,7 @@ fn update_pinned_only_does_not_touch_other_fields() {
         source: None,
         importance: 4.25,
         source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
 
     update(&conn, &id, &MemUpdate {
@@ -254,6 +261,7 @@ fn pin_only_update_emits_history_row() {
             source: None,
             importance: 3.0,
             source_path: None,
+            pinned: false,
         }, &blobs).unwrap()
     });
 
@@ -298,6 +306,7 @@ fn update_body_refreshes_fts() {
         source: None,
         importance: 3.0,
         source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
     update(&conn, &id, &MemUpdate {
         title: None, summary: None, area: None, tags: None,
@@ -326,6 +335,7 @@ fn upsert_replaces_existing_in_place() {
         source: None,
         importance: 5.0,
         source_path: None,
+        pinned: false,
     };
     let id1 = insert(&conn, &mk("placeholder"), &blobs).unwrap();
     assert_eq!(id1, "preference_identity");
@@ -353,6 +363,7 @@ fn slug_collision_appends_hash() {
         source: None,
         importance: 3.0,
         source_path: None,
+        pinned: false,
     };
     let a = insert(&conn, &mk("body a"), &blobs).unwrap();
     let b = insert(&conn, &mk("body b"), &blobs).unwrap();
@@ -377,6 +388,7 @@ fn delete_removes_from_fts() {
             source: None,
             importance: 3.0,
             source_path: None,
+            pinned: false,
         },
         &blobs,
     )
@@ -431,11 +443,13 @@ fn graph_full_returns_nodes_and_edges() {
         title: "alpha".into(), summary: Some("first".into()),
         area: Some("core".into()), tags: vec!["t1".into()],
         body: "body alpha".into(), source: None, importance: 4.0, source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
     let b = insert(&conn, &NewMemItem {
         kind: MemKind::Script, scope: MemScope::Global,
         title: "beta".into(), summary: None, area: None, tags: vec![],
         body: "body beta".into(), source: None, importance: 3.0, source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
     crate::mem::graph::insert_relation(&conn, &crate::mem::graph::Relation {
         from_id: a.clone(), relation_type: "has_script".into(), to_id: b.clone(),
@@ -496,6 +510,7 @@ fn stats_counts_by_kind() {
                 source: None,
                 importance: 3.0,
                 source_path: None,
+                pinned: false,
             },
             &blobs,
         )
@@ -521,6 +536,7 @@ fn mk_item(title: &str, body: &str) -> NewMemItem {
         source: None,
         importance: 2.0,
         source_path: None,
+        pinned: false,
     }
 }
 
@@ -627,6 +643,7 @@ fn taxonomy_groups_by_area_and_kind() {
                 source: None,
                 importance: 3.0,
                 source_path: None,
+                pinned: false,
             },
             &blobs,
         )
@@ -691,6 +708,7 @@ fn insert_with_file_prefix_source_path_populates_source_size_and_mtime() {
             source: Some(source_with_prefix.clone()),
             importance: 4.0,
             source_path: Some(source_with_prefix),
+            pinned: false,
         },
         &blobs,
     )
@@ -737,6 +755,7 @@ fn get_bumps_updated_at_when_source_file_changes() {
             source: Some(source.clone()),
             importance: 4.0,
             source_path: Some(source),
+            pinned: false,
         },
         &blobs,
     )
@@ -787,6 +806,7 @@ fn get_skips_disk_check_when_recently_accessed() {
             source: Some(source.clone()),
             importance: 4.0,
             source_path: Some(source),
+            pinned: false,
         },
         &blobs,
     )
@@ -850,6 +870,38 @@ fn graph_full_excludes_invalidated_relations() {
 }
 
 #[test]
+fn insert_with_pinned_true_sets_is_pinned_wakeup() {
+    let (conn, blobs) = fresh();
+    let id = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact, scope: MemScope::Global,
+        title: "pinned-fact".into(), summary: None, area: None, tags: vec![],
+        body: "body".into(), source: None, importance: 3.0, source_path: None,
+        pinned: true,
+    }, &blobs).unwrap();
+    let pinned: i64 = conn.query_row(
+        "SELECT is_pinned_wakeup FROM mem_items WHERE id = ?1",
+        params![&id], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(pinned, 1, "pinned=true must persist on insert");
+}
+
+#[test]
+fn insert_with_pinned_false_remains_unpinned() {
+    let (conn, blobs) = fresh();
+    let id = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact, scope: MemScope::Global,
+        title: "regular".into(), summary: None, area: None, tags: vec![],
+        body: "body".into(), source: None, importance: 3.0, source_path: None,
+        pinned: false,
+    }, &blobs).unwrap();
+    let pinned: i64 = conn.query_row(
+        "SELECT is_pinned_wakeup FROM mem_items WHERE id = ?1",
+        params![&id], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(pinned, 0);
+}
+
+#[test]
 fn list_pinned_returns_only_pinned_items_ordered_by_importance() {
     let (conn, blobs) = fresh();
 
@@ -857,6 +909,7 @@ fn list_pinned_returns_only_pinned_items_ordered_by_importance() {
         kind: MemKind::Fact, scope: MemScope::Global,
         title: "high".into(), summary: None, area: None, tags: vec![],
         body: "hi".into(), source: None, importance: 5.0, source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
     update(&conn, &id_a, &MemUpdate {
         pinned: Some(true), ..Default::default()
@@ -866,6 +919,7 @@ fn list_pinned_returns_only_pinned_items_ordered_by_importance() {
         kind: MemKind::Fact, scope: MemScope::Global,
         title: "low".into(), summary: None, area: None, tags: vec![],
         body: "lo".into(), source: None, importance: 2.0, source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
     update(&conn, &id_b, &MemUpdate {
         pinned: Some(true), ..Default::default()
@@ -875,6 +929,7 @@ fn list_pinned_returns_only_pinned_items_ordered_by_importance() {
         kind: MemKind::Fact, scope: MemScope::Global,
         title: "unpinned".into(), summary: None, area: None, tags: vec![],
         body: "x".into(), source: None, importance: 5.0, source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
 
     let pinned = list_pinned(&conn, &blobs, 100).unwrap();
@@ -892,6 +947,7 @@ fn list_pinned_respects_limit() {
             kind: MemKind::Fact, scope: MemScope::Global,
             title: format!("item-{i}"), summary: None, area: None, tags: vec![],
             body: "b".into(), source: None, importance: 3.0, source_path: None,
+            pinned: false,
         }, &blobs).unwrap();
         update(&conn, &id, &MemUpdate {
             pinned: Some(true), ..Default::default()

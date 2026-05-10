@@ -183,7 +183,7 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             };
             mem_get_request(&http, &url)
         }
-        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, source_path, replace, skip_extract } => {
+        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, workspace, pin, source_path, replace, skip_extract } => {
             // Body: positional arg, else read stdin if piped
             let resolved_body = match body {
                 Some(b) => b,
@@ -204,6 +204,11 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                     .unwrap_or_default()
             };
             let tag_list = split_csv(tags);
+            let resolved_scope = match (workspace, scope) {
+                (Some(ws), _) => Some(format!("workspace:{ws}")),
+                (None, Some(s)) => Some(s),
+                (None, None) => None,
+            };
             let payload = serde_json::json!({
                 "kind": kind,
                 "title": resolved_title,
@@ -212,10 +217,11 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 "tags": tag_list,
                 "body": resolved_body,
                 "importance": importance,
-                "scope": scope,
+                "scope": resolved_scope,
                 "source_path": source_path,
                 "replace": replace,
                 "skip_extract": skip_extract,
+                "pinned": pin,
             });
             mem_post_request(&http, &format!("{}/api/mem/items", base), &payload)
         }
@@ -584,6 +590,30 @@ mod tests {
         match cli.command {
             Commands::Mem { action: MemAction::Pinned { limit } } => assert_eq!(limit, None),
             _ => panic!("expected Pinned"),
+        }
+    }
+
+    #[test]
+    fn save_accepts_pin_flag() {
+        let cli = Cli::try_parse_from([
+            "codeterm","mem","save","--kind","fact","--title","t","--pin","body"
+        ]).unwrap();
+        match cli.command {
+            Commands::Mem { action: MemAction::Save { pin, .. } } => assert!(pin),
+            _ => panic!("expected Save"),
+        }
+    }
+
+    #[test]
+    fn save_accepts_workspace_flag() {
+        let cli = Cli::try_parse_from([
+            "codeterm","mem","save","--kind","fact","--title","t","--workspace","W1","body"
+        ]).unwrap();
+        match cli.command {
+            Commands::Mem { action: MemAction::Save { workspace, .. } } => {
+                assert_eq!(workspace.as_deref(), Some("W1"));
+            }
+            _ => panic!("expected Save"),
         }
     }
 }

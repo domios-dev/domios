@@ -37,6 +37,7 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
                 source: Some(source),
                 importance: 5.0,
                 source_path: Some(file_path),
+                pinned: false,
             });
         }
     }
@@ -238,6 +239,7 @@ mod tests {
             source: None,
             importance: 5.0,
             source_path: None,
+            pinned: false,
         }).unwrap();
         mem.save(crate::mem::NewMemItem {
             kind: crate::mem::MemKind::Rule,
@@ -250,6 +252,7 @@ mod tests {
             source: None,
             importance: 5.0,
             source_path: None,
+            pinned: false,
         }).unwrap();
 
         let section = render_wake_up_section(Some(&mem));
