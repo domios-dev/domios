@@ -12,7 +12,17 @@ portable across mac, linux, and Windows-bash.
 | `general-agent/` | General Agent system prompt — Telegram routing, mesh spawn, recon-before-action (21 cases) | `prompt-evaluator` skill (`runner.py`) |
 | `mem-recall/` | mem search engine quality (Recall@K / MRR / latency) | `cargo run --bin mem-bench` |
 | `mem-protocol/` | slim `bridge_mem.md` rule fires the right protocol calls (8 cases) | `prompt-evaluator` skill |
+| `dreaming/` | REM-phase prompt — Stage A.1 hub decomposition (RED ZONE rule), Stage A.2 island bridging (5 cases) | `prompt-evaluator` skill |
 | `session-restore/` | kill+restart preserves workspaces / panes / agent_type / titles | `bash session-restore/run.sh` |
+
+## Live dashboard
+
+For long `prompt-evaluator` runs (anything with `--thorough` or A/B
+mode) add `--http-port 7779` to the runner — it spawns an in-process
+HTTP server with a single-page dashboard at `http://localhost:7779`:
+progress bar, per-eval status pills, expand-on-click rows showing the
+prompt, every run's response, and per-expectation matcher verdicts.
+Server stays up after the run for browsing — Ctrl-C to stop.
 
 ## Why a shared lib
 

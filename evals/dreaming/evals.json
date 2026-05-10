@@ -1,0 +1,65 @@
+{
+  "skill_name": "dreaming-rem-prompt",
+  "description": "Validates the Memory Optimizer (REM dreaming) prompt — Stage A.1 hub decomposition with RED ZONE rule, Stage A.2 island bridging. Sandbox mode: agent describes commands it would run on mock graph output; judge checks behavior.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "red-zone-hub-not-skipped",
+      "prompt": "You are a fresh REM (dreaming) session. You ran `codeterm mem graph hubs --threshold 20 --sample 50` and got:\n\n{\n  \"hubs\": [\n    {\n      \"id\": \"person_anya\",\n      \"kind\": \"Person\",\n      \"active_degree\": 71,\n      \"relation_types\": {\"applies_to\": 23, \"documented_in\": 18, \"uses\": 15, \"knows\": 10, \"owns\": 5},\n      \"sample_neighbors\": [\n        {\"id\": \"skill_binaura_audio_pipeline\", \"title\": \"Binaura audio pipeline\"},\n        {\"id\": \"fact_anya_role\", \"title\": \"Anya — designer at Binaura\"},\n        {\"id\": \"tech_swiftui\", \"title\": \"SwiftUI\"},\n        {\"id\": \"preference_design_workflow\", \"title\": \"Anya prefers Figma over Sketch\"},\n        {\"id\": \"project_binaura\", \"title\": \"Binaura\"},\n        {\"id\": \"skill_avaudiosession_setup\", \"title\": \"AVAudioSession setup\"},\n        {\"id\": \"fact_anya_riga\", \"title\": \"Anya lives in Riga\"},\n        {\"id\": \"... (44 more neighbors omitted)\", \"title\": \"...\"}\n      ],\n      \"existing_anchors\": [\"topic_design\", \"topic_audio_apps\", \"topic_ios_dev\"]\n    },\n    {\n      \"id\": \"topic_misc\",\n      \"active_degree\": 22,\n      \"relation_types\": {\"applies_to\": 22},\n      \"sample_neighbors\": [\n        {\"id\": \"fact_random_a\", \"title\": \"Random unrelated fact A\"},\n        {\"id\": \"fact_random_b\", \"title\": \"Random unrelated fact B\"}\n      ]\n    }\n  ]\n}\n\nWalk me through Stage A.1 — be specific about which hub you tackle first and how.",
+      "expected_output": "Tackles person_anya FIRST (degree 71 = RED ZONE), decomposes via introduce-topic into themed sub-clusters, never marks it SKIP",
+      "expectations": [
+        "Tackles person_anya FIRST, before topic_misc, because it has the larger active_degree (71 vs 22)",
+        "Recognizes person_anya as RED ZONE territory because active_degree >= 50",
+        "Calls codeterm mem graph introduce-topic with multiple sources to break person_anya into themed sub-clusters",
+        "Does NOT mark person_anya as SKIP citing reasons like 'too big to handle now', 'this is a person of course they have many facts', or 'will get to it next run'",
+        "Considers re-calling mem graph hubs with --sample 100 (or higher) to see all 71 neighbor titles before declaring there's no structure"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "biggest-hub-first",
+      "prompt": "Stage A.1 of REM. mem graph hubs returned exactly two hubs:\n\n[\n  {\"id\": \"project_codeterm\", \"active_degree\": 25, \"sample_neighbors\": [{\"title\":\"build script\"}, {\"title\":\"release CI\"}, {\"title\":\"telegram bridge\"}]},\n  {\"id\": \"machine_blackstar\", \"active_degree\": 60, \"sample_neighbors\": [{\"title\":\"GPU specs\"}, {\"title\":\"Windows quirks\"}, {\"title\":\"OBS setup\"}, {\"title\":\"Plex config\"}]}\n]\n\nWhich hub do you decompose FIRST and why?",
+      "expected_output": "Picks machine_blackstar first because it has the larger active_degree",
+      "expectations": [
+        "Picks machine_blackstar (degree 60) first, before project_codeterm (degree 25)",
+        "Reason given is explicitly about hub size / active_degree / search-noise concentration, not arbitrary order",
+        "Does NOT pick project_codeterm first"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "partial-decomposition-allowed",
+      "prompt": "You're partway through Stage A.1 of REM. You've decomposed 4 hubs already and your token budget is tight — maybe enough for one more substantial action. The next hub is:\n\n{\n  \"id\": \"project_codeterm\",\n  \"active_degree\": 70,\n  \"sample_neighbors\": [\n    {\"title\":\"v1.1.20 release notes\"}, {\"title\":\"v1.1.21 release notes\"}, {\"title\":\"v1.1.22 release notes\"},\n    {\"title\":\"build.sh dev script\"}, {\"title\":\"build.sh kill script\"}, {\"title\":\"./build.sh test workflow\"},\n    {\"title\":\"mesh handshake protocol\"}, {\"title\":\"mesh peer pairing\"}, {\"title\":\"mesh discovery\"},\n    {\"title\":\"telegram bridge config\"}, {\"title\":\"telegram allowed_users gotcha\"},\n    {\"title\":\"mem graph hubs CLI\"}, {\"title\":\"mem graph islands CLI\"}, {\"title\":\"mem search FTS+vector\"},\n    {\"title\": \"... 56 more neighbors\"}\n  ]\n}\n\nYou're not sure you have time to decompose this fully. What do you do?",
+      "expected_output": "Pulls 3-5 themed sub-clusters via introduce-topic (release-history, dev-workflow, mesh, telegram, mem-graph) and logs as 'partially decomposed', does NOT skip entirely",
+      "expectations": [
+        "Pulls at least 3 themed sub-clusters out of project_codeterm via codeterm mem graph introduce-topic (e.g. topic_release_history, topic_dev_workflow, topic_mesh, topic_telegram, topic_mem_graph)",
+        "Logs the action as 'partially decomposed' with residue count for the next REM run to pick up",
+        "Does NOT skip the hub entirely citing token budget, time pressure, or 'will continue next run' as a full skip",
+        "Does NOT mark this RED-ZONE hub (active_degree=70) as SKIPped — partial work still counts as progress"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "homogeneous-low-degree-skip-ok",
+      "prompt": "Stage A.1 of REM. mem graph hubs returned:\n\n{\n  \"id\": \"learning_jwt_kid_header_required\",\n  \"kind\": \"Learning\",\n  \"active_degree\": 22,\n  \"relation_types\": {\"extracted_from\": 22},\n  \"sample_neighbors\": [\n    {\"id\": \"conv_2026_03_15_a\", \"title\": \"Conversation 2026-03-15 (Auth0 debug session)\"},\n    {\"id\": \"conv_2026_04_02_b\", \"title\": \"Conversation 2026-04-02 (JWT validation issue)\"},\n    {\"id\": \"conv_2026_04_18_c\", \"title\": \"Conversation 2026-04-18 (production token rejection)\"},\n    {\"title\": \"... 19 more conv_* snapshots, all extracted FROM this learning\"}\n  ]\n}\n\nDecompose this hub or skip it?",
+      "expected_output": "Skips it correctly with reason 'popular source, not a structural hub' — extracted_from edges are provenance pointers, not structure",
+      "expectations": [
+        "Skips this hub with the reason 'popular source, not a structural hub' (or equivalent — provenance pointers via extracted_from, not structural decomposable themes)",
+        "Does NOT call introduce-topic on this hub",
+        "Does NOT try to invent themed sub-clusters for the conversation snapshots (they're provenance, not content)"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "island-existing-anchor-relate-not-introduce",
+      "prompt": "Stage A.2 of REM. mem graph islands returned:\n\n{\n  \"islands\": [\n    {\n      \"size\": 3,\n      \"members\": [\n        {\"id\": \"fact_oauth_callback_url\", \"kind\": \"fact\", \"title\": \"OAuth callback URL config for Auth0\", \"area\": \"auth\"},\n        {\"id\": \"fact_jwt_kid_header\", \"kind\": \"fact\", \"title\": \"JWT kid header from JWKS endpoint\", \"area\": \"auth\"},\n        {\"id\": \"skill_auth0_setup\", \"kind\": \"skill\", \"title\": \"Auth0 setup walkthrough\", \"area\": \"auth\"}\n      ],\n      \"suggested_anchor\": \"topic_auth\"\n    }\n  ]\n}\n\nYou confirmed topic_auth already exists in the graph (it's an existing themed anchor). How do you bridge this island?",
+      "expected_output": "Uses codeterm mem graph relate (single edge) bridging one member into existing topic_auth — does NOT introduce-topic since the anchor already exists",
+      "expectations": [
+        "Uses codeterm mem graph relate (single edge) to bridge a member of the island into the existing topic_auth anchor",
+        "Picks one most-central / first member as --from and topic_auth as --to",
+        "Does NOT call codeterm mem graph introduce-topic — that command is for inventing NEW topic anchors, not reusing existing ones",
+        "Does NOT try to invent a new topic_<theme> when topic_auth already covers the island"
+      ]
+    }
+  ]
+}

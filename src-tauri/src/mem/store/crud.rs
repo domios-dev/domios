@@ -86,6 +86,9 @@ fn insert_with_options(
             (Some(item.body.clone()), None)
         };
 
+    // source_path stores the raw "file:..." form (it's also a tag for
+    // librarian's source-missing handling). Strip the scheme before any
+    // std::fs call — both here and in mem/file_sync.rs::sync_one.
     let (source_size, source_mtime) = item
         .source_path
         .as_ref()
@@ -212,22 +215,35 @@ pub fn get(
 
     if let Some(ref src) = source {
         if let Some(path) = src.strip_prefix("file:") {
-            if let Ok(meta) = std::fs::metadata(path) {
-                let current_size = meta.len() as i64;
-                let current_mtime = meta
-                    .modified()
-                    .ok()
-                    .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
-                let size_diff = stored_source_size != Some(current_size);
-                let mtime_diff = stored_source_mtime != current_mtime;
-                if size_diff || mtime_diff {
-                    let bumped = chrono::Utc::now().to_rfc3339();
-                    if conn.execute(
-                        "UPDATE mem_items SET source_size = ?1, source_mtime = ?2, updated_at = ?3 \
-                         WHERE id = ?4",
-                        params![current_size, &current_mtime, &bumped, &id],
-                    ).is_ok() {
-                        updated_at = bumped;
+            // Debounce the disk-touching freshness check: only run it if we
+            // haven't read this row in the last 10 seconds. Hot search loops
+            // (mem search returning N skill rows) would otherwise stat + UPDATE
+            // every row on every call. Librarian still does the canonical
+            // hourly sweep — this in-line check is opportunistic.
+            let recently_accessed = accessed_at.as_ref()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|t| {
+                    (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds() < 10
+                })
+                .unwrap_or(false);
+            if !recently_accessed {
+                if let Ok(meta) = std::fs::metadata(path) {
+                    let current_size = meta.len() as i64;
+                    let current_mtime = meta
+                        .modified()
+                        .ok()
+                        .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
+                    let size_diff = stored_source_size != Some(current_size);
+                    let mtime_diff = stored_source_mtime != current_mtime;
+                    if size_diff || mtime_diff {
+                        let bumped = chrono::Utc::now().to_rfc3339();
+                        if conn.execute(
+                            "UPDATE mem_items SET source_size = ?1, source_mtime = ?2, updated_at = ?3 \
+                             WHERE id = ?4",
+                            params![current_size, &current_mtime, &bumped, &id],
+                        ).is_ok() {
+                            updated_at = bumped;
+                        }
                     }
                 }
             }

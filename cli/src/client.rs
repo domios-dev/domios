@@ -234,15 +234,25 @@ fn prefers_dev_socket() -> bool {
         .unwrap_or(false)
 }
 
+/// True when the socket name belongs to the dev daemon.
+///
+/// dev pipes are exactly `codeterm-dev[.sock]`; prod pipes are pid-suffixed
+/// (`codeterm-12345.sock`). Match the literal `-dev` segment instead of a
+/// loose `contains("dev")` so a custom instance whose pid path happens to
+/// have "dev" in it doesn't get misclassified.
+fn is_dev_socket(name: &str) -> bool {
+    name == "codeterm-dev"
+        || name.starts_with("codeterm-dev.")
+        || name.starts_with("codeterm-dev-")
+}
+
 /// True when the socket name matches the requested port preference.
 ///
-/// dev pipes always contain "dev" in the name (e.g. `codeterm-dev.sock`);
-/// prod pipes are pid-suffixed (`codeterm-{pid}.sock`). A mismatch means
-/// the inherited SOCKET_PATH points at the wrong daemon — typical when
-/// the CLI runs inside a prod pane and the user has overridden
+/// A mismatch means the inherited SOCKET_PATH points at the wrong daemon —
+/// typical when the CLI runs inside a prod pane and the user has overridden
 /// CODETERM_API_PORT to 7686 to target the dev daemon.
 fn socket_path_matches_port_pref(name: &str, prefer_dev: bool) -> bool {
-    name.contains("dev") == prefer_dev
+    is_dev_socket(name) == prefer_dev
 }
 
 /// Pick the best socket name from a candidate list given the current preference.
@@ -250,7 +260,7 @@ fn socket_path_matches_port_pref(name: &str, prefer_dev: bool) -> bool {
 /// Pure function — split out so it can be unit-tested without touching the
 /// filesystem.
 fn pick_preferred_socket(candidates: &[String], prefer_dev: bool) -> Option<String> {
-    let is_dev = |name: &str| name.contains("dev");
+    let is_dev = is_dev_socket;
 
     // 1. Prefer matching the requested instance.
     if let Some(hit) = candidates.iter().find(|n| is_dev(n) == prefer_dev) {
@@ -394,5 +404,15 @@ mod tests {
     #[test]
     fn socket_pref_mismatch_when_dev_pipe_but_prod_requested() {
         assert!(!socket_path_matches_port_pref("codeterm-dev.sock", false));
+    }
+
+    #[test]
+    fn is_dev_socket_does_not_match_pid_paths_with_dev_substring() {
+        // `contains("dev")` would have classified `codeterm-99987devops.sock`
+        // as dev — guard against that.
+        assert!(!is_dev_socket("codeterm-99987devops.sock"));
+        assert!(!is_dev_socket("codeterm-developerlaptop.sock"));
+        assert!(is_dev_socket("codeterm-dev"));
+        assert!(is_dev_socket("codeterm-dev.sock"));
     }
 }

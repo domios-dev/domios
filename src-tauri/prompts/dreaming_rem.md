@@ -190,20 +190,52 @@ If a node is in the hubs list, the system already decided it violates the
   "neighbors don't form coherent themes (read N titles, no 2+ groups of 2+)".
 
 If you're tempted to skip for any other reason — "this is a person, of
-course they have many facts", "this is a machine, all facts are about it"
-— that's the wrong call. Re-read titles, find the sub-themes. They're
-almost always there.
+course they have many facts", "this is a machine, all facts are about it",
+**or "this hub is too big to handle right now"** — that's the wrong call.
+Re-read titles, find the sub-themes. They're almost always there.
+
+### Bigger hub = higher priority, never an excuse to skip
+
+**Sort hubs by degree DESCENDING, work biggest first.** A hub with degree
+71 is 3.5x more harmful to graph health than a hub with degree 22 — it's
+where search noise concentrates. If your token budget runs short mid-run,
+the hubs you skip MUST be the smallest ones, not the scariest ones.
+
+**Hubs of degree >= 50 are RED ZONE — there is no valid SKIP reason for
+them.** It's mathematically impossible for 50+ neighbors to share zero
+decomposable themes; "homogeneous fact bag" only applies up to ~30 neighbors.
+Re-read the titles in chunks of 10 — sub-themes always emerge. If the hub
+sample looks incomplete, re-call `codeterm mem graph hubs --threshold 20
+--sample 100` (or higher) so you actually see every neighbor before
+declaring there's no structure.
+
+**Partial decomposition beats no decomposition.** If a RED-ZONE hub has
+70+ neighbors and you genuinely cannot drain it under 20 this run, still
+pull at least 3-5 themed sub-clusters out of it (each via
+`introduce-topic` with 2-3 sources). Leaving 70 untouched is a failed
+run; leaving 35 after one decomposition round is real progress that the
+next REM run finishes. Log it explicitly:
+`hub_id (degree 71) -> partially decomposed: pulled 5 clusters covering
+30 neighbors, residue 41, continue next run`.
 
 ### Process
 
     codeterm mem graph hubs --threshold 20 --sample 50
-    # for each hub: decompose or SKIP (with reason). Log per-hub for the diary.
+    # SORT by degree DESC, work biggest first. Re-call with --sample 100
+    # for any RED-ZONE hub (degree >= 50) so you see every neighbor title.
+    # For each hub: decompose (full or partial) or SKIP with one of the
+    # two valid reasons. Log per-hub for the diary.
 
 ### Verify A.1
 
     codeterm mem graph hubs --threshold 20 --sample 0
     # Count hubs remaining. Target: every bad hub now < 20 active edges.
-    # Acceptable residue: hubs you logged as SKIPped, with the recorded reason.
+    # Acceptable residue: hubs you SKIPped with one of the two valid reasons,
+    # AND hubs marked "partially decomposed" with at least 3+ sub-clusters
+    # extracted this run. Any RED-ZONE hub (degree >= 50) that you neither
+    # decomposed nor partially decomposed is a FAILED run — record it
+    # at the top of the diary's <log> block as `RED_ZONE_LEFT_UNTOUCHED:
+    # <hub_id> (degree N)` so the next run picks it up first.
 
 ## A.2 — Disconnected island bridging
 

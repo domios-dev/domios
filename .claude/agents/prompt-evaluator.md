@@ -101,6 +101,23 @@ python .claude/skills/prompt-evaluator/runner.py \
 
 Verbose mode prints every matcher decision and the full agent response — you can see exactly why an expectation failed.
 
+### Mode 6 — Live dashboard (long runs, watching the user watch)
+
+When a `--thorough` A/B will take 10+ minutes and the user wants to see progress, add `--http-port <N>` to any of the modes above. The runner spawns a tiny in-process HTTP server and (by default) opens the URL in the browser. The page polls `/state.json` every ~1.5s while the run is in progress and once on completion.
+
+```bash
+python .claude/skills/prompt-evaluator/runner.py \
+  --prompt-a HEAD~1:<path> --prompt-b <path> \
+  --eval-set <path> --runs 3 \
+  --http-port 7779
+```
+
+What the user sees: top progress bar (calls done/total), per-eval status pills (running / N/M passed), expandable rows with the full prompt, every run's response, per-expectation matcher verdicts (✓ / ✗ + reason). When the run finishes the markdown report is also embedded at the bottom of the page. Server stays up after the run for browsing — Ctrl-C to stop.
+
+Use `--no-open` to skip auto-opening the browser (e.g. when running on a remote / headless box; user opens the URL themselves).
+
+Pick a free port. Conflicts with `7685` (prod CodeTerm) and `7686` (dev) — `7779` and `7780` are good defaults.
+
 ## How the harness works internally (read once, remember always)
 
 This is a condensed version of what's in `SKILL.md` — the important mental model you need to interpret reports.

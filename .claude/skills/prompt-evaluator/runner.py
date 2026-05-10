@@ -40,6 +40,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -63,6 +64,10 @@ def _force_rmtree(path: str) -> None:
 # Local import — matcher.py lives next to this file
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from matcher import MatchResult, match_expectation  # noqa: E402
+import cache as _cache  # noqa: E402
+
+# Module-level toggle for cache use; flipped by main() based on --no-cache.
+_CACHE_ENABLED = True
 
 
 # ── Prompt loading ─────────────────────────────────────────────────
@@ -182,6 +187,12 @@ def run_agent(
     # ...) created by bash hook scripts redirecting to `> NUL`. Even
     # ignore_cleanup_errors doesn't catch that path.
     wrapped_user_msg = eval_prompt + EVAL_WRAPPER_SUFFIX
+
+    if _CACHE_ENABLED:
+        cached = _cache.get(model, system_prompt, wrapped_user_msg, namespace="agent")
+        if cached is not None:
+            return (True, cached)
+
     clean_cwd = tempfile.mkdtemp(prefix="codeterm-eval-")
     try:
         try:
@@ -224,7 +235,10 @@ def run_agent(
     except json.JSONDecodeError:
         return (False, f"<non-JSON output: {proc.stdout[:300]}>")
 
-    return (True, envelope.get("result") or "")
+    response_text = envelope.get("result") or ""
+    if _CACHE_ENABLED and response_text:
+        _cache.put(model, system_prompt, wrapped_user_msg, response_text, namespace="agent")
+    return (True, response_text)
 
 
 # ── Per-eval execution ─────────────────────────────────────────────
@@ -243,6 +257,60 @@ class RunResult:
         return all(m.passed for m in self.matches)
 
 
+def _do_one_run(
+    ev: Eval,
+    system_prompt: str,
+    main_model: str,
+    judge_model: str,
+    run_idx: int,
+    judge_concurrency: int,
+    dashboard: Any | None,
+    side: str | None,
+    verbose: bool,
+) -> RunResult:
+    ok, response = run_agent(ev.prompt, system_prompt, model=main_model)
+    if dashboard is not None:
+        dashboard.event("call_done")
+    rr = RunResult(
+        eval_id=ev.id,
+        eval_name=ev.name,
+        run_idx=run_idx,
+        response=response,
+    )
+    if not ok:
+        rr.matches.append(MatchResult(False, "agent-error", response))
+    elif ev.expectations:
+        # Parallelize judge calls for this run's response.
+        slots: list[MatchResult | None] = [None] * len(ev.expectations)
+        with ThreadPoolExecutor(max_workers=max(1, judge_concurrency)) as pool:
+            fut_to_idx = {
+                pool.submit(match_expectation, exp, response, judge_model): i
+                for i, exp in enumerate(ev.expectations)
+            }
+            for fut in as_completed(fut_to_idx):
+                slots[fut_to_idx[fut]] = fut.result()
+                if dashboard is not None:
+                    dashboard.event("call_done")
+        rr.matches = [s for s in slots if s is not None]
+    if dashboard is not None:
+        dashboard.event(
+            "run_done",
+            eval_id=ev.id,
+            eval_name=ev.name,
+            run_idx=run_idx,
+            passed=rr.passed,
+            response=response,
+            matches=[{"passed": m.passed, "method": m.method, "reason": m.reason} for m in rr.matches],
+            side=side,
+        )
+    if verbose:
+        symbol = "✓" if rr.passed else "✗"
+        print(f"  [eval {ev.id} {ev.name}] run {run_idx + 1}: {symbol}", file=sys.stderr)
+        for m in rr.matches:
+            print(f"    {m}", file=sys.stderr)
+    return rr
+
+
 def run_eval_n_times(
     ev: Eval,
     system_prompt: str,
@@ -250,38 +318,50 @@ def run_eval_n_times(
     main_model: str,
     judge_model: str,
     verbose: bool,
+    dashboard: Any | None = None,
+    side: str | None = None,
+    run_concurrency: int = 1,
+    judge_concurrency: int = 1,
 ) -> list[RunResult]:
-    results: list[RunResult] = []
-    for run_idx in range(runs):
-        ok, response = run_agent(ev.prompt, system_prompt, model=main_model)
-        rr = RunResult(
+    if dashboard is not None:
+        dashboard.event(
+            "eval_started",
             eval_id=ev.id,
             eval_name=ev.name,
-            run_idx=run_idx,
-            response=response,
+            prompt=ev.prompt,
+            expected=ev.expected_output,
+            expectations=ev.expectations,
+            side=side,
         )
-        if ok:
-            for exp in ev.expectations:
-                rr.matches.append(
-                    match_expectation(exp, response, judge_model=judge_model)
-                )
-        else:
-            rr.matches.append(
-                MatchResult(
-                    passed=False,
-                    method="agent-error",
-                    reason=response,
-                )
-            )
-        results.append(rr)
-        if verbose:
-            symbol = "✓" if rr.passed else "✗"
-            print(
-                f"  [eval {ev.id} {ev.name}] run {run_idx + 1}/{runs}: {symbol}",
-                file=sys.stderr,
-            )
-            for m in rr.matches:
-                print(f"    {m}", file=sys.stderr)
+    results: list[RunResult]
+    if run_concurrency <= 1 or runs <= 1:
+        results = [
+            _do_one_run(ev, system_prompt, main_model, judge_model,
+                        i, judge_concurrency, dashboard, side, verbose)
+            for i in range(runs)
+        ]
+    else:
+        slots: list[RunResult | None] = [None] * runs
+        with ThreadPoolExecutor(max_workers=run_concurrency) as pool:
+            fut_to_idx = {
+                pool.submit(_do_one_run, ev, system_prompt, main_model,
+                            judge_model, i, judge_concurrency, dashboard,
+                            side, verbose): i
+                for i in range(runs)
+            }
+            for fut in as_completed(fut_to_idx):
+                slots[fut_to_idx[fut]] = fut.result()
+        results = [r for r in slots if r is not None]
+    if dashboard is not None:
+        passed = sum(1 for r in results if r.passed)
+        dashboard.event(
+            "eval_done",
+            eval_id=ev.id,
+            eval_name=ev.name,
+            runs_passed=passed,
+            total_runs=runs,
+            side=side,
+        )
     return results
 
 
@@ -309,6 +389,26 @@ class EvalSummary:
         if self.runs_passed == 0:
             return "✗"
         return "⚠"
+
+
+def wilson_ci(passed: int, total: int, z: float = 1.96) -> tuple[float, float]:
+    """
+    Wilson 95% confidence interval for a binomial pass rate.
+    Returns (lo, hi) in [0, 1]. Both endpoints are 0 when total == 0.
+    Stdlib only — no scipy.
+    """
+    if total <= 0:
+        return (0.0, 0.0)
+    p = passed / total
+    z2 = z * z
+    denom = 1 + z2 / total
+    centre = (p + z2 / (2 * total)) / denom
+    half = (z * ((p * (1 - p) / total + z2 / (4 * total * total)) ** 0.5)) / denom
+    return (max(0.0, centre - half), min(1.0, centre + half))
+
+
+def fmt_ci(lo: float, hi: float) -> str:
+    return f"[{int(lo*100):>3}%-{int(hi*100):>3}%]"
 
 
 def summarize(eval_def: Eval, runs: list[RunResult]) -> EvalSummary:
@@ -341,11 +441,12 @@ def render_single_report(
     summaries: list[EvalSummary],
 ) -> str:
     lines = [f"# Eval report — {prompt_label}", ""]
-    lines.append("| ID | Eval | Result |")
-    lines.append("|----|------|--------|")
+    lines.append("| ID | Eval | Result | 95% CI |")
+    lines.append("|----|------|--------|--------|")
     for s in summaries:
+        lo, hi = wilson_ci(s.runs_passed, s.total_runs)
         lines.append(
-            f"| {s.eval_id} | {s.eval_name} | {s.pass_rate} {s.status_symbol} |"
+            f"| {s.eval_id} | {s.eval_name} | {s.pass_rate} {s.status_symbol} | {fmt_ci(lo, hi)} |"
         )
     lines.append("")
     failed = [s for s in summaries if s.runs_passed < s.total_runs]
@@ -387,8 +488,8 @@ def render_ab_report(
         f"- **A:** `{label_a}`",
         f"- **B:** `{label_b}`",
         "",
-        "| ID | Eval | A | B | Δ |",
-        "|----|------|---|---|---|",
+        "| ID | Eval | A | B | Δ | A 95% CI | B 95% CI |",
+        "|----|------|---|---|---|----------|----------|",
     ]
     regressions: list[tuple[EvalSummary, EvalSummary]] = []
     for eid in all_ids:
@@ -396,15 +497,26 @@ def render_ab_report(
         b = by_id_b.get(eid)
         a_str = f"{a.pass_rate} {a.status_symbol}" if a else "—"
         b_str = f"{b.pass_rate} {b.status_symbol}" if b else "—"
+        a_ci = fmt_ci(*wilson_ci(a.runs_passed, a.total_runs)) if a else "—"
+        b_ci = fmt_ci(*wilson_ci(b.runs_passed, b.total_runs)) if b else "—"
         if a and b:
             delta = b.runs_passed - a.runs_passed
-            delta_str = f"{delta:+d}" if delta else "0"
+            # Tag deltas inside the Wilson CI overlap as likely-noise so a
+            # 2/3 → 1/3 single-flip doesn't read like a real regression.
+            a_lo, _a_hi = wilson_ci(a.runs_passed, a.total_runs)
+            _b_lo, b_hi = wilson_ci(b.runs_passed, b.total_runs)
+            ci_overlap = b_hi >= a_lo
             if delta < 0:
+                delta_str = f"{delta:+d}" + (" (CI)" if ci_overlap else "")
                 regressions.append((a, b))
+            elif delta > 0:
+                delta_str = f"{delta:+d}"
+            else:
+                delta_str = "0"
         else:
             delta_str = "?"
         lines.append(
-            f"| {eid} | {(a or b).eval_name} | {a_str} | {b_str} | {delta_str} |"
+            f"| {eid} | {(a or b).eval_name} | {a_str} | {b_str} | {delta_str} | {a_ci} | {b_ci} |"
         )
     lines.append("")
 
@@ -439,7 +551,7 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    mode = p.add_mutually_exclusive_group(required=True)
+    mode = p.add_mutually_exclusive_group(required=False)
     mode.add_argument(
         "--prompt-file",
         help="Single-mode: path or git ref to the prompt under test.",
@@ -499,9 +611,43 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print preflight call estimate and exit without calling the API.",
     )
+    p.add_argument(
+        "--http-port",
+        type=int,
+        default=None,
+        help="Spawn a live dashboard at http://localhost:<port> while the run is in progress.",
+    )
+    p.add_argument(
+        "--concurrency",
+        type=int,
+        default=4,
+        help="Max parallel claude -p invocations across evals + runs + judge calls (default 4). Use 1 for strict sequential. Anthropic ratelimits per-key apply globally; lower if you hit 429s.",
+    )
+    p.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Skip the on-disk response cache (~/.cache/codeterm-evals/). Forces fresh main + judge calls.",
+    )
+    p.add_argument(
+        "--clear-cache",
+        action="store_true",
+        help="Wipe the on-disk response cache before running.",
+    )
+    p.add_argument(
+        "--calibrate-judge",
+        action="store_true",
+        help="Run the judge over hand-labeled golden.jsonl (next to evals.json) and report Cohen's κ. Skips the regular eval run.",
+    )
+    p.add_argument(
+        "--no-open",
+        action="store_true",
+        help="With --http-port, suppress auto-opening the dashboard in the browser.",
+    )
 
     args = p.parse_args()
 
+    if not args.calibrate_judge and not args.prompt_file and not args.prompt_a:
+        p.error("one of --prompt-file / --prompt-a / --calibrate-judge is required")
     if args.prompt_a and not args.prompt_b:
         p.error("--prompt-a requires --prompt-b for A/B mode")
 
@@ -519,9 +665,13 @@ def evaluate_prompt(
     main_model: str,
     judge_model: str,
     verbose: bool,
+    dashboard: Any | None = None,
+    side: str | None = None,
+    eval_concurrency: int = 1,
+    run_concurrency: int = 1,
+    judge_concurrency: int = 1,
 ) -> list[EvalSummary]:
-    summaries: list[EvalSummary] = []
-    for ev in evals:
+    def one_eval(ev: Eval) -> EvalSummary:
         if verbose:
             print(f"[eval {ev.id} {ev.name}]", file=sys.stderr)
         run_results = run_eval_n_times(
@@ -531,8 +681,22 @@ def evaluate_prompt(
             main_model=main_model,
             judge_model=judge_model,
             verbose=verbose,
+            dashboard=dashboard,
+            side=side,
+            run_concurrency=run_concurrency,
+            judge_concurrency=judge_concurrency,
         )
-        summaries.append(summarize(ev, run_results))
+        return summarize(ev, run_results)
+
+    if eval_concurrency <= 1:
+        summaries = [one_eval(ev) for ev in evals]
+    else:
+        slots: list[EvalSummary | None] = [None] * len(evals)
+        with ThreadPoolExecutor(max_workers=eval_concurrency) as pool:
+            fut_to_idx = {pool.submit(one_eval, ev): i for i, ev in enumerate(evals)}
+            for fut in as_completed(fut_to_idx):
+                slots[fut_to_idx[fut]] = fut.result()
+        summaries = [s for s in slots if s is not None]
     return summaries
 
 
@@ -571,57 +735,158 @@ def main() -> int:
         print("[preflight] --dry-run: exiting without API calls", file=sys.stderr)
         return 0
 
-    if args.prompt_file:
-        prompt_text = load_prompt(args.prompt_file)
-        summaries = evaluate_prompt(
-            prompt_text,
+    # Cache plumbing
+    global _CACHE_ENABLED
+    _CACHE_ENABLED = not args.no_cache
+    import matcher as _matcher_mod  # noqa: E402
+    _matcher_mod.set_cache_enabled(not args.no_cache)
+    if args.clear_cache:
+        n = _cache.nuke()
+        print(f"[cache] cleared {n} entries", file=sys.stderr)
+
+    if args.calibrate_judge:
+        from calibrate import load_golden, calibrate
+        golden = load_golden(args.eval_set)
+        if not golden:
+            print(
+                f"[calibrate] no golden.jsonl next to {args.eval_set} — "
+                "create one (see calibrate.py docstring for the schema)",
+                file=sys.stderr,
+            )
+            return 2
+        print(f"[calibrate] {len(golden)} hand-labeled (response, expectation) pairs", file=sys.stderr)
+        report = calibrate(
+            golden,
             evals,
-            runs=args.runs,
-            main_model=args.model,
             judge_model=args.judge_model,
-            verbose=args.verbose,
+            judge_concurrency=args.concurrency,
         )
-        report = render_single_report(args.prompt_file, summaries)
-        print(report)
-        any_failed = any(s.runs_passed < s.total_runs for s in summaries)
-        return 1 if any_failed else 0
+        evals_by_id = {e.id: e.expectations for e in evals}
+        print(report.render(evals_by_id))
+        # Substantial agreement (κ >= 0.6) is the bar for the judge to be trusted.
+        return 0 if report.overall_kappa >= 0.6 else 1
 
-    # A/B mode
-    text_a = load_prompt(args.prompt_a)
-    text_b = load_prompt(args.prompt_b)
+    dashboard = None
+    if args.http_port is not None:
+        from dashboard import Dashboard
+        ab_mode = bool(args.prompt_a)
+        label = (
+            f"A/B  {args.prompt_a} → {args.prompt_b}"
+            if ab_mode
+            else f"single  {args.prompt_file}"
+        )
+        dashboard = Dashboard(
+            port=args.http_port,
+            total_calls=main_calls + judge_calls,
+            ab_mode=ab_mode,
+            prompt_label=label,
+            open_browser=not args.no_open,
+        )
+        dashboard.start()
 
-    if args.verbose:
-        print(f"== A: {args.prompt_a} ==", file=sys.stderr)
-    summaries_a = evaluate_prompt(
-        text_a,
-        evals,
-        runs=args.runs,
-        main_model=args.model,
-        judge_model=args.judge_model,
-        verbose=args.verbose,
-    )
-    if args.verbose:
-        print(f"== B: {args.prompt_b} ==", file=sys.stderr)
-    summaries_b = evaluate_prompt(
-        text_b,
-        evals,
-        runs=args.runs,
-        main_model=args.model,
-        judge_model=args.judge_model,
-        verbose=args.verbose,
-    )
+    try:
+        if args.prompt_file:
+            prompt_text = load_prompt(args.prompt_file)
+            summaries = evaluate_prompt(
+                prompt_text,
+                evals,
+                runs=args.runs,
+                main_model=args.model,
+                judge_model=args.judge_model,
+                verbose=args.verbose,
+                dashboard=dashboard,
+                eval_concurrency=args.concurrency,
+                run_concurrency=args.concurrency,
+                judge_concurrency=args.concurrency,
+            )
+            report = render_single_report(args.prompt_file, summaries)
+            print(report)
+            if dashboard is not None:
+                dashboard.event("finished", report_md=report)
+            any_failed = any(s.runs_passed < s.total_runs for s in summaries)
+            exit_code = 1 if any_failed else 0
+        else:
+            # A/B mode
+            text_a = load_prompt(args.prompt_a)
+            text_b = load_prompt(args.prompt_b)
 
-    report = render_ab_report(args.prompt_a, args.prompt_b, summaries_a, summaries_b)
-    print(report)
+            if args.verbose:
+                print(f"== A: {args.prompt_a} ==", file=sys.stderr)
+            summaries_a = evaluate_prompt(
+                text_a,
+                evals,
+                runs=args.runs,
+                main_model=args.model,
+                judge_model=args.judge_model,
+                verbose=args.verbose,
+                dashboard=dashboard,
+                side="A",
+                eval_concurrency=args.concurrency,
+                run_concurrency=args.concurrency,
+                judge_concurrency=args.concurrency,
+            )
+            if args.verbose:
+                print(f"== B: {args.prompt_b} ==", file=sys.stderr)
+            summaries_b = evaluate_prompt(
+                text_b,
+                evals,
+                runs=args.runs,
+                main_model=args.model,
+                judge_model=args.judge_model,
+                verbose=args.verbose,
+                dashboard=dashboard,
+                side="B",
+                eval_concurrency=args.concurrency,
+                run_concurrency=args.concurrency,
+                judge_concurrency=args.concurrency,
+            )
 
-    by_id_a = {s.eval_id: s for s in summaries_a}
-    by_id_b = {s.eval_id: s for s in summaries_b}
-    has_regression = any(
-        b.runs_passed < by_id_a[b.eval_id].runs_passed
-        for b in by_id_b.values()
-        if b.eval_id in by_id_a
-    )
-    return 1 if has_regression else 0
+            report = render_ab_report(args.prompt_a, args.prompt_b, summaries_a, summaries_b)
+            print(report)
+            if dashboard is not None:
+                dashboard.event("finished", report_md=report)
+
+            by_id_a = {s.eval_id: s for s in summaries_a}
+            by_id_b = {s.eval_id: s for s in summaries_b}
+            has_regression = any(
+                b.runs_passed < by_id_a[b.eval_id].runs_passed
+                for b in by_id_b.values()
+                if b.eval_id in by_id_a
+            )
+            exit_code = 1 if has_regression else 0
+
+        # Cache stats line — surfaces dollar savings on re-runs.
+        if _CACHE_ENABLED:
+            cs = _cache.stats()
+            total = cs.hits + cs.misses
+            if total > 0:
+                pct = 100 * cs.hits // total
+                print(
+                    f"[cache] {cs.hits} hit / {cs.misses} miss / {cs.writes} write  ({pct}% hit-rate)",
+                    file=sys.stderr,
+                )
+
+        if dashboard is not None:
+            print(
+                f"[dashboard] run finished — leaving server up at http://127.0.0.1:{args.http_port} until ctrl-c",
+                file=sys.stderr,
+            )
+            try:
+                # Keep the server alive so the user can browse the final report.
+                # User exits with Ctrl-C.
+                import time
+                while True:
+                    time.sleep(3600)
+            except KeyboardInterrupt:
+                pass
+            finally:
+                dashboard.stop()
+
+        return exit_code
+    except KeyboardInterrupt:
+        if dashboard is not None:
+            dashboard.stop()
+        return 130
 
 
 if __name__ == "__main__":
