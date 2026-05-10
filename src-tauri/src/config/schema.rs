@@ -349,6 +349,10 @@ fn default_file_sync_interval() -> u64 {
     60
 }
 
+fn default_l1_budget_tokens() -> usize {
+    800
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MemoryConfig {
@@ -394,6 +398,8 @@ pub struct MemoryConfig {
     pub file_sync_interval_minutes: u64,
     #[serde(default = "default_true")]
     pub librarian_enabled: bool,
+    #[serde(default = "default_l1_budget_tokens")]
+    pub l1_budget_tokens: usize,
 }
 
 impl Default for MemoryConfig {
@@ -412,6 +418,7 @@ impl Default for MemoryConfig {
             file_sync_enabled: true,
             file_sync_interval_minutes: default_file_sync_interval(),
             librarian_enabled: true,
+            l1_budget_tokens: default_l1_budget_tokens(),
         }
     }
 }
@@ -738,7 +745,19 @@ pub fn list_all_theme_ids() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::IntegrationsConfig;
+    use super::{IntegrationsConfig, MemoryConfig};
+
+    #[test]
+    fn memory_l1_budget_default_is_800() {
+        let cfg: MemoryConfig = toml::from_str("").unwrap();
+        assert_eq!(cfg.l1_budget_tokens, 800);
+    }
+
+    #[test]
+    fn memory_l1_budget_user_override() {
+        let cfg: MemoryConfig = toml::from_str("l1_budget_tokens = 1200").unwrap();
+        assert_eq!(cfg.l1_budget_tokens, 1200);
+    }
 
     #[test]
     fn telegram_allowed_users_accepts_quoted_strings() {
