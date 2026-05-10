@@ -420,8 +420,17 @@ fn main() {
             }
         }
 
-        Commands::SendText { pane, text, from_file, from_stdin, no_wait } => {
-            cmd::send_text::handle_send_text(&mut client, cli.json, pane, text, from_file, from_stdin, no_wait);
+        Commands::SendText { pane, text, from_file, from_stdin, verify, no_wait } => {
+            cmd::send_text::handle_send_text(
+                &mut client,
+                cli.json,
+                pane,
+                text,
+                from_file,
+                from_stdin,
+                verify,
+                no_wait,
+            );
             return;
         }
 
