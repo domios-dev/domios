@@ -205,7 +205,14 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             };
             let tag_list = split_csv(tags);
             let resolved_scope = match (workspace, scope) {
-                (Some(ws), _) => Some(format!("workspace:{ws}")),
+                (Some(ws), _) => {
+                    let ws = ws.trim();
+                    if ws.is_empty() {
+                        eprintln!("Error: --workspace requires a non-empty id");
+                        std::process::exit(1);
+                    }
+                    Some(format!("workspace:{ws}"))
+                }
                 (None, Some(s)) => Some(s),
                 (None, None) => None,
             };

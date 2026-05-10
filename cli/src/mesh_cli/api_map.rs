@@ -395,7 +395,14 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             if let Some(v) = tags { payload["tags"] = json!(v); }
             if let Some(v) = area { payload["area"] = json!(v); }
             let resolved_scope = match (workspace, scope) {
-                (Some(ws), _) => Some(format!("workspace:{ws}")),
+                (Some(ws), _) => {
+                    let ws = ws.trim();
+                    if ws.is_empty() {
+                        eprintln!("Error: --workspace requires a non-empty id");
+                        std::process::exit(1);
+                    }
+                    Some(format!("workspace:{ws}"))
+                }
                 (None, Some(s)) => Some(s.clone()),
                 (None, None) => None,
             };
