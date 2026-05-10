@@ -9,4 +9,9 @@
 
 src-tauri/src/agent/provider.rs	822
 src-tauri/src/service/orchestrator.rs	838
-src-tauri/src/mem/dreaming.rs	1029
+# Grew +66 in feat(mem): 6am dreamer schedule + migration (73004af); real code, no dead weight
+src-tauri/src/mem/dreaming.rs	1095
+# TODO: split into per-feature submodules; parallel calibration agent is adding tests here
+src-tauri/src/mem/store/tests.rs	958
+# eval harness; grew from research upgrades in 4f1806d — not src-tauri code
+.claude/skills/prompt-evaluator/runner.py	893
