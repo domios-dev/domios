@@ -267,3 +267,47 @@ fn opencode_session_id_injection_default_none() {
         crate::agent::provider::SessionIdInjection::None
     );
 }
+
+// ── Cross-provider non-contamination ───────────────────────────────
+
+#[test]
+fn opencode_does_not_claim_codex_permission_output() {
+    let p = OpenCodeProvider::new();
+    // Codex permission prompts — must NOT be claimed by opencode.
+    assert!(!p.detect_from_output("Would you like to run the following command?\n$ ls -la"));
+    assert!(!p.detect_from_output("Would you like to make the following edits?\ndiff --git a/x b/x"));
+    assert!(!p.detect_from_output("Would you like to grant these permissions?\n  codex>"));
+}
+
+#[test]
+fn opencode_detect_requires_opencode_marker() {
+    let p = OpenCodeProvider::new();
+    // "Permission required" alone (no "opencode" in text) must NOT match.
+    assert!(!p.detect_from_output("Permission required: Bash(rm -rf /)"));
+    // "approve" alone must NOT match — too generic, codex also uses it.
+    assert!(!p.detect_from_output("Do you want to approve network access?"));
+    // Only fires when "opencode" is present together with a permission marker.
+    assert!(p.detect_from_output("opencode\nPermission required: Bash(ls)"));
+    assert!(p.detect_from_output("opencode v0.3.0\n█▀▀█ █▀▀█"));
+}
+
+#[test]
+fn opencode_approve_alone_does_not_fire() {
+    // "opencode" + "approve" must NOT trigger opencode detection on its own —
+    // this is the cross-fire path where codex output mentioning "approve network access"
+    // could appear alongside "opencode" in screen content from a mixed pane.
+    // Only codex-specific "approve" phrasing must NOT be claimed by opencode.
+    let p = OpenCodeProvider::new();
+    let mixed = "opencode v0.3.0\nDo you want to approve network access to api.example.com?";
+    // This used to fire opencode (via "approve" clause) AND codex simultaneously,
+    // causing non-deterministic tab labeling. opencode must not claim this.
+    assert!(!p.detect_from_output(mixed),
+        "opencode must not claim 'approve network access' — that is codex's phrase");
+}
+
+#[test]
+fn opencode_detect_from_title_does_not_claim_codex_title() {
+    let p = OpenCodeProvider::new();
+    assert!(!p.detect_from_title("codex"));
+    assert!(!p.detect_from_title("Codex - my project"));
+}

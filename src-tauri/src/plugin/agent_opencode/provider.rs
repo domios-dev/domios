@@ -223,11 +223,15 @@ impl AgentProvider for OpenCodeProvider {
 
     fn detect_from_output(&self, text: &str) -> bool {
         // OpenCode TUI writes a distinctive ASCII banner at startup and
-        // emits "permission" prompts on tool calls. Match the banner +
-        // permission language.
+        // emits "Permission required" on tool calls. Require "opencode" in
+        // the screen to avoid cross-firing with other providers. "approve"
+        // is intentionally excluded — it overlaps with codex's network-access
+        // prompts ("approve network access") and causes non-deterministic
+        // tab labeling when both providers are registered.
         text.contains("opencode")
             && (text.contains("Permission required")
-                || text.contains("approve")
+                || text.contains("Allow this tool call")
+                || text.contains("Approve this command")
                 || text.contains("█▀▀█")
                 || text.contains("▄"))
     }

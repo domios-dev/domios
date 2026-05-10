@@ -32,7 +32,26 @@ fn codex_detect_from_output() {
     assert!(p.detect_from_output("Would you like to run the following command?"));
     assert!(p.detect_from_output("Would you like to make the following edits?"));
     assert!(p.detect_from_output("Do you want to approve network access to \"api.example.com\"?"));
+    assert!(p.detect_from_output("codex>"));
     assert!(!p.detect_from_output("Claude Code v2.0"));
+    assert!(!p.detect_from_output("opencode v0.3.0\nPermission required"));
+}
+
+#[test]
+fn codex_does_not_claim_opencode_output() {
+    let p = CodexProvider::new();
+    // OpenCode-specific output must NOT be claimed by codex.
+    assert!(!p.detect_from_output("opencode\nPermission required: Bash(ls)"));
+    assert!(!p.detect_from_output("opencode v0.3.0\n█▀▀█ █▀▀█"));
+    assert!(!p.detect_from_output("Allow this tool call?\n opencode session ses_abc"));
+}
+
+#[test]
+fn codex_does_not_claim_claude_output() {
+    let p = CodexProvider::new();
+    // Claude-specific output must NOT be claimed by codex.
+    assert!(!p.detect_from_output("Claude Code\nDo you want to proceed?"));
+    assert!(!p.detect_from_output("Cogitated for 5s · $0.03 spent"));
 }
 
 #[test]
