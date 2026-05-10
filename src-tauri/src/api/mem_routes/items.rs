@@ -282,7 +282,7 @@ mod tests {
             l0_only: None,
             no_l0: None,
         });
-        assert_eq!(opts.l1_budget_tokens, crate::config::memory_config().l1_budget_tokens);
+        assert_eq!(opts.l1_budget_tokens, crate::config::schema::MemoryConfig::default().l1_budget_tokens);
     }
 }
 
