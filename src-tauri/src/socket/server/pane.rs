@@ -63,7 +63,7 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|p| p.get("verify"))
                 .and_then(|v| v.as_bool())
-                .unwrap_or(true);
+                .unwrap_or(false);
             let svc_ref = svc.as_ref();
             if verify {
                 let pty_id = svc_ref.resolve_pty_id(&pane_id)
@@ -93,12 +93,13 @@ pub(super) fn dispatch(
                     }),
                 });
             }
-            crate::dispatch::dispatch(
-                &crate::dispatch::Command::SendText { pane_id, text, enter },
-                svc_ref,
-            )
-            .map(|r| r.into_json())
-            .map_err(|e| JsonRpcError { code: -32603, message: e })
+            svc_ref.send_text(&pane_id, &text, enter)
+                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            Ok(serde_json::json!({
+                "ok": true,
+                "fire_and_forget": true,
+                "verified": false,
+            }))
         }
 
         "pane.get_output" => {
