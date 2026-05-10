@@ -532,5 +532,22 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             format!("/api/mem/reembed?scope={}", enc(scope)),
             None,
         ),
+        MemAction::Pin { id } => (
+            "PATCH".into(),
+            format!("/api/mem/items/{}", enc(id)),
+            Some(json!({"pinned": true}).to_string()),
+        ),
+        MemAction::Unpin { id } => (
+            "PATCH".into(),
+            format!("/api/mem/items/{}", enc(id)),
+            Some(json!({"pinned": false}).to_string()),
+        ),
+        MemAction::Pinned { limit } => {
+            let path = match limit {
+                Some(n) => format!("/api/mem/pinned?limit={}", n),
+                None => "/api/mem/pinned".into(),
+            };
+            ("GET".into(), path, None)
+        }
     }
 }
