@@ -7,19 +7,24 @@ The always-on protocol that fires regardless of which skill is loaded lives in `
 | Command | Purpose |
 |---------|---------|
 | `codeterm mem search "<query>" [--kind K] [--area A] [--limit N] [--rerank]` | Hybrid search (FTS5 + vector embedding fused via RRF). Default limit 5. |
-| `codeterm mem get <id>` | Print the full body of one item. |
-| `codeterm mem save --kind <kind> [--title T] [--area A] [--tags T] [--source-path P] [--scope global\|workspace] [--importance N] "<body>"` | Capture something new. |
-| `codeterm mem update <id> [--title T] [--summary S] [--area A] [--tags T] [--body B] [--importance N]` | Patch an existing item. |
+| `codeterm mem get <id>` | Print the full body of one item. Bumps `evidence_count` for `skill\|lesson\|rule\|fact\|preference` (skipped automatically when called from a worker pane via `$CODETERM_WORKER_ID`). |
+| `codeterm mem save --kind <kind> [--title T] [--area A] [--tags T] [--source-path P] [--scope global\|workspace:<id>] [--workspace WS] [--pin] [--importance N] [--replace] [--skip-extract] "<body>"` | Capture something new. `--pin` sets `is_pinned_wakeup=1` in the same INSERT (atomic, no follow-up PATCH). `--workspace WS` is shorthand for `--scope workspace:WS`. |
+| `codeterm mem update <id> [--title T] [--summary S] [--area A] [--tags T] [--body B] [--importance N] [--changed-by ACTOR]` | Patch an existing item. `--changed-by` sets the `X-CodeTerm-Actor` header so the change lands in `mem_item_history.changed_by` with that label (default `"user"`). |
 | `codeterm mem delete <id>` | Remove an item (also cleans vectors and relations). |
 | `codeterm mem forget <area>` | Batch delete every item in an area. |
 | `codeterm mem history <id>` | Full audit trail (create/update/promote/delete) for one item. |
 | `codeterm mem taxonomy [--workspace W]` | Print `{area → {kind → count}}` for the store or one workspace. |
 | `codeterm mem tail [--follow] [--limit N]` | Recent mem writes, newest first. |
 | `codeterm mem stats` | Counts by kind + blob sizes. |
-| `codeterm mem wake-up [--budget N] [--l0-only] [--no-l0]` | L0 identity + L1 critical facts. Always use this for identity questions. |
+| `codeterm mem wake-up [--budget N] [--l0-only] [--no-l0] [--workspace WS] [--explain]` | L0 identity + L1 critical facts. `--workspace` boosts items scoped to that workspace by `+0.5` in the L1 ranking and admits them alongside global rows. `--explain` appends a per-item score breakdown comment block. Always use this for identity questions. |
+| `codeterm mem pin <id>` | Set `is_pinned_wakeup=1` so the item always loads in L1 wake-up (subject to budget). |
+| `codeterm mem unpin <id>` | Clear `is_pinned_wakeup`. |
+| `codeterm mem pinned [--limit N]` | List pinned items, ordered by importance / evidence / recency. Default 100, max 500. |
 | `codeterm mem learn "<text>" [--kind insight\|error\|feature]` | Quick capture of an insight. |
 | `codeterm mem sync [--path P]` | Trigger Librarian re-index for source-tracked items. |
 | `codeterm mem extract-pending [--limit N]` | Re-queue extraction workers (after API quota or interrupted runs). |
+| `codeterm mem calibration log [--since ISO] [--limit N] [--count]` | Audit trail of the dreamer's Sunday calibration sweep (rows in `mem_item_history` with `changed_by LIKE 'dreamer-calibration%'`). |
+| `codeterm mem calibration sweep [--force]` | Manually run the sweep. Server-gated to Sunday unless `--force`; hard-capped at 30 mutations per session. |
 
 ## Saving — what to use as what
 
@@ -59,6 +64,50 @@ The Librarian re-indexes the source whenever the file changes.
 | `--area <tag>` | Narrow to a subject area (e.g. `auth`, `billing`, `deploy`, `home`, `automation`) |
 | `--scope workspace` | Restrict to current workspace's items (global is always included) |
 | `--limit <n>` | Result count |
+
+## L1 wake-up — pinning, workspace, score
+
+`codeterm mem wake-up` returns L0 (identity) + L1 (top critical context). L1 selection is two-pass:
+
+1. **Pinned set** — `is_pinned_wakeup = 1` in scope (global + current workspace if `--workspace` is set). Pinned items always load and render before any ranked item inside their kind section, prefixed with `★`.
+2. **Ranked fill** — remaining items scored by `importance + log10(1 + evidence_count) * 0.5 + ws_match * 0.5 + recent_30d * 0.3`. `auto-extracted` noise and the L0 identity row are excluded.
+
+Budget defaults to `[memory] l1_budget_tokens` (default 800). When the pinned set alone exceeds the budget the rendered output starts with `<!-- WARN: N pinned items did not fit L1 budget … -->` and a `[wake-up] pinned-eviction` log line fires — shrink pins (`mem unpin <id>`) or raise the budget.
+
+```bash
+# Pin a load-bearing fact for the current workspace
+codeterm mem save --kind fact --title "API base url" --pin --workspace "$CODETERM_WORKSPACE_ID" \
+  "Staging API base: https://api-staging.example.com (no trailing slash)"
+
+# Workspace-aware wake-up — boosts ws-scoped rows in the score
+codeterm mem wake-up --workspace "$CODETERM_WORKSPACE_ID"
+
+# Debug what L1 selected
+codeterm mem wake-up --workspace "$CODETERM_WORKSPACE_ID" --explain | tail -30
+
+# Inspect / curate pinned set
+codeterm mem pinned --limit 50
+codeterm mem unpin fact_old_thing
+```
+
+## Calibration — Sunday sweep
+
+The dreamer's Sunday run includes a calibration STAGE D that reviews items 14+ days old and applies bounded importance / archive changes:
+
+| Condition | Action | `changed_by` label |
+|---|---|---|
+| `evidence_count >= 10 AND importance < 4 AND accessed in last 30d` | `+0.5` importance | `dreamer-calibration:promote` |
+| `evidence_count <= 1 AND importance >= 4 AND created > 60d ago` | `-0.5` importance | `dreamer-calibration:demote` |
+| `evidence_count == 1 AND importance <= 2 AND created > 90d ago AND kind IN (fact, note)` | archive (`kind = 'archived'`) | `dreamer-calibration:archive` |
+
+Hard caps: max 30 mutations per session, abort if candidate set > 100, refuse if any calibration change landed in the last 6h. Day-of-week gate is server-side (`strftime('%w','now') == '0'`); `--force` bypasses for testing.
+
+```bash
+codeterm mem calibration log                  # last 50 changes (default)
+codeterm mem calibration log --count          # just the row count
+codeterm mem calibration log --since "2026-05-01T00:00:00Z" --limit 100
+codeterm mem calibration sweep --force        # manual run (testing only)
+```
 
 ## Search strategy when results miss
 
@@ -130,4 +179,4 @@ codeterm keepawake stop
 codeterm keepawake status
 ```
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

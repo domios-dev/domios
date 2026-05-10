@@ -58,7 +58,7 @@ Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 
 - **`worker_task_preamble.md`** — wrapper applied by `workers::build_worker_task()` to every headless memory worker. Sets the "you are a Graph Worker" framing, tells the worker how to call back via `codeterm mem worker progress|report`, then injects the inner `{task}`.
 - **`mem_extraction.md`** — inner task body for the auto-extraction worker spawned on `mem save` for items longer than ~80 chars (kinds: conversation, note, daily, learning, fact). Worker extracts people, projects, decisions, problems, area; calls back via `codeterm mem graph` commands. The body is truncated to 4000 chars before substitution.
-- **`dreaming_rem.md`** — inner task body for the REM phase of the dreaming pipeline. Light and Deep phases are pure SQL scoring (no LLM); REM is LLM-driven via `dreaming::spawn_rem_worker()`. Triggered by the bundled `mem-dreaming-auto` cron at 3 AM ±90 min jitter.
+- **`dreaming_rem.md`** — inner task body for the REM phase of the dreaming pipeline. Light and Deep phases are pure SQL scoring (no LLM); REM is LLM-driven via `dreaming::spawn_rem_worker()`. Triggered by the bundled `mem-dreaming-auto` cron at 6 AM ±30 min jitter (legacy 3 AM ±90 min installs auto-migrate on startup). The prompt runs four stages — STAGE A (structural cleanup), STAGE B (diary + worker report), STAGE C (maintenance), STAGE D (Memory calibration). STAGE D unconditionally calls `codeterm mem calibration sweep`; the server itself enforces the Sunday-only gate via `strftime('%w','now')`, the 30-changes-per-session cap, and the 6-hour re-entry guard, so the prompt stays portable and the heuristic stays in one place.
 - **`mem_rerank.md`** — sent via raw `reqwest` POST from `mem/rerank.rs` to `api.anthropic.com/v1/messages` (`call_anthropic`) or the OpenAI equivalent. The only place in CodeTerm that talks to a model API directly. Used when search needs higher precision than FTS5 + vector cosine alone. The `{items}` placeholder is built in Rust by formatting each `SearchHit` and joining them.
 
 `mem/seed.rs` ships a handful of baseline `NewMemItem` rows (bundled rules and the codeterm skill stub) inserted on fresh install. These are Rust literals, not LLM prompts — they live in the mem store and are surfaced to agents only via `codeterm mem search`/`get`.
@@ -142,4 +142,4 @@ The General Agent also gets `CODETERM_RULE` and `BRIDGE_MEM` via the provider's 
 - `.claude/agents/prompt-evaluator.md` — the agent that A/B tests prompt changes
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

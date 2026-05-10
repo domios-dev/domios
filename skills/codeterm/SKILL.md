@@ -276,11 +276,19 @@ Top commands:
 codeterm mem search "<query>" [--kind K] [--area A] [--limit N]   # hybrid FTS5 + vector
 codeterm mem get <id>                                              # full body of one item
 codeterm mem save --kind <kind> --title "..." "<body>"             # capture (auto-classified)
-codeterm mem wake-up                                               # L0 identity + L1 critical facts
+codeterm mem save --kind fact --title "..." --pin --workspace $CODETERM_WORKSPACE_ID "<body>"
+                                                                   # atomic create + pin + workspace scope
+codeterm mem pin <id>   /   codeterm mem unpin <id>   /   codeterm mem pinned [--limit N]
+                                                                   # toggle is_pinned_wakeup; pinned items always load in L1
+codeterm mem wake-up                                               # L0 identity + L1 critical facts (default L1 budget = [memory] l1_budget_tokens, default 800)
+codeterm mem wake-up --workspace $CODETERM_WORKSPACE_ID            # boost ws-scoped items in L1 ranking
+codeterm mem wake-up --explain                                     # append per-item score breakdown
+codeterm mem calibration log [--since ISO] [--limit N] [--count]   # dreamer importance/archive sweep history
+codeterm mem calibration sweep [--force]                           # manual sweep (server-gated to Sunday unless --force)
 codeterm mem skill new <slug> --area <area>                        # scaffold a skill folder
 codeterm sessions search "<query>"                                 # past chat conversations
 ```
 
 Full reference (every command, kinds table, filters, graph queries, search-strategy fallbacks, skill-folder workflow, sessions API, keepawake): `references/mem.md`.
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->
