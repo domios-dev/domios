@@ -565,10 +565,8 @@ pub const DREAMING_CRON_NAME: &str = "mem-dreaming-auto";
 const DREAMING_TASK: &str = "codeterm mem dream && codeterm agent report \"dreaming complete\"\n";
 
 /// Create the bundled dreaming cron if it doesn't exist already.
-/// - Schedule: "0 3 * * *" (3 AM)
-/// - Jitter: ±90 minutes (5_400_000 ms) — anti-anti-cheat, so the job
-///   actually fires anywhere from 1:30 AM to 4:30 AM, never the same
-///   instant two days in a row.
+/// - Schedule: "0 6 * * *" (6 AM)
+/// - Jitter: ±30 minutes (1_800_000 ms) — fires anywhere 5:30–6:30 AM
 /// - Task: runs `codeterm mem dream` in a fresh agent
 /// - Workspace: "general" (the GA workspace)
 ///
@@ -576,17 +574,22 @@ const DREAMING_TASK: &str = "codeterm mem dream && codeterm agent report \"dream
 pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> Result<bool, String> {
     let mem_cfg = crate::config::memory_config();
 
-    // Update agent on existing cron if config changed
     if let Some(job) = cron_store.list().iter().find(|j| j.name == DREAMING_CRON_NAME) {
-        let desired = if mem_cfg.dreaming_agent.is_empty() {
+        let desired_agent = if mem_cfg.dreaming_agent.is_empty() {
             crate::config::default_agent_provider()
         } else {
             mem_cfg.dreaming_agent.clone()
         };
-        if job.agent != desired {
+        let agent_changed = job.agent != desired_agent;
+        let legacy_schedule_match = matches!(job.schedule.as_str(), "0 3 * * *");
+        let legacy_jitter_match = job.jitter_max_ms == Some(5_400_000);
+
+        if agent_changed || legacy_schedule_match || legacy_jitter_match {
             let job_id = job.id.clone();
             if let Some(j) = cron_store.get_mut(&job_id) {
-                j.agent = desired;
+                if agent_changed { j.agent = desired_agent; }
+                if legacy_schedule_match { j.schedule = "0 6 * * *".into(); }
+                if legacy_jitter_match { j.jitter_max_ms = Some(1_800_000); }
                 let _ = cron_store.save();
             }
         }
@@ -613,7 +616,7 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
     let _ = cron_store.create(crate::cron::store::CronCreateParams {
         name: DREAMING_CRON_NAME.into(),
         workspace_id: String::new(),
-        schedule: "0 3 * * *".into(),
+        schedule: "0 6 * * *".into(),
         task: DREAMING_TASK.into(),
         description: Some("Memory optimizer. Runs nightly as a graph worker inside Memory Panel. Toggle on/off in settings. Cannot be deleted.".into()),
         agent,
@@ -624,7 +627,7 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
         enabled: Some(true),
         max_history: Some(30),
         oneshot: Some(false),
-        jitter_max_ms: Some(5_400_000),
+        jitter_max_ms: Some(1_800_000),
         tz: None,
         timeout_seconds: Some(mem_cfg.dreaming_timeout_seconds),
     })?;
@@ -757,9 +760,69 @@ mod tests {
         assert_eq!(count, 1, "exactly one auto-cron must exist");
 
         let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
-        assert_eq!(job.jitter_max_ms, Some(5_400_000));
+        assert_eq!(job.jitter_max_ms, Some(1_800_000), "jitter must be ±30 min");
         assert!(job.enabled);
-        assert_eq!(job.schedule, "0 3 * * *");
+        assert_eq!(job.schedule, "0 6 * * *");
+    }
+
+    #[test]
+    fn legacy_jitter_90min_migrates_to_30min() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crons.json");
+        std::mem::forget(dir);
+        let mut store = crate::cron::store::CronStore::new_with_path(path);
+
+        ensure_dreaming_cron(&mut store).unwrap();
+        let id = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap().id.clone();
+        if let Some(j) = store.get_mut(&id) {
+            j.jitter_max_ms = Some(5_400_000);
+        }
+        let _ = store.save();
+
+        ensure_dreaming_cron(&mut store).unwrap();
+
+        let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
+        assert_eq!(job.jitter_max_ms, Some(1_800_000), "legacy 90min must be auto-migrated to 30min");
+    }
+
+    #[test]
+    fn legacy_3am_schedule_migrates_to_6am() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crons.json");
+        std::mem::forget(dir);
+        let mut store = crate::cron::store::CronStore::new_with_path(path);
+
+        ensure_dreaming_cron(&mut store).unwrap();
+        let id = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap().id.clone();
+        if let Some(j) = store.get_mut(&id) {
+            j.schedule = "0 3 * * *".into();
+        }
+        let _ = store.save();
+
+        ensure_dreaming_cron(&mut store).unwrap();
+
+        let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
+        assert_eq!(job.schedule, "0 6 * * *", "legacy 3am must be auto-migrated to 6am");
+    }
+
+    #[test]
+    fn custom_user_schedule_is_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crons.json");
+        std::mem::forget(dir);
+        let mut store = crate::cron::store::CronStore::new_with_path(path);
+
+        ensure_dreaming_cron(&mut store).unwrap();
+        let id = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap().id.clone();
+        if let Some(j) = store.get_mut(&id) {
+            j.schedule = "30 12 * * *".into();
+        }
+        let _ = store.save();
+
+        ensure_dreaming_cron(&mut store).unwrap();
+
+        let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
+        assert_eq!(job.schedule, "30 12 * * *", "user-customised schedule must NOT be overwritten");
     }
 
     #[test]
