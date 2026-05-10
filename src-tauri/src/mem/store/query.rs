@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use rusqlite::{params, Connection};
 
-use super::{GraphDump, GraphDumpStats, GraphEdge, GraphNode, MemStats, TailEntry};
+use super::{GraphDump, GraphDumpStats, GraphEdge, GraphNode, MemItem, MemStats, TailEntry};
 
 pub fn stats(conn: &Connection) -> Result<MemStats, String> {
     let total_items: i64 = conn
@@ -143,6 +144,35 @@ pub fn tail_recent(
             .collect(),
     };
     Ok(collected)
+}
+
+pub fn list_pinned(
+    conn: &Connection,
+    blobs_dir: &Path,
+    limit: usize,
+) -> Result<Vec<MemItem>, String> {
+    let limit = limit.clamp(1, 500);
+    let mut stmt = conn
+        .prepare(
+            "SELECT id FROM mem_items
+             WHERE is_pinned_wakeup = 1
+             ORDER BY importance DESC, evidence_count DESC, updated_at DESC
+             LIMIT ?1",
+        )
+        .map_err(|e| format!("prepare list_pinned: {}", e))?;
+    let ids: Vec<String> = stmt
+        .query_map(params![limit as i64], |r| r.get::<_, String>(0))
+        .map_err(|e| format!("query list_pinned: {}", e))?
+        .filter_map(Result::ok)
+        .collect();
+
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        if let Some(item) = super::get(conn, &id, blobs_dir)? {
+            out.push(item);
+        }
+    }
+    Ok(out)
 }
 
 pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {

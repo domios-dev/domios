@@ -848,3 +848,55 @@ fn graph_full_excludes_invalidated_relations() {
     assert!(rels.contains(&"active_rel"), "active relation must be present");
     assert!(!rels.contains(&"dead_rel"), "invalidated relation must be filtered out");
 }
+
+#[test]
+fn list_pinned_returns_only_pinned_items_ordered_by_importance() {
+    let (conn, blobs) = fresh();
+
+    let id_a = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact, scope: MemScope::Global,
+        title: "high".into(), summary: None, area: None, tags: vec![],
+        body: "hi".into(), source: None, importance: 5.0, source_path: None,
+    }, &blobs).unwrap();
+    update(&conn, &id_a, &MemUpdate {
+        pinned: Some(true), ..Default::default()
+    }, &blobs).unwrap();
+
+    let id_b = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact, scope: MemScope::Global,
+        title: "low".into(), summary: None, area: None, tags: vec![],
+        body: "lo".into(), source: None, importance: 2.0, source_path: None,
+    }, &blobs).unwrap();
+    update(&conn, &id_b, &MemUpdate {
+        pinned: Some(true), ..Default::default()
+    }, &blobs).unwrap();
+
+    insert(&conn, &NewMemItem {
+        kind: MemKind::Fact, scope: MemScope::Global,
+        title: "unpinned".into(), summary: None, area: None, tags: vec![],
+        body: "x".into(), source: None, importance: 5.0, source_path: None,
+    }, &blobs).unwrap();
+
+    let pinned = list_pinned(&conn, &blobs, 100).unwrap();
+    assert_eq!(pinned.len(), 2, "exactly 2 pinned items, got {}", pinned.len());
+    assert_eq!(pinned[0].title, "high", "high importance first");
+    assert_eq!(pinned[1].title, "low");
+}
+
+#[test]
+fn list_pinned_respects_limit() {
+    let (conn, blobs) = fresh();
+
+    for i in 0..10 {
+        let id = insert(&conn, &NewMemItem {
+            kind: MemKind::Fact, scope: MemScope::Global,
+            title: format!("item-{i}"), summary: None, area: None, tags: vec![],
+            body: "b".into(), source: None, importance: 3.0, source_path: None,
+        }, &blobs).unwrap();
+        update(&conn, &id, &MemUpdate {
+            pinned: Some(true), ..Default::default()
+        }, &blobs).unwrap();
+    }
+    let pinned = list_pinned(&conn, &blobs, 3).unwrap();
+    assert_eq!(pinned.len(), 3, "limit must cap result");
+}

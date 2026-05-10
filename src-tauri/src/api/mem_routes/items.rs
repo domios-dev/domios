@@ -124,6 +124,27 @@ pub async fn mem_get(
     }
 }
 
+#[derive(Deserialize)]
+pub struct PinnedListParams {
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+pub async fn mem_pinned_list(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<PinnedListParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let limit = p.limit.unwrap_or(100).clamp(1, 500);
+    let items = state
+        .svc
+        .mem
+        .list_pinned(limit)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "items": items })))
+}
+
 /// Bumps `evidence_count` for L1-selectable kinds (skill|lesson|rule|fact|preference); no-op otherwise. Caller decides whether to invoke.
 fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
     if !matches!(kind, "skill" | "lesson" | "rule" | "fact" | "preference") {
