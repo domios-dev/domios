@@ -651,35 +651,35 @@ pub struct BuiltinTheme {
 pub const BUILTIN_THEMES: &[BuiltinTheme] = &[
     BuiltinTheme {
         id: "github-dark",
-        toml_str: include_str!("../../themes/github-dark.toml"),
+        toml_str: include_str!("../../../themes/github-dark.toml"),
     },
     BuiltinTheme {
         id: "dracula",
-        toml_str: include_str!("../../themes/dracula.toml"),
+        toml_str: include_str!("../../../themes/dracula.toml"),
     },
     BuiltinTheme {
         id: "catppuccin-mocha",
-        toml_str: include_str!("../../themes/catppuccin-mocha.toml"),
+        toml_str: include_str!("../../../themes/catppuccin-mocha.toml"),
     },
     BuiltinTheme {
         id: "one-dark",
-        toml_str: include_str!("../../themes/one-dark.toml"),
+        toml_str: include_str!("../../../themes/one-dark.toml"),
     },
     BuiltinTheme {
         id: "nord",
-        toml_str: include_str!("../../themes/nord.toml"),
+        toml_str: include_str!("../../../themes/nord.toml"),
     },
     BuiltinTheme {
         id: "github-light",
-        toml_str: include_str!("../../themes/github-light.toml"),
+        toml_str: include_str!("../../../themes/github-light.toml"),
     },
     BuiltinTheme {
         id: "solarized-light",
-        toml_str: include_str!("../../themes/solarized-light.toml"),
+        toml_str: include_str!("../../../themes/solarized-light.toml"),
     },
     BuiltinTheme {
         id: "pip-boy",
-        toml_str: include_str!("../../themes/pip-boy.toml"),
+        toml_str: include_str!("../../../themes/pip-boy.toml"),
     },
 ];
 
@@ -744,64 +744,4 @@ pub fn list_all_theme_ids() -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{IntegrationsConfig, MemoryConfig};
-
-    #[test]
-    fn memory_l1_budget_default_is_800() {
-        let cfg: MemoryConfig = toml::from_str("").unwrap();
-        assert_eq!(cfg.l1_budget_tokens, 800);
-    }
-
-    #[test]
-    fn memory_l1_budget_user_override() {
-        let cfg: MemoryConfig = toml::from_str("l1_budget_tokens = 1200").unwrap();
-        assert_eq!(cfg.l1_budget_tokens, 1200);
-    }
-
-    #[test]
-    fn telegram_allowed_users_accepts_quoted_strings() {
-        let toml = r#"
-            telegram_enabled = true
-            telegram_allowed_users = ["186809246"]
-        "#;
-        let cfg: IntegrationsConfig = toml::from_str(toml).unwrap();
-        assert_eq!(cfg.telegram_allowed_users, vec!["186809246".to_string()]);
-    }
-
-    #[test]
-    fn telegram_allowed_users_accepts_bare_integers() {
-        let toml = r#"
-            telegram_enabled = true
-            telegram_allowed_users = [186809246]
-        "#;
-        let cfg: IntegrationsConfig = toml::from_str(toml).unwrap();
-        assert_eq!(
-            cfg.telegram_allowed_users,
-            vec!["186809246".to_string()],
-            "bare integer chat ids must coerce to strings — was silent rejection"
-        );
-    }
-
-    #[test]
-    fn telegram_allowed_users_accepts_mixed() {
-        let toml = r#"
-            telegram_allowed_users = [186809246, "789012345"]
-        "#;
-        let cfg: IntegrationsConfig = toml::from_str(toml).unwrap();
-        assert_eq!(
-            cfg.telegram_allowed_users,
-            vec!["186809246".to_string(), "789012345".to_string()]
-        );
-    }
-
-    #[test]
-    fn discord_allowed_users_also_tolerant() {
-        let toml = "discord_allowed_users = [555, \"666\"]";
-        let cfg: IntegrationsConfig = toml::from_str(toml).unwrap();
-        assert_eq!(
-            cfg.discord_allowed_users,
-            vec!["555".to_string(), "666".to_string()]
-        );
-    }
-}
+mod tests;
