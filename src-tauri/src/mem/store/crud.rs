@@ -378,6 +378,13 @@ pub fn update(
     let prev_body = prev.body.clone();
     let prev_importance = prev.importance;
     let prev_kind = prev.kind.clone();
+    let prev_pinned: bool = conn
+        .query_row(
+            "SELECT COALESCE(is_pinned_wakeup, 0) FROM mem_items WHERE id = ?1",
+            params![id],
+            |r| r.get::<_, i64>(0).map(|v| v != 0),
+        )
+        .map_err(|e| format!("read is_pinned_wakeup: {}", e))?;
 
     let new_title = patch.title.clone().unwrap_or(prev.title);
     let new_summary = patch.summary.clone().or(prev.summary);
@@ -399,24 +406,20 @@ pub fn update(
         };
 
     let recur_bump = patch.bump_recurrence.unwrap_or(0);
+    let pinned_param: Option<i64> = patch.pinned.map(|b| if b { 1 } else { 0 });
     conn.execute(
         r#"UPDATE mem_items
            SET title = ?1, summary = ?2, area = ?3, tags_json = ?4,
                body_inline = ?5, body_blob_path = ?6, importance = ?7,
-               updated_at = ?8, recurrence_count = recurrence_count + ?10
+               updated_at = ?8, recurrence_count = recurrence_count + ?10,
+               is_pinned_wakeup = COALESCE(?11, is_pinned_wakeup)
            WHERE id = ?9"#,
         params![
             &new_title, &new_summary, &new_area, &tags_json,
             &body_inline, &body_blob_path, new_importance, &now, &id, recur_bump,
+            pinned_param,
         ],
     ).map_err(|e| format!("update mem_item: {}", e))?;
-
-    if let Some(p) = patch.pinned {
-        conn.execute(
-            "UPDATE mem_items SET is_pinned_wakeup = ?1, updated_at = ?2 WHERE id = ?3",
-            params![if p { 1i64 } else { 0i64 }, &now, &id],
-        ).map_err(|e| format!("update is_pinned_wakeup: {}", e))?;
-    }
 
     let tags_text = new_tags.join(" ");
     let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&id]);
@@ -448,6 +451,9 @@ pub fn update(
     if (new_importance - prev_importance).abs() > f64::EPSILON {
         old.importance = Some(prev_importance);
         new.importance = Some(new_importance);
+        dirty = true;
+    }
+    if patch.pinned.is_some() && Some(prev_pinned) != patch.pinned {
         dirty = true;
     }
     // Kind is not patchable via MemUpdate, but record it so downstream
