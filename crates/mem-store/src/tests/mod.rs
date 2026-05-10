@@ -609,7 +609,7 @@ fn bump_false_fire_count_increments_and_idempotent_on_missing() {
 
 #[test]
 fn pin_column_added_by_migration() {
-    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    let conn = Connection::open_in_memory().unwrap();
     init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     let cols: Vec<String> = conn
@@ -622,7 +622,7 @@ fn pin_column_added_by_migration() {
 
 #[test]
 fn pin_migration_is_idempotent() {
-    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    let conn = Connection::open_in_memory().unwrap();
     init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     crate::migrations::run(&conn).unwrap();
@@ -633,20 +633,21 @@ fn pin_migration_is_idempotent() {
 }
 
 #[test]
-fn pin_migration_skipped_on_empty_db_safely() {
-    let conn = rusqlite::Connection::open_in_memory().unwrap();
-    let res = crate::migrations::run(&conn);
-    drop(res);
-}
-
-#[test]
 fn pin_migration_creates_partial_index() {
-    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    let conn = Connection::open_in_memory().unwrap();
     init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     let n: i64 = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_mem_pinned'",
         [], |r| r.get(0)).unwrap();
     assert_eq!(n, 1, "partial index idx_mem_pinned must exist");
+    let sql: String = conn.query_row(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_mem_pinned'",
+        [], |r| r.get(0)
+    ).unwrap();
+    assert!(
+        sql.to_lowercase().contains("where is_pinned_wakeup"),
+        "expected partial index, got: {sql}"
+    );
 }
 
