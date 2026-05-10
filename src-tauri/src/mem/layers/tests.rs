@@ -210,6 +210,30 @@ fn wake_up_without_workspace_includes_globals_only() {
 }
 
 #[test]
+fn wake_up_explain_renders_score_breakdown() {
+    let (conn, blobs) = fresh();
+    let _ = insert_item(&conn, &blobs, "fact_x", "fact", 4.0, false, "global");
+    let opts = WakeUpOptions {
+        include_l0: false, include_l1: true,
+        explain: true,
+        ..Default::default()
+    };
+    let out = generate(&conn, &opts, &blobs).unwrap();
+    assert!(out.contains("L1 score breakdown"), "explain block must appear: {out}");
+    assert!(out.contains("score="), "per-item score must appear: {out}");
+    assert!(out.contains("importance="), "importance breakdown must appear: {out}");
+}
+
+#[test]
+fn wake_up_no_explain_omits_breakdown() {
+    let (conn, blobs) = fresh();
+    insert_item(&conn, &blobs, "fact_y", "fact", 4.0, false, "global");
+    let opts = WakeUpOptions { include_l0: false, include_l1: true, explain: false, ..Default::default() };
+    let out = generate(&conn, &opts, &blobs).unwrap();
+    assert!(!out.contains("L1 score breakdown"), "no breakdown when explain=false: {out}");
+}
+
+#[test]
 fn updated_at_30_day_boundary_recency_bonus() {
     let (conn, blobs) = fresh();
     insert_item(&conn, &blobs, "recent_a", "fact", 3.0, false, "global");
