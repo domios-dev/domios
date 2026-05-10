@@ -149,6 +149,131 @@ fn update_partial_only_changes_provided_fields() {
 }
 
 #[test]
+fn update_sets_is_pinned_wakeup() {
+    let (conn, blobs) = fresh();
+    let id = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact,
+        scope: MemScope::Global,
+        title: "pin me".into(),
+        summary: None,
+        area: None,
+        tags: vec![],
+        body: "body".into(),
+        source: None,
+        importance: 3.0,
+        source_path: None,
+    }, &blobs).unwrap();
+
+    let updated = update(&conn, &id, &MemUpdate {
+        pinned: Some(true),
+        ..Default::default()
+    }, &blobs).unwrap();
+    assert!(updated);
+
+    let pinned: i64 = conn.query_row(
+        "SELECT is_pinned_wakeup FROM mem_items WHERE id = ?1",
+        params![&id], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(pinned, 1);
+}
+
+#[test]
+fn update_can_unpin() {
+    let (conn, blobs) = fresh();
+    let id = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact,
+        scope: MemScope::Global,
+        title: "unpin me".into(),
+        summary: None,
+        area: None,
+        tags: vec![],
+        body: "body".into(),
+        source: None,
+        importance: 3.0,
+        source_path: None,
+    }, &blobs).unwrap();
+
+    update(&conn, &id, &MemUpdate {
+        pinned: Some(true),
+        ..Default::default()
+    }, &blobs).unwrap();
+    update(&conn, &id, &MemUpdate {
+        pinned: Some(false),
+        ..Default::default()
+    }, &blobs).unwrap();
+
+    let pinned: i64 = conn.query_row(
+        "SELECT is_pinned_wakeup FROM mem_items WHERE id = ?1",
+        params![&id], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(pinned, 0);
+}
+
+#[test]
+fn update_pinned_only_does_not_touch_other_fields() {
+    let (conn, blobs) = fresh();
+    let id = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact,
+        scope: MemScope::Global,
+        title: "keep fields".into(),
+        summary: Some("a summary".into()),
+        area: Some("core".into()),
+        tags: vec!["t1".into(), "t2".into()],
+        body: "untouched body".into(),
+        source: None,
+        importance: 4.25,
+        source_path: None,
+    }, &blobs).unwrap();
+
+    update(&conn, &id, &MemUpdate {
+        pinned: Some(true),
+        ..Default::default()
+    }, &blobs).unwrap();
+
+    let after = get(&conn, &id, &blobs).unwrap().unwrap();
+    assert_eq!(after.title, "keep fields");
+    assert_eq!(after.summary.as_deref(), Some("a summary"));
+    assert_eq!(after.area.as_deref(), Some("core"));
+    assert_eq!(after.body, "untouched body");
+    assert_eq!(after.tags, vec!["t1", "t2"]);
+    assert!((after.importance - 4.25).abs() < 1e-9, "pinning must not bump importance");
+}
+
+#[test]
+fn pin_only_update_emits_history_row() {
+    let (conn, blobs) = fresh();
+    let id = with_changed_by("user", || {
+        insert(&conn, &NewMemItem {
+            kind: MemKind::Fact,
+            scope: MemScope::Global,
+            title: "audit pin".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "body".into(),
+            source: None,
+            importance: 3.0,
+            source_path: None,
+        }, &blobs).unwrap()
+    });
+
+    let baseline = get_item_history(&conn, &id).unwrap().len();
+
+    with_changed_by("dreamer-calibration:test", || {
+        update(&conn, &id, &MemUpdate {
+            pinned: Some(true),
+            ..Default::default()
+        }, &blobs).unwrap();
+    });
+
+    let after = get_item_history(&conn, &id).unwrap();
+    assert_eq!(after.len(), baseline + 1, "pin-only update must emit one history row");
+    let row = after.last().unwrap();
+    assert_eq!(row.change_type, "update");
+    assert_eq!(row.changed_by, "dreamer-calibration:test");
+}
+
+#[test]
 fn update_returns_false_for_unknown_id() {
     let (conn, blobs) = fresh();
     let r = update(&conn, "nonexistent", &MemUpdate {
