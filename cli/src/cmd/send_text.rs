@@ -153,6 +153,15 @@ pub fn handle_send_text(
         "pane_id": pane_id,
         "text": resolved_text,
     });
+    // Carry the sender's pane id when running inside CodeTerm so the daemon
+    // can prepend a [from <title> pane=<id>] return-address prefix on the
+    // recipient side. Skip when target is self (chatting with own pane —
+    // no point self-tagging).
+    if let Ok(my_pane) = std::env::var("CODETERM_PANE_ID") {
+        if !my_pane.is_empty() && my_pane != pane_id {
+            params["source_pane"] = serde_json::json!(my_pane);
+        }
+    }
     if verify {
         params["verify"] = serde_json::json!(true);
     } else if no_wait {

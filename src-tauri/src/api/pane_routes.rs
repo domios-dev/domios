@@ -62,6 +62,12 @@ pub(crate) struct SendTextBody {
     /// When `Some(true)`, block until echo + submit are observed.
     /// Default is fire-and-forget when the caller omits the field.
     verify: Option<bool>,
+    /// Sender's pane id when CLI is invoked from inside CodeTerm. Daemon
+    /// prepends `[from <title> pane=<id>] ` so the recipient knows the
+    /// return-address. Mirrors `[Mesh: PEER pane=ID]` for mesh hops and
+    /// `[Report from PANE_ID]` for hierarchy reports.
+    #[serde(default)]
+    source_pane: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -121,10 +127,25 @@ pub async fn send_text(
         return Err((StatusCode::NOT_FOUND, "Pane not found or PTY did not start within 3s"));
     }
 
+    let source_prefix: Option<String> = body.source_pane.as_deref()
+        .filter(|s| !s.is_empty() && *s != pane_id)
+        .map(|src| {
+            let title = state.svc.mux.lock().get_pane(src).map(|p| p.title.clone()).unwrap_or_default();
+            let short: String = src.chars().take(8).collect();
+            let label = if title.is_empty() { short.clone() } else { title };
+            format!("[from {} pane={}] ", label, short)
+        });
+    let prepend = |s: &str| -> String {
+        match &source_prefix {
+            Some(p) => format!("{}{}", p, s),
+            None => s.to_string(),
+        }
+    };
+
     if let Some(batch) = body.batch {
         let preview = batch.iter().map(|c| c.text.as_str()).collect::<Vec<_>>().join(" ; ");
         let items: Vec<crate::service::pty_io::SendBatchItem> = batch.into_iter().map(|c| {
-            crate::service::pty_io::SendBatchItem { text: c.text, enter: c.enter, delay_ms: c.delay_ms }
+            crate::service::pty_io::SendBatchItem { text: prepend(&c.text), enter: c.enter, delay_ms: c.delay_ms }
         }).collect();
         state.svc.send_text_batch(&pane_id, items)
             .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
@@ -133,6 +154,8 @@ pub async fn send_text(
     }
 
     if body.raw {
+        // raw mode bypasses bracket paste — sender prefix is intentionally
+        // skipped here too (raw = byte-for-byte keystrokes for TUIs)
         let raw_text = body.text.clone().unwrap_or_default();
         let mut buf = raw_text.clone();
         if body.enter && !buf.ends_with('\r') { buf.push('\r'); }
@@ -150,7 +173,7 @@ pub async fn send_text(
         let strategy = crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
             timeout: std::time::Duration::from_secs(10),
         };
-        let text_owned = body.text.clone().unwrap_or_default();
+        let text_owned = prepend(&body.text.clone().unwrap_or_default());
         return match state.svc.send_text_verified(&pty_id, &text_owned, body.enter, strategy, opts) {
             Ok(r) => {
                 record_push_activity(&state, &svc_token_match, &pane_id, &text_owned);
@@ -170,7 +193,7 @@ pub async fn send_text(
         };
     }
 
-    let text = body.text.unwrap_or_default();
+    let text = prepend(&body.text.unwrap_or_default());
     state.svc.send_text(&pane_id, &text, body.enter)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     record_push_activity(&state, &svc_token_match, &pane_id, &text);
