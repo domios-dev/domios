@@ -637,6 +637,51 @@ fn get_bumps_updated_at_when_source_file_changes() {
 }
 
 #[test]
+fn get_skips_disk_check_when_recently_accessed() {
+    let (conn, blobs) = fresh();
+    let dir = std::env::temp_dir().join(format!("memstore-debounce-{}", ulid::Ulid::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let skill_md = dir.join("SKILL.md");
+    std::fs::write(&skill_md, "# v1\n\noriginal").unwrap();
+
+    let source = format!("file:{}", skill_md.display());
+    let id = insert(
+        &conn,
+        &NewMemItem {
+            kind: MemKind::Skill,
+            scope: MemScope::Global,
+            title: "debounce skill".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "# v1\n\noriginal".into(),
+            source: Some(source.clone()),
+            importance: 4.0,
+            source_path: Some(source),
+        },
+        &blobs,
+    )
+    .unwrap();
+
+    // First get: warms accessed_at and metadata fields.
+    let _ = get(&conn, &id, &blobs).unwrap().unwrap();
+    let after_first: String = conn
+        .query_row("SELECT updated_at FROM mem_items WHERE id = ?1", params![&id], |r| r.get(0))
+        .unwrap();
+
+    // Mutate file on disk WITHIN the debounce window.
+    std::fs::write(&skill_md, "# v2\n\nedited within debounce window").unwrap();
+
+    // Immediate re-get — debounce skips the metadata check; updated_at stays.
+    let got = get(&conn, &id, &blobs).unwrap().unwrap();
+    assert_eq!(
+        got.updated_at, after_first,
+        "updated_at must NOT bump within the 10s debounce window — was {} → {}",
+        after_first, got.updated_at,
+    );
+}
+
+#[test]
 fn graph_full_excludes_invalidated_relations() {
     let conn = Connection::open_in_memory().unwrap();
     init_schema(&conn).unwrap();
