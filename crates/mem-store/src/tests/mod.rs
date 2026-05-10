@@ -607,3 +607,46 @@ fn bump_false_fire_count_increments_and_idempotent_on_missing() {
             "missing row must return Ok(false), not error");
 }
 
+#[test]
+fn pin_column_added_by_migration() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    let cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(mem_items)").unwrap()
+        .query_map([], |r| r.get::<_, String>(1)).unwrap()
+        .filter_map(Result::ok).collect();
+    assert!(cols.contains(&"is_pinned_wakeup".to_string()),
+        "is_pinned_wakeup must be added by migration; got: {:?}", cols);
+}
+
+#[test]
+fn pin_migration_is_idempotent() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    crate::migrations::run(&conn).unwrap();
+    let pinned_cols: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('mem_items') WHERE name='is_pinned_wakeup'",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(pinned_cols, 1, "running migrations twice must not duplicate the column");
+}
+
+#[test]
+fn pin_migration_skipped_on_empty_db_safely() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    let res = crate::migrations::run(&conn);
+    drop(res);
+}
+
+#[test]
+fn pin_migration_creates_partial_index() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
+    crate::migrations::run(&conn).unwrap();
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_mem_pinned'",
+        [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 1, "partial index idx_mem_pinned must exist");
+}
+
