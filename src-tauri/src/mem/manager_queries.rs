@@ -13,6 +13,11 @@ impl MemManager {
         store::list_pinned_positions(&conn)
     }
 
+    pub fn list_pinned(&self, limit: usize) -> Result<Vec<store::MemItem>, String> {
+        let conn = self.conn.lock();
+        store::list_pinned(&conn, &self.blobs_dir, limit)
+    }
+
     pub fn set_pinned_position(&self, mem_id: &str, x: f64, y: f64) -> Result<bool, String> {
         let conn = self.conn.lock();
         store::set_pinned_position(&conn, mem_id, x, y)

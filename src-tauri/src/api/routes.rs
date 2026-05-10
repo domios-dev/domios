@@ -140,6 +140,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/peers/{id}/addr", post(mesh_routes::mesh_set_peer_addr))
         .route("/api/mem/search", get(mem_routes::mem_search))
         .route("/api/mem/items", post(mem_routes::mem_save))
+        .route("/api/mem/pinned", get(mem_routes::mem_pinned_list))
         .route("/api/mem/items/{id}", get(mem_routes::mem_get).delete(mem_routes::mem_delete).patch(mem_routes::mem_update))
         .route("/api/mem/items/{id}/history", get(mem_routes::mem_history))
         .route("/api/mem/taxonomy", get(mem_routes::mem_taxonomy))
