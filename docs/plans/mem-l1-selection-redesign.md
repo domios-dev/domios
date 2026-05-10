@@ -150,13 +150,20 @@ git commit -m "feat(mem): add is_pinned_wakeup column with conditional index"
 
 ---
 
-### Task 2: Extend `bump_on_get` to fact/rule/preference
+### Task 2: Extend `bump_on_get` to fact/rule/preference (with sweep-poisoning guard)
 
 **Files:**
 - Modify: `src-tauri/src/api/mem_routes/items.rs:130`
 - Test: `src-tauri/src/api/mem_routes/items.rs` (extend existing `mod tests`)
 
 This **must precede** the scoring change (Task 5). Without it, `evidence_count` stays at default 1 for the new kinds and the new score term contributes nothing.
+
+> **DEEP RISK — feedback poisoning from internal sweeps.**
+> The dreamer prompt (`dreaming_rem.md:31`) and extraction prompt (`mem_extraction.md:35`) both call `codeterm mem get <id>` in batch loops. The Memory Panel UI also calls `GET /api/mem/items/{id}` (`memoryApi.ts:36`) every time the user opens an item. With the broadened filter, every dreamer sweep would bump fact/rule/preference items, inflating `evidence_count` and creating a runaway: high score → loaded into L1 → dreamer/UI reads it → bumps again → score climbs.
+>
+> **Mitigation (mandatory in this task):** debounce by item via `accessed_at`. Skip the bump if the item was last touched within the last 12 hours. User reading the same fact 30× in a day = +1. Dreamer sweeping all items every Sunday = +1/week (since 7d ≫ 12h). Real "frequently used" items still accumulate steadily.
+>
+> Implementation note: the `accessed_at` column already exists on `mem_items` (see `schema.rs:25`). It's set on every CRUD touch. Read it in `bump_on_get`; if `< 12h ago`, return without calling `bump_evidence_count`. Add an explicit test (`bump_on_get_debounces_within_12h`).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -193,6 +200,22 @@ fn bump_on_get_skips_unrelated_kinds() {
     assert_eq!(evidence_count(&conn, "note_a"), 1, "no bump for kind=note");
 }
 
+#[test]
+fn bump_on_get_debounces_within_12h() {
+    let conn = open_test_conn();
+    insert(&conn, "fact_x", "fact");
+    bump_on_get(&conn, "fact", "fact_x");
+    assert_eq!(evidence_count(&conn, "fact_x"), 2, "first bump fires");
+    bump_on_get(&conn, "fact", "fact_x");
+    assert_eq!(evidence_count(&conn, "fact_x"), 2, "second bump within 12h is debounced");
+    // Force accessed_at into the past
+    conn.execute(
+        "UPDATE mem_items SET accessed_at = datetime('now','-13 hours') WHERE id = 'fact_x'", []
+    ).unwrap();
+    bump_on_get(&conn, "fact", "fact_x");
+    assert_eq!(evidence_count(&conn, "fact_x"), 3, "bump fires again after 12h elapses");
+}
+
 fn evidence_count(conn: &Connection, id: &str) -> i64 {
     conn.query_row(
         "SELECT evidence_count FROM mem_items WHERE id = ?1",
@@ -216,12 +239,24 @@ cargo test --lib -p codeterm bump_on_get -- --nocapture
 ```
 Expected: `bump_on_get_skips_unrelated_kinds` PASS; the three positive tests FAIL because the filter rejects fact/rule/preference.
 
-- [ ] **Step 3: Extend the filter**
+- [ ] **Step 3: Extend the filter (with debounce)**
 
 Edit `src-tauri/src/api/mem_routes/items.rs:130`:
 ```rust
 fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
     if !matches!(kind, "skill" | "lesson" | "rule" | "fact" | "preference") {
+        return;
+    }
+    // Debounce: skip if same item was accessed within the last 12h. Stops
+    // dreamer sweeps and Memory Panel scrolling from poisoning evidence_count.
+    let recent: bool = conn.query_row(
+        "SELECT accessed_at >= datetime('now','-12 hours')
+         FROM mem_items WHERE id = ?1",
+        [id],
+        |r| r.get::<_, Option<bool>>(0),
+    ).unwrap_or(None).unwrap_or(false);
+    if recent {
+        log::debug!("[mem_get] bump skipped (12h debounce) for {}", id);
         return;
     }
     if let Err(e) = codeterm_mem_store::graph::bump_evidence_count(conn, id) {
@@ -230,7 +265,9 @@ fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
 }
 ```
 
-Update the doc comment above to reflect the broader kind set.
+Note: writes to `accessed_at` happen elsewhere on `mem_get` (look for `UPDATE mem_items SET accessed_at`). The bump check must run **before** that update, otherwise it always sees "just touched" and never bumps. If ordering is wrong in the existing code, refactor so the read happens first.
+
+Update the doc comment above to reflect the broader kind set + debounce rule.
 
 - [ ] **Step 4: Run tests, expect all 4 pass**
 
@@ -247,20 +284,22 @@ git commit -m "feat(mem): bump evidence_count for rule/fact/preference on get"
 
 ---
 
-### Task 3: Pin/unpin via PATCH endpoint
+### Task 3: Pin/unpin via existing UpdateBody
 
 **Files:**
-- Modify: `src-tauri/src/api/mem_routes/items.rs` (request body type + PATCH handler)
+- Modify: `src-tauri/src/api/mem_routes/items.rs` (extend `UpdateBody` at line 348; extend `mem_update` handler at line 363)
 - Test: `src-tauri/src/api/mem_routes/items.rs` (extend `mod tests`)
+
+> **DEEP RISK — there's already an `UpdateBody` struct with validation logic.** Do NOT create a new `PatchBody`. The existing handler validates importance range, title length, body size, area chars, tag counts. Pin must slot into that struct so it inherits the `with_changed_by` wrapper and `emit_activity` for audit-trail consistency.
 
 - [ ] **Step 1: Write the failing test**
 
 ```rust
 #[test]
-fn patch_sets_is_pinned_wakeup() {
+fn update_sets_is_pinned_wakeup() {
     let conn = open_test_conn();
     insert(&conn, "fact_a", "fact");
-    apply_patch(&conn, "fact_a", PatchBody { pinned: Some(true), ..Default::default() }).unwrap();
+    apply_update(&conn, "fact_a", UpdateBody { pinned: Some(true), ..Default::default() }).unwrap();
     let pinned: i64 = conn.query_row(
         "SELECT is_pinned_wakeup FROM mem_items WHERE id = ?1",
         ["fact_a"], |r| r.get(0)
@@ -269,44 +308,63 @@ fn patch_sets_is_pinned_wakeup() {
 }
 
 #[test]
-fn patch_can_unpin() {
+fn update_can_unpin() {
     let conn = open_test_conn();
     insert(&conn, "fact_a", "fact");
-    apply_patch(&conn, "fact_a", PatchBody { pinned: Some(true), ..Default::default() }).unwrap();
-    apply_patch(&conn, "fact_a", PatchBody { pinned: Some(false), ..Default::default() }).unwrap();
+    apply_update(&conn, "fact_a", UpdateBody { pinned: Some(true), ..Default::default() }).unwrap();
+    apply_update(&conn, "fact_a", UpdateBody { pinned: Some(false), ..Default::default() }).unwrap();
     let pinned: i64 = conn.query_row(
         "SELECT is_pinned_wakeup FROM mem_items WHERE id = ?1",
         ["fact_a"], |r| r.get(0)
     ).unwrap();
     assert_eq!(pinned, 0);
 }
+
+#[test]
+fn update_pinned_only_does_not_touch_other_fields() {
+    let conn = open_test_conn();
+    insert(&conn, "fact_a", "fact");
+    let old_imp: f64 = conn.query_row(
+        "SELECT importance FROM mem_items WHERE id = 'fact_a'", [], |r| r.get(0)
+    ).unwrap();
+    apply_update(&conn, "fact_a", UpdateBody { pinned: Some(true), ..Default::default() }).unwrap();
+    let new_imp: f64 = conn.query_row(
+        "SELECT importance FROM mem_items WHERE id = 'fact_a'", [], |r| r.get(0)
+    ).unwrap();
+    assert_eq!(old_imp, new_imp, "pinning must not bump importance");
+}
 ```
 
-- [ ] **Step 2: Run tests, expect FAIL (no PATCH handler / no `pinned` field)**
+- [ ] **Step 2: Run tests, expect FAIL (no `pinned` field on UpdateBody)**
 
-- [ ] **Step 3: Add `pinned` field + handler**
+- [ ] **Step 3: Extend the existing struct**
 
-Extend the existing `PatchBody` struct (or whatever the current PATCH body is — locate via `grep -n "PatchBody\|pub async fn.*patch" src-tauri/src/api/mem_routes/items.rs`):
+In `src-tauri/src/api/mem_routes/items.rs:348`:
 ```rust
-#[derive(Default, Deserialize)]
-pub struct PatchBody {
-    pub title: Option<String>,
-    pub importance: Option<f64>,
-    pub pinned: Option<bool>,
-    // ... keep existing fields
+#[derive(Deserialize, Default)]      // <- add Default for ergonomic test construction
+pub struct UpdateBody {
+    #[serde(default)] pub title: Option<String>,
+    #[serde(default)] pub summary: Option<String>,
+    #[serde(default)] pub area: Option<String>,
+    #[serde(default)] pub tags: Option<Vec<String>>,
+    #[serde(default)] pub body: Option<String>,
+    #[serde(default)] pub importance: Option<f64>,
+    #[serde(default)] pub pinned: Option<bool>,        // <- NEW
 }
+```
 
-fn apply_patch(conn: &Connection, id: &str, body: PatchBody) -> Result<(), String> {
-    if let Some(p) = body.pinned {
+In the `mem_update` handler (around line 396+ where importance is applied), add:
+```rust
+if let Some(p) = body.pinned {
+    state.svc.mem.with_conn(|conn| {
         conn.execute(
             "UPDATE mem_items SET is_pinned_wakeup = ?1, updated_at = datetime('now') WHERE id = ?2",
-            (if p { 1 } else { 0 }, id),
-        ).map_err(|e| e.to_string())?;
-    }
-    // ... apply existing fields
-    Ok(())
+            rusqlite::params![if p { 1i64 } else { 0i64 }, id],
+        ).map(|_| ())
+    }).map_err(|e: rusqlite::Error| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 }
 ```
+The mutation must run inside `with_changed_by(&changed_by, || ...)` — wrap it together with the other field updates so the `mem_item_history` audit row carries the actor (user / worker / dreamer-calibration).
 
 - [ ] **Step 4: Run tests, expect PASS**
 
@@ -368,13 +426,26 @@ git commit -m "feat(mem): list endpoint accepts ?pinned=true filter"
 
 ---
 
-### Task 5: Score formula module + two-pass selection
+### Task 5: Score formula module + two-pass selection (HIGH-RISK CORE)
 
 **Files:**
 - Create: `src-tauri/src/mem/layers/mod.rs` (move existing `layers.rs` body here)
 - Create: `src-tauri/src/mem/layers/score.rs` (new — formula + CTE SQL builder)
 - Create: `src-tauri/src/mem/layers/tests.rs` (move existing tests + add new)
 - Modify: `src-tauri/src/mem/mod.rs` (`pub mod layers;` already in place — confirm folder works)
+
+> **DEEP RISK SECTION — read before coding:**
+>
+> 1. **`IDENTITY_ID` dedup must happen in Pass 2 SQL too**, not only in `load_items`. Otherwise the identity row consumes a slot in the LIMIT 100 and gets stripped at render — silently dropping a real candidate. Add `AND id != 'preference_identity'` to PASS2_SQL.
+> 2. **`tags_json NOT LIKE '%auto-extracted%'` filter MUST be preserved.** Removing it would flood L1 with background-extracted noise. Current `collect_l1_candidates` has it; new SQL must too.
+> 3. **`updated_at` is TEXT (ISO timestamp).** `updated_at > datetime('now','-30 days')` works because SQLite's TEXT comparison on ISO-8601 is lexicographic-correct. Verify by running the SQL against a fixture with `updated_at = '2026-04-09'` (30-day boundary) and asserting both sides of the bonus.
+> 4. **Pinned vs ranked dedup is currently O(N²)** (`if !pinned_ids.contains(&id)`). With 50 pinned + 100 ranked, that's 5000 ops — fine. But add a unit test that pins 50 items and verifies no duplicate appears in render output.
+> 5. **`load_items` is N+1** — for 150 items it issues 150 SQL calls. Acceptable for L1 sizes; do NOT prematurely optimise. If it becomes a hot path, batch with `WHERE id IN (...)` later.
+> 6. **`render_l1` signature changes** from `(&[(L1Priority, MemItem)], usize) -> (String, usize)` to `(&[MemItem], &[MemItem], usize) -> (String, usize, usize)`. Compile errors will catch all callers; verify tests in `layers/tests.rs` are also updated, not silently passing because they compile.
+> 7. **Rendering decision: pinned items still get grouped under their natural kind sections**, not a separate `### Pinned` block. Reasoning: agent reads them with the same mental model as everything else — pin is admission, not display category. But within each kind section, pinned items render first. Mark with a leading `★ ` in the bullet so the agent and user can spot them.
+> 8. **Eviction warning trigger condition is non-obvious.** "Pinned didn't fit budget" means: even after rendering ONLY the pinned set (zero ranked items), token count exceeded `l1_budget_tokens`. NOT "pinned + ranked together exceeded budget". Get the test wrong here and the warning either never fires or fires constantly.
+> 9. **Test fixtures**: do NOT use raw `INSERT` SQL in tests — always go through `crate::mem::store::insert(...)` so all NOT NULL columns get values. Adding fields to `mem_items` later (next migration) won't silently break test inserts.
+> 10. **Backward compat: existing wake-up callers may not set `current_workspace`.** When `None`, behaviour must be identical to current — global items only, no ws-bonus applied. Add a regression test `wake_up_without_workspace_matches_current_behavior`.
 
 - [ ] **Step 1: Move existing file into folder layout**
 
@@ -516,9 +587,10 @@ WITH ranked AS (
           AS sort_score
     FROM mem_items
     WHERE is_pinned_wakeup = 0
+      AND id != 'preference_identity'                                        -- L0 dedup
       AND kind IN ('rule','preference','peer','fact','summary','skill','learning')
       AND (scope = 'global' OR (?1 IS NOT NULL AND scope = ?1))
-      AND tags_json NOT LIKE '%auto-extracted%'
+      AND tags_json NOT LIKE '%auto-extracted%'                              -- preserve current filter
 )
 SELECT id FROM ranked
 ORDER BY sort_score DESC, id ASC
@@ -771,7 +843,10 @@ git commit -m "feat(cli): mem pin/unpin/pinned subcommands"
 
 **Files:**
 - Modify: `cli/src/cmd/mem.rs` (extend the existing `MemCmd::Save` variant)
+- Modify: `src-tauri/src/api/mem_routes/items.rs` (extend the create endpoint to accept `pinned: bool` so it's a single round-trip)
 - Test: same file
+
+> **DEEP RISK — non-atomic two-call create.** First draft was POST then PATCH. If PATCH fails (network blip, daemon restart between calls), item is created un-pinned and the user sees `mem save` succeed silently with the wrong state. Fix: extend the POST `/api/mem/items` body with `pinned: Option<bool>`. Single call, atomic. CLI passes `pinned: true` in the create payload when `--pin` is set.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -813,7 +888,7 @@ Save {
 }
 ```
 
-In `run_save`, after the initial `POST /api/mem/items` returns the id, if `pin` is true issue a `PATCH /api/mem/items/{id}` with `{"pinned": true}`. Pass `scope: "workspace:<ws>"` in the create body when `workspace` is set, else `"global"`.
+In the create body for `POST /api/mem/items`, include `pinned: <flag>` and `scope: "workspace:<ws>"` (or `"global"`) directly. ONE call, ATOMIC. The server-side handler must accept `pinned` on create and persist as `is_pinned_wakeup` in the same INSERT.
 
 - [ ] **Step 4: Run tests, expect PASS**
 
@@ -1013,14 +1088,28 @@ git commit -m "feat(mem): dreamer schedule 6am (was 3am); migrate legacy cron"
 
 ---
 
-### Task 13: Sunday calibration stage in dreamer prompt
+### Task 13: Sunday calibration stage in dreamer prompt (HIGH-RISK AUTO-MUTATIONS)
 
 **Files:**
 - Modify: `src-tauri/prompts/dreaming_rem.md` (append a new STAGE 8 — calibration; conditional on Sunday)
-- Modify: `src-tauri/src/api/mem_routes/items.rs` (add `mem calibration log` HTTP endpoint reading `mem_item_history WHERE changed_by LIKE 'dreamer-calibration%'`)
-- Modify: `cli/src/cmd/mem.rs` (add `mem calibration log` subcommand)
+- Modify: `src-tauri/src/api/mem_routes/items.rs` (add `mem calibration log` HTTP endpoint reading `mem_item_history WHERE changed_by LIKE 'dreamer-calibration%'`; add `mem calibration sweep` endpoint that does the actual mutations server-side with all caps enforced)
+- Modify: `cli/src/cmd/mem.rs` (add `mem calibration log` + `mem calibration sweep` subcommands; extend `mem update` with `--changed-by <actor>`)
 
-Zero new processes. The existing daily dreamer cron runs the same prompt, but the prompt's last stage gates on `date +%u == 7` (Sunday). On weekdays the stage exits early in <1s.
+Zero new processes. The existing daily dreamer cron runs the same prompt; the prompt's last stage on Sunday calls **one** server-side endpoint (`mem calibration sweep`) that enforces all caps inside the daemon. The prompt itself does NOT run the heuristic — it just kicks the sweep, captures the count, writes to diary.
+
+> **DEEP RISK SECTION:**
+>
+> 1. **Day-of-week portability.** Don't rely on `date +%u` in the prompt — output varies across GNU/BSD/Windows. Gate is server-side: the sweep endpoint checks `strftime('%w','now') == '0'` itself (SQLite portable, 0=Sunday) and refuses on other days unless `--force` is passed. Manual `mem calibrate` overrides for testing.
+> 2. **Auto-apply blast radius cap.** Sweep can adjust hundreds of items if the heuristic mis-matches. **Hard cap inside the endpoint: 30 changes per session.** If the candidate set exceeds 100, abort with `notify` instead of applying — signal of broken heuristic, never silent.
+> 3. **Re-entry protection.** Manual `mem calibrate` + Sunday cron could collide. Endpoint checks: any `changed_by='dreamer-calibration'` row in last 6h → refuse with 409.
+> 4. **L0 overlap detection — refined heuristic.** Original "80% substring" is fragile (a 30-char L1 line trivially passes against a long L0). Refined rule, enforced server-side:
+>    - L1 body length ≥ 60 chars (skip otherwise — short, nothing to "cover")
+>    - At least 80% of L1 content tokens (split whitespace, length > 3, not in a 30-word English stopword list) appear verbatim in L0
+>    - Even then: archive only if `evidence_count <= 1` (never archive frequently used)
+> 5. **Archive is one-way and silent.** No unarchive in this plan. **Triple-gate** before archiving anything: `evidence_count == 1 AND age_days > 90 AND kind IN ('fact','note') AND importance ≤ 2`. Pinned items, multi-use items, rules / preferences / peers — never auto-archived. L0-overlap-archive adds the same triple-gate as belt-and-suspenders.
+> 6. **Dream worker timeout.** `dreaming_timeout_seconds` may cut the run mid-sweep. Each `mem update` is atomic SQL → no torn state. Bounded to 30 changes anyway; if killed at 17, next Sunday continues. Acceptable.
+> 7. **Big-DB stdout flooding.** Sweep endpoint paginates internally (`LIMIT 200` per query, processed in chunks of 30). The CLI never pipes raw `mem list --json` for thousands of rows.
+> 8. **`mem update --changed-by` is missing today.** API already accepts `x-codeterm-actor` header (`mem_routes/mod.rs:92`), but CLI doesn't surface it. Without this flag, dreamer changes land as `changed_by='user'` and the calibration log filter returns nothing. Add the flag in this same task.
 
 - [ ] **Step 1: Append STAGE 8 to `dreaming_rem.md`**
 
@@ -1186,6 +1275,77 @@ This is research, not redesign — outcome informs whether we invest in sqlite-v
 
 ---
 
+### Task 16: Documentation sweep (last — runs after every task lands)
+
+**Files:**
+- Modify: `docs/MEMORY.md`, `docs/API.md`, `docs/CONFIG.md`, `docs/SKILLS.md`, `docs/PROMPTS.md`, `docs/contributing/*.md`, `README.md`, `CLAUDE.md`, the `codeterm` skill (`~/.codeterm/skills/codeterm/SKILL.md` and `references/mem.md`), and any `<!-- revision: N -->` tag in touched files
+
+**This is not a one-paragraph append.** Have the docs agent (`Agent` tool, `subagent_type: docs`) read **every** docs file end-to-end and reconcile against the merged code. The plan changed multiple architectural decisions; existing docs may now describe behaviour that doesn't match.
+
+> **DEEP RISK:** Docs that describe out-of-date behaviour are worse than missing docs — a future contributor will trust them and write code against the wrong model. Common sins this sweep catches:
+> - `docs/MEMORY.md` describes "L1 = rule/preference/peer always; fact/summary if importance ≥ 4" — wrong post-Task 5
+> - `docs/API.md` describes `POST /api/mem/items` body without `pinned` field — wrong post-Task 8
+> - `codeterm` skill (`mem.md`) lists `mem save` flags missing `--pin --workspace` — wrong post-Tasks 7-8
+> - `docs/CONFIG.md` doesn't document `memory.l1_budget_tokens` — wrong post-Task 6
+> - Dreamer schedule mentioned as "3 AM" anywhere — wrong post-Task 12
+> - "Memory calibration" section missing entirely — wrong post-Task 13
+
+- [ ] **Step 1: Spawn docs agent with explicit reconciliation brief**
+
+```
+Agent tool with subagent_type=docs:
+  Task: Reconcile every doc file under docs/, README.md, CLAUDE.md, and the
+  codeterm skill against current code state. The L1 selection redesign just
+  shipped (15 commits on develop, plan at docs/plans/mem-l1-selection-redesign.md).
+  Specifically scan for stale claims about:
+    - L1 selection logic (was kind+importance, now two-pass score)
+    - mem CLI surface (new: pin, unpin, pinned, calibration log/sweep, save --pin --workspace, wake-up --explain)
+    - HTTP API surface (UpdateBody.pinned, list ?pinned=true, calibration endpoints)
+    - Dreamer schedule (was 3am ±90min, now 6am ±30min) and Sunday calibration stage
+    - Config (new: memory.l1_budget_tokens)
+    - bump_on_get behavior (was skill/lesson only, now skill/lesson/rule/fact/preference with 12h debounce)
+  For every doc that needs change, edit it, bump its <!-- revision: N --> tag.
+  Report a list of (file, change_summary) tuples.
+```
+
+- [ ] **Step 2: Review the agent's diff manually**
+
+Don't trust blindly. Skim each changed file. Watch for:
+- Hallucinated CLI flags or endpoints that don't exist in code
+- Over-deletion (the agent might prune content that's still relevant)
+- Missed files (the agent reports "all done" but skipped one)
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add docs/ README.md CLAUDE.md  # plus skill paths if they live in repo
+git commit -m "docs: reconcile docs with L1 redesign across all touched surfaces"
+```
+
+---
+
+## Cross-cutting risks (apply across multiple tasks)
+
+| Risk | Affected tasks | Mitigation |
+|------|----------------|------------|
+| Migration runs before `mem_items` exists in some test paths | T1 | `add_pin_column` checks `PRAGMA table_info` first; if 0 columns returned, skip silently. The init_schema → migrations order in production is fixed (init runs first). Add a unit test `pin_migration_skipped_on_empty_db_safely`. |
+| `evidence_count` feedback loop poisoning from internal sweeps | T2 | 12h debounce per item via existing `accessed_at` column. Tested explicitly. |
+| Dreamer reads items via `codeterm mem get` ⇒ bumps everything weekly | T2, T13 | 12h debounce ensures dreamer's Sunday sweep produces ≤1 bump per item per week. |
+| Memory Panel UI scrolling triggers repeated bumps | T2 | Same 12h debounce covers UI use too. |
+| Two-step CLI (POST then PATCH) creates inconsistent state on partial failure | T8 | Extended POST `/api/mem/items` body with `pinned` for atomic create. |
+| Dreamer prompt's day-of-week check is shell-portability-fragile | T13 | Gate moved server-side: dreamer just calls `mem calibration sweep`, server checks SQLite `strftime('%w','now')`. |
+| Auto-apply mass importance changes one-shot poisoning the entire DB | T13 | Server-side hard cap of 30 changes per session, abort on >100 candidates. |
+| Auto-archive silent loss of legitimate content | T13 | Triple-gate (evidence_count==1 AND age>90d AND kind in fact/note AND importance≤2). Pinned items NEVER archived. |
+| Concurrent `mem calibrate` + Sunday cron mutate same rows | T13 | Server checks recent `changed_by='dreamer-calibration'` rows; 409 if any in last 6h. |
+| `--changed-by` missing on CLI ⇒ all dreamer changes show as `user` in audit | T13 | Add the flag in T13. Without it, the calibration log endpoint returns empty and the eval test (T14) silently passes a no-op. |
+| Test fixtures using raw INSERT silently break when schema gains columns | T1, T5 | All test `INSERT`s must go through `crate::mem::store::insert(...)`, not raw SQL. Reviewer rule. |
+| Backward compat: existing wake-up callers without `current_workspace` | T5, T6 | Regression test `wake_up_without_workspace_matches_current_behavior`. |
+| Old daemon + new CLI mixing: pin verbs hit old server returning 404 | All CLI tasks | Daemon returns clear 404 with body "endpoint not found"; CLI prints "this CLI requires CodeTerm ≥ <build>; please restart daemon". Already standard pattern, no extra code. |
+| Daemon restart mid-migration leaves partial schema | T1 | All migrations are single `ALTER TABLE` statements — atomic by SQLite definition. Cannot leave partial column. |
+| Production DB has rows with `evidence_count = 0` (NULL→DEFAULT 1 didn't apply somewhere) | T5 | SQL: `CASE WHEN evidence_count > 0` already handles 0/NULL safely (returns 0 contribution, not error). Add a one-row regression test where a manually-inserted item has evidence_count=0. |
+
+---
+
 ## Out of scope (explicitly deferred)
 
 | Item | Why deferred |
@@ -1231,6 +1391,7 @@ This is research, not redesign — outcome informs whether we invest in sqlite-v
   - Sunday calibration in same dreamer → Task 13
   - Calibration sanity test → Task 14
   - Retrieval bench (deferred) → Task 15
+  - Documentation reconciliation → Task 16
 - [x] No placeholders ("TBD", "implement later", "fill in details") — every code step ships actual code
 - [x] Type consistency: `WakeUpOptions { current_workspace, explain }` declared in Task 5; used by Tasks 6/9. `PASS1_SQL` / `PASS2_SQL` / `score_for` declared in Task 5 and not renamed elsewhere.
 - [x] Tests exist before implementation in every task (TDD).
@@ -1248,4 +1409,4 @@ This is research, not redesign — outcome informs whether we invest in sqlite-v
 - Letta core-memory docs (https://docs.letta.com/guides/ade/core-memory/) — `is_pinned_wakeup` ≈ their "core memory block"
 - arxiv 2605.00356 — MemRouter (out of scope; possible future direction)
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
