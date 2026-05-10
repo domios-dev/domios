@@ -108,7 +108,7 @@ fn score_recency_adds_three_tenths() {
     assert!((recent - no_recency - 0.3).abs() < 0.001);
 }
 
-fn insert_item(conn: &Connection, blobs: &PathBuf, id: &str, kind: &str, importance: f64, pinned: bool, scope: &str) {
+fn insert_item(conn: &Connection, blobs: &PathBuf, title: &str, kind: &str, importance: f64, pinned: bool, scope: &str) -> String {
     let mem_kind = match kind {
         "rule" => MemKind::Rule, "preference" => MemKind::Preference, "peer" => MemKind::Peer,
         "fact" => MemKind::Fact, "summary" => MemKind::Summary,
@@ -120,15 +120,15 @@ fn insert_item(conn: &Connection, blobs: &PathBuf, id: &str, kind: &str, importa
     } else {
         MemScope::Workspace(scope.strip_prefix("workspace:").unwrap_or(scope).to_string())
     };
-    let inserted_id = insert(conn, &NewMemItem {
+    let id = insert(conn, &NewMemItem {
         kind: mem_kind, scope: mem_scope,
-        title: id.to_string(), summary: None, area: None, tags: vec![],
-        body: format!("body of {id}"), source: None, importance, source_path: None,
+        title: title.to_string(), summary: None, area: None, tags: vec![],
+        body: format!("body of {title}"), source: None, importance, source_path: None,
     }, blobs).unwrap();
-    conn.execute("UPDATE mem_items SET id = ?1 WHERE id = ?2", rusqlite::params![id, inserted_id]).unwrap();
     if pinned {
-        update(conn, id, &MemUpdate { pinned: Some(true), ..Default::default() }, blobs).unwrap();
+        update(conn, &id, &MemUpdate { pinned: Some(true), ..Default::default() }, blobs).unwrap();
     }
+    id
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn pinned_section_marks_items_with_star() {
     insert_item(&conn, &blobs, "fact_pinned", "fact", 3.0, true, "global");
     let opts = WakeUpOptions { include_l0: false, include_l1: true, ..Default::default() };
     let out = generate(&conn, &opts, &blobs).unwrap();
-    assert!(out.contains("★"), "pinned items must be marked with ★ leading char: {out}");
+    assert!(out.contains("★ fact_pinned"), "must mark pinned with ★ before title: {out}");
 }
 
 #[test]
@@ -213,10 +213,10 @@ fn wake_up_without_workspace_includes_globals_only() {
 fn updated_at_30_day_boundary_recency_bonus() {
     let (conn, blobs) = fresh();
     insert_item(&conn, &blobs, "recent_a", "fact", 3.0, false, "global");
-    insert_item(&conn, &blobs, "stale_a", "fact", 3.0, false, "global");
+    let stale_id = insert_item(&conn, &blobs, "stale_a", "fact", 3.0, false, "global");
     conn.execute(
-        "UPDATE mem_items SET updated_at = datetime('now','-31 days') WHERE id = 'stale_a'",
-        []
+        "UPDATE mem_items SET updated_at = datetime('now','-31 days') WHERE id = ?1",
+        rusqlite::params![stale_id]
     ).unwrap();
     let opts = WakeUpOptions { include_l0: false, include_l1: true, ..Default::default() };
     let out = generate(&conn, &opts, &blobs).unwrap();
