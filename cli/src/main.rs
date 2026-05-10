@@ -149,7 +149,7 @@ mod args;
 pub use args::cli::{Cli, Commands};
 pub use args::sessions::SessionsAction;
 pub use args::system::SystemAction;
-pub use args::mem::{MemAction, MemDreamAction, MemRepairAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
+pub use args::mem::{MemAction, MemCalibrationAction, MemDreamAction, MemRepairAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
 pub use args::agent::AgentAction;
 pub use args::cron::CronAction;
 pub use args::service::ServiceAction;

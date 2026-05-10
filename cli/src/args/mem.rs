@@ -259,6 +259,33 @@ pub enum MemAction {
         #[command(subcommand)]
         action: MemDreamAction,
     },
+    /// Memory calibration: review or trigger the dreamer's importance/archive sweep.
+    Calibration {
+        #[command(subcommand)]
+        action: MemCalibrationAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemCalibrationAction {
+    /// Show recent calibration changes (audit log).
+    Log {
+        /// ISO8601 lower-bound for changed_at (default: epoch)
+        #[arg(long)]
+        since: Option<String>,
+        /// Max rows (default 50, max 500)
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Return just the count (no rows)
+        #[arg(long)]
+        count: bool,
+    },
+    /// Manually trigger a calibration sweep (Sunday only unless --force).
+    Sweep {
+        /// Bypass the day-of-week gate. Manual / testing.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]

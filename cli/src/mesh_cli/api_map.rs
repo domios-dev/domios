@@ -551,6 +551,39 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             format!("/api/mem/reembed?scope={}", enc(scope)),
             None,
         ),
+        MemAction::Calibration { action } => {
+            use crate::MemCalibrationAction;
+            match action {
+                MemCalibrationAction::Log { since, limit, count } => {
+                    let mut path = String::from("/api/mem/calibration/log");
+                    let mut sep = '?';
+                    if let Some(s) = since {
+                        path.push(sep);
+                        sep = '&';
+                        path.push_str(&format!("since={}", enc(s)));
+                    }
+                    if let Some(l) = limit {
+                        path.push(sep);
+                        sep = '&';
+                        path.push_str(&format!("limit={}", l));
+                    }
+                    if *count {
+                        path.push(sep);
+                        let _ = sep;
+                        path.push_str("count=true");
+                    }
+                    ("GET".into(), path, None)
+                }
+                MemCalibrationAction::Sweep { force } => {
+                    let path = if *force {
+                        "/api/mem/calibration/sweep?force=true".to_string()
+                    } else {
+                        "/api/mem/calibration/sweep".to_string()
+                    };
+                    ("POST".into(), path, None)
+                }
+            }
+        }
         MemAction::Pin { id } => (
             "PATCH".into(),
             format!("/api/mem/items/{}", enc(id)),
