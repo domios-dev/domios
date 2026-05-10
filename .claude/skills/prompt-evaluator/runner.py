@@ -250,10 +250,24 @@ def run_eval_n_times(
     main_model: str,
     judge_model: str,
     verbose: bool,
+    dashboard: Any | None = None,
+    side: str | None = None,
 ) -> list[RunResult]:
     results: list[RunResult] = []
+    if dashboard is not None:
+        dashboard.event(
+            "eval_started",
+            eval_id=ev.id,
+            eval_name=ev.name,
+            prompt=ev.prompt,
+            expected=ev.expected_output,
+            expectations=ev.expectations,
+            side=side,
+        )
     for run_idx in range(runs):
         ok, response = run_agent(ev.prompt, system_prompt, model=main_model)
+        if dashboard is not None:
+            dashboard.event("call_done")
         rr = RunResult(
             eval_id=ev.id,
             eval_name=ev.name,
@@ -265,6 +279,8 @@ def run_eval_n_times(
                 rr.matches.append(
                     match_expectation(exp, response, judge_model=judge_model)
                 )
+                if dashboard is not None:
+                    dashboard.event("call_done")
         else:
             rr.matches.append(
                 MatchResult(
@@ -274,6 +290,17 @@ def run_eval_n_times(
                 )
             )
         results.append(rr)
+        if dashboard is not None:
+            dashboard.event(
+                "run_done",
+                eval_id=ev.id,
+                eval_name=ev.name,
+                run_idx=run_idx,
+                passed=rr.passed,
+                response=response,
+                matches=[{"passed": m.passed, "method": m.method, "reason": m.reason} for m in rr.matches],
+                side=side,
+            )
         if verbose:
             symbol = "✓" if rr.passed else "✗"
             print(
@@ -282,6 +309,16 @@ def run_eval_n_times(
             )
             for m in rr.matches:
                 print(f"    {m}", file=sys.stderr)
+    if dashboard is not None:
+        passed = sum(1 for r in results if r.passed)
+        dashboard.event(
+            "eval_done",
+            eval_id=ev.id,
+            eval_name=ev.name,
+            runs_passed=passed,
+            total_runs=runs,
+            side=side,
+        )
     return results
 
 
@@ -499,6 +536,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print preflight call estimate and exit without calling the API.",
     )
+    p.add_argument(
+        "--http-port",
+        type=int,
+        default=None,
+        help="Spawn a live dashboard at http://localhost:<port> while the run is in progress.",
+    )
+    p.add_argument(
+        "--no-open",
+        action="store_true",
+        help="With --http-port, suppress auto-opening the dashboard in the browser.",
+    )
 
     args = p.parse_args()
 
@@ -519,6 +567,8 @@ def evaluate_prompt(
     main_model: str,
     judge_model: str,
     verbose: bool,
+    dashboard: Any | None = None,
+    side: str | None = None,
 ) -> list[EvalSummary]:
     summaries: list[EvalSummary] = []
     for ev in evals:
@@ -531,6 +581,8 @@ def evaluate_prompt(
             main_model=main_model,
             judge_model=judge_model,
             verbose=verbose,
+            dashboard=dashboard,
+            side=side,
         )
         summaries.append(summarize(ev, run_results))
     return summaries
@@ -571,57 +623,107 @@ def main() -> int:
         print("[preflight] --dry-run: exiting without API calls", file=sys.stderr)
         return 0
 
-    if args.prompt_file:
-        prompt_text = load_prompt(args.prompt_file)
-        summaries = evaluate_prompt(
-            prompt_text,
-            evals,
-            runs=args.runs,
-            main_model=args.model,
-            judge_model=args.judge_model,
-            verbose=args.verbose,
+    dashboard = None
+    if args.http_port is not None:
+        from dashboard import Dashboard
+        ab_mode = bool(args.prompt_a)
+        label = (
+            f"A/B  {args.prompt_a} → {args.prompt_b}"
+            if ab_mode
+            else f"single  {args.prompt_file}"
         )
-        report = render_single_report(args.prompt_file, summaries)
-        print(report)
-        any_failed = any(s.runs_passed < s.total_runs for s in summaries)
-        return 1 if any_failed else 0
+        dashboard = Dashboard(
+            port=args.http_port,
+            total_calls=main_calls + judge_calls,
+            ab_mode=ab_mode,
+            prompt_label=label,
+            open_browser=not args.no_open,
+        )
+        dashboard.start()
 
-    # A/B mode
-    text_a = load_prompt(args.prompt_a)
-    text_b = load_prompt(args.prompt_b)
+    try:
+        if args.prompt_file:
+            prompt_text = load_prompt(args.prompt_file)
+            summaries = evaluate_prompt(
+                prompt_text,
+                evals,
+                runs=args.runs,
+                main_model=args.model,
+                judge_model=args.judge_model,
+                verbose=args.verbose,
+                dashboard=dashboard,
+            )
+            report = render_single_report(args.prompt_file, summaries)
+            print(report)
+            if dashboard is not None:
+                dashboard.event("finished", report_md=report)
+            any_failed = any(s.runs_passed < s.total_runs for s in summaries)
+            exit_code = 1 if any_failed else 0
+        else:
+            # A/B mode
+            text_a = load_prompt(args.prompt_a)
+            text_b = load_prompt(args.prompt_b)
 
-    if args.verbose:
-        print(f"== A: {args.prompt_a} ==", file=sys.stderr)
-    summaries_a = evaluate_prompt(
-        text_a,
-        evals,
-        runs=args.runs,
-        main_model=args.model,
-        judge_model=args.judge_model,
-        verbose=args.verbose,
-    )
-    if args.verbose:
-        print(f"== B: {args.prompt_b} ==", file=sys.stderr)
-    summaries_b = evaluate_prompt(
-        text_b,
-        evals,
-        runs=args.runs,
-        main_model=args.model,
-        judge_model=args.judge_model,
-        verbose=args.verbose,
-    )
+            if args.verbose:
+                print(f"== A: {args.prompt_a} ==", file=sys.stderr)
+            summaries_a = evaluate_prompt(
+                text_a,
+                evals,
+                runs=args.runs,
+                main_model=args.model,
+                judge_model=args.judge_model,
+                verbose=args.verbose,
+                dashboard=dashboard,
+                side="A",
+            )
+            if args.verbose:
+                print(f"== B: {args.prompt_b} ==", file=sys.stderr)
+            summaries_b = evaluate_prompt(
+                text_b,
+                evals,
+                runs=args.runs,
+                main_model=args.model,
+                judge_model=args.judge_model,
+                verbose=args.verbose,
+                dashboard=dashboard,
+                side="B",
+            )
 
-    report = render_ab_report(args.prompt_a, args.prompt_b, summaries_a, summaries_b)
-    print(report)
+            report = render_ab_report(args.prompt_a, args.prompt_b, summaries_a, summaries_b)
+            print(report)
+            if dashboard is not None:
+                dashboard.event("finished", report_md=report)
 
-    by_id_a = {s.eval_id: s for s in summaries_a}
-    by_id_b = {s.eval_id: s for s in summaries_b}
-    has_regression = any(
-        b.runs_passed < by_id_a[b.eval_id].runs_passed
-        for b in by_id_b.values()
-        if b.eval_id in by_id_a
-    )
-    return 1 if has_regression else 0
+            by_id_a = {s.eval_id: s for s in summaries_a}
+            by_id_b = {s.eval_id: s for s in summaries_b}
+            has_regression = any(
+                b.runs_passed < by_id_a[b.eval_id].runs_passed
+                for b in by_id_b.values()
+                if b.eval_id in by_id_a
+            )
+            exit_code = 1 if has_regression else 0
+
+        if dashboard is not None:
+            print(
+                f"[dashboard] run finished — leaving server up at http://127.0.0.1:{args.http_port} until ctrl-c",
+                file=sys.stderr,
+            )
+            try:
+                # Keep the server alive so the user can browse the final report.
+                # User exits with Ctrl-C.
+                import time
+                while True:
+                    time.sleep(3600)
+            except KeyboardInterrupt:
+                pass
+            finally:
+                dashboard.stop()
+
+        return exit_code
+    except KeyboardInterrupt:
+        if dashboard is not None:
+            dashboard.stop()
+        return 130
 
 
 if __name__ == "__main__":
