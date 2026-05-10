@@ -116,14 +116,14 @@ pub fn generate(
 }
 
 #[derive(Debug, Clone)]
-pub struct ScoreParts {
-    pub id: String,
-    pub kind: String,
-    pub importance: f64,
-    pub evidence_count: i64,
-    pub ws_match: bool,
-    pub recent_30d: bool,
-    pub score: f64,
+pub(crate) struct ScoreParts {
+    pub(crate) id: String,
+    pub(crate) kind: String,
+    pub(crate) importance: f64,
+    pub(crate) evidence_count: i64,
+    pub(crate) ws_match: bool,
+    pub(crate) recent_30d: bool,
+    pub(crate) score: f64,
 }
 
 fn collect_l1_candidates(
