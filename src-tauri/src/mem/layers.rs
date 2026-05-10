@@ -190,13 +190,7 @@ fn render_l1(items: &[(L1Priority, MemItem)], budget: usize) -> (String, usize) 
 
 fn item_line(item: &MemItem) -> String {
     let body_snip = item.summary.as_ref().unwrap_or(&item.body);
-    let snip = if body_snip.len() > 160 {
-        let mut s = body_snip[..160].to_string();
-        s.push_str("…");
-        s
-    } else {
-        body_snip.clone()
-    };
+    let snip = truncate_chars(body_snip, 160);
     let snip = snip.replace('\n', " ");
     format!("- {}: {}\n", item.title, snip)
 }
@@ -205,13 +199,18 @@ fn approx_tokens(s: &str) -> usize {
     (s.len() + 3) / 4
 }
 
-fn truncate_tokens(s: &str, max: usize) -> String {
-    let max_chars = max * 4;
-    if s.len() <= max_chars {
-        s.to_string()
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    let mut chars = s.chars();
+    let head: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        head + "…"
     } else {
-        format!("{}…", &s[..max_chars])
+        head
     }
+}
+
+fn truncate_tokens(s: &str, max: usize) -> String {
+    truncate_chars(s, max * 4)
 }
 
 #[cfg(test)]
