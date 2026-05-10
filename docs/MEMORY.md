@@ -1,6 +1,6 @@
 # CodeTerm Memory System
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
 
 Persistent memory for agents. Survives restarts, provider switches
 (Claude ↔ Codex), and CodeTerm upgrades. Agent-agnostic.
@@ -10,10 +10,12 @@ Persistent memory for agents. Survives restarts, provider switches
 - **Storage** — single SQLite DB at `~/.codeterm/mem/knowledge.db` + body blobs on disk
 - **Search** — FTS5 + sqlite-vec hybrid with RRF fusion
 - **Graph** — temporal entity-relation triples (people, projects; NO tech nodes)
+- **L1 selection** — pinned items first, then ranked by `importance + log10(1+evidence)*0.5 + ws_match*0.5 + recent_30d*0.3`; budget defaults to 800 tokens (`[memory] l1_budget_tokens`)
+- **Pins** — `mem pin <id>` / `mem unpin <id>` set `is_pinned_wakeup`; pinned items always load in L1 (subject to budget)
 - **Workers** — hidden headless agents that extract entities, build graph, dedup; `mem worker spawn` for ad-hoc enrichment
 - **Skills** — folder skills (`SKILL.md` + scripts) registered via `mem skill new/add`, indexed alongside other items
 - **Librarian** — periodic file-sync daemon: re-vectorizes source-tracked items when their on-disk file changes, flags deletions
-- **Dreaming** — nightly consolidation (SQL phases + LLM REM phase in a worker)
+- **Dreaming** — nightly consolidation at 6 AM (±30 min jitter), SQL phases + LLM REM phase in a worker
 - **Auto-flush** — `PreCompact` and `SessionStart` hooks POST to authenticated CodeTerm endpoints to capture conversation state without manual saves
 - **Protocol** — 7 behavioral rules injected into every agent session via `bridge_mem.md`
 
@@ -39,11 +41,15 @@ Mem is curated and indexed; sessions are raw and provider-owned. The two never s
 - `area` — project/topic tag (`rekap`, `soundcalm`, `auth`, `home`, `_dreams`)
 - `tags_json` — free-form tags
 - `body_inline` (<2KB) / `body_blob_path` (larger → disk blob)
-- `importance` — 1-5 float, affects L1 wake-up ranking
+- `importance` — 1-5 float, primary L1 score term
+- `evidence_count` — bumped on `get()` for `skill`/`lesson`/`rule`/`fact`/`preference`; secondary L1 score term (skipped when caller sets `X-CodeTerm-Worker-Id` so dreamer sweeps don't feedback)
+- `is_pinned_wakeup` — `0`/`1` flag; pinned items always load in L1 wake-up (subject to budget)
 - `access_count` — incremented on every `get()` call; used by dreaming promotion
 - `accessed_at` / `created_at` / `updated_at`
 - `recurrence_count` — set by dreaming when a topic recurs
 - `graph_x` / `graph_y` — persistent graph layout position
+
+Pin-only updates emit a row in `mem_item_history` so the audit trail captures explicit user intent (not just body edits).
 
 **`mem_fts`** — FTS5 virtual table (title + summary + body + tags), auto-sync on insert/update.
 
@@ -64,7 +70,7 @@ Three layers (matching MemPalace's L0-L3 pattern):
 | Layer | What | When | Size |
 |---|---|---|---|
 | **L0 — Identity** | `~/.codeterm/general/identity.md` | Injected into every GA init | ~100 tok |
-| **L1 — Wake-up** | Top-N by importance + recent activity | `codeterm mem wake-up` (GA runs on init) | ~600-800 tok |
+| **L1 — Wake-up** | Pinned items + ranked by score (see below) | `codeterm mem wake-up` (GA runs on init) | ~800 tok (config: `[memory] l1_budget_tokens`) |
 | **L2 — Targeted** | `search --area X --kind Y` | On-demand when topic comes up | variable |
 | **L3 — Hybrid** | FTS5 BM25 + vector recall + RRF fusion | `codeterm mem search` / `recall` | variable |
 
@@ -86,9 +92,38 @@ Vector recall runs in parallel. RRF fusion merges both sources:
 rrf_score(item) = Σ 1 / (k + rank_in_source)
 ```
 
-### Wake-up priority eviction
+### L1 selection (`src-tauri/src/mem/layers/`)
 
-Identity first, then (in order): rules → preferences → peers → facts → summaries. Hard token cap prevents context explosion.
+Two-pass selector. L0 identity always loads first; L1 then runs:
+
+**Pass 1 — pinned set** (`LIMIT 50`)
+Items with `is_pinned_wakeup = 1` in scope (global, plus current workspace if `--workspace` is set), ordered by `importance DESC, evidence_count DESC, updated_at DESC`. Pinned items render before any ranked item inside their kind section, prefixed with `★`.
+
+**Pass 2 — ranked unpinned** (`LIMIT 100`)
+Auto-extracted noise (`tags LIKE '%auto-extracted%'`) and the identity slug are excluded. Remaining candidates are scored in Rust:
+
+| Term | Weight | Notes |
+|---|---|---|
+| `importance` | 1.0 | 1–5 float on the row |
+| `log10(1 + evidence_count) * 0.5` | 0.5 | Saturates fast — prevents one mega-hub from dominating |
+| `ws_match` | +0.5 | True when `scope = workspace:<current>` and `--workspace` is set |
+| `recent_30d` | +0.3 | True when `updated_at > now() - 30d` |
+
+Final ordering: `score DESC, id ASC` (deterministic for tests / `--explain`).
+
+**Render** — grouped by kind in this priority: rules → preferences → peers → facts → summaries → skills → learnings. Within each kind: pinned first, then ranked. Headers and lines are dropped in reverse kind-priority once the budget is hit.
+
+**Pin precedence** — pins beat score. A pinned `note` outranks an unpinned `fact` with `importance=5`. Pins are user intent; score is a heuristic.
+
+**Eviction warning** — if even the pinned set alone overflows `l1_budget_tokens`, the rendered output starts with an HTML comment:
+
+```
+<!-- WARN: 4 pinned items did not fit L1 budget 800 -->
+```
+
+and a `log::warn!` fires (`[wake-up] pinned-eviction`). Action: shrink pins (`mem unpin <id>`) or raise the budget. Pins are user intent, so the system never silently drops them — it surfaces the conflict.
+
+**Workspace scoping** — `codeterm mem wake-up --workspace <ws>` (or `?workspace=<ws>` on the REST endpoint) loads global items + items pinned/scoped to that workspace, and the `ws_match` score term boosts workspace-local rows by 0.5. With no `--workspace`, only `scope = global` items participate.
 
 ## Graph layer
 
@@ -171,7 +206,7 @@ Hidden headless agents. Live in Memory Panel, invisible in tab bar.
 
 ## Dreaming
 
-Runs nightly at 3 AM (±90 min jitter) via protected cron. Configurable agent + model in Settings.
+Runs nightly at 6 AM (±30 min jitter) via protected cron, fires anywhere in 5:30–6:30 AM local time. Configurable agent + model in Settings. Legacy installs that still hold the old `0 3 * * *` schedule with ±90 min jitter are auto-migrated to the new values on startup (`ensure_dreaming_cron` in `src-tauri/src/mem/dreaming.rs`).
 
 ### Phase 1 — SQL Light (`dreaming::light_phase`)
 
@@ -239,15 +274,23 @@ Files regenerate on every dev/prod start.
 ```bash
 # Search
 codeterm mem search "<query>" [--kind <k>] [--area <a>] [--scope workspace] [--limit <n>]
-codeterm mem recall "<query>"        # semantic-first
-codeterm mem get <id>                # full item body
-codeterm mem wake-up                 # L0 identity + L1 critical
+codeterm mem recall "<query>"                       # semantic-first
+codeterm mem get <id>                               # full item body
+codeterm mem wake-up                                # L0 identity + L1 critical
+codeterm mem wake-up --workspace <ws>               # scope L1 to a workspace (boosts ws-local rows)
+codeterm mem wake-up --explain                      # append per-item score breakdown
 
 # Write
 codeterm mem save --kind <k> --title "<t>" [--area <a>] [--tags <csv>] "<body>"
+codeterm mem save --kind fact --title "X" --pin --workspace <ws> "<body>"   # atomic create + pin + scope
 codeterm mem update <id> [--area <a>] [--title <t>] [--body <b>]
 codeterm mem delete <id>
-codeterm mem forget <area>           # batch delete by area
+codeterm mem forget <area>                          # batch delete by area
+
+# Pins (always-loaded L1)
+codeterm mem pin <id>                               # set is_pinned_wakeup = 1
+codeterm mem unpin <id>                             # clear it
+codeterm mem pinned [--limit N]                     # list pinned items (default 100, max 500)
 
 # Graph
 codeterm mem graph create --id <id> --entity-type Person --scope global
@@ -276,8 +319,11 @@ codeterm mem dream                   # SQL phases + spawn REM worker
 
 `/api/mem/*` — parallel to CLI:
 - `GET /search`, `/recall`, `/items/{id}`, `/stats`, `/wake-up`, `/graph/full`, `/dream/report`
-- `POST /items`, `/dream`
-- `PATCH /items/{id}`, `/positions`
+- `GET /pinned?limit=N` — list pinned items (default 100, max 500)
+- `GET /wake-up?workspace=<ws>&explain=1` — workspace-scoped L1 + score breakdown
+- `POST /items` (`{..., pinned: true, scope: "workspace:<ws>"}` accepted)
+- `POST /dream`
+- `PATCH /items/{id}` (`{pinned: true|false}` toggles `is_pinned_wakeup`, audited)
 - `DELETE /items/{id}`, `/forget/{area}`
 - `GET /workers`, `/workers/{id}/log`
 
