@@ -67,9 +67,6 @@ fn add_pin_column(conn: &Connection) -> MemStoreResult<()> {
     let cols: Vec<String> = conn.prepare("PRAGMA table_info(mem_items)")?
         .query_map([], |r| r.get::<_, String>(1))?
         .filter_map(Result::ok).collect();
-    if cols.is_empty() {
-        return Ok(());
-    }
     if !cols.iter().any(|c| c == "is_pinned_wakeup") {
         conn.execute_batch(
             "ALTER TABLE mem_items ADD COLUMN is_pinned_wakeup INTEGER NOT NULL DEFAULT 0;
