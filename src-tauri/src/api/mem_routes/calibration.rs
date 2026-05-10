@@ -171,28 +171,40 @@ pub(crate) fn run_calibration_sweep(
     let mut examined: u64 = 0;
     let mut total_changes: u64 = 0;
 
-    for cand in candidates.iter() {
-        if total_changes >= MAX_CHANGES_PER_SESSION {
-            break;
+    // Transactional: partial state poisons the recent_run re-entry guard on crash.
+    conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+    let sweep_result = (|| -> Result<(), String> {
+        for cand in candidates.iter() {
+            if total_changes >= MAX_CHANGES_PER_SESSION {
+                break;
+            }
+            examined += 1;
+            match classify_calibration(cand) {
+                CalibAction::Promote(new_imp) => {
+                    apply_promote(conn, cand, new_imp)?;
+                    applied += 1;
+                    total_changes += 1;
+                }
+                CalibAction::Demote(new_imp) => {
+                    apply_demote(conn, cand, new_imp)?;
+                    applied += 1;
+                    total_changes += 1;
+                }
+                CalibAction::Archive => {
+                    apply_archive(conn, cand)?;
+                    archived += 1;
+                    total_changes += 1;
+                }
+                CalibAction::None => {}
+            }
         }
-        examined += 1;
-        match classify_calibration(cand) {
-            CalibAction::Promote(new_imp) => {
-                apply_promote(conn, cand, new_imp)?;
-                applied += 1;
-                total_changes += 1;
-            }
-            CalibAction::Demote(new_imp) => {
-                apply_demote(conn, cand, new_imp)?;
-                applied += 1;
-                total_changes += 1;
-            }
-            CalibAction::Archive => {
-                apply_archive(conn, cand)?;
-                archived += 1;
-                total_changes += 1;
-            }
-            CalibAction::None => {}
+        Ok(())
+    })();
+    match sweep_result {
+        Ok(()) => conn.execute_batch("COMMIT").map_err(|e| e.to_string())?,
+        Err(e) => {
+            conn.execute_batch("ROLLBACK").ok();
+            return Err(e);
         }
     }
 
@@ -218,7 +230,8 @@ fn load_candidates(conn: &Connection) -> Result<Vec<Candidate>, String> {
                     ELSE 'none'
                 END AS action
              FROM mem_items
-             WHERE updated_at < datetime('now','-14 days')
+             WHERE is_pinned_wakeup = 0
+               AND updated_at < datetime('now','-14 days')
                AND (
                     (evidence_count >= 10 AND importance < 4 AND accessed_at > datetime('now','-30 days'))
                  OR (evidence_count <= 1 AND importance >= 4 AND created_at < datetime('now','-60 days'))
@@ -254,78 +267,45 @@ fn classify_calibration(c: &Candidate) -> CalibAction {
 }
 
 fn apply_promote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<(), String> {
-    conn.execute(
-        "UPDATE mem_items SET importance = ?1, updated_at = datetime('now') WHERE id = ?2",
-        params![new_imp, cand.id],
-    )
-    .map_err(|e| format!("promote update: {}", e))?;
-    history_insert(
-        conn,
-        &cand.id,
-        "dreamer-calibration:promote",
-        Some(cand.importance),
-        Some(new_imp),
-        None,
-        None,
-    )?;
-    Ok(())
+    crate::mem::store::with_changed_by("dreamer-calibration:promote", || {
+        conn.execute(
+            "UPDATE mem_items SET importance = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![new_imp, cand.id],
+        )
+        .map_err(|e| format!("promote update: {}", e))?;
+        let old = crate::mem::store::HistorySnapshot { importance: Some(cand.importance), ..Default::default() };
+        let new = crate::mem::store::HistorySnapshot { importance: Some(new_imp), ..Default::default() };
+        crate::mem::store::history_log(conn, &cand.id, "update", &old, &new, None);
+        Ok(())
+    })
 }
 
 fn apply_demote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<(), String> {
-    conn.execute(
-        "UPDATE mem_items SET importance = ?1, updated_at = datetime('now') WHERE id = ?2",
-        params![new_imp, cand.id],
-    )
-    .map_err(|e| format!("demote update: {}", e))?;
-    history_insert(
-        conn,
-        &cand.id,
-        "dreamer-calibration:demote",
-        Some(cand.importance),
-        Some(new_imp),
-        None,
-        None,
-    )?;
-    Ok(())
+    crate::mem::store::with_changed_by("dreamer-calibration:demote", || {
+        conn.execute(
+            "UPDATE mem_items SET importance = ?1, updated_at = datetime('now') WHERE id = ?2",
+            params![new_imp, cand.id],
+        )
+        .map_err(|e| format!("demote update: {}", e))?;
+        let old = crate::mem::store::HistorySnapshot { importance: Some(cand.importance), ..Default::default() };
+        let new = crate::mem::store::HistorySnapshot { importance: Some(new_imp), ..Default::default() };
+        crate::mem::store::history_log(conn, &cand.id, "update", &old, &new, None);
+        Ok(())
+    })
 }
 
 fn apply_archive(conn: &Connection, cand: &Candidate) -> Result<(), String> {
-    conn.execute(
-        "UPDATE mem_items SET kind = 'archived', updated_at = datetime('now') WHERE id = ?1",
-        params![cand.id],
-    )
-    .map_err(|e| format!("archive update: {}", e))?;
-    history_insert(
-        conn,
-        &cand.id,
-        "dreamer-calibration:archive",
-        None,
-        None,
-        Some(cand.kind.as_str()),
-        Some("archived"),
-    )?;
-    Ok(())
-}
-
-fn history_insert(
-    conn: &Connection,
-    item_id: &str,
-    changed_by: &str,
-    old_imp: Option<f64>,
-    new_imp: Option<f64>,
-    old_kind: Option<&str>,
-    new_kind: Option<&str>,
-) -> Result<(), String> {
-    let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
-        "INSERT INTO mem_item_history
-         (item_id, changed_at, changed_by, change_type,
-          old_importance, new_importance, old_kind, new_kind)
-         VALUES (?1, ?2, ?3, 'update', ?4, ?5, ?6, ?7)",
-        params![item_id, now, changed_by, old_imp, new_imp, old_kind, new_kind],
-    )
-    .map_err(|e| format!("history insert: {}", e))?;
-    Ok(())
+    crate::mem::store::with_changed_by("dreamer-calibration:archive", || {
+        conn.execute(
+            "UPDATE mem_items SET kind = 'archived', updated_at = datetime('now') WHERE id = ?1",
+            params![cand.id],
+        )
+        .map_err(|e| format!("archive update: {}", e))?;
+        let old = crate::mem::store::HistorySnapshot { kind: Some(cand.kind.clone()), ..Default::default() };
+        let new = crate::mem::store::HistorySnapshot { kind: Some("archived".to_string()), ..Default::default() };
+        crate::mem::store::history_log(conn, &cand.id, "archive", &old, &new, None);
+        Ok(())
+    })
 }
 
 #[cfg(test)]
@@ -607,5 +587,46 @@ mod tests {
         let dow = dow_today(&conn);
         let n: i64 = dow.parse().unwrap();
         assert!((0..=6).contains(&n));
+    }
+
+    #[test]
+    fn calibration_sweep_never_touches_pinned_items() {
+        let conn = open_test_conn();
+        // Insert a pinned item with archive-eligible fields.
+        conn.execute(
+            "INSERT INTO mem_items (id, uid, kind, scope, title, importance,
+                evidence_count, created_at, updated_at, accessed_at, tags_json,
+                is_pinned_wakeup)
+             VALUES ('pinned_old', 'pinned_old', 'fact', 'global', 'pinned_old', 2.0, 1,
+                datetime('now','-100 days'), datetime('now','-15 days'),
+                datetime('now','-200 days'), '[]', 1)",
+            [],
+        )
+        .unwrap();
+        let _ = run_calibration_sweep(&conn, true).unwrap();
+        let kind: String = conn
+            .query_row(
+                "SELECT kind FROM mem_items WHERE id = 'pinned_old'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(kind, "fact", "pinned item kind must not change");
+        let imp: f64 = conn
+            .query_row(
+                "SELECT importance FROM mem_items WHERE id = 'pinned_old'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((imp - 2.0).abs() < 0.01, "pinned item importance must not change");
+        let hist_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM mem_item_history WHERE item_id = 'pinned_old'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(hist_count, 0, "pinned item must have no history rows from sweep");
     }
 }
