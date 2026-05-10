@@ -413,13 +413,17 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             if *pin { payload["pinned"] = json!(true); }
             ("POST".into(), "/api/mem/items".into(), Some(payload.to_string()))
         }
-        MemAction::WakeUp { budget, l0_only, no_l0, explain } => {
+        MemAction::WakeUp { budget, l0_only, no_l0, explain, workspace } => {
             let mut path = String::from("/api/mem/wake-up");
             let mut sep = '?';
             if let Some(b) = budget { path.push(sep); sep = '&'; path.push_str(&format!("budget={}", b)); }
             if *l0_only { path.push(sep); sep = '&'; path.push_str("l0_only=true"); }
             if *no_l0 { path.push(sep); sep = '&'; path.push_str("no_l0=true"); }
-            if *explain { path.push(sep); let _ = sep; path.push_str("explain=true"); }
+            if *explain { path.push(sep); sep = '&'; path.push_str("explain=true"); }
+            if let Some(w) = workspace {
+                path.push(sep); let _ = sep;
+                path.push_str(&format!("workspace={}", enc(w)));
+            }
             ("GET".into(), path, None)
         }
         MemAction::ExtractPending { limit } => {

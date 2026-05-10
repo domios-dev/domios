@@ -244,6 +244,7 @@ mod tests {
             l0_only: None,
             no_l0: None,
             explain: None,
+            workspace: None,
         });
 
         assert_eq!(opts.l0_budget_tokens, 10);
@@ -257,6 +258,7 @@ mod tests {
             l0_only: None,
             no_l0: Some(true),
             explain: None,
+            workspace: None,
         });
 
         assert_eq!(opts.l0_budget_tokens, 0);
@@ -272,6 +274,7 @@ mod tests {
             l0_only: None,
             no_l0: None,
             explain: None,
+            workspace: None,
         });
 
         assert_eq!(opts.l0_budget_tokens, 100);
@@ -285,8 +288,21 @@ mod tests {
             l0_only: None,
             no_l0: None,
             explain: None,
+            workspace: None,
         });
         assert_eq!(opts.l1_budget_tokens, crate::config::schema::MemoryConfig::default().l1_budget_tokens);
+    }
+
+    #[test]
+    fn wake_up_workspace_param_propagates_to_options() {
+        let opts = wake_up_options_from_params(&WakeUpParams {
+            budget: None,
+            l0_only: None,
+            no_l0: None,
+            explain: None,
+            workspace: Some("W1".into()),
+        });
+        assert_eq!(opts.current_workspace.as_deref(), Some("W1"));
     }
 }
 
@@ -493,6 +509,8 @@ pub struct WakeUpParams {
     pub no_l0: Option<bool>,
     #[serde(default)]
     pub explain: Option<bool>,
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 pub async fn mem_wake_up(
@@ -511,6 +529,7 @@ fn wake_up_options_from_params(p: &WakeUpParams) -> WakeUpOptions {
     opts.include_l0 = !p.no_l0.unwrap_or(false);
     opts.include_l1 = !p.l0_only.unwrap_or(false);
     opts.explain = p.explain.unwrap_or(false);
+    opts.current_workspace = p.workspace.clone();
 
     if let Some(total) = p.budget {
         let total = total.max(1);

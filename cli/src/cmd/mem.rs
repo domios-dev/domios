@@ -364,7 +364,7 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 }
             }
         },
-        MemAction::WakeUp { budget, l0_only, no_l0, explain } => {
+        MemAction::WakeUp { budget, l0_only, no_l0, explain, workspace } => {
             let mut url = format!("{}/api/mem/wake-up", base);
             let mut sep = '?';
             if let Some(b) = budget {
@@ -373,7 +373,11 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             }
             if l0_only { url.push_str(&format!("{}l0_only=true", sep)); sep = '&'; }
             if no_l0 { url.push_str(&format!("{}no_l0=true", sep)); sep = '&'; }
-            if explain { url.push_str(&format!("{}explain=true", sep)); let _ = sep; }
+            if explain { url.push_str(&format!("{}explain=true", sep)); sep = '&'; }
+            if let Some(ws) = &workspace {
+                url.push_str(&format!("{}workspace={}", sep, urlencoding::encode(ws)));
+                let _ = sep;
+            }
             mem_get_request(&http, &url)
         }
         MemAction::Stats => {
