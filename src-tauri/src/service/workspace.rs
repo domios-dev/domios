@@ -8,20 +8,14 @@ impl ServiceContext {
         self.mux.lock().list_workspaces()
     }
 
-    pub fn create_workspace(&self, name: String, cwd: Option<String>) -> WorkspaceInfo {
-        // Dedup: if the user is opening a folder that matches an existing
-        // workspace's cwd (after normalization — trailing slashes, case on
-        // Windows, symlinks all collapse), reuse it and spawn a new tab
-        // instead of creating a duplicate workspace. Keeps CLI/REST/Tauri
-        // callers consistent without relying on frontend pre-checks.
+    pub fn create_workspace(&self, name: String, cwd: Option<String>, activate: bool) -> WorkspaceInfo {
         if let Some(cwd_str) = cwd.as_deref() {
             let existing = self.mux.lock().find_workspace_info_by_cwd(cwd_str);
             if let Some(ws) = existing {
-                let _ = self.mux.lock().set_active_workspace(&ws.id);
-                // New tab inside the existing workspace, activated. Don't
-                // auto-spawn a second agent — the existing workspace already
-                // has one running from its original creation.
-                let _ = self.create_tab_with_activate(&ws.id, true);
+                if activate {
+                    let _ = self.mux.lock().set_active_workspace(&ws.id);
+                }
+                let _ = self.create_tab_with_activate(&ws.id, activate);
                 log::info!(
                     "[workspace] reused existing workspace '{}' ({}) for cwd={}",
                     ws.name,
@@ -33,7 +27,9 @@ impl ServiceContext {
         }
 
         let ws = self.mux.lock().create_workspace(name, cwd);
-        let _ = self.mux.lock().set_active_workspace(&ws.id);
+        if activate {
+            let _ = self.mux.lock().set_active_workspace(&ws.id);
+        }
         self.emit_state_changed();
         ws
     }

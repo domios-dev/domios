@@ -50,6 +50,14 @@ fn is_current_codeterm_hook(hook_entry: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
+// Always-on signal for providers without a hook-file system (Codex, Opencode).
+// Their PTY output parser runs unconditionally inside the multiplexer, so the
+// Notifications badge is always green.
+#[tauri::command]
+pub fn check_pty_status_available() -> Result<&'static str, String> {
+    Ok("ok")
+}
+
 /// Check if Claude Code hooks are installed for CodeTerm notifications.
 #[tauri::command]
 pub fn check_claude_hooks() -> Result<ClaudeHooksStatus, String> {

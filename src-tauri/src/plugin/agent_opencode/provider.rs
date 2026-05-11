@@ -171,14 +171,13 @@ impl AgentProvider for OpenCodeProvider {
         "OpenCode"
     }
 
+    fn binary_name(&self) -> &str {
+        "opencode"
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         let mut parts: Vec<String> = Vec::new();
-
-        if let Some(ref task) = params.task {
-            // Non-interactive: opencode run [flags] -- "<task>"
-            // --format json emits the full event stream so the watcher gets
-            // continuous output and the idle counter never trips during normal
-            // generation. Permission auto-approve only exists on `run`.
+        if params.headless && params.task.is_some() {
             parts.push("opencode".to_string());
             parts.push("run".to_string());
             if params.skip_permissions {
@@ -186,16 +185,13 @@ impl AgentProvider for OpenCodeProvider {
             }
             parts.push("--format".to_string());
             parts.push("json".to_string());
-            parts.push(ShellSyntax::quote(task));
+            parts.push(ShellSyntax::quote(params.task.as_ref().unwrap()));
         } else {
-            // Interactive TUI session.
             parts.push("opencode".to_string());
         }
-
         if let Some(ref extra) = params.args {
             parts.extend(extra.iter().cloned());
         }
-
         parts.join(" ")
     }
 
@@ -206,7 +202,11 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn task_delivery(&self) -> TaskDelivery {
-        TaskDelivery::InlineFlag
+        TaskDelivery::PtyInput
+    }
+
+    fn task_input_warmup(&self) -> Duration {
+        Duration::from_secs(5)
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
@@ -222,18 +222,22 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn detect_from_output(&self, text: &str) -> bool {
-        // OpenCode TUI writes a distinctive ASCII banner at startup and
-        // emits "Permission required" on tool calls. Require "opencode" in
-        // the screen to avoid cross-firing with other providers. "approve"
-        // is intentionally excluded — it overlaps with codex's network-access
-        // prompts ("approve network access") and causes non-deterministic
-        // tab labeling when both providers are registered.
-        text.contains("opencode")
+        // OpenCode TUI writes a distinctive box-drawn banner at startup and
+        // emits "Permission required" on tool calls. Require literal
+        // "opencode" or the TUI's box characters to avoid cross-firing with
+        // claude. "approve" is excluded — overlaps codex's "approve network
+        // access" prompts.
+        let has_marker = text.contains("opencode")
+            || text.contains("OpenCode")
+            || text.contains("OpenCode Zen");
+        has_marker
             && (text.contains("Permission required")
                 || text.contains("Allow this tool call")
                 || text.contains("Approve this command")
                 || text.contains("█▀▀█")
-                || text.contains("▄"))
+                || text.contains("Build · ")
+                || text.contains("┃")
+                || text.contains("╹"))
     }
 
     fn session_file_path(&self, _cwd: &str, session_id: &str) -> Option<PathBuf> {
@@ -644,6 +648,26 @@ impl AgentProvider for OpenCodeProvider {
                 }],
             },
         ]
+    }
+
+    fn notifications_schema(&self) -> Vec<SettingField> {
+        use crate::agent::provider::{BadgeStyle, BadgeVariant};
+        vec![SettingField::Section {
+            title: "Opencode Notifications".into(),
+            description: Some(
+                "Notifications fire when Opencode needs your input or finishes a task. \
+                 Powered by CodeTerm's pane-output detection — no setup required."
+                    .into(),
+            ),
+            fields: vec![SettingField::Badge {
+                query_command: "check_pty_status_available".into(),
+                variants: vec![BadgeVariant {
+                    id: "ok".into(),
+                    label: "auto-enabled".into(),
+                    style: BadgeStyle::Green,
+                }],
+            }],
+        }]
     }
 }
 

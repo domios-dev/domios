@@ -5,6 +5,7 @@ fn opencode_provider_id() {
     let p = OpenCodeProvider::new();
     assert_eq!(p.id(), "opencode");
     assert_eq!(p.display_name(), "OpenCode");
+    assert_eq!(p.binary_name(), "opencode");
 }
 
 #[test]
@@ -58,7 +59,7 @@ fn opencode_launch_interactive_skip_perms_does_not_attach_flag() {
 }
 
 #[test]
-fn opencode_launch_with_task_uses_run_subcommand() {
+fn opencode_launch_with_task_interactive_pane_uses_tui() {
     let p = OpenCodeProvider::new();
     let cmd = p.build_launch_command(&AgentLaunchParams {
         agent_name: None,
@@ -66,6 +67,26 @@ fn opencode_launch_with_task_uses_run_subcommand() {
         args: None,
         skip_permissions: true,
         headless: false,
+        session_id: None,
+    });
+    assert_eq!(cmd, "opencode");
+    assert!(!cmd.contains("run"));
+    assert!(!cmd.contains("fix the bug"));
+    assert!(matches!(
+        p.task_delivery(),
+        crate::agent::provider::TaskDelivery::PtyInput
+    ));
+}
+
+#[test]
+fn opencode_launch_with_task_headless_worker_uses_run() {
+    let p = OpenCodeProvider::new();
+    let cmd = p.build_launch_command(&AgentLaunchParams {
+        agent_name: None,
+        task: Some("fix the bug".to_string()),
+        args: None,
+        skip_permissions: true,
+        headless: true,
         session_id: None,
     });
     assert!(cmd.starts_with("opencode run"));
@@ -75,23 +96,21 @@ fn opencode_launch_with_task_uses_run_subcommand() {
 }
 
 #[test]
-fn opencode_launch_with_task_no_skip() {
+fn opencode_launch_headless_without_task_falls_back_to_tui() {
     let p = OpenCodeProvider::new();
     let cmd = p.build_launch_command(&AgentLaunchParams {
         agent_name: None,
-        task: Some("fix the bug".to_string()),
+        task: None,
         args: None,
-        skip_permissions: false,
-        headless: false,
+        skip_permissions: true,
+        headless: true,
         session_id: None,
     });
-    assert!(cmd.starts_with("opencode run"));
-    assert!(!cmd.contains("--dangerously-skip-permissions"));
-    assert!(cmd.contains("--format json"));
+    assert_eq!(cmd, "opencode");
 }
 
 #[test]
-fn opencode_launch_with_extra_args() {
+fn opencode_launch_interactive_with_extra_args() {
     let p = OpenCodeProvider::new();
     let cmd = p.build_launch_command(&AgentLaunchParams {
         agent_name: None,
@@ -101,8 +120,7 @@ fn opencode_launch_with_extra_args() {
         headless: false,
         session_id: None,
     });
-    assert!(cmd.contains("-m anthropic/claude-opus-4-7"));
-    assert!(cmd.contains("opencode run"));
+    assert_eq!(cmd, "opencode -m anthropic/claude-opus-4-7");
 }
 
 #[test]
@@ -195,10 +213,29 @@ fn opencode_settings_schema_round_trips_as_json() {
 }
 
 #[test]
-fn opencode_has_no_notifications_contribution() {
+fn opencode_notifications_schema_present() {
+    // Opencode has no hook file system, but PTY-output detection always runs.
+    // The schema surfaces that as a read-only "auto-enabled" badge so the
+    // Notifications tab lists Opencode alongside Claude.
     let p = OpenCodeProvider::new();
-    assert!(p.notifications_schema().is_empty());
-    assert!(p.describe().notifications_schema.is_empty());
+    let schema = p.notifications_schema();
+    assert!(!schema.is_empty(), "Opencode must contribute notifications");
+    match &schema[0] {
+        crate::agent::provider::SettingField::Section { title, fields, .. } => {
+            assert_eq!(title, "Opencode Notifications");
+            let mut saw_badge = false;
+            for f in fields {
+                if let crate::agent::provider::SettingField::Badge { query_command, .. } = f {
+                    if query_command == "check_pty_status_available" {
+                        saw_badge = true;
+                    }
+                }
+            }
+            assert!(saw_badge, "expected Badge wired to check_pty_status_available");
+        }
+        _ => panic!("expected Section as top-level notifications field"),
+    }
+    assert!(!p.describe().notifications_schema.is_empty());
 }
 
 #[test]

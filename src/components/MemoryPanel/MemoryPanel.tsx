@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { List, Network } from "lucide-react";
 import { MemoryCanvas } from "./MemoryCanvas";
 import { MemoryListTab } from "./MemoryListTab";
 import { MemoryActivityTab } from "./MemoryActivityTab";
@@ -9,7 +10,13 @@ import { useActivityPulses } from "./useActivityPulses";
 import { fetchStats, isTauriEnv, type MemStats } from "./memoryApi";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 
-export type MemoryTab = "dreams" | "graph" | "list" | "activity" | "settings";
+export type MemoryTab = "dreams" | "inspect" | "activity" | "settings";
+
+function normalizeTab(t: MemoryTab | string | undefined): MemoryTab {
+  if (t === "graph" || t === "list") return "inspect";
+  if (t === "dreams" || t === "inspect" || t === "activity" || t === "settings") return t;
+  return "dreams";
+}
 
 export interface MemoryInitialState {
   selectedId: string | null;
@@ -23,7 +30,7 @@ const TAB_BASE =
 const TAB_ACTIVE = `${TAB_BASE} border-[var(--ct-accent)] text-[var(--ct-fg)]`;
 const TAB_INACTIVE = `${TAB_BASE} border-transparent text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]`;
 
-const TABS: MemoryTab[] = ["dreams", "graph", "list", "activity", "settings"];
+const TABS: MemoryTab[] = ["dreams", "inspect", "activity", "settings"];
 
 interface Props {
   api: ApiConfig;
@@ -35,7 +42,8 @@ interface Props {
 }
 
 export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate }: Props) {
-  const [activeTab, setActiveTab] = useState<MemoryTab>(initialState?.activeTab ?? "dreams");
+  const [activeTab, setActiveTab] = useState<MemoryTab>(normalizeTab(initialState?.activeTab));
+  const [inspectView, setInspectView] = useState<"graph" | "list">("graph");
   const {
     nodes,
     edges,
@@ -84,12 +92,14 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
   const registerRecenter = useCallback((fn: () => void) => { recenterRef.current = fn; }, []);
 
   const handleNavigateToItem = useCallback((id: string) => {
-    setActiveTab("list");
+    setActiveTab("inspect");
+    setInspectView("list");
     setSelectedId(id);
   }, []);
 
   const handleViewInGraph = useCallback((id: string) => {
-    setActiveTab("graph");
+    setActiveTab("inspect");
+    setInspectView("graph");
     setSelectedId(id);
   }, []);
 
@@ -105,17 +115,16 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
       }
       if (inField) return;
       if (e.key === "1") { e.preventDefault(); setActiveTab("dreams"); }
-      else if (e.key === "2") { e.preventDefault(); setActiveTab("graph"); }
-      else if (e.key === "3") { e.preventDefault(); setActiveTab("list"); }
-      else if (e.key === "4") { e.preventDefault(); setActiveTab("activity"); }
-      else if (e.key === "5") { e.preventDefault(); setActiveTab("settings"); }
-      else if (e.key === "f" || e.key === "F") { if (activeTab === "graph") { e.preventDefault(); fitRef.current(); } }
-      else if (e.key === "0") { if (activeTab === "graph") { e.preventDefault(); recenterRef.current(); } }
-      else if (e.key === "p" || e.key === "P") { if (activeTab === "graph") { e.preventDefault(); setPhysicsEnabled((v) => !v); } }
+      else if (e.key === "2") { e.preventDefault(); setActiveTab("inspect"); }
+      else if (e.key === "3") { e.preventDefault(); setActiveTab("activity"); }
+      else if (e.key === "4") { e.preventDefault(); setActiveTab("settings"); }
+      else if (e.key === "f" || e.key === "F") { if (activeTab === "inspect" && inspectView === "graph") { e.preventDefault(); fitRef.current(); } }
+      else if (e.key === "0") { if (activeTab === "inspect" && inspectView === "graph") { e.preventDefault(); recenterRef.current(); } }
+      else if (e.key === "p" || e.key === "P") { if (activeTab === "inspect" && inspectView === "graph") { e.preventDefault(); setPhysicsEnabled((v) => !v); } }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose, activeTab]);
+  }, [onClose, activeTab, inspectView]);
 
   return (
     <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)]">
@@ -155,7 +164,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
       {/* Tab content */}
       <div className="relative flex-1 min-h-0">
         {activeTab === "dreams" && <MemoryDreamsTab api={api} />}
-        {activeTab === "list" && (
+        {activeTab === "inspect" && inspectView === "list" && (
           <MemoryListTab
             api={api}
             nodes={nodes}
@@ -166,12 +175,12 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
             removeNode={removeNode}
           />
         )}
-        {activeTab === "graph" && loading && (
+        {activeTab === "inspect" && inspectView === "graph" && loading && (
           <div className="absolute inset-0 flex items-center justify-center text-[var(--ct-muted-fg)]">
             Loading memory graph...
           </div>
         )}
-        {activeTab === "graph" && error && (
+        {activeTab === "inspect" && inspectView === "graph" && error && (
           <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-2 rounded bg-[var(--ct-red)] text-white text-xs">
             {error}
           </div>
@@ -183,11 +192,11 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
         {!loading && !error && (
           <div
             className={
-              activeTab === "graph"
+              activeTab === "inspect" && inspectView === "graph"
                 ? "absolute inset-0"
                 : "absolute inset-0 invisible pointer-events-none"
             }
-            aria-hidden={activeTab !== "graph"}
+            aria-hidden={!(activeTab === "inspect" && inspectView === "graph")}
           >
             <MemoryCanvas
               api={api}
@@ -204,6 +213,16 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
             />
           </div>
         )}
+        {activeTab === "inspect" && (
+          <button
+            type="button"
+            onClick={() => setInspectView(inspectView === "graph" ? "list" : "graph")}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full bg-[var(--ct-bg)]/80 backdrop-blur-md border border-[var(--ct-border)] text-[11px] flex items-center gap-1.5 cursor-pointer hover:border-[var(--ct-accent)] shadow-lg text-[var(--ct-fg)]"
+          >
+            {inspectView === "graph" ? <List size={12} /> : <Network size={12} />}
+            {inspectView === "graph" ? "List" : "Graph"}
+          </button>
+        )}
         {activeTab === "activity" && (
           <MemoryActivityTab
             api={api}
@@ -212,16 +231,14 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           />
         )}
         {activeTab === "settings" && config && onConfigUpdate && (
-          <div className="absolute inset-0 overflow-y-auto px-5 py-5">
-            <div className="max-w-2xl mx-auto">
-              <MemorySettingsTab
-                config={config}
-                onUpdate={(section, patch) => {
-                  const next = { ...config, [section]: Object.assign({}, config[section], patch) };
-                  onConfigUpdate(next).catch(() => {});
-                }}
-              />
-            </div>
+          <div className="absolute inset-0 overflow-y-auto p-6">
+            <MemorySettingsTab
+              config={config}
+              onUpdate={(section, patch) => {
+                const next = { ...config, [section]: Object.assign({}, config[section], patch) };
+                onConfigUpdate(next).catch(() => {});
+              }}
+            />
           </div>
         )}
       </div>

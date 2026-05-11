@@ -2,11 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { MeshPeersResponse, DiscoveredPeer, MeshPairingRequest, PairedPeer } from "../../lib/types";
 
-interface Props {
-  onClose: () => void;
-}
-
-export function AddPeerPopup({ onClose }: Props) {
+export default function AddPeerPanel() {
   const [peers, setPeers] = useState<MeshPeersResponse | null>(null);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [approving, setApproving] = useState<string | null>(null);
@@ -32,12 +28,6 @@ export function AddPeerPopup({ onClose }: Props) {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [fetchPeers]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   useEffect(() => {
     if (!connecting) {
@@ -106,112 +96,84 @@ export function AddPeerPopup({ onClose }: Props) {
   const paired = peers?.paired ?? [];
 
   return (
-    <div
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-50"
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-md p-5 w-[480px] flex flex-col gap-4 max-h-[80vh] overflow-auto"
-      >
-        <div className="flex items-center justify-between">
-          <h2 className="text-[var(--ct-fg)] text-base font-medium">Add Peer</h2>
-          <button
-            onClick={onClose}
-            className="text-[var(--ct-muted)] bg-transparent border-none cursor-pointer text-base"
-            title="Close"
-          >
-            ×
-          </button>
+    <div className="flex flex-col gap-3">
+      {error && (
+        <div className="text-[10px] text-[var(--ct-red)] bg-[var(--ct-bg)] border border-[var(--ct-red)] rounded p-2 break-all">
+          {error}
         </div>
+      )}
 
-        {error && (
-          <div className="text-[10px] text-[var(--ct-red)] bg-[var(--ct-bg)] border border-[var(--ct-red)] rounded p-2 break-all">
-            {error}
-          </div>
-        )}
-
-        {incoming.length > 0 && (
-          <Section label="Incoming requests">
-            {incoming.map((req) => (
-              <IncomingRequestRow
-                key={req.request_id}
-                req={req}
-                approving={approving === req.request_id}
-                onApprove={() => handleApprove(req.request_id)}
-                onReject={() => handleReject(req.request_id)}
-              />
-            ))}
-          </Section>
-        )}
-
-        <Section label={`Discovered nearby${peers ? "" : " · scanning…"}`}>
-          {discovered.length === 0 ? (
-            <div className="text-[10px] text-[var(--ct-muted)] italic flex items-center gap-2">
-              <span className="w-2.5 h-2.5 border border-[var(--ct-accent)] border-t-transparent rounded-full animate-spin" />
-              Scanning for peers…
-            </div>
-          ) : (
-            discovered.map((peer) => (
-              <DiscoveredPeerRow
-                key={peer.instance_id}
-                peer={peer}
-                paired={paired}
-                isPending={connecting === peer.instance_id}
-                elapsed={connecting === peer.instance_id ? elapsed : 0}
-                onConnect={() => handleConnect(peer.instance_id)}
-                connectDisabled={connecting !== null}
-              />
-            ))
-          )}
+      {incoming.length > 0 && (
+        <Section label="Incoming requests">
+          {incoming.map((req) => (
+            <IncomingRequestRow
+              key={req.request_id}
+              req={req}
+              approving={approving === req.request_id}
+              onApprove={() => handleApprove(req.request_id)}
+              onReject={() => handleReject(req.request_id)}
+            />
+          ))}
         </Section>
+      )}
 
-        <div>
-          {showManual ? (
-            <div className="flex flex-col gap-2">
-              <div className="text-[10px] text-[var(--ct-muted)] uppercase tracking-wide">Add manually</div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={manualAddr}
-                  onChange={(e) => setManualAddr(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAddManual()}
-                  placeholder="192.168.1.50:7685"
-                  className="flex-1 bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none font-mono"
-                  autoFocus
-                />
-                <button
-                  onClick={handleAddManual}
-                  className="text-[10px] px-3 py-1.5 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all"
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => { setShowManual(false); setManualAddr(""); }}
-                  className="text-[10px] px-2 py-1.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
-                >
-                  Cancel
-                </button>
-              </div>
+      <Section label={`Discovered nearby${peers ? "" : " · scanning…"}`}>
+        {discovered.length === 0 ? (
+          <div className="p-3 text-[10px] text-[var(--ct-muted)] italic flex items-center gap-2">
+            <span className="w-2.5 h-2.5 border border-[var(--ct-accent)] border-t-transparent rounded-full animate-spin" />
+            Scanning for peers…
+          </div>
+        ) : (
+          discovered.map((peer) => (
+            <DiscoveredPeerRow
+              key={peer.instance_id}
+              peer={peer}
+              paired={paired}
+              isPending={connecting === peer.instance_id}
+              elapsed={connecting === peer.instance_id ? elapsed : 0}
+              onConnect={() => handleConnect(peer.instance_id)}
+              connectDisabled={connecting !== null}
+            />
+          ))
+        )}
+      </Section>
+
+      <div>
+        {showManual ? (
+          <div className="flex flex-col gap-2">
+            <div className="text-[10px] text-[var(--ct-muted)] uppercase tracking-wide">Add manually</div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={manualAddr}
+                onChange={(e) => setManualAddr(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddManual()}
+                placeholder="192.168.1.50:7685"
+                className="flex-1 bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none font-mono"
+                autoFocus
+              />
+              <button
+                onClick={handleAddManual}
+                className="text-[10px] px-3 py-1.5 rounded bg-[var(--ct-accent)] text-white hover:brightness-110 transition-all"
+              >
+                Add
+              </button>
+              <button
+                onClick={() => { setShowManual(false); setManualAddr(""); }}
+                className="text-[10px] px-2 py-1.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
+              >
+                Cancel
+              </button>
             </div>
-          ) : (
-            <button
-              onClick={() => setShowManual(true)}
-              className="text-[10px] text-[var(--ct-accent)] hover:underline"
-            >
-              + Add peer manually…
-            </button>
-          )}
-        </div>
-
-        <div className="flex justify-end pt-1 border-t border-[var(--ct-border)]">
+          </div>
+        ) : (
           <button
-            onClick={onClose}
-            className="px-4 py-2 bg-transparent text-[var(--ct-muted)] rounded text-xs cursor-pointer border-none hover:text-[var(--ct-fg)]"
+            onClick={() => setShowManual(true)}
+            className="text-[10px] text-[var(--ct-accent)] hover:underline"
           >
-            Close
+            + Add peer manually…
           </button>
-        </div>
+        )}
       </div>
     </div>
   );

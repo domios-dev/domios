@@ -175,6 +175,7 @@ pub fn run() {
             multiplexer::commands::mux_rename_pane,
             multiplexer::commands::mux_update_pane_cwd,
             multiplexer::commands::mux_set_pane_agent_type,
+            multiplexer::commands::mux_unlock_pane_agent_type,
             multiplexer::commands::mux_set_chat_view,
             multiplexer::commands::detect_claude_session_id,
             multiplexer::commands::detect_pane_session_id,
@@ -207,6 +208,7 @@ pub fn run() {
             commands::check_claude_hooks,
             commands::install_claude_hooks,
             commands::uninstall_claude_hooks,
+            commands::check_pty_status_available,
             // Session commands
             session::save_session,
             session::save_session_named,
@@ -350,6 +352,9 @@ pub fn run() {
                 mem.db_path().to_path_buf(),
             ));
 
+            let input_parser = Arc::new(
+                crate::service::input_parser::InputParser::new(agent_registry.clone()),
+            );
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
@@ -391,6 +396,7 @@ pub fn run() {
                     .expect("services.db init"),
                 ),
                 tokens: Arc::new(crate::services::tokens::TokenStore::new()),
+                input_parser,
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());

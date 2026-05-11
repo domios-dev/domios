@@ -1,9 +1,9 @@
 use super::{IntegrationsConfig, MemoryConfig};
 
 #[test]
-fn memory_l1_budget_default_is_800() {
+fn memory_l1_budget_default_is_300() {
     let cfg: MemoryConfig = toml::from_str("").unwrap();
-    assert_eq!(cfg.l1_budget_tokens, 800);
+    assert_eq!(cfg.l1_budget_tokens, 300);
 }
 
 #[test]

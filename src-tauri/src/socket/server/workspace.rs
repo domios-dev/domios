@@ -34,9 +34,13 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("cwd"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
+            let activate = params
+                .as_ref()
+                .and_then(|p| p.get("activate"))
+                .and_then(|v| v.as_bool());
 
             crate::dispatch::dispatch(
-                &crate::dispatch::Command::WorkspaceCreate { name, cwd },
+                &crate::dispatch::Command::WorkspaceCreate { name, cwd, activate },
                 svc.as_ref(),
             )
             .map(|r| r.into_json())

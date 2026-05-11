@@ -87,6 +87,13 @@ impl ServiceContext {
     /// and must not race against `link_pty` overwrites swapping `pane.pty_id`
     /// out from under the send.
     pub fn send_text_to_pty(&self, pty_id: &str, text: &str, enter: bool) -> Result<(), String> {
+        // Feed the input parser the logical payload BEFORE the bracket-paste
+        // bytes hit the PTY. Bracketed paste wraps `text` with ESC sequences
+        // that would confuse the parser if it tried to recover the typed line
+        // from the raw write. The parser already sees Tauri's `write_pty` for
+        // direct keystrokes; this covers the API/CLI `send-text` path so a
+        // user-typed launch command works whether typed in the UI or scripted.
+        self.feed_input_parser(pty_id, text, enter);
         let paste = format!("\x1b[200~{}\x1b[201~", text);
         self.pty.lock().write(pty_id, paste.as_bytes())?;
 
@@ -149,6 +156,8 @@ impl ServiceContext {
         }
 
         let hash_before = snapshot_screen_hash(&self.screen_state, pty_id).unwrap_or_default();
+
+        self.feed_input_parser(pty_id, text, enter);
 
         let paste = format!("\x1b[200~{}\x1b[201~", text);
         self.pty
@@ -246,6 +255,38 @@ impl ServiceContext {
     pub fn write_raw(&self, pane_id: &str, data: &[u8]) -> Result<(), String> {
         let pty_id = self.resolve_pty_id(pane_id)?;
         self.pty.lock().write(&pty_id, data).map_err(|e| e.to_string())
+    }
+
+    /// Feed `send_text`-style payloads to the typed-launch input parser so the
+    /// CLI/API path triggers the same `agent_type` lock as a direct Tauri write.
+    /// Skips locked panes; on match, sets and locks the detected provider.
+    fn feed_input_parser(&self, pty_id: &str, text: &str, enter: bool) {
+        let (pane_id, locked) = {
+            let m = self.mux.lock();
+            let pid = m.pane_id_for_pty(pty_id);
+            let locked = pid.as_ref()
+                .and_then(|id| m.get_pane(id))
+                .map(|p| p.agent_type_locked)
+                .unwrap_or(false);
+            (pid, locked)
+        };
+        let Some(pane_id) = pane_id else { return };
+        if locked {
+            self.input_parser.clear(&pane_id);
+            return;
+        }
+        let mut payload = text.as_bytes().to_vec();
+        if enter {
+            payload.push(b'\r');
+        }
+        if let Some(provider_id) = self.input_parser.process(&pane_id, &payload) {
+            log::info!(
+                "[input-parser] detected '{}' send-text in pane {} — locking agent_type",
+                provider_id, pane_id,
+            );
+            self.set_and_lock_pane_agent_type(&pane_id, provider_id);
+            self.emit_state_changed();
+        }
     }
 
     pub fn send_text_batch(&self, pane_id: &str, batch: Vec<SendBatchItem>) -> Result<(), String> {

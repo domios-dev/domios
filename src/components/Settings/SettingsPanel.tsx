@@ -5,7 +5,6 @@ import { CloseXIcon } from "../Icons";
 import {
   Sliders,
   Bot,
-  Bell,
   Plug,
   Info,
   KeyRound,
@@ -13,15 +12,22 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  Palette,
+  Type,
+  MousePointer,
+  ScrollText,
+  Mouse,
+  Power,
+  Keyboard,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 
 import logoUrl from "../../assets/logo.png";
-import { Group, Toggle, InfoRow, AboutLink } from "./shared";
+import { Toggle, InfoRow, AboutLink, SettingsPage, SettingsCard } from "./shared";
 import { KeybindGroup } from "./KeybindGroup";
 import { UpdateSection } from "./UpdateSection";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
-import { ProviderNotifications } from "./ProviderNotifications";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
@@ -30,7 +36,7 @@ interface SettingsPanelProps {
   config: AppConfig;
   onUpdateConfig: (config: AppConfig) => Promise<void>;
   onClose: () => void;
-  initialSection?: SectionId;
+  initialSection?: SectionId | "notifications";
   onNavigateToTab?: (tab: "memory" | "mesh") => void;
 }
 
@@ -38,7 +44,6 @@ export type SectionId =
   | "general"
   | "tabs"
   | "agents"
-  | "notifications"
   | "integrations"
   | "secrets"
   | "about";
@@ -52,7 +57,6 @@ const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   general: Sliders,
   tabs: LayoutGrid,
   agents: Bot,
-  notifications: Bell,
   integrations: Plug,
   secrets: KeyRound,
   about: Info,
@@ -61,12 +65,16 @@ const SECTION_ICONS: Record<SectionId, LucideIcon> = {
 const SECTIONS: { id: SectionId; label: string; desc: string }[] = [
   { id: "general", label: "General", desc: "Theme, fonts, cursor, keybindings" },
   { id: "tabs", label: "Tabs", desc: "Toggle Memory and Mesh tabs in the sidebar" },
-  { id: "agents", label: "Agents", desc: "General Agent and per-provider config" },
-  { id: "notifications", label: "Notifications", desc: "Desktop, sound, in-app toasts" },
+  { id: "agents", label: "Agents", desc: "General Agent, notifications, and per-provider config" },
   { id: "integrations", label: "Integrations", desc: "Telegram, Discord, external bridges" },
   { id: "secrets", label: "Secrets", desc: "Keychain — pluggable secret store" },
   { id: "about", label: "About", desc: "Version, updates, creator" },
 ];
+
+function normalizeSection(id: SectionId | "notifications" | undefined): SectionId | undefined {
+  if (!id) return undefined;
+  return id === "notifications" ? "agents" : id;
+}
 
 function sectionTitle(id: SectionId): string {
   return SECTIONS.find((s) => s.id === id)?.label ?? id;
@@ -79,9 +87,10 @@ export function SettingsPanel({
   initialSection,
   onNavigateToTab,
 }: SettingsPanelProps) {
+  const normalizedInitial = normalizeSection(initialSection);
   const [stack, setStack] = useState<Route[]>(
-    initialSection
-      ? [{ kind: "root" }, { kind: "section", id: initialSection }]
+    normalizedInitial
+      ? [{ kind: "root" }, { kind: "section", id: normalizedInitial }]
       : [{ kind: "root" }],
   );
   const top = stack[stack.length - 1];
@@ -91,8 +100,9 @@ export function SettingsPanel({
     [],
   );
   useEffect(() => {
-    if (initialSection) {
-      setStack([{ kind: "root" }, { kind: "section", id: initialSection }]);
+    const n = normalizeSection(initialSection);
+    if (n) {
+      setStack([{ kind: "root" }, { kind: "section", id: n }]);
     }
   }, [initialSection]);
 
@@ -223,9 +233,10 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "general" && (
-              <div className="max-w-2xl mx-auto space-y-5">
+              <SettingsPage title="General" subtitle="Theme, fonts, cursor, behavior, and keybindings.">
                 <ShellDiagnosticsBanner onDismissSettings={onClose} />
-                <Group title="Color Theme">
+
+                <SettingsCard icon={<Palette size={16} />} title="Color Theme">
                   <label className="block">
                     <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">Theme</span>
                     <select
@@ -247,7 +258,7 @@ export function SettingsPanel({
                       )}
                     </select>
                   </label>
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2">
                     <div className="flex gap-1 flex-1">
                       {[
                         localConfig.theme.background,
@@ -278,7 +289,7 @@ export function SettingsPanel({
                     )}
                   </div>
                   {!builtinThemes.includes(localConfig.theme.name) && (
-                    <div className="flex items-center justify-between mt-1">
+                    <div className="flex items-center justify-between">
                       <span className="text-[10px] text-[var(--ct-muted-fg)]">Custom theme</span>
                       <button
                         onClick={async () => {
@@ -292,9 +303,9 @@ export function SettingsPanel({
                       </button>
                     </div>
                   )}
-                </Group>
+                </SettingsCard>
 
-                <Group title="Font">
+                <SettingsCard icon={<Type size={16} />} title="Font">
                   <label className="block">
                     <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">Font family</span>
                     <input
@@ -320,9 +331,9 @@ export function SettingsPanel({
                     checked={localConfig.font.ligatures}
                     onChange={(v) => update("font", { ligatures: v })}
                   />
-                </Group>
+                </SettingsCard>
 
-                <Group title="Cursor">
+                <SettingsCard icon={<MousePointer size={16} />} title="Cursor">
                   <label className="block">
                     <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">Style</span>
                     <select
@@ -340,9 +351,9 @@ export function SettingsPanel({
                     checked={localConfig.terminal.cursor_blink}
                     onChange={(v) => update("terminal", { cursor_blink: v })}
                   />
-                </Group>
+                </SettingsCard>
 
-                <Group title="Scrollback">
+                <SettingsCard icon={<ScrollText size={16} />} title="Scrollback">
                   <label className="block">
                     <span className="block text-xs text-[var(--ct-muted-fg)] mb-1">{`Buffer: ${localConfig.terminal.scrollback.toLocaleString()} lines`}</span>
                     <input
@@ -355,99 +366,62 @@ export function SettingsPanel({
                       className="w-full accent-[var(--ct-accent)]"
                     />
                   </label>
-                </Group>
+                </SettingsCard>
 
-                <Group title="Behavior">
+                <SettingsCard icon={<Mouse size={16} />} title="Behavior">
                   <Toggle
                     label="Copy on select"
                     checked={localConfig.terminal.copy_on_select}
                     onChange={(v) => update("terminal", { copy_on_select: v })}
                   />
-                </Group>
+                </SettingsCard>
 
-                <Group title="Startup">
+                <SettingsCard
+                  icon={<Power size={16} />}
+                  title="Startup"
+                  description="Adds CodeTerm to the OS login items so the daemon, mesh, and crons resume without you opening the app manually."
+                >
                   <Toggle
                     label="Launch CodeTerm on system start"
                     checked={autostartEnabled ?? false}
                     onChange={handleAutostartToggle}
                   />
-                  <p className="text-[10px] text-[var(--ct-muted-fg)] -mt-0.5">
-                    Adds CodeTerm to the OS login items so the daemon, mesh,
-                    and crons resume without you opening the app manually.
-                  </p>
                   <Toggle
                     label="Enable Librarian (background skill vectorizer)"
                     checked={localConfig.memory?.librarian_enabled ?? true}
                     onChange={(v) => update("memory", { librarian_enabled: v })}
                   />
-                </Group>
+                </SettingsCard>
 
-                <KeybindGroup title="Tabs" bindings={[
-                  ["new_tab", "New Tab"],
-                  ["close_tab", "Close Tab"],
-                ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
+                <SettingsCard icon={<Keyboard size={16} />} title="Keybindings">
+                  <KeybindGroup title="Tabs" bindings={[
+                    ["new_tab", "New Tab"],
+                    ["close_tab", "Close Tab"],
+                  ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
 
-                <KeybindGroup title="Panes" bindings={[
-                  ["close_pane", "Close Pane"],
-                  ["focus_pane_left", "Focus Left"],
-                  ["focus_pane_right", "Focus Right"],
-                  ["focus_pane_up", "Focus Up"],
-                  ["focus_pane_down", "Focus Down"],
-                ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
+                  <KeybindGroup title="Panes" bindings={[
+                    ["close_pane", "Close Pane"],
+                    ["focus_pane_left", "Focus Left"],
+                    ["focus_pane_right", "Focus Right"],
+                    ["focus_pane_up", "Focus Up"],
+                    ["focus_pane_down", "Focus Down"],
+                  ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
 
-                <KeybindGroup title="General" bindings={[
-                  ["new_workspace", "New Workspace"],
-                  ["search", "Search"],
-                  ["zoom_in", "Zoom In"],
-                  ["zoom_out", "Zoom Out"],
-                  ["zoom_reset", "Zoom Reset"],
-                  ["open_settings", "Settings"],
-                ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
-              </div>
-            )}
-
-            {top.kind === "section" && top.id === "notifications" && (
-              <div className="max-w-2xl mx-auto space-y-5">
-                <Group title="System Notifications">
-                  <div className="text-xs text-[var(--ct-muted-fg)] mb-1">
-                    Native OS notifications when CodeTerm window is not focused.
-                  </div>
-                  <Toggle
-                    label="Desktop notifications"
-                    checked={localConfig.notifications.desktop}
-                    onChange={(v) => update("notifications", { desktop: v })}
-                  />
-                  <Toggle
-                    label="Sound"
-                    checked={localConfig.notifications.sound}
-                    onChange={(v) => update("notifications", { sound: v })}
-                  />
-                </Group>
-
-                <Group title="In-app Toast">
-                  <div className="text-xs text-[var(--ct-muted-fg)] mb-1">
-                    Toast notifications appear inside CodeTerm for 5 seconds.
-                  </div>
-                  <Toggle
-                    label="Show toast notifications"
-                    checked={true}
-                    onChange={() => {}}
-                  />
-                </Group>
-
-                <ProviderNotifications
-                  fullConfig={localConfig}
-                  onUpdateFullConfig={(next) => {
-                    setLocalConfig(next);
-                    onUpdateConfig(next).catch(() => {});
-                  }}
-                />
-              </div>
+                  <KeybindGroup title="General" bindings={[
+                    ["new_workspace", "New Workspace"],
+                    ["search", "Search"],
+                    ["zoom_in", "Zoom In"],
+                    ["zoom_out", "Zoom Out"],
+                    ["zoom_reset", "Zoom Reset"],
+                    ["open_settings", "Settings"],
+                  ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
+                </SettingsCard>
+              </SettingsPage>
             )}
 
             {top.kind === "section" && top.id === "tabs" && (
-              <div className="max-w-2xl mx-auto space-y-5">
-                <Group title="Sidebar Tabs">
+              <SettingsPage title="Tabs" subtitle="Toggle Memory and Mesh in the sidebar.">
+                <SettingsCard icon={<LayoutGrid size={16} />} title="Sidebar Tabs">
                   <Toggle
                     label="Enable Memory tab"
                     checked={localConfig.ui?.memory_tab_enabled ?? true}
@@ -473,22 +447,26 @@ export function SettingsPanel({
                   >
                     Go to Mesh →
                   </button>
-                </Group>
-              </div>
+                </SettingsCard>
+              </SettingsPage>
             )}
 
             {top.kind === "section" && top.id === "agents" && (
-              <div className="max-w-2xl mx-auto">
+              <SettingsPage title="Agents" subtitle="General Agent, notifications, and per-provider configuration.">
                 <AgentsOverview
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
                   onOpenProvider={(providerId) => push({ kind: "agent-provider", providerId })}
+                  onUpdateFullConfig={(next) => {
+                    setLocalConfig(next);
+                    onUpdateConfig(next).catch(() => {});
+                  }}
                 />
-              </div>
+              </SettingsPage>
             )}
 
             {top.kind === "agent-provider" && (
-              <div className="max-w-2xl mx-auto">
+              <div className="max-w-[720px] mx-auto">
                 <AgentProviderScreen
                   providerId={top.providerId}
                   fullConfig={localConfig}
@@ -502,49 +480,53 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "integrations" && (
-              <div className="max-w-2xl mx-auto">
+              <SettingsPage title="Integrations" subtitle="Telegram, Discord, and external bridges.">
                 <IntegrationsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
-              </div>
+              </SettingsPage>
             )}
 
             {top.kind === "section" && top.id === "secrets" && (
-              <div className="max-w-2xl mx-auto">
+              <SettingsPage title="Secrets" subtitle="Pluggable secret store for the codeterm mem secret commands.">
                 <SecretsTab
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
                   onCloseSettings={onClose}
                 />
-              </div>
+              </SettingsPage>
             )}
 
             {top.kind === "section" && top.id === "about" && (
-              <div className="max-w-2xl mx-auto space-y-5">
-                {/* Logo + tagline */}
+              <SettingsPage title="About" subtitle="Version, updates, and creator.">
                 <div className="text-center py-4">
                   <img src={logoUrl} alt="CodeTerm" width="64" height="64" className="rounded-xl mb-3 mx-auto" />
                   <div className="text-xl font-bold text-[var(--ct-fg)]">CodeTerm</div>
                   <div className="text-xs text-[var(--ct-muted-fg)] mt-1">AI-first terminal multiplexer</div>
                 </div>
 
-                <Group title="Info">
+                <SettingsCard icon={<Info size={16} />} title="Info">
                   <InfoRow label="Version" value={__APP_VERSION__} />
                   <InfoRow label="Platform" value={navigator.platform} />
                   <InfoRow label="Config" value={configPath || "loading..."} mono />
-                </Group>
+                </SettingsCard>
 
                 <UpdateSection />
 
-                {/* Creator */}
-                <Group title="Created by">
+
+
+                <SettingsCard icon={<ExternalLink size={16} />} title="Created by">
                   <div className="text-xs text-[var(--ct-fg)]">Andrey Kovalev</div>
-                  <div className="flex flex-wrap gap-3 mt-1">
+                  <div className="flex flex-wrap gap-3">
                     <AboutLink href="https://github.com/rollacode" label="GitHub" Icon={ExternalLink} />
                     <AboutLink href="https://rollacode.org" label="Website" Icon={ExternalLink} />
                     <AboutLink href="https://www.linkedin.com/in/rollacode" label="LinkedIn" Icon={ExternalLink} />
                   </div>
-                </Group>
+                </SettingsCard>
 
-                <Group title="Setup">
+                <SettingsCard
+                  icon={<Wrench size={16} />}
+                  title="Setup"
+                  description="Re-run the setup wizard on next launch."
+                >
                   <button
                     onClick={() => {
                       const next = { ...localConfig, onboarding_completed: false };
@@ -557,15 +539,12 @@ export function SettingsPanel({
                   >
                     Reset Onboarding
                   </button>
-                  <div className="text-[10px] text-[var(--ct-muted)]">
-                    Re-run the setup wizard on next launch.
-                  </div>
-                </Group>
+                </SettingsCard>
 
                 <div className="text-center pt-2">
                   <span className="text-xs text-[var(--ct-muted)]">Let&apos;s build something great :)</span>
                 </div>
-              </div>
+              </SettingsPage>
             )}
           </div>
         </div>

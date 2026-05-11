@@ -25,9 +25,18 @@ interface SchemaRendererProps {
   providerId: string;
   config: AppConfig;
   onChange: (providerId: string, patch: Partial<ProviderConfig>) => void;
+  hideActions?: boolean;
+  hidePathLinks?: boolean;
 }
 
-export function SchemaRenderer({ schema, providerId, config, onChange }: SchemaRendererProps) {
+export function SchemaRenderer({
+  schema,
+  providerId,
+  config,
+  onChange,
+  hideActions,
+  hidePathLinks,
+}: SchemaRendererProps) {
   const providerConfig = config.agents?.[providerId] ?? {};
   return (
     <div className="space-y-5">
@@ -38,6 +47,8 @@ export function SchemaRenderer({ schema, providerId, config, onChange }: SchemaR
           providerId={providerId}
           providerConfig={providerConfig}
           onChange={onChange}
+          hideActions={hideActions}
+          hidePathLinks={hidePathLinks}
         />
       ))}
     </div>
@@ -49,9 +60,18 @@ interface FieldRendererProps {
   providerId: string;
   providerConfig: ProviderConfig;
   onChange: (providerId: string, patch: Partial<ProviderConfig>) => void;
+  hideActions?: boolean;
+  hidePathLinks?: boolean;
 }
 
-function FieldRenderer({ field, providerId, providerConfig, onChange }: FieldRendererProps) {
+function FieldRenderer({
+  field,
+  providerId,
+  providerConfig,
+  onChange,
+  hideActions,
+  hidePathLinks,
+}: FieldRendererProps) {
   switch (field.kind) {
     case "section":
       return (
@@ -67,6 +87,8 @@ function FieldRenderer({ field, providerId, providerConfig, onChange }: FieldRen
               providerId={providerId}
               providerConfig={providerConfig}
               onChange={onChange}
+              hideActions={hideActions}
+              hidePathLinks={hidePathLinks}
             />
           ))}
         </div>
@@ -165,12 +187,14 @@ function FieldRenderer({ field, providerId, providerConfig, onChange }: FieldRen
       return <InfoField title={field.title} body={field.body} level={field.level} />;
 
     case "path_link":
+      if (hidePathLinks) return null;
       return <PathLinkField label={field.label} path={field.path} />;
 
     case "badge":
       return <BadgeField queryCommand={field.query_command} variants={field.variants} />;
 
     case "action":
+      if (hideActions) return null;
       return (
         <ActionField
           id={field.id}
@@ -194,6 +218,8 @@ function FieldRenderer({ field, providerId, providerConfig, onChange }: FieldRen
               providerId={providerId}
               providerConfig={providerConfig}
               onChange={onChange}
+              hideActions={hideActions}
+              hidePathLinks={hidePathLinks}
             />
           ))}
         </>

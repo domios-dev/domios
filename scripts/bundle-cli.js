@@ -6,9 +6,10 @@ const { execSync } = require("child_process");
 
 const isWindows = process.platform === "win32";
 const isMacOS = process.platform === "darwin";
+const repoRoot = path.resolve(__dirname, "..");
 const binName = isWindows ? "codeterm.exe" : "codeterm";
-const src = path.join("cli", "target", "release", binName);
-const destDir = path.join("src-tauri", "bundled-cli");
+const src = path.join(repoRoot, "cli", "target", "release", binName);
+const destDir = path.join(repoRoot, "src-tauri", "bundled-cli");
 const dest = path.join(destDir, binName);
 
 fs.mkdirSync(destDir, { recursive: true });

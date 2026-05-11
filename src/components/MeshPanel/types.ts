@@ -50,7 +50,7 @@ export interface ActivityEvent {
   meta: Record<string, unknown>;
 }
 
-export type MeshTab = "map" | "activity" | "settings";
+export type MeshTab = "map" | "activity" | "network";
 
 export const CRON_ID_PREFIX = "cron_";
 

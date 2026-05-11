@@ -424,11 +424,11 @@ To suppress extraction on a specific save — used by seed loaders to avoid re-e
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `memory.l1_budget_tokens` | `usize` | `800` | Token budget for the L1 critical-context layer in `codeterm mem wake-up` (and `GET /api/mem/wake-up` when no `?budget=` is passed). L0 identity always renders first (~100 tok); L1 fills the remainder. Pinned items beat the score-ranked fill but still respect this budget — when the pinned set alone overflows it, the rendered output starts with `<!-- WARN: N pinned items did not fit L1 budget … -->` and a `[wake-up] pinned-eviction` log line fires. |
+| `memory.l1_budget_tokens` | `usize` | `300` | Token budget for the L1 critical-context layer in `codeterm mem wake-up` (and `GET /api/mem/wake-up` when no `?budget=` is passed). L0 identity always renders first (~100 tok); L1 fills the remainder. Pinned items beat the score-ranked fill but still respect this budget — when the pinned set alone overflows it, the rendered output starts with `<!-- WARN: N pinned items did not fit L1 budget … -->` and a `[wake-up] pinned-eviction` log line fires. |
 
 ```toml
 [memory]
-l1_budget_tokens = 800
+l1_budget_tokens = 300
 ```
 
 ### Dreamer schedule
@@ -473,4 +473,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

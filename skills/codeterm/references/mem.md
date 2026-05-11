@@ -72,7 +72,7 @@ The Librarian re-indexes the source whenever the file changes.
 1. **Pinned set** — `is_pinned_wakeup = 1` in scope (global + current workspace if `--workspace` is set). Pinned items always load and render before any ranked item inside their kind section, prefixed with `★`.
 2. **Ranked fill** — remaining items scored by `importance + log10(1 + evidence_count) * 0.5 + ws_match * 0.5 + recent_30d * 0.3`. `auto-extracted` noise and the L0 identity row are excluded.
 
-Budget defaults to `[memory] l1_budget_tokens` (default 800). When the pinned set alone exceeds the budget the rendered output starts with `<!-- WARN: N pinned items did not fit L1 budget … -->` and a `[wake-up] pinned-eviction` log line fires — shrink pins (`mem unpin <id>`) or raise the budget.
+Budget defaults to `[memory] l1_budget_tokens` (default 300). When the pinned set alone exceeds the budget the rendered output starts with `<!-- WARN: N pinned items did not fit L1 budget … -->` and a `[wake-up] pinned-eviction` log line fires — shrink pins (`mem unpin <id>`) or raise the budget.
 
 ```bash
 # Pin a load-bearing fact for the current workspace
@@ -179,4 +179,4 @@ codeterm keepawake stop
 codeterm keepawake status
 ```
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

@@ -390,6 +390,14 @@ pub trait AgentProvider: Send + Sync {
     /// Human-readable name (e.g. "Claude Code").
     fn display_name(&self) -> &str;
 
+    /// Executable name a user would type to launch this provider from a shell
+    /// (e.g. `claude`, `codex`, `opencode`). Used by the input parser to map
+    /// typed commands → agent_type. Default falls back to `id()` so trivial
+    /// providers don't have to override.
+    fn binary_name(&self) -> &str {
+        self.id()
+    }
+
     /// Build the shell command to launch this agent.
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String;
 
@@ -398,6 +406,15 @@ pub trait AgentProvider: Send + Sync {
 
     /// How to deliver the task to the agent.
     fn task_delivery(&self) -> TaskDelivery;
+
+    /// Extra delay between launch verify and PtyInput task delivery. Some TUIs
+    /// keep emitting output after the launch command completes (status bar,
+    /// MCP fetch, splash animations) and only render their input box a few
+    /// seconds later — typing the task immediately drops it into the void.
+    /// Default is zero; TUI providers override.
+    fn task_input_warmup(&self) -> Duration {
+        Duration::ZERO
+    }
 
     /// How to verify that submitted text was actually processed. Default is
     /// shell-prompt polling — providers running TUIs or non-observable flows

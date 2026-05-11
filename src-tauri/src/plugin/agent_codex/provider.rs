@@ -32,35 +32,31 @@ impl AgentProvider for CodexProvider {
         "Codex"
     }
 
+    fn binary_name(&self) -> &str {
+        "codex"
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         let mut parts: Vec<String> = Vec::new();
-
-        if let Some(ref task) = params.task {
-            // Non-interactive: codex exec <prompt>
+        if params.headless && params.task.is_some() {
             parts.push("codex".to_string());
             parts.push("exec".to_string());
             if params.skip_permissions {
                 parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
             }
-            // Inherit PTY env vars (CODETERM_SOCKET_PATH, etc.) into sandbox
             parts.push("-c".to_string());
             parts.push("'shell_environment_policy.inherit=all'".to_string());
             parts.push("--skip-git-repo-check".to_string());
-            parts.push(ShellSyntax::quote(task));
+            parts.push(ShellSyntax::quote(params.task.as_ref().unwrap()));
         } else {
-            // Interactive session. Codex CLI removed `--full-auto` in late
-            // 2026; the surviving skip-approvals flag is the same one `codex
-            // exec` takes — `--dangerously-bypass-approvals-and-sandbox`.
             parts.push("codex".to_string());
             if params.skip_permissions {
                 parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
             }
         }
-
         if let Some(ref extra) = params.args {
             parts.extend(extra.iter().cloned());
         }
-
         parts.join(" ")
     }
 
@@ -72,7 +68,11 @@ impl AgentProvider for CodexProvider {
     }
 
     fn task_delivery(&self) -> TaskDelivery {
-        TaskDelivery::InlineFlag
+        TaskDelivery::PtyInput
+    }
+
+    fn task_input_warmup(&self) -> Duration {
+        Duration::from_secs(3)
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
@@ -88,7 +88,15 @@ impl AgentProvider for CodexProvider {
     }
 
     fn detect_from_output(&self, text: &str) -> bool {
-        text.contains("Would you like to run the following command")
+        // Startup banner — fires reliably the moment codex launches, even
+        // before any permission prompt. Used when the user runs `codex`
+        // manually inside a shell pane that was previously labelled with
+        // another provider.
+        text.contains("OpenAI Codex")
+            || text.contains("permissions: YOLO mode")
+            || text.contains("permissions: read-only")
+            // Permission-prompt patterns (existing) — keep for in-session detection
+            || text.contains("Would you like to run the following command")
             || text.contains("Would you like to make the following edits")
             || text.contains("approve network access")
             || text.contains("Would you like to grant these permissions")
@@ -377,6 +385,26 @@ impl AgentProvider for CodexProvider {
                 }],
             },
         ]
+    }
+
+    fn notifications_schema(&self) -> Vec<SettingField> {
+        use crate::agent::provider::{BadgeStyle, BadgeVariant};
+        vec![SettingField::Section {
+            title: "Codex Notifications".into(),
+            description: Some(
+                "Notifications fire when Codex needs your input or finishes a task. \
+                 Powered by CodeTerm's pane-output detection — no setup required."
+                    .into(),
+            ),
+            fields: vec![SettingField::Badge {
+                query_command: "check_pty_status_available".into(),
+                variants: vec![BadgeVariant {
+                    id: "ok".into(),
+                    label: "auto-enabled".into(),
+                    style: BadgeStyle::Green,
+                }],
+            }],
+        }]
     }
 }
 

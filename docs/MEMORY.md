@@ -1,6 +1,6 @@
 # CodeTerm Memory System
 
-<!-- revision: 4 -->
+<!-- revision: 6 -->
 
 Persistent memory for agents. Survives restarts, provider switches
 (Claude ↔ Codex), and CodeTerm upgrades. Agent-agnostic.
@@ -10,12 +10,12 @@ Persistent memory for agents. Survives restarts, provider switches
 - **Storage** — single SQLite DB at `~/.codeterm/mem/knowledge.db` + body blobs on disk
 - **Search** — FTS5 + sqlite-vec hybrid with RRF fusion
 - **Graph** — temporal entity-relation triples (people, projects; NO tech nodes)
-- **L1 selection** — pinned items first, then ranked by `importance + log10(1+evidence)*0.5 + ws_match*0.5 + recent_30d*0.3`; budget defaults to 800 tokens (`[memory] l1_budget_tokens`)
+- **L1 selection** — pinned items first, then ranked by `importance + log10(1+evidence)*0.5 + ws_match*0.5 + recent_30d*0.3`; budget defaults to 300 tokens (`[memory] l1_budget_tokens`)
 - **Pins** — `mem pin <id>` / `mem unpin <id>` set `is_pinned_wakeup`; pinned items always load in L1 (subject to budget)
 - **Workers** — hidden headless agents that extract entities, build graph, dedup; `mem worker spawn` for ad-hoc enrichment
 - **Skills** — folder skills (`SKILL.md` + scripts) registered via `mem skill new/add`, indexed alongside other items
 - **Librarian** — periodic file-sync daemon: re-vectorizes source-tracked items when their on-disk file changes, flags deletions
-- **Dreaming** — nightly consolidation at 6 AM (±30 min jitter), SQL phases + LLM REM phase in a worker
+- **Dreaming** — nightly consolidation at 6 AM (±30 min jitter): four SQL phases (light, deep, normalize, calibration) run server-side in `POST /api/mem/dream`, then the LLM REM worker is spawned to handle structural cleanup + diary; the REM prompt is read-only with respect to calibration (sweep already ran)
 - **Auto-flush** — `PreCompact` and `SessionStart` hooks POST to authenticated CodeTerm endpoints to capture conversation state without manual saves
 - **Protocol** — 7 behavioral rules injected into every agent session via `bridge_mem.md`
 
@@ -70,7 +70,7 @@ Three layers (matching MemPalace's L0-L3 pattern):
 | Layer | What | When | Size |
 |---|---|---|---|
 | **L0 — Identity** | `~/.codeterm/general/identity.md` | Injected into every GA init | ~100 tok |
-| **L1 — Wake-up** | Pinned items + ranked by score (see below) | `codeterm mem wake-up` (GA runs on init) | ~800 tok (config: `[memory] l1_budget_tokens`) |
+| **L1 — Wake-up** | Pinned items + ranked by score (see below) | `codeterm mem wake-up` (GA runs on init) | ~300 tok (config: `[memory] l1_budget_tokens`) |
 | **L2 — Targeted** | `search --area X --kind Y` | On-demand when topic comes up | variable |
 | **L3 — Hybrid** | FTS5 BM25 + vector recall + RRF fusion | `codeterm mem search` / `recall` | variable |
 
@@ -118,7 +118,7 @@ Final ordering: `score DESC, id ASC` (deterministic for tests / `--explain`).
 **Eviction warning** — if even the pinned set alone overflows `l1_budget_tokens`, the rendered output starts with an HTML comment:
 
 ```
-<!-- WARN: 4 pinned items did not fit L1 budget 800 -->
+<!-- WARN: 4 pinned items did not fit L1 budget 300 -->
 ```
 
 and a `log::warn!` fires (`[wake-up] pinned-eviction`). Action: shrink pins (`mem unpin <id>`) or raise the budget. Pins are user intent, so the system never silently drops them — it surfaces the conflict.
