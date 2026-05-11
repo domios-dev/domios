@@ -125,6 +125,34 @@ fn test_close_pane_collapses_split() {
 }
 
 #[test]
+fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() {
+    // Regression: hidden usage-probe panes are single-leaf tabs. When such a
+    // probe finishes and closes its tab, the workspace's active_tab_id must
+    // stay pinned on whatever the user was viewing — NOT silently flip to
+    // ws.tabs.last(). The old code unconditionally reassigned to last().
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (tab2_id, _) = state.create_tab(&ws_id).unwrap();
+    let (_tab3_id, tab3_pane_id) = state.create_tab(&ws_id).unwrap();
+
+    // User parks on tab 2 (the middle one). tab 3 is a hidden probe tab.
+    state.set_active_tab(&ws_id, &tab2_id).unwrap();
+    assert_eq!(
+        state.get_workspace(&ws_id).and_then(|w| w.active_tab_id.clone()),
+        Some(tab2_id.clone())
+    );
+
+    // Probe finishes → its single-leaf tab gets closed via close_pane.
+    state.close_pane(&tab3_pane_id).unwrap();
+
+    assert_eq!(
+        state.get_workspace(&ws_id).and_then(|w| w.active_tab_id.clone()),
+        Some(tab2_id),
+        "Closing an unrelated single-leaf tab must not move active_tab_id"
+    );
+}
+
+#[test]
 fn test_close_pane_returns_pty_id() {
     let (mut state, initial_pane_id) = MultiplexerState::new();
 

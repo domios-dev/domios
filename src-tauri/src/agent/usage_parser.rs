@@ -9,35 +9,7 @@ pub struct UsageSnapshot {
     pub session_resets_at_ms: Option<i64>,
     pub weekly_pct: Option<f32>,
     pub weekly_resets_at_ms: Option<i64>,
-    pub weekly_sonnet_pct: Option<f32>,
-    pub weekly_sonnet_resets_at_ms: Option<i64>,
-    pub session_cost_usd: Option<f32>,
-    pub session_api_duration_s: Option<i64>,
-    pub session_wall_duration_s: Option<i64>,
-    pub session_lines_added: Option<i64>,
-    pub session_lines_removed: Option<i64>,
-    pub session_tokens_input: Option<i64>,
-    pub session_tokens_output: Option<i64>,
-    pub session_tokens_cache_read: Option<i64>,
-    pub session_tokens_cache_write: Option<i64>,
-    pub breakdown: Vec<UsageBreakdownRow>,
     pub raw_text: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UsageBreakdownRow {
-    pub dimension: BreakdownDimension,
-    pub key: String,
-    pub pct: f32,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum BreakdownDimension {
-    Skill,
-    Subagent,
-    Plugin,
-    Heuristic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,35 +43,11 @@ impl UsageSnapshot {
             session_resets_at_ms: None,
             weekly_pct: None,
             weekly_resets_at_ms: None,
-            weekly_sonnet_pct: None,
-            weekly_sonnet_resets_at_ms: None,
-            session_cost_usd: None,
-            session_api_duration_s: None,
-            session_wall_duration_s: None,
-            session_lines_added: None,
-            session_lines_removed: None,
-            session_tokens_input: None,
-            session_tokens_output: None,
-            session_tokens_cache_read: None,
-            session_tokens_cache_write: None,
-            breakdown: Vec::new(),
             raw_text: raw_text.to_string(),
         }
     }
 
     pub fn has_any_field(&self) -> bool {
-        self.session_pct.is_some()
-            || self.weekly_pct.is_some()
-            || self.weekly_sonnet_pct.is_some()
-            || self.session_cost_usd.is_some()
-            || self.session_api_duration_s.is_some()
-            || self.session_wall_duration_s.is_some()
-            || self.session_lines_added.is_some()
-            || self.session_lines_removed.is_some()
-            || self.session_tokens_input.is_some()
-            || self.session_tokens_output.is_some()
-            || self.session_tokens_cache_read.is_some()
-            || self.session_tokens_cache_write.is_some()
-            || !self.breakdown.is_empty()
+        self.session_pct.is_some() || self.weekly_pct.is_some()
     }
 }

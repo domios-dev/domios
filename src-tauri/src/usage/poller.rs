@@ -10,7 +10,7 @@ use super::store::UsageStoreHandle;
 use crate::service::ServiceContext;
 
 const TICK_INTERVAL: Duration = Duration::from_secs(30);
-const BASE_BACKOFF: Duration = Duration::from_secs(60);
+const BASE_BACKOFF: Duration = Duration::from_secs(120);
 const MAX_BACKOFF: Duration = Duration::from_secs(3600);
 const PAUSE_AFTER_FAILURES: u32 = 3;
 
@@ -293,24 +293,35 @@ fn on_failure(inner: &Arc<UsagePollerInner>, key: &AccountKey, reason: &str) {
         state.paused = true;
     }
     drop(accounts);
+
+    let source = format!("usage.parser.{}", key.provider);
+    let level = if paused {
+        crate::logs::LogLevel::Error
+    } else {
+        crate::logs::LogLevel::Warn
+    };
+    let msg = if paused {
+        format!("paused after {} failures · {}", failures, reason)
+    } else {
+        format!("probe failed ({}/{}) · {}", failures, PAUSE_AFTER_FAILURES, reason)
+    };
+    crate::logs::record(
+        level,
+        &source,
+        msg,
+        Some(serde_json::json!({
+            "provider": key.provider,
+            "account_id": key.account_id,
+            "failures": failures,
+            "reason": reason,
+            "paused": paused,
+        })),
+    );
+
     if paused {
         log::warn!(
             "[usage.poller] pausing {}/{:?} after {} failures (reason={})",
             key.provider, key.account_id, failures, reason
-        );
-        let source = format!("usage.parser.{}", key.provider);
-        crate::logs::record(
-            crate::logs::LogLevel::Error,
-            &source,
-            format!(
-                "paused after {} failures (reason={})",
-                failures, reason
-            ),
-            Some(serde_json::json!({
-                "provider": key.provider,
-                "account_id": key.account_id,
-                "failures": failures,
-            })),
         );
     }
 }

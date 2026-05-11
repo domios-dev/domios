@@ -116,7 +116,7 @@ impl UsageProbe {
             .with_provider(provider, |p| (p.task_input_warmup(), p.verify_submit_strategy()))
             .unwrap_or((Duration::ZERO, VerifySubmitStrategy::None));
 
-        wait_for_tui(&svc, pty_id, Duration::from_secs(30))
+        wait_for_tui(&svc, pty_id, Duration::from_secs(60))
             .await
             .map_err(|m| ProbeError::NotReady(m))?;
 
@@ -179,22 +179,9 @@ impl UsageProbe {
         })
         .await;
 
-        tokio::time::sleep(warmup + Duration::from_millis(5500)).await;
+        tokio::time::sleep(warmup).await;
 
-        let raw_bytes = {
-            let ob = svc.output_buf.lock();
-            ob.get_full(pty_id).map(|b| b.to_vec())
-        };
-        let raw_text = match raw_bytes {
-            Some(bytes) if !bytes.is_empty() => render_tall(&bytes, 200, 120),
-            _ => {
-                let s = svc.screen_state.lock();
-                s.get_screen_text(pty_id).ok_or(ProbeError::NoOutput)?
-            }
-        };
-        if raw_text.trim().is_empty() {
-            return Err(ProbeError::NoOutput);
-        }
+        let raw_text = wait_for_output(&svc, pty_id, provider).await?;
 
         let svc_for_exit = svc.clone();
         let pty_exit = pty_id.to_string();
@@ -229,15 +216,22 @@ async fn wait_for_tui(
 ) -> Result<(), String> {
     let started = Instant::now();
     let poll = Duration::from_millis(250);
+    let content_fallback_after = Duration::from_secs(25);
+    let mut first_content_at: Option<Instant> = None;
     while started.elapsed() < timeout {
-        let ready = {
-            let s = svc.screen_state.lock();
-            s.get_screen_text(pty_id)
-                .map(|t| screen_has_tui_input(&t))
-                .unwrap_or(false)
-        };
-        if ready {
+        let text = svc
+            .screen_state
+            .lock()
+            .get_screen_text(pty_id)
+            .unwrap_or_default();
+        if screen_has_tui_input(&text) {
             return Ok(());
+        }
+        if !text.trim().is_empty() {
+            let first = *first_content_at.get_or_insert_with(Instant::now);
+            if first.elapsed() >= content_fallback_after {
+                return Ok(());
+            }
         }
         tokio::time::sleep(poll).await;
     }
@@ -245,7 +239,72 @@ async fn wait_for_tui(
 }
 
 fn screen_has_tui_input(text: &str) -> bool {
-    text.contains("│ >") || text.contains("> ") || text.contains("❯") || text.contains("│ Try")
+    let lower = text.to_ascii_lowercase();
+    text.contains("│ >")
+        || text.contains("│  >")
+        || text.contains("❯")
+        || text.contains("│ Try")
+        || lower.contains("try \"")
+        || lower.contains("for shortcuts")
+        || lower.contains("? for shortcuts")
+        || lower.contains("ctrl+l")
+}
+
+const TOTAL_BUDGET: Duration = Duration::from_secs(8);
+const STILL_LOADING_DEADLINE: Duration = Duration::from_secs(5);
+const POLL_INTERVAL: Duration = Duration::from_millis(400);
+
+async fn wait_for_output(
+    svc: &ServiceContext,
+    pty_id: &str,
+    provider: &str,
+) -> Result<String, ProbeError> {
+    let started = Instant::now();
+    let mut last_text = String::new();
+    while started.elapsed() < TOTAL_BUDGET {
+        let raw_bytes = {
+            let ob = svc.output_buf.lock();
+            ob.get_full(pty_id).map(|b| b.to_vec())
+        };
+        let text = match raw_bytes {
+            Some(b) if !b.is_empty() => render_tall(&b, 200, 120),
+            _ => svc
+                .screen_state
+                .lock()
+                .get_screen_text(pty_id)
+                .unwrap_or_default(),
+        };
+        if !text.trim().is_empty() {
+            last_text = text.clone();
+            if has_parseable_markers(&text, provider) {
+                return Ok(text);
+            }
+            if started.elapsed() >= STILL_LOADING_DEADLINE && only_loading_state(&text) {
+                return Err(ProbeError::NotReady("still loading after 5s".into()));
+            }
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+    if last_text.trim().is_empty() {
+        Err(ProbeError::NoOutput)
+    } else if has_parseable_markers(&last_text, provider) {
+        Ok(last_text)
+    } else {
+        Err(ProbeError::NotReady("output never reached parseable state".into()))
+    }
+}
+
+fn has_parseable_markers(text: &str, provider: &str) -> bool {
+    match provider {
+        "claude" => text.contains("% used") && text.contains("Resets"),
+        "codex" => text.contains("% left") && text.contains("resets"),
+        _ => false,
+    }
+}
+
+fn only_loading_state(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("loading usage data") || lower.contains("loading…") || lower.contains("loading...")
 }
 
 fn render_tall(bytes: &[u8], rows: u16, cols: u16) -> String {
