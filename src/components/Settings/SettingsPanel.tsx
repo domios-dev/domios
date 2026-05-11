@@ -20,6 +20,7 @@ import {
   Power,
   Keyboard,
   Wrench,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
 
@@ -31,6 +32,7 @@ import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
+import { LogsTab } from "./LogsTab";
 
 interface SettingsPanelProps {
   config: AppConfig;
@@ -46,6 +48,7 @@ export type SectionId =
   | "agents"
   | "integrations"
   | "secrets"
+  | "logs"
   | "about";
 
 type Route =
@@ -59,6 +62,7 @@ const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   agents: Bot,
   integrations: Plug,
   secrets: KeyRound,
+  logs: FileText,
   about: Info,
 };
 
@@ -68,6 +72,7 @@ const SECTIONS: { id: SectionId; label: string; desc: string }[] = [
   { id: "agents", label: "Agents", desc: "General Agent, notifications, and per-provider config" },
   { id: "integrations", label: "Integrations", desc: "Telegram, Discord, external bridges" },
   { id: "secrets", label: "Secrets", desc: "Keychain — pluggable secret store" },
+  { id: "logs", label: "Logs", desc: "App diagnostics — live, filterable, scoped" },
   { id: "about", label: "About", desc: "Version, updates, creator" },
 ];
 
@@ -492,6 +497,12 @@ export function SettingsPanel({
                   onUpdate={(section, patch) => update(section, patch)}
                   onCloseSettings={onClose}
                 />
+              </SettingsPage>
+            )}
+
+            {top.kind === "section" && top.id === "logs" && (
+              <SettingsPage title="Logs" subtitle="App diagnostics from the daemon, mesh, agents, and integrations.">
+                <LogsTab config={localConfig} />
               </SettingsPage>
             )}
 

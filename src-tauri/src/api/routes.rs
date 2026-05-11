@@ -8,8 +8,9 @@ use tower_http::cors::CorsLayer;
 
 use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, health_routes, hook_routes,
-    mem_routes, mesh_routes, network_routes, notification_routes, pane_routes, services_routes,
-    session_routes, theme_routes, updater_routes, webhook_routes, workspace_routes,
+    logs_routes, mem_routes, mesh_routes, network_routes, notification_routes, pane_routes,
+    services_routes, session_routes, theme_routes, updater_routes, usage_routes, webhook_routes,
+    workspace_routes,
 };
 
 #[derive(Clone)]
@@ -205,7 +206,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/secrets/collections", get(crate::secrets::api::collections))
         .route("/api/secrets/backend", post(crate::secrets::api::switch_backend))
         .route("/api/secrets/sync", post(crate::secrets::api::sync))
-        .route("/api/secrets/auto-unlock", post(crate::secrets::api::auto_unlock));
+        .route("/api/secrets/auto-unlock", post(crate::secrets::api::auto_unlock))
+        .route("/api/usage/latest", get(usage_routes::usage_latest))
+        .route("/api/usage/history", get(usage_routes::usage_history))
+        .route("/api/usage/rollup/daily", get(usage_routes::usage_daily_rollup))
+        .route("/api/usage/refresh", post(usage_routes::usage_refresh))
+        .route("/api/logs", get(logs_routes::list_logs).delete(logs_routes::delete_logs));
 
     router
         .layer(middleware::from_fn_with_state(state.clone(), super::auth::auth_middleware))

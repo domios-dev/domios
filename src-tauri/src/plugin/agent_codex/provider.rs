@@ -5,8 +5,11 @@ use crate::agent::provider::{
     self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SessionMessage,
     SessionMetadata, SettingField, TaskDelivery, UsageSnapshot, VerifySubmitStrategy,
 };
+use super::status_tui::CodexStatusUsageParser;
 use super::usage as codex_usage;
 use crate::shell::ShellSyntax;
+
+static CODEX_STATUS_PARSER: CodexStatusUsageParser = CodexStatusUsageParser;
 
 /// OpenAI Codex CLI agent provider.
 pub struct CodexProvider;
@@ -34,6 +37,14 @@ impl AgentProvider for CodexProvider {
 
     fn binary_name(&self) -> &str {
         "codex"
+    }
+
+    fn usage_parser(&self) -> Option<&dyn crate::agent::usage_parser::UsageParser> {
+        Some(&CODEX_STATUS_PARSER)
+    }
+
+    fn usage_probe_command(&self) -> Option<&str> {
+        Some("/status")
     }
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
