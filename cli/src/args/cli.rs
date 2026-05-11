@@ -13,6 +13,7 @@ use super::misc::{
 use super::sessions::SessionsAction;
 use super::system::SystemAction;
 use super::update::UpdateAction;
+use super::usage::UsageAction;
 
 #[derive(Parser)]
 #[command(name = "codeterm", version, about = "CodeTerm CLI — control your terminal multiplexer")]
@@ -220,6 +221,13 @@ pub enum Commands {
     Sessions {
         #[command(subcommand)]
         action: SessionsAction,
+    },
+
+    /// Agent usage tracking — current %, projection for end-of-today /
+    /// end-of-cycle based on your historical rhythm scaled to today's pace.
+    Usage {
+        #[command(subcommand)]
+        action: UsageAction,
     },
 
     /// OS-level integration: autostart, supervision, install hooks. Each

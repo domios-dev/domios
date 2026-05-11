@@ -61,6 +61,8 @@ Optional flags: `--kind <skill|fact|...>`, `--limit <n>` (default 5), `--rerank`
 
 **"Find that past session…" → `codeterm sessions search "<query>"`** (not `mem search`). To actually open it, use **`codeterm sessions resume <id>`** — one command, handles workspace + cwd + resume id correctly. Do NOT do `workspace create + agent spawn --args=--resume=UUID` by hand, it breaks because `claude --resume` looks for the JSONL in the CURRENT encoded project dir.
 
+**"How much have I used / will I exceed?" → `codeterm usage projection`** — prints current %, projected end-of-today + end-of-cycle for session + weekly. Algorithm anchors today's pace, so it answers "if I keep going like this, when do I exceed?". `--provider codex` for Codex.
+
 **Capture as you go.** When the user tells you something durable, save it:
 ```bash
 codeterm mem save --kind peer --title <peer-bot-name> "mac mini, paired, handles iOS builds"

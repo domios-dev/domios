@@ -305,6 +305,23 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
         // `docs` reads embedded markdown — local-only by definition.
         Commands::Docs { .. } => ("GET".into(), "/api/identify".into(), None),
+        Commands::Usage { action } => match action {
+            crate::UsageAction::Latest { provider, account_id } => {
+                let mut path = format!("/api/usage/latest?provider={}", urlencoding::encode(provider));
+                if let Some(a) = account_id { path.push_str(&format!("&account_id={}", urlencoding::encode(a))); }
+                ("GET".into(), path, None)
+            }
+            crate::UsageAction::Projection { provider, account_id } => {
+                let mut path = format!("/api/usage/projection?provider={}", urlencoding::encode(provider));
+                if let Some(a) = account_id { path.push_str(&format!("&account_id={}", urlencoding::encode(a))); }
+                ("GET".into(), path, None)
+            }
+            crate::UsageAction::Refresh { provider, account_id } => {
+                let mut body = serde_json::json!({ "provider": provider });
+                if let Some(a) = account_id { body["account_id"] = serde_json::json!(a); }
+                ("POST".into(), "/api/usage/refresh".into(), Some(body.to_string()))
+            }
+        },
         Commands::Service { action } => match action {
             ServiceAction::List { kind, enabled } => {
                 let mut path = String::from("/api/services");

@@ -224,6 +224,10 @@ async fn run_probe_for(
                     snap.provider = key.provider.clone();
                     match inner.store.insert_snapshot(&snap) {
                         Ok(id) => {
+                            crate::usage::projection::invalidate_cache(
+                                &key.provider,
+                                key.account_id.as_deref(),
+                            );
                             on_success(&inner, &key);
                             emit_event(&inner.svc, &key, id);
                         }

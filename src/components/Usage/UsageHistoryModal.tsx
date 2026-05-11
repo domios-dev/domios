@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { RefreshCw, X, LineChart, Table as TableIcon } from "lucide-react";
 import { classify, type UsageSnapshot } from "../../types/usage";
-import { useUsageHistory } from "../../hooks/useUsageSnapshot";
+import { useUsageHistory, useUsageProjection } from "../../hooks/useUsageSnapshot";
 import { formatRelative } from "./format";
 import { UsageChart, type Range } from "./UsageChart";
 import { UsageTable } from "./UsageTable";
@@ -30,12 +30,12 @@ const REFRESH_TIMEOUT_MS = 12_000;
 
 export function UsageHistoryModal({ provider, accountId, onClose }: UsageHistoryModalProps) {
   const [range, setRange] = useState<Range>("week");
-  const [excludeWeekends, setExcludeWeekends] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
   const since = useMemo(() => Date.now() - RANGE_MS[range], [range]);
   const limit = range === "week" ? 500 : range === "month" ? 2000 : 8000;
   const { rows } = useUsageHistory({ provider, accountId, sinceMs: since, limit });
+  const { projection } = useUsageProjection({ provider, accountId });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -70,14 +70,22 @@ export function UsageHistoryModal({ provider, accountId, onClose }: UsageHistory
 
   const cycle = useMemo(() => activeWeeklyCycle(rows), [rows]);
 
+  const bucketProj = projection?.weekly
+    ? {
+        avgWeekdaySpend: projection.weekly.avg_weekday_spend,
+        avgWeekendSpend: projection.weekly.avg_weekend_spend,
+        dowEstimates: projection.weekly.dow_estimates,
+        restOfTodayEst: projection.weekly.rest_of_today_est,
+      }
+    : null;
   const buckets = useMemo(() => {
     const now = Date.now();
     if (range === "week") {
-      return buildWeekBuckets(rows, cycle.start, cycle.end, excludeWeekends);
+      return buildWeekBuckets(rows, cycle.start, cycle.end, bucketProj);
     }
     if (range === "month") return buildMonthBuckets(rows, now);
     return buildYearBuckets(rows, now);
-  }, [rows, range, excludeWeekends, cycle.start, cycle.end]);
+  }, [rows, range, bucketProj, cycle.start, cycle.end]);
 
   const rangeLabel = useMemo(() => {
     if (range === "week") {
@@ -110,16 +118,6 @@ export function UsageHistoryModal({ provider, accountId, onClose }: UsageHistory
               <span>Usage over time</span>
             </div>
             <div className="head-actions">
-              {range === "week" && (
-                <label className="ct-usage-check" title="Spread remaining weekly quota only across upcoming weekdays — dashed bars show how much you can spend per day until cycle end.">
-                  <input
-                    type="checkbox"
-                    checked={excludeWeekends}
-                    onChange={(e) => setExcludeWeekends(e.target.checked)}
-                  />
-                  <span>daily budget · exclude weekends</span>
-                </label>
-              )}
               <RangeTabs range={range} onChange={setRange} />
               <button
                 type="button"

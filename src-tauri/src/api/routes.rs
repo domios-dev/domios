@@ -210,6 +210,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/usage/latest", get(usage_routes::usage_latest))
         .route("/api/usage/history", get(usage_routes::usage_history))
         .route("/api/usage/rollup/daily", get(usage_routes::usage_daily_rollup))
+        .route("/api/usage/projection", get(usage_routes::usage_projection))
         .route("/api/usage/refresh", post(usage_routes::usage_refresh))
         .route("/api/logs", get(logs_routes::list_logs).delete(logs_routes::delete_logs));
 
