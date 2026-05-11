@@ -10,8 +10,10 @@ use super::store::UsageStoreHandle;
 use crate::service::ServiceContext;
 
 const TICK_INTERVAL: Duration = Duration::from_secs(30);
-const BASE_BACKOFF: Duration = Duration::from_secs(120);
-const MAX_BACKOFF: Duration = Duration::from_secs(3600);
+/// Adaptive backoff steps in seconds: start dense when the user is active,
+/// stretch out the longer they're away. Last value is the floor — polls
+/// keep happening even at night so off-device usage shows up eventually.
+const BACKOFF_STEPS_S: [u64; 5] = [120, 300, 600, 1200, 2400];
 const PAUSE_AFTER_FAILURES: u32 = 3;
 
 #[derive(Clone, Default)]
@@ -42,7 +44,10 @@ struct AccountState {
     last_probe_at: Option<Instant>,
     last_success_at: Option<Instant>,
     consecutive_failures: u32,
-    current_backoff: Duration,
+    /// Index into `BACKOFF_STEPS_S` representing the *next* probe's wait.
+    /// Resets to 0 (densest) on any terminal activity detected before the
+    /// previous probe, climbs by one on each "no activity" tick.
+    backoff_idx: usize,
     paused: bool,
     in_flight: bool,
 }
@@ -168,28 +173,40 @@ fn activity_gate(
     if state.paused || state.in_flight {
         return false;
     }
-    let backoff = if state.current_backoff.is_zero() {
-        BASE_BACKOFF
-    } else {
-        state.current_backoff
-    };
+    let interval = current_backoff(state.backoff_idx);
     if let Some(last) = state.last_probe_at {
-        if now.duration_since(last) < backoff {
+        if now.duration_since(last) < interval {
             return false;
         }
     }
-    let last_probe = state.last_probe_at.unwrap_or_else(|| now - Duration::from_secs(86400));
+    // Was there terminal activity since the last probe? If yes, this tick's
+    // step resets to densest on the next pre-probe update. We just gate by
+    // time here — the step bump happens after probe completes.
+    let last_probe = state.last_probe_at.unwrap_or_else(|| now - Duration::from_secs(86_400));
     let activity = &inner.activity;
-    let active = panes.iter().any(|p| {
-        activity
-            .get(p)
-            .map(|ts| ts > last_probe)
-            .unwrap_or(false)
-    });
-    if !active && state.last_success_at.is_some() {
-        return false;
-    }
+    let _was_active = panes
+        .iter()
+        .any(|p| activity.get(p).map(|ts| ts > last_probe).unwrap_or(false));
     true
+}
+
+/// Returns the wait duration for the given step. Top steps get ±10% jitter so
+/// the polling cadence isn't a metronome.
+fn current_backoff(idx: usize) -> Duration {
+    let clamped = idx.min(BACKOFF_STEPS_S.len() - 1);
+    let secs = BACKOFF_STEPS_S[clamped];
+    if clamped >= 3 {
+        // Cheap deterministic-ish jitter from nanos — no extra dep needed.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos() as u64)
+            .unwrap_or(0);
+        let jitter_range = (secs / 10) * 2;
+        let offset = (nanos % jitter_range) as i64 - (jitter_range / 2) as i64;
+        Duration::from_secs((secs as i64 + offset).max(60) as u64)
+    } else {
+        Duration::from_secs(secs)
+    }
 }
 
 async fn run_probe_for(
@@ -281,16 +298,36 @@ fn on_success(inner: &Arc<UsagePollerInner>, key: &AccountKey) {
     let mut accounts = inner.accounts.lock();
     let state = accounts.entry(key.clone()).or_default();
     state.consecutive_failures = 0;
-    state.current_backoff = BASE_BACKOFF;
     state.last_success_at = Some(Instant::now());
     state.paused = false;
+    let last_probe = state.last_probe_at;
+    drop(accounts);
+    // Adaptive backoff: reset to densest if terminal was active since the
+    // previous probe; otherwise climb one step (capped at the longest).
+    let panes = visible_panes_for_provider(&inner.svc, &key.provider);
+    let active_recently = match last_probe {
+        Some(probe_at) => panes
+            .iter()
+            .any(|p| inner.activity.get(p).map(|act| act > probe_at).unwrap_or(false)),
+        None => true,
+    };
+    let mut accounts = inner.accounts.lock();
+    let state = accounts.entry(key.clone()).or_default();
+    if active_recently {
+        state.backoff_idx = 0;
+    } else if state.backoff_idx + 1 < BACKOFF_STEPS_S.len() {
+        state.backoff_idx += 1;
+    }
 }
 
 fn on_failure(inner: &Arc<UsagePollerInner>, key: &AccountKey, reason: &str) {
     let mut accounts = inner.accounts.lock();
     let state = accounts.entry(key.clone()).or_default();
     state.consecutive_failures = state.consecutive_failures.saturating_add(1);
-    state.current_backoff = next_backoff(state.current_backoff);
+    // Bump one step on failure (or stay at top).
+    if state.backoff_idx + 1 < BACKOFF_STEPS_S.len() {
+        state.backoff_idx += 1;
+    }
     let failures = state.consecutive_failures;
     let paused = failures >= PAUSE_AFTER_FAILURES;
     if paused {
@@ -327,19 +364,6 @@ fn on_failure(inner: &Arc<UsagePollerInner>, key: &AccountKey, reason: &str) {
             "[usage.poller] pausing {}/{:?} after {} failures (reason={})",
             key.provider, key.account_id, failures, reason
         );
-    }
-}
-
-fn next_backoff(current: Duration) -> Duration {
-    let candidate = if current.is_zero() {
-        BASE_BACKOFF
-    } else {
-        current.saturating_mul(2)
-    };
-    if candidate > MAX_BACKOFF {
-        MAX_BACKOFF
-    } else {
-        candidate
     }
 }
 
