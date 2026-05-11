@@ -51,7 +51,7 @@ Then: `Authorization: Bearer your-secret-token`
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/panes` | — | List all panes |
-| POST | `/api/panes/{id}/send` | `{text?, enter?, batch?: [{text, enter?, delay_ms?}]}` | Send text to PTY (fire & forget) |
+| POST | `/api/panes/{id}/send` | `{text?, enter?, verify?, batch?: [{text, enter?, delay_ms?}]}` | Send text to PTY. Default is fire-and-forget (`{ok:true, fire_and_forget:true}`); opt into screen-echo verification with `verify:true`. Verified response: `{ok, pty_echo_seen, echo_observed, submit_observed, elapsed_ms}` — `pty_echo_seen` (renamed from `verified` in v1.2.1) is `echo_observed && (!enter || submit_observed)`. |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
 | GET | `/api/panes/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
 | GET | `/api/panes/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, alternate buffer included). Served from the backend — no frontend roundtrip, works for hidden panes. Response: `{"text": "...", "formatted": false, "pane_id": "..."}`. With `?formatted=true` the `text` contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility (used on pane remount to restore TUI apps like Claude that hide the cursor via DECTCEM). |
@@ -326,6 +326,33 @@ Returns `200 {"ok": true}` on success or `503 Service Unavailable` (`Bridge not 
 **Service resilience:** If the Telegram polling service dies (network error, API failure), the bridge manager automatically restarts it after a 5-second backoff. The manager never exits — it loops indefinitely, logging panics instead of dying silently.
 
 Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge is not active.
+
+#### Usage Tracker
+
+Per-provider usage snapshots scraped from the running agent (Claude `/usage`, Codex `/status`). The poller runs a hidden background pane, observes the provider's own usage screen, and persists `{used_pct, weekly_pct, weekly_opus_pct, ts_ms, resets_at, weekly_resets_at, account_id}` rows. Drives the in-app Usage bubble + history modal; everything is local — nothing is reported upstream.
+
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/usage/latest` | `?provider=claude&account_id=…` | Latest snapshot for one provider/account. `null` when no data yet. |
+| GET | `/api/usage/history` | `?provider=…&since=<ms>&limit=200&account_id=…` | Raw snapshots since `since` (epoch ms). `limit` clamped to `[1, 5000]`. |
+| GET | `/api/usage/rollup/daily` | `?provider=…&since=<ms>&account_id=…` | Per-day max-used aggregates for the history chart. |
+| GET | `/api/usage/projection` | `?provider=…&account_id=…` | Median-baseline projection: per-DOW shape + scale + overspend ETA. |
+| POST | `/api/usage/refresh` | `{provider, account_id?}` | Trigger an out-of-band probe right now. Returns `{queued, probe_id}`; `503` if the poller isn't running. |
+
+**Adaptive polling.** A single background scheduler ticks every 30 s and decides which (provider, account) is due to probe. The base cadence steps through `[120 s, 300 s, 600 s, 1200 s, 2400 s]` (`BACKOFF_STEPS_S` in `src-tauri/src/usage/poller.rs`) with ±10% jitter at the top — dense while a pane for that provider is active, then stretches out the longer the user is idle. A pane is "active" when its activity timestamp is fresh (`PaneActivity::mark` on keypress / send / focus). After `PAUSE_AFTER_FAILURES = 3` consecutive probe failures the account is paused until manual refresh.
+
+**Projection algorithm.** `src-tauri/src/usage/projection.rs` builds per-day-of-week medians from the last 4 weeks of snapshots, projects today's curve from the elapsed shape, and rejects "pair-noise" jumps wider than `SHAPE_PAIR_GAP_MS = 4h` apart with `SHAPE_PAIR_DELTA_MAX = 25 %` jump — typical of off-device usage gaps where two distant samples bracket someone else's activity on the same account. The frontend uses `activeWeeklyCycle()` in `src/components/Usage/cycle.ts` to discard stale `weekly_resets_at` values that lag the latest `resets_at`.
+
+#### Logs
+
+CodeTerm pipes the daemon's `tracing` output into a structured ring + SQLite store (`src-tauri/src/logs/`). The UI's Settings → Logs tab is the canonical surface; the REST shape is identical.
+
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/logs` | `?level=info\|warn\|error\|debug&source=<substr>&since=<ms>&limit=500` | Recent app-log rows. `limit` clamped to `[1, 5000]`. |
+| DELETE | `/api/logs` | `?before=<ms>` | Purge rows older than `before` (epoch ms). Returns `{deleted: N}`. |
+
+Each row is `{id, ts, level, source, message, context_json}`. `source` is the `tracing` target (e.g. `codeterm::mem::dreamer`, `codeterm::usage::poller`). Storage is bounded by a 1000-entry in-memory ring; once the SQL backend opens (`logs/app_logs.db` under the data dir, WAL mode) the ring drains into it. The `log-emitted` Tauri event fires per-record so the Logs tab can auto-tail without polling.
 
 #### Setup (Rules, Hooks)
 | Method | Path | Body | Description |
@@ -1171,4 +1198,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->
