@@ -61,7 +61,7 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **Permission notifications** — surfaces Claude Code permission requests as desktop notifications
 - **Webhook system** — register webhooks for agent events (permission requests, task completion)
 - **Programmatic control** — agents can create panes, run commands, read output via API
-- **Agent restart** — `codeterm agent restart --pane ID` runs a graceful `/exit` + auto-resume on any pane (`--force` to kill a hung agent), reusing the same lifecycle the self-updater uses
+- **Agent restart** — `codeterm agent restart --pane ID` runs a graceful `/exit` + auto-resume on any pane (`--force` to kill a hung agent), reusing the same lifecycle as `update --apply` post-install relaunch
 
 ### Full API — let external AI operate your terminal
 - **REST API** — 30+ endpoints for complete terminal control (port 7685). An external AI (e.g. OpenClaw, custom agents) can create workspaces, spawn panes, run commands, read output, and orchestrate Claude Code sessions — all remotely

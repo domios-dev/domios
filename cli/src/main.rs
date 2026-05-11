@@ -590,11 +590,6 @@ fn main() {
             return;
         }
 
-        Commands::SelfUpdate { check, apply, rollback, channel } => {
-            cmd::update::handle_self_update(cli.json, check, apply, rollback, channel);
-            return;
-        }
-
         Commands::Docs { name } => {
             cmd::docs::handle(name);
             return;

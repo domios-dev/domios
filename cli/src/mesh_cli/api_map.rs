@@ -283,22 +283,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             _ => ("GET".into(), "/api/keepawake".into(), None),
         },
-        Commands::SelfUpdate { check, rollback, channel, .. } => {
-            if *check {
-                ("GET".into(), "/api/update/check".into(), None)
-            } else if *rollback {
-                ("POST".into(), "/api/update/rollback".into(), None)
-            } else {
-                let path = match channel {
-                    Some(c) if !c.is_empty() => format!(
-                        "/api/update/self_apply?channel={}",
-                        urlencoding::encode(c)
-                    ),
-                    _ => "/api/update/self_apply".to_string(),
-                };
-                ("POST".into(), path, None)
-            }
-        }
         // `system` writes platform-specific files (schtasks/launchd/systemd)
         // and only makes sense on the local host. Mesh relay falls through
         // to /identify so callers always get a valid JSON response.

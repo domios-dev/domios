@@ -282,22 +282,18 @@ Flat peer model: paired = trusted, no king/crown. Run `codeterm mesh peers` at s
 
 ## Self-update
 
-CodeTerm can update itself in place via `codeterm update` (Tauri-plugin-updater path) or `codeterm self-update` (script-orchestrated path with rollback). Manifests are signed with ed25519 and served from GitHub releases per channel.
+CodeTerm updates itself in place via `codeterm update` (Tauri-plugin-updater path). Manifests are signed with ed25519 and served from GitHub releases per channel.
 
 ```bash
 codeterm update --check                  # poll for an available release on the current channel
-codeterm update --apply                  # download, verify signature, install, restart (Tauri updater)
+codeterm update --apply                  # download, verify signature, install, restart
 codeterm update --channel                # print current channel
 codeterm update --channel rc             # switch channel (stable | rc | nightly)
-
-codeterm self-update --check             # same probe as above
-codeterm self-update --apply             # download → swap → /api/health verify → roll back from .bak on mismatch
-codeterm self-update --rollback          # restore previous binary from .bak and restart
 ```
 
 When `--apply` runs, the daemon performs a graceful shutdown: panes get a chance to exit cleanly, the mem WAL is checkpointed, and after restart Claude/Codex panes auto-resume their sessions. The user sees a brief blip, not a context wipe. The `Channel` config (`updater.channel` in `config.toml`) persists the choice across restarts.
 
-`self-update --apply` adds a survivable upgrade path: it generates a platform-native orchestrator script (PowerShell scheduled via `schtasks` on Windows; macOS / Linux fall back to `update --apply` for now) that runs *after* the daemon dies, swaps the binary, polls `/api/health`, and rolls back from `.bak` if the new build doesn't report the expected version. A Telegram notification is sent before shutdown ("starting") and after the new daemon boots ("done" / "rolled back" / "rollback failed"), routed through the existing bridge so external scripts never need a Telegram token.
+If the new build is bad, install the old version manually from the GitHub releases page — there is no automated rollback path.
 
 ## Voice transcription
 

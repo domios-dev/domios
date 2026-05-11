@@ -1,12 +1,10 @@
 """Pane-survival e2e for `codeterm update --apply` (Phase 4 scaffolding).
 
-The full self-update scenario (binary swap + relaunch) cannot run in a
-generic CI without a fully built two-version test rig and signed assets.
-The harness for that lives in `tests/fixtures/auto-update/` and is
-documented in `docs/contributing/auto-update-testing.md`. The end-to-end
+The full update scenario (binary swap + relaunch) cannot run in a generic
+CI without a fully built two-version test rig and signed assets. The
+harness for that lives in `tests/fixtures/auto-update/`. The end-to-end
 test below is therefore marked SKIPPED by default and only runs when
-`CODETERM_RUN_UPDATE_RESUME=1` is set in the environment (or the
-`update-smoke` CI label flips it on).
+`CODETERM_RUN_UPDATE_RESUME=1` is set in the environment.
 
 What still runs unconditionally:
 
@@ -125,10 +123,9 @@ def test_panes_snapshot_shape(api: CodeTermAPI, fresh_pane: str):
 # ---------------------------------------------------------------------------
 
 REQUIRES_TEST_RIG = (
-    "requires self-update test rig with signed two-version assets — "
-    "see docs/contributing/auto-update-testing.md. Set "
-    "CODETERM_RUN_UPDATE_RESUME=1 and CODETERM_TEST_MANIFEST_URL=<url> "
-    "to opt in."
+    "requires update test rig with signed two-version assets — "
+    "see tests/fixtures/auto-update/. Set CODETERM_RUN_UPDATE_RESUME=1 "
+    "and CODETERM_TEST_MANIFEST_URL=<url> to opt in."
 )
 
 

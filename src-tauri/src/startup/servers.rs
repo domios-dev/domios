@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use tauri::Manager;
 
 use crate::service::ServiceState;
-use crate::{api, cron, mem, mesh, service, socket, update, CronState, CronWake};
+use crate::{api, cron, mem, mesh, service, socket, CronState, CronWake};
 
 use super::states::AppStates;
 
@@ -185,7 +185,4 @@ pub(crate) fn start_servers(
         super::bridge::spawn_telegram_bridge(service_state.clone());
     }
 
-    // If we just booted after a self-update, push the result through the
-    // bridge and clean up the staging file. Spawned task — non-blocking.
-    update::boot_pickup::spawn(service_state.clone());
 }

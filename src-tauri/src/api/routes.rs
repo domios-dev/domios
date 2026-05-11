@@ -101,8 +101,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/update/check", get(updater_routes::check_update))
         .route("/api/update/status", get(updater_routes::update_status))
         .route("/api/update/install", post(updater_routes::install_update))
-        .route("/api/update/self_apply", post(updater_routes::self_update_apply))
-        .route("/api/update/rollback", post(updater_routes::self_update_rollback))
         .route(
             "/api/update/channel",
             get(updater_routes::get_channel).post(updater_routes::set_channel),

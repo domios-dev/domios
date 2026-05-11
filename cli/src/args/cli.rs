@@ -174,25 +174,6 @@ pub enum Commands {
         manifest_url: Option<String>,
     },
 
-    /// Headless self-update flow: download → swap → verify → roll back on
-    /// mismatch. Survives daemon shutdown via an external orchestrator
-    /// script (schtasks on Windows). Routes the result through the
-    /// Telegram bridge once the new daemon boots.
-    SelfUpdate {
-        /// Skip download and just print whether an update is available.
-        #[arg(long, conflicts_with_all = ["apply", "rollback"])]
-        check: bool,
-        /// Run the full upgrade flow.
-        #[arg(long, conflicts_with_all = ["check", "rollback"])]
-        apply: bool,
-        /// Restore the previous binary from `.bak` and restart.
-        #[arg(long, conflicts_with_all = ["check", "apply"])]
-        rollback: bool,
-        /// Channel override for `--apply`. Defaults to the configured channel.
-        #[arg(long)]
-        channel: Option<String>,
-    },
-
     /// Read or write CodeTerm configuration
     Config {
         #[command(subcommand)]
