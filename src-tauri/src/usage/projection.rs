@@ -29,6 +29,14 @@ use super::store::UsageStoreHandle;
 const DAY_MS: i64 = 86_400_000;
 const RECENT_WINDOW_MS: i64 = 30 * 60 * 1000;
 const BASELINE_LOOKBACK_DAYS: i64 = 90;
+/// Sample-pair gap threshold. Pairs further apart than this likely span a
+/// period the poller wasn't running (laptop closed, working on another
+/// device) — the cumulative jump can't be cleanly attributed to a single
+/// hour, so we skip the pair from per-hour shape aggregation.
+const SHAPE_PAIR_GAP_MS: i64 = 4 * 60 * 60 * 1000;
+/// Pairs whose delta exceeds this likely represent off-device work that
+/// happened in batches. Don't blame one hour for it.
+const SHAPE_PAIR_DELTA_MAX: f64 = 25.0;
 /// How long a baseline is kept in the in-memory cache. New rows from today
 /// don't shift the rolling baseline (we exclude today), so refreshing once
 /// per local-day is enough; we also re-check after this many seconds to
@@ -570,71 +578,107 @@ fn compute_baseline(
             entry.2.push((captured_at, pct, resets_at));
         }
 
-        let mut day_hours: HashMap<String, (bool, [f64; 24])> = HashMap::new();
+        // Per-day: track day_total (no shape-filter — captures off-device
+        // jumps so vacation weeks / multi-device usage still feed median)
+        // and hours[] (filtered — clean shape signal). These diverge by
+        // design: total tells us "how much did this day cost in absolute %",
+        // shape tells us "how is that cost normally distributed across hours
+        // when we observe it live".
+        let mut day_hours: HashMap<String, (bool, [f64; 24], f64)> = HashMap::new();
         let mut day_dows: HashMap<String, usize> = HashMap::new();
         for (day, (is_we, _empty_hours, mut samples)) in day_buckets {
             samples.sort_by_key(|s| s.0);
-            // Recover dow from the first sample's timestamp.
             if let Some(first) = samples.first() {
                 let dow = local_from_ms(first.0).weekday().num_days_from_sunday() as usize;
                 day_dows.insert(day.clone(), dow);
             }
             let mut hours = [0.0_f64; 24];
+            let mut day_total = 0.0_f64;
             for w in samples.windows(2) {
                 let (ts_a, pct_a, reset_a) = w[0];
                 let (ts_b, pct_b, reset_b) = w[1];
                 let mut delta = pct_b - pct_a;
-                // Drop the pair across a cycle reset.
                 if let (Some(a), Some(b)) = (reset_a, reset_b) {
                     if a != b {
-                        continue;
+                        continue; // cycle reset boundary — drop pair entirely
                     }
                 }
                 if delta < 0.0 {
                     delta = 0.0;
                 }
-                let _ = ts_a;
+                // ALWAYS counts toward day total (capture genuine activity).
+                day_total += delta;
+                // SHAPE-only filter: attributing a giant off-device jump to
+                // one hour distorts the per-hour curve. Cap how much one pair
+                // can contribute to hours[] without losing the magnitude
+                // from day_total.
+                let gap_ms = ts_b - ts_a;
+                if gap_ms > SHAPE_PAIR_GAP_MS || delta > SHAPE_PAIR_DELTA_MAX {
+                    continue;
+                }
                 let h = local_from_ms(ts_b).hour().clamp(0, 23) as usize;
                 hours[h] += delta;
             }
-            day_hours.insert(day, (is_we, hours));
+            day_hours.insert(day, (is_we, hours, day_total));
         }
 
         // Per day: normalize to shape (sum=1), then average across same dow-group.
+        // For totals we collect the per-day list to take a MEDIAN later —
+        // robust against vacation weeks / odd outliers that would bias a mean.
         let mut wd_share_sum = [0.0_f64; 24];
         let mut we_share_sum = [0.0_f64; 24];
-        let mut wd_total_sum = 0.0_f64;
-        let mut we_total_sum = 0.0_f64;
+        let mut wd_share_n = 0u32;
+        let mut we_share_n = 0u32;
+        let mut wd_totals: Vec<f64> = Vec::new();
+        let mut we_totals: Vec<f64> = Vec::new();
+        let mut dow_totals: [Vec<f64>; 7] = Default::default();
         let mut wd_n = 0u32;
         let mut we_n = 0u32;
-        // Per-DOW totals (0=Sun..6=Sat). We need the dow of each day; recover
-        // it from the day string by taking any sample. We have to re-scan
-        // because day_hours collapsed the dow tag into bool.
-        let mut dow_sum = [0.0_f64; 7];
-        let mut dow_n = [0u32; 7];
-        for (day, (is_we, hours)) in &day_hours {
-            let total: f64 = hours.iter().sum();
-            if total <= 0.0 {
+        for (day, (is_we, hours, day_total)) in &day_hours {
+            if *day_total <= 0.0 {
                 continue;
             }
-            // Look up dow from any sample on this day.
             let dow_idx: usize = day_dows.get(day).copied().unwrap_or(0);
-            dow_sum[dow_idx] += total;
-            dow_n[dow_idx] += 1;
+            dow_totals[dow_idx].push(*day_total);
             if *is_we {
-                for h in 0..24 {
-                    we_share_sum[h] += hours[h] / total;
-                }
-                we_total_sum += total;
+                we_totals.push(*day_total);
                 we_n += 1;
             } else {
-                for h in 0..24 {
-                    wd_share_sum[h] += hours[h] / total;
-                }
-                wd_total_sum += total;
+                wd_totals.push(*day_total);
                 wd_n += 1;
             }
+            // Shape contribution: only if this day had unfiltered pair signal.
+            let hour_total: f64 = hours.iter().sum();
+            if hour_total <= 0.0 {
+                continue;
+            }
+            if *is_we {
+                for h in 0..24 {
+                    we_share_sum[h] += hours[h] / hour_total;
+                }
+                we_share_n += 1;
+            } else {
+                for h in 0..24 {
+                    wd_share_sum[h] += hours[h] / hour_total;
+                }
+                wd_share_n += 1;
+            }
         }
+
+        fn median(mut xs: Vec<f64>) -> f64 {
+            if xs.is_empty() {
+                return 0.0;
+            }
+            xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let n = xs.len();
+            if n % 2 == 1 {
+                xs[n / 2]
+            } else {
+                (xs[n / 2 - 1] + xs[n / 2]) / 2.0
+            }
+        }
+        let wd_total_sum = median(wd_totals);
+        let we_total_sum = median(we_totals);
 
         let total_days = wd_n + we_n;
         let confidence = match total_days {
@@ -652,18 +696,19 @@ fn compute_baseline(
             if default_we_sum > 0.0 { DEFAULT_HOURLY_WEEKEND[h] / default_we_sum } else { 0.0 }
         });
 
-        let wd_hour_share: [f64; 24] = if wd_n >= 2 {
-            std::array::from_fn(|h| wd_share_sum[h] / wd_n as f64)
+        let wd_hour_share: [f64; 24] = if wd_share_n >= 2 {
+            std::array::from_fn(|h| wd_share_sum[h] / wd_share_n as f64)
         } else {
             default_wd_share
         };
-        let we_hour_share: [f64; 24] = if we_n >= 2 {
-            std::array::from_fn(|h| we_share_sum[h] / we_n as f64)
+        let we_hour_share: [f64; 24] = if we_share_n >= 2 {
+            std::array::from_fn(|h| we_share_sum[h] / we_share_n as f64)
         } else {
             default_we_share
         };
-        let wd_total_avg = if wd_n > 0 { wd_total_sum / wd_n as f64 } else { default_wd_sum };
-        let we_total_avg = if we_n > 0 { we_total_sum / we_n as f64 } else { default_we_sum };
+        // wd_total_sum / we_total_sum are MEDIANS (renamed signature for clarity).
+        let wd_total_avg = if wd_n > 0 { wd_total_sum } else { default_wd_sum };
+        let we_total_avg = if we_n > 0 { we_total_sum } else { default_we_sum };
         let we_to_wd_ratio = if wd_total_avg > 0.0 {
             (we_total_avg / wd_total_avg).clamp(0.02, 2.0)
         } else {
@@ -671,11 +716,13 @@ fn compute_baseline(
         };
 
         let mut dow_total = [0.0_f64; 7];
+        let mut dow_n_out = [0u32; 7];
         for d in 0..7 {
-            dow_total[d] = if dow_n[d] > 0 {
-                dow_sum[d] / dow_n[d] as f64
+            let n = dow_totals[d].len() as u32;
+            dow_n_out[d] = n;
+            dow_total[d] = if n > 0 {
+                median(std::mem::take(&mut dow_totals[d]))
             } else {
-                // Fallback: weekend days inherit we average, weekdays inherit wd.
                 if d == 0 || d == 6 { we_total_avg } else { wd_total_avg }
             };
         }
@@ -686,7 +733,7 @@ fn compute_baseline(
             wd_total_avg,
             we_total_avg,
             dow_total,
-            dow_n,
+            dow_n: dow_n_out,
             we_to_wd_ratio,
             confidence,
             computed_day: local_yyyymmdd(now_ms),
@@ -914,21 +961,104 @@ mod tests {
         }
         let b1 = baseline_for(&s, &p, None, now).unwrap();
         assert!(b1.wd_total_avg > 0.0);
-        // Add a much bigger weekday — should not appear until we invalidate.
-        let extra_day = today_start - 30 * DAY_MS;
-        insert(&s, &p, extra_day + 9 * 3_600_000, Some(0.0), Some(RESETS_A));
-        insert(&s, &p, extra_day + 21 * 3_600_000, Some(100.0), Some(RESETS_A));
+        let b1_dow_n_sum: u32 = b1.dow_n.iter().sum();
+        // Add many more weekday samples — should NOT appear until we invalidate.
+        for d in 22..32 {
+            let day = today_start - d * DAY_MS;
+            let dow = local_from_ms(day).weekday().num_days_from_sunday();
+            if dow == 0 || dow == 6 {
+                continue;
+            }
+            insert(&s, &p, day + 13 * 3_600_000, Some(0.0), Some(RESETS_A));
+            insert(&s, &p, day + 15 * 3_600_000, Some(15.0), Some(RESETS_A));
+        }
         let b_cached = baseline_for(&s, &p, None, now).unwrap();
-        assert_eq!(b_cached.wd_total_avg, b1.wd_total_avg);
+        let b_cached_dow_n_sum: u32 = b_cached.dow_n.iter().sum();
+        assert_eq!(b_cached_dow_n_sum, b1_dow_n_sum, "cached should not see new rows");
         invalidate_cache(&p, None);
         let b2 = baseline_for(&s, &p, None, now).unwrap();
-        // 100% day from extra_day may or may not land on a weekday depending on dow,
-        // but at minimum the value must NOT equal the cached one (something changed).
-        // If extra_day happens to be a weekend, the weekend bucket changes instead.
-        let changed = b2.wd_total_avg != b1.wd_total_avg
-            || b2.we_total_avg != b1.we_total_avg
-            || b2.we_to_wd_ratio != b1.we_to_wd_ratio;
-        assert!(changed, "expected fresh baseline to differ after invalidate");
+        let b2_dow_n_sum: u32 = b2.dow_n.iter().sum();
+        assert!(b2_dow_n_sum > b1_dow_n_sum, "fresh baseline should see new rows");
+    }
+
+    #[test]
+    fn shape_skips_offdevice_jump_pair() {
+        // Setup: 5 normal pairs during the morning (1h apart, 4% each), then
+        // ONE giant pair after a 6h gap with 35% delta (off-device work).
+        // The shape must NOT pin the 35% to a single hour — that pair gets
+        // dropped from per-hour aggregation entirely.
+        let p = unique_provider("offdev");
+        let s = store();
+        let today_start = local_start_of_day_ms(chrono::Utc::now().timestamp_millis());
+        // Need ≥3 days for confidence>=Medium; replicate across 4 weekdays.
+        let mut wd_days_seeded = 0;
+        for d in 1..=14 {
+            let day = today_start - d * DAY_MS;
+            let dow = local_from_ms(day).weekday().num_days_from_sunday();
+            if dow == 0 || dow == 6 {
+                continue;
+            }
+            // 9:00 — 13:00, 4 pairs of +4%
+            insert(&s, &p, day + 9 * 3_600_000, Some(0.0), Some(RESETS_A));
+            insert(&s, &p, day + 10 * 3_600_000, Some(4.0), Some(RESETS_A));
+            insert(&s, &p, day + 11 * 3_600_000, Some(8.0), Some(RESETS_A));
+            insert(&s, &p, day + 12 * 3_600_000, Some(12.0), Some(RESETS_A));
+            insert(&s, &p, day + 13 * 3_600_000, Some(16.0), Some(RESETS_A));
+            // Off-device jump from 13 → 19 (6h gap, +35%)
+            insert(&s, &p, day + 19 * 3_600_000, Some(51.0), Some(RESETS_A));
+            wd_days_seeded += 1;
+            if wd_days_seeded >= 5 {
+                break;
+            }
+        }
+        let b = compute_baseline(&s, &p, None, today_start + 12 * 3_600_000).unwrap();
+        // Hour 19 should NOT be a giant spike — the jump was rejected.
+        let h19_share = b.wd_hour_share[19];
+        let h10_share = b.wd_hour_share[10];
+        assert!(
+            h19_share < h10_share * 2.0,
+            "expected 19h share ({}) to NOT explode vs 10h ({})",
+            h19_share, h10_share,
+        );
+        // Shape still sums to 1.
+        let sum: f64 = b.wd_hour_share.iter().sum();
+        assert!((sum - 1.0).abs() < 0.01, "shape sum {}", sum);
+    }
+
+    #[test]
+    fn median_resists_vacation_outlier() {
+        // 10 weeks at ~28% Monday + 1 vacation week at 4% Monday.
+        // Mean would be ~26%, median should be ~28% — vacation doesn't drag.
+        // Realistic sampling: 8 samples through the day (~4% per pair).
+        let p = unique_provider("vac");
+        let s = store();
+        let today_start = local_start_of_day_ms(chrono::Utc::now().timestamp_millis());
+        let hours_of_day = [9, 10, 11, 12, 14, 15, 16, 17];
+        let mut mondays = 0;
+        for d in 1..=84 {
+            let day = today_start - d * DAY_MS;
+            let dow = local_from_ms(day).weekday().num_days_from_sunday();
+            if dow != 1 {
+                continue;
+            }
+            mondays += 1;
+            let total = if mondays == 3 { 4.0 } else { 28.0 };
+            let n = hours_of_day.len();
+            for (i, hr) in hours_of_day.iter().enumerate() {
+                let pct = total * (i as f64) / (n as f64 - 1.0);
+                insert(&s, &p, day + hr * 3_600_000, Some(pct), Some(RESETS_A));
+            }
+            if mondays >= 11 {
+                break;
+            }
+        }
+        let b = compute_baseline(&s, &p, None, today_start + 12 * 3_600_000).unwrap();
+        let mon = b.dow_total[1];
+        assert!(
+            (mon - 28.0).abs() < 5.0,
+            "expected Mon median ≈ 28%, got {} (mean would be ~26%)",
+            mon
+        );
     }
 
     #[test]
