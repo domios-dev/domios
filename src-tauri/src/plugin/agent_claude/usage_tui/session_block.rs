@@ -10,10 +10,6 @@ pub fn parse_current_week_all(text: &str, now_ms: i64) -> (Option<f32>, Option<i
     parse_block(text, r"Current week\s*\(\s*all\s*models\s*\)", true, now_ms)
 }
 
-pub fn parse_current_week_sonnet(text: &str, now_ms: i64) -> (Option<f32>, Option<i64>) {
-    parse_block(text, r"Current week\s*\(\s*Son+et\s*[^)]*\)", true, now_ms)
-}
-
 fn parse_block(text: &str, marker: &str, is_weekly: bool, now_ms: i64) -> (Option<f32>, Option<i64>) {
     let pattern = format!(
         r"{marker}[\s\S]{{0,800}}?(\d+(?:\.\d+)?)\s*%\s*used[\s\S]*?Resets?\s*([^()\n]+?)\s*\(",

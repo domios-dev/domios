@@ -1,7 +1,5 @@
 mod resets;
 mod session_block;
-mod totals;
-mod breakdown;
 
 #[cfg(test)]
 mod tests;
@@ -41,23 +39,6 @@ impl UsageParser for ClaudeTuiUsageParser {
         let (w_pct, w_resets_ms) = session_block::parse_current_week_all(&normalized, now_ms);
         snap.weekly_pct = w_pct;
         snap.weekly_resets_at_ms = w_resets_ms;
-
-        let (ws_pct, ws_resets_ms) = session_block::parse_current_week_sonnet(&normalized, now_ms);
-        snap.weekly_sonnet_pct = ws_pct;
-        snap.weekly_sonnet_resets_at_ms = ws_resets_ms;
-
-        let totals = totals::parse_totals(&normalized);
-        snap.session_cost_usd = totals.cost_usd;
-        snap.session_api_duration_s = totals.api_duration_s;
-        snap.session_wall_duration_s = totals.wall_duration_s;
-        snap.session_lines_added = totals.lines_added;
-        snap.session_lines_removed = totals.lines_removed;
-        snap.session_tokens_input = totals.tokens_input;
-        snap.session_tokens_output = totals.tokens_output;
-        snap.session_tokens_cache_read = totals.tokens_cache_read;
-        snap.session_tokens_cache_write = totals.tokens_cache_write;
-
-        snap.breakdown = breakdown::parse_all(raw_text, &normalized);
 
         if !snap.has_any_field() {
             return Err(UsageParseError::NothingFound);

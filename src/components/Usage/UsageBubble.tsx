@@ -18,6 +18,7 @@ export function UsageBubble({ provider = "claude", accountId = null }: UsageBubb
   const [historyOpen, setHistoryOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -37,12 +38,12 @@ export function UsageBubble({ provider = "claude", accountId = null }: UsageBubb
   }, [open]);
 
   useEffect(() => {
-    if (!open || !wrapRef.current) return;
-    const rect = wrapRef.current.getBoundingClientRect();
-    const pane = wrapRef.current.closest("[data-pane-id]") as HTMLElement | null;
+    if (!open || !btnRef.current) return;
+    const btnRect = btnRef.current.getBoundingClientRect();
+    const pane = btnRef.current.closest("[data-pane-id]") as HTMLElement | null;
     const paneRect = pane?.getBoundingClientRect();
-    const room = paneRect ? paneRect.bottom - rect.bottom : window.innerHeight - rect.bottom;
-    setFlipUp(room < 310);
+    const room = paneRect ? paneRect.bottom - btnRect.bottom : window.innerHeight - btnRect.bottom;
+    setFlipUp(room < 360);
   }, [open]);
 
   if (!snapshot) return null;
@@ -74,6 +75,7 @@ export function UsageBubble({ provider = "claude", accountId = null }: UsageBubb
       style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
     >
       <button
+        ref={btnRef}
         type="button"
         style={{ pointerEvents: "auto" }}
         className={bubbleClass}

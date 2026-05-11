@@ -290,11 +290,10 @@ impl MultiplexerState {
                 matches!(&tab.split_tree, SplitNode::Leaf { pane_id: pid } if pid == pane_id)
             });
             if let Some(idx) = tab_idx {
+                let closed_tab_id = ws.tabs[idx].id.clone();
                 ws.tabs.remove(idx);
-                if !ws.tabs.is_empty() {
-                    ws.active_tab_id = Some(ws.tabs.last().unwrap().id.clone());
-                } else {
-                    ws.active_tab_id = None;
+                if ws.active_tab_id.as_deref() == Some(&closed_tab_id) {
+                    ws.active_tab_id = ws.tabs.last().map(|t| t.id.clone());
                 }
                 return Ok(());
             }

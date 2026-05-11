@@ -45,20 +45,6 @@ fn main() -> ExitCode {
             println!("session_resets_at:  {:?}", snap.session_resets_at_ms);
             println!("weekly_pct:         {:?}", snap.weekly_pct);
             println!("weekly_resets_at:   {:?}", snap.weekly_resets_at_ms);
-            println!("weekly_sonnet_pct:  {:?}", snap.weekly_sonnet_pct);
-            println!("session_cost_usd:   {:?}", snap.session_cost_usd);
-            println!("api_duration_s:     {:?}", snap.session_api_duration_s);
-            println!("wall_duration_s:    {:?}", snap.session_wall_duration_s);
-            println!("lines_added:        {:?}", snap.session_lines_added);
-            println!("lines_removed:      {:?}", snap.session_lines_removed);
-            println!("tokens_input:       {:?}", snap.session_tokens_input);
-            println!("tokens_output:      {:?}", snap.session_tokens_output);
-            println!("tokens_cache_read:  {:?}", snap.session_tokens_cache_read);
-            println!("tokens_cache_write: {:?}", snap.session_tokens_cache_write);
-            println!("breakdown rows:     {}", snap.breakdown.len());
-            for r in &snap.breakdown {
-                println!("  {:?}/{} = {}%", r.dimension, r.key, r.pct);
-            }
             ExitCode::SUCCESS
         }
         Err(e) => {
