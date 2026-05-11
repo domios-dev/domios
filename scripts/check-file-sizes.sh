@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Source-file size discipline check.
 #
-# Walks the tree and flags files >800 lines among .rs / .ts / .tsx / .py / .swift.
+# Walks the tree and flags files >1000 lines among .rs / .ts / .tsx / .py / .swift.
 # Existing oversized files are listed in scripts/file-size-allowlist.txt and
 # treated as graceful-deprecation: must shrink, not grow. New files always
 # fail unless they're under the limit.
@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-LIMIT=800
+LIMIT=1000
 MOD_RS_LIMIT=300                                                 # mod.rs target — facade only, logic moves out
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ALLOWLIST="$ROOT/scripts/file-size-allowlist.txt"

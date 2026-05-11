@@ -179,14 +179,9 @@ fn activity_gate(
             return false;
         }
     }
-    // Was there terminal activity since the last probe? If yes, this tick's
-    // step resets to densest on the next pre-probe update. We just gate by
-    // time here — the step bump happens after probe completes.
-    let last_probe = state.last_probe_at.unwrap_or_else(|| now - Duration::from_secs(86_400));
-    let activity = &inner.activity;
-    let _was_active = panes
-        .iter()
-        .any(|p| activity.get(p).map(|ts| ts > last_probe).unwrap_or(false));
+    // Gate is time-only here; the step adjustment (reset vs climb) happens
+    // in on_success/on_failure once the probe completes.
+    let _ = panes;
     true
 }
 
