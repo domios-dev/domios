@@ -10,7 +10,7 @@ fn update_cmd(
     channel: Option<String>,
     manifest_url: Option<String>,
 ) -> Commands {
-    Commands::Update { action, check, apply, channel, manifest_url }
+    Commands::Update { action, check, apply, channel, manifest_url, after_update: None }
 }
 
 #[test]

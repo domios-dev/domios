@@ -27,6 +27,11 @@ pub const BRIDGE_MEM: &str = include_str!("../prompts/bridge_mem.md");
 /// General Agent CLAUDE.md template (uses format!() placeholders).
 pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.md");
 
+/// Shared CodeTerm CLI reference — role-neutral. Injected into both the GA
+/// prompt (via {codeterm_cli} placeholder) and the codeterm skill SKILL.md.
+/// Single source of truth so command syntax stays in sync.
+pub const CODETERM_CLI: &str = include_str!("../prompts/codeterm_cli.md");
+
 /// Bootstrap instructions template — becomes the agent's personal config file after first run.
 pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str = include_str!("../prompts/bootstrap_instructions.md");
 

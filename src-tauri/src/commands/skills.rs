@@ -59,8 +59,23 @@ pub fn seed_bundled_skills() {
         let _ = std::fs::create_dir_all(&dst_dir);
         if let Err(e) = copy_dir_recursive(&entry.path(), &dst_dir) {
             log::warn!("[skills] Failed to seed {:?}: {}", id, e);
-        } else {
-            log::info!("[skills] Seeded {:?} to canonical dir", id);
+            continue;
+        }
+        log::info!("[skills] Seeded {:?} to canonical dir", id);
+
+        // The `codeterm` skill SKILL.md is a template with a {codeterm_cli}
+        // placeholder. Substitute the shared CLI reference (single source
+        // of truth, also injected into the GA prompt) so project agents
+        // and the GA see the same command surface.
+        if id.to_string_lossy() == "codeterm" {
+            if let Ok(body) = std::fs::read_to_string(&dst_skill) {
+                if body.contains("{codeterm_cli}") {
+                    let rendered = body.replace("{codeterm_cli}", crate::prompts::CODETERM_CLI);
+                    if let Err(e) = std::fs::write(&dst_skill, rendered) {
+                        log::warn!("[skills] Failed to render codeterm SKILL.md placeholder: {}", e);
+                    }
+                }
+            }
         }
     }
 }

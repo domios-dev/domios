@@ -15,6 +15,7 @@ pub(crate) fn resolve_update_action(
     apply: bool,
     channel: Option<String>,
     manifest_url: Option<String>,
+    after_update: Option<String>,
 ) -> UpdateAction {
     if let Some(ch) = channel {
         UpdateAction::Channel {
@@ -27,18 +28,20 @@ pub(crate) fn resolve_update_action(
             from_file: None,
             continue_prompt: None,
             continue_pane: None,
+            after_update,
         }
     } else if check {
         UpdateAction::Check { force: false }
     } else {
         match action {
             Some(UpdateAction::Check { force }) => UpdateAction::Check { force: *force },
-            Some(UpdateAction::Install { auto, manifest_url, from_file, continue_prompt, continue_pane }) => UpdateAction::Install {
+            Some(UpdateAction::Install { auto, manifest_url, from_file, continue_prompt, continue_pane, after_update }) => UpdateAction::Install {
                 auto: *auto,
                 manifest_url: manifest_url.clone(),
                 from_file: from_file.clone(),
                 continue_prompt: continue_prompt.clone(),
                 continue_pane: continue_pane.clone(),
+                after_update: after_update.clone(),
             },
             Some(UpdateAction::Channel { channel }) => UpdateAction::Channel { channel: channel.clone() },
             None => UpdateAction::Check { force: false },
@@ -52,6 +55,7 @@ pub(crate) fn run_update_apply_via_mesh(
     token: &Option<String>,
     target: &str,
     manifest_url: Option<&str>,
+    after_update: Option<&str>,
     json_mode: bool,
 ) {
     let Some(peer_url) = resolve_peer_url(http, base, token, target) else {
@@ -120,6 +124,9 @@ pub(crate) fn run_update_apply_via_mesh(
     let mut install_path = String::from("/api/update/install?method=auto");
     if let Some(m) = manifest_url {
         install_path.push_str(&format!("&manifest_url={}", urlencoding::encode(m)));
+    }
+    if let Some(t) = after_update {
+        install_path.push_str(&format!("&after_update={}", urlencoding::encode(t)));
     }
     let install_resp = relay_call(http, &peer_url, &signed, "POST", &install_path, None);
     let install_data = match install_resp {

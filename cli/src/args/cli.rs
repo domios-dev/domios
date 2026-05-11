@@ -172,6 +172,11 @@ pub enum Commands {
         /// Backend must be built with `dev-updater-allowlocal` for non-https URLs.
         #[arg(long)]
         manifest_url: Option<String>,
+        /// Message to inject into the General Agent pane after the new daemon
+        /// boots. Useful for remote-triggered updates ("run the update and
+        /// then verify health") — GA reads it as user input post-restart.
+        #[arg(long, value_name = "TEXT")]
+        after_update: Option<String>,
     },
 
     /// Read or write CodeTerm configuration

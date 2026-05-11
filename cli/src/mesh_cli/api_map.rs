@@ -152,14 +152,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("PATCH".into(), "/api/config".into(), Some(serde_json::json!({"key": key, "value": v}).to_string()))
             }
         },
-        Commands::Update { action, check, apply, channel, manifest_url } => {
-            let resolved = resolve_update_action(action.as_ref(), *check, *apply, channel.clone(), manifest_url.clone());
+        Commands::Update { action, check, apply, channel, manifest_url, after_update } => {
+            let resolved = resolve_update_action(action.as_ref(), *check, *apply, channel.clone(), manifest_url.clone(), after_update.clone());
             match resolved {
                 UpdateAction::Check { force } => {
                     let path = if force { "/api/update/check?force=true" } else { "/api/update/check" };
                     ("GET".into(), path.into(), None)
                 }
-                UpdateAction::Install { auto, manifest_url, from_file: _, continue_prompt: _, continue_pane: _ } => {
+                UpdateAction::Install { auto, manifest_url, from_file: _, continue_prompt: _, continue_pane: _, after_update } => {
                     let mut qs = String::new();
                     if auto {
                         qs.push_str("?method=auto");
@@ -171,6 +171,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                             qs.push('&');
                         }
                         qs.push_str(&format!("manifest_url={}", urlencoding::encode(&m)));
+                    }
+                    if let Some(t) = after_update {
+                        if qs.is_empty() {
+                            qs.push('?');
+                        } else {
+                            qs.push('&');
+                        }
+                        qs.push_str(&format!("after_update={}", urlencoding::encode(&t)));
                     }
                     ("POST".into(), format!("/api/update/install{}", qs), None)
                 }
