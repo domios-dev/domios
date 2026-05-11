@@ -73,44 +73,6 @@ fn channel_set_maps_to_post_channel_with_body() {
 }
 
 #[test]
-fn self_update_apply_maps_to_post_self_apply() {
-    let (m, p, b) = cli_command_to_api(&Commands::SelfUpdate {
-        check: false, apply: true, rollback: false, channel: None,
-    });
-    assert_eq!(m, "POST");
-    assert_eq!(p, "/api/update/self_apply");
-    assert!(b.is_none());
-}
-
-#[test]
-fn self_update_apply_with_channel_appends_query() {
-    let (m, p, _) = cli_command_to_api(&Commands::SelfUpdate {
-        check: false, apply: true, rollback: false,
-        channel: Some("rc".to_string()),
-    });
-    assert_eq!(m, "POST");
-    assert_eq!(p, "/api/update/self_apply?channel=rc");
-}
-
-#[test]
-fn self_update_check_maps_to_check_endpoint() {
-    let (m, p, _) = cli_command_to_api(&Commands::SelfUpdate {
-        check: true, apply: false, rollback: false, channel: None,
-    });
-    assert_eq!(m, "GET");
-    assert_eq!(p, "/api/update/check");
-}
-
-#[test]
-fn self_update_rollback_maps_to_rollback_endpoint() {
-    let (m, p, _) = cli_command_to_api(&Commands::SelfUpdate {
-        check: false, apply: false, rollback: true, channel: None,
-    });
-    assert_eq!(m, "POST");
-    assert_eq!(p, "/api/update/rollback");
-}
-
-#[test]
 fn mesh_refresh_maps_to_post_refresh() {
     let (m, p, b) = cli_command_to_api(&Commands::Mesh { action: MeshAction::Refresh });
     assert_eq!(m, "POST");

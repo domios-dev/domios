@@ -1,11 +1,7 @@
 pub mod apply;
-pub mod boot_pickup;
 pub mod channel;
 pub mod checker;
 pub mod manifest;
-pub mod orchestrator;
-pub mod result;
-pub mod self_update;
 pub mod shutdown;
 
 pub use channel::Channel;
