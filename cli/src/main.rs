@@ -585,8 +585,8 @@ fn main() {
             return;
         }
 
-        Commands::Update { action, check, apply, channel, manifest_url } => {
-            cmd::update::handle_update(cli.json, action, check, apply, channel, manifest_url);
+        Commands::Update { action, check, apply, channel, manifest_url, after_update } => {
+            cmd::update::handle_update(cli.json, action, check, apply, channel, manifest_url, after_update);
             return;
         }
 

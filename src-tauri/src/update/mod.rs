@@ -2,6 +2,7 @@ pub mod apply;
 pub mod channel;
 pub mod checker;
 pub mod manifest;
+pub mod post_update;
 pub mod shutdown;
 
 pub use channel::Channel;

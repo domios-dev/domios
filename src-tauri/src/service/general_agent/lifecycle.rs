@@ -318,16 +318,22 @@ pub fn start_general_agent(
     }
 
     // Fresh-session init: when we couldn't resume, the agent has no prior
-    // context — kick it with a single "init" message so it runs `codeterm mem
-    // wake-up` to load L0+L1, checks peers, and acks readiness. The GA prompt
-    // teaches what "init" means; backend just delivers it.
+    // context — kick it with a self-instructive init message. The instructions
+    // live inline so the orient procedure is consumed exactly once and isn't
+    // sitting in the system prompt burning tokens every turn.
     //
     // For resumed sessions we deliberately do NOT send init — the agent
-    // already has the previous turn-by-turn context replayed by `--resume`,
-    // and re-running init would burn tokens for no gain.
+    // already has the previous turn-by-turn context replayed by `--resume`.
     if launched && !use_resume {
         std::thread::sleep(std::time::Duration::from_millis(800));
-        if let Err(e) = svc.send_text(&pane_id, "init", true) {
+        let init_msg = "init [Orient yourself: \
+            check the pre-injected `## Live mem snapshot` for identity / critical facts; \
+            run `codeterm mesh peers`; \
+            ack readiness in ONE short line stating your name from L0 and peer count \
+            (e.g. \"Ready. Rollo, 2 peers paired (1 online).\"). \
+            Read-only — no spawns, no Telegram, no file writes during init unless mem says so. \
+            On first-ever boot: check `bootstrap.md` in CWD for `<!-- bootstrap: true -->` and follow that flow.]";
+        if let Err(e) = svc.send_text(&pane_id, init_msg, true) {
             log::warn!("[general-agent] Failed to send init kick: {}", e);
         } else {
             log::info!("[general-agent] Sent fresh-session init kick");

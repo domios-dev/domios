@@ -67,6 +67,7 @@ pub fn handle_update(
     apply: bool,
     channel: Option<String>,
     manifest_url: Option<String>,
+    after_update: Option<String>,
 ) {
     let (base_url, token) = read_api_config();
     let http = build_http(&token);
@@ -82,6 +83,7 @@ pub fn handle_update(
             from_file: None,
             continue_prompt: None,
             continue_pane: None,
+            after_update: after_update.clone(),
         })
     } else if check {
         Some(UpdateAction::Check { force: false })
@@ -130,7 +132,7 @@ pub fn handle_update(
                 }
             }
         }
-        UpdateAction::Install { auto, manifest_url, from_file, continue_prompt, continue_pane } => {
+        UpdateAction::Install { auto, manifest_url, from_file, continue_prompt, continue_pane, after_update } => {
             if let Some(path) = from_file {
                 let pane = continue_pane
                     .or_else(|| std::env::var("CODETERM_PANE_ID").ok());
@@ -143,6 +145,9 @@ pub fn handle_update(
             }
             if let Some(m) = manifest_url {
                 params.push(("manifest_url", m));
+            }
+            if let Some(t) = &after_update {
+                params.push(("after_update", t.clone()));
             }
             let qs = if params.is_empty() {
                 String::new()
