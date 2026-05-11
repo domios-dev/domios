@@ -10,10 +10,9 @@ use super::store::UsageStoreHandle;
 use crate::service::ServiceContext;
 
 const TICK_INTERVAL: Duration = Duration::from_secs(30);
-/// Adaptive backoff steps in seconds: start dense when the user is active,
-/// stretch out the longer they're away. Last value is the floor — polls
-/// keep happening even at night so off-device usage shows up eventually.
-const BACKOFF_STEPS_S: [u64; 5] = [120, 300, 600, 1200, 2400];
+/// Adaptive backoff steps in seconds: 10 min at peak activity, up to 50 min
+/// when idle. Last value is the floor for overnight off-device usage capture.
+const BACKOFF_STEPS_S: [u64; 5] = [600, 1200, 1800, 2400, 3000];
 const PAUSE_AFTER_FAILURES: u32 = 3;
 
 #[derive(Clone, Default)]
@@ -219,7 +218,38 @@ async fn run_probe_for(
     }
 
     let probe = UsageProbe::new(inner.svc.clone());
-    let outcome = probe.run(&key.provider, key.account_id.as_deref()).await;
+    let mut outcome = probe.run(&key.provider, key.account_id.as_deref()).await;
+
+    // Fresh session didn't yield parseable output — try existing idle panes.
+    if outcome.is_err() {
+        let now = Instant::now();
+        let fallback_panes = panes_with_pty(&inner.svc, &key.provider);
+        for (pane_id, pty_id) in fallback_panes {
+            // Skip panes that had activity in the last 60 s (user is active there).
+            let recently_active = inner
+                .activity
+                .get(&pane_id)
+                .map(|t| now.duration_since(t) < Duration::from_secs(60))
+                .unwrap_or(false);
+            if recently_active {
+                continue;
+            }
+            log::debug!(
+                "[usage.poller] fresh probe failed — trying existing pane {}",
+                pane_id
+            );
+            let fallback_probe = UsageProbe::new(inner.svc.clone());
+            match fallback_probe.run_in_pane(&pane_id, &pty_id, &key.provider).await {
+                Ok(o) => {
+                    outcome = Ok(o);
+                    break;
+                }
+                Err(e) => {
+                    log::debug!("[usage.poller] fallback pane {} failed: {}", pane_id, e);
+                }
+            }
+        }
+    }
 
     match outcome {
         Ok(o) => {
@@ -390,6 +420,23 @@ fn visible_panes_for_provider(svc: &ServiceContext, provider: &str) -> Vec<Strin
 
 fn accounts_for_panes(_svc: &ServiceContext, _panes: &[String]) -> Vec<Option<String>> {
     vec![None]
+}
+
+/// Non-hidden panes for the given provider that have a live PTY, excluding
+/// usage-probe panes themselves. Returns (pane_id, pty_id) pairs.
+fn panes_with_pty(svc: &ServiceContext, provider: &str) -> Vec<(String, String)> {
+    let mux = svc.mux.lock();
+    let snap = mux.snapshot();
+    snap.panes
+        .values()
+        .filter(|p| {
+            !p.hidden
+                && p.agent_type.as_deref() == Some(provider)
+                && p.pty_id.is_some()
+                && !p.title.starts_with("[usage-probe]")
+        })
+        .map(|p| (p.id.clone(), p.pty_id.clone().unwrap()))
+        .collect()
 }
 
 fn emit_event(svc: &ServiceContext, key: &AccountKey, snapshot_id: i64) {
