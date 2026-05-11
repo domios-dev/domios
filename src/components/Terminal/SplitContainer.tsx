@@ -3,10 +3,9 @@ import { TerminalPane } from "./TerminalPane";
 import { BrowserPane } from "../Browser/BrowserPane";
 
 import { Divider } from "./Divider";
-import { getAgentProvider } from "../../lib/agentProviders";
 import { isPaneVisible, useWorkerFocusVersion } from "../MemoryPanel/workerFocusStore";
 import type { SplitNode, Pane, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
-import { CloseXIcon } from "../Icons";
+import { UsageBubble } from "../Usage/UsageBubble";
 
 interface SplitContainerProps {
   node: SplitNode;
@@ -61,16 +60,6 @@ export function SplitContainer({
     if (!pane) return null;
     if (!isPaneVisible(pane)) return null;
 
-    const agentProvider = getAgentProvider(pane.agent_type);
-    const hasAgent = !!agentProvider;
-
-    const splitButtons = pane.protected ? null : (
-      <PaneToolbar
-        hasAgent={hasAgent}
-        onClose={() => onClosePane(pane.id)}
-      />
-    );
-
     if (pane.pane_type === "Browser") {
       return (
         <PaneWrapper paneId={pane.id} isFocused={focusedPaneId === pane.id} hasSplits={hasSplits}>
@@ -81,12 +70,13 @@ export function SplitContainer({
             isFocused={focusedPaneId === pane.id}
             onFocus={onFocusPane}
           />
-          {splitButtons}
         </PaneWrapper>
       );
     }
 
-    // Terminal always renders; ChatView is an overlay on top
+    const usageProvider = pane.agent_type === "claude" || pane.agent_type === "codex"
+      ? pane.agent_type
+      : null;
     return (
       <PaneWrapper paneId={pane.id} isFocused={focusedPaneId === pane.id} hasSplits={hasSplits}>
         <div className="relative w-full h-full">
@@ -103,7 +93,7 @@ export function SplitContainer({
           terminalConfig={terminalConfig}
         />
         </div>
-        {splitButtons}
+        {usageProvider && <UsageBubble provider={usageProvider} />}
       </PaneWrapper>
     );
   }
@@ -225,70 +215,6 @@ interface SplitViewProps {
   path: number[];
   onUpdateRatio: (path: number[], ratio: number) => void;
   children: React.ReactNode[];
-}
-
-function ConfirmStopDialog({ message, confirmLabel, onConfirm, onCancel }: { message?: string; confirmLabel?: string; onConfirm: () => void; onCancel: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
-      <div
-        className="bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-xl px-6 py-5 max-w-sm text-center"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <p className="text-sm text-[var(--ct-fg)] mb-4">{message || "Are you sure you want to stop the process?"}</p>
-        <div className="flex items-center justify-center gap-3">
-          <button
-            onClick={onCancel}
-            className="px-4 py-1.5 text-xs rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-4 py-1.5 text-xs rounded bg-[var(--ct-red)] hover:opacity-80 text-white font-medium transition-colors"
-          >
-            {confirmLabel || "Stop"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PaneToolbar({
-  hasAgent,
-  onClose,
-}: {
-  hasAgent: boolean;
-  onClose: () => void;
-}) {
-  const [confirmClose, setConfirmClose] = useState(false);
-
-  const btnBase = "w-6 h-6 flex items-center justify-center rounded-md transition-all duration-150";
-
-  return (
-    <>
-      <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover/pane:opacity-100 transition-opacity duration-200 z-10">
-        {/* Close */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            if (hasAgent) setConfirmClose(true);
-            else onClose();
-          }}
-          className={`${btnBase} bg-[var(--ct-bg)]/90 backdrop-blur-sm border border-[var(--ct-border)]/60 text-[var(--ct-muted)] hover:bg-[var(--ct-red)]/80 hover:border-[var(--ct-red)] hover:text-white transition-all duration-150`}
-          title={hasAgent ? "Close (agent running)" : "Close pane (Ctrl+Shift+Q)"}
-        >
-          <CloseXIcon size={8} />
-        </button>
-      </div>
-      {confirmClose && (
-        <ConfirmStopDialog
-          onConfirm={() => { onClose(); setConfirmClose(false); }}
-          onCancel={() => setConfirmClose(false)}
-        />
-      )}
-    </>
-  );
 }
 
 function SplitView({

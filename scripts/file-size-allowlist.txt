@@ -7,7 +7,7 @@
 #
 # Adding a new line to this list = admitting we shipped a >800 file. Don't.
 
-src-tauri/src/agent/provider.rs	822
+src-tauri/src/agent/provider.rs	842
 src-tauri/src/service/orchestrator.rs	838
 # Grew +66 in feat(mem): 6am dreamer schedule + migration (73004af); real code, no dead weight
 src-tauri/src/mem/dreaming.rs	1095

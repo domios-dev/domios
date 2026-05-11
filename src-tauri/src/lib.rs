@@ -1,4 +1,4 @@
-mod agent;
+pub mod agent;
 mod api;
 pub mod attachments;
 mod autostart;
@@ -26,7 +26,9 @@ pub mod shell;
 pub mod session;
 mod socket;
 mod startup;
+pub mod logs;
 pub mod update;
+pub mod usage;
 
 use std::sync::Arc;
 
@@ -252,6 +254,11 @@ pub fn run() {
             keepawake::keepawake_start,
             keepawake::keepawake_stop,
             keepawake::keepawake_status,
+            // Usage tracker commands
+            commands::usage_latest,
+            commands::usage_history,
+            commands::usage_daily_rollup,
+            commands::usage_refresh,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
@@ -397,6 +404,10 @@ pub fn run() {
                 ),
                 tokens: Arc::new(crate::services::tokens::TokenStore::new()),
                 input_parser,
+                usage_store: crate::usage::UsageStore::open(&crate::paths::data_dir())
+                    .expect("usage.db init"),
+                usage_activity: crate::usage::PaneActivity::new(),
+                usage_poller: Arc::new(parking_lot::Mutex::new(None)),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
@@ -444,6 +455,24 @@ pub fn run() {
                         queued
                     );
                 }
+            }
+
+            {
+                let log_store = crate::logs::LogStore::open(&crate::paths::data_dir())
+                    .expect("app_logs.db init");
+                log_store.attach_app(app_handle.clone());
+                crate::logs::set_global(log_store.clone());
+                log_store.start_flush_loop();
+            }
+
+            {
+                let poller = crate::usage::UsagePoller::new(
+                    (*service_state).clone(),
+                    service_state.usage_store.clone(),
+                    service_state.usage_activity.clone(),
+                );
+                *service_state.usage_poller.lock() = Some(poller.clone());
+                poller.spawn();
             }
 
             startup::install_bundled_cli(app);

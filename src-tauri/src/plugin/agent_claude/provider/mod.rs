@@ -20,6 +20,10 @@ use crate::agent::provider::{
     VerifySubmitStrategy,
 };
 
+use super::usage_tui::ClaudeTuiUsageParser;
+
+static CLAUDE_TUI_USAGE_PARSER: ClaudeTuiUsageParser = ClaudeTuiUsageParser;
+
 /// Claude Code agent provider.
 pub struct ClaudeProvider;
 
@@ -102,6 +106,14 @@ impl AgentProvider for ClaudeProvider {
 
     fn read_usage(&self, cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
         usage::read(cwd, session_id)
+    }
+
+    fn usage_parser(&self) -> Option<&dyn crate::agent::usage_parser::UsageParser> {
+        Some(&CLAUDE_TUI_USAGE_PARSER)
+    }
+
+    fn usage_probe_command(&self) -> Option<&str> {
+        Some("/usage")
     }
 
     fn has_event_markers(&self, chunk: &str) -> bool {

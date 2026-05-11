@@ -37,6 +37,7 @@ mod skills;
 mod system;
 mod system_info;
 mod update;
+mod usage;
 
 #[cfg(test)]
 mod tests;
@@ -53,3 +54,4 @@ pub use skills::*;
 pub use system::*;
 pub use system_info::*;
 pub use update::*;
+pub use usage::*;

@@ -109,3 +109,9 @@ path = "src/bin/mem_bench.rs"
 [[bin]]
 name = "codeterm-embed"
 path = "src/bin/codeterm_embed.rs"
+
+# Fast parser-iteration harness: run a provider's usage parser against
+# a raw text fixture and print extracted fields. ~2s rebuild vs full dev.
+[[bin]]
+name = "parser-eval"
+path = "src/bin/parser_eval.rs"

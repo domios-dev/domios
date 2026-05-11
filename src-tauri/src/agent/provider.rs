@@ -451,6 +451,13 @@ pub trait AgentProvider: Send + Sync {
     fn read_usage(&self, _cwd: &str, _session_id: &str) -> Option<UsageSnapshot> {
         None
     }
+    fn usage_parser(&self) -> Option<&dyn crate::agent::usage_parser::UsageParser> {
+        None
+    }
+
+    fn usage_probe_command(&self) -> Option<&str> {
+        None
+    }
 
     /// What kind of session-id control this provider supports.
     /// Default is `None` — provider generates its own ids and CodeTerm

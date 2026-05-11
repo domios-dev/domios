@@ -6,6 +6,7 @@
 //! core never references Codex directly.
 
 pub mod provider;
+pub mod status_tui;
 pub mod usage;
 
 pub use provider::CodexProvider;

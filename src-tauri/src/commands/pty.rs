@@ -447,6 +447,7 @@ pub async fn write_pty_string(
     };
     let bytes = data.into_bytes();
     parse_pty_input(&svc, &mux_state, &pty_id, &bytes);
+    mark_user_activity(&svc, &mux_state, &pty_id);
     session.write_queue.send(bytes)
 }
 
@@ -464,7 +465,19 @@ pub async fn write_pty(
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
     parse_pty_input(&svc, &mux_state, &pty_id, &data);
+    mark_user_activity(&svc, &mux_state, &pty_id);
     session.write_queue.send(data)
+}
+
+fn mark_user_activity(
+    svc: &ServiceState,
+    mux: &crate::multiplexer::commands::MuxState,
+    pty_id: &str,
+) {
+    let pane_id = mux.lock().pane_id_for_pty(pty_id);
+    if let Some(pid) = pane_id {
+        svc.usage_activity.mark(&pid);
+    }
 }
 
 /// Feed bytes to the input parser when the destination pane is not locked.

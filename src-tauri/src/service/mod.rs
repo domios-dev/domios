@@ -94,6 +94,9 @@ pub struct ServiceContext {
     /// Watches bytes about to be written to PTYs; promotes typed `claude/codex/
     /// opencode ...<Enter>` lines to a locked `agent_type` on the pane.
     pub input_parser: Arc<input_parser::InputParser>,
+    pub usage_store: crate::usage::UsageStoreHandle,
+    pub usage_activity: crate::usage::PaneActivity,
+    pub usage_poller: Arc<parking_lot::Mutex<Option<crate::usage::UsagePoller>>>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;

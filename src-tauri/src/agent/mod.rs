@@ -8,3 +8,4 @@ pub mod reports;
 pub mod run_watcher;
 #[allow(dead_code)]
 pub mod status;
+pub mod usage_parser;
