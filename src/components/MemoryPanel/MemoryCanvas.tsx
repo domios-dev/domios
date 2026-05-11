@@ -407,7 +407,7 @@ export function MemoryCanvas({
           onSelectNode={setSelectedId}
         />
       )}
-      <div className="absolute bottom-3 left-3 right-3 max-w-[520px] flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--ct-muted-fg)] pointer-events-none opacity-55 leading-[1.4]">
+      <div className="absolute top-2 left-2 max-w-[520px] flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--ct-muted-fg)] pointer-events-none opacity-55 leading-[1.4]">
         {Object.entries(KIND_COLORS).map(([kind, color]) => (
           <span key={kind} className="flex items-center gap-1 whitespace-nowrap">
             <span

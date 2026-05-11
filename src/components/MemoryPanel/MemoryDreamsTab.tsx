@@ -6,10 +6,8 @@ import {
   Loader2,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
 } from "lucide-react";
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
-import { canonicalizeShort } from "../../lib/modelLabels";
 import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
 import { WorkerLogPopup } from "./WorkerLogPopup";
 import { DreamCard, DreamDetailModal, type DreamDiaryEntry } from "./DreamCard";
@@ -21,19 +19,6 @@ interface Props {
 interface SearchHit {
   item: DreamDiaryEntry;
   score: number;
-}
-
-interface MemoryConfig {
-  dreaming_agent: string;
-  dreaming_model: string;
-  file_sync_enabled: boolean;
-  file_sync_interval_minutes: number;
-}
-
-interface ProviderInfo {
-  id: string;
-  display_name: string;
-  available_models?: Array<{ id: string; display_name: string }>;
 }
 
 function relativeTime(target: number): string {
@@ -74,14 +59,6 @@ function statusColor(status: string): string {
   }
 }
 
-function scheduleLabel(schedule: string): string {
-  if (schedule.includes("0 3 * * *") || schedule.includes("0 2 * * *") || schedule.includes("0 4 * * *")) {
-    return "Every night ~3 AM";
-  }
-  if (schedule.includes("0 * * * *")) return "Every hour";
-  return schedule;
-}
-
 function MemoryDreamsTabImpl({ api }: Props) {
   const [dreamCron, setDreamCron] = useState<CronJob | null>(null);
   const [dreamWorkers, setDreamWorkers] = useState<GraphWorkerInfo[]>([]);
@@ -89,11 +66,9 @@ function MemoryDreamsTabImpl({ api }: Props) {
   const [openDream, setOpenDream] = useState<DreamDiaryEntry | null>(null);
   const [diaryEntries, setDiaryEntries] = useState<DreamDiaryEntry[]>([]);
   const [diaryLoading, setDiaryLoading] = useState(true);
-  const [memCfg, setMemCfg] = useState<MemoryConfig | null>(null);
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [defaultProvider, setDefaultProvider] = useState<string>("claude");
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
+  const [showAllSessions, setShowAllSessions] = useState(false);
   const carouselRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
 
@@ -102,38 +77,6 @@ function MemoryDreamsTabImpl({ api }: Props) {
       mountedRef.current = false;
     };
   }, []);
-
-  useEffect(() => {
-    fetch(`${baseUrl(api)}/api/config?key=memory`, { headers: authHeaders(api) })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.value && mountedRef.current) setMemCfg(d.value); })
-      .catch(() => {});
-    fetch(`${baseUrl(api)}/api/config?key=general_agent`, { headers: authHeaders(api) })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        const p = d?.value?.agent_provider;
-        if (p && mountedRef.current) setDefaultProvider(p);
-      })
-      .catch(() => {});
-    fetch(`${baseUrl(api)}/api/agents/providers`, { headers: authHeaders(api) })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((p) => { if (mountedRef.current) setProviders(p); })
-      .catch(() => {});
-  }, [api]);
-
-  const patchMemConfig = useCallback(
-    (patch: Partial<MemoryConfig>) => {
-      if (!memCfg) return;
-      const next = { ...memCfg, ...patch };
-      setMemCfg(next);
-      fetch(`${baseUrl(api)}/api/config`, {
-        method: "PATCH",
-        headers: { ...authHeaders(api), "Content-Type": "application/json" },
-        body: JSON.stringify({ key: "memory", value: next }),
-      }).catch(() => {});
-    },
-    [api, memCfg],
-  );
 
   const toggleDreamCron = useCallback(
     async (enable: boolean) => {
@@ -262,8 +205,6 @@ function MemoryDreamsTabImpl({ api }: Props) {
         body: JSON.stringify({ phase: "all" }),
       });
       if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
-      // Worker spawned — server response just confirms start; live updates
-      // will arrive via the listener.
     } catch (e) {
       if (mountedRef.current) {
         setRunError(e instanceof Error ? e.message : String(e));
@@ -285,12 +226,8 @@ function MemoryDreamsTabImpl({ api }: Props) {
     el.scrollBy({ left: dir * step, behavior: "smooth" });
   }, []);
 
-  const displayDreamingModel = canonicalizeShort(memCfg?.dreaming_model || "");
-
   return (
     <div className="absolute inset-0 overflow-y-auto bg-[var(--ct-bg)]">
-      {/* Atmospheric backdrop — pulled from the live theme so it always
-          tints with the user's chosen palette instead of fixed indigo. */}
       <div
         className="pointer-events-none fixed inset-0 -z-0 opacity-25"
         style={{
@@ -301,50 +238,77 @@ function MemoryDreamsTabImpl({ api }: Props) {
 
       <div className="relative px-5 pt-5 pb-3 flex items-start gap-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.25em] text-[var(--ct-muted-fg)]">
-            <Moon size={12} className="opacity-70" />
-            <span>The dreamer</span>
-          </div>
-          <div className="mt-1 text-[22px] font-light text-[var(--ct-fg)] leading-tight">
-            What memory dreamt.
+          <div className="flex items-center gap-2 text-[22px] font-light text-[var(--ct-fg)] leading-tight">
+            <Moon size={18} className="opacity-70" />
+            <span>What memory dreamt.</span>
           </div>
           <div className="mt-1.5 text-[11px] text-[var(--ct-muted-fg)] flex items-center gap-2 flex-wrap">
-            <span>
-              {inflight
+            {(() => {
+              const statusText = inflight
                 ? `Dreaming now · ${formatDuration(inflight.spawned_at, Date.now())}`
                 : dreamCron?.next_run
                   ? `Next session ${relativeTime(dreamCron.next_run)}`
-                  : dreamCron
-                    ? "Manual trigger only"
-                    : "Not configured"}
-            </span>
-            <span className="opacity-30">·</span>
-            <span>{diaryEntries.length} dream{diaryEntries.length === 1 ? "" : "s"} recorded</span>
+                  : !dreamCron
+                    ? "Not configured"
+                    : null;
+              return (
+                <>
+                  {statusText && (
+                    <>
+                      <span>{statusText}</span>
+                      <span className="opacity-30">·</span>
+                    </>
+                  )}
+                  <span>{diaryEntries.length} dream{diaryEntries.length === 1 ? "" : "s"} recorded</span>
+                </>
+              );
+            })()}
           </div>
         </div>
 
-        <button
-          onClick={runNow}
-          disabled={running || !!inflight}
-          className="shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-full text-[var(--ct-bg)] text-[11px] font-medium tracking-wide hover:shadow-[0_0_18px_color-mix(in_srgb,_var(--ct-accent)_55%,_transparent)] disabled:opacity-50 disabled:cursor-wait transition-shadow border-0 cursor-pointer"
-          style={{
-            background:
-              "linear-gradient(135deg, color-mix(in srgb, var(--ct-magenta, #a78bfa) 75%, var(--ct-accent)) 0%, var(--ct-accent) 100%)",
-            color: "var(--ct-bg)",
-          }}
-        >
-          {running || inflight ? (
-            <>
-              <Loader2 size={13} className="animate-spin" />
-              {inflight ? "Dreaming…" : "Starting…"}
-            </>
-          ) : (
-            <>
-              <Play size={12} fill="white" />
-              Dream now
-            </>
+        <div className="shrink-0 flex items-center gap-2">
+          {dreamCron && (
+            <button
+              type="button"
+              onClick={() => toggleDreamCron(!dreamCron.enabled)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-[var(--ct-bg)]/40 border border-[var(--ct-border)] cursor-pointer hover:border-[var(--ct-accent)] transition-colors"
+              aria-label={dreamCron.enabled ? "Disable nightly dreaming" : "Enable nightly dreaming"}
+            >
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-full"
+                style={{ background: dreamCron.enabled ? "#34d399" : "var(--ct-muted-fg)" }}
+              />
+              <span
+                className="text-[10px] uppercase tracking-wider"
+                style={{ color: dreamCron.enabled ? "#34d399" : "var(--ct-muted-fg)" }}
+              >
+                {dreamCron.enabled ? "Nightly on" : "Nightly off"}
+              </span>
+            </button>
           )}
-        </button>
+          <button
+            onClick={runNow}
+            disabled={running || !!inflight}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[var(--ct-bg)] text-[11px] font-medium tracking-wide hover:shadow-[0_0_18px_color-mix(in_srgb,_var(--ct-accent)_55%,_transparent)] disabled:opacity-50 disabled:cursor-wait transition-shadow border-0 cursor-pointer"
+            style={{
+              background:
+                "linear-gradient(135deg, color-mix(in srgb, var(--ct-magenta, #a78bfa) 75%, var(--ct-accent)) 0%, var(--ct-accent) 100%)",
+              color: "var(--ct-bg)",
+            }}
+          >
+            {running || inflight ? (
+              <>
+                <Loader2 size={13} className="animate-spin" />
+                {inflight ? "Dreaming…" : "Starting…"}
+              </>
+            ) : (
+              <>
+                <Play size={12} fill="white" />
+                Dream now
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {runError && (
@@ -353,7 +317,6 @@ function MemoryDreamsTabImpl({ api }: Props) {
         </div>
       )}
 
-      {/* Dream carousel */}
       <section className="relative pb-8">
         <div className="flex items-center justify-between px-5 pb-2">
           <h3 className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--ct-muted-fg)]">
@@ -380,7 +343,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
         </div>
 
         {diaryLoading ? (
-          <div className="px-5 text-[11px] text-[var(--ct-muted-fg)]">Loading the dreamer's notebook…</div>
+          <SkeletonCarousel />
         ) : diaryEntries.length === 0 ? (
           <EmptyDream />
         ) : (
@@ -400,130 +363,16 @@ function MemoryDreamsTabImpl({ api }: Props) {
         )}
       </section>
 
-      {/* Run history */}
       <section className="px-5 pb-6">
         <h3 className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--ct-muted-fg)] mb-2">
           Recent sessions
         </h3>
-        {dreamWorkers.length === 0 ? (
-          <div className="text-[11px] text-[var(--ct-muted-fg)]">No dream sessions yet.</div>
-        ) : (
-          <div className="space-y-1">
-            {dreamWorkers.slice(0, 12).map((w) => {
-              const isDone =
-                w.status === "done" || w.status === "error" || w.status === "orphaned";
-              const color = statusColor(w.status);
-              const elapsed =
-                isDone && w.done_at
-                  ? formatDuration(w.spawned_at, w.done_at)
-                  : formatDuration(w.spawned_at, Date.now());
-              return (
-                <div
-                  key={w.worker_id}
-                  onClick={() => setLogWorker(w)}
-                  className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-[var(--ct-hover-bg)]/60 border border-[var(--ct-border)] hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
-                >
-                  <span
-                    className="w-1.5 h-1.5 rounded-full shrink-0"
-                    style={{
-                      background: color,
-                      boxShadow: !isDone ? `0 0 8px ${color}` : undefined,
-                    }}
-                  />
-                  <span className="text-[10px] uppercase tracking-wider w-[60px] shrink-0" style={{ color }}>
-                    {w.status}
-                  </span>
-                  <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
-                    {new Date(w.spawned_at).toLocaleString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                  {w.model && (
-                    <span className="text-[9px] text-[var(--ct-muted-fg)] truncate max-w-[120px]">
-                      {w.model}
-                    </span>
-                  )}
-                  <span className="ml-auto text-[10px] tabular-nums text-[var(--ct-muted-fg)]">
-                    {elapsed}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* Dreamer settings */}
-      <section className="px-5 pb-8">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--ct-muted-fg)] mb-2">
-          Dreamer settings
-        </h3>
-        <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 backdrop-blur-sm overflow-hidden">
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--ct-border)]">
-            <Sparkles size={14} className="text-[#a78bfa]" />
-            <div className="flex-1 min-w-0">
-              <div className="text-[12px] font-medium text-[var(--ct-fg)]">Nightly dreaming (REM)</div>
-              <div className="text-[10px] text-[var(--ct-muted-fg)] truncate">
-                {dreamCron ? scheduleLabel(dreamCron.schedule) : "Not configured"}
-              </div>
-            </div>
-            {dreamCron && (
-              <DreamSwitch
-                checked={dreamCron.enabled}
-                onChange={(v) => toggleDreamCron(v)}
-              />
-            )}
-          </div>
-          {memCfg && (
-            <div className="px-4 py-3 flex flex-wrap items-center gap-2">
-              <label className="text-[10px] text-[var(--ct-muted-fg)] uppercase tracking-wider">Provider</label>
-              <select
-                value={memCfg.dreaming_agent || ""}
-                onChange={(e) => patchMemConfig({ dreaming_agent: e.target.value })}
-                className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-[11px] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
-              >
-                <option value="">
-                  Default ({providers.find((p) => p.id === defaultProvider)?.display_name ?? defaultProvider})
-                </option>
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.display_name}
-                  </option>
-                ))}
-              </select>
-              <label className="text-[10px] text-[var(--ct-muted-fg)] uppercase tracking-wider ml-2">Model</label>
-              {(() => {
-                const resolvedProviderId = memCfg.dreaming_agent || defaultProvider;
-                const prov = providers.find((p) => p.id === resolvedProviderId);
-                const models = prov?.available_models ?? [];
-                return models.length > 0 ? (
-                  <select
-                    value={displayDreamingModel}
-                    onChange={(e) => patchMemConfig({ dreaming_model: e.target.value })}
-                    className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-[11px] text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
-                  >
-                    <option value="">Default model</option>
-                    {models.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.display_name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    value={displayDreamingModel}
-                    onChange={(e) => patchMemConfig({ dreaming_model: e.target.value })}
-                    placeholder="Model"
-                    className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-[11px] text-[var(--ct-fg)] w-32 focus:border-[var(--ct-accent)] focus:outline-none"
-                  />
-                );
-              })()}
-            </div>
-          )}
-        </div>
+        <RecentSessionsList
+          workers={dreamWorkers}
+          showAll={showAllSessions}
+          onToggleAll={() => setShowAllSessions((v) => !v)}
+          onSelect={(w) => setLogWorker(w)}
+        />
       </section>
 
       {logWorker && (
@@ -536,36 +385,134 @@ function MemoryDreamsTabImpl({ api }: Props) {
   );
 }
 
-function DreamSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-all border-0 cursor-pointer ${
-        checked
-          ? "bg-gradient-to-r from-[#7c3aed] to-[#3b82f6] shadow-[0_0_12px_rgba(124,58,237,0.5)]"
-          : "bg-[var(--ct-border)]"
-      }`}
-    >
-      <span
-        className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-          checked ? "translate-x-4" : "translate-x-0.5"
-        }`}
-      />
-    </button>
-  );
-}
-
 function EmptyDream() {
   return (
     <div className="mx-5 rounded-2xl border border-dashed border-[var(--ct-border)] px-6 py-10 flex flex-col items-center gap-2 text-center">
       <Moon size={28} className="text-[var(--ct-magenta,#a78bfa)] opacity-70" />
       <div className="text-[12px] text-[var(--ct-fg)]">No dreams yet</div>
       <div className="text-[10px] text-[var(--ct-muted-fg)] max-w-[300px] leading-relaxed">
-        The dreamer hasn't been to bed yet. Trigger a session manually or wait for the nightly run.
+        Here you'll find what Rollo dreamt up — his nightly walk through your memory. Trigger a session manually or wait for the nightly run.
       </div>
+    </div>
+  );
+}
+
+function SkeletonDream() {
+  return (
+    <div
+      data-dream-card
+      className="snap-start shrink-0 w-[260px] h-[280px] rounded-2xl border border-[var(--ct-border)] bg-[var(--ct-hover-bg)]/30 animate-pulse overflow-hidden flex flex-col"
+    >
+      <div className="flex items-start justify-between px-4 pt-4">
+        <div className="w-9 h-9 rounded-lg bg-[var(--ct-border)]" />
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="h-6 w-10 rounded bg-[var(--ct-border)]" />
+          <div className="h-2 w-12 rounded bg-[var(--ct-border)]/70" />
+        </div>
+      </div>
+      <div className="px-4 mt-3">
+        <div className="h-3 w-20 rounded bg-[var(--ct-border)]" />
+      </div>
+      <div className="flex-1 px-4 pt-3 pb-3 flex flex-col gap-2">
+        <div className="h-2.5 w-[90%] rounded bg-[var(--ct-border)]" />
+        <div className="h-2.5 w-[80%] rounded bg-[var(--ct-border)]" />
+        <div className="h-2.5 w-[85%] rounded bg-[var(--ct-border)]" />
+        <div className="h-2.5 w-[60%] rounded bg-[var(--ct-border)]" />
+      </div>
+      <div className="px-4 pb-3 pt-1 border-t border-white/5 flex items-center gap-2">
+        <div className="h-3 w-12 rounded bg-[var(--ct-border)]" />
+        <div className="h-3 w-10 rounded bg-[var(--ct-border)] ml-auto" />
+      </div>
+    </div>
+  );
+}
+
+function SkeletonCarousel() {
+  return (
+    <div className="flex gap-4 overflow-x-hidden px-5 pb-3">
+      <SkeletonDream />
+      <SkeletonDream />
+      <SkeletonDream />
+    </div>
+  );
+}
+
+function RecentSessionsList({
+  workers,
+  showAll,
+  onToggleAll,
+  onSelect,
+}: {
+  workers: GraphWorkerInfo[];
+  showAll: boolean;
+  onToggleAll: () => void;
+  onSelect: (w: GraphWorkerInfo) => void;
+}) {
+  if (workers.length === 0) {
+    return <div className="text-[11px] text-[var(--ct-muted-fg)]">No dream sessions yet.</div>;
+  }
+  const capped = workers.slice(0, 12);
+  const first = capped.slice(0, 5);
+  const rest = capped.slice(5);
+  const renderRow = (w: GraphWorkerInfo) => {
+    const isDone =
+      w.status === "done" || w.status === "error" || w.status === "orphaned";
+    const color = statusColor(w.status);
+    const elapsed =
+      isDone && w.done_at
+        ? formatDuration(w.spawned_at, w.done_at)
+        : formatDuration(w.spawned_at, Date.now());
+    return (
+      <div
+        key={w.worker_id}
+        onClick={() => onSelect(w)}
+        className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-[var(--ct-hover-bg)]/60 border border-[var(--ct-border)] hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
+      >
+        <span
+          className="w-1.5 h-1.5 rounded-full shrink-0"
+          style={{
+            background: color,
+            boxShadow: !isDone ? `0 0 8px ${color}` : undefined,
+          }}
+        />
+        <span className="text-[10px] uppercase tracking-wider w-[60px] shrink-0" style={{ color }}>
+          {w.status}
+        </span>
+        <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
+          {new Date(w.spawned_at).toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </span>
+        {w.model && (
+          <span className="text-[9px] text-[var(--ct-muted-fg)] truncate max-w-[120px]">
+            {w.model}
+          </span>
+        )}
+        <span className="ml-auto text-[10px] tabular-nums text-[var(--ct-muted-fg)]">
+          {elapsed}
+        </span>
+      </div>
+    );
+  };
+  return (
+    <div>
+      <div className="space-y-1">{first.map(renderRow)}</div>
+      {rest.length > 0 && (
+        <div className="flex flex-col items-center">
+          <button
+            onClick={onToggleAll}
+            className="text-[10px] uppercase tracking-wider text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] mt-2 cursor-pointer bg-transparent border-0"
+          >
+            {showAll ? "Show less" : `Show all (${workers.length})`}
+          </button>
+          {showAll && (
+            <div className="w-full space-y-1 mt-2">{rest.map(renderRow)}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

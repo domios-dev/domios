@@ -8,6 +8,8 @@ const { execSync } = require("child_process");
 const isWindows = process.platform === "win32";
 const isMacOS = process.platform === "darwin";
 const exeExt = isWindows ? ".exe" : "";
+const repoRoot = path.resolve(__dirname, "..");
+const srcTauriDir = path.join(repoRoot, "src-tauri");
 
 const triple = execSync("rustc -vV", { encoding: "utf8" })
   .split("\n")
@@ -15,8 +17,8 @@ const triple = execSync("rustc -vV", { encoding: "utf8" })
   .split(":")[1]
   .trim();
 
-const src = path.join("src-tauri", "target", "release", `codeterm-embed${exeExt}`);
-const destDir = path.join("src-tauri", "bundled-embed");
+const src = path.join(srcTauriDir, "target", "release", `codeterm-embed${exeExt}`);
+const destDir = path.join(srcTauriDir, "bundled-embed");
 const dest = path.join(destDir, `codeterm-embed-${triple}${exeExt}`);
 
 fs.mkdirSync(destDir, { recursive: true });

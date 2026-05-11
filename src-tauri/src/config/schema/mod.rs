@@ -350,7 +350,7 @@ fn default_file_sync_interval() -> u64 {
 }
 
 fn default_l1_budget_tokens() -> usize {
-    800
+    300
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

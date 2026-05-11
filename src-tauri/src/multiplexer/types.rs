@@ -185,6 +185,11 @@ pub struct Pane {
     /// Agent type (e.g. "claude") — set by frontend when detected.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_type: Option<String>,
+    /// When true, only explicit unlock or agent exit can change `agent_type`.
+    /// Set by spawn paths and input-parsed launch commands; blocks output-based
+    /// re-detection so a user-launched provider can't be flipped by stray banners.
+    #[serde(default)]
+    pub agent_type_locked: bool,
     /// Timestamp when agent_type was set — grace period for idle-poll exit detection.
     #[serde(skip, default)]
     pub agent_set_at: Option<std::time::Instant>,

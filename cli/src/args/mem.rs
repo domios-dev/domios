@@ -31,6 +31,11 @@ pub enum MemAction {
     Delete {
         id: String,
     },
+    /// Batch-delete every item in an area (use sparingly).
+    Forget {
+        /// Area name (e.g. auth, deploy, billing).
+        area: String,
+    },
     /// Print the full audit trail for one item (create/update/promote/delete).
     History {
         /// Mem item id

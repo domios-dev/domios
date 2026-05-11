@@ -22,6 +22,8 @@ pub(crate) struct CreateWorkspaceBody {
     name: String,
     #[serde(default)]
     cwd: Option<String>,
+    #[serde(default)]
+    activate: Option<bool>,
 }
 
 pub async fn create_workspace(
@@ -30,7 +32,11 @@ pub async fn create_workspace(
     Json(body): Json<CreateWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let cmd = crate::dispatch::Command::WorkspaceCreate { name: body.name, cwd: body.cwd };
+    let cmd = crate::dispatch::Command::WorkspaceCreate {
+        name: body.name,
+        cwd: body.cwd,
+        activate: body.activate,
+    };
     let result = crate::dispatch::dispatch(&cmd, &state.svc)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create workspace"))?;
     Ok(Json(result.into_json()))

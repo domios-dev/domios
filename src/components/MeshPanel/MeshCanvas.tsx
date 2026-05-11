@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Plus } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
 import { ConnectionLine } from "./ConnectionLine";
 import type { Service } from "./types";
@@ -18,6 +19,7 @@ interface PeerLayout {
   isThisMachine?: boolean;
   isPaired?: boolean;
   accessLevel?: string;
+  isGhost?: boolean;
 }
 
 interface Props {
@@ -28,6 +30,7 @@ interface Props {
   onPeerClick: (peerName: string) => void;
   width: number;
   height: number;
+  onAddPeerClick?: () => void;
 }
 
 const VOLUME_WINDOW_MS = 60 * 1000;
@@ -47,12 +50,14 @@ export function MeshCanvas({
   onPeerClick,
   width,
   height,
+  onAddPeerClick,
 }: Props) {
+  const showGhost = peers.length === 0 && !!onAddPeerClick;
   const layout = useMemo<PeerLayout[]>(() => {
     const cx = width / 2;
     const cy = height / 2;
-    const cardSpacing = 460;
-    const minRadius = 380;
+    const cardSpacing = 322;
+    const minRadius = 266;
     const dynamicRadius = peers.length > 0 ? cardSpacing / (2 * Math.sin(Math.PI / Math.max(peers.length, 3))) : minRadius;
     const radius = Math.max(minRadius, dynamicRadius);
     const items: PeerLayout[] = [
@@ -76,8 +81,17 @@ export function MeshCanvas({
         accessLevel: p.access_level,
       });
     });
+    if (showGhost) {
+      items.push({
+        name: "__ghost_add_peer__",
+        ip: "",
+        x: cx + radius,
+        y: cy,
+        isGhost: true,
+      });
+    }
     return items;
-  }, [thisMachine, peers, width, height]);
+  }, [thisMachine, peers, width, height, showGhost]);
 
   const local = layout[0];
   const now = Date.now();
@@ -109,12 +123,9 @@ export function MeshCanvas({
     });
   }, [layout, width, height]);
 
-  const didFitRef = useRef(false);
   useEffect(() => {
-    if (didFitRef.current) return;
     if (layout.length > 0 && width > 0 && height > 0) {
       fitToView();
-      didFitRef.current = true;
     }
   }, [fitToView, layout.length, width, height]);
 
@@ -219,8 +230,23 @@ export function MeshCanvas({
           className="absolute inset-0 pointer-events-none"
           width={width}
           height={height}
+          style={{ overflow: "visible" }}
         >
           {layout.slice(1).map((p, i) => {
+            if (p.isGhost) {
+              return (
+                <ConnectionLine
+                  key={`hub-ghost-${i}`}
+                  fromX={local.x}
+                  fromY={local.y}
+                  toX={p.x}
+                  toY={p.y}
+                  pushCount={0}
+                  pulsing={false}
+                  isGhost
+                />
+              );
+            }
             const peerPushes = recentPushes.filter(
               (rp) =>
                 rp.source_id.includes(p.name) || rp.target.includes(p.name),
@@ -244,17 +270,20 @@ export function MeshCanvas({
             );
           })}
           {layout.slice(1).flatMap((a, i) =>
-            layout.slice(i + 2).map((b, j) => (
-              <ConnectionLine
-                key={`p2p-${a.name}-${b.name}-${i}-${j}`}
-                fromX={a.x}
-                fromY={a.y}
-                toX={b.x}
-                toY={b.y}
-                pushCount={0}
-                pulsing={false}
-              />
-            ))
+            layout.slice(i + 2).map((b, j) => {
+              if (a.isGhost || b.isGhost) return null;
+              return (
+                <ConnectionLine
+                  key={`p2p-${a.name}-${b.name}-${i}-${j}`}
+                  fromX={a.x}
+                  fromY={a.y}
+                  toX={b.x}
+                  toY={b.y}
+                  pushCount={0}
+                  pulsing={false}
+                />
+              );
+            })
           )}
         </svg>
         {layout.map((p, i) => (
@@ -268,17 +297,29 @@ export function MeshCanvas({
               transform: "translate(-50%,-50%)",
             }}
           >
-            <PeerTerminal
-              name={p.name}
-              ip={p.ip}
-              isThisMachine={p.isThisMachine}
-              isPaired={p.isPaired}
-              accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
-              services={services.filter((s) =>
-                p.isThisMachine ? !s.source_peer : s.source_peer === p.name,
-              )}
-              onClick={() => onPeerClick(p.name)}
-            />
+            {p.isGhost ? (
+              <button
+                onClick={onAddPeerClick}
+                className="w-[260px] py-6 rounded-xl border-2 border-dashed border-[var(--ct-border)] bg-transparent text-[var(--ct-muted-fg)] hover:border-[var(--ct-accent)] hover:text-[var(--ct-fg)] flex flex-col items-center gap-1 cursor-pointer transition-colors"
+                data-peer-card
+              >
+                <Plus size={20} />
+                <span className="text-[11px] uppercase tracking-wider">Add a peer</span>
+                <span className="text-[10px] opacity-70 normal-case tracking-normal">discover or invite</span>
+              </button>
+            ) : (
+              <PeerTerminal
+                name={p.name}
+                ip={p.ip}
+                isThisMachine={p.isThisMachine}
+                isPaired={p.isPaired}
+                accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
+                services={services.filter((s) =>
+                  p.isThisMachine ? !s.source_peer : s.source_peer === p.name,
+                )}
+                onClick={() => onPeerClick(p.name)}
+              />
+            )}
           </div>
         ))}
       </div>

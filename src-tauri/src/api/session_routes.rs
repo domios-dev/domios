@@ -122,6 +122,7 @@ pub async fn resume_session_api(
             let cmd = crate::dispatch::Command::WorkspaceCreate {
                 name: ws_name,
                 cwd: Some(cwd.clone()),
+                activate: Some(true),
             };
             let result = crate::dispatch::dispatch(&cmd, &state.svc)
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -153,13 +154,14 @@ pub async fn resume_session_api(
         spawned_by_pane_id: None,
         model: body.model.clone(),
         resume_session_id: Some(meta.session_id.clone()),
+        activate: None,
     };
     let spawned = state
         .svc
         .spawn_agent(spawn_params, None)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    state.svc.set_pane_agent_type(&spawned.pane_id, Some(meta.provider.clone()));
+    state.svc.set_and_lock_pane_agent_type(&spawned.pane_id, meta.provider.clone());
     state.svc.emit_state_changed();
 
     Ok(Json(serde_json::json!({

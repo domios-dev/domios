@@ -207,7 +207,7 @@ pub fn start_general_agent(
     if let Some(orphan) = displaced {
         svc.kill_ptys(&[orphan]);
     }
-    svc.set_pane_agent_type(&pane_id, Some(provider_name.to_string()));
+    svc.set_and_lock_pane_agent_type(&pane_id, provider_name.to_string());
     // Emit state NOW so frontend picks up pty_id immediately — don't wait for agent detection.
     // Without this, frontend auto-spawns its own PTY and writes go to the wrong one.
     svc.emit_state_changed();

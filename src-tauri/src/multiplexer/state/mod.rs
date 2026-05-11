@@ -84,6 +84,7 @@ impl MultiplexerState {
             cwd: None,
             url: None,
             agent_type: None,
+            agent_type_locked: false,
             agent_session_id: None,
             role: Some(AgentRole::Orchestrator),
             parent_pane_id: None,

@@ -33,6 +33,7 @@ pub(crate) struct SpawnAgentBody {
     model: Option<String>,
     /// Optional override for readiness wait. Default 30s.
     wait_ready_secs: Option<u64>,
+    activate: Option<bool>,
 }
 
 pub async fn spawn_agent(
@@ -58,6 +59,7 @@ pub async fn spawn_agent(
         spawned_by_pane_id: body.spawned_by_pane_id,
         model: body.model,
         resume_session_id: None,
+        activate: body.activate,
     };
     let wait_secs = body.wait_ready_secs.unwrap_or(30);
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<Result<(), String>>();

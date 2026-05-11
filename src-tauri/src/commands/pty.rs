@@ -175,7 +175,7 @@ pub async fn spawn_pty(
                 svc.set_agent_session_id(pid, None);
                 svc.emit_state_changed();
             } else {
-                svc.set_pane_agent_type(pid, Some(provider_id.clone()));
+                svc.set_and_lock_pane_agent_type(pid, provider_id.clone());
                 svc.emit_state_changed();
 
                 // Build resume command via provider registry (provider-agnostic).
@@ -435,6 +435,8 @@ pub async fn read_pty(
 #[tauri::command]
 pub async fn write_pty_string(
     state: tauri::State<'_, PtyState>,
+    mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
+    svc: tauri::State<'_, ServiceState>,
     pty_id: String,
     data: String,
 ) -> Result<(), String> {
@@ -443,13 +445,16 @@ pub async fn write_pty_string(
         manager.get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
-
-    session.write_queue.send(data.into_bytes())
+    let bytes = data.into_bytes();
+    parse_pty_input(&svc, &mux_state, &pty_id, &bytes);
+    session.write_queue.send(bytes)
 }
 
 #[tauri::command]
 pub async fn write_pty(
     state: tauri::State<'_, PtyState>,
+    mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
+    svc: tauri::State<'_, ServiceState>,
     pty_id: String,
     data: Vec<u8>,
 ) -> Result<(), String> {
@@ -458,7 +463,41 @@ pub async fn write_pty(
         manager.get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
+    parse_pty_input(&svc, &mux_state, &pty_id, &data);
     session.write_queue.send(data)
+}
+
+/// Feed bytes to the input parser when the destination pane is not locked.
+/// On match, lock `agent_type` to the detected provider — user typed an explicit
+/// launch command, which is the highest-authority intent next to a real spawn.
+fn parse_pty_input(
+    svc: &ServiceState,
+    mux: &crate::multiplexer::commands::MuxState,
+    pty_id: &str,
+    bytes: &[u8],
+) {
+    let (pane_id, locked) = {
+        let m = mux.lock();
+        let pid = m.pane_id_for_pty(pty_id);
+        let locked = pid.as_ref()
+            .and_then(|id| m.get_pane(id))
+            .map(|p| p.agent_type_locked)
+            .unwrap_or(false);
+        (pid, locked)
+    };
+    let Some(pane_id) = pane_id else { return };
+    if locked {
+        svc.input_parser.clear(&pane_id);
+        return;
+    }
+    if let Some(provider_id) = svc.input_parser.process(&pane_id, bytes) {
+        log::info!(
+            "[input-parser] detected '{}' launch in pane {} — locking agent_type",
+            provider_id, pane_id,
+        );
+        svc.set_and_lock_pane_agent_type(&pane_id, provider_id);
+        svc.emit_state_changed();
+    }
 }
 
 #[tauri::command]

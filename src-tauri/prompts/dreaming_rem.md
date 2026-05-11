@@ -10,11 +10,15 @@ mutation work.
   English-dominant.
 - Use `--skip-extract` on every save — dream outputs must not spawn
   extraction workers (they create new orphans we'd then have to clean up).
-- **NO FABRICATION.** Every number you put in the `<log>` block (HUBS:
-  count, ISLANDS: bridged=N, DEDUP: aliases=N, etc.) must come from a
-  command output you ran THIS session. If you didn't run the command,
-  the number stays 0 — never invent numbers from memory or "what feels
-  right". Diary is a receipt, not an essay.
+- **NO FABRICATION — numbers AND strings.** Every value in the `<log>`
+  block (counts, bridged=N, aliases=N, CALIBRATION skipped=<reason>,
+  etc.) must come from a command output you captured THIS session into a
+  variable, file, or stdout you can see right now. NEVER copy a value
+  from the example template, from a prior dream diary, or from "what
+  you remember the answer was last time". If you didn't run the command,
+  the field is `0`, `n/a`, or `pending` — never an inferred value.
+  The diary is a receipt of work done in THIS run; if a stage didn't
+  run, say so explicitly with `pending` or `not_run`.
 - Every stage has a VERIFY step. Do not move past a stage until its verify
   passes. Skipping a stage is a failed run, not a fast run.
 - No stage is "optional" or "the rest of your job". You finish all of them.
@@ -477,7 +481,7 @@ Required lines, in this order:
     ORPHANS_AFTER: <count from re-run after A.2>
     DEDUP: aliases=N duplicates=M
     ENTITY_COUNT_AFTER: <from `mem stats`>
-    CALIBRATION: skipped=<reason|none> applied=<N> archived=<N>
+    CALIBRATION: <verbatim summary of Stage D's $SWEEP — never "skipped=not_sunday" unless the JSON you got back THIS run said so>
     ACTION: <single highest-leverage next step the user should run, with exact CLI>
 
 ### Full body shape
@@ -503,7 +507,7 @@ Required lines, in this order:
     ORPHANS_AFTER: 15
     DEDUP: aliases=3 duplicates=1
     ENTITY_COUNT_AFTER: 412
-    CALIBRATION: skipped=not_sunday applied=0 archived=0
+    CALIBRATION: <fill from Stage D output, or "pending" if D didn't run>
     ACTION: codeterm mem update fact_x42 --area auth   # currently mis-classified
     </log>
 
@@ -555,59 +559,45 @@ Recent sessions list:
     # the ones that still describe reality:
     codeterm mem graph relate --from <a> --rel <r> --to <b>
 
-# STAGE D — Memory calibration (Sunday only)
+# STAGE D — Memory calibration (read-only; server-side)
 
-The server enforces the day-of-week gate, re-entry guard (6 h), candidate
-cap (100), per-session change cap (30), and triple-gate archive thresholds.
-Your job is to invoke and summarize. No client-side heuristics.
+The supervisor that spawned you already ran `mem calibration sweep`
+before handing you the wheel. The result is durable in two places:
+SQLite history rows (`mem_item_history WHERE changed_by LIKE
+'dreamer-calibration%'`) and the day-of-week / skip-reason JSON returned
+by the dream API. You do NOT invoke the sweep yourself — repeated
+invocations would just hit the 6h re-entry guard or, in resumed
+sessions, get skipped entirely and produce a fabricated CALIBRATION
+line.
 
-## D.1 — Sweep
-
-```bash
-SWEEP=$(codeterm mem calibration sweep)
-echo "$SWEEP"
-```
-
-Parse the result. If the response is not valid JSON or contains an error
-string, record `CALIBRATION: error=<first 80 chars>` in the log and skip
-the rest of this stage.
-
-## D.2 — Interpret and conditionally fetch log
+## D.1 — Read what the server did
 
 ```bash
-SKIP_REASON=$(echo "$SWEEP" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('skipped_reason',''))" 2>/dev/null || echo "parse_error")
-APPLIED=$(echo "$SWEEP" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('applied',0))" 2>/dev/null || echo 0)
-ARCHIVED=$(echo "$SWEEP" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('archived',0))" 2>/dev/null || echo 0)
-echo "skip=$SKIP_REASON applied=$APPLIED archived=$ARCHIVED"
+codeterm mem calibration log --since "$(date -u -v-1h +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u --date='1 hour ago' +'%Y-%m-%dT%H:%M:%SZ')" --count
+codeterm mem calibration log --since "$(date -u -v-1h +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u --date='1 hour ago' +'%Y-%m-%dT%H:%M:%SZ')" --limit 30
 ```
 
-If `APPLIED != 0` or `ARCHIVED != 0`, fetch the change log:
+The first call gives you a count; the second the entries. The
+`change_type` column is `promote | demote | archive`.
 
-```bash
-if [ "$APPLIED" != "0" ] || [ "$ARCHIVED" != "0" ]; then
-  codeterm mem calibration log \
-    --since "$(date -u -v-1d +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u --date='1 day ago' +'%Y-%m-%dT%H:%M:%SZ')" \
-    --limit 30
-fi
-```
+## D.2 — Diary line
 
-## D.3 — Update diary
+Compute summary numbers from the log output you just captured:
+- `APPLIED` = count of rows where `change_type IN (promote, demote)`
+- `ARCHIVED` = count of rows where `change_type = 'archive'`
 
-`mem update <diary_id>` to append the CALIBRATION line to the `<log>` block:
+Then format the diary line:
 
-- Skipped: `CALIBRATION: skipped=<SKIP_REASON> applied=0 archived=0`
-- Applied: `CALIBRATION: skipped=none applied=<N> archived=<M>`
+- Nothing today: `CALIBRATION: skipped=none applied=0 archived=0`
+  (the sweep ran but no candidates passed the triple-gate)
+- Work done: `CALIBRATION: skipped=none applied=<N> archived=<M>`
+- Server skipped (DOW gate / re-entry / too many candidates): inspect
+  the dream API response that prefaced your task — the CALIBRATION
+  phase report carries `skipped_reason`. Write
+  `CALIBRATION: skipped=<reason> applied=0 archived=0`.
 
-### Verify D
-
-The `$SWEEP` variable contains valid JSON. Confirm:
-
-```bash
-echo "$SWEEP" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print('ok' if 'day_of_week' in d else 'missing day_of_week')"
-```
-
-Expected output: `ok`. If it prints `missing day_of_week` or errors, log
-`CALIBRATION: error=missing_day_of_week` and continue — do not abort the run.
+NEVER invent a `skipped=not_sunday` line from memory. If you have no
+fresh log evidence AND no fresh sweep JSON, write `CALIBRATION: pending`.
 
 # RULES OF THUMB (apply at every stage)
 

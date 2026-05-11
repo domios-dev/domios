@@ -24,7 +24,7 @@ fn ensure_agent_state(state: &AppState, pane_id: &str) {
     if agent_changed {
         // TODO(plugin-prep): when plugins can register HTTP routes, move this whole hook
         // handler into plugin/agent_claude/ and let each provider own its own hook endpoints.
-        state.svc.set_pane_agent_type(pane_id, Some("claude".to_string()));
+        state.svc.set_and_lock_pane_agent_type(pane_id, "claude".to_string());
         log::info!("[hook] set agent_type=claude for pane {}", pane_id);
     }
 

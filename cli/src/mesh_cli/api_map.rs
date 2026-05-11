@@ -365,6 +365,7 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         }
         MemAction::Get { id } => ("GET".into(), format!("/api/mem/items/{}", enc(id)), None),
         MemAction::Delete { id } => ("DELETE".into(), format!("/api/mem/items/{}", enc(id)), None),
+        MemAction::Forget { area } => ("DELETE".into(), format!("/api/mem/forget/{}", enc(area)), None),
         MemAction::History { id } => ("GET".into(), format!("/api/mem/items/{}/history", enc(id)), None),
         MemAction::Taxonomy { workspace } => {
             let path = match workspace {

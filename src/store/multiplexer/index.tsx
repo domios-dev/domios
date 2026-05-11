@@ -231,7 +231,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-      const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId });
+      const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId, activate: true });
       const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
       const effectiveCwd = cwd || ws?.cwd || undefined;
       if (effectiveCwd) {
@@ -259,7 +259,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       // Backend `service::create_workspace` normalizes the cwd and reuses an
       // existing workspace with the same folder (spawning a new tab there
       // instead of duplicating).
-      await invoke("mux_create_workspace", { name, cwd: cwd ?? null });
+      await invoke("mux_create_workspace", { name, cwd: cwd ?? null, activate: true });
       const s = await invoke<MultiplexerState>("mux_get_state");
       if (s && s.workspaces.length > 0) dispatch({ type: "SET_STATE", state: s });
     } catch (e) {
@@ -304,7 +304,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       invoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-      const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId });
+      const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>("mux_create_tab", { workspaceId, activate: true });
       if (cwd) {
         setPendingCwd(tabInfo.pane_id, cwd);
         await invoke("mux_update_pane_cwd", { paneId: tabInfo.pane_id, cwd });

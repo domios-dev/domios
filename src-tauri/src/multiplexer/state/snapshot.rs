@@ -3,6 +3,16 @@ use std::collections::HashMap;
 use super::{MultiplexerState, MultiplexerSnapshot};
 use crate::multiplexer::types::{Orientation, Pane, PaneType, SplitNode, Tab, TitleLevel, Workspace};
 
+fn derive_agent_type_from_title(title: Option<&str>) -> Option<String> {
+    let t = title?.to_ascii_lowercase();
+    for id in ["claude", "codex", "opencode"] {
+        if t.contains(id) {
+            return Some(id.to_string());
+        }
+    }
+    None
+}
+
 impl MultiplexerState {
     /// Return all data for frontend hydration.
     pub fn snapshot(&self) -> MultiplexerSnapshot {
@@ -25,6 +35,7 @@ impl MultiplexerState {
                     let pane = panes.get(pane_id);
                     let cwd = pane.and_then(|p| p.cwd.clone());
                     let agent_type = pane.and_then(|p| p.agent_type.clone());
+                    let agent_type_locked = pane.map(|p| p.agent_type_locked).unwrap_or(false);
                     let claude_session_id = pane.and_then(|p| p.agent_session_id.clone());
                     let role = pane.and_then(|p| p.role.map(|r| format!("{:?}", r)));
                     let parent_pane_id = pane.and_then(|p| p.parent_pane_id.clone());
@@ -38,6 +49,7 @@ impl MultiplexerState {
                         title,
                         title_level,
                         agent_type,
+                        agent_type_locked,
                         claude_session_id,
                         role,
                         parent_pane_id,
@@ -97,7 +109,7 @@ impl MultiplexerState {
 
         fn snapshot_to_split(node: &SplitNodeSnapshot, panes: &mut HashMap<String, Pane>) -> SplitNode {
             match node {
-                SplitNodeSnapshot::Leaf { pane_id, cwd, title, title_level, agent_type, claude_session_id, role, parent_pane_id, can_spawn, depth } => {
+                SplitNodeSnapshot::Leaf { pane_id, cwd, title, title_level, agent_type, agent_type_locked, claude_session_id, role, parent_pane_id, can_spawn, depth } => {
                     let parsed_role = role.as_deref().and_then(|r| match r {
                         "Orchestrator" | "Conductor" => Some(crate::multiplexer::types::AgentRole::Orchestrator),
                         "Lead" => Some(crate::multiplexer::types::AgentRole::Lead),
@@ -119,14 +131,17 @@ impl MultiplexerState {
                             Some(sid.clone())
                         }
                     });
-                    // Always preserve agent_type. The spawn-on-mount path
-                    // (commands::pty::spawn_pty_for_pane) decides whether to
-                    // --resume (session_id present) or to launch a fresh
-                    // agent (session_id missing). Dropping agent_type here
-                    // turned every silent claude pane (spawned but never
-                    // talked to before kill) into a bare powershell on
-                    // restart — exactly the bug the user reported.
-                    let restored_agent_type = agent_type.clone();
+                    // Preserve agent_type; if snapshot lacks one, derive from title
+                    // so legacy snapshots (saved before reliable tracking) still
+                    // resume codex/opencode panes with their provider icon.
+                    let restored_agent_type = agent_type
+                        .clone()
+                        .or_else(|| derive_agent_type_from_title(title.as_deref()));
+                    // Legacy snapshot with an agent_type but no lock flag → treat
+                    // as locked. Pre-lock snapshots only set agent_type via a real
+                    // spawn or title detection, which both qualify as explicit intent.
+                    let restored_locked = *agent_type_locked
+                        || (!*agent_type_locked && restored_agent_type.is_some());
                     panes.insert(pane_id.clone(), Pane {
                         id: pane_id.clone(),
                         pty_id: None,
@@ -135,6 +150,7 @@ impl MultiplexerState {
                         cwd: cwd.clone(),
                         url: None,
                         agent_type: restored_agent_type,
+                        agent_type_locked: restored_locked,
                         agent_session_id: restored_session_id,
                         role: parsed_role,
                         parent_pane_id: parent_pane_id.clone(),

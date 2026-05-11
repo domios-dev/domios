@@ -2,7 +2,7 @@
 //! injection into the General Agent's system prompt at session start.
 //!
 //! L0  identity         ~50-100 tokens   always loaded
-//! L1  critical facts   ~500-800 tokens  always loaded
+//! L1  critical facts   ~300 tokens      always loaded
 //! L2  area recall      on-demand        NOT in wake-up
 //! L3  deep semantic    on-demand        NOT in wake-up
 //!
@@ -44,7 +44,7 @@ impl Default for WakeUpOptions {
     fn default() -> Self {
         Self {
             l0_budget_tokens: 100,
-            l1_budget_tokens: 800,
+            l1_budget_tokens: 300,
             include_l0: true,
             include_l1: true,
             current_workspace: None,

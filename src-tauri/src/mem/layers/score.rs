@@ -21,6 +21,7 @@ pub fn score_for(importance: f64, evidence_count: i64, ws_match: bool, recent_30
 pub const PASS1_SQL: &str = r#"
 SELECT id FROM mem_items
 WHERE is_pinned_wakeup = 1
+  AND kind != 'archived'
   AND id != 'preference_identity'
   AND (scope = 'global' OR (?1 IS NOT NULL AND scope = ?1))
 ORDER BY importance DESC, evidence_count DESC, updated_at DESC

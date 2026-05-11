@@ -98,6 +98,16 @@ impl AgentRegistry {
             .map(|p| p.id().to_string())
     }
 
+    /// Look up the provider id whose `binary_name()` matches the given token.
+    /// Used by the PTY input parser to map typed shell commands → agent_type.
+    pub fn provider_for_binary(&self, binary: &str) -> Option<String> {
+        let guard = self.providers.read();
+        guard
+            .values()
+            .find(|p| p.binary_name() == binary)
+            .map(|p| p.id().to_string())
+    }
+
     pub fn has_event_markers(&self, agent_type: &str, chunk: &str) -> bool {
         let guard = self.providers.read();
         guard.get(agent_type).map_or(false, |p| p.has_event_markers(chunk))
@@ -357,6 +367,45 @@ mod tests {
             descs.iter().map(|d| d.id.as_str()).collect();
         assert!(ids.contains("claude"));
         assert!(ids.contains("codex"));
+    }
+
+    #[test]
+    fn restore_dispatch_builds_resume_for_every_provider() {
+        use crate::plugin::agent_codex::CodexProvider;
+        use crate::plugin::agent_opencode::OpenCodeProvider;
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(ClaudeProvider::new()));
+        reg.register_provider(Box::new(CodexProvider::new()));
+        reg.register_provider(Box::new(OpenCodeProvider::new()));
+        for (id, sid) in [
+            ("claude", "f00fc0dd-be1c-4d43-bb1d-212c923b75c1"),
+            ("codex", "019e15cd-1527-7e21-9477-2631a52e499a"),
+            ("opencode", "ses_1ea31e6d2ffe8WrqZl6g4mc6l2"),
+        ] {
+            let cmd = reg.with_provider(id, |p| p.build_resume_command(sid, true))
+                .flatten()
+                .unwrap_or_else(|| panic!("provider {} returned no resume command", id));
+            assert!(cmd.contains(sid), "provider {} resume command missing sid: {}", id, cmd);
+        }
+    }
+
+    #[test]
+    fn restore_dispatch_falls_back_to_fresh_launch_when_no_resume() {
+        use crate::agent::provider::AgentLaunchParams;
+        use crate::plugin::agent_codex::CodexProvider;
+        use crate::plugin::agent_opencode::OpenCodeProvider;
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(ClaudeProvider::new()));
+        reg.register_provider(Box::new(CodexProvider::new()));
+        reg.register_provider(Box::new(OpenCodeProvider::new()));
+        for id in ["claude", "codex", "opencode"] {
+            let cmd = reg.with_provider(id, |p| p.build_launch_command(&AgentLaunchParams {
+                skip_permissions: true,
+                ..Default::default()
+            }));
+            let cmd = cmd.unwrap_or_else(|| panic!("provider {} missing", id));
+            assert!(!cmd.is_empty(), "provider {} returned empty launch command", id);
+        }
     }
 
     #[test]

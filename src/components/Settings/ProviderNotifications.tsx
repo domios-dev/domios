@@ -15,9 +15,13 @@ import { SchemaRenderer } from "./SchemaRenderer";
 export function ProviderNotifications({
   fullConfig,
   onUpdateFullConfig,
+  hideActions,
+  hidePathLinks,
 }: {
   fullConfig: AppConfig;
   onUpdateFullConfig: (next: AppConfig) => void;
+  hideActions?: boolean;
+  hidePathLinks?: boolean;
 }) {
   const { providers } = useAgentProviders();
 
@@ -43,6 +47,8 @@ export function ProviderNotifications({
           providerId={p.id}
           config={fullConfig}
           onChange={onProviderConfigChange}
+          hideActions={hideActions}
+          hidePathLinks={hidePathLinks}
         />
       ))}
     </>

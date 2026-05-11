@@ -92,6 +92,18 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 .send().map_err(|e| e.to_string());
             resp.map(|r| serde_json::json!({"deleted": r.status().is_success()}))
         }
+        MemAction::Forget { area } => {
+            let resp = http
+                .delete(format!("{}/api/mem/forget/{}", base, urlencoding::encode(&area)))
+                .send().map_err(|e| e.to_string());
+            resp.map(|r| {
+                if let Ok(v) = r.json::<serde_json::Value>() {
+                    v
+                } else {
+                    serde_json::json!({"forgotten": area})
+                }
+            })
+        }
         MemAction::History { id } => {
             let val = mem_get_request(&http, &format!("{}/api/mem/items/{}/history", base, id));
             // Pretty-print timeline in human mode; keep raw JSON for --json.

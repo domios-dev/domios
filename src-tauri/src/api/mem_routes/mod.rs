@@ -80,9 +80,28 @@ pub(super) fn validate_item_fields(
     Ok(())
 }
 
+/// Reserved `changed_by` prefixes — only the server itself writes these.
+/// Any client-supplied actor matching one of these is namespaced under
+/// `user-overridden:` so it can never spoof a real worker / dreamer run
+/// (which would trip the calibration re-entry guard or pollute the audit).
+const RESERVED_CHANGED_BY_PREFIXES: &[&str] =
+    &["worker:", "dreamer-", "dreaming:", "system:"];
+
+pub(super) fn sanitize_actor(actor: &str) -> String {
+    if RESERVED_CHANGED_BY_PREFIXES
+        .iter()
+        .any(|p| actor.starts_with(p))
+    {
+        format!("user-overridden:{actor}")
+    } else {
+        actor.to_string()
+    }
+}
+
 /// Map incoming HTTP headers to a `changed_by` label for the history log.
 /// - `x-codeterm-worker-id` present → `worker:<intent-or-other>`
-/// - `x-codeterm-actor` present → that value
+/// - `x-codeterm-actor` present → sanitized value (reserved prefixes are
+///   wrapped in `user-overridden:` to prevent audit-trail forgery)
 /// - Otherwise → `user`
 pub(super) fn changed_by_from_headers(headers: &HeaderMap) -> String {
     let worker_id = headers
@@ -96,9 +115,37 @@ pub(super) fn changed_by_from_headers(headers: &HeaderMap) -> String {
         return format!("worker:{}", intent);
     }
     if let Some(actor) = headers.get(ACTOR_HEADER).and_then(|v| v.to_str().ok()) {
-        return actor.to_string();
+        return sanitize_actor(actor);
     }
     "user".to_string()
+}
+
+#[cfg(test)]
+mod actor_sanitizer_tests {
+    use super::sanitize_actor;
+
+    #[test]
+    fn plain_actor_passes_through() {
+        assert_eq!(sanitize_actor("alice"), "alice");
+        assert_eq!(sanitize_actor("cli:mem-pin"), "cli:mem-pin");
+    }
+
+    #[test]
+    fn reserved_prefixes_are_wrapped() {
+        assert_eq!(
+            sanitize_actor("dreamer-calibration:promote"),
+            "user-overridden:dreamer-calibration:promote",
+        );
+        assert_eq!(sanitize_actor("worker:rem"), "user-overridden:worker:rem");
+        assert_eq!(
+            sanitize_actor("dreaming:rem"),
+            "user-overridden:dreaming:rem",
+        );
+        assert_eq!(
+            sanitize_actor("system:dreaming"),
+            "user-overridden:system:dreaming",
+        );
+    }
 }
 
 pub(super) fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem_ids: Vec<String>) {

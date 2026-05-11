@@ -38,6 +38,10 @@ impl AgentProvider for ClaudeProvider {
         "Claude Code"
     }
 
+    fn binary_name(&self) -> &str {
+        "claude"
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         launch::build_launch_command(params)
     }
@@ -222,6 +226,7 @@ mod tests {
         let p = ClaudeProvider::new();
         assert_eq!(p.id(), "claude");
         assert_eq!(p.display_name(), "Claude Code");
+        assert_eq!(p.binary_name(), "claude");
     }
 
     #[test]
