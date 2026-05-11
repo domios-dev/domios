@@ -258,6 +258,7 @@ pub fn run() {
             commands::usage_latest,
             commands::usage_history,
             commands::usage_daily_rollup,
+            commands::usage_projection,
             commands::usage_refresh,
         ])
         .setup(move |app| {

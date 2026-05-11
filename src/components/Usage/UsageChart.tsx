@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Bucket, CycleRange } from "./cycle";
+import { cumByBucket, findOverspendIndex, type Bucket, type CycleRange } from "./cycle";
 import { BarTooltip, type BarHover } from "./BarTooltip";
 
 export type Range = CycleRange;
@@ -26,6 +26,8 @@ export function UsageChart({ title, color, buckets, showProjection, rangeLabel, 
     ...buckets.map((b) => (b.pct == null ? 0 : Math.ceil(b.pct))),
   );
   const niceMax = roundUpNice(max);
+  const overspendIdx = showProjection ? findOverspendIndex(buckets) : -1;
+  const cum = cumByBucket(buckets);
   const chartW = 680;
   const innerW = chartW - PAD_LEFT - PAD_RIGHT;
   const innerH = CHART_H - PAD_TOP - PAD_BOTTOM;
@@ -90,7 +92,14 @@ export function UsageChart({ title, color, buckets, showProjection, rangeLabel, 
             pt.x = cx;
             pt.y = tipY;
             const scr = pt.matrixTransform(ctm);
-            setHover({ bucket: b, x: scr.x, y: scr.y });
+            setHover({
+              bucket: b,
+              x: scr.x,
+              y: scr.y,
+              cumEnd: cum[i],
+              isOverspendStart: i === overspendIdx,
+              isAfterOverspend: overspendIdx >= 0 && i > overspendIdx,
+            });
           };
           const onLeave = () => setHover(null);
           return (
@@ -121,19 +130,67 @@ export function UsageChart({ title, color, buckets, showProjection, rangeLabel, 
                 />
               )}
               {/* Dashed outline = planned daily budget */}
-              {showTarget && (
+              {(() => {
+                const inOver = overspendIdx >= 0 && i >= overspendIdx;
+                return showTarget && (
+                  <rect
+                    x={px}
+                    y={targetY}
+                    width={barW}
+                    height={Math.max(0, targetH)}
+                    rx={2}
+                    fill="transparent"
+                    stroke={inOver ? "var(--u-danger)" : color}
+                    strokeWidth={inOver ? 1.6 : 1.2}
+                    strokeDasharray="3 2"
+                    opacity={b.current ? 0.7 : 1}
+                  />
+                );
+              })()}
+              {overspendIdx >= 0 && i >= overspendIdx && (
                 <rect
-                  x={px}
-                  y={targetY}
-                  width={barW}
-                  height={Math.max(0, targetH)}
-                  rx={2}
-                  fill="transparent"
-                  stroke={color}
-                  strokeWidth={1.2}
-                  strokeDasharray="3 2"
-                  opacity={b.current ? 0.7 : 1}
+                  x={px - 1}
+                  y={PAD_TOP - 2}
+                  width={barW + 2}
+                  height={innerH + 4}
+                  rx={3}
+                  fill="var(--u-danger)"
+                  opacity={i === overspendIdx ? 0.1 : 0.05}
                 />
+              )}
+              {i === overspendIdx && (
+                <g>
+                  <line
+                    x1={cx}
+                    y1={PAD_TOP}
+                    x2={cx}
+                    y2={PAD_TOP + innerH}
+                    stroke="var(--u-danger)"
+                    strokeWidth={1}
+                    strokeDasharray="2 2"
+                    opacity={0.5}
+                  />
+                  <rect
+                    x={cx - 28}
+                    y={PAD_TOP + 1}
+                    width={56}
+                    height={13}
+                    rx={3}
+                    fill="var(--u-danger)"
+                    opacity={0.85}
+                  />
+                  <text
+                    x={cx}
+                    y={PAD_TOP + 10}
+                    textAnchor="middle"
+                    fontFamily="JetBrains Mono, monospace"
+                    fontSize={8.5}
+                    fontWeight={600}
+                    fill="white"
+                  >
+                    overspend
+                  </text>
+                </g>
               )}
               <text
                 x={cx}

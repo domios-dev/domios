@@ -86,6 +86,23 @@ pub async fn usage_daily_rollup(
     Ok(Json(serde_json::to_value(rows).unwrap_or(serde_json::json!([]))))
 }
 
+pub async fn usage_projection(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<UsageQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let proj = crate::usage::projection::compute(
+        &state.svc.usage_store,
+        &q.provider,
+        q.account_id.as_deref(),
+        now_ms,
+    )
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage projection failed"))?;
+    Ok(Json(serde_json::to_value(proj).unwrap_or(serde_json::json!(null))))
+}
+
 pub async fn usage_refresh(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

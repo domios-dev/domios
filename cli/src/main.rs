@@ -149,6 +149,7 @@ mod args;
 pub use args::cli::{Cli, Commands};
 pub use args::sessions::SessionsAction;
 pub use args::system::SystemAction;
+pub use args::usage::UsageAction;
 pub use args::mem::{MemAction, MemCalibrationAction, MemDreamAction, MemRepairAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
 pub use args::agent::AgentAction;
 pub use args::cron::CronAction;
@@ -624,6 +625,12 @@ fn main() {
             let (base_url, token) = read_api_config();
             let http = build_http(&token);
             cmd::sessions::handle_sessions(cli.json, action, &http, &base_url, token.as_deref());
+            return;
+        }
+        Commands::Usage { action } => {
+            let (base_url, token) = read_api_config();
+            let http = build_http(&token);
+            cmd::usage::handle_usage(cli.json, action, &http, &base_url, token.as_deref());
             return;
         }
         Commands::System { action } => {

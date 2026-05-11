@@ -34,6 +34,22 @@ pub fn usage_daily_rollup(
 }
 
 #[tauri::command]
+pub fn usage_projection(
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    provider: String,
+    account_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let proj = crate::usage::projection::compute(
+        &svc.usage_store,
+        &provider,
+        account_id.as_deref(),
+        now_ms,
+    )?;
+    serde_json::to_value(proj).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn usage_refresh(
     svc: tauri::State<'_, crate::service::ServiceState>,
     provider: String,

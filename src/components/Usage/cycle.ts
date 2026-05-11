@@ -20,6 +20,36 @@ export interface Bucket {
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** Index of the first bucket whose cumulative end-of-day total crosses 100%.
+ * Past day actuals + today/future targets. Returns -1 when the projection
+ * stays under 100% through the whole cycle. */
+export function findOverspendIndex(buckets: Bucket[]): number {
+  let cum = 0;
+  for (let i = 0; i < buckets.length; i++) {
+    const b = buckets[i];
+    const day =
+      b.isFuture || b.current
+        ? (b.target ?? b.pct ?? 0)
+        : (b.pct ?? 0);
+    cum += day;
+    if (cum > 100) return i;
+  }
+  return -1;
+}
+
+/** Cumulative end-of-day total per bucket. */
+export function cumByBucket(buckets: Bucket[]): number[] {
+  let cum = 0;
+  return buckets.map((b) => {
+    const day =
+      b.isFuture || b.current
+        ? (b.target ?? b.pct ?? 0)
+        : (b.pct ?? 0);
+    cum += day;
+    return cum;
+  });
+}
+
 function localStartOfDay(ms: number): number {
   const d = new Date(ms);
   d.setHours(0, 0, 0, 0);
@@ -38,19 +68,33 @@ function isWeekend(ms: number): boolean {
  * For future days → `target` based on the current cumulative (so today's
  * over/under-spend ripples into the remaining days automatically).
  */
+export interface BucketProjection {
+  avgWeekdaySpend: number;
+  avgWeekendSpend: number;
+  /** Per day-of-week projected spend (0=Sun..6=Sat). Overrides avg* when present. */
+  dowEstimates?: number[];
+  restOfTodayEst: number;
+}
+
 export function buildWeekBuckets(
   rows: UsageSnapshot[],
   cycleStart: number,
   cycleEnd: number,
-  excludeWeekends: boolean,
+  projection: BucketProjection | null,
 ): Bucket[] {
   const now = Date.now();
   const todayStart = localStartOfDay(now);
   const dayStart = localStartOfDay(cycleStart);
+  // Only samples in the CURRENT cycle count toward the bar's height — samples
+  // from a previous cycle that happen to land on the same calendar day (cycle
+  // boundary days like the start Sunday) would otherwise leak in.
+  const cycleRows = rows.filter(
+    (r) => r.weekly_resets_at == null || r.weekly_resets_at === cycleEnd,
+  );
   const buckets: Bucket[] = [];
   for (let d = dayStart; d < cycleEnd; d += DAY) {
     const dayEnd = d + DAY;
-    const inDay = rows.filter(
+    const inDay = cycleRows.filter(
       (r) => r.parsed_ok && r.captured_at >= d && r.captured_at < dayEnd && r.weekly_pct != null,
     );
     const label = new Date(d).toLocaleDateString(undefined, { weekday: "short" });
@@ -97,35 +141,43 @@ export function buildWeekBuckets(
     return past[0]?.weekly_pct ?? prev;
   })();
 
-  const countDivisor = (slice: Bucket[]) =>
-    excludeWeekends ? slice.filter((b) => !b.isWeekend).length : slice.length;
+  const dayBaseline = (b: Bucket): number => {
+    if (!projection) return 0;
+    if (projection.dowEstimates && projection.dowEstimates.length === 7) {
+      const dow = new Date(b.start).getDay();
+      return projection.dowEstimates[dow];
+    }
+    return b.isWeekend ? projection.avgWeekendSpend : projection.avgWeekdaySpend;
+  };
 
   const todayBucket = buckets.find((b) => b.current);
   if (todayBucket) {
-    const fromTodayOnward = buckets.filter((b) => b.current || b.isFuture);
-    const todayBudget = (() => {
-      const divisor = countDivisor(fromTodayOnward);
-      if (divisor === 0) return null;
+    if (projection) {
+      const todaySoFar = todayBucket.pct ?? 0;
+      todayBucket.target = todaySoFar + Math.max(0, projection.restOfTodayEst);
+    } else {
+      const remainingDays = buckets.filter((b) => b.current || b.isFuture).length;
       const remainingAtMidnight = Math.max(0, 100 - yesterdayEndCumulative);
-      return remainingAtMidnight / divisor;
-    })();
-    todayBucket.target = excludeWeekends && todayBucket.isWeekend ? 0 : todayBudget;
+      todayBucket.target = remainingDays > 0 ? remainingAtMidnight / remainingDays : null;
+    }
   }
 
-  // Future-day projections — recalculated from the *current* cumulative so any
-  // over/under-spend today shifts the remaining days.
   const futureBuckets = buckets.filter((b) => b.isFuture);
-  const futureDivisor = countDivisor(futureBuckets);
-  const futureBudget = futureDivisor > 0 ? Math.max(0, 100 - currentCumulative) / futureDivisor : 0;
-  for (const b of futureBuckets) {
-    if (excludeWeekends && b.isWeekend) {
-      b.pct = 0;
-      b.target = 0;
-    } else {
+  if (projection) {
+    for (const b of futureBuckets) {
+      const v = dayBaseline(b);
+      b.pct = v;
+      b.target = v;
+      b.projected = true;
+    }
+  } else {
+    const futureBudget =
+      futureBuckets.length > 0 ? Math.max(0, 100 - currentCumulative) / futureBuckets.length : 0;
+    for (const b of futureBuckets) {
       b.pct = futureBudget;
       b.target = futureBudget;
+      b.projected = true;
     }
-    b.projected = true;
   }
 
   return buckets;

@@ -5,6 +5,12 @@ export interface BarHover {
   bucket: Bucket;
   x: number;
   y: number;
+  /** Cumulative weekly % at the END of this bucket's day (actuals for past, target for current/future). */
+  cumEnd?: number;
+  /** True when this is the FIRST bucket where cum crosses 100%. */
+  isOverspendStart?: boolean;
+  /** True when an earlier bucket already crossed 100% (this one continues over). */
+  isAfterOverspend?: boolean;
 }
 
 interface Props {
@@ -13,12 +19,13 @@ interface Props {
 }
 
 export function BarTooltip({ hover, showProjection }: Props) {
-  const { bucket: b, x, y } = hover;
+  const { bucket: b, x, y, cumEnd, isOverspendStart, isAfterOverspend } = hover;
   const date = new Date(b.start).toLocaleDateString(undefined, {
     weekday: "long",
     month: "short",
     day: "numeric",
   });
+  const overspending = isOverspendStart || isAfterOverspend;
 
   let title: string;
   let body: React.ReactNode;
@@ -51,17 +58,26 @@ export function BarTooltip({ hover, showProjection }: Props) {
       </>
     );
   } else if (b.isFuture && b.projected && showProjection) {
-    if (b.isWeekend && b.target === 0) {
-      title = "Weekend";
-      body = <div>skipped — daily budget is spread across weekdays only</div>;
-    } else {
-      title = "Projection";
-      body = (
+    title = overspending ? "Overspend" : "Projection";
+    body = (
+      <>
         <div>
-          you can spend <b>{Math.round(b.target ?? 0)}%</b> on this day
+          ~<b>{Math.round(b.target ?? 0)}%</b> this day{b.isWeekend ? " (weekend)" : ""}
         </div>
-      );
-    }
+        {cumEnd != null && (
+          <div>
+            cumulative <b>{Math.round(cumEnd)}%</b> by end of day
+          </div>
+        )}
+        <div className={`ct-usage-tip-foot ${overspending ? "danger" : ""}`}>
+          {isOverspendStart
+            ? "at this pace, weekly limit hit on this day"
+            : isAfterOverspend
+              ? "already past limit on the projected pace"
+              : "based on your avg pace"}
+        </div>
+      </>
+    );
   } else if (b.isFuture) {
     title = "Upcoming";
     body = <div>no data yet</div>;
@@ -77,8 +93,15 @@ export function BarTooltip({ hover, showProjection }: Props) {
     );
   }
 
+  const TIP_HALF_W = 130;
+  const MARGIN = 8;
+  const clampedX = Math.max(
+    MARGIN + TIP_HALF_W,
+    Math.min(window.innerWidth - MARGIN - TIP_HALF_W, x),
+  );
+
   return createPortal(
-    <div className="ct-usage-tip" style={{ left: x, top: y }} role="tooltip">
+    <div className="ct-usage-tip" style={{ left: clampedX, top: y }} role="tooltip">
       <div className="ct-usage-tip-title">{title}</div>
       <div className="ct-usage-tip-body">
         <div style={{ marginBottom: 4, opacity: 0.7, fontSize: 10 }}>{date}</div>
