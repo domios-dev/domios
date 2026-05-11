@@ -207,6 +207,82 @@ impl UsageProbe {
             elapsed_ms: started.elapsed().as_millis() as u64,
         })
     }
+
+    /// Read `/usage` from an already-running pane — no spawn, no close.
+    /// Sends ESC + the probe command, captures output, then sends ESC again
+    /// to dismiss the usage overlay and restore the pane's previous state.
+    pub async fn run_in_pane(
+        &self,
+        pane_id: &str,
+        pty_id: &str,
+        provider: &str,
+    ) -> Result<UsageProbeOutcome, ProbeError> {
+        let started = Instant::now();
+        let svc = self.svc.clone();
+        let _ = pane_id;
+
+        let probe_cmd = svc
+            .agent_registry
+            .with_provider(provider, |p| p.usage_probe_command().map(|s| s.to_string()))
+            .flatten()
+            .unwrap_or_else(|| "/usage".to_string());
+
+        let submit_strategy = svc
+            .agent_registry
+            .with_provider(provider, |p| p.verify_submit_strategy())
+            .unwrap_or(VerifySubmitStrategy::None);
+
+        // ESC to clear any pending input or dismiss open panels
+        let pty_owned = pty_id.to_string();
+        let svc_esc = svc.clone();
+        tokio::task::spawn_blocking(move || {
+            let pty = svc_esc.pty.lock();
+            pty.write(&pty_owned, b"\x1b")
+        })
+        .await
+        .map_err(|e| ProbeError::Internal(format!("esc join: {}", e)))?
+        .map_err(|e| ProbeError::Internal(format!("send esc: {}", e)))?;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        let pty_owned = pty_id.to_string();
+        let svc_send = svc.clone();
+        let cmd = probe_cmd.clone();
+        tokio::task::spawn_blocking(move || {
+            svc_send.send_text_verified(
+                &pty_owned,
+                &cmd,
+                true,
+                submit_strategy,
+                VerifyOpts {
+                    require_prompt_first: false,
+                    verify_echo: false,
+                    verify_submit: true,
+                    prompt_timeout: Duration::from_secs(3),
+                    echo_timeout: Duration::from_secs(3),
+                    submit_timeout: Duration::from_secs(3),
+                },
+            )
+        })
+        .await
+        .map_err(|e| ProbeError::Internal(format!("send join: {}", e)))?
+        .map_err(|e| ProbeError::Internal(format!("send {}: {}", probe_cmd, e)))?;
+
+        let raw_text = wait_for_output_budgeted(&svc, pty_id, provider, Duration::from_secs(5)).await?;
+
+        // ESC to close the usage overlay and give the pane its input focus back
+        let pty_owned = pty_id.to_string();
+        let svc_restore = svc.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            let pty = svc_restore.pty.lock();
+            pty.write(&pty_owned, b"\x1b")
+        })
+        .await;
+
+        Ok(UsageProbeOutcome {
+            raw_text,
+            elapsed_ms: started.elapsed().as_millis() as u64,
+        })
+    }
 }
 
 async fn wait_for_tui(
@@ -251,7 +327,6 @@ fn screen_has_tui_input(text: &str) -> bool {
 }
 
 const TOTAL_BUDGET: Duration = Duration::from_secs(8);
-const STILL_LOADING_DEADLINE: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(400);
 
 async fn wait_for_output(
@@ -259,9 +334,20 @@ async fn wait_for_output(
     pty_id: &str,
     provider: &str,
 ) -> Result<String, ProbeError> {
+    wait_for_output_budgeted(svc, pty_id, provider, TOTAL_BUDGET).await
+}
+
+async fn wait_for_output_budgeted(
+    svc: &ServiceContext,
+    pty_id: &str,
+    provider: &str,
+    budget: Duration,
+) -> Result<String, ProbeError> {
     let started = Instant::now();
+    // If still in "loading" state past 5/8 of budget, bail early.
+    let loading_deadline = budget * 5 / 8;
     let mut last_text = String::new();
-    while started.elapsed() < TOTAL_BUDGET {
+    while started.elapsed() < budget {
         let raw_bytes = {
             let ob = svc.output_buf.lock();
             ob.get_full(pty_id).map(|b| b.to_vec())
@@ -279,8 +365,8 @@ async fn wait_for_output(
             if has_parseable_markers(&text, provider) {
                 return Ok(text);
             }
-            if started.elapsed() >= STILL_LOADING_DEADLINE && only_loading_state(&text) {
-                return Err(ProbeError::NotReady("still loading after 5s".into()));
+            if started.elapsed() >= loading_deadline && only_loading_state(&text) {
+                return Err(ProbeError::NotReady("still loading".into()));
             }
         }
         tokio::time::sleep(POLL_INTERVAL).await;
