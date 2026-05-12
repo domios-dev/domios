@@ -78,9 +78,7 @@ export function SplitContainer({
       );
     }
 
-    const usageProvider = pane.agent_type === "claude" || pane.agent_type === "codex"
-      ? pane.agent_type
-      : null;
+    const usageProvider = pane.agent_type ?? null;
     return (
       <PaneWrapper paneId={pane.id} isFocused={focusedPaneId === pane.id} hasSplits={hasSplits}>
         <div className="relative w-full h-full">

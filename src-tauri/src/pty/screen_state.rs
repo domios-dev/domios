@@ -181,7 +181,6 @@ pub fn screen_has_agent_tui(screen_text: &str) -> bool {
         || lower.contains("for shortcuts")
         || lower.contains("ctrl+l")
         || lower.contains("esc to interrupt")
-        || lower.contains("try \"")
         || lower.contains("tab agents")
         || lower.contains("ctrl+p commands")
 }

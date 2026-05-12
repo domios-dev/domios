@@ -208,7 +208,7 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                     );
                     None
                 }
-                Ok(p) if p.models.is_empty() => {
+                Ok(p) if p.models.is_empty() && !p.replace => {
                     log::warn!(
                         "[model_catalog] {} has no `[[models]]` entries — falling back to plugin defaults",
                         path.display()

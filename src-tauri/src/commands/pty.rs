@@ -136,7 +136,7 @@ pub async fn spawn_pty(
     // This runs in backend so it works even for non-visible tabs.
     // Skip protected panes (General Agent) — backend manages their lifecycle.
     if let Some(ref pid) = pane_id {
-        let (session_id, is_protected, pane_cwd, restored_from_snapshot) = {
+        let (session_id, is_protected, pane_cwd, restored_from_snapshot, agent_type) = {
             let m = mux_state.lock();
             let pane = m.get_pane(pid);
             (
@@ -144,10 +144,9 @@ pub async fn spawn_pty(
                 pane.map(|p| p.protected).unwrap_or(false),
                 pane.and_then(|p| p.cwd.clone()),
                 pane.map(|p| p.restored_from_snapshot).unwrap_or(false),
+                pane.and_then(|p| p.agent_type.clone()),
             )
         };
-        let agent_type = mux_state.lock().get_pane(pid)
-            .and_then(|p| p.agent_type.clone());
         let mut should_fresh_launch = restored_from_snapshot
             && !is_protected
             && agent_type.is_some();
