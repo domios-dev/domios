@@ -13,7 +13,6 @@ const TICK_INTERVAL: Duration = Duration::from_secs(30);
 /// Adaptive backoff steps in seconds: 10 min at peak activity, up to 50 min
 /// when idle. Last value is the floor for overnight off-device usage capture.
 const BACKOFF_STEPS_S: [u64; 5] = [600, 1200, 1800, 2400, 3000];
-const PAUSE_AFTER_FAILURES: u32 = 3;
 
 #[derive(Clone, Default)]
 pub struct PaneActivity {
@@ -47,7 +46,6 @@ struct AccountState {
     /// Resets to 0 (densest) on any terminal activity detected before the
     /// previous probe, climbs by one on each "no activity" tick.
     backoff_idx: usize,
-    paused: bool,
     in_flight: bool,
 }
 
@@ -169,7 +167,7 @@ fn activity_gate(
 ) -> bool {
     let mut accounts = inner.accounts.lock();
     let state = accounts.entry(key.clone()).or_default();
-    if state.paused || state.in_flight {
+    if state.in_flight {
         return false;
     }
     let interval = current_backoff(state.backoff_idx);
@@ -293,7 +291,6 @@ fn on_success(inner: &Arc<UsagePollerInner>, key: &AccountKey) {
     let state = accounts.entry(key.clone()).or_default();
     state.consecutive_failures = 0;
     state.last_success_at = Some(Instant::now());
-    state.paused = false;
     let last_probe = state.last_probe_at;
     drop(accounts);
     // Adaptive backoff: reset to densest if terminal was active since the
@@ -318,47 +315,25 @@ fn on_failure(inner: &Arc<UsagePollerInner>, key: &AccountKey, reason: &str) {
     let mut accounts = inner.accounts.lock();
     let state = accounts.entry(key.clone()).or_default();
     state.consecutive_failures = state.consecutive_failures.saturating_add(1);
-    // Bump one step on failure (or stay at top).
+    // Climb one backoff step on every failure; stays at max (50 min) indefinitely.
+    // No hard pause — the max-step interval is the rate limit.
     if state.backoff_idx + 1 < BACKOFF_STEPS_S.len() {
         state.backoff_idx += 1;
     }
     let failures = state.consecutive_failures;
-    let paused = failures >= PAUSE_AFTER_FAILURES;
-    if paused {
-        state.paused = true;
-    }
     drop(accounts);
 
-    let source = format!("usage.parser.{}", key.provider);
-    let level = if paused {
-        crate::logs::LogLevel::Error
-    } else {
-        crate::logs::LogLevel::Warn
-    };
-    let msg = if paused {
-        format!("paused after {} failures · {}", failures, reason)
-    } else {
-        format!("probe failed ({}/{}) · {}", failures, PAUSE_AFTER_FAILURES, reason)
-    };
     crate::logs::record(
-        level,
-        &source,
-        msg,
+        crate::logs::LogLevel::Warn,
+        &format!("usage.parser.{}", key.provider),
+        format!("probe failed (#{}) · {}", failures, reason),
         Some(serde_json::json!({
             "provider": key.provider,
             "account_id": key.account_id,
             "failures": failures,
             "reason": reason,
-            "paused": paused,
         })),
     );
-
-    if paused {
-        log::warn!(
-            "[usage.poller] pausing {}/{:?} after {} failures (reason={})",
-            key.provider, key.account_id, failures, reason
-        );
-    }
 }
 
 fn providers_with_parser(svc: &ServiceContext) -> Vec<String> {
