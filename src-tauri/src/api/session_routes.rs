@@ -112,26 +112,44 @@ pub async fn resume_session_api(
     let ws_id = match body.workspace_id {
         Some(id) => id,
         None => {
-            let ws_name = body.workspace_name.unwrap_or_else(|| {
-                std::path::Path::new(&cwd)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or(&meta.provider)
-                    .to_string()
-            });
-            let cmd = crate::dispatch::Command::WorkspaceCreate {
-                name: ws_name,
-                cwd: Some(cwd.clone()),
-                activate: Some(true),
-            };
-            let result = crate::dispatch::dispatch(&cmd, &state.svc)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-            result
-                .into_json()
-                .get("id")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-                .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "workspace create returned no id".into()))?
+            // Reuse existing workspace at this cwd if there is one. Going
+            // through `WorkspaceCreate` here would spawn an extra empty
+            // Terminal tab as a side effect (intentional for the UI "open
+            // folder" button, but pure noise for a programmatic resume).
+            // `spawn_agent` will create the only tab we actually want —
+            // the resumed agent pane.
+            let existing_id = state
+                .svc
+                .mux
+                .lock()
+                .find_workspace_info_by_cwd(&cwd)
+                .map(|w| w.id);
+            if let Some(id) = existing_id {
+                let _ = state.svc.mux.lock().set_active_workspace(&id);
+                state.svc.emit_state_changed();
+                id
+            } else {
+                let ws_name = body.workspace_name.unwrap_or_else(|| {
+                    std::path::Path::new(&cwd)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(&meta.provider)
+                        .to_string()
+                });
+                let cmd = crate::dispatch::Command::WorkspaceCreate {
+                    name: ws_name,
+                    cwd: Some(cwd.clone()),
+                    activate: Some(true),
+                };
+                let result = crate::dispatch::dispatch(&cmd, &state.svc)
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+                result
+                    .into_json()
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "workspace create returned no id".into()))?
+            }
         }
     };
 
