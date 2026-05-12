@@ -94,6 +94,14 @@ impl AgentProvider for ClaudeProvider {
         detection::detect_from_output(text)
     }
 
+    fn screen_has_tui(&self, screen_text: &str) -> bool {
+        let lower = screen_text.to_ascii_lowercase();
+        lower.contains("? for shortcuts")
+            || lower.contains("for shortcuts")
+            || lower.contains("ctrl+l")
+            || lower.contains("esc to interrupt")
+    }
+
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
         sessions::session_file_path(cwd, session_id)
     }

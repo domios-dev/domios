@@ -250,6 +250,11 @@ impl AgentProvider for OpenCodeProvider {
                 || text.contains("╹"))
     }
 
+    fn screen_has_tui(&self, screen_text: &str) -> bool {
+        let lower = screen_text.to_ascii_lowercase();
+        lower.contains("tab agents") || lower.contains("ctrl+p commands")
+    }
+
     fn session_file_path(&self, _cwd: &str, session_id: &str) -> Option<PathBuf> {
         // session_id is `ses_XXXXXXXX...`. Walk projectID subdirs and find
         // <projectID>/<session_id>.json. Returns None on modern opencode
