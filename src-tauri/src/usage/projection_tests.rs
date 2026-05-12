@@ -314,3 +314,59 @@ fn compute_handles_all_nans_gracefully() {
     assert!(w.rest_of_today_est.is_finite());
     assert!(w.rate_per_min_recent.is_finite());
 }
+
+// ── Gap-aware today_delta tests ────────────────────────────────────────────
+
+/// Pre-midnight reading close to midnight (<2h gap): cross-midnight delta is
+/// used (the probe ran near end-of-day so the gap is attributable to today).
+#[test]
+fn from_yest_used_when_near_midnight() {
+    let p = unique_provider("yest-near");
+    let s = store();
+    let now = now_at_hour(10);
+    let today_start_ms = local_start_of_day_ms(now);
+    // 23:00 yesterday = 1 hour before midnight → within 2h window
+    let near_midnight = today_start_ms - 60 * 60 * 1000;
+    insert(&s, &p, near_midnight, Some(30.0), Some(RESETS_A));
+    insert(&s, &p, now, Some(40.0), Some(RESETS_A));
+    let delta = today_delta(&s, &p, None, now, 40.0, RESETS_A).unwrap();
+    // 40 - 30 = 10; pre-midnight reading was close enough, use cross-day bridge
+    assert!((delta - 10.0).abs() < 0.01, "got {}", delta);
+}
+
+/// Pre-midnight reading far from midnight (>2h gap): cross-midnight delta is
+/// discarded. Gap spending is not credited to today — we fall back to
+/// from_today_min (which is 0 when today has only one reading).
+#[test]
+fn from_yest_ignored_when_gap_too_large() {
+    let p = unique_provider("yest-far");
+    let s = store();
+    let now = now_at_hour(10);
+    let today_start_ms = local_start_of_day_ms(now);
+    // 14:00 yesterday = 10 hours before midnight → gap exceeds 2h window
+    let far_before_midnight = today_start_ms - 10 * 60 * 60 * 1000;
+    insert(&s, &p, far_before_midnight, Some(34.0), Some(RESETS_A));
+    // Only one reading today → today_min = current_pct → from_today_min = 0
+    insert(&s, &p, now, Some(50.0), Some(RESETS_A));
+    let delta = today_delta(&s, &p, None, now, 50.0, RESETS_A).unwrap();
+    // The 16% gap delta must NOT appear as "spent today"
+    assert!((delta - 0.0).abs() < 0.01, "expected 0, got {}", delta);
+}
+
+/// Same large-gap scenario but with multiple readings today: the intra-day
+/// min is used correctly regardless of the pre-midnight gap.
+#[test]
+fn from_yest_gap_with_intra_day_readings() {
+    let p = unique_provider("yest-far-intra");
+    let s = store();
+    let now = now_at_hour(14);
+    let today_start_ms = local_start_of_day_ms(now);
+    let far_before_midnight = today_start_ms - 10 * 60 * 60 * 1000;
+    insert(&s, &p, far_before_midnight, Some(34.0), Some(RESETS_A));
+    // Two readings today: 50% at 10h, 58% at 14h
+    insert(&s, &p, now_at_hour(10), Some(50.0), Some(RESETS_A));
+    insert(&s, &p, now, Some(58.0), Some(RESETS_A));
+    let delta = today_delta(&s, &p, None, now, 58.0, RESETS_A).unwrap();
+    // from_today_min = 58 - 50 = 8 (genuine intra-day activity)
+    assert!((delta - 8.0).abs() < 0.01, "expected 8, got {}", delta);
+}
