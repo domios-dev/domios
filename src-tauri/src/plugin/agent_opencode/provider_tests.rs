@@ -187,6 +187,20 @@ fn opencode_describe_assembles_full_descriptor() {
 }
 
 #[test]
+fn opencode_describe_omits_usage_tracking_section() {
+    // OpenCode has no usage_parser — describe() must NOT inject the Usage
+    // Tracking toggle. The auto-injection in `describe()` keys off
+    // `usage_parser().is_some()`, so this test pins that contract.
+    let p = OpenCodeProvider::new();
+    let desc = p.describe();
+    let has = desc.settings_schema.iter().any(|f| matches!(
+        f,
+        crate::agent::provider::SettingField::Section { title, .. } if title == "Usage Tracking"
+    ));
+    assert!(!has, "OpenCode has no usage_parser — Usage Tracking section must not appear");
+}
+
+#[test]
 fn opencode_settings_schema_has_required_sections() {
     let p = OpenCodeProvider::new();
     let schema = p.settings_schema();
@@ -241,7 +255,7 @@ fn opencode_notifications_schema_present() {
 #[test]
 fn opencode_default_model_is_set() {
     let p = OpenCodeProvider::new();
-    assert_eq!(p.default_model(), Some("anthropic/claude-opus-4-7"));
+    assert_eq!(p.default_model().as_deref(), Some("anthropic/claude-opus-4-7"));
 }
 
 #[test]

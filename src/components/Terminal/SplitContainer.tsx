@@ -24,6 +24,9 @@ interface SplitContainerProps {
   fontConfig?: FontConfig;
   /** Terminal settings */
   terminalConfig?: TerminalConfigSettings;
+  /** Per-provider usage-tracking toggle. Resolved once at the top of the
+   * pane tree so each Bubble doesn't re-fetch config on its own. */
+  usageEnabledByProvider?: Record<string, boolean>;
 }
 
 const MIN_PANE_SIZE = 100; // px
@@ -48,6 +51,7 @@ export function SplitContainer({
   theme,
   fontConfig,
   terminalConfig,
+  usageEnabledByProvider,
 }: SplitContainerProps) {
   // Subscribe so tree re-renders when force-focus set changes
   useWorkerFocusVersion();
@@ -93,7 +97,12 @@ export function SplitContainer({
           terminalConfig={terminalConfig}
         />
         </div>
-        {usageProvider && <UsageBubble provider={usageProvider} />}
+        {usageProvider && (
+          <UsageBubble
+            provider={usageProvider}
+            trackingEnabled={usageEnabledByProvider?.[usageProvider] === true}
+          />
+        )}
       </PaneWrapper>
     );
   }
@@ -122,6 +131,7 @@ export function SplitContainer({
         theme={theme}
         fontConfig={fontConfig}
         terminalConfig={terminalConfig}
+        usageEnabledByProvider={usageEnabledByProvider}
       />
     );
   }

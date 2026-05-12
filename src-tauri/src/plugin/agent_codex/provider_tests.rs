@@ -203,13 +203,14 @@ fn codex_status_bar_rows() {
 fn codex_metadata_describes_models() {
     let p = CodexProvider::new();
     let models = p.available_models();
-    assert_eq!(models.len(), 4);
+    assert_eq!(models.len(), 5);
     let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+    assert!(ids.contains(&"gpt-5.5"));
     assert!(ids.contains(&"gpt-5.4"));
     assert!(ids.contains(&"gpt-5.4-mini"));
     assert!(ids.contains(&"gpt-5.3-codex"));
     assert!(ids.contains(&"gpt-5.2"));
-    assert_eq!(p.default_model(), Some("gpt-5.4"));
+    assert_eq!(p.default_model().as_deref(), Some("gpt-5.5"));
 }
 
 #[test]

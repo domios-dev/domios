@@ -79,6 +79,10 @@ pub struct ProviderConfig {
     pub resume_skip_permissions: Option<bool>,
     /// Default model id used for fresh sessions.
     pub default_model: Option<String>,
+    /// Enable periodic /usage (or equivalent) probing for this provider.
+    /// Default: None → false (disabled). Only meaningful for providers that
+    /// declare a `usage_parser()`; ignored otherwise.
+    pub usage_tracking_enabled: Option<bool>,
     /// Free-form per-provider settings the schema can declare without
     /// requiring a Rust struct field. Pluggable.
     #[serde(flatten)]

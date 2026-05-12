@@ -64,6 +64,15 @@
 .ct-usage-bubble.is-open {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--u-overlay-3) 60%, var(--ct-accent, #6366f1) 40%), 0 4px 12px rgba(0, 0, 0, 0.4);
 }
+.ct-usage-bubble.is-stale {
+  opacity: 0.8;
+}
+.ct-usage-bubble .stale-age {
+  font-size: 9px;
+  color: var(--u-neutral);
+  opacity: 0.55;
+  letter-spacing: 0.01em;
+}
 
 .ct-usage-bubble .glyph {
   display: inline-flex;
@@ -144,6 +153,17 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+}
+.ct-usage-stale-banner {
+  font-size: 10px;
+  color: var(--u-neutral);
+  opacity: 0.65;
+  background: var(--u-overlay-1);
+  border: 1px solid var(--u-overlay-2);
+  border-radius: 6px;
+  padding: 5px 8px;
+  margin-bottom: 10px;
+  line-height: 1.3;
 }
 .ct-usage-popover .title {
   font-size: 11px;

@@ -275,6 +275,7 @@ pub fn run() {
             keepawake::resume_from_disk(&states.keepawake, &app_handle);
 
             // Bootstrap plugin system — agent-claude is a bundled native plugin
+            agent::model_catalog::ensure_readme_installed();
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
             let mut plugin_manager = plugin::PluginManager::new();
             plugin_manager.set_agent_registry(agent_registry.clone());
@@ -332,6 +333,11 @@ pub fn run() {
                     .expect("agent-opencode plugin activation failed");
             }
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
+
+            // All providers have called `model_catalog::register(...)` in their
+            // constructors by now — refresh the `<provider>.example.toml`
+            // files so users always see the current build's defaults.
+            agent::model_catalog::refresh_example_files();
 
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
             let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
