@@ -385,9 +385,10 @@ fn today_delta(
             .ok()
             .flatten();
 
-        let yest: Option<(f64, i64)> = conn
+        // Fetch captured_at too so we can detect a large gap before midnight.
+        let yest: Option<(f64, i64, i64)> = conn
             .prepare(
-                r#"SELECT weekly_pct, weekly_resets_at
+                r#"SELECT weekly_pct, weekly_resets_at, captured_at
                      FROM usage_snapshots
                      WHERE provider = ?1
                        AND parsed_ok = 1
@@ -400,13 +401,21 @@ fn today_delta(
             )
             .map_err(|e| format!("prepare yest: {}", e))?
             .query_row(params![provider, account_id, today_start_ms], |r| {
-                Ok((r.get::<_, f64>(0)?, r.get::<_, i64>(1)?))
+                Ok((r.get::<_, f64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
             })
             .ok();
 
-        // Cross-day delta is more accurate when the cycle didn't reset overnight.
-        let from_yest = yest.and_then(|(prev_pct, prev_resets)| {
-            if prev_resets == current_resets_at && prev_pct <= current_pct {
+        // Cross-midnight bridge: only usable when the pre-midnight reading was
+        // taken within 2 hours of midnight. A bigger gap means we don't know
+        // when the spending happened — crediting the whole delta to today would
+        // inflate today_so_far and break the projection.
+        const MAX_MIDNIGHT_GAP_MS: i64 = 2 * 60 * 60 * 1000;
+        let from_yest = yest.and_then(|(prev_pct, prev_resets, prev_at)| {
+            let gap = today_start_ms - prev_at;
+            if prev_resets == current_resets_at
+                && prev_pct <= current_pct
+                && gap <= MAX_MIDNIGHT_GAP_MS
+            {
                 Some(current_pct - prev_pct)
             } else {
                 None
