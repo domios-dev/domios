@@ -109,6 +109,31 @@ pub async fn resume_session_api(
         .with_provider(&meta.provider, |p| p.build_resume_command(&meta.session_id, true))
         .flatten();
 
+    // Idempotency: if a live pane already holds this session_id, return it as-is.
+    // Two concurrent resume calls (UI reconnect, CLI retry) must not both spawn.
+    {
+        let mux = state.svc.mux.lock();
+        let existing_pane = mux.pane_ids_with_session(&session_id).into_iter().next();
+        if let Some(pane_id) = existing_pane {
+            let snap = mux.snapshot();
+            let (ws_id, tab_id) = snap.workspaces.iter()
+                .find_map(|w| {
+                    let tab = w.tabs.iter().find(|t| t.split_tree.contains_pane(&pane_id))?;
+                    Some((w.id.clone(), tab.id.clone()))
+                })
+                .unwrap_or_default();
+            return Ok(Json(serde_json::json!({
+                "pane_id": pane_id,
+                "tab_id": tab_id,
+                "workspace_id": ws_id,
+                "provider": meta.provider,
+                "session_id": meta.session_id,
+                "cwd": cwd,
+                "resume_command": resume_cmd_preview,
+            })));
+        }
+    }
+
     let ws_id = match body.workspace_id {
         Some(id) => id,
         None => {
@@ -125,7 +150,9 @@ pub async fn resume_session_api(
                 .find_workspace_info_by_cwd(&cwd)
                 .map(|w| w.id);
             if let Some(id) = existing_id {
-                let _ = state.svc.mux.lock().set_active_workspace(&id);
+                if let Err(e) = state.svc.mux.lock().set_active_workspace(&id) {
+                    log::warn!("[session_resume] set_active_workspace({id}) failed: {e}; workspace may have been concurrently closed");
+                }
                 state.svc.emit_state_changed();
                 id
             } else {
