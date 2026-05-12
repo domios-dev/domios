@@ -355,7 +355,16 @@ fn bare_shell_prompt_visible(svc: &ServiceContext, pty_id: &str) -> bool {
         .lock()
         .get_screen_text(pty_id)
         .unwrap_or_default();
-    crate::pty::screen_state::screen_has_bare_shell_prompt(&text)
+    // Shell prompt must be present …
+    if !crate::pty::screen_state::screen_has_shell_prompt(&text) {
+        return false;
+    }
+    // … with no universal TUI glyphs (box-drawing, block chars) …
+    if crate::pty::screen_state::screen_has_agent_tui(&text) {
+        return false;
+    }
+    // … and no provider-specific TUI text patterns.
+    !svc.agent_registry.any_provider_screen_has_tui(&text)
 }
 
 #[cfg(test)]

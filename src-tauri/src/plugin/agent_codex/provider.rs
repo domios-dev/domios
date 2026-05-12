@@ -152,6 +152,12 @@ impl AgentProvider for CodexProvider {
             || text.contains("codex>")
     }
 
+    fn screen_has_tui(&self, screen_text: &str) -> bool {
+        // Banner is always visible at the top of any running Codex session.
+        screen_text.contains("OpenAI Codex")
+            || screen_text.to_ascii_lowercase().contains("ctrl+c to cancel")
+    }
+
     fn session_file_path(&self, _cwd: &str, session_id: &str) -> Option<PathBuf> {
         // session_id is a UUID — need to find the matching rollout-*-<uuid>.jsonl file
         let root = Self::sessions_root()?;

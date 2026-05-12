@@ -173,20 +173,7 @@ pub fn screen_has_agent_tui(screen_text: &str) -> bool {
     }
     // Six+ consecutive `▀` (upper-half blocks) — opencode logo/borders never
     // appear in normal shell output.
-    if screen_text.contains("▀▀▀▀▀▀") {
-        return true;
-    }
-    let lower = screen_text.to_ascii_lowercase();
-    lower.contains("? for shortcuts")
-        || lower.contains("for shortcuts")
-        || lower.contains("ctrl+l")
-        || lower.contains("esc to interrupt")
-        || lower.contains("tab agents")
-        || lower.contains("ctrl+p commands")
-        // Codex CLI — banner visible at the top of any running Codex session.
-        || screen_text.contains("OpenAI Codex")
-        // Codex working indicator visible during tool execution.
-        || lower.contains("ctrl+c to cancel")
+    screen_text.contains("▀▀▀▀▀▀")
 }
 
 /// Like `screen_has_shell_prompt` but rejects screens where an agent TUI is
@@ -302,10 +289,13 @@ mod tests {
     }
 
     #[test]
-    fn agent_tui_detected_by_border_or_footer() {
+    fn agent_tui_detected_by_universal_glyphs() {
+        // Universal glyph check (box-drawing, block chars) — no text patterns here.
+        // Text patterns live in each provider's screen_has_tui() implementation.
         assert!(screen_has_agent_tui("╭─ foo ─╮"));
-        assert!(screen_has_agent_tui("some content\n? for shortcuts"));
-        assert!(screen_has_agent_tui("working\nEsc to interrupt"));
+        assert!(screen_has_agent_tui("▀▀▀▀▀▀ opencode logo"));
+        assert!(!screen_has_agent_tui("some content\n? for shortcuts")); // text → provider
+        assert!(!screen_has_agent_tui("working\nEsc to interrupt"));     // text → provider
         assert!(!screen_has_agent_tui("just a plain shell output"));
         assert!(!screen_has_agent_tui("❯ "));
     }

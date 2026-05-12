@@ -452,6 +452,15 @@ pub trait AgentProvider: Send + Sync {
     /// Detect this agent from PTY output text.
     fn detect_from_output(&self, text: &str) -> bool;
 
+    /// Returns true when this provider's TUI is visible in the given screen
+    /// text. Used by the restart logic in addition to the universal glyph
+    /// check so each provider owns its own text fingerprints. Default is
+    /// false — override for providers whose TUI emits recognisable text that
+    /// is not covered by box-drawing or block glyphs.
+    fn screen_has_tui(&self, _screen_text: &str) -> bool {
+        false
+    }
+
     /// Build the path to the session file for this agent.
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf>;
 

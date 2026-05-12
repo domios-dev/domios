@@ -88,6 +88,15 @@ impl AgentRegistry {
             .map(|p| p.id().to_string())
     }
 
+    /// Returns true when any registered provider's TUI is visible in the
+    /// given screen text. Complements the universal glyph check in
+    /// `screen_state::screen_has_agent_tui` — each provider owns its own
+    /// text fingerprints via `AgentProvider::screen_has_tui`.
+    pub fn any_provider_screen_has_tui(&self, text: &str) -> bool {
+        let guard = self.providers.read();
+        guard.values().any(|p| p.screen_has_tui(text))
+    }
+
     /// Detect agent provider from PTY output.
     /// Returns the provider id if found.
     pub fn detect_from_output(&self, text: &str) -> Option<String> {
