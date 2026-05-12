@@ -149,6 +149,22 @@ SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structu
 
 Agent integration is abstracted via providers (`src-tauri/src/agent/`, `src/components/ChatView/parser.ts`). Currently: Claude. Architecture-ready: Codex, Aider, Goose. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`docs/contributing/architecture.md`**.
 
+## GitHub Issues
+
+Issue titles use `<scope>: description` — same scopes as commit prefixes:
+
+```
+fix:      bug fix
+feat:     new feature
+mem:      memory subsystem
+mesh:     mesh networking
+research: spikes, investigations, benchmarks
+docs:     documentation only
+build:    build / CI
+```
+
+No `[Tag]`, `[Idea]`, `[Bug]` brackets — just the scope prefix.
+
 ## Documentation
 
 Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
