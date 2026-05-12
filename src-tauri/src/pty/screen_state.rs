@@ -153,6 +153,46 @@ impl ScreenState {
     }
 }
 
+/// Heuristic: does the screen still show an agent TUI (Claude / Codex / Opencode)?
+///
+/// Looks for box-drawing glyphs (light rounded `╭╰╮╯` for Claude, heavy thick
+/// `┃ ┏ ┓ ┗ ┛ ╹ ╻` for Opencode) plus distinctive footer phrases. Normal shell
+/// output essentially never contains these; agent TUIs always do. Used by
+/// `agent_restart` to avoid falsely concluding `/exit` succeeded — the TUI's
+/// input cursor (`❯` / `›`) looks identical to many shell prompts.
+pub fn screen_has_agent_tui(screen_text: &str) -> bool {
+    // Box-drawing corners + thick verticals seen in agent TUIs but never in shells.
+    const TUI_GLYPHS: &[char] = &[
+        '╭', '╰', '╮', '╯',           // Claude (light rounded)
+        '┏', '┓', '┗', '┛',           // heavy square corners
+        '╹', '╻', '╺', '╸',           // half-line caps (opencode logo)
+        '┃',                            // heavy vertical (opencode borders)
+    ];
+    if screen_text.chars().any(|c| TUI_GLYPHS.contains(&c)) {
+        return true;
+    }
+    // Six+ consecutive `▀` (upper-half blocks) — opencode logo/borders never
+    // appear in normal shell output.
+    if screen_text.contains("▀▀▀▀▀▀") {
+        return true;
+    }
+    let lower = screen_text.to_ascii_lowercase();
+    lower.contains("? for shortcuts")
+        || lower.contains("for shortcuts")
+        || lower.contains("ctrl+l")
+        || lower.contains("esc to interrupt")
+        || lower.contains("try \"")
+        || lower.contains("tab agents")
+        || lower.contains("ctrl+p commands")
+}
+
+/// Like `screen_has_shell_prompt` but rejects screens where an agent TUI is
+/// still visible. Use this when you need to confirm the shell is back after
+/// killing an agent — not for general "input ready" checks.
+pub fn screen_has_bare_shell_prompt(screen_text: &str) -> bool {
+    !screen_has_agent_tui(screen_text) && screen_has_shell_prompt(screen_text)
+}
+
 /// Heuristic: does the last non-empty line of screen text look like a shell prompt?
 ///
 /// Rejects PowerShell continuation prompts (`>>`, `>>>`) which are NOT
@@ -238,6 +278,33 @@ mod tests {
         // Mid-action TUI screens must still report not-ready.
         assert!(!screen_has_shell_prompt("working..."));
         assert!(!screen_has_shell_prompt("Esc to interrupt"));
+    }
+
+    #[test]
+    fn bare_shell_prompt_rejects_active_tui() {
+        // Claude TUI with idle cursor on the last non-empty line. `screen_has_shell_prompt`
+        // accepts `❯` (issue #72), so without the TUI veto the restart code would think
+        // the shell is back and pipe the launch command into Claude's input box.
+        let claude_tui = "╭──────────────────────────╮\n│ ❯                        │";
+        assert!(screen_has_shell_prompt(claude_tui), "❯ still looks shell-ish");
+        assert!(!screen_has_bare_shell_prompt(claude_tui), "TUI border must veto");
+    }
+
+    #[test]
+    fn bare_shell_prompt_accepts_real_shell() {
+        // Starship-style prompt — `❯` but no box-drawing or TUI footer.
+        assert!(screen_has_bare_shell_prompt("~/code/codeterm on  master\n❯ "));
+        assert!(screen_has_bare_shell_prompt("user@host:~$ "));
+        assert!(screen_has_bare_shell_prompt("PS C:\\Users\\User> "));
+    }
+
+    #[test]
+    fn agent_tui_detected_by_border_or_footer() {
+        assert!(screen_has_agent_tui("╭─ foo ─╮"));
+        assert!(screen_has_agent_tui("some content\n? for shortcuts"));
+        assert!(screen_has_agent_tui("working\nEsc to interrupt"));
+        assert!(!screen_has_agent_tui("just a plain shell output"));
+        assert!(!screen_has_agent_tui("❯ "));
     }
 
     #[test]
