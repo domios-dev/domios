@@ -320,6 +320,29 @@ pub fn session_resume_section(description: &str, skip_flag: &str) -> SettingFiel
     }
 }
 
+/// Build the "Usage Tracking" settings section. Auto-injected into the
+/// schema for any provider that declares `usage_parser()` — providers
+/// don't need to include it manually.
+pub fn usage_tracking_section(probe_command: &str) -> SettingField {
+    SettingField::Section {
+        title: "Usage Tracking (experimental)".into(),
+        description: Some(format!(
+            "Periodically probe {} in a hidden pane to capture session + weekly limits, \
+             then surface them as a pill in the corner of every pane plus a projections \
+             popover. Off by default — turn on to enable for this provider. Experimental: \
+             the hidden probe spawns a real agent process every 10–50 min and can in rare \
+             cases interact awkwardly with active sessions on the same account.",
+            probe_command
+        )),
+        fields: vec![SettingField::Toggle {
+            key: "usage_tracking_enabled".into(),
+            label: "Enable usage tracking".into(),
+            default: false,
+            description: None,
+        }],
+    }
+}
+
 /// Build the "Model" settings section from a provider's available models.
 pub fn model_select_section(description: &str, models: Vec<ModelInfo>, default: Option<&str>) -> SettingField {
     SettingField::Section {
@@ -600,7 +623,9 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// Default model id, must match one of `available_models()` if non-None.
-    fn default_model(&self) -> Option<&str> {
+    /// Returns `String` (not `&str`) so providers can resolve through the
+    /// user-editable `model_catalog` without lifetime headaches.
+    fn default_model(&self) -> Option<String> {
         None
     }
 
@@ -663,6 +688,11 @@ pub trait AgentProvider: Send + Sync {
     /// rarely need to override it.
     fn describe(&self) -> ProviderDescriptor {
         let platform = current_platform_tag();
+        let mut settings = self.settings_schema();
+        if self.usage_parser().is_some() {
+            let probe_cmd = self.usage_probe_command().unwrap_or("/usage");
+            settings.push(usage_tracking_section(probe_cmd));
+        }
         ProviderDescriptor {
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             id: self.id().to_string(),
@@ -671,8 +701,8 @@ pub trait AgentProvider: Send + Sync {
             icon_svg: self.icon_svg().map(|s| s.to_string()),
             icon_color: self.icon_color().map(|s| s.to_string()),
             available_models: self.available_models(),
-            default_model: self.default_model().map(|s| s.to_string()),
-            settings_schema: self.settings_schema(),
+            default_model: self.default_model(),
+            settings_schema: settings,
             notifications_schema: self.notifications_schema(),
             supports_lazy_skills: self.supports_lazy_skills(),
             has_hooks: self.has_hooks(),
@@ -710,6 +740,24 @@ pub fn current_platform_tag() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usage_tracking_section_renders_off_by_default() {
+        let section = usage_tracking_section("/usage");
+        match section {
+            SettingField::Section { fields, .. } => {
+                assert_eq!(fields.len(), 1);
+                match &fields[0] {
+                    SettingField::Toggle { key, default, .. } => {
+                        assert_eq!(key, "usage_tracking_enabled");
+                        assert!(!default, "tracking must default to OFF");
+                    }
+                    other => panic!("expected Toggle, got {:?}", other),
+                }
+            }
+            other => panic!("expected Section, got {:?}", other),
+        }
+    }
 
     /// Round-trip golden test for the wire format.
     /// Catches accidental field renames or breaking serde changes

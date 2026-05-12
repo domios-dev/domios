@@ -16,6 +16,13 @@ pub struct CodexProvider;
 
 impl CodexProvider {
     pub fn new() -> Self {
+        crate::agent::model_catalog::register(
+            "codex",
+            crate::agent::model_catalog::RegisteredDefaults {
+                models: builtin_models(),
+                default: Some("gpt-5.5".into()),
+            },
+        );
         Self
     }
 
@@ -24,6 +31,36 @@ impl CodexProvider {
         let home = dirs::home_dir()?;
         Some(home.join(".codex").join("sessions"))
     }
+}
+
+fn builtin_models() -> Vec<ModelInfo> {
+    vec![
+        ModelInfo {
+            id: "gpt-5.5".into(),
+            display_name: "GPT-5.5".into(),
+            description: Some("Frontier model for complex coding, research, and real-world work.".into()),
+        },
+        ModelInfo {
+            id: "gpt-5.4".into(),
+            display_name: "GPT-5.4".into(),
+            description: Some("Strong model for everyday coding.".into()),
+        },
+        ModelInfo {
+            id: "gpt-5.4-mini".into(),
+            display_name: "GPT-5.4 Mini".into(),
+            description: Some("Small, fast, and cost-efficient model for simpler coding tasks.".into()),
+        },
+        ModelInfo {
+            id: "gpt-5.3-codex".into(),
+            display_name: "GPT-5.3 Codex".into(),
+            description: Some("Coding-optimized model.".into()),
+        },
+        ModelInfo {
+            id: "gpt-5.2".into(),
+            display_name: "GPT-5.2".into(),
+            description: Some("Optimized for professional work and long-running agents.".into()),
+        },
+    ]
 }
 
 impl AgentProvider for CodexProvider {
@@ -339,32 +376,11 @@ impl AgentProvider for CodexProvider {
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
-        vec![
-            ModelInfo {
-                id: "gpt-5.4".into(),
-                display_name: "GPT-5.4".into(),
-                description: Some("Latest frontier agentic coding model.".into()),
-            },
-            ModelInfo {
-                id: "gpt-5.4-mini".into(),
-                display_name: "GPT-5.4 Mini".into(),
-                description: Some("Smaller frontier agentic model.".into()),
-            },
-            ModelInfo {
-                id: "gpt-5.3-codex".into(),
-                display_name: "GPT-5.3 Codex".into(),
-                description: Some("Frontier Codex-optimized agentic coding model.".into()),
-            },
-            ModelInfo {
-                id: "gpt-5.2".into(),
-                display_name: "GPT-5.2".into(),
-                description: Some("Optimized for professional work and long-running agents.".into()),
-            },
-        ]
+        crate::agent::model_catalog::resolve_models("codex")
     }
 
-    fn default_model(&self) -> Option<&str> {
-        Some("gpt-5.4")
+    fn default_model(&self) -> Option<String> {
+        crate::agent::model_catalog::resolve_default("codex")
     }
 
     fn preserves_context_on_resume(&self) -> bool {
@@ -383,7 +399,7 @@ impl AgentProvider for CodexProvider {
             provider::model_select_section(
                 "Default model for new Codex sessions.",
                 self.available_models(),
-                self.default_model(),
+                self.default_model().as_deref(),
             ),
             // ── Section: Requirements (read-only docs) ──
             SettingField::Section {

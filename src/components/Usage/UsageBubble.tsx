@@ -8,11 +8,16 @@ import { UsageHistoryModal } from "./UsageHistoryModal";
 interface UsageBubbleProps {
   provider?: string;
   accountId?: string | null;
+  /// Pass-through from a single top-level `useConfig()` so every pane's
+  /// bubble doesn't re-fetch + re-listen on its own. Default `false`
+  /// keeps callers that haven't been migrated rendering nothing.
+  trackingEnabled?: boolean;
 }
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const STALE_MS = 20 * 60 * 1000;
 
-export function UsageBubble({ provider = "claude", accountId = null }: UsageBubbleProps) {
+export function UsageBubble({ provider = "claude", accountId = null, trackingEnabled = false }: UsageBubbleProps) {
   const { snapshot, refresh, refetch } = useUsageSnapshot({ provider, accountId });
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -46,10 +51,12 @@ export function UsageBubble({ provider = "claude", accountId = null }: UsageBubb
     setFlipUp(room < 360);
   }, [open]);
 
+  if (!trackingEnabled) return null;
   if (!snapshot) return null;
   const ageMs = Date.now() - snapshot.captured_at;
   if (!snapshot.parsed_ok && ageMs > ONE_HOUR_MS) return null;
 
+  const isStale = ageMs > STALE_MS;
   const sessionState = classify(snapshot.session_pct);
   const weeklyState = classify(snapshot.weekly_pct);
   const worst: "neutral" | "warn" | "danger" =
@@ -63,6 +70,7 @@ export function UsageBubble({ provider = "claude", accountId = null }: UsageBubb
     "ct-usage-bubble",
     worst === "warn" ? "is-warn" : "",
     worst === "danger" ? "is-danger" : "",
+    isStale ? "is-stale" : "",
     open ? "is-open" : "",
   ]
     .filter(Boolean)
@@ -99,6 +107,7 @@ export function UsageBubble({ provider = "claude", accountId = null }: UsageBubb
           </svg>
           <span className="pct">{formatPct(snapshot.weekly_pct)}</span>
         </span>
+        {isStale && <span className="stale-age">·{formatAgeShort(ageMs)}</span>}
       </button>
 
       {open && (
@@ -130,4 +139,10 @@ export function UsageBubble({ provider = "claude", accountId = null }: UsageBubb
 function formatPct(pct: number | null | undefined): string {
   if (pct == null) return "—";
   return `${Math.round(pct)}%`;
+}
+
+function formatAgeShort(ms: number): string {
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h`;
 }

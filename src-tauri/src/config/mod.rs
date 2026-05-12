@@ -110,6 +110,15 @@ pub fn provider_config(provider_id: &str) -> schema::ProviderConfig {
     out
 }
 
+/// Whether the usage tracker should probe this provider's `/usage` endpoint.
+/// Defaults to `false` — the toggle is opt-in per provider via
+/// `agents.<id>.usage_tracking_enabled` (also surfaced in Settings → Agents).
+pub fn usage_tracking_enabled(provider_id: &str) -> bool {
+    provider_config(provider_id)
+        .usage_tracking_enabled
+        .unwrap_or(false)
+}
+
 /// Load config from disk, or create default if missing.
 /// Auto-generates an API token when none is configured — the internal
 /// webview and the CLI both need it to authenticate against the REST API.

@@ -30,6 +30,15 @@ pub struct OpenCodeProvider;
 
 impl OpenCodeProvider {
     pub fn new() -> Self {
+        // Register fallback list as the "built-in" — actual list is fetched
+        // dynamically from `opencode models` when no override file exists.
+        crate::agent::model_catalog::register(
+            "opencode",
+            crate::agent::model_catalog::RegisteredDefaults {
+                models: fallback_models(),
+                default: Some("anthropic/claude-opus-4-7".into()),
+            },
+        );
         Self
     }
 
@@ -599,6 +608,10 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
+        // User override wins outright (skip the dynamic CLI fetch).
+        if let Some(o) = crate::agent::model_catalog::try_override("opencode") {
+            return o;
+        }
         // OpenCode auths into many backends (Anthropic, OpenAI, GitHub Copilot,
         // OpenRouter, OpenCode-hosted, …) — the live list depends on what the
         // user actually logged into. Don't hardcode: shell out to
@@ -617,8 +630,9 @@ impl AgentProvider for OpenCodeProvider {
         }
     }
 
-    fn default_model(&self) -> Option<&str> {
-        Some("anthropic/claude-opus-4-7")
+    fn default_model(&self) -> Option<String> {
+        crate::agent::model_catalog::try_override_default("opencode")
+            .or_else(|| Some("anthropic/claude-opus-4-7".into()))
     }
 
     fn preserves_context_on_resume(&self) -> bool {
@@ -636,7 +650,7 @@ impl AgentProvider for OpenCodeProvider {
             provider::model_select_section(
                 "Default model for new OpenCode sessions.",
                 self.available_models(),
-                self.default_model(),
+                self.default_model().as_deref(),
             ),
             SettingField::Section {
                 title: "Requirements".into(),

@@ -28,6 +28,7 @@ interface UsageDetailProps {
 const SPARK_W = 280;
 const SPARK_H = 78;
 const EIGHT_DAYS_MS = 8 * 24 * 60 * 60 * 1000;
+const STALE_MS = 20 * 60 * 1000;
 const REFRESH_TIMEOUT_MS = 12_000;
 const MERGE_MARKERS_WITHIN_PCT = 3;
 const INTRO_HINT_OPENS_KEY = "ct-usage-intro-hint-opens";
@@ -55,6 +56,7 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
   const sessionState = classify(snapshot.session_pct);
   const weeklyState = classify(snapshot.weekly_pct);
   const now = Date.now();
+  const isStale = now - snapshot.captured_at > STALE_MS;
 
   useEffect(() => {
     if (!refreshing) return;
@@ -120,6 +122,12 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
           <RefreshCw />
         </button>
       </div>
+
+      {isStale && (
+        <div className="ct-usage-stale-banner">
+          Data may be outdated — last updated {formatRelative(now, snapshot.captured_at)}
+        </div>
+      )}
 
       <Gauge
         label="Session"

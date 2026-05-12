@@ -29,6 +29,13 @@ pub struct ClaudeProvider;
 
 impl ClaudeProvider {
     pub fn new() -> Self {
+        crate::agent::model_catalog::register(
+            "claude",
+            crate::agent::model_catalog::RegisteredDefaults {
+                models: schemas::builtin_models(),
+                default: Some("sonnet".into()),
+            },
+        );
         Self
     }
 }
@@ -203,8 +210,8 @@ impl AgentProvider for ClaudeProvider {
         schemas::available_models()
     }
 
-    fn default_model(&self) -> Option<&str> {
-        Some("sonnet")
+    fn default_model(&self) -> Option<String> {
+        crate::agent::model_catalog::resolve_default("claude")
     }
 
     fn preserves_context_on_resume(&self) -> bool {
@@ -257,6 +264,17 @@ mod tests {
     fn claude_model_switch_command_formats_slash_model() {
         let p = ClaudeProvider::new();
         assert_eq!(p.model_switch_command("sonnet").as_deref(), Some("/model sonnet"));
+    }
+
+    #[test]
+    fn claude_describe_injects_usage_tracking_section() {
+        let p = ClaudeProvider::new();
+        let desc = p.describe();
+        let has = desc.settings_schema.iter().any(|f| matches!(
+            f,
+            crate::agent::provider::SettingField::Section { title, .. } if title.starts_with("Usage Tracking")
+        ));
+        assert!(has, "Claude has usage_parser — describe() must auto-inject the Usage Tracking toggle");
     }
 
     #[test]

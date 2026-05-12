@@ -94,6 +94,13 @@ impl UsagePoller {
     }
 
     pub fn refresh_now(&self, provider: &str, account_id: Option<String>) {
+        if !crate::config::usage_tracking_enabled(provider) {
+            log::info!(
+                "[usage.poller] manual refresh skipped — tracking disabled for provider {}",
+                provider
+            );
+            return;
+        }
         let key = AccountKey {
             provider: provider.to_string(),
             account_id,
@@ -345,6 +352,7 @@ fn providers_with_parser(svc: &ServiceContext) -> Vec<String> {
                 .with_provider(id, |p| p.usage_parser().is_some())
                 .unwrap_or(false)
         })
+        .filter(|id| crate::config::usage_tracking_enabled(id))
         .collect()
 }
 
