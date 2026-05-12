@@ -109,28 +109,74 @@ pub async fn resume_session_api(
         .with_provider(&meta.provider, |p| p.build_resume_command(&meta.session_id, true))
         .flatten();
 
+    // Idempotency: if a live pane already holds this session_id, return it as-is.
+    // Two concurrent resume calls (UI reconnect, CLI retry) must not both spawn.
+    {
+        let mux = state.svc.mux.lock();
+        let existing_pane = mux.pane_ids_with_session(&session_id).into_iter().next();
+        if let Some(pane_id) = existing_pane {
+            let snap = mux.snapshot();
+            let (ws_id, tab_id) = snap.workspaces.iter()
+                .find_map(|w| {
+                    let tab = w.tabs.iter().find(|t| t.split_tree.contains_pane(&pane_id))?;
+                    Some((w.id.clone(), tab.id.clone()))
+                })
+                .unwrap_or_default();
+            return Ok(Json(serde_json::json!({
+                "pane_id": pane_id,
+                "tab_id": tab_id,
+                "workspace_id": ws_id,
+                "provider": meta.provider,
+                "session_id": meta.session_id,
+                "cwd": cwd,
+                "resume_command": resume_cmd_preview,
+            })));
+        }
+    }
+
     let ws_id = match body.workspace_id {
         Some(id) => id,
         None => {
-            let ws_name = body.workspace_name.unwrap_or_else(|| {
-                std::path::Path::new(&cwd)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or(&meta.provider)
-                    .to_string()
-            });
-            let cmd = crate::dispatch::Command::WorkspaceCreate {
-                name: ws_name,
-                cwd: Some(cwd.clone()),
-            };
-            let result = crate::dispatch::dispatch(&cmd, &state.svc)
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-            result
-                .into_json()
-                .get("id")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-                .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "workspace create returned no id".into()))?
+            // Reuse existing workspace at this cwd if there is one. Going
+            // through `WorkspaceCreate` here would spawn an extra empty
+            // Terminal tab as a side effect (intentional for the UI "open
+            // folder" button, but pure noise for a programmatic resume).
+            // `spawn_agent` will create the only tab we actually want —
+            // the resumed agent pane.
+            let existing_id = state
+                .svc
+                .mux
+                .lock()
+                .find_workspace_info_by_cwd(&cwd)
+                .map(|w| w.id);
+            if let Some(id) = existing_id {
+                if let Err(e) = state.svc.mux.lock().set_active_workspace(&id) {
+                    log::warn!("[session_resume] set_active_workspace({id}) failed: {e}; workspace may have been concurrently closed");
+                }
+                state.svc.emit_state_changed();
+                id
+            } else {
+                let ws_name = body.workspace_name.unwrap_or_else(|| {
+                    std::path::Path::new(&cwd)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(&meta.provider)
+                        .to_string()
+                });
+                let cmd = crate::dispatch::Command::WorkspaceCreate {
+                    name: ws_name,
+                    cwd: Some(cwd.clone()),
+                    activate: Some(true),
+                };
+                let result = crate::dispatch::dispatch(&cmd, &state.svc)
+                    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+                result
+                    .into_json()
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "workspace create returned no id".into()))?
+            }
         }
     };
 
@@ -153,13 +199,14 @@ pub async fn resume_session_api(
         spawned_by_pane_id: None,
         model: body.model.clone(),
         resume_session_id: Some(meta.session_id.clone()),
+        activate: None,
     };
     let spawned = state
         .svc
         .spawn_agent(spawn_params, None)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    state.svc.set_pane_agent_type(&spawned.pane_id, Some(meta.provider.clone()));
+    state.svc.set_and_lock_pane_agent_type(&spawned.pane_id, meta.provider.clone());
     state.svc.emit_state_changed();
 
     Ok(Json(serde_json::json!({

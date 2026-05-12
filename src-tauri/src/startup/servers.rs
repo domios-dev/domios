@@ -185,7 +185,8 @@ pub(crate) fn start_servers(
         super::bridge::spawn_telegram_bridge(service_state.clone());
     }
 
-    // If we just booted after a self-update, push the result through the
-    // bridge and clean up the staging file. Spawned task — non-blocking.
-    update::boot_pickup::spawn(service_state.clone());
+    // If the previous instance was killed by `update --apply --after-update`,
+    // pick up the queued message and inject it into the general pane once the
+    // agent is ready.
+    update::post_update::spawn(service_state.clone());
 }

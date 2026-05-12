@@ -136,7 +136,7 @@ pub async fn spawn_pty(
     // This runs in backend so it works even for non-visible tabs.
     // Skip protected panes (General Agent) — backend manages their lifecycle.
     if let Some(ref pid) = pane_id {
-        let (session_id, is_protected, pane_cwd, restored_from_snapshot) = {
+        let (session_id, is_protected, pane_cwd, restored_from_snapshot, agent_type) = {
             let m = mux_state.lock();
             let pane = m.get_pane(pid);
             (
@@ -144,16 +144,26 @@ pub async fn spawn_pty(
                 pane.map(|p| p.protected).unwrap_or(false),
                 pane.and_then(|p| p.cwd.clone()),
                 pane.map(|p| p.restored_from_snapshot).unwrap_or(false),
+                pane.and_then(|p| p.agent_type.clone()),
             )
         };
-        let agent_type = mux_state.lock().get_pane(pid)
-            .and_then(|p| p.agent_type.clone());
         let mut should_fresh_launch = restored_from_snapshot
             && !is_protected
             && agent_type.is_some();
         let agent_type_for_fresh = agent_type.clone();
 
-        if let Some(session_id) = session_id.filter(|_| !is_protected) {
+        // Auto-resume in spawn_pty must ONLY fire when the pane was restored
+        // from a daemon snapshot (kill → restart → frontend mounts panes).
+        // For a fresh `sessions resume` / `agent spawn --resume`, the backend
+        // already drives the launch via `launch_agent_in_background`. Without
+        // this gate, both paths race: each polls shell-prompt + sends the
+        // resume command, the second send lands in the TUI's input box →
+        // garbled launch + stuck "Resume session" picker (see the prod bug
+        // screenshot where the launch command appeared on screen twice).
+        if let Some(session_id) = session_id
+            .filter(|_| !is_protected)
+            .filter(|_| restored_from_snapshot)
+        {
             let provider_id = agent_type.unwrap_or_else(crate::config::default_agent_provider);
 
             // Validate the session file still exists. If it's gone (cleared cache,
@@ -175,7 +185,7 @@ pub async fn spawn_pty(
                 svc.set_agent_session_id(pid, None);
                 svc.emit_state_changed();
             } else {
-                svc.set_pane_agent_type(pid, Some(provider_id.clone()));
+                svc.set_and_lock_pane_agent_type(pid, provider_id.clone());
                 svc.emit_state_changed();
 
                 // Build resume command via provider registry (provider-agnostic).
@@ -435,6 +445,8 @@ pub async fn read_pty(
 #[tauri::command]
 pub async fn write_pty_string(
     state: tauri::State<'_, PtyState>,
+    mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
+    svc: tauri::State<'_, ServiceState>,
     pty_id: String,
     data: String,
 ) -> Result<(), String> {
@@ -443,13 +455,17 @@ pub async fn write_pty_string(
         manager.get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
-
-    session.write_queue.send(data.into_bytes())
+    let bytes = data.into_bytes();
+    parse_pty_input(&svc, &mux_state, &pty_id, &bytes);
+    mark_user_activity(&svc, &mux_state, &pty_id);
+    session.write_queue.send(bytes)
 }
 
 #[tauri::command]
 pub async fn write_pty(
     state: tauri::State<'_, PtyState>,
+    mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
+    svc: tauri::State<'_, ServiceState>,
     pty_id: String,
     data: Vec<u8>,
 ) -> Result<(), String> {
@@ -458,7 +474,53 @@ pub async fn write_pty(
         manager.get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
+    parse_pty_input(&svc, &mux_state, &pty_id, &data);
+    mark_user_activity(&svc, &mux_state, &pty_id);
     session.write_queue.send(data)
+}
+
+fn mark_user_activity(
+    svc: &ServiceState,
+    mux: &crate::multiplexer::commands::MuxState,
+    pty_id: &str,
+) {
+    let pane_id = mux.lock().pane_id_for_pty(pty_id);
+    if let Some(pid) = pane_id {
+        svc.usage_activity.mark(&pid);
+    }
+}
+
+/// Feed bytes to the input parser when the destination pane is not locked.
+/// On match, lock `agent_type` to the detected provider — user typed an explicit
+/// launch command, which is the highest-authority intent next to a real spawn.
+fn parse_pty_input(
+    svc: &ServiceState,
+    mux: &crate::multiplexer::commands::MuxState,
+    pty_id: &str,
+    bytes: &[u8],
+) {
+    let (pane_id, locked) = {
+        let m = mux.lock();
+        let pid = m.pane_id_for_pty(pty_id);
+        let locked = pid.as_ref()
+            .and_then(|id| m.get_pane(id))
+            .map(|p| p.agent_type_locked)
+            .unwrap_or(false);
+        (pid, locked)
+    };
+    let Some(pane_id) = pane_id else { return };
+    if locked {
+        svc.input_parser.clear(&pane_id);
+        return;
+    }
+    if let Some(provider_id) = svc.input_parser.process(&pane_id, bytes) {
+        log::info!(
+            "[input-parser] detected '{}' launch in pane {} — locking agent_type",
+            provider_id, pane_id,
+        );
+        svc.set_and_lock_pane_agent_type(&pane_id, provider_id);
+        svc.emit_state_changed();
+    }
 }
 
 #[tauri::command]

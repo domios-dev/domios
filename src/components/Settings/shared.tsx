@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "../Icons";
 import { isMac } from "../../lib/keybindings";
 import type { LucideIcon } from "lucide-react";
@@ -8,6 +8,96 @@ export function Group({ title, children }: { title: string; children: React.Reac
     <div>
       <h3 className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)] mb-2.5">{title}</h3>
       <div className="space-y-2.5">{children}</div>
+    </div>
+  );
+}
+
+export function SettingsPage({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="max-w-[720px] mx-auto flex flex-col gap-5">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-medium text-[var(--ct-fg)]">{title}</h1>
+        {subtitle && (
+          <p className="text-sm text-[var(--ct-muted-fg)]">{subtitle}</p>
+        )}
+      </header>
+      {children}
+    </div>
+  );
+}
+
+export function SettingsCard({
+  icon,
+  title,
+  headerRight,
+  description,
+  children,
+  className,
+}: {
+  icon?: ReactNode;
+  title: ReactNode;
+  headerRight?: ReactNode;
+  description?: ReactNode;
+  children?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 p-4 ${className ?? ""}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-[var(--ct-fg)] text-sm font-medium min-w-0">
+          {icon}
+          <span className="truncate">{title}</span>
+        </div>
+        {headerRight && <div className="shrink-0">{headerRight}</div>}
+      </div>
+      {description && (
+        <p className="text-xs text-[var(--ct-muted-fg)] mt-2 leading-relaxed">{description}</p>
+      )}
+      {children && <div className="mt-3 space-y-2.5">{children}</div>}
+    </section>
+  );
+}
+
+const PILL_TONES = {
+  green: "bg-[var(--ct-green)]/15 text-[var(--ct-green)]",
+  red: "bg-[var(--ct-red)]/15 text-[var(--ct-red)]",
+  muted: "bg-[var(--ct-border)] text-[var(--ct-muted-fg)]",
+  accent: "bg-[var(--ct-accent)]/15 text-[var(--ct-accent)]",
+  amber: "bg-[var(--ct-yellow)]/15 text-[var(--ct-yellow)]",
+} as const;
+
+export function SettingsPill({
+  children,
+  tone = "muted",
+}: {
+  children: ReactNode;
+  tone?: keyof typeof PILL_TONES;
+}) {
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wider font-medium ${PILL_TONES[tone]}`}>
+      {children}
+    </span>
+  );
+}
+
+export function SettingsRow({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`flex items-center justify-between gap-2 ${className ?? ""}`}>
+      {children}
     </div>
   );
 }

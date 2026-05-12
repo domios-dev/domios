@@ -393,9 +393,14 @@ function SvcDrawer({
 
       {service.url && (
         <Section label="URL">
-          <div className="font-mono text-[10px] text-[var(--ct-fg)] break-all">
+          <a
+            href={service.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-mono text-[10px] text-[var(--ct-blue)] underline break-all hover:opacity-80"
+          >
             {service.url}
-          </div>
+          </a>
         </Section>
       )}
       {service.host && (

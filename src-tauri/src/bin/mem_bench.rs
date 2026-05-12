@@ -272,6 +272,7 @@ fn run() -> Result<(), String> {
             source: None,
             importance: seed.importance.unwrap_or(3.0),
             source_path: None,
+            pinned: false,
         };
         // insert_raw skips auto-extract + embed queue so bench recall
         // isn't polluted by extracted child items.

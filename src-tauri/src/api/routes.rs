@@ -8,8 +8,9 @@ use tower_http::cors::CorsLayer;
 
 use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, health_routes, hook_routes,
-    mem_routes, mesh_routes, network_routes, notification_routes, pane_routes, services_routes,
-    session_routes, theme_routes, updater_routes, webhook_routes, workspace_routes,
+    logs_routes, mem_routes, mesh_routes, network_routes, notification_routes, pane_routes,
+    services_routes, session_routes, theme_routes, updater_routes, usage_routes, webhook_routes,
+    workspace_routes,
 };
 
 #[derive(Clone)]
@@ -100,8 +101,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/update/check", get(updater_routes::check_update))
         .route("/api/update/status", get(updater_routes::update_status))
         .route("/api/update/install", post(updater_routes::install_update))
-        .route("/api/update/self_apply", post(updater_routes::self_update_apply))
-        .route("/api/update/rollback", post(updater_routes::self_update_rollback))
         .route(
             "/api/update/channel",
             get(updater_routes::get_channel).post(updater_routes::set_channel),
@@ -140,6 +139,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/peers/{id}/addr", post(mesh_routes::mesh_set_peer_addr))
         .route("/api/mem/search", get(mem_routes::mem_search))
         .route("/api/mem/items", post(mem_routes::mem_save))
+        .route("/api/mem/pinned", get(mem_routes::mem_pinned_list))
         .route("/api/mem/items/{id}", get(mem_routes::mem_get).delete(mem_routes::mem_delete).patch(mem_routes::mem_update))
         .route("/api/mem/items/{id}/history", get(mem_routes::mem_history))
         .route("/api/mem/taxonomy", get(mem_routes::mem_taxonomy))
@@ -172,6 +172,8 @@ pub fn create_router(state: AppState) -> Router {
                 .delete(mem_routes::mem_pinned_positions_delete),
         )
         .route("/api/mem/activity/recent", get(mem_routes::mem_activity_recent))
+        .route("/api/mem/calibration/sweep", post(mem_routes::mem_calibration_sweep))
+        .route("/api/mem/calibration/log", get(mem_routes::mem_calibration_log))
         .route("/api/mem/workers", get(mem_routes::workers_list).post(mem_routes::workers_spawn))
         .route("/api/mem/workers/{id}", get(mem_routes::workers_get).delete(mem_routes::workers_kill))
         .route("/api/mem/workers/{id}/progress", post(mem_routes::workers_progress))
@@ -202,7 +204,13 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/secrets/collections", get(crate::secrets::api::collections))
         .route("/api/secrets/backend", post(crate::secrets::api::switch_backend))
         .route("/api/secrets/sync", post(crate::secrets::api::sync))
-        .route("/api/secrets/auto-unlock", post(crate::secrets::api::auto_unlock));
+        .route("/api/secrets/auto-unlock", post(crate::secrets::api::auto_unlock))
+        .route("/api/usage/latest", get(usage_routes::usage_latest))
+        .route("/api/usage/history", get(usage_routes::usage_history))
+        .route("/api/usage/rollup/daily", get(usage_routes::usage_daily_rollup))
+        .route("/api/usage/projection", get(usage_routes::usage_projection))
+        .route("/api/usage/refresh", post(usage_routes::usage_refresh))
+        .route("/api/logs", get(logs_routes::list_logs).delete(logs_routes::delete_logs));
 
     router
         .layer(middleware::from_fn_with_state(state.clone(), super::auth::auth_middleware))

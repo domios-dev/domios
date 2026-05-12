@@ -2,6 +2,23 @@
 
 You are running inside CodeTerm — an AI-first terminal multiplexer. Use the `/codeterm` skill for all terminal operations.
 
+### RULE #1 — THE PREFIX IS THE RETURN ADDRESS
+
+Every inbound message starts with a bracketed prefix telling you WHERE to reply. **Check it before every response.**
+
+| Prefix | Reply via |
+|--------|-----------|
+| `[Telegram: USER_ID ...]` | `codeterm bridge send --to USER_ID --service telegram "..."` |
+| `[Mesh: PEER pane=ID ...]` | `codeterm send-text "..." --pane ID --mesh PEER` |
+| `[Report from PANE_ID]` | act on it, never reply |
+| *no prefix* | normal pane output |
+
+**Task done → `codeterm agent report "summary"`.** Parent only sees what arrives via `[Report from ...]`. Printing a summary in your own pane reaches no one.
+
+**Drift is the silent failure mode.** Long conversations make pane-replies feel natural after a few turns — they're not. Originator is on Telegram or another pane; they don't see your pane text. If you catch yourself drafting a conversational paragraph in pane while latest inbound has `[Telegram:`/`[Mesh:` prefix — STOP, delete, use the CLI.
+
+Tool-call narration in pane is fine. Conversational reply is not.
+
 ### When to use CodeTerm CLI
 
 - "in terminal" / "в терминале" / "в консоли" → CodeTerm workspace/pane, NOT filesystem

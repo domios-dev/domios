@@ -51,7 +51,7 @@ Then: `Authorization: Bearer your-secret-token`
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/panes` | — | List all panes |
-| POST | `/api/panes/{id}/send` | `{text?, enter?, batch?: [{text, enter?, delay_ms?}]}` | Send text to PTY (fire & forget) |
+| POST | `/api/panes/{id}/send` | `{text?, enter?, verify?, batch?: [{text, enter?, delay_ms?}]}` | Send text to PTY. Default is fire-and-forget (`{ok:true, fire_and_forget:true}`); opt into screen-echo verification with `verify:true`. Verified response: `{ok, pty_echo_seen, echo_observed, submit_observed, elapsed_ms}` — `pty_echo_seen` (renamed from `verified` in v1.2.1) is `echo_observed && (!enter || submit_observed)`. |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
 | GET | `/api/panes/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
 | GET | `/api/panes/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, alternate buffer included). Served from the backend — no frontend roundtrip, works for hidden panes. Response: `{"text": "...", "formatted": false, "pane_id": "..."}`. With `?formatted=true` the `text` contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility (used on pane remount to restore TUI apps like Claude that hide the cursor via DECTCEM). |
@@ -327,6 +327,33 @@ Returns `200 {"ok": true}` on success or `503 Service Unavailable` (`Bridge not 
 
 Returns `{"ok": true}` on success. Returns `503 Service Unavailable` if bridge is not active.
 
+#### Usage Tracker
+
+Per-provider usage snapshots scraped from the running agent (Claude `/usage`, Codex `/status`). The poller runs a hidden background pane, observes the provider's own usage screen, and persists `{used_pct, weekly_pct, weekly_opus_pct, ts_ms, resets_at, weekly_resets_at, account_id}` rows. Drives the in-app Usage bubble + history modal; everything is local — nothing is reported upstream.
+
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/usage/latest` | `?provider=claude&account_id=…` | Latest snapshot for one provider/account. `null` when no data yet. |
+| GET | `/api/usage/history` | `?provider=…&since=<ms>&limit=200&account_id=…` | Raw snapshots since `since` (epoch ms). `limit` clamped to `[1, 5000]`. |
+| GET | `/api/usage/rollup/daily` | `?provider=…&since=<ms>&account_id=…` | Per-day max-used aggregates for the history chart. |
+| GET | `/api/usage/projection` | `?provider=…&account_id=…` | Median-baseline projection: per-DOW shape + scale + overspend ETA. |
+| POST | `/api/usage/refresh` | `{provider, account_id?}` | Trigger an out-of-band probe right now. Returns `{queued, probe_id}`; `503` if the poller isn't running. |
+
+**Adaptive polling.** A single background scheduler ticks every 30 s and decides which (provider, account) is due to probe. The base cadence steps through `[120 s, 300 s, 600 s, 1200 s, 2400 s]` (`BACKOFF_STEPS_S` in `src-tauri/src/usage/poller.rs`) with ±10% jitter at the top — dense while a pane for that provider is active, then stretches out the longer the user is idle. A pane is "active" when its activity timestamp is fresh (`PaneActivity::mark` on keypress / send / focus). After `PAUSE_AFTER_FAILURES = 3` consecutive probe failures the account is paused until manual refresh.
+
+**Projection algorithm.** `src-tauri/src/usage/projection.rs` builds per-day-of-week medians from the last 4 weeks of snapshots, projects today's curve from the elapsed shape, and rejects "pair-noise" jumps wider than `SHAPE_PAIR_GAP_MS = 4h` apart with `SHAPE_PAIR_DELTA_MAX = 25 %` jump — typical of off-device usage gaps where two distant samples bracket someone else's activity on the same account. The frontend uses `activeWeeklyCycle()` in `src/components/Usage/cycle.ts` to discard stale `weekly_resets_at` values that lag the latest `resets_at`.
+
+#### Logs
+
+CodeTerm pipes the daemon's `tracing` output into a structured ring + SQLite store (`src-tauri/src/logs/`). The UI's Settings → Logs tab is the canonical surface; the REST shape is identical.
+
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| GET | `/api/logs` | `?level=info\|warn\|error\|debug&source=<substr>&since=<ms>&limit=500` | Recent app-log rows. `limit` clamped to `[1, 5000]`. |
+| DELETE | `/api/logs` | `?before=<ms>` | Purge rows older than `before` (epoch ms). Returns `{deleted: N}`. |
+
+Each row is `{id, ts, level, source, message, context_json}`. `source` is the `tracing` target (e.g. `codeterm::mem::dreamer`, `codeterm::usage::poller`). Storage is bounded by a 1000-entry in-memory ring; once the SQL backend opens (`logs/app_logs.db` under the data dir, WAL mode) the ring drains into it. The `log-emitted` Tauri event fires per-record so the Logs tab can auto-tail without polling.
+
 #### Setup (Rules, Hooks)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -413,12 +440,20 @@ Schedule format: 5-field cron expressions (`min hour dom mon dow`). Examples: `*
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/mem/search` | `?q=...&kind=...&area=...&scope=...&limit=N&mode=hybrid_rrf\|vector_first_rerank&weight=0.30&rerank=true` | Hybrid retrieval. Default mode is `hybrid_rrf` (FTS5+vector RRF fusion). `mode=vector_first_rerank` switches to the MemPalace-style pipeline (vector recall + keyword/temporal rerank); `weight` tunes its keyword-overlap strength (0.0..=1.0, default 0.30). `rerank=true` layers an LLM second-pass on top. |
-| GET | `/api/mem/items/{id}` | — | Get one item (full body) |
-| POST | `/api/mem/items` | `{kind, title, body, scope?, summary?, area?, tags?, source?, importance?, replace?, skip_extract?}` | Save a mem item. `skip_extract: true` suppresses the auto-extraction cascade (seed loaders use this to avoid re-extracting bundled items on every startup). |
-| PATCH | `/api/mem/items/{id}` | partial | Update an existing item |
+| GET | `/api/mem/items/{id}` | — | Get one item (full body). On real (non-worker) reads, `evidence_count` is bumped for kinds `skill | lesson | rule | fact | preference`. Bump is suppressed when the request carries `X-CodeTerm-Worker-Id` so internal sweeps (dreamer, extraction) don't poison the score. |
+| GET | `/api/mem/pinned` | `?limit=N` | List items with `is_pinned_wakeup = 1`, ordered by `importance DESC, evidence_count DESC, updated_at DESC`. `limit` defaults to 100, hard-capped at 500. |
+| POST | `/api/mem/items` | `{kind, title, body, scope?, summary?, area?, tags?, source?, importance?, replace?, skip_extract?, source_path?, pinned?}` | Save a mem item. `pinned: true` atomically sets `is_pinned_wakeup = 1` in the same INSERT (no follow-up PATCH). `scope` accepts `"global"` (default) or `"workspace:<id>"`. `skip_extract: true` suppresses the auto-extraction cascade (seed loaders use this to avoid re-extracting bundled items on every startup). |
+| PATCH | `/api/mem/items/{id}` | `{title?, summary?, area?, tags?, body?, importance?, pinned?}` | Partial update. `pinned: true|false` toggles `is_pinned_wakeup`; the change is recorded in `mem_item_history` so the audit trail captures explicit pin intent. |
 | DELETE | `/api/mem/items/{id}` | — | Delete an item |
-| GET | `/api/mem/wake-up` | — | L0 + L1 critical-context digest (identity + top-N important items) |
+| GET | `/api/mem/wake-up` | `?budget=N&l0_only=true&no_l0=true&workspace=<ws>&explain=true` | L0 + L1 critical-context digest. `workspace` boosts items scoped to that workspace (`scope = "workspace:<ws>"`) by `+0.5` in the L1 score and admits them alongside global rows. `explain=true` appends a per-item score breakdown comment block. L1 budget defaults to `[memory] l1_budget_tokens` (default 300) when `budget` is omitted. |
 | GET | `/api/mem/stats` | — | Counts per kind, totals, index health |
+| POST | `/api/mem/calibration/sweep` | `?force=true` | Run the dreamer's importance / archive sweep against the local store. Server-side gate: `strftime('%w','now') == '0'` (Sunday) unless `force=true` is passed. Hard caps: 30 mutations per session, abort if candidate set > 100, refuse with `skipped_reason: "recent_run"` if any `changed_by LIKE 'dreamer-calibration%'` row landed in the last 6h. Returns `{day_of_week, examined, applied, archived, skipped_reason?}`. Also auto-invoked as a fourth phase of `POST /api/mem/dream?phase=all` so the LLM dreamer can read the result rather than running the sweep itself (which it was prone to skipping under session resumption). |
+| GET | `/api/mem/calibration/log` | `?since=ISO8601&limit=N&count=true` | Audit trail of calibration mutations. Filters `mem_item_history WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at >= since`. `count=true` returns `{count: N}`; otherwise `{entries: [...]}` with `item_id`, `changed_at`, `changed_by` (`dreamer-calibration:promote\|demote\|archive`), `change_type`, `old_importance`, `new_importance`, `old_kind`, `new_kind`. `since` is validated as RFC3339 and rejected with 400 on parse failure. `limit` defaults to 50, hard-capped at 500. |
+
+**Actor / worker headers.** Two request headers shape mem-write semantics:
+
+- `X-CodeTerm-Worker-Id` — set automatically by the CLI when `CODETERM_WORKER_ID` is in the environment (extraction workers, dreamer, REM phase). Any `GET /api/mem/items/{id}` with this header skips the `evidence_count` bump so internal sweeps don't feedback-loop the L1 score.
+- `X-CodeTerm-Actor` — stored in `mem_item_history.changed_by`. Defaults to `"user"`; set explicitly via `codeterm mem update --changed-by <actor>` (e.g. `dreamer-calibration:promote`). The calibration sweep populates this with `dreamer-calibration:{promote|demote|archive}` so the calibration log can filter cleanly.
 
 **Extraction concurrency:** `ServiceContext::extract_semaphore` caps auto-extraction at **4 concurrent workers** across the whole process. Every `mem_save` (except items tagged `auto-extracted`, sourced from `extracted_from:*`, or sent with `skip_extract: true`) schedules an extraction task that acquires a permit from this semaphore before spawning a hidden extraction pane. Additional graph routes (`/api/mem/graph/*`), learnings, dreaming, and worker endpoints exist but are not documented here — read `src-tauri/src/api/mem_routes.rs` for the full surface.
 
@@ -531,9 +566,7 @@ The config is saved to disk and a `config-changed` Tauri event is emitted.
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/update/check` | `?force=true` | Check for available updates on the active channel. Cached for 1 hour unless `force=true`. |
-| POST | `/api/update/install` | `?method=auto&manifest_url=...` | Install the pending update. Without `method=auto`, returns either an OS install command or opens the download URL in the browser. With `method=auto`, runs the full Tauri-plugin-updater flow (download, signature verify, install, restart). |
-| POST | `/api/update/self_apply` | `?channel=...` | Script-orchestrated self-update with rollback. Downloads the asset, schedules a platform script (`schtasks` on Windows), sends a Telegram "starting" message via the bridge, then graceful-shuts-down. The next-boot daemon reads `upgrade-result.json` and posts the outcome. See `docs/release/SELF-UPDATE.md`. |
-| POST | `/api/update/rollback` | — | Restore the previous binary from `.bak` and restart. Same orchestrator pattern in reverse. |
+| POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...` | Install the pending update. Without `method=auto`, returns either an OS install command or opens the download URL in the browser. With `method=auto`, runs the full Tauri-plugin-updater flow (download, signature verify, install, restart). `after_update` (optional) stashes a message to `~/.codeterm/post-update-message.txt`; the new daemon delivers it to the General pane after restart. |
 | GET | `/api/update/channel` | — | Returns `{"channel": "stable" \| "rc" \| "nightly"}` |
 | POST | `/api/update/channel` | `{channel}` | Set the active channel. Persists to `[updater] channel = "..."` in `config.toml` and updates the in-memory state. |
 
@@ -977,6 +1010,51 @@ codeterm update --channel                      # Print current channel
 codeterm update --channel <stable|rc|nightly>  # Switch channel (persists to config.toml)
 codeterm update --apply --manifest-url URL     # Override manifest URL (dev/test only; release builds reject non-https)
 
+# Memory (mem)
+codeterm mem search "<query>" [--kind K] [--area A] [--scope S] [--limit N] [--rerank]
+                                               # Hybrid search (FTS5 + vector). --rerank layers an LLM second-pass.
+codeterm mem get <id>                          # Print one item (full body). Bumps evidence_count for skill|lesson|rule|fact|preference (skipped when called from a worker pane via $CODETERM_WORKER_ID).
+codeterm mem save --kind K --title T [--area A] [--tags csv] [--scope S] [--workspace WS] [--pin] [--importance N] [--source-path P] [--replace] [--skip-extract] "<body>"
+                                               # Atomic create. --pin sets is_pinned_wakeup=1 in the same INSERT. --workspace WS is shorthand for --scope workspace:WS.
+codeterm mem update <id> [--title T] [--summary S] [--area A] [--tags csv] [--body B] [--importance N] [--changed-by ACTOR]
+                                               # Partial update. --changed-by sets the X-CodeTerm-Actor header (lands in mem_item_history.changed_by; default "user").
+codeterm mem delete <id>                       # Remove an item (also vectors + relations)
+codeterm mem forget AREA                       # Batch delete every item in one area
+codeterm mem history <id>                      # Full audit trail (create/update/promote/delete)
+codeterm mem taxonomy [--workspace W]          # {area -> {kind -> count}} for the store or one workspace
+codeterm mem tail [--follow] [--limit N]       # Recent mem writes, newest first
+codeterm mem stats                             # Counts by kind + blob sizes
+codeterm mem wake-up [--budget N] [--l0-only] [--no-l0] [--workspace WS] [--explain]
+                                               # L0 + L1 wake-up digest. --workspace boosts ws-scoped items in L1 ranking. --explain appends a per-item score breakdown.
+codeterm mem pin <id>                          # Set is_pinned_wakeup=1 (always loaded in L1, subject to budget)
+codeterm mem unpin <id>                        # Clear is_pinned_wakeup
+codeterm mem pinned [--limit N]                # List pinned items (default 100, max 500)
+codeterm mem learn "<text>" [--kind insight|error|feature]   # Quick capture
+codeterm mem sync [--path P]                   # Trigger Librarian re-index for source-tracked items
+codeterm mem extract-pending [--limit N]       # Re-queue extraction workers for unprocessed items
+codeterm mem calibration log [--since ISO] [--limit N] [--count]
+                                               # Audit log of dreamer-calibration changes
+codeterm mem calibration sweep [--force]       # Run the importance/archive sweep. Server-gated to Sunday unless --force.
+codeterm mem skill new <slug> [--area A]       # Scaffold a skill folder + register
+codeterm mem skill add <folder> [--area A]     # Register an existing skill folder
+codeterm mem skill list                        # List registered skills
+codeterm mem graph related --id <id>           # Outgoing relations
+codeterm mem graph create --id <id> --type <T> [--props JSON] [--scope S]
+codeterm mem graph relate --from <id> --rel <r> --to <id> [--valid-from ISO] [--valid-to ISO]
+codeterm mem graph timeline --entity <id>     # Full temporal history
+codeterm mem graph traverse --from <id> [--hops N]
+codeterm mem graph path --from <id> --to <id>
+codeterm mem reembed [--scope items|entities|all]
+                                               # Re-embed mem_items / graph entities into mem_vectors
+codeterm mem dream run [--phase light|deep|normalize|all]
+                                               # Manually trigger dreaming (server-routed)
+codeterm mem dream diary [--limit N]           # Print recent dream-diary entries
+codeterm mem worker spawn --intent NAME --task "..." [--agent claude] [--parent ID]
+                                               # Ad-hoc graph worker
+codeterm mem worker list                       # List all workers (running + done)
+codeterm mem worker progress "<status>"        # From inside a worker (uses $CODETERM_WORKER_ID)
+codeterm mem worker report "<summary>"         # Final report + mark done
+
 # Secrets — pluggable secret store (local OS keychain / Bitwarden / mock / future backends)
 codeterm mem secret status                     # Show backend + auth status (json with --json)
 codeterm mem secret sync                       # Pull latest from remote vault (Bitwarden); no-op for local/mock
@@ -1118,4 +1196,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 39 -->
+<!-- revision: 44 -->

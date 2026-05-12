@@ -19,7 +19,6 @@ const KNOWN_SUBCOMMANDS: &[&str] = &[
     "agent",
     "cron",
     "update",
-    "self-update",
     "config",
     "bridge",
     "mesh",
@@ -141,7 +140,6 @@ mod tests {
             "pane",
             "send-text",
             "get-output",
-            "self-update",
             "--help",
             "-h",
             "--version",
@@ -165,7 +163,7 @@ mod tests {
         for name in [
             "identify", "capabilities", "workspace", "pane", "get-output",
             "send-text", "browser", "notify", "notifications", "keepawake",
-            "theme", "agent", "cron", "update", "self-update", "config",
+            "theme", "agent", "cron", "update", "config",
             "bridge", "mesh", "mem", "sessions",
         ] {
             assert!(is_cli_invocation(name), "expected top-level '{}' to be a CLI invocation", name);

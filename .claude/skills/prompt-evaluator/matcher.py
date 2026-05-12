@@ -8,6 +8,12 @@ need heuristic substring shortcuts, and substring matching has
 too many false positives anyway (tokens appearing in unrelated
 context, paraphrased commands, etc).
 
+The judge is given a chain-of-thought scratchpad before its verdict
+(G-Eval / Anthropic eval-cookbook recommendation: thinking-before-
+scoring raises agreement with human raters meaningfully). The
+reasoning is parsed but discarded for pass/fail decisions; the final
+VERDICT line is what matters.
+
 Usage:
     from matcher import match_expectation, MatchResult
 
@@ -19,8 +25,22 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from dataclasses import dataclass
+
+try:
+    from . import cache as _cache  # type: ignore
+except ImportError:
+    import cache as _cache  # noqa: E402
+
+# Module-level toggle for cache use; flipped by runner based on --no-cache.
+_CACHE_ENABLED = True
+
+
+def set_cache_enabled(enabled: bool) -> None:
+    global _CACHE_ENABLED
+    _CACHE_ENABLED = enabled
 
 
 JUDGE_PROMPT_TEMPLATE = """\
@@ -39,9 +59,10 @@ EXPECTATION:
 AGENT RESPONSE (command list):
 {response}
 
-Did the agent's command list satisfy the expectation? Reply with EXACTLY one of:
-- "PASS: <one short reason>"
-- "FAIL: <one short reason>"
+Think step by step inside <reasoning>...</reasoning> tags before deciding:
+1. Classify the expectation: positive (requires X), negative (forbids X), or behavioral (an inferred action).
+2. Scan the response for the relevant commands / flags / patterns.
+3. Decide PASS / FAIL based on the rules below.
 
 Rules:
 - Positive expectation naming a command, flag, or argument — the command list must contain that command/flag (PASS) or not (FAIL). Order does not matter.
@@ -50,7 +71,38 @@ Rules:
 - "Uses send-text --pane general --mesh PEER" requires the response to contain literally `send-text` AND `--pane general` AND `--mesh PEER` (or `--mesh <similar peer name>`).
 - If the agent emitted `# NO_COMMAND: ...` and the expectation requires a specific command, FAIL. If the expectation is negative (should NOT do X) and the agent emitted no commands, PASS.
 - Ignore minor formatting (extra whitespace, code fences, line numbering).
+
+After </reasoning>, output exactly ONE final line in this exact format:
+VERDICT: PASS — <one short reason>
+or
+VERDICT: FAIL — <one short reason>
+
+Do NOT output anything after the VERDICT line.
 """
+
+
+_VERDICT_RE = re.compile(r"VERDICT:\s*(PASS|FAIL)\b\s*[:—–-]?\s*(.*?)\s*$", re.IGNORECASE | re.MULTILINE)
+
+
+def _parse_verdict(text: str) -> tuple[bool | None, str]:
+    """
+    Pull the final VERDICT line out of a chain-of-thought response.
+    Returns (passed, reason). passed is None if the verdict couldn't be parsed.
+    """
+    matches = list(_VERDICT_RE.finditer(text))
+    if matches:
+        m = matches[-1]
+        verdict = m.group(1).upper()
+        reason = (m.group(2) or "").strip() or "(no reason)"
+        return (verdict == "PASS", reason)
+    # Fallback for old-style "PASS: ..." / "FAIL: ..." replies (judge ignored CoT format).
+    stripped = text.strip()
+    upper = stripped.upper()
+    if upper.startswith("PASS"):
+        return (True, stripped[5:].lstrip(": —-").strip() or "(no reason)")
+    if upper.startswith("FAIL"):
+        return (False, stripped[5:].lstrip(": —-").strip() or "(no reason)")
+    return (None, "")
 
 
 @dataclass
@@ -79,6 +131,14 @@ def match_expectation(
         expectation=expectation,
         response=response,
     )
+    # judge has no system prompt — pass empty string as the system slot for cache key.
+    if _CACHE_ENABLED:
+        cached = _cache.get(judge_model, "", prompt, namespace="judge")
+        if cached is not None:
+            passed, reason = _parse_verdict(cached)
+            if passed is not None:
+                return MatchResult(passed, "llm-judge", reason)
+            # cached entry was malformed — fall through and re-run.
     try:
         proc = subprocess.run(
             [
@@ -115,12 +175,13 @@ def match_expectation(
 
     try:
         envelope = json.loads(proc.stdout)
-        verdict = (envelope.get("result") or "").strip()
+        verdict_text = (envelope.get("result") or "").strip()
     except json.JSONDecodeError:
         return MatchResult(False, "llm-judge", f"non-JSON output: {proc.stdout[:200]}")
 
-    if verdict.upper().startswith("PASS"):
-        return MatchResult(True, "llm-judge", verdict[5:].lstrip(": ").strip() or "(no reason)")
-    if verdict.upper().startswith("FAIL"):
-        return MatchResult(False, "llm-judge", verdict[5:].lstrip(": ").strip() or "(no reason)")
-    return MatchResult(False, "llm-judge", f"unparseable verdict: {verdict[:200]}")
+    passed, reason = _parse_verdict(verdict_text)
+    if passed is None:
+        return MatchResult(False, "llm-judge", f"unparseable verdict: {verdict_text[:200]}")
+    if _CACHE_ENABLED:
+        _cache.put(judge_model, "", prompt, verdict_text, namespace="judge")
+    return MatchResult(passed, "llm-judge", reason)

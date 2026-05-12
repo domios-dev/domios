@@ -15,7 +15,7 @@ use crate::mem::{
     store::{MemKind, MemScope, MemUpdate, NewMemItem},
 };
 
-use super::{changed_by_from_headers, emit_activity, validate_item_fields};
+use super::{changed_by_from_headers, emit_activity, validate_item_fields, WORKER_ID_HEADER};
 
 #[derive(Deserialize)]
 pub struct ActivityRecentParams {
@@ -113,21 +113,41 @@ pub async fn mem_get(
     match item {
         Some(item) => {
             emit_activity(&state, &headers, "read", vec![id.clone()]);
-            // Why: served-to-caller is the cleanest signal that a skill/lesson was
-            // injected into someone's context. v1.1.24 will tighten via
-            // EvolutionObserver scoring; here we just bump unconditionally.
-            state.svc.mem.with_conn(|conn| bump_on_get(conn, &item.kind, &id));
+            // Skip evidence bump on worker-driven reads (extraction/dreamer sweeps would poison the signal).
+            let is_worker_call = headers.get(WORKER_ID_HEADER).is_some();
+            if !is_worker_call {
+                state.svc.mem.with_conn(|conn| bump_on_get(conn, &item.kind, &id));
+            }
             Ok(Json(serde_json::to_value(item).unwrap_or_default()))
         }
         None => Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id))),
     }
 }
 
-/// Pure helper used by `mem_get`. Bumps evidence_count for kind=skill|lesson;
-/// no-op for any other kind. Best-effort — logs and swallows errors so a graph
-/// hiccup never breaks the read path.
+#[derive(Deserialize)]
+pub struct PinnedListParams {
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+pub async fn mem_pinned_list(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(p): Query<PinnedListParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let limit = p.limit.unwrap_or(100).clamp(1, 500);
+    let items = state
+        .svc
+        .mem
+        .list_pinned(limit)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "items": items })))
+}
+
+/// Bumps `evidence_count` for L1-selectable kinds (skill|lesson|rule|fact|preference); no-op otherwise. Caller decides whether to invoke.
 fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
-    if kind != "skill" && kind != "lesson" {
+    if !matches!(kind, "skill" | "lesson" | "rule" | "fact" | "preference") {
         return;
     }
     if let Err(e) = codeterm_mem_store::graph::bump_evidence_count(conn, id) {
@@ -137,7 +157,7 @@ fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::bump_on_get;
+    use super::{bump_on_get, wake_up_options_from_params, WakeUpParams};
     use rusqlite::Connection;
 
     fn open_test_conn() -> Connection {
@@ -187,10 +207,102 @@ mod tests {
     }
 
     #[test]
+    fn bump_on_get_fires_for_fact() {
+        let conn = open_test_conn();
+        insert(&conn, "fact_a", "fact");
+        bump_on_get(&conn, "fact", "fact_a");
+        assert_eq!(evidence(&conn, "fact_a"), 2);
+    }
+
+    #[test]
+    fn bump_on_get_fires_for_rule() {
+        let conn = open_test_conn();
+        insert(&conn, "rule_a", "rule");
+        bump_on_get(&conn, "rule", "rule_a");
+        assert_eq!(evidence(&conn, "rule_a"), 2);
+    }
+
+    #[test]
+    fn bump_on_get_fires_for_preference() {
+        let conn = open_test_conn();
+        insert(&conn, "pref_a", "preference");
+        bump_on_get(&conn, "preference", "pref_a");
+        assert_eq!(evidence(&conn, "pref_a"), 2);
+    }
+
+    #[test]
     fn bump_on_get_is_safe_when_row_missing() {
         let conn = open_test_conn();
         // No insert — must not panic / error.
         bump_on_get(&conn, "skill", "ghost_id");
+    }
+
+    #[test]
+    fn wake_up_budget_below_l0_floor_does_not_underflow() {
+        let opts = wake_up_options_from_params(&WakeUpParams {
+            budget: Some(10),
+            l0_only: None,
+            no_l0: None,
+            explain: None,
+            workspace: None,
+        });
+
+        assert_eq!(opts.l0_budget_tokens, 10);
+        assert_eq!(opts.l1_budget_tokens, 0);
+    }
+
+    #[test]
+    fn wake_up_no_l0_uses_full_budget_for_l1() {
+        let opts = wake_up_options_from_params(&WakeUpParams {
+            budget: Some(10),
+            l0_only: None,
+            no_l0: Some(true),
+            explain: None,
+            workspace: None,
+        });
+
+        assert_eq!(opts.l0_budget_tokens, 0);
+        assert_eq!(opts.l1_budget_tokens, 10);
+        assert!(!opts.include_l0);
+        assert!(opts.include_l1);
+    }
+
+    #[test]
+    fn wake_up_large_budget_caps_l0_share() {
+        let opts = wake_up_options_from_params(&WakeUpParams {
+            budget: Some(2_000),
+            l0_only: None,
+            no_l0: None,
+            explain: None,
+            workspace: None,
+        });
+
+        assert_eq!(opts.l0_budget_tokens, 100);
+        assert_eq!(opts.l1_budget_tokens, 1_900);
+    }
+
+    #[test]
+    fn wake_up_no_budget_uses_config_default() {
+        let opts = wake_up_options_from_params(&WakeUpParams {
+            budget: None,
+            l0_only: None,
+            no_l0: None,
+            explain: None,
+            workspace: None,
+        });
+        assert_eq!(opts.l1_budget_tokens, crate::config::schema::MemoryConfig::default().l1_budget_tokens);
+    }
+
+    #[test]
+    fn wake_up_workspace_param_propagates_to_options() {
+        let opts = wake_up_options_from_params(&WakeUpParams {
+            budget: None,
+            l0_only: None,
+            no_l0: None,
+            explain: None,
+            workspace: Some("W1".into()),
+        });
+        assert_eq!(opts.current_workspace.as_deref(), Some("W1"));
     }
 }
 
@@ -217,6 +329,8 @@ pub struct SaveBody {
     pub skip_extract: bool,
     #[serde(default)]
     pub source_path: Option<String>,
+    #[serde(default)]
+    pub pinned: Option<bool>,
 }
 
 pub async fn mem_save(
@@ -244,6 +358,7 @@ pub async fn mem_save(
         source: body.source,
         importance: body.importance.unwrap_or(3.0),
         source_path: body.source_path,
+        pinned: body.pinned.unwrap_or(false),
     };
     let title_clone = item.title.clone();
     let body_clone = item.body.clone();
@@ -306,7 +421,7 @@ pub async fn mem_forget_area(
     Ok(Json(serde_json::json!({ "deleted": count, "area": area })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct UpdateBody {
     #[serde(default)]
     pub title: Option<String>,
@@ -320,6 +435,8 @@ pub struct UpdateBody {
     pub body: Option<String>,
     #[serde(default)]
     pub importance: Option<f64>,
+    #[serde(default)]
+    pub pinned: Option<bool>,
 }
 
 pub async fn mem_update(
@@ -368,6 +485,7 @@ pub async fn mem_update(
         body: body.body,
         importance: body.importance,
         bump_recurrence: None,
+        pinned: body.pinned,
     };
     let changed_by = changed_by_from_headers(&headers);
     let updated = crate::mem::store::with_changed_by(&changed_by, || {
@@ -389,6 +507,10 @@ pub struct WakeUpParams {
     pub l0_only: Option<bool>,
     #[serde(default)]
     pub no_l0: Option<bool>,
+    #[serde(default)]
+    pub explain: Option<bool>,
+    #[serde(default)]
+    pub workspace: Option<String>,
 }
 
 pub async fn mem_wake_up(
@@ -397,19 +519,44 @@ pub async fn mem_wake_up(
     Query(p): Query<WakeUpParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let mut opts = WakeUpOptions::default();
-    if let Some(b) = p.budget {
-        opts.l0_budget_tokens = (b / 8).max(50);
-        opts.l1_budget_tokens = b - opts.l0_budget_tokens;
-    }
-    if p.l0_only.unwrap_or(false) {
-        opts.include_l1 = false;
-    }
-    if p.no_l0.unwrap_or(false) {
-        opts.include_l0 = false;
-    }
+    let opts = wake_up_options_from_params(&p);
     let text = state.svc.mem.wake_up(&opts).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "text": text })))
+}
+
+fn wake_up_options_from_params(p: &WakeUpParams) -> WakeUpOptions {
+    let mut opts = WakeUpOptions::default();
+    opts.include_l0 = !p.no_l0.unwrap_or(false);
+    opts.include_l1 = !p.l0_only.unwrap_or(false);
+    opts.explain = p.explain.unwrap_or(false);
+    opts.current_workspace = p.workspace.clone();
+
+    if let Some(total) = p.budget {
+        let total = total.max(1);
+        match (opts.include_l0, opts.include_l1) {
+            (true, true) => {
+                let l0 = (total / 8).clamp(50, 100).min(total);
+                opts.l0_budget_tokens = l0;
+                opts.l1_budget_tokens = total.saturating_sub(l0);
+            }
+            (true, false) => {
+                opts.l0_budget_tokens = total;
+                opts.l1_budget_tokens = 0;
+            }
+            (false, true) => {
+                opts.l0_budget_tokens = 0;
+                opts.l1_budget_tokens = total;
+            }
+            (false, false) => {
+                opts.l0_budget_tokens = 0;
+                opts.l1_budget_tokens = 0;
+            }
+        }
+    } else {
+        opts.l1_budget_tokens = crate::config::memory_config().l1_budget_tokens;
+    }
+
+    opts
 }
 
 pub async fn mem_stats(

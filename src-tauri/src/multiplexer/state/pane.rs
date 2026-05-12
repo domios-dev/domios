@@ -13,6 +13,7 @@ impl MultiplexerState {
             cwd: None,
             url: None,
             agent_type: None,
+            agent_type_locked: false,
             agent_session_id: None,
             role: None,
             parent_pane_id: None,
@@ -47,6 +48,7 @@ impl MultiplexerState {
             cwd: None,
             url,
             agent_type: None,
+            agent_type_locked: false,
             agent_session_id: None,
             role: None,
             parent_pane_id: None,
@@ -70,9 +72,9 @@ impl MultiplexerState {
         pane_id
     }
 
-    /// Open a browser pane alongside the focused pane (or in a new tab).
-    /// Returns the new pane ID.
-    pub fn open_browser(&mut self, url: Option<String>) -> Result<String, String> {
+    /// Open a browser pane next to the focused pane or in a new tab.
+    /// `activate` opts in to focusing the new tab.
+    pub fn open_browser(&mut self, url: Option<String>, activate: bool) -> Result<String, String> {
         let new_pane_id = self.create_browser_pane(url);
 
         if let Some(ref focused_id) = self.focused_pane_id.clone() {
@@ -103,7 +105,9 @@ impl MultiplexerState {
             .ok_or_else(|| "Active workspace not found".to_string())?;
 
         workspace.tabs.push(tab);
-        workspace.active_tab_id = Some(tab_id);
+        if activate || workspace.active_tab_id.is_none() {
+            workspace.active_tab_id = Some(tab_id);
+        }
 
         Ok(new_pane_id)
     }
@@ -286,11 +290,10 @@ impl MultiplexerState {
                 matches!(&tab.split_tree, SplitNode::Leaf { pane_id: pid } if pid == pane_id)
             });
             if let Some(idx) = tab_idx {
+                let closed_tab_id = ws.tabs[idx].id.clone();
                 ws.tabs.remove(idx);
-                if !ws.tabs.is_empty() {
-                    ws.active_tab_id = Some(ws.tabs.last().unwrap().id.clone());
-                } else {
-                    ws.active_tab_id = None;
+                if ws.active_tab_id.as_deref() == Some(&closed_tab_id) {
+                    ws.active_tab_id = ws.tabs.last().map(|t| t.id.clone());
                 }
                 return Ok(());
             }
@@ -299,5 +302,66 @@ impl MultiplexerState {
             }
         }
         Err(format!("Pane {} not found in any split tree", pane_id))
+    }
+}
+
+#[cfg(test)]
+mod open_browser_tests {
+    use super::*;
+
+    // Exercises the new-tab branch of `open_browser` (no focused pane to
+    // split into). The split-into-focused-pane branch never touches
+    // `active_tab_id`, so focus-on-spawn is irrelevant there.
+    fn fresh_state_with_no_focus() -> (MultiplexerState, String, String) {
+        let (mut state, _initial_pane_id) = MultiplexerState::new();
+        state.focused_pane_id = None;
+        let ws_id = state
+            .workspaces
+            .first()
+            .map(|w| w.id.clone())
+            .expect("default workspace");
+        // Force a non-None active_tab_id pointing at a *second* tab so the
+        // test can detect a switch (the first tab gets activated
+        // unconditionally because the workspace started empty — that's
+        // the `tab.rs:36` branch we explicitly left alone).
+        let (extra_tab, _extra_pane) = state.create_tab(&ws_id).unwrap();
+        state.set_active_tab(&ws_id, &extra_tab).unwrap();
+        (state, ws_id, extra_tab)
+    }
+
+    #[test]
+    fn open_browser_activate_true_switches_active_tab() {
+        let (mut state, ws_id, original_active_tab) = fresh_state_with_no_focus();
+        let new_pane_id = state
+            .open_browser(Some("https://example.com".into()), true)
+            .unwrap();
+
+        let active = state
+            .get_workspace(&ws_id)
+            .and_then(|w| w.active_tab_id.clone())
+            .expect("workspace has active tab");
+        assert_ne!(
+            active, original_active_tab,
+            "activate=true must switch focus to the new browser tab"
+        );
+        assert!(state.get_pane(&new_pane_id).is_some());
+    }
+
+    #[test]
+    fn open_browser_activate_false_keeps_active_tab() {
+        let (mut state, ws_id, original_active_tab) = fresh_state_with_no_focus();
+        let new_pane_id = state
+            .open_browser(Some("https://example.com".into()), false)
+            .unwrap();
+
+        let active = state
+            .get_workspace(&ws_id)
+            .and_then(|w| w.active_tab_id.clone())
+            .expect("workspace still has active tab");
+        assert_eq!(
+            active, original_active_tab,
+            "activate=false must leave the user's focus untouched"
+        );
+        assert!(state.get_pane(&new_pane_id).is_some());
     }
 }

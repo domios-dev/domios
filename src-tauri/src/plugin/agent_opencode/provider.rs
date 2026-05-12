@@ -7,6 +7,7 @@ use crate::agent::provider::{
 };
 use super::usage as opencode_usage;
 use crate::shell::ShellSyntax;
+use crate::plugin::common::is_codeterm_injection;
 
 #[path = "models.rs"]
 mod models;
@@ -30,6 +31,15 @@ pub struct OpenCodeProvider;
 
 impl OpenCodeProvider {
     pub fn new() -> Self {
+        // Register fallback list as the "built-in" — actual list is fetched
+        // dynamically from `opencode models` when no override file exists.
+        crate::agent::model_catalog::register(
+            "opencode",
+            crate::agent::model_catalog::RegisteredDefaults {
+                models: fallback_models(),
+                default: Some("anthropic/claude-opus-4-7".into()),
+            },
+        );
         Self
     }
 
@@ -171,14 +181,13 @@ impl AgentProvider for OpenCodeProvider {
         "OpenCode"
     }
 
+    fn binary_name(&self) -> &str {
+        "opencode"
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         let mut parts: Vec<String> = Vec::new();
-
-        if let Some(ref task) = params.task {
-            // Non-interactive: opencode run [flags] -- "<task>"
-            // --format json emits the full event stream so the watcher gets
-            // continuous output and the idle counter never trips during normal
-            // generation. Permission auto-approve only exists on `run`.
+        if params.headless && params.task.is_some() {
             parts.push("opencode".to_string());
             parts.push("run".to_string());
             if params.skip_permissions {
@@ -186,16 +195,13 @@ impl AgentProvider for OpenCodeProvider {
             }
             parts.push("--format".to_string());
             parts.push("json".to_string());
-            parts.push(ShellSyntax::quote(task));
+            parts.push(ShellSyntax::quote(params.task.as_ref().unwrap()));
         } else {
-            // Interactive TUI session.
             parts.push("opencode".to_string());
         }
-
         if let Some(ref extra) = params.args {
             parts.extend(extra.iter().cloned());
         }
-
         parts.join(" ")
     }
 
@@ -206,7 +212,11 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn task_delivery(&self) -> TaskDelivery {
-        TaskDelivery::InlineFlag
+        TaskDelivery::PtyInput
+    }
+
+    fn task_input_warmup(&self) -> Duration {
+        Duration::from_secs(5)
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
@@ -222,14 +232,27 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn detect_from_output(&self, text: &str) -> bool {
-        // OpenCode TUI writes a distinctive ASCII banner at startup and
-        // emits "permission" prompts on tool calls. Match the banner +
-        // permission language.
-        text.contains("opencode")
+        // OpenCode TUI writes a distinctive box-drawn banner at startup and
+        // emits "Permission required" on tool calls. Require literal
+        // "opencode" or the TUI's box characters to avoid cross-firing with
+        // claude. "approve" is excluded — overlaps codex's "approve network
+        // access" prompts.
+        let has_marker = text.contains("opencode")
+            || text.contains("OpenCode")
+            || text.contains("OpenCode Zen");
+        has_marker
             && (text.contains("Permission required")
-                || text.contains("approve")
+                || text.contains("Allow this tool call")
+                || text.contains("Approve this command")
                 || text.contains("█▀▀█")
-                || text.contains("▄"))
+                || text.contains("Build · ")
+                || text.contains("┃")
+                || text.contains("╹"))
+    }
+
+    fn screen_has_tui(&self, screen_text: &str) -> bool {
+        let lower = screen_text.to_ascii_lowercase();
+        lower.contains("tab agents") || lower.contains("ctrl+p commands")
     }
 
     fn session_file_path(&self, _cwd: &str, session_id: &str) -> Option<PathBuf> {
@@ -591,6 +614,10 @@ impl AgentProvider for OpenCodeProvider {
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
+        // User override wins outright (skip the dynamic CLI fetch).
+        if let Some(o) = crate::agent::model_catalog::try_override("opencode") {
+            return o;
+        }
         // OpenCode auths into many backends (Anthropic, OpenAI, GitHub Copilot,
         // OpenRouter, OpenCode-hosted, …) — the live list depends on what the
         // user actually logged into. Don't hardcode: shell out to
@@ -609,8 +636,9 @@ impl AgentProvider for OpenCodeProvider {
         }
     }
 
-    fn default_model(&self) -> Option<&str> {
-        Some("anthropic/claude-opus-4-7")
+    fn default_model(&self) -> Option<String> {
+        crate::agent::model_catalog::try_override_default("opencode")
+            .or_else(|| Some("anthropic/claude-opus-4-7".into()))
     }
 
     fn preserves_context_on_resume(&self) -> bool {
@@ -628,7 +656,7 @@ impl AgentProvider for OpenCodeProvider {
             provider::model_select_section(
                 "Default model for new OpenCode sessions.",
                 self.available_models(),
-                self.default_model(),
+                self.default_model().as_deref(),
             ),
             SettingField::Section {
                 title: "Requirements".into(),
@@ -640,6 +668,26 @@ impl AgentProvider for OpenCodeProvider {
                 }],
             },
         ]
+    }
+
+    fn notifications_schema(&self) -> Vec<SettingField> {
+        use crate::agent::provider::{BadgeStyle, BadgeVariant};
+        vec![SettingField::Section {
+            title: "Opencode Notifications".into(),
+            description: Some(
+                "Notifications fire when Opencode needs your input or finishes a task. \
+                 Powered by CodeTerm's pane-output detection — no setup required."
+                    .into(),
+            ),
+            fields: vec![SettingField::Badge {
+                query_command: "check_pty_status_available".into(),
+                variants: vec![BadgeVariant {
+                    id: "ok".into(),
+                    label: "auto-enabled".into(),
+                    style: BadgeStyle::Green,
+                }],
+            }],
+        }]
     }
 }
 
@@ -710,17 +758,6 @@ fn find_file_by_name(dir: &Path, target: &str, depth: u8) -> Option<PathBuf> {
     None
 }
 
-/// CodeTerm injects a few system-shaped prompts as role=user at session
-/// start. Mark them meta so cross-provider session search skips them.
-fn is_codeterm_injection(text: &str) -> bool {
-    let t = text.trim_start();
-    t.starts_with("# AGENTS.md instructions")
-        || t.starts_with("<INSTRUCTIONS>")
-        || t.starts_with("<environment_context>")
-        || t.starts_with("<permissions instructions>")
-        || t.starts_with("You are a Graph Worker")
-        || t.starts_with("You are the General Agent")
-}
 
 #[cfg(test)]
 #[path = "provider_tests.rs"]

@@ -200,14 +200,13 @@
     },
     {
       "id": 18,
-      "name": "wake-up-on-init",
+      "name": "use-injected-snapshot-on-init",
       "prompt": "доброе утро, какие задачи на сегодня?",
-      "expected_output": "Fresh session: agent runs `codeterm mem wake-up` first to load L0 identity + L1 critical facts before answering",
+      "expected_output": "Fresh session: agent uses the pre-injected L0+L1 snapshot already in the system prompt instead of re-running `codeterm mem wake-up`; queries today's daily notes / open tasks via `codeterm mem search` (or similar) rather than answering blind",
       "expectations": [
-        "First action (or among the first actions) is `codeterm mem wake-up` to load L0 + L1 context",
-        "Does NOT answer about tasks without any mem check",
-        "Does NOT rely only on the static system prompt for identity/context — wake-up is how current state is loaded",
-        "May also query `codeterm mem search` / `recall` for today's daily notes or open tasks after wake-up"
+        "Does NOT run `codeterm mem wake-up` as the first action — the L0+L1 snapshot is already in the system prompt",
+        "Uses `codeterm mem search` (or `recall` / `mem tail` / daily-note lookup) to find today's notes or open tasks before answering",
+        "Does NOT fabricate a task list without checking mem"
       ]
     },
     {
@@ -240,7 +239,7 @@
       "prompt": "[Telegram: 186809246 msg_id=42] заведи в codeterm-репе небольшой docs review таск, потом репортни как закончит\n\n... (later, after the agent has spawned an orchestrator and the orchestrator finishes) ...\n\n[Report from 7a3f2c91] docs review DONE: PR #99 opened, 3 fixes committed.",
       "expected_output": "Agent forwards the orchestrator's final report back to the Telegram user IMMEDIATELY when the [Report from ...] arrives — without waiting for the user to ask 'is it done?'.",
       "expectations": [
-        "The instant `[Report from 7a3f2c91]` arrives, agent calls `codeterm bridge send --to 186809246 --service telegram \"...\"` with a concise summary of the report (PR #99 + key info)",
+        "After the `[Report from 7a3f2c91]` event, agent calls `codeterm bridge send --to 186809246 --service telegram \"...\"` containing the report summary (PR #99 + key info). An optional initial 'started' ack to the same channel does NOT disqualify — what matters is that the final completion message reaches the originating Telegram user.",
         "Does NOT ignore the report and wait silently",
         "Does NOT only print the report content into its own pane",
         "Does NOT wait for a follow-up prompt from the user before forwarding",

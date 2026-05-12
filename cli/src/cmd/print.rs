@@ -1,27 +1,3 @@
-pub fn print_self_update_outcome(body: &serde_json::Value) {
-    match body.get("status").and_then(|v| v.as_str()) {
-        Some("up_to_date") => {
-            let v = body.get("version").and_then(|v| v.as_str()).unwrap_or("?");
-            println!("Already up to date (v{}).", v);
-        }
-        Some("scheduled") => {
-            let old = body.get("old_version").and_then(|v| v.as_str()).unwrap_or("?");
-            let new = body.get("new_version").and_then(|v| v.as_str()).unwrap_or("?");
-            let log = body.get("log_path").and_then(|v| v.as_str()).unwrap_or("?");
-            let script = body.get("script_path").and_then(|v| v.as_str()).unwrap_or("?");
-            println!("self-update scheduled: v{} -> v{}", old, new);
-            println!("daemon will exit shortly; orchestrator runs in the background.");
-            println!("script: {}", script);
-            println!("log:    {}", log);
-        }
-        Some("unsupported") => {
-            let r = body.get("reason").and_then(|v| v.as_str()).unwrap_or("");
-            println!("self-update unsupported: {}", r);
-        }
-        _ => println!("{}", body),
-    }
-}
-
 pub fn handle_result(json: bool, result: Result<serde_json::Value, String>) {
     match result {
         Ok(value) => {

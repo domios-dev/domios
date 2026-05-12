@@ -26,6 +26,7 @@ pub mod pty_lifecycle;
 pub mod general_agent;
 pub mod sync_watcher;
 pub mod agent_restart;
+pub mod input_parser;
 #[cfg(test)]
 mod tests;
 
@@ -90,6 +91,12 @@ pub struct ServiceContext {
     pub mux_emit_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::services::store::ServicesStore>,
     pub tokens: Arc<crate::services::tokens::TokenStore>,
+    /// Watches bytes about to be written to PTYs; promotes typed `claude/codex/
+    /// opencode ...<Enter>` lines to a locked `agent_type` on the pane.
+    pub input_parser: Arc<input_parser::InputParser>,
+    pub usage_store: crate::usage::UsageStoreHandle,
+    pub usage_activity: crate::usage::PaneActivity,
+    pub usage_poller: Arc<parking_lot::Mutex<Option<crate::usage::UsagePoller>>>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;

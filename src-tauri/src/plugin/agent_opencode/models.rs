@@ -114,14 +114,24 @@ pub(super) fn fallback_models() -> Vec<ModelInfo> {
             description: Some("Anthropic small model — cheap, fast.".into()),
         },
         ModelInfo {
-            id: "openai/gpt-5".into(),
-            display_name: "OpenAI · GPT-5".into(),
+            id: "openai/gpt-5.5".into(),
+            display_name: "OpenAI · GPT-5.5".into(),
             description: Some("OpenAI frontier model.".into()),
         },
         ModelInfo {
             id: "opencode/big-pickle".into(),
-            display_name: "OpenCode · Big Pickle".into(),
-            description: Some("OpenCode-hosted frontier coding model.".into()),
+            display_name: "OpenCode Zen · Big Pickle".into(),
+            description: Some("OpenCode-hosted frontier coding model (free tier).".into()),
+        },
+        ModelInfo {
+            id: "opencode/deepseek-v4-flash".into(),
+            display_name: "OpenCode Zen · DeepSeek V4 Flash".into(),
+            description: Some("Free tier, fast DeepSeek model.".into()),
+        },
+        ModelInfo {
+            id: "opencode/ring-2.6-1t".into(),
+            display_name: "OpenCode Zen · Ring 2.6 1T".into(),
+            description: Some("Free tier, 1T parameter Ring model.".into()),
         },
     ]
 }

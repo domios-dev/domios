@@ -53,7 +53,7 @@ pub(super) fn dispatch(
 
         "pane.send_text" => {
             let pane_id = get_string_param(params, "pane_id")?;
-            let text = get_string_param(params, "text")?;
+            let raw_text = get_string_param(params, "text")?;
             let enter = params
                 .as_ref()
                 .and_then(|p| p.get("enter"))
@@ -63,7 +63,22 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|p| p.get("verify"))
                 .and_then(|v| v.as_bool())
-                .unwrap_or(true);
+                .unwrap_or(false);
+            let source_pane = params
+                .as_ref()
+                .and_then(|p| p.get("source_pane"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .filter(|s| !s.is_empty() && s != &pane_id);
+            let text = match source_pane.as_deref() {
+                Some(src) => {
+                    let title = mux.lock().get_pane(src).map(|p| p.title.clone()).unwrap_or_default();
+                    let short = src.chars().take(8).collect::<String>();
+                    let label = if title.is_empty() { short.clone() } else { title };
+                    format!("[from {} pane={}] {}", label, short, raw_text)
+                }
+                None => raw_text,
+            };
             let svc_ref = svc.as_ref();
             if verify {
                 let pty_id = svc_ref.resolve_pty_id(&pane_id)
@@ -75,29 +90,31 @@ pub(super) fn dispatch(
                 return Ok(match svc_ref.send_text_verified(&pty_id, &text, enter, strategy, opts) {
                     Ok(r) => serde_json::json!({
                         "ok": true,
-                        // `verified` reflects best-available evidence: both echo
-                        // (text rendered on screen) AND submit (Enter consumed
-                        // by the TUI) were observed. Falsy here does NOT mean
-                        // delivery failed — Enter is always sent regardless;
-                        // it just means we couldn't confirm via screen state.
-                        "verified": r.echo_observed && (!enter || r.submit_observed),
+                        // Advisory: best-available evidence that the TTY echoed
+                        // the bytes (and consumed Enter when requested). Falsy
+                        // here does NOT mean delivery failed — bytes are always
+                        // written; long messages may scroll past the capture
+                        // window before the verifier polls. Treat `error` as
+                        // the only delivery gate.
+                        "pty_echo_seen": r.echo_observed && (!enter || r.submit_observed),
                         "echo_observed": r.echo_observed,
                         "submit_observed": r.submit_observed,
                         "elapsed_ms": r.elapsed.as_millis() as u64,
                     }),
                     Err(e) => serde_json::json!({
                         "ok": false,
-                        "verified": false,
+                        "pty_echo_seen": false,
                         "error": format!("{}", e),
                     }),
                 });
             }
-            crate::dispatch::dispatch(
-                &crate::dispatch::Command::SendText { pane_id, text, enter },
-                svc_ref,
-            )
-            .map(|r| r.into_json())
-            .map_err(|e| JsonRpcError { code: -32603, message: e })
+            svc_ref.send_text(&pane_id, &text, enter)
+                .map_err(|e| JsonRpcError { code: -32603, message: e })?;
+            Ok(serde_json::json!({
+                "ok": true,
+                "fire_and_forget": true,
+                "verified": false,
+            }))
         }
 
         "pane.get_output" => {
@@ -171,9 +188,14 @@ pub(super) fn dispatch(
 
         "browser.open" => {
             let url = get_string_param(params, "url")?;
+            let activate = params
+                .as_ref()
+                .and_then(|p| p.get("activate"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let new_pane_id = {
                 let mut mux = mux.lock();
-                mux.open_browser(Some(url.clone())).map_err(|e| JsonRpcError {
+                mux.open_browser(Some(url.clone()), activate).map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
                 })?

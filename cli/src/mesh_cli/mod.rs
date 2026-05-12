@@ -146,10 +146,10 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
 
     // `update --apply` over mesh is a two-step (force-check then install) flow,
     // not a single relay call.
-    if let Commands::Update { action, check, apply, channel, manifest_url } = &cli.command {
-        let resolved = update::resolve_update_action(action.as_ref(), *check, *apply, channel.clone(), manifest_url.clone());
-        if let UpdateAction::Install { auto: true, manifest_url, from_file: _, continue_prompt: _, continue_pane: _ } = &resolved {
-            update::run_update_apply_via_mesh(&http, &base, &token, target, manifest_url.as_deref(), cli.json);
+    if let Commands::Update { action, check, apply, channel, manifest_url, after_update } = &cli.command {
+        let resolved = update::resolve_update_action(action.as_ref(), *check, *apply, channel.clone(), manifest_url.clone(), after_update.clone());
+        if let UpdateAction::Install { auto: true, manifest_url, from_file: _, continue_prompt: _, continue_pane: _, after_update } = &resolved {
+            update::run_update_apply_via_mesh(&http, &base, &token, target, manifest_url.as_deref(), after_update.as_deref(), cli.json);
             return;
         }
     }

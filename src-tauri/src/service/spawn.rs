@@ -72,6 +72,8 @@ pub struct AgentSpawnSpec {
     pub spawned_by_pane_id: Option<String>,
     #[serde(default)]
     pub resume_session_id: Option<String>,
+    #[serde(default)]
+    pub activate: Option<bool>,
 }
 
 fn default_true() -> bool {
@@ -114,6 +116,7 @@ impl SpawnPaneSpec {
                 spawned_by: None,
                 spawned_by_pane_id: params.spawned_by_pane_id.clone(),
                 resume_session_id: params.resume_session_id.clone(),
+                activate: params.activate,
             }),
         }
     }
@@ -143,6 +146,7 @@ impl SpawnPaneSpec {
             spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
             model: agent.model.clone(),
             resume_session_id: agent.resume_session_id.clone(),
+            activate: agent.activate,
         })
     }
 }
@@ -252,10 +256,7 @@ impl ServiceContext {
             if let Err(e) = mux.rename_pane(&result.1, &title) {
                 log::warn!("[spawn] rename_pane failed: {}", e);
             }
-            // User-initiated spawns (no role) activate the new tab so the
-            // frontend mounts its terminal and creates a PTY. Hierarchy
-            // spawns stay in the background — the parent agent keeps focus.
-            if agent.role.is_none() {
+            if agent.activate.unwrap_or(false) {
                 let _ = mux.set_active_tab(&ws_id, &result.0);
             }
             result
@@ -282,7 +283,7 @@ impl ServiceContext {
         // session-id poller (in `set_pane_agent_type`) never starts, so resume
         // after restart silently fails. The orchestrator-side spawn path also
         // needs the same call (see `service/orchestrator.rs::spawn_agent`).
-        self.set_pane_agent_type(&pane_id, Some(agent_cmd.clone()));
+        self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.clone());
         if let Some(ref sid) = agent.resume_session_id {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }

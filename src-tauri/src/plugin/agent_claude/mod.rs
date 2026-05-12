@@ -6,6 +6,7 @@
 //! core never references Claude directly.
 
 pub mod provider;
+pub mod usage_tui;
 
 pub use provider::ClaudeProvider;
 

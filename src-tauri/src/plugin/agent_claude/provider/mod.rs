@@ -20,11 +20,22 @@ use crate::agent::provider::{
     VerifySubmitStrategy,
 };
 
+use super::usage_tui::ClaudeTuiUsageParser;
+
+static CLAUDE_TUI_USAGE_PARSER: ClaudeTuiUsageParser = ClaudeTuiUsageParser;
+
 /// Claude Code agent provider.
 pub struct ClaudeProvider;
 
 impl ClaudeProvider {
     pub fn new() -> Self {
+        crate::agent::model_catalog::register(
+            "claude",
+            crate::agent::model_catalog::RegisteredDefaults {
+                models: schemas::builtin_models(),
+                default: Some("sonnet".into()),
+            },
+        );
         Self
     }
 }
@@ -36,6 +47,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn display_name(&self) -> &str {
         "Claude Code"
+    }
+
+    fn binary_name(&self) -> &str {
+        "claude"
     }
 
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
@@ -79,6 +94,14 @@ impl AgentProvider for ClaudeProvider {
         detection::detect_from_output(text)
     }
 
+    fn screen_has_tui(&self, screen_text: &str) -> bool {
+        let lower = screen_text.to_ascii_lowercase();
+        lower.contains("? for shortcuts")
+            || lower.contains("for shortcuts")
+            || lower.contains("ctrl+l")
+            || lower.contains("esc to interrupt")
+    }
+
     fn session_file_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
         sessions::session_file_path(cwd, session_id)
     }
@@ -98,6 +121,14 @@ impl AgentProvider for ClaudeProvider {
 
     fn read_usage(&self, cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
         usage::read(cwd, session_id)
+    }
+
+    fn usage_parser(&self) -> Option<&dyn crate::agent::usage_parser::UsageParser> {
+        Some(&CLAUDE_TUI_USAGE_PARSER)
+    }
+
+    fn usage_probe_command(&self) -> Option<&str> {
+        Some("/usage")
     }
 
     fn has_event_markers(&self, chunk: &str) -> bool {
@@ -187,8 +218,8 @@ impl AgentProvider for ClaudeProvider {
         schemas::available_models()
     }
 
-    fn default_model(&self) -> Option<&str> {
-        Some("sonnet")
+    fn default_model(&self) -> Option<String> {
+        crate::agent::model_catalog::resolve_default("claude")
     }
 
     fn preserves_context_on_resume(&self) -> bool {
@@ -222,6 +253,7 @@ mod tests {
         let p = ClaudeProvider::new();
         assert_eq!(p.id(), "claude");
         assert_eq!(p.display_name(), "Claude Code");
+        assert_eq!(p.binary_name(), "claude");
     }
 
     #[test]
@@ -240,6 +272,17 @@ mod tests {
     fn claude_model_switch_command_formats_slash_model() {
         let p = ClaudeProvider::new();
         assert_eq!(p.model_switch_command("sonnet").as_deref(), Some("/model sonnet"));
+    }
+
+    #[test]
+    fn claude_describe_injects_usage_tracking_section() {
+        let p = ClaudeProvider::new();
+        let desc = p.describe();
+        let has = desc.settings_schema.iter().any(|f| matches!(
+            f,
+            crate::agent::provider::SettingField::Section { title, .. } if title.starts_with("Usage Tracking")
+        ));
+        assert!(has, "Claude has usage_parser — describe() must auto-inject the Usage Tracking toggle");
     }
 
     #[test]

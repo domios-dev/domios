@@ -7,6 +7,7 @@ pub fn run(conn: &Connection) -> MemStoreResult<()> {
     add_evolution_columns(conn)?;
     add_promotion_threshold(conn)?;
     create_lesson_audit(conn)?;
+    add_pin_column(conn)?;
     Ok(())
 }
 
@@ -59,6 +60,19 @@ fn create_lesson_audit(conn: &Connection) -> MemStoreResult<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_lesson_audit_uid ON lesson_audit(lesson_uid, ts DESC);"#,
     )?;
+    Ok(())
+}
+
+fn add_pin_column(conn: &Connection) -> MemStoreResult<()> {
+    let cols: Vec<String> = conn.prepare("PRAGMA table_info(mem_items)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .filter_map(Result::ok).collect();
+    if !cols.iter().any(|c| c == "is_pinned_wakeup") {
+        conn.execute_batch(
+            "ALTER TABLE mem_items ADD COLUMN is_pinned_wakeup INTEGER NOT NULL DEFAULT 0;
+             CREATE INDEX IF NOT EXISTS idx_mem_pinned ON mem_items(is_pinned_wakeup) WHERE is_pinned_wakeup = 1;",
+        )?;
+    }
     Ok(())
 }
 

@@ -149,7 +149,8 @@ mod args;
 pub use args::cli::{Cli, Commands};
 pub use args::sessions::SessionsAction;
 pub use args::system::SystemAction;
-pub use args::mem::{MemAction, MemDreamAction, MemRepairAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
+pub use args::usage::UsageAction;
+pub use args::mem::{MemAction, MemCalibrationAction, MemDreamAction, MemRepairAction, MemSecretAction, MemWorkerAction, MemSkillAction, MemGraphAction};
 pub use args::agent::AgentAction;
 pub use args::cron::CronAction;
 pub use args::service::ServiceAction;
@@ -420,8 +421,17 @@ fn main() {
             }
         }
 
-        Commands::SendText { pane, text, from_file, from_stdin, no_wait } => {
-            cmd::send_text::handle_send_text(&mut client, cli.json, pane, text, from_file, from_stdin, no_wait);
+        Commands::SendText { pane, text, from_file, from_stdin, verify, no_wait } => {
+            cmd::send_text::handle_send_text(
+                &mut client,
+                cli.json,
+                pane,
+                text,
+                from_file,
+                from_stdin,
+                verify,
+                no_wait,
+            );
             return;
         }
 
@@ -575,13 +585,8 @@ fn main() {
             return;
         }
 
-        Commands::Update { action, check, apply, channel, manifest_url } => {
-            cmd::update::handle_update(cli.json, action, check, apply, channel, manifest_url);
-            return;
-        }
-
-        Commands::SelfUpdate { check, apply, rollback, channel } => {
-            cmd::update::handle_self_update(cli.json, check, apply, rollback, channel);
+        Commands::Update { action, check, apply, channel, manifest_url, after_update } => {
+            cmd::update::handle_update(cli.json, action, check, apply, channel, manifest_url, after_update);
             return;
         }
 
@@ -615,6 +620,12 @@ fn main() {
             let (base_url, token) = read_api_config();
             let http = build_http(&token);
             cmd::sessions::handle_sessions(cli.json, action, &http, &base_url, token.as_deref());
+            return;
+        }
+        Commands::Usage { action } => {
+            let (base_url, token) = read_api_config();
+            let http = build_http(&token);
+            cmd::usage::handle_usage(cli.json, action, &http, &base_url, token.as_deref());
             return;
         }
         Commands::System { action } => {

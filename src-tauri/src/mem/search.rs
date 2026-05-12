@@ -175,7 +175,8 @@ pub fn run_with_config(
         r#"SELECT mem_items.id, bm25(mem_fts) AS rank
            FROM mem_fts
            JOIN mem_items ON mem_items.id = mem_fts.mem_id
-           WHERE mem_fts MATCH ?1"#,
+           WHERE mem_fts MATCH ?1
+             AND mem_items.kind != 'archived'"#,
     );
     let mut binds: Vec<Box<dyn ToSql>> = vec![Box::new(fts_query)];
     if let Some(k) = &q.kind {
@@ -617,13 +618,13 @@ mod tests {
             kind: MemKind::Skill, scope: MemScope::Global,
             title: "home assistant".into(), summary: None, area: Some("home".into()),
             tags: vec!["automation".into()], body: "control HA entities, scenes, automations".into(),
-            source: None, importance: 3.0, source_path: None,
+            source: None, importance: 3.0, source_path: None, pinned: false,
         }, &blobs).unwrap();
         insert(&conn, &NewMemItem {
             kind: MemKind::Fact, scope: MemScope::Global,
             title: "deploy pipeline".into(), summary: None, area: Some("deploy".into()),
             tags: vec![], body: "uses ./build.sh build for production".into(),
-            source: None, importance: 3.0, source_path: None,
+            source: None, importance: 3.0, source_path: None, pinned: false,
         }, &blobs).unwrap();
 
         let r = run(&conn, &SearchQuery {
@@ -640,13 +641,13 @@ mod tests {
             kind: MemKind::Skill, scope: MemScope::Global,
             title: "auth skill".into(), summary: None, area: None,
             tags: vec![], body: "authentication helpers".into(),
-            source: None, importance: 3.0, source_path: None,
+            source: None, importance: 3.0, source_path: None, pinned: false,
         }, &blobs).unwrap();
         insert(&conn, &NewMemItem {
             kind: MemKind::Fact, scope: MemScope::Global,
             title: "auth fact".into(), summary: None, area: None,
             tags: vec![], body: "authentication broken on staging".into(),
-            source: None, importance: 3.0, source_path: None,
+            source: None, importance: 3.0, source_path: None, pinned: false,
         }, &blobs).unwrap();
 
         let r = run(&conn, &SearchQuery {
@@ -699,7 +700,7 @@ mod tests {
         insert(&conn, &NewMemItem {
             kind: MemKind::Fact, scope: MemScope::Global,
             title: "a".into(), summary: None, area: None, tags: vec![],
-            body: "b".into(), source: None, importance: 3.0, source_path: None,
+            body: "b".into(), source: None, importance: 3.0, source_path: None, pinned: false,
         }, &blobs).unwrap();
         let cfg = SearchConfig {
             mode: SearchMode::VectorFirstRerank,
@@ -711,6 +712,46 @@ mod tests {
         assert!(r.is_empty());
     }
 
+    #[test]
+    fn archived_items_excluded_from_search() {
+        let (conn, blobs) = fresh();
+        insert(&conn, &NewMemItem {
+            kind: MemKind::Fact, scope: MemScope::Global,
+            title: "active deployment fact".into(), summary: None, area: None,
+            tags: vec![], body: "active deployment pipeline details".into(),
+            source: None, importance: 3.0, source_path: None, pinned: false,
+        }, &blobs).unwrap();
+        // Insert an archived item directly — bypasses the kind enum since 'archived'
+        // is a runtime value written by the sweep, not a MemKind variant.
+        conn.execute(
+            "INSERT INTO mem_items (id, uid, kind, scope, title, importance,
+                evidence_count, created_at, updated_at, accessed_at, tags_json,
+                is_pinned_wakeup, body_inline)
+             VALUES ('fact_archived_deployment', 'fact_archived_deployment', 'archived',
+                'global', 'archived deployment fact', 2.0, 1,
+                datetime('now','-100 days'), datetime('now','-100 days'),
+                NULL, '[]', 0, 'archived deployment pipeline details')",
+            [],
+        ).unwrap();
+        conn.execute(
+            "INSERT INTO mem_fts (mem_id, title, summary, body, tags)
+             VALUES ('fact_archived_deployment', 'archived deployment fact', '', 'archived deployment pipeline details', '')",
+            [],
+        ).unwrap();
+        let hits = run(&conn, &SearchQuery {
+            query: "deployment".into(), ..Default::default()
+        }, &blobs).unwrap();
+        let ids: Vec<&str> = hits.iter().map(|h| h.item.id.as_str()).collect();
+        assert!(
+            ids.iter().any(|id| id.contains("active")),
+            "active item must appear in search results"
+        );
+        assert!(
+            !ids.contains(&"fact_archived_deployment"),
+            "archived item must not appear in search results"
+        );
+    }
+
     /// FTS path must behave the same regardless of `mode` — the dispatch only
     /// kicks in via `hybrid_rrf_with_config`. `run` directly hits FTS.
     #[test]
@@ -720,7 +761,7 @@ mod tests {
             kind: MemKind::Skill, scope: MemScope::Global,
             title: "home assistant".into(), summary: None, area: None,
             tags: vec![], body: "scenes and automations".into(),
-            source: None, importance: 3.0, source_path: None,
+            source: None, importance: 3.0, source_path: None, pinned: false,
         }, &blobs).unwrap();
         let cfg_a = SearchConfig::default();
         let cfg_b = SearchConfig {

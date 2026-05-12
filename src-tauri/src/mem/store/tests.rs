@@ -35,6 +35,7 @@ fn insert_and_get_inline() {
             source: None,
             importance: 3.0,
             source_path: None,
+            pinned: false,
         },
         &blobs,
     )
@@ -61,6 +62,7 @@ fn get_updates_accessed_at_and_access_count() {
             source: None,
             importance: 3.0,
             source_path: None,
+            pinned: false,
         },
         &blobs,
     )
@@ -104,6 +106,7 @@ fn insert_blob_when_body_large() {
             source: None,
             importance: 3.0,
             source_path: None,
+            pinned: false,
         },
         &blobs,
     )
@@ -126,6 +129,7 @@ fn update_partial_only_changes_provided_fields() {
         source: None,
         importance: 3.0,
         source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
 
     // Update only tags + importance
@@ -135,6 +139,7 @@ fn update_partial_only_changes_provided_fields() {
         body: None,
         importance: Some(4.5),
         bump_recurrence: None,
+        pinned: None,
     }, &blobs).unwrap();
     assert!(updated);
 
@@ -148,11 +153,141 @@ fn update_partial_only_changes_provided_fields() {
 }
 
 #[test]
+fn update_sets_is_pinned_wakeup() {
+    let (conn, blobs) = fresh();
+    let id = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact,
+        scope: MemScope::Global,
+        title: "pin me".into(),
+        summary: None,
+        area: None,
+        tags: vec![],
+        body: "body".into(),
+        source: None,
+        importance: 3.0,
+        source_path: None,
+        pinned: false,
+    }, &blobs).unwrap();
+
+    let updated = update(&conn, &id, &MemUpdate {
+        pinned: Some(true),
+        ..Default::default()
+    }, &blobs).unwrap();
+    assert!(updated);
+
+    let pinned: i64 = conn.query_row(
+        "SELECT is_pinned_wakeup FROM mem_items WHERE id = ?1",
+        params![&id], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(pinned, 1);
+}
+
+#[test]
+fn update_can_unpin() {
+    let (conn, blobs) = fresh();
+    let id = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact,
+        scope: MemScope::Global,
+        title: "unpin me".into(),
+        summary: None,
+        area: None,
+        tags: vec![],
+        body: "body".into(),
+        source: None,
+        importance: 3.0,
+        source_path: None,
+        pinned: false,
+    }, &blobs).unwrap();
+
+    update(&conn, &id, &MemUpdate {
+        pinned: Some(true),
+        ..Default::default()
+    }, &blobs).unwrap();
+    update(&conn, &id, &MemUpdate {
+        pinned: Some(false),
+        ..Default::default()
+    }, &blobs).unwrap();
+
+    let pinned: i64 = conn.query_row(
+        "SELECT is_pinned_wakeup FROM mem_items WHERE id = ?1",
+        params![&id], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(pinned, 0);
+}
+
+#[test]
+fn update_pinned_only_does_not_touch_other_fields() {
+    let (conn, blobs) = fresh();
+    let id = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact,
+        scope: MemScope::Global,
+        title: "keep fields".into(),
+        summary: Some("a summary".into()),
+        area: Some("core".into()),
+        tags: vec!["t1".into(), "t2".into()],
+        body: "untouched body".into(),
+        source: None,
+        importance: 4.25,
+        source_path: None,
+        pinned: false,
+    }, &blobs).unwrap();
+
+    update(&conn, &id, &MemUpdate {
+        pinned: Some(true),
+        ..Default::default()
+    }, &blobs).unwrap();
+
+    let after = get(&conn, &id, &blobs).unwrap().unwrap();
+    assert_eq!(after.title, "keep fields");
+    assert_eq!(after.summary.as_deref(), Some("a summary"));
+    assert_eq!(after.area.as_deref(), Some("core"));
+    assert_eq!(after.body, "untouched body");
+    assert_eq!(after.tags, vec!["t1", "t2"]);
+    assert!((after.importance - 4.25).abs() < 1e-9, "pinning must not bump importance");
+}
+
+#[test]
+fn pin_only_update_emits_history_row() {
+    let (conn, blobs) = fresh();
+    let id = with_changed_by("user", || {
+        insert(&conn, &NewMemItem {
+            kind: MemKind::Fact,
+            scope: MemScope::Global,
+            title: "audit pin".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "body".into(),
+            source: None,
+            importance: 3.0,
+            source_path: None,
+            pinned: false,
+        }, &blobs).unwrap()
+    });
+
+    let baseline = get_item_history(&conn, &id).unwrap().len();
+
+    with_changed_by("dreamer-calibration:test", || {
+        update(&conn, &id, &MemUpdate {
+            pinned: Some(true),
+            ..Default::default()
+        }, &blobs).unwrap();
+    });
+
+    let after = get_item_history(&conn, &id).unwrap();
+    assert_eq!(after.len(), baseline + 1, "pin-only update must emit one history row");
+    let row = after.last().unwrap();
+    assert_eq!(row.change_type, "update");
+    assert_eq!(row.changed_by, "dreamer-calibration:test");
+}
+
+#[test]
 fn update_returns_false_for_unknown_id() {
     let (conn, blobs) = fresh();
     let r = update(&conn, "nonexistent", &MemUpdate {
         title: Some("x".into()), summary: None, area: None,
         tags: None, body: None, importance: None, bump_recurrence: None,
+        pinned: None,
     }, &blobs).unwrap();
     assert!(!r);
 }
@@ -171,11 +306,13 @@ fn update_body_refreshes_fts() {
         source: None,
         importance: 3.0,
         source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
     update(&conn, &id, &MemUpdate {
         title: None, summary: None, area: None, tags: None,
         body: Some("changed to grey wolf".into()),
         importance: None, bump_recurrence: None,
+        pinned: None,
     }, &blobs).unwrap();
     let n: i64 = conn.query_row(
         "SELECT COUNT(*) FROM mem_fts WHERE mem_id = ?1 AND body LIKE '%grey wolf%'",
@@ -198,6 +335,7 @@ fn upsert_replaces_existing_in_place() {
         source: None,
         importance: 5.0,
         source_path: None,
+        pinned: false,
     };
     let id1 = insert(&conn, &mk("placeholder"), &blobs).unwrap();
     assert_eq!(id1, "preference_identity");
@@ -225,6 +363,7 @@ fn slug_collision_appends_hash() {
         source: None,
         importance: 3.0,
         source_path: None,
+        pinned: false,
     };
     let a = insert(&conn, &mk("body a"), &blobs).unwrap();
     let b = insert(&conn, &mk("body b"), &blobs).unwrap();
@@ -249,6 +388,7 @@ fn delete_removes_from_fts() {
             source: None,
             importance: 3.0,
             source_path: None,
+            pinned: false,
         },
         &blobs,
     )
@@ -303,11 +443,13 @@ fn graph_full_returns_nodes_and_edges() {
         title: "alpha".into(), summary: Some("first".into()),
         area: Some("core".into()), tags: vec!["t1".into()],
         body: "body alpha".into(), source: None, importance: 4.0, source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
     let b = insert(&conn, &NewMemItem {
         kind: MemKind::Script, scope: MemScope::Global,
         title: "beta".into(), summary: None, area: None, tags: vec![],
         body: "body beta".into(), source: None, importance: 3.0, source_path: None,
+        pinned: false,
     }, &blobs).unwrap();
     crate::mem::graph::insert_relation(&conn, &crate::mem::graph::Relation {
         from_id: a.clone(), relation_type: "has_script".into(), to_id: b.clone(),
@@ -368,6 +510,7 @@ fn stats_counts_by_kind() {
                 source: None,
                 importance: 3.0,
                 source_path: None,
+                pinned: false,
             },
             &blobs,
         )
@@ -393,6 +536,7 @@ fn mk_item(title: &str, body: &str) -> NewMemItem {
         source: None,
         importance: 2.0,
         source_path: None,
+        pinned: false,
     }
 }
 
@@ -419,6 +563,7 @@ fn history_logs_create_update_delete_events() {
                 body: Some("new body".into()),
                 importance: Some(4.5),
                 bump_recurrence: None,
+                pinned: None,
             },
             &blobs,
         )
@@ -498,6 +643,7 @@ fn taxonomy_groups_by_area_and_kind() {
                 source: None,
                 importance: 3.0,
                 source_path: None,
+                pinned: false,
             },
             &blobs,
         )
@@ -541,6 +687,150 @@ fn tail_recent_returns_items_newest_first() {
 }
 
 #[test]
+fn insert_with_file_prefix_source_path_populates_source_size_and_mtime() {
+    let (conn, blobs) = fresh();
+    let dir = std::env::temp_dir().join(format!("memstore-skill-{}", ulid::Ulid::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let skill_md = dir.join("SKILL.md");
+    std::fs::write(&skill_md, "# Test skill\n\nbody content here").unwrap();
+
+    let source_with_prefix = format!("file:{}", skill_md.display());
+    let id = insert(
+        &conn,
+        &NewMemItem {
+            kind: MemKind::Skill,
+            scope: MemScope::Global,
+            title: "test prefix skill".into(),
+            summary: None,
+            area: None,
+            tags: vec!["folder-skill".into()],
+            body: "# Test skill\n\nbody content here".into(),
+            source: Some(source_with_prefix.clone()),
+            importance: 4.0,
+            source_path: Some(source_with_prefix),
+            pinned: false,
+        },
+        &blobs,
+    )
+    .unwrap();
+
+    let (size, mtime): (Option<i64>, Option<String>) = conn
+        .query_row(
+            "SELECT source_size, source_mtime FROM mem_items WHERE id = ?1",
+            params![&id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    let expected_size = std::fs::metadata(&skill_md).unwrap().len() as i64;
+    assert_eq!(
+        size,
+        Some(expected_size),
+        "source_size must be populated on insert when source_path uses file: prefix"
+    );
+    assert!(
+        mtime.is_some(),
+        "source_mtime must be populated on insert when source_path uses file: prefix"
+    );
+}
+
+#[test]
+fn get_bumps_updated_at_when_source_file_changes() {
+    let (conn, blobs) = fresh();
+    let dir = std::env::temp_dir().join(format!("memstore-getbump-{}", ulid::Ulid::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let skill_md = dir.join("SKILL.md");
+    std::fs::write(&skill_md, "# v1\n\noriginal").unwrap();
+
+    let source = format!("file:{}", skill_md.display());
+    let id = insert(
+        &conn,
+        &NewMemItem {
+            kind: MemKind::Skill,
+            scope: MemScope::Global,
+            title: "bump skill".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "# v1\n\noriginal".into(),
+            source: Some(source.clone()),
+            importance: 4.0,
+            source_path: Some(source),
+            pinned: false,
+        },
+        &blobs,
+    )
+    .unwrap();
+
+    let initial_updated_at: String = conn
+        .query_row(
+            "SELECT updated_at FROM mem_items WHERE id = ?1",
+            params![&id],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    std::thread::sleep(std::time::Duration::from_millis(10));
+
+    let new_body = "# v2\n\nedited content longer to change size";
+    std::fs::write(&skill_md, new_body).unwrap();
+
+    let got = get(&conn, &id, &blobs).unwrap().unwrap();
+    assert_eq!(got.body, new_body, "body must be re-read from disk");
+    assert!(
+        got.updated_at > initial_updated_at,
+        "updated_at must bump when source file content changes (initial={}, after_get={})",
+        initial_updated_at,
+        got.updated_at,
+    );
+}
+
+#[test]
+fn get_skips_disk_check_when_recently_accessed() {
+    let (conn, blobs) = fresh();
+    let dir = std::env::temp_dir().join(format!("memstore-debounce-{}", ulid::Ulid::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let skill_md = dir.join("SKILL.md");
+    std::fs::write(&skill_md, "# v1\n\noriginal").unwrap();
+
+    let source = format!("file:{}", skill_md.display());
+    let id = insert(
+        &conn,
+        &NewMemItem {
+            kind: MemKind::Skill,
+            scope: MemScope::Global,
+            title: "debounce skill".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "# v1\n\noriginal".into(),
+            source: Some(source.clone()),
+            importance: 4.0,
+            source_path: Some(source),
+            pinned: false,
+        },
+        &blobs,
+    )
+    .unwrap();
+
+    // First get: warms accessed_at and metadata fields.
+    let _ = get(&conn, &id, &blobs).unwrap().unwrap();
+    let after_first: String = conn
+        .query_row("SELECT updated_at FROM mem_items WHERE id = ?1", params![&id], |r| r.get(0))
+        .unwrap();
+
+    // Mutate file on disk WITHIN the debounce window.
+    std::fs::write(&skill_md, "# v2\n\nedited within debounce window").unwrap();
+
+    // Immediate re-get — debounce skips the metadata check; updated_at stays.
+    let got = get(&conn, &id, &blobs).unwrap().unwrap();
+    assert_eq!(
+        got.updated_at, after_first,
+        "updated_at must NOT bump within the 10s debounce window — was {} → {}",
+        after_first, got.updated_at,
+    );
+}
+
+#[test]
 fn graph_full_excludes_invalidated_relations() {
     let conn = Connection::open_in_memory().unwrap();
     init_schema(&conn).unwrap();
@@ -577,4 +867,92 @@ fn graph_full_excludes_invalidated_relations() {
     let rels: Vec<&str> = dump.edges.iter().map(|e| e.rel.as_str()).collect();
     assert!(rels.contains(&"active_rel"), "active relation must be present");
     assert!(!rels.contains(&"dead_rel"), "invalidated relation must be filtered out");
+}
+
+#[test]
+fn insert_with_pinned_true_sets_is_pinned_wakeup() {
+    let (conn, blobs) = fresh();
+    let id = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact, scope: MemScope::Global,
+        title: "pinned-fact".into(), summary: None, area: None, tags: vec![],
+        body: "body".into(), source: None, importance: 3.0, source_path: None,
+        pinned: true,
+    }, &blobs).unwrap();
+    let pinned: i64 = conn.query_row(
+        "SELECT is_pinned_wakeup FROM mem_items WHERE id = ?1",
+        params![&id], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(pinned, 1, "pinned=true must persist on insert");
+}
+
+#[test]
+fn insert_with_pinned_false_remains_unpinned() {
+    let (conn, blobs) = fresh();
+    let id = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact, scope: MemScope::Global,
+        title: "regular".into(), summary: None, area: None, tags: vec![],
+        body: "body".into(), source: None, importance: 3.0, source_path: None,
+        pinned: false,
+    }, &blobs).unwrap();
+    let pinned: i64 = conn.query_row(
+        "SELECT is_pinned_wakeup FROM mem_items WHERE id = ?1",
+        params![&id], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(pinned, 0);
+}
+
+#[test]
+fn list_pinned_returns_only_pinned_items_ordered_by_importance() {
+    let (conn, blobs) = fresh();
+
+    let id_a = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact, scope: MemScope::Global,
+        title: "high".into(), summary: None, area: None, tags: vec![],
+        body: "hi".into(), source: None, importance: 5.0, source_path: None,
+        pinned: false,
+    }, &blobs).unwrap();
+    update(&conn, &id_a, &MemUpdate {
+        pinned: Some(true), ..Default::default()
+    }, &blobs).unwrap();
+
+    let id_b = insert(&conn, &NewMemItem {
+        kind: MemKind::Fact, scope: MemScope::Global,
+        title: "low".into(), summary: None, area: None, tags: vec![],
+        body: "lo".into(), source: None, importance: 2.0, source_path: None,
+        pinned: false,
+    }, &blobs).unwrap();
+    update(&conn, &id_b, &MemUpdate {
+        pinned: Some(true), ..Default::default()
+    }, &blobs).unwrap();
+
+    insert(&conn, &NewMemItem {
+        kind: MemKind::Fact, scope: MemScope::Global,
+        title: "unpinned".into(), summary: None, area: None, tags: vec![],
+        body: "x".into(), source: None, importance: 5.0, source_path: None,
+        pinned: false,
+    }, &blobs).unwrap();
+
+    let pinned = list_pinned(&conn, &blobs, 100).unwrap();
+    assert_eq!(pinned.len(), 2, "exactly 2 pinned items, got {}", pinned.len());
+    assert_eq!(pinned[0].title, "high", "high importance first");
+    assert_eq!(pinned[1].title, "low");
+}
+
+#[test]
+fn list_pinned_respects_limit() {
+    let (conn, blobs) = fresh();
+
+    for i in 0..10 {
+        let id = insert(&conn, &NewMemItem {
+            kind: MemKind::Fact, scope: MemScope::Global,
+            title: format!("item-{i}"), summary: None, area: None, tags: vec![],
+            body: "b".into(), source: None, importance: 3.0, source_path: None,
+            pinned: false,
+        }, &blobs).unwrap();
+        update(&conn, &id, &MemUpdate {
+            pinned: Some(true), ..Default::default()
+        }, &blobs).unwrap();
+    }
+    let pinned = list_pinned(&conn, &blobs, 3).unwrap();
+    assert_eq!(pinned.len(), 3, "limit must cap result");
 }

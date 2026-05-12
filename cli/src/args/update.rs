@@ -30,6 +30,11 @@ pub enum UpdateAction {
         /// Pane to deliver `--continue-prompt` to. Defaults to `$CODETERM_PANE_ID`.
         #[arg(long, value_name = "ID")]
         continue_pane: Option<String>,
+        /// Message to inject into the General Agent pane after the new
+        /// daemon boots. Lets the GA continue work post-update — e.g.
+        /// "verify the new build and report version via Telegram".
+        #[arg(long, value_name = "TEXT")]
+        after_update: Option<String>,
     },
     /// Get or set the update channel (stable, rc, nightly)
     Channel {

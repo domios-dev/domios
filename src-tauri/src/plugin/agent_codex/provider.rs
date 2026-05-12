@@ -5,14 +5,25 @@ use crate::agent::provider::{
     self, AgentLaunchParams, AgentProvider, ModelInfo, NoteLevel, ReadinessStrategy, SessionMessage,
     SessionMetadata, SettingField, TaskDelivery, UsageSnapshot, VerifySubmitStrategy,
 };
+use super::status_tui::CodexStatusUsageParser;
 use super::usage as codex_usage;
 use crate::shell::ShellSyntax;
+use crate::plugin::common::is_codeterm_injection;
+
+static CODEX_STATUS_PARSER: CodexStatusUsageParser = CodexStatusUsageParser;
 
 /// OpenAI Codex CLI agent provider.
 pub struct CodexProvider;
 
 impl CodexProvider {
     pub fn new() -> Self {
+        crate::agent::model_catalog::register(
+            "codex",
+            crate::agent::model_catalog::RegisteredDefaults {
+                models: builtin_models(),
+                default: Some("gpt-5.5".into()),
+            },
+        );
         Self
     }
 
@@ -21,6 +32,36 @@ impl CodexProvider {
         let home = dirs::home_dir()?;
         Some(home.join(".codex").join("sessions"))
     }
+}
+
+fn builtin_models() -> Vec<ModelInfo> {
+    vec![
+        ModelInfo {
+            id: "gpt-5.5".into(),
+            display_name: "GPT-5.5".into(),
+            description: Some("Frontier model for complex coding, research, and real-world work.".into()),
+        },
+        ModelInfo {
+            id: "gpt-5.4".into(),
+            display_name: "GPT-5.4".into(),
+            description: Some("Strong model for everyday coding.".into()),
+        },
+        ModelInfo {
+            id: "gpt-5.4-mini".into(),
+            display_name: "GPT-5.4 Mini".into(),
+            description: Some("Small, fast, and cost-efficient model for simpler coding tasks.".into()),
+        },
+        ModelInfo {
+            id: "gpt-5.3-codex".into(),
+            display_name: "GPT-5.3 Codex".into(),
+            description: Some("Coding-optimized model.".into()),
+        },
+        ModelInfo {
+            id: "gpt-5.2".into(),
+            display_name: "GPT-5.2".into(),
+            description: Some("Optimized for professional work and long-running agents.".into()),
+        },
+    ]
 }
 
 impl AgentProvider for CodexProvider {
@@ -32,35 +73,39 @@ impl AgentProvider for CodexProvider {
         "Codex"
     }
 
+    fn binary_name(&self) -> &str {
+        "codex"
+    }
+
+    fn usage_parser(&self) -> Option<&dyn crate::agent::usage_parser::UsageParser> {
+        Some(&CODEX_STATUS_PARSER)
+    }
+
+    fn usage_probe_command(&self) -> Option<&str> {
+        Some("/status")
+    }
+
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
         let mut parts: Vec<String> = Vec::new();
-
-        if let Some(ref task) = params.task {
-            // Non-interactive: codex exec <prompt>
+        if params.headless && params.task.is_some() {
             parts.push("codex".to_string());
             parts.push("exec".to_string());
             if params.skip_permissions {
                 parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
             }
-            // Inherit PTY env vars (CODETERM_SOCKET_PATH, etc.) into sandbox
             parts.push("-c".to_string());
             parts.push("'shell_environment_policy.inherit=all'".to_string());
             parts.push("--skip-git-repo-check".to_string());
-            parts.push(ShellSyntax::quote(task));
+            parts.push(ShellSyntax::quote(params.task.as_ref().unwrap()));
         } else {
-            // Interactive session. Codex CLI removed `--full-auto` in late
-            // 2026; the surviving skip-approvals flag is the same one `codex
-            // exec` takes — `--dangerously-bypass-approvals-and-sandbox`.
             parts.push("codex".to_string());
             if params.skip_permissions {
                 parts.push("--dangerously-bypass-approvals-and-sandbox".to_string());
             }
         }
-
         if let Some(ref extra) = params.args {
             parts.extend(extra.iter().cloned());
         }
-
         parts.join(" ")
     }
 
@@ -72,7 +117,11 @@ impl AgentProvider for CodexProvider {
     }
 
     fn task_delivery(&self) -> TaskDelivery {
-        TaskDelivery::InlineFlag
+        TaskDelivery::PtyInput
+    }
+
+    fn task_input_warmup(&self) -> Duration {
+        Duration::from_secs(3)
     }
 
     fn verify_submit_strategy(&self) -> VerifySubmitStrategy {
@@ -88,11 +137,25 @@ impl AgentProvider for CodexProvider {
     }
 
     fn detect_from_output(&self, text: &str) -> bool {
-        text.contains("Would you like to run the following command")
+        // Startup banner — fires reliably the moment codex launches, even
+        // before any permission prompt. Used when the user runs `codex`
+        // manually inside a shell pane that was previously labelled with
+        // another provider.
+        text.contains("OpenAI Codex")
+            || text.contains("permissions: YOLO mode")
+            || text.contains("permissions: read-only")
+            // Permission-prompt patterns (existing) — keep for in-session detection
+            || text.contains("Would you like to run the following command")
             || text.contains("Would you like to make the following edits")
             || text.contains("approve network access")
             || text.contains("Would you like to grant these permissions")
             || text.contains("codex>")
+    }
+
+    fn screen_has_tui(&self, screen_text: &str) -> bool {
+        // Banner is always visible at the top of any running Codex session.
+        screen_text.contains("OpenAI Codex")
+            || screen_text.to_ascii_lowercase().contains("ctrl+c to cancel")
     }
 
     fn session_file_path(&self, _cwd: &str, session_id: &str) -> Option<PathBuf> {
@@ -320,32 +383,11 @@ impl AgentProvider for CodexProvider {
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
-        vec![
-            ModelInfo {
-                id: "gpt-5.4".into(),
-                display_name: "GPT-5.4".into(),
-                description: Some("Latest frontier agentic coding model.".into()),
-            },
-            ModelInfo {
-                id: "gpt-5.4-mini".into(),
-                display_name: "GPT-5.4 Mini".into(),
-                description: Some("Smaller frontier agentic model.".into()),
-            },
-            ModelInfo {
-                id: "gpt-5.3-codex".into(),
-                display_name: "GPT-5.3 Codex".into(),
-                description: Some("Frontier Codex-optimized agentic coding model.".into()),
-            },
-            ModelInfo {
-                id: "gpt-5.2".into(),
-                display_name: "GPT-5.2".into(),
-                description: Some("Optimized for professional work and long-running agents.".into()),
-            },
-        ]
+        crate::agent::model_catalog::resolve_models("codex")
     }
 
-    fn default_model(&self) -> Option<&str> {
-        Some("gpt-5.4")
+    fn default_model(&self) -> Option<String> {
+        crate::agent::model_catalog::resolve_default("codex")
     }
 
     fn preserves_context_on_resume(&self) -> bool {
@@ -364,7 +406,7 @@ impl AgentProvider for CodexProvider {
             provider::model_select_section(
                 "Default model for new Codex sessions.",
                 self.available_models(),
-                self.default_model(),
+                self.default_model().as_deref(),
             ),
             // ── Section: Requirements (read-only docs) ──
             SettingField::Section {
@@ -377,6 +419,26 @@ impl AgentProvider for CodexProvider {
                 }],
             },
         ]
+    }
+
+    fn notifications_schema(&self) -> Vec<SettingField> {
+        use crate::agent::provider::{BadgeStyle, BadgeVariant};
+        vec![SettingField::Section {
+            title: "Codex Notifications".into(),
+            description: Some(
+                "Notifications fire when Codex needs your input or finishes a task. \
+                 Powered by CodeTerm's pane-output detection — no setup required."
+                    .into(),
+            ),
+            fields: vec![SettingField::Badge {
+                query_command: "check_pty_status_available".into(),
+                variants: vec![BadgeVariant {
+                    id: "ok".into(),
+                    label: "auto-enabled".into(),
+                    style: BadgeStyle::Green,
+                }],
+            }],
+        }]
     }
 }
 
@@ -557,18 +619,6 @@ fn read_session_meta(path: &std::path::Path) -> Option<(Option<String>, Option<S
     Some((id, cwd))
 }
 
-/// Filter CodeTerm's own boot-time system messages that codex records as
-/// `role: user`. These start with one of a short, explicit set of markers —
-/// no regex guessing; unknown injections will show up in search until added.
-fn is_codeterm_injection(text: &str) -> bool {
-    let t = text.trim_start();
-    t.starts_with("# AGENTS.md instructions")
-        || t.starts_with("<INSTRUCTIONS>")
-        || t.starts_with("<environment_context>")
-        || t.starts_with("<permissions instructions>")
-        || t.starts_with("You are a Graph Worker")
-        || t.starts_with("You are the General Agent")
-}
 
 #[cfg(test)]
 #[path = "provider_tests.rs"]

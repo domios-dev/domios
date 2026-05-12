@@ -46,6 +46,7 @@ pub fn learn(
         source: Some("cli:learn".into()),
         importance: 3.5,
         source_path: None,
+        pinned: false,
     })
 }
 
@@ -76,6 +77,7 @@ pub fn flush_pane(
         source: Some(format!("pane:{}", pane_id)),
         importance: 2.5,
         source_path: None,
+        pinned: false,
     })
 }
 
@@ -117,6 +119,7 @@ mod tests {
                 source: None,
                 importance: 3.0,
                 source_path: None,
+                pinned: false,
             })
             .unwrap();
         let r = promote(&mem, &id);

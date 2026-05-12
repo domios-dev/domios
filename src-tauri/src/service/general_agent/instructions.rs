@@ -37,6 +37,7 @@ pub fn sync_identity_to_mem(mem: &std::sync::Arc<crate::mem::MemManager>) {
                 source: Some(source),
                 importance: 5.0,
                 source_path: Some(file_path),
+                pinned: false,
             });
         }
     }
@@ -82,6 +83,7 @@ pub(super) fn render_agent_md(provider_name: &str, wake_up_section: &str) -> Str
         .replace("{identity}", &identity_section)
         .replace("{soul}", &soul_section)
         .replace("{wake_up}", wake_up_section)
+        .replace("{codeterm_cli}", crate::prompts::CODETERM_CLI)
 }
 
 /// Render the L0+L1 wake-up payload as a markdown section, or empty when
@@ -238,6 +240,7 @@ mod tests {
             source: None,
             importance: 5.0,
             source_path: None,
+            pinned: false,
         }).unwrap();
         mem.save(crate::mem::NewMemItem {
             kind: crate::mem::MemKind::Rule,
@@ -250,6 +253,7 @@ mod tests {
             source: None,
             importance: 5.0,
             source_path: None,
+            pinned: false,
         }).unwrap();
 
         let section = render_wake_up_section(Some(&mem));

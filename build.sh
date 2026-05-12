@@ -2,6 +2,8 @@
 # CodeTerm build script — works on macOS, Linux, and Windows.
 # Usage:
 #   ./build.sh dev       — dev mode (hot reload, incremental)
+#   ./build.sh dev --wait — same, but backgrounds and blocks until /api/health
+#                          reports the new build_number (handy for scripts/agents)
 #   ./build.sh check     — cargo check only (~2s incremental)
 #   ./build.sh test      — run Rust unit tests
 #   ./build.sh build     — production build
@@ -130,7 +132,47 @@ case "$CMD" in
     install_cli_to "$HOME/.codeterm/bin"
     install_cli_to "$HOME/.codeterm-dev/bin"
     echo "Build #$BUILD_NUM starting..."
-    pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json
+
+    WAIT=0
+    for arg in "${@:2}"; do
+      case "$arg" in
+        --wait|--wait-build) WAIT=1 ;;
+      esac
+    done
+
+    if [ "$WAIT" -eq 1 ]; then
+      LOG=/tmp/codeterm-dev.log
+      : > "$LOG"
+      ( pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json >> "$LOG" 2>&1 ) &
+      DEV_PID=$!
+      disown "$DEV_PID" 2>/dev/null || true
+      echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to report build_number=$BUILD_NUM..."
+      DEADLINE=$(( $(date +%s) + 300 ))
+      while : ; do
+        if [ "$(date +%s)" -gt "$DEADLINE" ]; then
+          echo "Timeout after 300s. Last log lines:"
+          tail -25 "$LOG"
+          exit 1
+        fi
+        if ! kill -0 "$DEV_PID" 2>/dev/null; then
+          echo "Dev process exited before reporting ready. Last log lines:"
+          tail -25 "$LOG"
+          exit 1
+        fi
+        HEALTH=$(curl -s --max-time 2 http://127.0.0.1:7686/api/health 2>/dev/null || true)
+        if [ -n "$HEALTH" ]; then
+          BN=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('build_number',''))" 2>/dev/null || true)
+          SHA=$(printf '%s' "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('build','')[:8])" 2>/dev/null || true)
+          if [ "$BN" = "$BUILD_NUM" ]; then
+            echo "Dev ready: build #$BN (commit $SHA), pid $DEV_PID"
+            exit 0
+          fi
+        fi
+        sleep 2
+      done
+    else
+      pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json
+    fi
     ;;
   webdriver)
     kill_dev

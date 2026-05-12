@@ -13,6 +13,7 @@ use super::misc::{
 use super::sessions::SessionsAction;
 use super::system::SystemAction;
 use super::update::UpdateAction;
+use super::usage::UsageAction;
 
 #[derive(Parser)]
 #[command(name = "codeterm", version, about = "CodeTerm CLI — control your terminal multiplexer")]
@@ -83,8 +84,13 @@ pub enum Commands {
         #[arg(long)]
         from_stdin: bool,
 
-        /// Skip server-side echo+submit verification — fire-and-forget.
-        /// Default is verified send (waits up to ~10s for echo and submit).
+        /// Wait for server-side echo+submit verification before returning.
+        /// Off by default: `send-text` is fire-and-forget unless you opt in.
+        #[arg(long, default_value_t = false)]
+        verify: bool,
+
+        /// Deprecated compatibility flag. `send-text` is already fire-and-forget
+        /// by default, so this flag is now a no-op.
         #[arg(long, default_value_t = false)]
         no_wait: bool,
     },
@@ -166,25 +172,11 @@ pub enum Commands {
         /// Backend must be built with `dev-updater-allowlocal` for non-https URLs.
         #[arg(long)]
         manifest_url: Option<String>,
-    },
-
-    /// Headless self-update flow: download → swap → verify → roll back on
-    /// mismatch. Survives daemon shutdown via an external orchestrator
-    /// script (schtasks on Windows). Routes the result through the
-    /// Telegram bridge once the new daemon boots.
-    SelfUpdate {
-        /// Skip download and just print whether an update is available.
-        #[arg(long, conflicts_with_all = ["apply", "rollback"])]
-        check: bool,
-        /// Run the full upgrade flow.
-        #[arg(long, conflicts_with_all = ["check", "rollback"])]
-        apply: bool,
-        /// Restore the previous binary from `.bak` and restart.
-        #[arg(long, conflicts_with_all = ["check", "apply"])]
-        rollback: bool,
-        /// Channel override for `--apply`. Defaults to the configured channel.
-        #[arg(long)]
-        channel: Option<String>,
+        /// Message to inject into the General Agent pane after the new daemon
+        /// boots. Useful for remote-triggered updates ("run the update and
+        /// then verify health") — GA reads it as user input post-restart.
+        #[arg(long, value_name = "TEXT")]
+        after_update: Option<String>,
     },
 
     /// Read or write CodeTerm configuration
@@ -215,6 +207,13 @@ pub enum Commands {
     Sessions {
         #[command(subcommand)]
         action: SessionsAction,
+    },
+
+    /// Agent usage tracking — current %, projection for end-of-today /
+    /// end-of-cycle based on your historical rhythm scaled to today's pace.
+    Usage {
+        #[command(subcommand)]
+        action: UsageAction,
     },
 
     /// OS-level integration: autostart, supervision, install hooks. Each

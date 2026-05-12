@@ -12,7 +12,7 @@
 
 ## Source file size discipline
 
-**Hard limit: 800 lines per source file** (`.rs`, `.ts`, `.tsx`, `.py`, `.swift`). When a file approaches this, split by responsibility. If a single concern legitimately needs more than 800 lines, your concern is two concerns wearing a trenchcoat.
+**Hard limit: 1000 lines per source file** (`.rs`, `.ts`, `.tsx`, `.py`, `.swift`). When a file approaches this, split by responsibility. If a single concern legitimately needs more than 1000 lines, your concern is two concerns wearing a trenchcoat.
 
 - `mod.rs` files target <300 lines — facade only (re-exports, trait declarations). Logic belongs in concrete files inside the module.
 - Excluded: `target/`, `node_modules/`, `dist/`, `gen/`, `references/`, `vendor/`, `src-tauri/pty-fork/`, data formats.
@@ -26,6 +26,8 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
+./build.sh dev --wait       # same, but backgrounds the process and blocks until /api/health
+                            # reports the new build_number — use in scripts/benches/CI
 ./build.sh check            # cargo check (~2s incremental)
 ./build.sh test             # Rust unit tests
 ./build.sh build            # production build
@@ -146,6 +148,22 @@ SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structu
 ## Architecture (agent providers, detection)
 
 Agent integration is abstracted via providers (`src-tauri/src/agent/`, `src/components/ChatView/parser.ts`). Currently: Claude. Architecture-ready: Codex, Aider, Goose. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`docs/contributing/architecture.md`**.
+
+## GitHub Issues
+
+Issue titles use `<scope>: description` — same scopes as commit prefixes:
+
+```
+fix:      bug fix
+feat:     new feature
+mem:      memory subsystem
+mesh:     mesh networking
+research: spikes, investigations, benchmarks
+docs:     documentation only
+build:    build / CI
+```
+
+No `[Tag]`, `[Idea]`, `[Bug]` brackets — just the scope prefix.
 
 ## Documentation
 

@@ -1,6 +1,5 @@
 use std::time::{Duration, Instant};
 
-use crate::cmd::print::print_self_update_outcome;
 use crate::{build_http, read_api_config, UpdateAction};
 
 fn poll_update_status(http: &reqwest::blocking::Client, base_url: &str) {
@@ -68,6 +67,7 @@ pub fn handle_update(
     apply: bool,
     channel: Option<String>,
     manifest_url: Option<String>,
+    after_update: Option<String>,
 ) {
     let (base_url, token) = read_api_config();
     let http = build_http(&token);
@@ -83,6 +83,7 @@ pub fn handle_update(
             from_file: None,
             continue_prompt: None,
             continue_pane: None,
+            after_update: after_update.clone(),
         })
     } else if check {
         Some(UpdateAction::Check { force: false })
@@ -131,7 +132,7 @@ pub fn handle_update(
                 }
             }
         }
-        UpdateAction::Install { auto, manifest_url, from_file, continue_prompt, continue_pane } => {
+        UpdateAction::Install { auto, manifest_url, from_file, continue_prompt, continue_pane, after_update } => {
             if let Some(path) = from_file {
                 let pane = continue_pane
                     .or_else(|| std::env::var("CODETERM_PANE_ID").ok());
@@ -144,6 +145,9 @@ pub fn handle_update(
             }
             if let Some(m) = manifest_url {
                 params.push(("manifest_url", m));
+            }
+            if let Some(t) = &after_update {
+                params.push(("after_update", t.clone()));
             }
             let qs = if params.is_empty() {
                 String::new()
@@ -225,71 +229,3 @@ pub fn handle_update(
     }
 }
 
-pub fn handle_self_update(json: bool, check: bool, apply: bool, rollback: bool, channel: Option<String>) {
-    let (base_url, token) = read_api_config();
-    let http = build_http(&token);
-
-    if check {
-        let url = format!("{}/api/update/check", base_url);
-        match http.get(&url).send() {
-            Ok(resp) if resp.status().is_success() => {
-                let body: serde_json::Value = resp.json().unwrap_or_default();
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
-                } else {
-                    let current = body["current_version"].as_str().unwrap_or("?");
-                    let latest = body["latest_version"].as_str().unwrap_or("?");
-                    let available = body["update_available"].as_bool().unwrap_or(false);
-                    println!("Current: v{}  Latest: v{}", current, latest);
-                    println!("{}", if available { "Update available." } else { "Up to date." });
-                }
-            }
-            Ok(resp) => { eprintln!("Error: {}", resp.status()); std::process::exit(1); }
-            Err(e)   => { eprintln!("Error: {}", e); std::process::exit(1); }
-        }
-        return;
-    }
-
-    if rollback {
-        let url = format!("{}/api/update/rollback", base_url);
-        match http.post(&url).send() {
-            Ok(resp) if resp.status().is_success() => {
-                let body: serde_json::Value = resp.json().unwrap_or_default();
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
-                } else {
-                    print_self_update_outcome(&body);
-                }
-            }
-            Ok(resp) => { eprintln!("Error: {}", resp.status()); std::process::exit(1); }
-            Err(e)   => { eprintln!("Error: {}", e); std::process::exit(1); }
-        }
-        return;
-    }
-
-    let _ = apply;
-    let mut params: Vec<(&str, String)> = Vec::new();
-    if let Some(c) = channel { params.push(("channel", c)); }
-    let qs = if params.is_empty() {
-        String::new()
-    } else {
-        let pairs: Vec<String> = params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
-            .collect();
-        format!("?{}", pairs.join("&"))
-    };
-    let url = format!("{}/api/update/self_apply{}", base_url, qs);
-    match http.post(&url).send() {
-        Ok(resp) if resp.status().is_success() => {
-            let body: serde_json::Value = resp.json().unwrap_or_default();
-            if json {
-                println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
-            } else {
-                print_self_update_outcome(&body);
-            }
-        }
-        Ok(resp) => { eprintln!("Error: {}", resp.status()); std::process::exit(1); }
-        Err(e)   => { eprintln!("Error: {}", e); std::process::exit(1); }
-    }
-}

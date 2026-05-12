@@ -1,32 +1,40 @@
 import { useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ChevronRight } from "lucide-react";
+import { Bell, Bot, ChevronRight, FolderTree, Server, Eye } from "lucide-react";
 import type { AppConfig, ProviderConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
-import { Toggle } from "./shared";
+import { ProviderNotifications } from "./ProviderNotifications";
+import { SettingsCard, SettingsPill, Toggle } from "./shared";
 import { AgentIcon } from "../AgentIcon";
 
 export function AgentsOverview({
   config,
   onUpdate,
   onOpenProvider,
+  onUpdateFullConfig,
 }: {
   config: AppConfig;
   onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
   onOpenProvider: (providerId: string) => void;
+  onUpdateFullConfig: (next: AppConfig) => void;
 }) {
   const { providers, loading, error } = useAgentProviders();
 
   return (
-    <div className="space-y-5">
-      {/* General Agent — shared across all providers */}
-      <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
-        <div className="text-xs font-medium text-[var(--ct-fg)]">General Agent</div>
-        <div className="text-xs text-[var(--ct-muted-fg)]">
-          Always-on AI assistant in a protected workspace. Starts automatically with CodeTerm.
-        </div>
+    <div className="flex flex-col gap-5">
+      <NotificationsGroup
+        config={config}
+        onUpdate={onUpdate}
+        onUpdateFullConfig={onUpdateFullConfig}
+      />
+
+      <SettingsCard
+        icon={<Bot size={16} />}
+        title="General Agent"
+        description="Always-on AI assistant in a protected workspace. Starts automatically with CodeTerm. Changes provider on next restart, or click Restart now."
+      >
         <Toggle
           label="Enable General Agent"
           checked={config.general_agent?.enabled ?? true}
@@ -63,24 +71,19 @@ export function AgentsOverview({
             />
           </>
         )}
-        <div className="text-[10px] text-[var(--ct-muted)]">
-          Changes provider on next restart, or click Restart now.
-        </div>
-      </div>
+      </SettingsCard>
 
-      {/* Skills — CodeTerm-wide source of truth, NOT a provider contribution.
-          Skills are a CodeTerm feature that syncs to all providers. */}
-      <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-medium text-[var(--ct-fg)]">Skills</div>
-          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]">
-            auto-synced
-          </span>
-        </div>
-        <div className="text-xs text-[var(--ct-muted-fg)]">
-          Drop skill folders into <code className="text-[10px]">~/.codeterm/skills/</code> — they're
-          available to every agent provider automatically.
-        </div>
+      <SettingsCard
+        icon={<FolderTree size={16} />}
+        title="Skills"
+        headerRight={<SettingsPill tone="green">auto-synced</SettingsPill>}
+        description={
+          <>
+            Drop skill folders into <code className="text-[10px]">~/.codeterm/skills/</code> — they're
+            available to every agent provider automatically.
+          </>
+        }
+      >
         <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]">
           <span className="font-mono">~/.codeterm/skills/</span>
           <button
@@ -90,13 +93,11 @@ export function AgentsOverview({
             Open folder
           </button>
         </div>
-      </div>
+      </SettingsCard>
 
-      {/* Providers — tile list, click to open detail screen */}
-      <div>
-        <div className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--ct-muted)] mb-2.5">Providers</div>
+      <SettingsCard icon={<Server size={16} />} title="Providers">
         {error && (
-          <div className="text-[10px] text-[var(--ct-red)] mb-3">
+          <div className="text-[10px] text-[var(--ct-red)]">
             Failed to load agent providers: {error}
           </div>
         )}
@@ -121,7 +122,7 @@ export function AgentsOverview({
             </button>
           ))}
         </div>
-      </div>
+      </SettingsCard>
     </div>
   );
 }
@@ -171,7 +172,7 @@ export function AgentProviderScreen({
   const visibleInMenu = providerCfg.visible_in_menu !== false;
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col gap-5">
       <div className="flex items-center gap-3 pb-2">
         <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-[22px] shrink-0">
           <AgentIcon providerId={provider.id} title={provider.display_name} />
@@ -181,19 +182,17 @@ export function AgentProviderScreen({
           <div className="text-[11px] text-[var(--ct-muted-fg)]">{provider.id}</div>
         </div>
       </div>
-      {/* CodeTerm-wide policy: hide this provider from the per-workspace
-          'New ... Session' menu. Lives outside the plugin schema because
-          it's a host-side filter, not a per-plugin setting. */}
-      <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+      <SettingsCard
+        icon={<Eye size={16} />}
+        title="Visibility"
+        description={`When off, the "New ${provider.display_name} Session" entry is hidden from workspace context menus. Spawning via CLI / agent hierarchy still works.`}
+      >
         <Toggle
           label="Show in workspace menu"
           checked={visibleInMenu}
           onChange={(v) => onProviderConfigChange(provider.id, { visible_in_menu: v })}
         />
-        <div className="text-[10px] text-[var(--ct-muted)]">
-          When off, the "New {provider.display_name} Session" entry is hidden from workspace context menus. Spawning via CLI / agent hierarchy still works.
-        </div>
-      </div>
+      </SettingsCard>
       <ProviderInstallCard provider={provider} />
       <SchemaRenderer
         schema={provider.settings_schema}
@@ -202,5 +201,65 @@ export function AgentProviderScreen({
         onChange={onProviderConfigChange}
       />
     </div>
+  );
+}
+
+function NotificationsGroup({
+  config,
+  onUpdate,
+  onUpdateFullConfig,
+}: {
+  config: AppConfig;
+  onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
+  onUpdateFullConfig: (next: AppConfig) => void;
+}) {
+  const { providers } = useAgentProviders();
+
+  return (
+    <SettingsCard
+      icon={<Bell size={16} />}
+      title="Notifications"
+      description="Get alerted when an agent finishes a task or needs your attention. Hooks auto-install on startup. Providers without hooks are notified via output detection."
+    >
+      <Toggle
+        label="Desktop notifications"
+        checked={config.notifications.desktop}
+        onChange={(v) => onUpdate("notifications", { desktop: v })}
+      />
+      <Toggle
+        label="Sound"
+        checked={config.notifications.sound}
+        onChange={(v) => onUpdate("notifications", { sound: v })}
+      />
+      <label className="flex items-center justify-between opacity-50 cursor-not-allowed">
+        <span className="text-xs text-[var(--ct-muted-fg)]">In-app toast (coming soon)</span>
+        <span
+          className="relative inline-flex h-5 w-9 items-center rounded-full bg-[var(--ct-border)]"
+        >
+          <span className="inline-block h-3.5 w-3.5 rounded-full bg-white translate-x-0.5" />
+        </span>
+      </label>
+
+      <ProviderNotifications
+        fullConfig={config}
+        onUpdateFullConfig={onUpdateFullConfig}
+        hideActions
+        hidePathLinks
+      />
+
+      <div className="space-y-1.5">
+        {providers.map((p) => {
+          const installed = p.notifications_schema.length > 0;
+          return (
+            <div key={p.id} className="flex items-center justify-between">
+              <span className="text-xs text-[var(--ct-fg)]">{p.display_name}</span>
+              <SettingsPill tone={installed ? "green" : "muted"}>
+                {installed ? "installed" : "via output detection"}
+              </SettingsPill>
+            </div>
+          );
+        })}
+      </div>
+    </SettingsCard>
   );
 }

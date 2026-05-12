@@ -38,8 +38,8 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub fn open_browser(&self, url: String) -> Result<String, String> {
-        let pane_id = self.mux.lock().open_browser(Some(url))?;
+    pub fn open_browser(&self, url: String, activate: bool) -> Result<String, String> {
+        let pane_id = self.mux.lock().open_browser(Some(url), activate)?;
         self.emit_state_changed();
         Ok(pane_id)
     }
@@ -66,8 +66,26 @@ impl ServiceContext {
     }
 
     pub fn set_pane_agent_type(&self, pane_id: &str, agent_type: Option<String>) {
-        // Apply the state change first; clone the resulting `(prev, new)` so we
-        // can decide post-lock whether to kick off session-id polling.
+        self.write_pane_agent_type(pane_id, agent_type, false);
+    }
+
+    /// Same as `set_pane_agent_type` but also pins `agent_type_locked = true`.
+    /// Used by spawn paths and the typed-launch input parser to declare explicit
+    /// user intent. While locked, output-based re-detection is ignored.
+    pub fn set_and_lock_pane_agent_type(&self, pane_id: &str, agent_type: String) {
+        self.write_pane_agent_type(pane_id, Some(agent_type), true);
+    }
+
+    /// Release the lock without changing `agent_type`. Public so a future Tauri
+    /// command can disconnect an agent identity without clearing it.
+    pub fn unlock_pane_agent_type(&self, pane_id: &str) {
+        let mut mux = self.mux.lock();
+        if let Some(pane) = mux.get_pane_mut(pane_id) {
+            pane.agent_type_locked = false;
+        }
+    }
+
+    fn write_pane_agent_type(&self, pane_id: &str, agent_type: Option<String>, lock: bool) {
         let transition = {
             let mut mux = self.mux.lock();
             let Some(pane) = mux.get_pane_mut(pane_id) else { return };
@@ -76,6 +94,12 @@ impl ServiceContext {
                 pane.agent_set_at = Some(std::time::Instant::now());
             }
             pane.agent_type = agent_type.clone();
+            // Clearing agent_type also clears the lock — agent died/disconnected.
+            if agent_type.is_none() {
+                pane.agent_type_locked = false;
+            } else if lock {
+                pane.agent_type_locked = true;
+            }
             (prev, agent_type)
         };
         log::info!(

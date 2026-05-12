@@ -66,6 +66,28 @@ pub async fn mem_dream(
         reports.push(report);
     }
 
+    // Calibration sweep is now a server-side phase, not an LLM-driven stage.
+    // The dreamer used to be instructed to invoke it from STAGE D, but the
+    // model routinely skipped the Bash call and fabricated the result; running
+    // it here makes the sweep authoritative and lands real history rows the
+    // LLM can read for the diary's CALIBRATION line.
+    if phase == "all" {
+        let svc = state.svc.clone();
+        let calib = tokio::task::spawn_blocking(move || {
+            svc.mem.with_conn(|conn| {
+                crate::api::mem_routes::calibration::run_calibration_sweep(conn, false)
+            })
+        })
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("calibration join: {}", e)))?
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("calibration: {}", e)))?;
+        let mut tagged = calib;
+        if let Some(obj) = tagged.as_object_mut() {
+            obj.insert("phase".into(), serde_json::Value::String("calibration".into()));
+        }
+        reports.push(tagged);
+    }
+
     // REM worker only fires on a full nightly run; targeted phase calls skip it.
     if phase == "all" {
         let svc = state.svc.clone();

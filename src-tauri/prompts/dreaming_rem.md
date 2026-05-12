@@ -10,11 +10,15 @@ mutation work.
   English-dominant.
 - Use `--skip-extract` on every save — dream outputs must not spawn
   extraction workers (they create new orphans we'd then have to clean up).
-- **NO FABRICATION.** Every number you put in the `<log>` block (HUBS:
-  count, ISLANDS: bridged=N, DEDUP: aliases=N, etc.) must come from a
-  command output you ran THIS session. If you didn't run the command,
-  the number stays 0 — never invent numbers from memory or "what feels
-  right". Diary is a receipt, not an essay.
+- **NO FABRICATION — numbers AND strings.** Every value in the `<log>`
+  block (counts, bridged=N, aliases=N, CALIBRATION skipped=<reason>,
+  etc.) must come from a command output you captured THIS session into a
+  variable, file, or stdout you can see right now. NEVER copy a value
+  from the example template, from a prior dream diary, or from "what
+  you remember the answer was last time". If you didn't run the command,
+  the field is `0`, `n/a`, or `pending` — never an inferred value.
+  The diary is a receipt of work done in THIS run; if a stage didn't
+  run, say so explicitly with `pending` or `not_run`.
 - Every stage has a VERIFY step. Do not move past a stage until its verify
   passes. Skipping a stage is a failed run, not a fast run.
 - No stage is "optional" or "the rest of your job". You finish all of them.
@@ -102,6 +106,8 @@ reference material for *what* each step means. The walkthrough shows
         → mem update <diary_id> with DEDUP totals.
 
 10. Stage C maintenance (classify, promote/archive, revive-broken).
+10b. Stage D calibration sweep (server skips on non-Sunday; run regardless).
+        → mem update <diary_id> with CALIBRATION line.
 11. Build the FINAL <insight> prose now that you've seen everything.
 12. mem update <diary_id> with the final body (insight + completed log).
 13. codeterm bridge send --to <chat_id> ...    # telegram (insight only)
@@ -190,20 +196,52 @@ If a node is in the hubs list, the system already decided it violates the
   "neighbors don't form coherent themes (read N titles, no 2+ groups of 2+)".
 
 If you're tempted to skip for any other reason — "this is a person, of
-course they have many facts", "this is a machine, all facts are about it"
-— that's the wrong call. Re-read titles, find the sub-themes. They're
-almost always there.
+course they have many facts", "this is a machine, all facts are about it",
+**or "this hub is too big to handle right now"** — that's the wrong call.
+Re-read titles, find the sub-themes. They're almost always there.
+
+### Bigger hub = higher priority, never an excuse to skip
+
+**Sort hubs by degree DESCENDING, work biggest first.** A hub with degree
+71 is 3.5x more harmful to graph health than a hub with degree 22 — it's
+where search noise concentrates. If your token budget runs short mid-run,
+the hubs you skip MUST be the smallest ones, not the scariest ones.
+
+**Hubs of degree >= 50 are RED ZONE — there is no valid SKIP reason for
+them.** It's mathematically impossible for 50+ neighbors to share zero
+decomposable themes; "homogeneous fact bag" only applies up to ~30 neighbors.
+Re-read the titles in chunks of 10 — sub-themes always emerge. If the hub
+sample looks incomplete, re-call `codeterm mem graph hubs --threshold 20
+--sample 100` (or higher) so you actually see every neighbor before
+declaring there's no structure.
+
+**Partial decomposition beats no decomposition.** If a RED-ZONE hub has
+70+ neighbors and you genuinely cannot drain it under 20 this run, still
+pull at least 3-5 themed sub-clusters out of it (each via
+`introduce-topic` with 2-3 sources). Leaving 70 untouched is a failed
+run; leaving 35 after one decomposition round is real progress that the
+next REM run finishes. Log it explicitly:
+`hub_id (degree 71) -> partially decomposed: pulled 5 clusters covering
+30 neighbors, residue 41, continue next run`.
 
 ### Process
 
     codeterm mem graph hubs --threshold 20 --sample 50
-    # for each hub: decompose or SKIP (with reason). Log per-hub for the diary.
+    # SORT by degree DESC, work biggest first. Re-call with --sample 100
+    # for any RED-ZONE hub (degree >= 50) so you see every neighbor title.
+    # For each hub: decompose (full or partial) or SKIP with one of the
+    # two valid reasons. Log per-hub for the diary.
 
 ### Verify A.1
 
     codeterm mem graph hubs --threshold 20 --sample 0
     # Count hubs remaining. Target: every bad hub now < 20 active edges.
-    # Acceptable residue: hubs you logged as SKIPped, with the recorded reason.
+    # Acceptable residue: hubs you SKIPped with one of the two valid reasons,
+    # AND hubs marked "partially decomposed" with at least 3+ sub-clusters
+    # extracted this run. Any RED-ZONE hub (degree >= 50) that you neither
+    # decomposed nor partially decomposed is a FAILED run — record it
+    # at the top of the diary's <log> block as `RED_ZONE_LEFT_UNTOUCHED:
+    # <hub_id> (degree N)` so the next run picks it up first.
 
 ## A.2 — Disconnected island bridging
 
@@ -443,6 +481,7 @@ Required lines, in this order:
     ORPHANS_AFTER: <count from re-run after A.2>
     DEDUP: aliases=N duplicates=M
     ENTITY_COUNT_AFTER: <from `mem stats`>
+    CALIBRATION: <verbatim summary of Stage D's $SWEEP — never "skipped=not_sunday" unless the JSON you got back THIS run said so>
     ACTION: <single highest-leverage next step the user should run, with exact CLI>
 
 ### Full body shape
@@ -467,6 +506,8 @@ Required lines, in this order:
     ORPHANS: bridged=18 deleted=4
     ORPHANS_AFTER: 15
     DEDUP: aliases=3 duplicates=1
+    ENTITY_COUNT_AFTER: 412
+    CALIBRATION: <fill from Stage D output, or "pending" if D didn't run>
     ACTION: codeterm mem update fact_x42 --area auth   # currently mis-classified
     </log>
 
@@ -517,6 +558,46 @@ Recent sessions list:
     # Edges that were invalidated but both endpoints exist again. Revive
     # the ones that still describe reality:
     codeterm mem graph relate --from <a> --rel <r> --to <b>
+
+# STAGE D — Memory calibration (read-only; server-side)
+
+The supervisor that spawned you already ran `mem calibration sweep`
+before handing you the wheel. The result is durable in two places:
+SQLite history rows (`mem_item_history WHERE changed_by LIKE
+'dreamer-calibration%'`) and the day-of-week / skip-reason JSON returned
+by the dream API. You do NOT invoke the sweep yourself — repeated
+invocations would just hit the 6h re-entry guard or, in resumed
+sessions, get skipped entirely and produce a fabricated CALIBRATION
+line.
+
+## D.1 — Read what the server did
+
+```bash
+codeterm mem calibration log --since "$(date -u -v-1h +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u --date='1 hour ago' +'%Y-%m-%dT%H:%M:%SZ')" --count
+codeterm mem calibration log --since "$(date -u -v-1h +'%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u --date='1 hour ago' +'%Y-%m-%dT%H:%M:%SZ')" --limit 30
+```
+
+The first call gives you a count; the second the entries. The
+`change_type` column is `promote | demote | archive`.
+
+## D.2 — Diary line
+
+Compute summary numbers from the log output you just captured:
+- `APPLIED` = count of rows where `change_type IN (promote, demote)`
+- `ARCHIVED` = count of rows where `change_type = 'archive'`
+
+Then format the diary line:
+
+- Nothing today: `CALIBRATION: skipped=none applied=0 archived=0`
+  (the sweep ran but no candidates passed the triple-gate)
+- Work done: `CALIBRATION: skipped=none applied=<N> archived=<M>`
+- Server skipped (DOW gate / re-entry / too many candidates): inspect
+  the dream API response that prefaced your task — the CALIBRATION
+  phase report carries `skipped_reason`. Write
+  `CALIBRATION: skipped=<reason> applied=0 archived=0`.
+
+NEVER invent a `skipped=not_sunday` line from memory. If you have no
+fresh log evidence AND no fresh sweep JSON, write `CALIBRATION: pending`.
 
 # RULES OF THUMB (apply at every stage)
 

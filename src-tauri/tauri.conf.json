@@ -1,13 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui-dart/tauri/HEAD/core/tauri-config-schema/schema.json",
   "productName": "CodeTerm",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "identifier": "com.codeterm.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "bash scripts/dev-prep.sh",
-    "beforeBuildCommand": "pnpm build && touch cli/src/main.rs && cargo build --release --manifest-path cli/Cargo.toml && node scripts/bundle-cli.js && node scripts/prepare-embed-stub.js && cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed && node scripts/bundle-embed.js"
+    "beforeBuildCommand": "pnpm build && node scripts/touch-cli-main.js && cargo build --release --manifest-path cli/Cargo.toml && node scripts/bundle-cli.js && node scripts/prepare-embed-stub.js && cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed && node scripts/bundle-embed.js"
   },
   "app": {
     "withGlobalTauri": true,

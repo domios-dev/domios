@@ -250,11 +250,26 @@ async fn drive_restart(
 
     let shell_ready = wait_for_shell_after_exit(&svc, &snap, force, grace).await;
     if !shell_ready {
-        log::warn!(
-            "[agent_restart] pane={} shell prompt not detected within grace={}s — proceeding anyway",
-            snap.pane_id,
-            grace.as_secs()
+        log::error!(
+            "[agent_restart] pane={} agent TUI still on screen after exit + Ctrl-C escalation — \
+             aborting relaunch to avoid piping launch command into the TUI's input box. \
+             User can re-run restart with force=true or close the pane manually.",
+            snap.pane_id
         );
+        crate::logs::record(
+            crate::logs::LogLevel::Warn,
+            "agent.restart",
+            format!(
+                "restart aborted on pane {} — agent did not exit cleanly; re-run with force=true",
+                snap.pane_id
+            ),
+            Some(serde_json::json!({
+                "pane_id": snap.pane_id,
+                "provider": snap.provider,
+                "reason": "tui_still_visible",
+            })),
+        );
+        return;
     }
 
     let Some(launch_cmd) = build_relaunch_command(
@@ -300,39 +315,56 @@ async fn wait_for_shell_after_exit(
         let _ = svc.write_raw(&snap.pane_id, b"\x03");
         tokio::time::sleep(Duration::from_millis(300)).await;
         let _ = svc.write_raw(&snap.pane_id, b"\x03");
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        return shell_prompt_visible(svc, &snap.pty_id);
+        return poll_bare_shell_prompt(svc, &snap.pty_id, Duration::from_secs(3)).await;
     }
 
-    let svc_clone = svc.clone();
-    let pty_id = snap.pty_id.clone();
-    let ready = tokio::task::spawn_blocking(move || {
-        crate::service::pty_io::poll_shell_prompt(&svc_clone.screen_state, &pty_id, grace)
-    })
-    .await
-    .unwrap_or(false);
-
-    if !ready {
-        log::warn!(
-            "[agent_restart] pane={} graceful exit timed out — escalating to Ctrl-C",
-            snap.pane_id
-        );
-        let _ = svc.write_raw(&snap.pane_id, b"\x03");
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        let _ = svc.write_raw(&snap.pane_id, b"\x03");
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        return shell_prompt_visible(svc, &snap.pty_id);
+    if poll_bare_shell_prompt(svc, &snap.pty_id, grace).await {
+        return true;
     }
-    true
+
+    log::warn!(
+        "[agent_restart] pane={} graceful exit timed out — escalating to Ctrl-C",
+        snap.pane_id
+    );
+    let _ = svc.write_raw(&snap.pane_id, b"\x03");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let _ = svc.write_raw(&snap.pane_id, b"\x03");
+    poll_bare_shell_prompt(svc, &snap.pty_id, Duration::from_secs(3)).await
 }
 
-fn shell_prompt_visible(svc: &ServiceContext, pty_id: &str) -> bool {
+/// Polls the screen until a bare shell prompt is visible (no agent TUI on screen)
+/// or the timeout elapses. Unlike the generic `poll_shell_prompt`, this rejects
+/// screens where the agent TUI's input cursor (`❯`) is still drawn inside a
+/// box-border — the calling code must KNOW the agent is gone, not just see an
+/// arrow somewhere.
+async fn poll_bare_shell_prompt(svc: &ServiceContext, pty_id: &str, timeout: Duration) -> bool {
+    let start = Instant::now();
+    let poll = Duration::from_millis(200);
+    while start.elapsed() < timeout {
+        if bare_shell_prompt_visible(svc, pty_id) {
+            return true;
+        }
+        tokio::time::sleep(poll).await;
+    }
+    bare_shell_prompt_visible(svc, pty_id)
+}
+
+fn bare_shell_prompt_visible(svc: &ServiceContext, pty_id: &str) -> bool {
     let text = svc
         .screen_state
         .lock()
         .get_screen_text(pty_id)
         .unwrap_or_default();
-    crate::pty::screen_state::screen_has_shell_prompt(&text)
+    // Shell prompt must be present …
+    if !crate::pty::screen_state::screen_has_shell_prompt(&text) {
+        return false;
+    }
+    // … with no universal TUI glyphs (box-drawing, block chars) …
+    if crate::pty::screen_state::screen_has_agent_tui(&text) {
+        return false;
+    }
+    // … and no provider-specific TUI text patterns.
+    !svc.agent_registry.any_provider_screen_has_tui(&text)
 }
 
 #[cfg(test)]

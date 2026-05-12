@@ -53,49 +53,15 @@ impl ServiceContext {
             log::info!("[status] {} {:?} -> {:?}", &pty_id[..pty_id.len().min(8)], prev_status, current_status);
         }
 
-        // Auto-detect agent type from PTY output if not already set.
-        // Uses VT100-parsed screen content (not raw chunks — they may be fragmented/ANSI-wrapped).
+        // Identity (`agent_type`) is now driven by explicit intent only:
+        //   1. Spawn paths call `set_and_lock_pane_agent_type`.
+        //   2. The PTY input parser (`commands::pty::write_pty`) detects when
+        //      the user types `claude/codex/opencode ...<Enter>` in a shell.
+        // Output content is no longer treated as identity evidence — see the
+        // exit-detection block below for the only place output still drives
+        // an `agent_type` write (clearing it on shell-prompt resurrection).
         let agent_type = if agent_type.is_none() {
-            if let Some(ref pid) = pane_id {
-                let screen = self.screen_state.lock().get_screen_text(pty_id).unwrap_or_default();
-                // Also try raw output buffer (screen_state may be empty for alternate-screen apps)
-                let raw_text = if screen.is_empty() {
-                    self.output_buf.lock().get_text(pty_id).unwrap_or_default()
-                } else { String::new() };
-                let check_text = if !screen.is_empty() { &screen } else { &raw_text };
-                if !check_text.is_empty() {
-                    let detected_id = self.agent_registry.detect_from_output(check_text);
-                    // Log periodically to aid debugging
-                    static DETECT_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-                    let dc = DETECT_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    if dc < 5 || dc % 100 == 0 {
-                        log::debug!("[agent-detect] pane={} screen_len={} raw_len={} detected={} text_sample={:?}",
-                            pid, screen.len(), raw_text.len(), detected_id.is_some(),
-                            &check_text.chars().take(100).collect::<String>());
-                    }
-                    if let Some(agent_id) = detected_id {
-                        log::info!("[output] auto-detected agent '{}' in pane {} from screen content", agent_id, pid);
-                        self.set_pane_agent_type(pid, Some(agent_id.clone()));
-                        // Also detect session immediately
-                        let (cwd, exclude) = {
-                            let m = self.mux.lock();
-                            (m.get_pane(pid).and_then(|p| p.cwd.clone()), m.other_session_ids(pid))
-                        };
-                        if let Some(cwd) = cwd {
-                            let max_age = Some(std::time::Duration::from_secs(86400));
-                            let sid = self.agent_registry.with_provider(&agent_id, |p| {
-                                p.detect_session_id(&cwd, &exclude, max_age)
-                            }).flatten();
-                            if let Some(sid) = sid {
-                                log::info!("[output] auto-detected session {} for pane {}", sid, pid);
-                                self.set_agent_session_id(pid, Some(sid));
-                            }
-                        }
-                        self.emit_state_changed();
-                        Some(agent_id)
-                    } else { None }
-                } else { None }
-            } else { None }
+            None
         } else if let Some(ref pid) = pane_id {
             // Agent already detected — check if it's still running.
             // This is the SOLE agent exit detection point (removed from idle-poll to avoid races).
