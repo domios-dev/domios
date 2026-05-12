@@ -8,6 +8,7 @@ use crate::agent::provider::{
 use super::status_tui::CodexStatusUsageParser;
 use super::usage as codex_usage;
 use crate::shell::ShellSyntax;
+use crate::plugin::common::is_codeterm_injection;
 
 static CODEX_STATUS_PARSER: CodexStatusUsageParser = CodexStatusUsageParser;
 
@@ -612,18 +613,6 @@ fn read_session_meta(path: &std::path::Path) -> Option<(Option<String>, Option<S
     Some((id, cwd))
 }
 
-/// Filter CodeTerm's own boot-time system messages that codex records as
-/// `role: user`. These start with one of a short, explicit set of markers —
-/// no regex guessing; unknown injections will show up in search until added.
-fn is_codeterm_injection(text: &str) -> bool {
-    let t = text.trim_start();
-    t.starts_with("# AGENTS.md instructions")
-        || t.starts_with("<INSTRUCTIONS>")
-        || t.starts_with("<environment_context>")
-        || t.starts_with("<permissions instructions>")
-        || t.starts_with("You are a Graph Worker")
-        || t.starts_with("You are the General Agent")
-}
 
 #[cfg(test)]
 #[path = "provider_tests.rs"]

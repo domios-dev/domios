@@ -105,6 +105,12 @@ impl UsagePoller {
             provider: provider.to_string(),
             account_id,
         };
+        // Skip spawn if a probe is already running. run_probe_for is the
+        // definitive guard, but checking here avoids spawning a task that
+        // would immediately return.
+        if self.inner.accounts.lock().get(&key).map(|s| s.in_flight).unwrap_or(false) {
+            return;
+        }
         let inner = self.inner.clone();
         tauri::async_runtime::spawn(async move {
             if let Err(e) = run_probe_for(inner, key.clone()).await {

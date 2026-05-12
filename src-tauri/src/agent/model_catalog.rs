@@ -232,11 +232,14 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
         }
     };
 
+    // Re-stat after the read so the cached mtime reflects the file content we
+    // actually parsed — not the mtime we sampled before reading.
+    let cached_mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
     override_cache().write().insert(
         provider_id.to_string(),
         CachedOverride {
             parsed: parsed_arc.clone(),
-            mtime: current_mtime,
+            mtime: cached_mtime,
         },
     );
 

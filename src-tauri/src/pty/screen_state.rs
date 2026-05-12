@@ -183,6 +183,10 @@ pub fn screen_has_agent_tui(screen_text: &str) -> bool {
         || lower.contains("esc to interrupt")
         || lower.contains("tab agents")
         || lower.contains("ctrl+p commands")
+        // Codex CLI — banner visible at the top of any running Codex session.
+        || screen_text.contains("OpenAI Codex")
+        // Codex working indicator visible during tool execution.
+        || lower.contains("ctrl+c to cancel")
 }
 
 /// Like `screen_has_shell_prompt` but rejects screens where an agent TUI is
