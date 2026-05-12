@@ -26,6 +26,8 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 
 ```bash
 ./build.sh dev              # incremental dev (port 7686, hot reload, auto-builds CLI)
+./build.sh dev --wait       # same, but backgrounds the process and blocks until /api/health
+                            # reports the new build_number — use in scripts/benches/CI
 ./build.sh check            # cargo check (~2s incremental)
 ./build.sh test             # Rust unit tests
 ./build.sh build            # production build

@@ -23,8 +23,9 @@
 ```bash
 git clone <repo-url> codeterm && cd codeterm
 pnpm install
-./build.sh dev     # development (hot-reload)
-./build.sh build   # production build
+./build.sh dev          # development (hot-reload, foreground)
+./build.sh dev --wait   # same but backgrounds + blocks until new build is live at /api/health
+./build.sh build        # production build
 ```
 
 ## Dev/Prod Isolation
