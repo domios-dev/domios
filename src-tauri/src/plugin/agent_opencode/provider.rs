@@ -7,6 +7,7 @@ use crate::agent::provider::{
 };
 use super::usage as opencode_usage;
 use crate::shell::ShellSyntax;
+use crate::plugin::common::is_codeterm_injection;
 
 #[path = "models.rs"]
 mod models;
@@ -752,17 +753,6 @@ fn find_file_by_name(dir: &Path, target: &str, depth: u8) -> Option<PathBuf> {
     None
 }
 
-/// CodeTerm injects a few system-shaped prompts as role=user at session
-/// start. Mark them meta so cross-provider session search skips them.
-fn is_codeterm_injection(text: &str) -> bool {
-    let t = text.trim_start();
-    t.starts_with("# AGENTS.md instructions")
-        || t.starts_with("<INSTRUCTIONS>")
-        || t.starts_with("<environment_context>")
-        || t.starts_with("<permissions instructions>")
-        || t.starts_with("You are a Graph Worker")
-        || t.starts_with("You are the General Agent")
-}
 
 #[cfg(test)]
 #[path = "provider_tests.rs"]
