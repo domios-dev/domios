@@ -73,8 +73,9 @@ Current agent definitions:
 - `frontend-dev.md` — React / TypeScript / `src/` work
 - `code-reviewer.md` — read-only review
 - `docs.md` — documentation sync
-- `devops.md` — builds, releases, CI/CD
 - `prompt-evaluator.md` — A/B and regression testing for prompt files
+
+Releases/builds have no specialized agent — the procedure lives in mem as `skill_end_to_end_github_release_for_codeterm`. Any agent can fetch and execute it.
 
 These are **not** included in the binary — they live in the repo and are read from disk at spawn time. Editing them takes effect immediately without rebuild, but only for agents spawned *from this checkout*.
 

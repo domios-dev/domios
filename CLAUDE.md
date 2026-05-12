@@ -137,7 +137,7 @@ CodeTerm has a 4-level hierarchy: **Orchestrator → Lead → Worker → SubWork
 - **Lead** — has a bounded sub-task, may decompose and spawn Workers.
 - **Worker / SubWorker** — does ONE concrete task, runs `codeterm agent report`, exits. **NEVER spawns other agents.** If decomposition needed → report blocked.
 
-Specialized types: `backend-dev`, `frontend-dev`, `docs`, `code-reviewer`, `devops`, `prompt-evaluator`. Each is defined in `.claude/agents/<type>.md`.
+Specialized types: `backend-dev`, `frontend-dev`, `docs`, `code-reviewer`, `prompt-evaluator`. Each is defined in `.claude/agents/<type>.md`. For releases / builds / CI work, no specialized agent — fetch `skill_end_to_end_github_release_for_codeterm` from mem and execute (any Lead/Sonnet worker can do it).
 
 **Full delegation manual** — when to delegate vs DIY, how to spawn (`Agent` tool vs `codeterm agent spawn`), role assignment, recursion limits, proactive `docs` / `prompt-evaluator` / `code-reviewer` hooks: see **`docs/contributing/agents.md`**.
 

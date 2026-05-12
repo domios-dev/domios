@@ -19,8 +19,9 @@ Defined in `.claude/agents/*.md`:
 | **frontend-dev** | `src/` React/TS code | Worker (or Lead for multi-module refactors) |
 | **docs** | `docs/*.md`, `README.md`, skills | Worker |
 | **code-reviewer** | Read-only review | Worker |
-| **devops** | Builds, releases, CI/CD | Lead (coordinates multi-machine builds) |
 | **prompt-evaluator** | `src-tauri/prompts/*.md`, `.claude/agents/*.md`, eval sets in `evals/` | Worker (read-only; runs `.claude/skills/prompt-evaluator/` harness and reports) |
+
+Releases / builds / CI work has **no specialized agent**. Fetch the canonical procedure from mem: `codeterm mem get skill_end_to_end_github_release_for_codeterm`. Any Lead or Sonnet worker can follow it end-to-end.
 
 ## Orchestrator-only rules
 
@@ -35,7 +36,7 @@ Agent definitions live in `.claude/agents/*.md` (standard Claude Code format + t
 - "Extract this hook from the component" → frontend-dev
 - "Review the last 3 commits for issues" → code-reviewer
 - "Update docs after these changes" → docs
-- "Bump version and release" → devops
+- "Bump version and release" → no specialized agent; spawn a Lead with the prompt "`codeterm mem get skill_end_to_end_github_release_for_codeterm` and follow it end-to-end. Use ROG for Windows build (mesh peer)."
 
 **Do-it-yourself** when the task is small, architectural, or cross-cutting:
 - Single-file edit under ~50 lines
@@ -100,7 +101,7 @@ FOLLOWUP: anything Lead should know
 ### Recursion limits
 
 - Workers (backend-dev, frontend-dev, code-reviewer, docs) MUST NOT spawn other workers. If they need decomposition, they report back and you spawn siblings.
-- devops is special — it coordinates multi-machine builds and may spawn helpers. Still ultimately reports to you.
+- Release Lead (no specialized type — just spawn with the release skill prompt) coordinates multi-machine builds via mesh and may spawn helpers. Still ultimately reports to you.
 
 ### Proactive delegation rules
 
@@ -120,7 +121,7 @@ Rules:
 
 **Before merging feat branch to develop, auto-invoke `code-reviewer`** on the full branch diff. Act on Critical + High findings before merge.
 
-**Agent selection is by artifact, not by task verb.** Rust work → backend-dev. React/TS → frontend-dev. Docs → docs. Reviews → code-reviewer. Builds → devops.
+**Agent selection is by artifact, not by task verb.** Rust work → backend-dev. React/TS → frontend-dev. Docs → docs. Reviews → code-reviewer. Releases / builds → no specialized agent; fetch `skill_end_to_end_github_release_for_codeterm` from mem and spawn a generic Lead with it.
 
 ### End of Orchestrator-only section.
 
