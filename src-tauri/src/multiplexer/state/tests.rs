@@ -125,6 +125,34 @@ fn test_close_pane_collapses_split() {
 }
 
 #[test]
+fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() {
+    // Regression: hidden usage-probe panes are single-leaf tabs. When such a
+    // probe finishes and closes its tab, the workspace's active_tab_id must
+    // stay pinned on whatever the user was viewing — NOT silently flip to
+    // ws.tabs.last(). The old code unconditionally reassigned to last().
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (tab2_id, _) = state.create_tab(&ws_id).unwrap();
+    let (_tab3_id, tab3_pane_id) = state.create_tab(&ws_id).unwrap();
+
+    // User parks on tab 2 (the middle one). tab 3 is a hidden probe tab.
+    state.set_active_tab(&ws_id, &tab2_id).unwrap();
+    assert_eq!(
+        state.get_workspace(&ws_id).and_then(|w| w.active_tab_id.clone()),
+        Some(tab2_id.clone())
+    );
+
+    // Probe finishes → its single-leaf tab gets closed via close_pane.
+    state.close_pane(&tab3_pane_id).unwrap();
+
+    assert_eq!(
+        state.get_workspace(&ws_id).and_then(|w| w.active_tab_id.clone()),
+        Some(tab2_id),
+        "Closing an unrelated single-leaf tab must not move active_tab_id"
+    );
+}
+
+#[test]
 fn test_close_pane_returns_pty_id() {
     let (mut state, initial_pane_id) = MultiplexerState::new();
 
@@ -625,6 +653,153 @@ fn test_session_snapshot_preserves_agent_type_with_session_id() {
             Some(format!("session-{}", provider).as_str()),
         );
     }
+}
+
+#[test]
+fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
+    use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
+
+    // Legacy snapshot path: agent_type is None (saved before reliable tracking),
+    // but the title preserved when the snapshot was captured carries the
+    // provider name. Restore must recover agent_type so tab-bar icons show.
+    for (title, expected) in [
+        ("codex", "codex"),
+        ("opencode session", "opencode"),
+        ("claude", "claude"),
+        ("Codex — /repo", "codex"),
+    ] {
+        let snap = SessionSnapshot {
+            version: "test".to_string(),
+            timestamp: 0,
+            active_workspace_id: Some("ws-1".to_string()),
+            workspaces: vec![WorkspaceSnapshot {
+                id: "ws-1".to_string(),
+                name: "W".to_string(),
+                active_tab_id: Some("tab-1".to_string()),
+                cwd: None,
+                protected: false,
+                tabs: vec![TabSnapshot {
+                    id: "tab-1".to_string(),
+                    title: "Tab".to_string(),
+                    split_tree: SplitNodeSnapshot::Leaf {
+                        pane_id: "pane-1".to_string(),
+                        cwd: None,
+                        title: Some(title.to_string()),
+                        title_level: None,
+                        agent_type: None,
+                        agent_type_locked: false,
+                        claude_session_id: None,
+                        role: None,
+                        parent_pane_id: None,
+                        can_spawn: false,
+                        depth: 0,
+                    },
+                }],
+            }],
+        };
+
+        let restored = MultiplexerState::from_session_snapshot(&snap);
+        let pane = restored.get_pane("pane-1").unwrap();
+        assert_eq!(
+            pane.agent_type.as_deref(),
+            Some(expected),
+            "title {:?} should derive agent_type {:?}",
+            title,
+            expected,
+        );
+    }
+}
+
+#[test]
+fn test_session_snapshot_no_agent_type_for_plain_title() {
+    use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
+
+    let snap = SessionSnapshot {
+        version: "test".to_string(),
+        timestamp: 0,
+        active_workspace_id: Some("ws-1".to_string()),
+        workspaces: vec![WorkspaceSnapshot {
+            id: "ws-1".to_string(),
+            name: "W".to_string(),
+            active_tab_id: Some("tab-1".to_string()),
+            cwd: None,
+            protected: false,
+            tabs: vec![TabSnapshot {
+                id: "tab-1".to_string(),
+                title: "Tab".to_string(),
+                split_tree: SplitNodeSnapshot::Leaf {
+                    pane_id: "pane-1".to_string(),
+                    cwd: None,
+                    title: Some("~/repo — zsh".to_string()),
+                    title_level: None,
+                    agent_type: None,
+                    agent_type_locked: false,
+                    claude_session_id: None,
+                    role: None,
+                    parent_pane_id: None,
+                    can_spawn: false,
+                    depth: 0,
+                },
+            }],
+        }],
+    };
+    let restored = MultiplexerState::from_session_snapshot(&snap);
+    assert!(restored.get_pane("pane-1").unwrap().agent_type.is_none());
+}
+
+#[test]
+fn test_session_snapshot_preserves_agent_type_locked() {
+    let (mut state, pane_id) = MultiplexerState::new();
+    if let Some(pane) = state.get_pane_mut(&pane_id) {
+        pane.agent_type = Some("codex".to_string());
+        pane.agent_type_locked = true;
+    }
+    let snap = state.to_session_snapshot();
+    let restored = MultiplexerState::from_session_snapshot(&snap);
+    let pane = restored.get_pane(&pane_id).unwrap();
+    assert_eq!(pane.agent_type.as_deref(), Some("codex"));
+    assert!(pane.agent_type_locked, "locked flag must survive roundtrip");
+}
+
+#[test]
+fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
+    use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
+    // Snapshot saved BEFORE agent_type_locked existed: only agent_type populated.
+    // Restore code must treat it as locked — pre-lock snapshots only persisted
+    // agent_type via a real spawn or detection, both qualify as explicit intent.
+    let snap = SessionSnapshot {
+        version: "test".to_string(),
+        timestamp: 0,
+        active_workspace_id: Some("ws-1".to_string()),
+        workspaces: vec![WorkspaceSnapshot {
+            id: "ws-1".to_string(),
+            name: "W".to_string(),
+            active_tab_id: Some("tab-1".to_string()),
+            cwd: None,
+            protected: false,
+            tabs: vec![TabSnapshot {
+                id: "tab-1".to_string(),
+                title: "Tab".to_string(),
+                split_tree: SplitNodeSnapshot::Leaf {
+                    pane_id: "pane-1".to_string(),
+                    cwd: None,
+                    title: None,
+                    title_level: None,
+                    agent_type: Some("claude".to_string()),
+                    agent_type_locked: false,
+                    claude_session_id: None,
+                    role: None,
+                    parent_pane_id: None,
+                    can_spawn: false,
+                    depth: 0,
+                },
+            }],
+        }],
+    };
+    let restored = MultiplexerState::from_session_snapshot(&snap);
+    let pane = restored.get_pane("pane-1").unwrap();
+    assert_eq!(pane.agent_type.as_deref(), Some("claude"));
+    assert!(pane.agent_type_locked, "legacy agent_type implies lock");
 }
 
 #[test]

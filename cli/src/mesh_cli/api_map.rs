@@ -18,7 +18,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             let p = pane.as_deref().unwrap_or("general");
             ("GET".into(), format!("/api/panes/{}/output?lines={}&strip_ansi=true", p, lines), None)
         }
-        Commands::SendText { text, pane, from_file, from_stdin, no_wait } => {
+        Commands::SendText { text, pane, from_file, from_stdin, verify, no_wait } => {
             let p = pane.as_deref().unwrap_or("general");
             let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
             let body_text = if *from_stdin {
@@ -41,7 +41,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 std::process::exit(2);
             }
             let mut body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
-            if *no_wait {
+            if *verify {
+                body["verify"] = serde_json::json!(true);
+            } else if *no_wait {
                 body["verify"] = serde_json::json!(false);
             }
             ("POST".into(), format!("/api/panes/{}/send", p), Some(body.to_string()))
@@ -150,14 +152,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("PATCH".into(), "/api/config".into(), Some(serde_json::json!({"key": key, "value": v}).to_string()))
             }
         },
-        Commands::Update { action, check, apply, channel, manifest_url } => {
-            let resolved = resolve_update_action(action.as_ref(), *check, *apply, channel.clone(), manifest_url.clone());
+        Commands::Update { action, check, apply, channel, manifest_url, after_update } => {
+            let resolved = resolve_update_action(action.as_ref(), *check, *apply, channel.clone(), manifest_url.clone(), after_update.clone());
             match resolved {
                 UpdateAction::Check { force } => {
                     let path = if force { "/api/update/check?force=true" } else { "/api/update/check" };
                     ("GET".into(), path.into(), None)
                 }
-                UpdateAction::Install { auto, manifest_url, from_file: _, continue_prompt: _, continue_pane: _ } => {
+                UpdateAction::Install { auto, manifest_url, from_file: _, continue_prompt: _, continue_pane: _, after_update } => {
                     let mut qs = String::new();
                     if auto {
                         qs.push_str("?method=auto");
@@ -169,6 +171,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                             qs.push('&');
                         }
                         qs.push_str(&format!("manifest_url={}", urlencoding::encode(&m)));
+                    }
+                    if let Some(t) = after_update {
+                        if qs.is_empty() {
+                            qs.push('?');
+                        } else {
+                            qs.push('&');
+                        }
+                        qs.push_str(&format!("after_update={}", urlencoding::encode(&t)));
                     }
                     ("POST".into(), format!("/api/update/install{}", qs), None)
                 }
@@ -281,28 +291,29 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             _ => ("GET".into(), "/api/keepawake".into(), None),
         },
-        Commands::SelfUpdate { check, rollback, channel, .. } => {
-            if *check {
-                ("GET".into(), "/api/update/check".into(), None)
-            } else if *rollback {
-                ("POST".into(), "/api/update/rollback".into(), None)
-            } else {
-                let path = match channel {
-                    Some(c) if !c.is_empty() => format!(
-                        "/api/update/self_apply?channel={}",
-                        urlencoding::encode(c)
-                    ),
-                    _ => "/api/update/self_apply".to_string(),
-                };
-                ("POST".into(), path, None)
-            }
-        }
         // `system` writes platform-specific files (schtasks/launchd/systemd)
         // and only makes sense on the local host. Mesh relay falls through
         // to /identify so callers always get a valid JSON response.
         Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
         // `docs` reads embedded markdown — local-only by definition.
         Commands::Docs { .. } => ("GET".into(), "/api/identify".into(), None),
+        Commands::Usage { action } => match action {
+            crate::UsageAction::Latest { provider, account_id } => {
+                let mut path = format!("/api/usage/latest?provider={}", urlencoding::encode(provider));
+                if let Some(a) = account_id { path.push_str(&format!("&account_id={}", urlencoding::encode(a))); }
+                ("GET".into(), path, None)
+            }
+            crate::UsageAction::Projection { provider, account_id } => {
+                let mut path = format!("/api/usage/projection?provider={}", urlencoding::encode(provider));
+                if let Some(a) = account_id { path.push_str(&format!("&account_id={}", urlencoding::encode(a))); }
+                ("GET".into(), path, None)
+            }
+            crate::UsageAction::Refresh { provider, account_id } => {
+                let mut body = serde_json::json!({ "provider": provider });
+                if let Some(a) = account_id { body["account_id"] = serde_json::json!(a); }
+                ("POST".into(), "/api/usage/refresh".into(), Some(body.to_string()))
+            }
+        },
         Commands::Service { action } => match action {
             ServiceAction::List { kind, enabled } => {
                 let mut path = String::from("/api/services");
@@ -363,6 +374,7 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         }
         MemAction::Get { id } => ("GET".into(), format!("/api/mem/items/{}", enc(id)), None),
         MemAction::Delete { id } => ("DELETE".into(), format!("/api/mem/items/{}", enc(id)), None),
+        MemAction::Forget { area } => ("DELETE".into(), format!("/api/mem/forget/{}", enc(area)), None),
         MemAction::History { id } => ("GET".into(), format!("/api/mem/items/{}/history", enc(id)), None),
         MemAction::Taxonomy { workspace } => {
             let path = match workspace {
@@ -374,7 +386,8 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         MemAction::Tail { limit, .. } => {
             ("GET".into(), format!("/api/mem/tail?limit={}", limit), None)
         }
-        MemAction::Update { id, title, summary, area, tags, body, importance } => {
+        // --changed-by is local-only; mesh relay strips per-call headers
+        MemAction::Update { id, title, summary, area, tags, body, importance, changed_by: _ } => {
             let mut payload = serde_json::Map::new();
             if let Some(v) = title { payload.insert("title".into(), json!(v)); }
             if let Some(v) = summary { payload.insert("summary".into(), json!(v)); }
@@ -385,25 +398,43 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             ("PATCH".into(), format!("/api/mem/items/{}", enc(id)),
                 Some(serde_json::Value::Object(payload).to_string()))
         }
-        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, source_path, replace, skip_extract } => {
+        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, workspace, pin, source_path, replace, skip_extract } => {
             let mut payload = json!({"kind": kind, "importance": importance});
             if let Some(v) = title { payload["title"] = json!(v); }
             if let Some(v) = body { payload["body"] = json!(v); }
             if let Some(v) = summary { payload["summary"] = json!(v); }
             if let Some(v) = tags { payload["tags"] = json!(v); }
             if let Some(v) = area { payload["area"] = json!(v); }
-            if let Some(v) = scope { payload["scope"] = json!(v); }
+            let resolved_scope = match (workspace, scope) {
+                (Some(ws), _) => {
+                    let ws = ws.trim();
+                    if ws.is_empty() {
+                        eprintln!("Error: --workspace requires a non-empty id");
+                        std::process::exit(1);
+                    }
+                    Some(format!("workspace:{ws}"))
+                }
+                (None, Some(s)) => Some(s.clone()),
+                (None, None) => None,
+            };
+            if let Some(v) = resolved_scope { payload["scope"] = json!(v); }
             if let Some(v) = source_path { payload["source_path"] = json!(v); }
             if *replace { payload["replace"] = json!(true); }
             if *skip_extract { payload["skip_extract"] = json!(true); }
+            if *pin { payload["pinned"] = json!(true); }
             ("POST".into(), "/api/mem/items".into(), Some(payload.to_string()))
         }
-        MemAction::WakeUp { budget, l0_only, no_l0 } => {
+        MemAction::WakeUp { budget, l0_only, no_l0, explain, workspace } => {
             let mut path = String::from("/api/mem/wake-up");
             let mut sep = '?';
             if let Some(b) = budget { path.push(sep); sep = '&'; path.push_str(&format!("budget={}", b)); }
             if *l0_only { path.push(sep); sep = '&'; path.push_str("l0_only=true"); }
-            if *no_l0 { path.push(sep); let _ = sep; path.push_str("no_l0=true"); }
+            if *no_l0 { path.push(sep); sep = '&'; path.push_str("no_l0=true"); }
+            if *explain { path.push(sep); sep = '&'; path.push_str("explain=true"); }
+            if let Some(w) = workspace {
+                path.push(sep); let _ = sep;
+                path.push_str(&format!("workspace={}", enc(w)));
+            }
             ("GET".into(), path, None)
         }
         MemAction::ExtractPending { limit } => {
@@ -530,5 +561,55 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             format!("/api/mem/reembed?scope={}", enc(scope)),
             None,
         ),
+        MemAction::Calibration { action } => {
+            use crate::MemCalibrationAction;
+            match action {
+                MemCalibrationAction::Log { since, limit, count } => {
+                    let mut path = String::from("/api/mem/calibration/log");
+                    let mut sep = '?';
+                    if let Some(s) = since {
+                        path.push(sep);
+                        sep = '&';
+                        path.push_str(&format!("since={}", enc(s)));
+                    }
+                    if let Some(l) = limit {
+                        path.push(sep);
+                        sep = '&';
+                        path.push_str(&format!("limit={}", l));
+                    }
+                    if *count {
+                        path.push(sep);
+                        let _ = sep;
+                        path.push_str("count=true");
+                    }
+                    ("GET".into(), path, None)
+                }
+                MemCalibrationAction::Sweep { force } => {
+                    let path = if *force {
+                        "/api/mem/calibration/sweep?force=true".to_string()
+                    } else {
+                        "/api/mem/calibration/sweep".to_string()
+                    };
+                    ("POST".into(), path, None)
+                }
+            }
+        }
+        MemAction::Pin { id } => (
+            "PATCH".into(),
+            format!("/api/mem/items/{}", enc(id)),
+            Some(json!({"pinned": true}).to_string()),
+        ),
+        MemAction::Unpin { id } => (
+            "PATCH".into(),
+            format!("/api/mem/items/{}", enc(id)),
+            Some(json!({"pinned": false}).to_string()),
+        ),
+        MemAction::Pinned { limit } => {
+            let path = match limit {
+                Some(n) => format!("/api/mem/pinned?limit={}", n),
+                None => "/api/mem/pinned".into(),
+            };
+            ("GET".into(), path, None)
+        }
     }
 }

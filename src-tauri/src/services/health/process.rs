@@ -47,9 +47,12 @@ fn check_label(label: &str) -> HealthStatus {
 
 #[cfg(target_os = "windows")]
 fn check_label(label: &str) -> HealthStatus {
-    let out = Command::new("tasklist")
-        .args(["/FO", "CSV", "/NH"])
-        .output();
+    // Tauri daemon is GUI-subsystem; spawning console children without
+    // CREATE_NO_WINDOW flashes a fresh conhost every probe interval.
+    let mut cmd = Command::new("tasklist");
+    cmd.args(["/FO", "CSV", "/NH"]);
+    crate::process_util::no_window_std(&mut cmd);
+    let out = cmd.output();
     match out {
         Ok(o) => {
             let body = String::from_utf8_lossy(&o.stdout);

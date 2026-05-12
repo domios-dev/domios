@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { KeyRound, LogIn, Unlock, FlaskConical, Settings2, Clock } from "lucide-react";
 import type { AppConfig, SecretsConfig } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { setPendingCommand } from "../../lib/pendingCommands";
+import { SettingsCard, SettingsPill } from "./shared";
 
 type SecretsBackend = "local" | "bitwarden" | "mock";
 
@@ -64,7 +66,7 @@ export function SecretsTab({
     try {
       const tabInfo = await invoke<{ id: string; title: string; pane_id: string }>(
         "mux_create_tab",
-        { workspaceId: ws.id },
+        { workspaceId: ws.id, activate: true },
       );
       setPendingCommand(tabInfo.pane_id, cmd);
       await invoke("mux_set_active_workspace", { workspaceId: ws.id });
@@ -377,31 +379,16 @@ export function SecretsTab({
     switch (s.status) {
       case "unlocked":
         return (
-          <span
-            className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--ct-green)]/20 text-[var(--ct-green)]"
-            title={s.endpoint || ""}
-          >
+          <SettingsPill tone="green">
             unlocked{s.user ? ` as ${s.user}` : ""}{s.transient ? " (transient)" : ""}
-          </span>
+          </SettingsPill>
         );
       case "locked":
-        return (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--ct-yellow)]/20 text-[var(--ct-yellow)]">
-            locked
-          </span>
-        );
+        return <SettingsPill tone="amber">locked</SettingsPill>;
       case "logged_out":
-        return (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--ct-border)] text-[var(--ct-muted-fg)]">
-            logged out
-          </span>
-        );
+        return <SettingsPill tone="muted">logged out</SettingsPill>;
       case "unavailable":
-        return (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--ct-red)]/20 text-[var(--ct-red)]">
-            unavailable
-          </span>
-        );
+        return <SettingsPill tone="red">unavailable</SettingsPill>;
     }
   }, [status]);
 
@@ -409,10 +396,11 @@ export function SecretsTab({
     "w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none";
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-medium text-[var(--ct-fg)]">Secret store</div>
+    <div className="flex flex-col gap-5">
+      <SettingsCard
+        icon={<KeyRound size={16} />}
+        title="Secret store"
+        headerRight={
           <div className="flex items-center gap-2">
             {statusBadge}
             <button
@@ -423,12 +411,14 @@ export function SecretsTab({
               refresh
             </button>
           </div>
-        </div>
-        <div className="text-xs text-[var(--ct-muted-fg)]">
-          Pluggable backend for the <code className="font-mono">codeterm mem secret</code> command family.
-          Secrets do not cross the mesh — only the local machine's vault is reachable.
-        </div>
-
+        }
+        description={
+          <>
+            Pluggable backend for the <code className="font-mono">codeterm mem secret</code> command family.
+            Secrets do not cross the mesh — only the local machine's vault is reachable.
+          </>
+        }
+      >
         <div className="space-y-1">
           <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Backend</div>
           <select
@@ -542,12 +532,10 @@ export function SecretsTab({
             {error}
           </div>
         )}
-      </div>
+      </SettingsCard>
 
-      {/* Login forms — only when logged out. */}
       {status?.status?.status === "logged_out" && backend === "bitwarden" && (
-        <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
-          <div className="text-xs font-medium text-[var(--ct-fg)]">Sign in to Bitwarden</div>
+        <SettingsCard icon={<LogIn size={16} />} title="Sign in to Bitwarden">
           <div className="flex gap-1 text-[11px]">
             <button
               onClick={() => setActiveTab("password")}
@@ -634,13 +622,11 @@ export function SecretsTab({
               </button>
             </form>
           )}
-        </div>
+        </SettingsCard>
       )}
 
-      {/* Locked → just need password. */}
       {status?.status?.status === "locked" && backend === "bitwarden" && (
-        <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
-          <div className="text-xs font-medium text-[var(--ct-fg)]">Unlock vault</div>
+        <SettingsCard icon={<Unlock size={16} />} title="Unlock vault">
           <form onSubmit={submitPasswordLogin} className="space-y-2">
             <input
               type="password"
@@ -658,17 +644,20 @@ export function SecretsTab({
               Unlock
             </button>
           </form>
-        </div>
+        </SettingsCard>
       )}
 
-      {/* Mock backend has no real auth — just an "unlock" button to flip the flag. */}
       {backend === "mock" && status?.status?.status !== "unlocked" && (
-        <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2">
-          <div className="text-xs font-medium text-[var(--ct-fg)]">Mock backend (testing only)</div>
-          <div className="text-xs text-[var(--ct-muted-fg)]">
-            In-memory store, no auth. Anything you "save" lives until the daemon restarts. Use{" "}
-            <strong>Local secret storage</strong> for real secrets.
-          </div>
+        <SettingsCard
+          icon={<FlaskConical size={16} />}
+          title="Mock backend (testing only)"
+          description={
+            <>
+              In-memory store, no auth. Anything you "save" lives until the daemon restarts. Use{" "}
+              <strong>Local secret storage</strong> for real secrets.
+            </>
+          }
+        >
           <button
             onClick={() => {
               setMasterPassword("dev-only");
@@ -678,29 +667,32 @@ export function SecretsTab({
           >
             Activate mock store
           </button>
-        </div>
+        </SettingsCard>
       )}
 
-      {/* Default scope + recent items, only shown when unlocked. */}
       {status?.status?.status === "unlocked" && (
         <>
-          <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-medium text-[var(--ct-fg)]">
-                {backend === "bitwarden" ? "Default scope" : "Connected"}
-              </div>
-              {status.status.endpoint && (
+          <SettingsCard
+            icon={<Settings2 size={16} />}
+            title={backend === "bitwarden" ? "Default scope" : "Connected"}
+            headerRight={
+              status.status.endpoint ? (
                 <span className="text-[10px] font-mono text-[var(--ct-muted-fg)]">
                   {status.status.endpoint}
                 </span>
-              )}
-            </div>
-            {backend === "bitwarden" && (
-              <>
-                <div className="text-xs text-[var(--ct-muted-fg)]">
+              ) : undefined
+            }
+            description={
+              backend === "bitwarden" ? (
+                <>
                   Where new secrets land when no <code className="font-mono">--org</code> /{" "}
                   <code className="font-mono">--collection</code> is given.
-                </div>
+                </>
+              ) : undefined
+            }
+          >
+            {backend === "bitwarden" && (
+              <>
                 <div className="space-y-1">
                   <div className="text-[10px] uppercase tracking-wider text-[var(--ct-muted)]">Organization</div>
                   <select
@@ -748,18 +740,20 @@ export function SecretsTab({
                 Sign out
               </button>
             </div>
-          </div>
+          </SettingsCard>
 
-          <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-medium text-[var(--ct-fg)]">Recently saved</div>
+          <SettingsCard
+            icon={<Clock size={16} />}
+            title="Recently saved"
+            headerRight={
               <button
                 onClick={refreshItems}
                 className="text-[10px] px-2 py-0.5 rounded border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]"
               >
                 refresh
               </button>
-            </div>
+            }
+          >
             {items.length === 0 ? (
               <div className="text-[11px] text-[var(--ct-muted-fg)]">
                 No secrets saved yet. Use{" "}
@@ -779,7 +773,7 @@ export function SecretsTab({
                 ))}
               </div>
             )}
-          </div>
+          </SettingsCard>
         </>
       )}
     </div>

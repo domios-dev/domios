@@ -1,4 +1,4 @@
-mod agent;
+pub mod agent;
 mod api;
 pub mod attachments;
 mod autostart;
@@ -26,7 +26,9 @@ pub mod shell;
 pub mod session;
 mod socket;
 mod startup;
+pub mod logs;
 pub mod update;
+pub mod usage;
 
 use std::sync::Arc;
 
@@ -175,6 +177,7 @@ pub fn run() {
             multiplexer::commands::mux_rename_pane,
             multiplexer::commands::mux_update_pane_cwd,
             multiplexer::commands::mux_set_pane_agent_type,
+            multiplexer::commands::mux_unlock_pane_agent_type,
             multiplexer::commands::mux_set_chat_view,
             multiplexer::commands::detect_claude_session_id,
             multiplexer::commands::detect_pane_session_id,
@@ -207,6 +210,7 @@ pub fn run() {
             commands::check_claude_hooks,
             commands::install_claude_hooks,
             commands::uninstall_claude_hooks,
+            commands::check_pty_status_available,
             // Session commands
             session::save_session,
             session::save_session_named,
@@ -250,6 +254,12 @@ pub fn run() {
             keepawake::keepawake_start,
             keepawake::keepawake_stop,
             keepawake::keepawake_status,
+            // Usage tracker commands
+            commands::usage_latest,
+            commands::usage_history,
+            commands::usage_daily_rollup,
+            commands::usage_projection,
+            commands::usage_refresh,
         ])
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
@@ -265,6 +275,7 @@ pub fn run() {
             keepawake::resume_from_disk(&states.keepawake, &app_handle);
 
             // Bootstrap plugin system — agent-claude is a bundled native plugin
+            agent::model_catalog::ensure_readme_installed();
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
             let mut plugin_manager = plugin::PluginManager::new();
             plugin_manager.set_agent_registry(agent_registry.clone());
@@ -323,6 +334,11 @@ pub fn run() {
             }
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
 
+            // All providers have called `model_catalog::register(...)` in their
+            // constructors by now — refresh the `<provider>.example.toml`
+            // files so users always see the current build's defaults.
+            agent::model_catalog::refresh_example_files();
+
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
             let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
 
@@ -350,6 +366,9 @@ pub fn run() {
                 mem.db_path().to_path_buf(),
             ));
 
+            let input_parser = Arc::new(
+                crate::service::input_parser::InputParser::new(agent_registry.clone()),
+            );
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
@@ -391,6 +410,11 @@ pub fn run() {
                     .expect("services.db init"),
                 ),
                 tokens: Arc::new(crate::services::tokens::TokenStore::new()),
+                input_parser,
+                usage_store: crate::usage::UsageStore::open(&crate::paths::data_dir())
+                    .expect("usage.db init"),
+                usage_activity: crate::usage::PaneActivity::new(),
+                usage_poller: Arc::new(parking_lot::Mutex::new(None)),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
@@ -438,6 +462,24 @@ pub fn run() {
                         queued
                     );
                 }
+            }
+
+            {
+                let log_store = crate::logs::LogStore::open(&crate::paths::data_dir())
+                    .expect("app_logs.db init");
+                log_store.attach_app(app_handle.clone());
+                crate::logs::set_global(log_store.clone());
+                log_store.start_flush_loop();
+            }
+
+            {
+                let poller = crate::usage::UsagePoller::new(
+                    (*service_state).clone(),
+                    service_state.usage_store.clone(),
+                    service_state.usage_activity.clone(),
+                );
+                *service_state.usage_poller.lock() = Some(poller.clone());
+                poller.spawn();
             }
 
             startup::install_bundled_cli(app);

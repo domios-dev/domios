@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { ChevronUp, ChevronDown } from "lucide-react";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab, Service } from "./types";
 import { MeshCanvas, type RecentPush } from "./MeshCanvas";
@@ -6,19 +7,81 @@ import { ServicesTable } from "./ServicesTable";
 import { CronsTable } from "./CronsTable";
 import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
-import { MeshSettingsTab } from "./MeshSettingsTab";
+import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
-import { BroadcastToggle } from "./BroadcastToggle";
-import { AddPeerPopup } from "./AddPeerPopup";
 
 const TAB_BASE =
   "px-3 py-2 text-xs border-b-2 bg-transparent cursor-pointer capitalize";
 const TAB_ACTIVE = `${TAB_BASE} border-[var(--ct-accent)] text-[var(--ct-fg)]`;
 const TAB_INACTIVE = `${TAB_BASE} border-transparent text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]`;
 
-const TABS: MeshTab[] = ["map", "activity", "settings"];
+const TABS: MeshTab[] = ["map", "activity", "network"];
 
-const CANVAS_HEIGHT = 400;
+const TABLES_COLLAPSED_HEIGHT = 36;
+const TABLES_EXPANDED_HEIGHT = 240;
+
+interface DrawerProps {
+  cronsCount: number;
+  servicesCount: number;
+  open: boolean;
+  onToggle: () => void;
+  services: Service[];
+  thisMachineName: string;
+  onServiceClick: (s: Service) => void;
+}
+
+const DRAWER_BTN =
+  "flex items-center gap-1 px-2 py-1 bg-transparent border-none cursor-pointer text-[11px] uppercase tracking-wider text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]";
+
+function CollapsibleTablesDrawer({
+  cronsCount,
+  servicesCount,
+  open,
+  onToggle,
+  services,
+  thisMachineName,
+  onServiceClick,
+}: DrawerProps) {
+  const Chevron = open ? ChevronDown : ChevronUp;
+  return (
+    <div
+      className="absolute inset-x-0 bottom-0 z-10 flex flex-col bg-[var(--ct-bg)]/95 backdrop-blur-sm border-t border-[var(--ct-border)] shadow-[0_-4px_8px_rgba(0,0,0,0.15)]"
+      style={{
+        height: open ? TABLES_EXPANDED_HEIGHT + TABLES_COLLAPSED_HEIGHT : TABLES_COLLAPSED_HEIGHT,
+        maxHeight: "60%",
+      }}
+    >
+      <div
+        className="flex items-center px-3 bg-[var(--ct-titlebar-bg)]/80 border-b border-[var(--ct-border)] flex-shrink-0"
+        style={{ height: TABLES_COLLAPSED_HEIGHT }}
+      >
+        <button className={DRAWER_BTN} onClick={onToggle}>
+          <Chevron size={12} />
+          Crons ({cronsCount})
+        </button>
+        <button className={DRAWER_BTN} onClick={onToggle}>
+          <Chevron size={12} />
+          Services ({servicesCount})
+        </button>
+      </div>
+      {open && (
+        <div className="flex-1 min-h-0 overflow-auto flex">
+          <CronsTable
+            services={services}
+            thisMachineName={thisMachineName}
+            onServiceClick={onServiceClick}
+          />
+          <div className="w-px bg-[var(--ct-accent)]/30 shadow-[0_0_4px_var(--ct-accent)]" />
+          <ServicesTable
+            services={services}
+            thisMachineName={thisMachineName}
+            onServiceClick={onServiceClick}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   api: ApiConfig;
@@ -27,21 +90,14 @@ interface Props {
   onClose: () => void;
 }
 
-export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
-  const [localConfig, setLocalConfig] = useState<AppConfig>(config);
+function normalizeTab(t: unknown): MeshTab {
+  if (t === "settings") return "network";
+  if (t === "map" || t === "activity" || t === "network") return t;
+  return "map";
+}
 
-  // Sync when parent config changes
-  useEffect(() => { setLocalConfig(config); }, [config]);
-
-  const updateConfig = <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => {
-    setLocalConfig((prev) => {
-      const next = { ...prev, [section]: Object.assign({}, prev[section], patch) };
-      onConfigUpdate(next).catch(() => {});
-      return next;
-    });
-  };
-
-  const [activeTab, setActiveTab] = useState<MeshTab>("map");
+export function MeshPanel({ onClose }: Props) {
+  const [activeTab, setActiveTab] = useState<MeshTab>(() => normalizeTab("map"));
   const [refreshKey, setRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
   const [recentPushes, setRecentPushes] = useState<RecentPush[]>([]);
@@ -66,8 +122,9 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
 
   const mapRef = useRef<HTMLDivElement>(null);
   const [mapWidth, setMapWidth] = useState(800);
+  const [mapHeight, setMapHeight] = useState(600);
   const [drawerState, setDrawerState] = useState<DrawerState>(null);
-  const [showAddPeer, setShowAddPeer] = useState(false);
+  const [tablesOpen, setTablesOpen] = useState(false);
 
   useEffect(() => {
     const el = mapRef.current;
@@ -75,6 +132,7 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
     const ro = new ResizeObserver(() => {
       const r = el.getBoundingClientRect();
       if (r.width > 0) setMapWidth(r.width);
+      if (r.height > 0) setMapHeight(r.height);
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -99,7 +157,7 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
         setActiveTab("activity");
       } else if (e.key === "3") {
         e.preventDefault();
-        setActiveTab("settings");
+        setActiveTab("network");
       }
     };
     window.addEventListener("keydown", handler);
@@ -140,25 +198,11 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
             </button>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          <BroadcastToggle />
-          <button
-            onClick={() => setShowAddPeer(true)}
-            className="text-[11px] text-[var(--ct-accent)] hover:text-[var(--ct-fg)] bg-transparent border border-[var(--ct-border)] hover:border-[var(--ct-accent)] rounded px-2 py-1 cursor-pointer"
-            title="Discover and add a peer"
-          >
-            + Peer
-          </button>
-        </div>
       </div>
       <div className="relative flex-1 min-h-0 overflow-hidden">
         {activeTab === "map" && (
-          <div className="absolute inset-0 flex flex-col">
-            <div
-              ref={mapRef}
-              className="flex-shrink-0"
-              style={{ height: CANVAS_HEIGHT }}
-            >
+          <>
+            <div ref={mapRef} className="absolute inset-0">
               <MeshCanvas
                 thisMachine={data.thisMachine}
                 peers={data.peers}
@@ -166,33 +210,24 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
                 recentPushes={recentPushes}
                 onPeerClick={handlePeerClick}
                 width={mapWidth}
-                height={CANVAS_HEIGHT}
+                height={mapHeight}
+                onAddPeerClick={() => setActiveTab("network")}
               />
             </div>
-            <div className="flex-1 min-h-0 overflow-auto flex">
-              <CronsTable
-                services={data.services}
-                thisMachineName={data.thisMachine.name}
-                onServiceClick={handleServiceClick}
-              />
-              <div className="w-px bg-[var(--ct-accent)]/30 shadow-[0_0_4px_var(--ct-accent)]" />
-              <ServicesTable
-                services={data.services}
-                thisMachineName={data.thisMachine.name}
-                onServiceClick={handleServiceClick}
-              />
-            </div>
-          </div>
+            <CollapsibleTablesDrawer
+              cronsCount={data.services.filter((s) => s.kind === "cron").length}
+              servicesCount={data.services.filter((s) => s.kind === "daemon").length}
+              open={tablesOpen}
+              onToggle={() => setTablesOpen((v) => !v)}
+              services={data.services}
+              thisMachineName={data.thisMachine.name}
+              onServiceClick={handleServiceClick}
+            />
+          </>
         )}
         {activeTab === "activity" && <ActivityTab active={activeTab === "activity"} />}
-        {activeTab === "settings" && (
-          <div className="p-4 overflow-y-auto h-full">
-            <MeshSettingsTab
-              config={localConfig}
-              onUpdate={updateConfig}
-              apiEnabled={localConfig.api?.enabled ?? false}
-            />
-          </div>
+        {activeTab === "network" && (
+          <NetworkTab data={data} triggerRefresh={triggerRefresh} />
         )}
         <ServiceDrawer
           state={drawerState}
@@ -203,9 +238,6 @@ export function MeshPanel({ onClose, config, onConfigUpdate }: Props) {
           onClose={() => setDrawerState(null)}
           onActionDone={() => setRefreshKey((k) => k + 1)}
         />
-        {showAddPeer && (
-          <AddPeerPopup onClose={() => setShowAddPeer(false)} />
-        )}
       </div>
     </div>
   );

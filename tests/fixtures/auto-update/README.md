@@ -1,8 +1,7 @@
 # Auto-update test fixture
 
-Two-version CodeTerm rig for end-to-end self-update verification. Pair this
-with `tests/e2e/test_update_resume.py` and the playbook in
-[docs/contributing/auto-update-testing.md](../../../docs/contributing/auto-update-testing.md).
+Two-version CodeTerm rig for end-to-end `update --apply` verification. Pair
+this with `tests/e2e/test_update_resume.py`.
 
 ## Layout
 

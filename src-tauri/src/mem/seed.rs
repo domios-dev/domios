@@ -31,6 +31,7 @@ pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
             source: Some("bundled:v1".into()),
             importance: 5.0,
             source_path: None,
+            pinned: false,
         },
         NewMemItem {
             kind: MemKind::Rule,
@@ -43,6 +44,7 @@ pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
             source: Some("bundled:v1".into()),
             importance: 5.0,
             source_path: None,
+            pinned: false,
         },
         NewMemItem {
             kind: MemKind::Rule,
@@ -55,6 +57,7 @@ pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
             source: Some("bundled:v1".into()),
             importance: 5.0,
             source_path: None,
+            pinned: false,
         },
         NewMemItem {
             kind: MemKind::Rule,
@@ -67,6 +70,7 @@ pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
             source: Some("bundled:v1".into()),
             importance: 5.0,
             source_path: None,
+            pinned: false,
         },
         NewMemItem {
             kind: MemKind::Skill,
@@ -79,6 +83,7 @@ pub fn seed_bundled(mem: &MemManager) -> Result<usize, String> {
             source: Some("bundled:v1".into()),
             importance: 4.0,
             source_path: None,
+            pinned: false,
         },
     ];
 

@@ -7,7 +7,6 @@ use serde::Deserialize;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::update::apply::{check_and_apply, ApplyOptions};
-use crate::update::self_update::{self, SelfUpdateOptions};
 use crate::update::{Channel, UpdatePhase};
 
 #[derive(Deserialize)]
@@ -86,6 +85,9 @@ pub struct InstallUpdateQuery {
     /// at the manifest fetch layer (rejected in release builds for non-https
     /// schemes). Used by local end-to-end tests.
     pub manifest_url: Option<String>,
+    /// Message to inject into the General Agent pane after the new daemon
+    /// boots. Persisted to disk before restart so the next boot picks it up.
+    pub after_update: Option<String>,
 }
 
 pub async fn install_update(
@@ -94,6 +96,14 @@ pub async fn install_update(
     Query(q): Query<InstallUpdateQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+
+    // Persist before restart — the new daemon picks this up on boot and
+    // injects into the General Agent pane.
+    if let Some(text) = q.after_update.as_deref() {
+        if let Err(e) = crate::update::post_update::stash(text) {
+            log::warn!("[updater] failed to stash after_update message: {}", e);
+        }
+    }
 
     // For the auto path the embedded tauri-plugin-updater always re-fetches
     // the manifest before download/install — going through it directly avoids
@@ -180,53 +190,6 @@ pub async fn install_update(
             })))
         }
     }
-}
-
-#[derive(Deserialize)]
-pub struct SelfUpdateApplyQuery {
-    pub channel: Option<String>,
-}
-
-pub async fn self_update_apply(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Query(q): Query<SelfUpdateApplyQuery>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-
-    let channel: Channel = match q.channel.as_deref() {
-        Some(s) => s
-            .parse()
-            .map_err(|_| (StatusCode::BAD_REQUEST, "invalid channel"))?,
-        None => state.update_state.lock().channel,
-    };
-
-    let app = state.svc.app_handle.clone();
-    let opts = SelfUpdateOptions {
-        channel,
-        download_url_override: None,
-    };
-    let outcome = self_update::apply(&app, opts)
-        .await
-        .map_err(|e| {
-            log::error!("[updater] self-update apply failed: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "self-update failed")
-        })?;
-
-    Ok(Json(serde_json::to_value(outcome).unwrap_or_default()))
-}
-
-pub async fn self_update_rollback(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let app = state.svc.app_handle.clone();
-    let outcome = self_update::rollback(&app).await.map_err(|e| {
-        log::error!("[updater] self-update rollback failed: {}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "rollback failed")
-    })?;
-    Ok(Json(serde_json::to_value(outcome).unwrap_or_default()))
 }
 
 pub async fn get_channel(

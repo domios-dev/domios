@@ -99,6 +99,7 @@ impl MemManager {
                     source: Some(format!("extracted_from:{}", id)),
                     importance: 2.0,
                     source_path: None,
+                    pinned: false,
                 };
                 if let Ok(child_id) = store::insert(&conn, &child, &self.blobs_dir) {
                     let _ = graph::insert_relation(

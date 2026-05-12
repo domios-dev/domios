@@ -123,21 +123,33 @@ pub fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &
                 std::process::exit(1);
             }
 
-            if json_mode {
-                println!("{}", serde_json::to_string_pretty(&val).unwrap());
-            } else if let Some(data) = val.get("data") {
-                if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
-                    print!("{}", text); // raw output for output command
-                } else {
-                    println!("{}", serde_json::to_string_pretty(data).unwrap());
+            // Surface peer-side errors regardless of mode — relay returns 200
+            // with `ok:false` for application-level failures (auth gating,
+            // upstream 4xx/5xx).
+            if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
+                if val.get("ok").and_then(|v| v.as_bool()) == Some(false) {
+                    eprintln!("Error: {}", err);
+                    std::process::exit(1);
                 }
-            } else if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
-                eprintln!("Error: {}", err);
-                std::process::exit(1);
-            } else {
+            }
+
+            let data = val.get("data").cloned().unwrap_or(serde_json::Value::Null);
+
+            if json_mode {
+                // Strip the relay envelope so JSON output matches the local
+                // CLI's `--json` shape on the same command. Callers piping
+                // through `jq` shouldn't have to know whether we routed
+                // through mesh.
+                println!("{}", serde_json::to_string_pretty(&data).unwrap());
+            } else if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
+                // /panes/<id>/output returns {"text": "..."} — print raw.
+                print!("{}", text);
+            } else if data.is_null() {
                 let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
                 eprintln!("Error: unexpected response from peer (HTTP {}): {}", status.as_u16(), preview.trim());
                 std::process::exit(1);
+            } else {
+                crate::cmd::print::print_human(&data);
             }
         }
         Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }

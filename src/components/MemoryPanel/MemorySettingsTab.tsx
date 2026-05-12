@@ -1,8 +1,64 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Cog, Moon, RefreshCw } from "lucide-react";
 import type { AppConfig, CronJob } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { canonicalizeShort } from "../../lib/modelLabels";
-import { Group, Label, Toggle } from "../Settings/shared";
+import { Label, SettingsCard, SettingsPage, Toggle } from "../Settings/shared";
+
+type ScheduleFreq = "daily" | "every-2" | "every-3" | "weekly" | "off";
+
+function pad2(n: number): string {
+  return n.toString().padStart(2, "0");
+}
+
+function scheduleToCron(freq: ScheduleFreq, time: string): string | null {
+  if (freq === "off") return null;
+  const [hh, mm] = time.split(":").map((n) => parseInt(n, 10));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  const m = mm;
+  const h = hh;
+  switch (freq) {
+    case "daily": return `${m} ${h} * * *`;
+    case "every-2": return `${m} ${h} */2 * *`;
+    case "every-3": return `${m} ${h} */3 * *`;
+    case "weekly": return `${m} ${h} * * 0`;
+  }
+}
+
+function cronToSchedule(schedule: string): { freq: ScheduleFreq; time: string; custom: boolean } {
+  const s = schedule.trim();
+  let m: RegExpMatchArray | null;
+  m = s.match(/^(\d+) (\d+) \* \* \*$/);
+  if (m) return { freq: "daily", time: `${pad2(+m[2])}:${pad2(+m[1])}`, custom: false };
+  m = s.match(/^(\d+) (\d+) \*\/2 \* \*$/);
+  if (m) return { freq: "every-2", time: `${pad2(+m[2])}:${pad2(+m[1])}`, custom: false };
+  m = s.match(/^(\d+) (\d+) \*\/3 \* \*$/);
+  if (m) return { freq: "every-3", time: `${pad2(+m[2])}:${pad2(+m[1])}`, custom: false };
+  m = s.match(/^(\d+) (\d+) \* \* 0$/);
+  if (m) return { freq: "weekly", time: `${pad2(+m[2])}:${pad2(+m[1])}`, custom: false };
+  return { freq: "daily", time: "06:00", custom: true };
+}
+
+function freqLabel(freq: ScheduleFreq): string {
+  switch (freq) {
+    case "daily": return "Daily";
+    case "every-2": return "Every 2 days";
+    case "every-3": return "Every 3 days";
+    case "weekly": return "Weekly (Sunday)";
+    case "off": return "Off";
+  }
+}
+
+function relativeFromNow(target: number): string {
+  const diff = target - Date.now();
+  if (diff <= 0) return "soon";
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `in about ${mins} minute${mins === 1 ? "" : "s"}`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `about ${hrs} hour${hrs === 1 ? "" : "s"} from now`;
+  const days = Math.floor(hrs / 24);
+  return `about ${days} day${days === 1 ? "" : "s"} from now`;
+}
 
 export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
   const defaultMem = { extraction_agent: "", extraction_model: "haiku", auto_extract: true, dreaming_agent: "", dreaming_model: "haiku", worker_model: "haiku", worker_timeout_seconds: 1800, file_sync_enabled: true, file_sync_interval_minutes: 60, dedup_threshold: 0.15 };
@@ -31,7 +87,8 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
   const apiBase = api ? `http://${api.host === "0.0.0.0" ? "127.0.0.1" : api.host}:${api.port}` : "";
   const apiHeaders: HeadersInit = api?.token ? { Authorization: `Bearer ${api.token}` } : {};
 
-  const [dreamCron, setDreamCron] = useState<{ id: string; enabled: boolean } | null>(null);
+  const [dreamCron, setDreamCron] = useState<CronJob | null>(null);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
 
   useEffect(() => {
     if (!apiBase) return;
@@ -47,23 +104,57 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
       .then(r => r.ok ? r.json() : [])
       .then((jobs: CronJob[]) => {
         const job = jobs.find(j => j.name === "mem-dreaming-auto");
-        if (job) setDreamCron({ id: job.id, enabled: job.enabled });
+        if (job) setDreamCron(job);
       })
       .catch(() => {});
   }, [apiBase]);
 
-  const toggleDreamerCron = useCallback(async (enabled: boolean) => {
+  const parsed = useMemo(
+    () => dreamCron ? cronToSchedule(dreamCron.schedule) : null,
+    [dreamCron],
+  );
+  const currentFreq: ScheduleFreq = !dreamCron
+    ? "off"
+    : !dreamCron.enabled
+      ? "off"
+      : parsed?.freq ?? "daily";
+  const currentTime = parsed?.time ?? "06:00";
+
+  const applySchedule = useCallback(async (freq: ScheduleFreq, time: string) => {
     if (!apiBase || !dreamCron) return;
+    setScheduleSaving(true);
     try {
-      const r = await fetch(`${apiBase}/api/crons/${encodeURIComponent(dreamCron.id)}/${enabled ? "enable" : "disable"}`, {
-        method: "POST",
-        headers: apiHeaders,
-      });
-      if (r.ok) {
-        const updated = (await r.json()) as CronJob;
-        setDreamCron({ id: updated.id, enabled: updated.enabled });
+      if (freq === "off") {
+        const r = await fetch(`${apiBase}/api/crons/${encodeURIComponent(dreamCron.id)}/disable`, {
+          method: "POST",
+          headers: apiHeaders,
+        });
+        if (r.ok) setDreamCron(await r.json() as CronJob);
+        return;
       }
+      const cronStr = scheduleToCron(freq, time);
+      if (!cronStr) return;
+      let updated: CronJob | null = null;
+      if (cronStr !== dreamCron.schedule) {
+        const r = await fetch(`${apiBase}/api/crons/${encodeURIComponent(dreamCron.id)}`, {
+          method: "PUT",
+          headers: { ...apiHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ schedule: cronStr }),
+        });
+        if (r.ok) updated = await r.json() as CronJob;
+      } else {
+        updated = dreamCron;
+      }
+      if (updated && !updated.enabled) {
+        const r2 = await fetch(`${apiBase}/api/crons/${encodeURIComponent(dreamCron.id)}/enable`, {
+          method: "POST",
+          headers: apiHeaders,
+        });
+        if (r2.ok) updated = await r2.json() as CronJob;
+      }
+      if (updated) setDreamCron(updated);
     } catch { /* ignore */ }
+    finally { setScheduleSaving(false); }
   }, [apiBase, dreamCron]);
 
   const triggerSync = useCallback(async () => {
@@ -120,12 +211,32 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
     </Label>
   );
 
+  const dreamRunButton = (
+    <button
+      onClick={triggerDream}
+      className="text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-[var(--ct-accent)] text-white hover:opacity-80"
+    >
+      Run Now
+    </button>
+  );
+
+  const syncRunButton = (
+    <button
+      onClick={triggerSync}
+      disabled={syncing}
+      className="text-[10px] uppercase tracking-wider px-2.5 py-1 rounded bg-[var(--ct-accent)] text-white hover:opacity-80 disabled:opacity-50"
+    >
+      {syncing ? "Syncing..." : "Sync Now"}
+    </button>
+  );
+
   return (
-    <div className="space-y-5">
-      <Group title="Extraction">
-        <p className="text-[11px] text-[var(--ct-muted-fg)]">
-          On save, headless workers extract entities, relations, and decisions into the knowledge graph.
-        </p>
+    <SettingsPage title="Memory" subtitle="Extraction, dreaming, and file sync.">
+      <SettingsCard
+        icon={<Cog size={16} />}
+        title="Extraction"
+        description="On save, headless workers extract entities, relations, and decisions into the knowledge graph."
+      >
         <Toggle
           label="Auto-extract on save"
           checked={mem.auto_extract}
@@ -176,78 +287,98 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
         <p className="text-[10px] text-[var(--ct-muted)]">
           Dedup: cosine distance below this triggers dedup. Lower = stricter (default 0.15).
         </p>
-      </Group>
+      </SettingsCard>
 
-      <Group title="Periodic Tasks">
-        <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="text-xs font-medium text-[var(--ct-fg)]">Dreaming (Nightly Optimizer)</div>
-              <p className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">
-                LLM consolidates, dedups, promotes learnings, prunes stale relations. ~3 AM nightly.
-              </p>
-            </div>
-            <button onClick={triggerDream} className="shrink-0 text-[10px] px-2 py-0.5 rounded bg-[var(--ct-accent)] text-white hover:opacity-80">
-              Run Now
-            </button>
-          </div>
-          <Toggle
-            label={dreamCron ? "Nightly schedule" : "Loading cron..."}
-            checked={dreamCron?.enabled ?? false}
-            onChange={(v) => { if (dreamCron) toggleDreamerCron(v); }}
-          />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {renderProviderSelect(
-              mem.dreaming_agent,
-              (v) => onUpdate("memory", { ...mem, dreaming_agent: v }),
-            )}
-            {renderModelSelect(
-              mem.dreaming_model,
-              (v) => onUpdate("memory", { ...mem, dreaming_model: v }),
-              dreamingModels,
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="text-xs font-medium text-[var(--ct-fg)]">File Sync (Librarian)</div>
-              <p className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">
-                Re-vectorizes source-tracked files when they change on disk. No LLM.
-                {syncStatus && (
-                  <> · Tracked: {syncStatus.tracked_files}{syncStatus.stale_files > 0 ? ` (${syncStatus.stale_files} stale)` : ""}</>
-                )}
-              </p>
-            </div>
-            <button onClick={triggerSync} disabled={syncing} className="shrink-0 text-[10px] px-2 py-0.5 rounded bg-[var(--ct-accent)] text-white hover:opacity-80 disabled:opacity-50">
-              {syncing ? "Syncing..." : "Sync Now"}
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-            <Toggle
-              label="Periodic sync"
-              checked={mem.file_sync_enabled}
-              onChange={(v) => onUpdate("memory", { ...mem, file_sync_enabled: v })}
+      <SettingsCard
+        icon={<Moon size={16} />}
+        title="Dreaming (Nightly Optimizer)"
+        headerRight={dreamRunButton}
+        description="LLM consolidates, dedups, promotes learnings, prunes stale relations. Runs nightly by default."
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+          <Label text="Schedule">
+            <select
+              value={currentFreq}
+              disabled={!dreamCron || scheduleSaving}
+              onChange={(e) => applySchedule(e.target.value as ScheduleFreq, currentTime)}
+              className={inputClass}
+            >
+              {(["daily", "every-2", "every-3", "weekly", "off"] as ScheduleFreq[]).map(f => (
+                <option key={f} value={f}>{freqLabel(f)}</option>
+              ))}
+            </select>
+          </Label>
+          <Label text="At">
+            <input
+              type="time"
+              value={currentTime}
+              disabled={!dreamCron || currentFreq === "off" || scheduleSaving}
+              onChange={(e) => applySchedule(currentFreq === "off" ? "daily" : currentFreq, e.target.value)}
+              className={inputClass}
             />
-            <Label text="Interval (min)">
-              <input
-                type="number"
-                min={5}
-                max={1440}
-                value={mem.file_sync_interval_minutes}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  if (Number.isFinite(n) && n >= 5) {
-                    onUpdate("memory", { ...mem, file_sync_interval_minutes: n });
-                  }
-                }}
-                className={inputClass}
-              />
-            </Label>
-          </div>
+          </Label>
         </div>
-      </Group>
-    </div>
+        {dreamCron && (
+          <p className="text-[10px] text-[var(--ct-muted)]">
+            {currentFreq === "off"
+              ? "Disabled — no automatic runs."
+              : dreamCron.enabled && dreamCron.next_run
+                ? `Next run ${relativeFromNow(dreamCron.next_run)} · Runs ${freqLabel(currentFreq)} at ${currentTime}`
+                : `Runs ${freqLabel(currentFreq)} at ${currentTime}`}
+            {parsed?.custom && (
+              <span className="block opacity-70 mt-0.5">custom: {dreamCron.schedule}</span>
+            )}
+          </p>
+        )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {renderProviderSelect(
+            mem.dreaming_agent,
+            (v) => onUpdate("memory", { ...mem, dreaming_agent: v }),
+          )}
+          {renderModelSelect(
+            mem.dreaming_model,
+            (v) => onUpdate("memory", { ...mem, dreaming_model: v }),
+            dreamingModels,
+          )}
+        </div>
+      </SettingsCard>
+
+      <SettingsCard
+        icon={<RefreshCw size={16} />}
+        title="File Sync (Librarian)"
+        headerRight={syncRunButton}
+        description={
+          <>
+            Re-vectorizes source-tracked files when they change on disk. No LLM.
+            {syncStatus && (
+              <> · Tracked: {syncStatus.tracked_files}{syncStatus.stale_files > 0 ? ` (${syncStatus.stale_files} stale)` : ""}</>
+            )}
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+          <Toggle
+            label="Periodic sync"
+            checked={mem.file_sync_enabled}
+            onChange={(v) => onUpdate("memory", { ...mem, file_sync_enabled: v })}
+          />
+          <Label text="Interval (min)">
+            <input
+              type="number"
+              min={5}
+              max={1440}
+              value={mem.file_sync_interval_minutes}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n) && n >= 5) {
+                  onUpdate("memory", { ...mem, file_sync_interval_minutes: n });
+                }
+              }}
+              className={inputClass}
+            />
+          </Label>
+        </div>
+      </SettingsCard>
+    </SettingsPage>
   );
 }

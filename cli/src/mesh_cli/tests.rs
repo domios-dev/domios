@@ -10,7 +10,7 @@ fn update_cmd(
     channel: Option<String>,
     manifest_url: Option<String>,
 ) -> Commands {
-    Commands::Update { action, check, apply, channel, manifest_url }
+    Commands::Update { action, check, apply, channel, manifest_url, after_update: None }
 }
 
 #[test]
@@ -70,44 +70,6 @@ fn channel_set_maps_to_post_channel_with_body() {
     let body = b.expect("body");
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["channel"], "rc");
-}
-
-#[test]
-fn self_update_apply_maps_to_post_self_apply() {
-    let (m, p, b) = cli_command_to_api(&Commands::SelfUpdate {
-        check: false, apply: true, rollback: false, channel: None,
-    });
-    assert_eq!(m, "POST");
-    assert_eq!(p, "/api/update/self_apply");
-    assert!(b.is_none());
-}
-
-#[test]
-fn self_update_apply_with_channel_appends_query() {
-    let (m, p, _) = cli_command_to_api(&Commands::SelfUpdate {
-        check: false, apply: true, rollback: false,
-        channel: Some("rc".to_string()),
-    });
-    assert_eq!(m, "POST");
-    assert_eq!(p, "/api/update/self_apply?channel=rc");
-}
-
-#[test]
-fn self_update_check_maps_to_check_endpoint() {
-    let (m, p, _) = cli_command_to_api(&Commands::SelfUpdate {
-        check: true, apply: false, rollback: false, channel: None,
-    });
-    assert_eq!(m, "GET");
-    assert_eq!(p, "/api/update/check");
-}
-
-#[test]
-fn self_update_rollback_maps_to_rollback_endpoint() {
-    let (m, p, _) = cli_command_to_api(&Commands::SelfUpdate {
-        check: false, apply: false, rollback: true, channel: None,
-    });
-    assert_eq!(m, "POST");
-    assert_eq!(p, "/api/update/rollback");
 }
 
 #[test]
@@ -229,6 +191,8 @@ fn mem_save_relays_to_items_post() {
             area: Some("release".into()),
             importance: 4.0,
             scope: None,
+            workspace: None,
+            pin: false,
             source_path: None,
             replace: false,
             skip_extract: false,
@@ -275,4 +239,37 @@ fn mem_local_only_falls_back_to_stats() {
     let (m, p, _) = cli_command_to_api(&cmd);
     assert_eq!(m, "GET");
     assert_eq!(p, "/api/mem/stats");
+}
+
+#[test]
+fn send_text_defaults_to_fire_and_forget_on_mesh() {
+    let cmd = Commands::SendText {
+        text: "ping".into(),
+        pane: Some("abc123".into()),
+        from_file: None,
+        from_stdin: false,
+        verify: false,
+        no_wait: false,
+    };
+    let (m, p, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, "POST");
+    assert_eq!(p, "/api/panes/abc123/send");
+    let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
+    assert_eq!(body["text"], "ping");
+    assert!(body.get("verify").is_none(), "default path should omit verify and let server use fire-and-forget");
+}
+
+#[test]
+fn send_text_verify_true_is_forwarded_on_mesh() {
+    let cmd = Commands::SendText {
+        text: "ping".into(),
+        pane: Some("abc123".into()),
+        from_file: None,
+        from_stdin: false,
+        verify: true,
+        no_wait: false,
+    };
+    let (_, _, b) = cli_command_to_api(&cmd);
+    let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
+    assert_eq!(body["verify"], true);
 }

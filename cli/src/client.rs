@@ -148,12 +148,15 @@ pub fn discover_socket() -> Result<String, String> {
     if let Ok(path) = std::env::var("CODETERM_SOCKET_PATH") {
         if !path.is_empty() {
             let normalized = normalize_socket_path(&path);
-            if socket_is_live(&normalized) {
+            if socket_path_matches_port_pref(&normalized, prefers_dev_socket())
+                && socket_is_live(&normalized)
+            {
                 return Ok(normalized);
             }
-            // Pipe is dead — fall through to auto-discovery instead of
-            // failing immediately. Every CLI subprocess spawned from a
-            // restarted daemon would otherwise hit this.
+            // Either dead pipe (post-restart stale env), or mismatch with
+            // CODETERM_API_PORT (e.g. CLI invoked from a prod pane but user
+            // set API_PORT=7686 to target dev). Fall through to discovery
+            // so the port preference wins.
         }
     }
 
@@ -231,12 +234,33 @@ fn prefers_dev_socket() -> bool {
         .unwrap_or(false)
 }
 
+/// True when the socket name belongs to the dev daemon.
+///
+/// dev pipes are exactly `codeterm-dev[.sock]`; prod pipes are pid-suffixed
+/// (`codeterm-12345.sock`). Match the literal `-dev` segment instead of a
+/// loose `contains("dev")` so a custom instance whose pid path happens to
+/// have "dev" in it doesn't get misclassified.
+fn is_dev_socket(name: &str) -> bool {
+    name == "codeterm-dev"
+        || name.starts_with("codeterm-dev.")
+        || name.starts_with("codeterm-dev-")
+}
+
+/// True when the socket name matches the requested port preference.
+///
+/// A mismatch means the inherited SOCKET_PATH points at the wrong daemon —
+/// typical when the CLI runs inside a prod pane and the user has overridden
+/// CODETERM_API_PORT to 7686 to target the dev daemon.
+fn socket_path_matches_port_pref(name: &str, prefer_dev: bool) -> bool {
+    is_dev_socket(name) == prefer_dev
+}
+
 /// Pick the best socket name from a candidate list given the current preference.
 ///
 /// Pure function — split out so it can be unit-tested without touching the
 /// filesystem.
 fn pick_preferred_socket(candidates: &[String], prefer_dev: bool) -> Option<String> {
-    let is_dev = |name: &str| name.contains("dev");
+    let is_dev = is_dev_socket;
 
     // 1. Prefer matching the requested instance.
     if let Some(hit) = candidates.iter().find(|n| is_dev(n) == prefer_dev) {
@@ -355,5 +379,40 @@ mod tests {
         let candidates: Vec<String> = vec![];
         assert_eq!(pick_preferred_socket(&candidates, true), None);
         assert_eq!(pick_preferred_socket(&candidates, false), None);
+    }
+
+    #[test]
+    fn socket_pref_match_dev_pipe_with_dev_pref() {
+        assert!(socket_path_matches_port_pref("codeterm-dev.sock", true));
+        assert!(socket_path_matches_port_pref("codeterm-dev", true));
+    }
+
+    #[test]
+    fn socket_pref_match_prod_pid_with_prod_pref() {
+        assert!(socket_path_matches_port_pref("codeterm-12345.sock", false));
+        assert!(socket_path_matches_port_pref("codeterm-9876", false));
+    }
+
+    #[test]
+    fn socket_pref_mismatch_when_prod_pipe_but_dev_requested() {
+        // The bug from #82: inherited SOCKET_PATH points at prod daemon
+        // (pid-suffixed) but user set CODETERM_API_PORT=7686 to hit dev.
+        // Must reject the inherited pipe so discovery falls through.
+        assert!(!socket_path_matches_port_pref("codeterm-12345.sock", true));
+    }
+
+    #[test]
+    fn socket_pref_mismatch_when_dev_pipe_but_prod_requested() {
+        assert!(!socket_path_matches_port_pref("codeterm-dev.sock", false));
+    }
+
+    #[test]
+    fn is_dev_socket_does_not_match_pid_paths_with_dev_substring() {
+        // `contains("dev")` would have classified `codeterm-99987devops.sock`
+        // as dev — guard against that.
+        assert!(!is_dev_socket("codeterm-99987devops.sock"));
+        assert!(!is_dev_socket("codeterm-developerlaptop.sock"));
+        assert!(is_dev_socket("codeterm-dev"));
+        assert!(is_dev_socket("codeterm-dev.sock"));
     }
 }

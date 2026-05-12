@@ -72,6 +72,8 @@ pub enum Command {
         name: String,
         #[serde(default)]
         cwd: Option<String>,
+        #[serde(default)]
+        activate: Option<bool>,
     },
 
     /// Rename an existing workspace.
@@ -137,8 +139,8 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
         Command::PaneFocus { pane_id } => cmd_pane_focus(ctx, pane_id),
         Command::PaneRename { pane_id, title } => cmd_pane_rename(ctx, pane_id, title),
         Command::ListAgentProviders => cmd_list_agent_providers(ctx),
-        Command::WorkspaceCreate { name, cwd } => {
-            cmd_workspace_create(ctx, name.clone(), cwd.clone())
+        Command::WorkspaceCreate { name, cwd, activate } => {
+            cmd_workspace_create(ctx, name.clone(), cwd.clone(), activate.unwrap_or(false))
         }
         Command::WorkspaceRename { workspace_id, name } => {
             cmd_workspace_rename(ctx, workspace_id, name)
@@ -201,12 +203,17 @@ fn cmd_get_output(
         buf.get_text(&pty_id).unwrap_or_default()
     };
 
-    let start = offset.unwrap_or(0);
-    let raw = text.get(start..).unwrap_or("");
+    let start = next_char_boundary(&text, offset.unwrap_or(0));
+    let raw = &text[start..];
 
     // Apply max_bytes truncation (take last N bytes)
     let truncated = if let Some(max) = max_bytes {
-        if raw.len() > max { &raw[raw.len() - max..] } else { raw }
+        if raw.len() > max {
+            let tail_start = next_char_boundary(raw, raw.len() - max);
+            &raw[tail_start..]
+        } else {
+            raw
+        }
     } else {
         raw
     };
@@ -221,6 +228,14 @@ fn cmd_get_output(
         "output": output,
         "offset": text.len(),
     })))
+}
+
+fn next_char_boundary(s: &str, idx: usize) -> usize {
+    let mut i = idx.min(s.len());
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
 }
 
 fn cmd_get_text(
@@ -267,8 +282,9 @@ fn cmd_workspace_create(
     ctx: &ServiceContext,
     name: String,
     cwd: Option<String>,
+    activate: bool,
 ) -> Result<CommandResult, String> {
-    let ws = ctx.create_workspace(name, cwd);
+    let ws = ctx.create_workspace(name, cwd, activate);
     let json = serde_json::to_value(&ws)
         .map_err(|e| format!("serialize WorkspaceInfo: {}", e))?;
     Ok(CommandResult::Json(json))
@@ -454,6 +470,13 @@ mod tests {
     }
 
     #[test]
+    fn next_char_boundary_handles_multibyte_offsets() {
+        let s = "abкd";
+        assert_eq!(next_char_boundary(s, 3), 4);
+        assert_eq!(&s[next_char_boundary(s, 3)..], "d");
+    }
+
+    #[test]
     fn command_round_trips_through_json() {
         // Validates that every variant we migrated survives a JSON
         // round trip with tag-based dispatch.
@@ -473,7 +496,7 @@ mod tests {
             Command::PaneFocus { pane_id: "p".into() },
             Command::PaneRename { pane_id: "p".into(), title: "t".into() },
             Command::ListAgentProviders,
-            Command::WorkspaceCreate { name: "w".into(), cwd: None },
+            Command::WorkspaceCreate { name: "w".into(), cwd: None, activate: None },
             Command::WorkspaceRename { workspace_id: "w".into(), name: "n".into() },
             Command::WorkspaceClose { workspace_id: "w".into() },
             Command::WorkspaceList,
@@ -496,9 +519,10 @@ mod tests {
         let json = r#"{"cmd":"workspace_create","name":"proj","cwd":"/tmp"}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
         match cmd {
-            Command::WorkspaceCreate { name, cwd } => {
+            Command::WorkspaceCreate { name, cwd, activate } => {
                 assert_eq!(name, "proj");
                 assert_eq!(cwd.as_deref(), Some("/tmp"));
+                assert!(activate.is_none());
             }
             _ => panic!("wrong variant"),
         }
@@ -509,10 +533,21 @@ mod tests {
         let json = r#"{"cmd":"workspace_create","name":"proj"}"#;
         let cmd: Command = serde_json::from_str(json).unwrap();
         match cmd {
-            Command::WorkspaceCreate { name, cwd } => {
+            Command::WorkspaceCreate { name, cwd, activate } => {
                 assert_eq!(name, "proj");
                 assert!(cwd.is_none());
+                assert!(activate.is_none());
             }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn workspace_create_deserialize_with_activate() {
+        let json = r#"{"cmd":"workspace_create","name":"proj","activate":true}"#;
+        let cmd: Command = serde_json::from_str(json).unwrap();
+        match cmd {
+            Command::WorkspaceCreate { activate, .. } => assert_eq!(activate, Some(true)),
             _ => panic!("wrong variant"),
         }
     }

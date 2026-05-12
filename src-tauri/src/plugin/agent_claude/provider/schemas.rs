@@ -4,24 +4,30 @@ use crate::agent::provider::{
     self, ActionStyle, BadgeStyle, BadgeVariant, ModelInfo, PathOpenKind, SettingField,
 };
 
-pub(super) fn available_models() -> Vec<ModelInfo> {
+pub(super) fn builtin_models() -> Vec<ModelInfo> {
     vec![
         ModelInfo {
-            id: "sonnet".into(),
-            display_name: "Claude Sonnet 4.5".into(),
-            description: Some("Balanced — fast and capable. Default for most tasks.".into()),
+            id: "opus".into(),
+            display_name: "Claude Opus 4.7 (1M context)".into(),
+            description: Some("Most capable for complex work.".into()),
         },
         ModelInfo {
-            id: "opus".into(),
-            display_name: "Claude Opus 4.6".into(),
-            description: Some("Highest capability for complex reasoning.".into()),
+            id: "sonnet".into(),
+            display_name: "Claude Sonnet 4.6".into(),
+            description: Some("Best for everyday tasks. Default for most work.".into()),
         },
         ModelInfo {
             id: "haiku".into(),
             display_name: "Claude Haiku 4.5".into(),
-            description: Some("Fastest, lightweight tasks.".into()),
+            description: Some("Fastest for quick answers.".into()),
         },
     ]
+}
+
+/// Resolved list — registered defaults unless the user dropped
+/// `<data_dir>/models/claude.toml` to override.
+pub(super) fn available_models() -> Vec<ModelInfo> {
+    crate::agent::model_catalog::resolve_models("claude")
 }
 
 pub(super) fn notifications_schema() -> Vec<SettingField> {
@@ -79,7 +85,7 @@ pub(super) fn settings_schema() -> Vec<SettingField> {
         provider::model_select_section(
             "Default model for new Claude Code sessions.",
             available_models(),
-            Some("sonnet"),
+            crate::agent::model_catalog::resolve_default("claude").as_deref(),
         ),
         // ── Section: Rule (Claude-specific instruction file) ──
         SettingField::Section {
@@ -177,7 +183,7 @@ mod tests {
         assert!(ids.contains(&"sonnet"));
         assert!(ids.contains(&"opus"));
         assert!(ids.contains(&"haiku"));
-        assert_eq!(p.default_model(), Some("sonnet"));
+        assert_eq!(p.default_model().as_deref(), Some("sonnet"));
     }
 
     #[test]

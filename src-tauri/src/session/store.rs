@@ -43,6 +43,12 @@ pub enum SplitNodeSnapshot {
         title_level: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_type: Option<String>,
+        /// Whether `agent_type` was set via explicit intent (spawn or typed launch
+        /// command). Locked panes ignore output-based detection. Defaults false
+        /// so legacy snapshots deserialize cleanly; restore code upgrades them
+        /// in-place when an `agent_type` was present.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        agent_type_locked: bool,
         /// Agent session ID for --resume (backward compat: reads "claude_session_id" too).
         #[serde(skip_serializing_if = "Option::is_none", alias = "agent_session_id")]
         claude_session_id: Option<String>,

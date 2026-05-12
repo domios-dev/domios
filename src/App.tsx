@@ -103,6 +103,18 @@ function AppInner() {
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
   const { config, updateConfig, theme, loading } = useConfig();
 
+  // Resolve usage-tracking toggle once per config change so every pane's
+  // UsageBubble can read it via prop instead of subscribing to config
+  // events on its own (the per-bubble `useConfig` was multiplying invokes
+  // by pane count and made the webview unresponsive after many resumes).
+  const usageEnabledByProvider = useMemo(() => {
+    const out: Record<string, boolean> = {};
+    for (const [pid, pc] of Object.entries(config.agents ?? {})) {
+      out[pid] = pc?.usage_tracking_enabled === true;
+    }
+    return out;
+  }, [config.agents]);
+
   // Show onboarding only after config loads from backend (not from defaults)
   useEffect(() => {
     if (!loading && config && !config.onboarding_completed) {
@@ -623,6 +635,7 @@ function AppInner() {
                   theme={theme}
                   fontConfig={config.font}
                   terminalConfig={config.terminal}
+                  usageEnabledByProvider={usageEnabledByProvider}
                 />
               </div>
                 );

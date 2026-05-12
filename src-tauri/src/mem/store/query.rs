@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::path::Path;
 
 use rusqlite::{params, Connection};
 
-use super::{GraphDump, GraphDumpStats, GraphEdge, GraphNode, MemStats, TailEntry};
+use super::{GraphDump, GraphDumpStats, GraphEdge, GraphNode, MemItem, MemStats, TailEntry};
 
 pub fn stats(conn: &Connection) -> Result<MemStats, String> {
     let total_items: i64 = conn
@@ -21,7 +22,7 @@ pub fn stats(conn: &Connection) -> Result<MemStats, String> {
 
     let mut by_kind: HashMap<String, u64> = HashMap::new();
     let mut stmt = conn
-        .prepare("SELECT kind, COUNT(*) FROM mem_items GROUP BY kind")
+        .prepare("SELECT kind, COUNT(*) FROM mem_items WHERE kind != 'archived' GROUP BY kind")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
@@ -51,13 +52,14 @@ pub fn get_taxonomy(
         Some(ws) => (
             r#"SELECT COALESCE(NULLIF(area, ''), '(none)') AS area_k, kind, COUNT(*)
                FROM mem_items
-               WHERE scope = ?1
+               WHERE scope = ?1 AND kind != 'archived'
                GROUP BY area_k, kind"#,
             Some(format!("workspace:{}", ws)),
         ),
         None => (
             r#"SELECT COALESCE(NULLIF(area, ''), '(none)') AS area_k, kind, COUNT(*)
                FROM mem_items
+               WHERE kind != 'archived'
                GROUP BY area_k, kind"#,
             None,
         ),
@@ -145,6 +147,35 @@ pub fn tail_recent(
     Ok(collected)
 }
 
+pub fn list_pinned(
+    conn: &Connection,
+    blobs_dir: &Path,
+    limit: usize,
+) -> Result<Vec<MemItem>, String> {
+    let limit = limit.clamp(1, 500);
+    let mut stmt = conn
+        .prepare(
+            "SELECT id FROM mem_items
+             WHERE is_pinned_wakeup = 1 AND kind != 'archived'
+             ORDER BY importance DESC, evidence_count DESC, updated_at DESC
+             LIMIT ?1",
+        )
+        .map_err(|e| format!("prepare list_pinned: {}", e))?;
+    let ids: Vec<String> = stmt
+        .query_map(params![limit as i64], |r| r.get::<_, String>(0))
+        .map_err(|e| format!("query list_pinned: {}", e))?
+        .filter_map(Result::ok)
+        .collect();
+
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        if let Some(item) = super::get(conn, &id, blobs_dir)? {
+            out.push(item);
+        }
+    }
+    Ok(out)
+}
+
 pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
     let vector_ids: std::collections::HashSet<String> = {
         let mut set = std::collections::HashSet::new();
@@ -163,7 +194,8 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
             r#"SELECT id, kind, title, summary, area, tags_json, importance,
                       body_inline, body_blob_path,
                       access_count, recurrence_count
-               FROM mem_items"#,
+               FROM mem_items
+               WHERE kind != 'archived'"#,
         )
         .map_err(|e| format!("prepare graph nodes: {}", e))?;
     let rows = stmt

@@ -16,4 +16,5 @@ pub mod service;
 pub mod sessions;
 pub mod system;
 pub mod update;
+pub mod usage;
 pub mod worker;

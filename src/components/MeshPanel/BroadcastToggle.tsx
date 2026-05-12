@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Radio } from "lucide-react";
 
 interface MeshStatus {
   broadcast_active?: boolean;
@@ -49,20 +50,22 @@ export function BroadcastToggle() {
     }
   };
 
-  const label = active ? `📡 ${formatSeconds(remaining ?? 0)}` : "📡 Broadcast";
-
   return (
     <button
       onClick={toggle}
       disabled={busy}
       title={active ? "Stop broadcasting (currently visible to other peers)" : "Start broadcasting (be discoverable for 5 min)"}
-      className={`text-[11px] px-2 py-1 rounded border cursor-pointer transition-all disabled:opacity-50 ${
+      className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded border cursor-pointer transition-all disabled:opacity-50 ${
         active
           ? "border-[var(--ct-accent)] text-[var(--ct-accent)] bg-[var(--ct-accent)]/10"
           : "border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-accent)]"
       }`}
     >
-      {label}
+      <Radio
+        size={12}
+        className={active ? "text-[var(--ct-accent)] animate-pulse" : ""}
+      />
+      <span>{active ? formatSeconds(remaining ?? 0) : "Broadcast"}</span>
     </button>
   );
 }

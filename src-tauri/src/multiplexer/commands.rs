@@ -37,8 +37,9 @@ pub fn mux_create_workspace(
     svc: State<'_, ServiceState>,
     name: String,
     cwd: Option<String>,
+    activate: Option<bool>,
 ) -> Result<WorkspaceInfo, String> {
-    Ok(svc.create_workspace(name, cwd))
+    Ok(svc.create_workspace(name, cwd, activate.unwrap_or(false)))
 }
 
 /// Switch the active workspace.
@@ -176,6 +177,18 @@ pub fn mux_set_pane_agent_type(
     agent_type: Option<String>,
 ) -> Result<(), String> {
     svc.set_pane_agent_type(&pane_id, agent_type);
+    Ok(())
+}
+
+/// Release the `agent_type_locked` flag on a pane without clearing `agent_type`.
+/// Lets the user disconnect an agent identity manually and reopen the slot for
+/// input-parsed re-detection.
+#[tauri::command]
+pub fn mux_unlock_pane_agent_type(
+    svc: State<'_, ServiceState>,
+    pane_id: String,
+) -> Result<(), String> {
+    svc.unlock_pane_agent_type(&pane_id);
     Ok(())
 }
 

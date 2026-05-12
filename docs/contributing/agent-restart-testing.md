@@ -12,8 +12,8 @@ Cross-references:
 ## What the flow does
 
 The restart reuses the existing `/exit` + auto-resume pane lifecycle —
-the same code path that powers in-pane `/exit` and the self-update
-graceful shutdown. No bespoke restart logic. Steps:
+the same code path that powers in-pane `/exit` and the `update --apply`
+post-install relaunch. No bespoke restart logic. Steps:
 
 1. Lookup the pane and provider (Claude / Codex / ...).
 2. Send the provider's exit command (Claude: `/exit`, etc.).

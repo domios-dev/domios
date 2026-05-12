@@ -31,6 +31,11 @@ pub enum MemAction {
     Delete {
         id: String,
     },
+    /// Batch-delete every item in an area (use sparingly).
+    Forget {
+        /// Area name (e.g. auth, deploy, billing).
+        area: String,
+    },
     /// Print the full audit trail for one item (create/update/promote/delete).
     History {
         /// Mem item id
@@ -71,6 +76,24 @@ pub enum MemAction {
         /// New importance 1-5
         #[arg(long)]
         importance: Option<f64>,
+        /// Actor label for audit trail (defaults to "user"). Used by automated workflows.
+        #[arg(long)]
+        changed_by: Option<String>,
+    },
+    /// Pin a mem item so it always loads in L1 wake-up.
+    Pin {
+        /// Mem item id (e.g. fact_my_thing)
+        id: String,
+    },
+    /// Unpin a previously pinned item.
+    Unpin {
+        id: String,
+    },
+    /// List all currently pinned items, ordered by importance/evidence/recency.
+    Pinned {
+        /// Max results (default 100, max 500)
+        #[arg(long)]
+        limit: Option<usize>,
     },
     /// Save a new mem item
     Save {
@@ -94,9 +117,15 @@ pub enum MemAction {
         /// Importance 1-5 (default 3.0). Higher = more likely in L1 wake-up.
         #[arg(long, default_value = "3.0")]
         importance: f64,
-        /// Scope: global (default) or workspace
+        /// Scope: global (default) or workspace:<id>
         #[arg(long)]
         scope: Option<String>,
+        /// Convenience: scope this item to workspace ID. Maps to scope="workspace:<ws>".
+        #[arg(long)]
+        workspace: Option<String>,
+        /// Pin the item for L1 wake-up (always loaded).
+        #[arg(long)]
+        pin: bool,
         /// Path to source file on disk. Enables Librarian auto-sync.
         #[arg(long)]
         source_path: Option<String>,
@@ -119,6 +148,12 @@ pub enum MemAction {
         /// Skip identity layer (return L1 only)
         #[arg(long)]
         no_l0: bool,
+        /// Append a per-item L1 score breakdown for debugging selection.
+        #[arg(long)]
+        explain: bool,
+        /// Current workspace id — boosts pinned-in-workspace items in L1.
+        #[arg(long)]
+        workspace: Option<String>,
     },
     /// Re-run extraction workers for items that haven't been extracted yet.
     /// Useful after LLM API failures, quota resets, or bulk imports with
@@ -228,6 +263,33 @@ pub enum MemAction {
     Dream {
         #[command(subcommand)]
         action: MemDreamAction,
+    },
+    /// Memory calibration: review or trigger the dreamer's importance/archive sweep.
+    Calibration {
+        #[command(subcommand)]
+        action: MemCalibrationAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemCalibrationAction {
+    /// Show recent calibration changes (audit log).
+    Log {
+        /// ISO8601 lower-bound for changed_at (default: epoch)
+        #[arg(long)]
+        since: Option<String>,
+        /// Max rows (default 50, max 500)
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Return just the count (no rows)
+        #[arg(long)]
+        count: bool,
+    },
+    /// Manually trigger a calibration sweep (Sunday only unless --force).
+    Sweep {
+        /// Bypass the day-of-week gate. Manual / testing.
+        #[arg(long)]
+        force: bool,
     },
 }
 

@@ -158,18 +158,14 @@ pub struct SpawnAgentParams {
     pub force_tab: Option<bool>,
     /// Report target pane ID — for cron agents to report without joining hierarchy.
     pub report_target_pane_id: Option<String>,
-    /// Skip permissions flag — default true for backward compat.
-    /// Set false to spawn agent that asks for permission (for testing approval flow).
+    /// Default true; set false to spawn an agent that asks for permission.
     pub skip_permissions: Option<bool>,
-    /// Pane id of the caller that ran `agent spawn` (CODETERM_PANE_ID).
-    /// Recorded on the spawned pane independent of `parent_pane_id` so reports
-    /// from top-level orchestrators flow back to the agent that asked for them.
+    /// CODETERM_PANE_ID of the caller — recorded for report routing fallback.
     pub spawned_by_pane_id: Option<String>,
-    /// Model selector — provider decides flag syntax via
-    /// `AgentProvider::model_launch_args` (e.g. claude → `--model X`,
-    /// codex/opencode → `-m X`). Caller passes the model string opaque.
+    /// Provider decides flag syntax via `AgentProvider::model_launch_args`.
     pub model: Option<String>,
     pub resume_session_id: Option<String>,
+    pub activate: Option<bool>,
 }
 
 impl SpawnAgentParams {
@@ -199,6 +195,7 @@ impl SpawnAgentParams {
             spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
             model: json_str(params, "model"),
             resume_session_id: json_str(params, "resume_session_id"),
+            activate: params.get("activate").and_then(|v| v.as_bool()),
         })
     }
 }
@@ -246,18 +243,12 @@ impl ServiceContext {
         { norm(a) == norm(b) }
     }
 
-    /// One-call agent spawn: create tab → wait PTY → set role → launch agent.
-    ///
-    /// Thin wrapper over [`ServiceContext::spawn_pane`] for callers that
-    /// still use the legacy [`SpawnAgentParams`] struct (CLI, REST, batch,
-    /// cron, socket, workspace init). New call sites should build a
-    /// `SpawnPaneSpec` and call `spawn_pane` directly.
+    /// Legacy wrapper for callers still on `SpawnAgentParams` (CLI/REST/batch/cron/socket).
     pub fn spawn_agent_sync(&self, params: SpawnAgentParams) -> Result<SpawnResult, String> {
         self.spawn_agent_sync_with_ready(params, None)
     }
 
-    /// Like [`spawn_agent_sync`], but threads an optional readiness oneshot to
-    /// the background launcher so callers can block on echo+submit verification.
+    /// Variant of `spawn_agent_sync` with a readiness oneshot for echo+submit verification.
     pub fn spawn_agent_sync_with_ready(
         &self,
         params: SpawnAgentParams,
@@ -335,8 +326,7 @@ impl ServiceContext {
                     pane.cwd = Some(dir.clone());
                 }
             }
-            // Only switch tab for user-initiated spawns, not agent hierarchy
-            if params.role.is_none() {
+            if params.activate.unwrap_or(false) {
                 let _ = mux.set_active_tab(&ws_id, &result.0);
             }
             // Set report target for cron agents
@@ -387,7 +377,7 @@ impl ServiceContext {
         //     the pane fails to resume after restart. Setting it here covers
         //     the CLI/socket spawn path; the frontend menu spawn fires the
         //     same `mux_set_pane_agent_type` from `spawnAgentTab`.
-        self.set_pane_agent_type(&pane_id, Some(agent_cmd.to_string()));
+        self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.to_string());
 
         // 4c. Pin agent_session_id for resume up-front: we know the id from
         //     the user's request, so don't wait for detect_session_id polling.
@@ -541,6 +531,12 @@ pub(crate) fn launch_agent_in_background(
         let is_pty_input = matches!(delivery, TaskDelivery::PtyInput);
         if is_pty_input {
             if let Some(ref task_text) = task {
+                let warmup = registry
+                    .with_provider(&agent_cmd, |p| p.task_input_warmup())
+                    .unwrap_or_default();
+                if !warmup.is_zero() {
+                    std::thread::sleep(warmup);
+                }
                 let provider_submit_strategy = registry
                     .with_provider(&agent_cmd, |p| p.verify_submit_strategy())
                     .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
@@ -640,6 +636,7 @@ mod tests {
             spawned_by_pane_id: None,
             model: None,
             resume_session_id: None,
+            activate: None,
         }
     }
 

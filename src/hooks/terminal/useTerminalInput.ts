@@ -52,9 +52,9 @@ export function useTerminalInput({
     if (!connectedPtyRef.current) return;
 
     // Smart Ctrl+C / Cmd+C: copy if text selected, interrupt if not
-    // Ctrl+V: unified clipboard read (text/image/file). xterm.onData paste
-    // is unreliable inside Tauri webview — we handle the whole paste ourselves
-    // and return false from the keydown handler so xterm doesn't double-write.
+    // Leave Ctrl/Cmd+V to the native browser/xterm paste path. The custom
+    // clipboard pipeline is still exposed via explicit Paste actions
+    // (Ctrl+Shift+V/context menu) for file/image-aware paste into the PTY.
     // Read connectedPtyRef.current dynamically in handlers — PTY ID can change
     // when backend replaces the auto-spawned shell (e.g. General Agent lifecycle).
     term.attachCustomKeyEventHandler((e) => {
@@ -73,14 +73,6 @@ export function useTerminalInput({
         return true;
       }
 
-      if (e.code === "KeyV") {
-        const currentPty = connectedPtyRef.current;
-        if (currentPty) {
-          pasteClipboardToPty(currentPty).catch(() => {});
-        }
-        return false;
-      }
-
       return true;
     });
 
@@ -88,8 +80,6 @@ export function useTerminalInput({
     // Read connectedPtyRef.current dynamically — the PTY ID can change when
     // backend links a different PTY (e.g. General Agent replacing auto-spawned shell).
     const onDataDisposable = term.onData((data) => {
-      if (data === "\x16") return; // Ctrl+V handled above
-
       if (data === "\t") {
         if (onTabKey()) return;
       }
@@ -105,20 +95,9 @@ export function useTerminalInput({
     const focusXterm = () => term.focus();
     el?.addEventListener("mousedown", focusXterm);
 
-    // WebView2 on Windows fires a synthesized DOM `paste` event in addition
-    // to the keydown we already intercept above — xterm.js's own paste
-    // listener then writes the clipboard a second time, producing duplicate
-    // pastes. Capture-phase preventDefault stops xterm before it sees it.
-    const swallowPaste = (e: ClipboardEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    el?.addEventListener("paste", swallowPaste, true);
-
     return () => {
       onDataDisposable.dispose();
       el?.removeEventListener("mousedown", focusXterm);
-      el?.removeEventListener("paste", swallowPaste, true);
     };
   }, [termReady, termRef, connectedPtyRef, containerRef, onTabKey, onNonTabKey, onInputData]);
 

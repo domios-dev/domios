@@ -86,9 +86,13 @@ fn insert_with_options(
             (Some(item.body.clone()), None)
         };
 
+    // source_path stores the raw "file:..." form (it's also a tag for
+    // librarian's source-missing handling). Strip the scheme before any
+    // std::fs call — both here and in mem/file_sync.rs::sync_one.
     let (source_size, source_mtime) = item
         .source_path
         .as_ref()
+        .map(|p| p.strip_prefix("file:").unwrap_or(p))
         .and_then(|p| std::fs::metadata(p).ok())
         .map(|m| {
             let size = m.len() as i64;
@@ -100,13 +104,14 @@ fn insert_with_options(
         })
         .unwrap_or((None, None));
 
+    let pinned_int: i64 = if item.pinned { 1 } else { 0 };
     conn.execute(
         r#"INSERT INTO mem_items
            (id, uid, kind, scope, title, summary, area, tags_json,
             body_inline, body_blob_path, source, importance,
             created_at, updated_at, accessed_at,
-            source_path, source_size, source_mtime)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17)"#,
+            source_path, source_size, source_mtime, is_pinned_wakeup)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17, ?18)"#,
         params![
             &id,
             &uid,
@@ -125,6 +130,7 @@ fn insert_with_options(
             &item.source_path,
             source_size,
             &source_mtime,
+            pinned_int,
         ],
     )
     .map_err(|e| format!("insert mem_item: {}", e))?;
@@ -174,11 +180,12 @@ pub fn get(
     id: &str,
     blobs_dir: &Path,
 ) -> Result<Option<MemItem>, String> {
-    let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String, Option<String>, Option<String>, Option<String>, f64, String, String, Option<String>, i64, i64)> = conn
+    let row: Option<(String, String, String, String, String, Option<String>, Option<String>, String, Option<String>, Option<String>, Option<String>, f64, String, String, Option<String>, i64, i64, Option<i64>, Option<String>)> = conn
         .query_row(
             r#"SELECT id, uid, kind, scope, title, summary, area, tags_json,
                       body_inline, body_blob_path, source, importance,
-                      created_at, updated_at, accessed_at, access_count, recurrence_count
+                      created_at, updated_at, accessed_at, access_count, recurrence_count,
+                      source_size, source_mtime
                FROM mem_items WHERE id = ?1"#,
             params![id],
             |r| {
@@ -186,7 +193,7 @@ pub fn get(
                     r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
                     r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
                     r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?, r.get(14)?,
-                    r.get(15)?, r.get(16)?,
+                    r.get(15)?, r.get(16)?, r.get(17)?, r.get(18)?,
                 ))
             },
         )
@@ -195,7 +202,8 @@ pub fn get(
 
     let Some((id, uid, kind, scope, title, summary, area, tags_json,
               body_inline, body_blob_path, source, importance,
-              created_at, updated_at, accessed_at, access_count, recurrence_count)) = row else {
+              created_at, mut updated_at, accessed_at, access_count, recurrence_count,
+              stored_source_size, stored_source_mtime)) = row else {
         return Ok(None);
     };
 
@@ -209,6 +217,38 @@ pub fn get(
 
     if let Some(ref src) = source {
         if let Some(path) = src.strip_prefix("file:") {
+            // Debounce the disk-touching freshness check: only run it if we
+            // haven't read this row in the last 10 seconds. Hot search loops
+            // (mem search returning N skill rows) would otherwise stat + UPDATE
+            // every row on every call. Librarian still does the canonical
+            // hourly sweep — this in-line check is opportunistic.
+            let recently_accessed = accessed_at.as_ref()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|t| {
+                    (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds() < 10
+                })
+                .unwrap_or(false);
+            if !recently_accessed {
+                if let Ok(meta) = std::fs::metadata(path) {
+                    let current_size = meta.len() as i64;
+                    let current_mtime = meta
+                        .modified()
+                        .ok()
+                        .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
+                    let size_diff = stored_source_size != Some(current_size);
+                    let mtime_diff = stored_source_mtime != current_mtime;
+                    if size_diff || mtime_diff {
+                        let bumped = chrono::Utc::now().to_rfc3339();
+                        if conn.execute(
+                            "UPDATE mem_items SET source_size = ?1, source_mtime = ?2, updated_at = ?3 \
+                             WHERE id = ?4",
+                            params![current_size, &current_mtime, &bumped, &id],
+                        ).is_ok() {
+                            updated_at = bumped;
+                        }
+                    }
+                }
+            }
             if let Ok(disk_content) = std::fs::read_to_string(path) {
                 let trimmed = disk_content.trim();
                 if !trimmed.is_empty() {
@@ -340,6 +380,13 @@ pub fn update(
     let prev_body = prev.body.clone();
     let prev_importance = prev.importance;
     let prev_kind = prev.kind.clone();
+    let prev_pinned: bool = conn
+        .query_row(
+            "SELECT COALESCE(is_pinned_wakeup, 0) FROM mem_items WHERE id = ?1",
+            params![id],
+            |r| r.get::<_, i64>(0).map(|v| v != 0),
+        )
+        .map_err(|e| format!("read is_pinned_wakeup: {}", e))?;
 
     let new_title = patch.title.clone().unwrap_or(prev.title);
     let new_summary = patch.summary.clone().or(prev.summary);
@@ -361,15 +408,18 @@ pub fn update(
         };
 
     let recur_bump = patch.bump_recurrence.unwrap_or(0);
+    let pinned_param: Option<i64> = patch.pinned.map(|b| if b { 1 } else { 0 });
     conn.execute(
         r#"UPDATE mem_items
            SET title = ?1, summary = ?2, area = ?3, tags_json = ?4,
                body_inline = ?5, body_blob_path = ?6, importance = ?7,
-               updated_at = ?8, recurrence_count = recurrence_count + ?10
+               updated_at = ?8, recurrence_count = recurrence_count + ?10,
+               is_pinned_wakeup = COALESCE(?11, is_pinned_wakeup)
            WHERE id = ?9"#,
         params![
             &new_title, &new_summary, &new_area, &tags_json,
             &body_inline, &body_blob_path, new_importance, &now, &id, recur_bump,
+            pinned_param,
         ],
     ).map_err(|e| format!("update mem_item: {}", e))?;
 
@@ -403,6 +453,9 @@ pub fn update(
     if (new_importance - prev_importance).abs() > f64::EPSILON {
         old.importance = Some(prev_importance);
         new.importance = Some(new_importance);
+        dirty = true;
+    }
+    if patch.pinned.is_some() && Some(prev_pinned) != patch.pinned {
         dirty = true;
     }
     // Kind is not patchable via MemUpdate, but record it so downstream

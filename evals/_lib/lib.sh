@@ -97,9 +97,12 @@ dc() {
     echo "             (would have leaked to prod via socket-discovery fallback)" >&2
     return 7
   fi
+  # Strip parent CODETERM_PANE_ID — would force a [from <prod-pane>] prefix on every send-text.
   CODETERM_API_PORT=7686 \
   CODETERM_API_TOKEN="$CODETERM_API_TOKEN" \
   CODETERM_SOCKET_PATH="$CODETERM_SOCKET_PATH" \
+  CODETERM_PANE_ID= \
+  CODETERM_PARENT_PANE_ID= \
   codeterm "$@"
 }
 
@@ -320,6 +323,22 @@ new_shell_pane() {
 new_claude_pane() {
   local ws="$1" cwd="$2" title="${3:-claude}" task="${4:-}"
   local args=( agent spawn claude --workspace "$ws" --cwd "$cwd" --title "$title" )
+  [ -n "$task" ] && args+=( --task "$task" )
+  dc "${args[@]}" 2>&1 | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1
+}
+
+# Spawn a codex pane. Echoes pane_id. Optional 4th arg = --task prompt.
+new_codex_pane() {
+  local ws="$1" cwd="$2" title="${3:-codex}" task="${4:-}"
+  local args=( agent spawn codex --workspace "$ws" --cwd "$cwd" --title "$title" )
+  [ -n "$task" ] && args+=( --task "$task" )
+  dc "${args[@]}" 2>&1 | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1
+}
+
+# Spawn an opencode pane. Echoes pane_id. Optional 4th arg = --task prompt.
+new_opencode_pane() {
+  local ws="$1" cwd="$2" title="${3:-opencode}" task="${4:-}"
+  local args=( agent spawn opencode --workspace "$ws" --cwd "$cwd" --title "$title" )
   [ -n "$task" ] && args+=( --task "$task" )
   dc "${args[@]}" 2>&1 | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1
 }
