@@ -153,7 +153,18 @@ pub async fn spawn_pty(
             && agent_type.is_some();
         let agent_type_for_fresh = agent_type.clone();
 
-        if let Some(session_id) = session_id.filter(|_| !is_protected) {
+        // Auto-resume in spawn_pty must ONLY fire when the pane was restored
+        // from a daemon snapshot (kill → restart → frontend mounts panes).
+        // For a fresh `sessions resume` / `agent spawn --resume`, the backend
+        // already drives the launch via `launch_agent_in_background`. Without
+        // this gate, both paths race: each polls shell-prompt + sends the
+        // resume command, the second send lands in the TUI's input box →
+        // garbled launch + stuck "Resume session" picker (see the prod bug
+        // screenshot where the launch command appeared on screen twice).
+        if let Some(session_id) = session_id
+            .filter(|_| !is_protected)
+            .filter(|_| restored_from_snapshot)
+        {
             let provider_id = agent_type.unwrap_or_else(crate::config::default_agent_provider);
 
             // Validate the session file still exists. If it's gone (cleared cache,
