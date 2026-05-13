@@ -454,7 +454,12 @@ fn build_skill_id(title: &str) -> String {
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
         .collect();
     let trimmed = slug.trim_matches('_');
-    let short = if trimmed.len() > 40 { &trimmed[..40] } else { trimmed };
+    let short = if trimmed.len() > 40 {
+        // Slice at a char boundary to avoid panic on multi-byte UTF-8
+        trimmed.char_indices().nth(40).map_or(trimmed, |(i, _)| &trimmed[..i])
+    } else {
+        trimmed
+    };
     format!("skill_{}", short)
 }
 
@@ -740,5 +745,27 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(format!("{}-wal", path.display()));
         let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+    }
+
+    #[test]
+    fn build_skill_id_ascii() {
+        let id = build_skill_id("My Skill");
+        assert_eq!(id, "skill_my_skill");
+    }
+
+    #[test]
+    fn build_skill_id_non_ascii_does_not_panic() {
+        // Chinese characters are 3 bytes each → 14 chars × 3 = 42 bytes
+        // slicing at byte 40 would panic without the fix
+        let long_chinese = "技能技能技能技能技能技能技能技能技能技能技能技能技能技能"; // 14 × 3 = 42 bytes as slug
+        let result = std::panic::catch_unwind(|| build_skill_id(long_chinese));
+        assert!(result.is_ok(), "should not panic on non-ASCII skill names");
+    }
+
+    #[test]
+    fn build_skill_id_emoji_does_not_panic() {
+        let emoji_title = "🚀🎯🔥🌟💡🎨🛡️🔑🌈✨🎭🎪🎡🎢🎠🎟🎃🎄🎆🎇"; // many emoji
+        let result = std::panic::catch_unwind(|| build_skill_id(emoji_title));
+        assert!(result.is_ok(), "should not panic on emoji skill names");
     }
 }
