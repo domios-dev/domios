@@ -45,7 +45,13 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
     }
 
     let (base, token) = read_api_config();
-    let http = build_http(&token);
+    let http = match build_http(&token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     let source_state = match get_bridge_state_local(&http, &base, &args.service) {
         Ok(s) => s,
