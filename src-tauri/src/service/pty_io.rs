@@ -252,11 +252,12 @@ impl ServiceContext {
 
     /// Shell-level agent launch with submit verification. Uses [`build_spawn_dispatch`]
     /// (temp script on Unix, bracketed paste on Windows) so bash 3.2 hosts never see
-    /// raw ESC markers. Echo verification is skipped — the screen shows `bash /tmp/…`,
-    /// not the original cmd. For `TuiInputDrained` an empty needle passes phase-1
-    /// immediately and falls through to the 800 ms stability wait, which is the same
-    /// signal we need before task delivery (screen is changing while Claude renders,
-    /// then goes quiet once the TUI is up).
+    /// raw ESC markers. Echo verification is skipped — the screen shows `bash /tmp/...`,
+    /// not the original cmd.
+    ///
+    /// For `TuiInputDrained`: arms an event-driven `agent_signal` condvar that fires on
+    /// the first `screen_has_agent_tui` hit in `ScreenState::process`. No timing race,
+    /// no sleep: we block until actual TUI glyphs appear on screen.
     pub fn send_shell_spawn_verified(
         &self,
         pty_id: &str,
@@ -267,15 +268,17 @@ impl ServiceContext {
         use crate::agent::provider::VerifySubmitStrategy;
         use crate::service::inject_verify::{
             HelperErr, InjectionError, InjectionResult, snapshot_screen_hash,
-            wait_for_submit_shell, wait_for_submit_tui_drained,
+            wait_for_submit_shell,
         };
 
         let started = std::time::Instant::now();
 
-        // Feed input parser with the logical cmd so agent-type detection still fires.
         self.feed_input_parser(pty_id, cmd, true);
 
         let hash_before = snapshot_screen_hash(&self.screen_state, pty_id).unwrap_or_default();
+
+        // Arm the agent signal BEFORE the write so we cannot miss an instant startup.
+        let agent_signal = self.screen_state.lock().arm_agent_signal(pty_id);
 
         let bytes = build_spawn_dispatch(cmd)
             .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
@@ -286,38 +289,30 @@ impl ServiceContext {
         let bytes_written = bytes.len();
 
         let submit_observed = if opts.verify_submit {
-            let tail_rows: usize = 8;
-            let res = match submit_strategy {
+            let res: Result<(), HelperErr> = match submit_strategy {
                 VerifySubmitStrategy::ShellPrompt { timeout } => {
-                    wait_for_submit_shell(&self.screen_state, pty_id, hash_before, timeout, tail_rows)
+                    wait_for_submit_shell(&self.screen_state, pty_id, hash_before, timeout, 8)
+                        .map(|_| ())
                 }
-                // Empty needle: phase-1 (drain check) exits immediately since cmd text
-                // never appears on screen via the script path; phase-2 (stability wait)
-                // still catches Claude's TUI rendering cycle before we deliver the task.
-                VerifySubmitStrategy::TuiInputDrained { timeout, idle_after_drain } => {
-                    wait_for_submit_tui_drained(
-                        &self.screen_state,
-                        pty_id,
-                        "",
-                        timeout,
-                        idle_after_drain,
-                        tail_rows,
-                    )
+                VerifySubmitStrategy::TuiInputDrained { timeout, .. } => {
+                    if agent_signal.wait(timeout) {
+                        Ok(())
+                    } else {
+                        log::debug!(
+                            "agent signal timed out for pty {} (shell-dispatch path); proceeding",
+                            pty_id
+                        );
+                        Err(HelperErr::Timeout(String::new()))
+                    }
                 }
-                VerifySubmitStrategy::None => Ok(String::new()),
+                VerifySubmitStrategy::None => Ok(()),
             };
             match res {
-                Ok(_) => true,
+                Ok(()) => true,
                 Err(HelperErr::PtyUnknown(id)) => {
                     return Err(InjectionError::PtyClosed { pty_id: id });
                 }
-                Err(HelperErr::Timeout(_)) => {
-                    log::debug!(
-                        "submit verify timed out for pty {} (shell-dispatch path); proceeding",
-                        pty_id
-                    );
-                    false
-                }
+                Err(HelperErr::Timeout(_)) => false,
             }
         } else {
             false
