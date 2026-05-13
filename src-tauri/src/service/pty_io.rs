@@ -250,6 +250,82 @@ impl ServiceContext {
         })
     }
 
+    /// Shell-level agent launch with submit verification. Uses [`build_spawn_dispatch`]
+    /// (temp script on Unix, bracketed paste on Windows) so bash 3.2 hosts never see
+    /// raw ESC markers. Echo verification is skipped — the screen shows `bash /tmp/...`,
+    /// not the original cmd.
+    ///
+    /// For `TuiInputDrained`: arms an event-driven `agent_signal` condvar that fires on
+    /// the first `screen_has_agent_tui` hit in `ScreenState::process`. No timing race,
+    /// no sleep: we block until actual TUI glyphs appear on screen.
+    pub fn send_shell_spawn_verified(
+        &self,
+        pty_id: &str,
+        cmd: &str,
+        submit_strategy: crate::agent::provider::VerifySubmitStrategy,
+        opts: crate::service::inject_verify::VerifyOpts,
+    ) -> Result<crate::service::inject_verify::InjectionResult, crate::service::inject_verify::InjectionError> {
+        use crate::agent::provider::VerifySubmitStrategy;
+        use crate::service::inject_verify::{
+            HelperErr, InjectionError, InjectionResult, snapshot_screen_hash,
+            wait_for_submit_shell,
+        };
+
+        let started = std::time::Instant::now();
+
+        self.feed_input_parser(pty_id, cmd, true);
+
+        let hash_before = snapshot_screen_hash(&self.screen_state, pty_id).unwrap_or_default();
+
+        // Arm the agent signal BEFORE the write so we cannot miss an instant startup.
+        let agent_signal = self.screen_state.lock().arm_agent_signal(pty_id);
+
+        let bytes = build_spawn_dispatch(cmd)
+            .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
+        self.pty
+            .lock()
+            .write(pty_id, &bytes)
+            .map_err(|_| InjectionError::PtyClosed { pty_id: pty_id.to_string() })?;
+        let bytes_written = bytes.len();
+
+        let submit_observed = if opts.verify_submit {
+            let res: Result<(), HelperErr> = match submit_strategy {
+                VerifySubmitStrategy::ShellPrompt { timeout } => {
+                    wait_for_submit_shell(&self.screen_state, pty_id, hash_before, timeout, 8)
+                        .map(|_| ())
+                }
+                VerifySubmitStrategy::TuiInputDrained { timeout, .. } => {
+                    if agent_signal.wait(timeout) {
+                        Ok(())
+                    } else {
+                        log::debug!(
+                            "agent signal timed out for pty {} (shell-dispatch path); proceeding",
+                            pty_id
+                        );
+                        Err(HelperErr::Timeout(String::new()))
+                    }
+                }
+                VerifySubmitStrategy::None => Ok(()),
+            };
+            match res {
+                Ok(()) => true,
+                Err(HelperErr::PtyUnknown(id)) => {
+                    return Err(InjectionError::PtyClosed { pty_id: id });
+                }
+                Err(HelperErr::Timeout(_)) => false,
+            }
+        } else {
+            false
+        };
+
+        Ok(InjectionResult {
+            bytes_written,
+            echo_observed: false,
+            submit_observed,
+            elapsed: started.elapsed(),
+        })
+    }
+
     /// Write raw bytes to PTY without bracket paste wrapping.
     /// Use for keystrokes that need TUI interpretation (vim j/k, arrow keys, etc).
     pub fn write_raw(&self, pane_id: &str, data: &[u8]) -> Result<(), String> {
