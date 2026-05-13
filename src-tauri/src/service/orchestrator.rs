@@ -515,7 +515,9 @@ pub(crate) fn launch_agent_in_background(
             .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
                 timeout: std::time::Duration::from_secs(15),
             });
-        if let Err(e) = svc.send_text_verified(&pty_id, &launch_cmd, true, launch_strategy, launch_opts) {
+        // Use shell dispatch (bash script on Unix, bracketed paste on Windows) so
+        // bash 3.2 hosts (macOS Intel system shell) never see raw ESC markers.
+        if let Err(e) = svc.send_shell_spawn_verified(&pty_id, &launch_cmd, launch_strategy, launch_opts) {
             log::error!(
                 "launch_agent: launch_cmd failed for pane {} (pty {}): {}",
                 pane_id, pty_id, e
