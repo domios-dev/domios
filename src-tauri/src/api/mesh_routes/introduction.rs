@@ -31,6 +31,14 @@ pub async fn mesh_introduce(
         }
     };
 
+    // Replay prevention — re-acquire lock to record used nonce
+    {
+        let mut mesh = state.mesh.lock();
+        if let Err(e) = mesh.check_and_record_nonce(token) {
+            return Err((StatusCode::UNAUTHORIZED, e));
+        }
+    }
+
     if intro.instance_id == our_id {
         return Ok(Json(serde_json::json!({"ok": true, "skipped": "self"})));
     }
