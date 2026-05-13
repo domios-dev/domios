@@ -471,6 +471,75 @@ gh release upload v$VER CodeTerm_${VER}_x64-setup.nsis.zip.sig --clobber --repo 
 
 **Important:** if Mac-Air already published the public mirror with its own valid sig (signs everything from one place), the cross-machine `.sig` upload to the private repo is redundant but harmless. The public mirror's `latest.json` is what the auto-updater actually consumes.
 
+## Local install paths — pre-release dev/test only
+
+Three ways to get a freshly-built binary running on YOUR machine, in increasing order of "real" install:
+
+### Path 1 — manual file swap (Windows, debug-only)
+
+Use when iterating on a prod-mode-only bug and you need fresh `codeterm.exe` in the running install without touching the installer:
+
+```bash
+# 1. Kill running prod (port 7685)
+powershell.exe -NoProfile -Command "Get-Process codeterm -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Seconds 2"
+
+# 2. Copy fresh binaries into the installed location
+cp C:/Developer/codeterm/src-tauri/target/release/codeterm.exe \
+   "$USERPROFILE/AppData/Local/CodeTerm/codeterm.exe"
+cp C:/Developer/codeterm/src-tauri/target/release/codeterm-embed.exe \
+   "$USERPROFILE/AppData/Local/CodeTerm/codeterm-embed.exe"   # only if you touched the sidecar
+
+# 3. Restart
+powershell.exe -NoProfile -Command "Start-Process -FilePath 'C:\Users\User\AppData\Local\CodeTerm\codeterm.exe'"
+
+# 4. Verify
+curl -s http://127.0.0.1:7685/api/health
+```
+
+If the window shows `ERR_CONNECTION_REFUSED` for localhost → your build was compiled in dev mode (devUrl = http://localhost:1420). Re-run `./build.sh build`, not raw `cargo build --release`.
+
+Known gotcha — WIX MSI bundler may fail on Windows (`failed to run light.exe`) but the `.exe`s are already produced by then; NSIS / file-swap paths still work.
+
+### Path 2 — self-install via CLI (Windows, programmatic)
+
+`codeterm update install --from-file` runs the freshly-built NSIS installer silently in a detached helper, swaps the binary, and restarts:
+
+```bash
+codeterm update install --from-file 'C:\Developer\codeterm\src-tauri\target\release\bundle\nsis\CodeTerm_X.Y.Z_x64-setup.exe'
+
+# With session continuation (resume the calling agent's session after restart):
+codeterm update install \
+  --from-file '...\CodeTerm_X.Y.Z_x64-setup.exe' \
+  --continue-prompt "after restart, verify tab performance"
+```
+
+`--continue-pane` defaults to `$CODETERM_PANE_ID`. The helper:
+1. Sleeps 2s, lets the calling CLI return.
+2. `taskkill /F /IM codeterm.exe codeterm-embed.exe`.
+3. Runs the NSIS installer with `/S` (silent — no UAC since `installMode=currentUser`).
+4. Launches the freshly installed `codeterm.exe`.
+5. If `--continue-prompt`: polls `/api/health` until 200, then `codeterm send-text --pane <id>` resumes the calling agent.
+6. Logs to `%LocalAppData%\codeterm\self-install.log`.
+
+Fallback when CLI itself is broken or version-mismatched — use the standalone PowerShell script:
+```powershell
+powershell -ExecutionPolicy Bypass `
+  -File "$env:USERPROFILE\.codeterm\skills\self-install-local\scripts\self-install-local.ps1" `
+  -Installer "C:\Developer\codeterm\src-tauri\target\release\bundle\nsis\CodeTerm_X.Y.Z_x64-setup.exe" `
+  -Resume
+```
+
+The script lives in this skill's folder at `<repo>/.codeterm/skills/github-release/scripts/self-install-local.ps1`.
+
+Gotchas:
+- Don't pass `-Verb RunAs` to the installer. `installMode=currentUser` doesn't need elevation; RunAs triggers UAC and hangs on headless.
+- Helper survives the daemon, not your terminal pane — if invoked from a CodeTerm-managed pane, the pane dies with the daemon. Tail progress from outside: `Get-Content -Wait "$env:LocalAppData\codeterm\self-install.log"`.
+- Auto-resume of agent panes is best-effort — `~/.codeterm/sessions/last.json` may be slightly behind if the daemon was killed abruptly.
+
+### Path 3 — full release publish
+
+The rest of this skill. Use when shipping to users. The local-install paths above are NOT a substitute; the public `latest.json` must be updated for end-users' auto-update to work.
+
 ## Why no specialized "devops" agent
 
 As of 2026-05-12 this skill is the canonical release procedure. No `.claude/agents/devops.md` exists. When the user says «релиз», «выпусти vX.Y.Z», «ship it», any Lead or Sonnet worker can execute by fetching this skill from mem (`codeterm mem get skill_end_to_end_github_release_for_codeterm`) and following it end-to-end. Single source of truth, no drift between `.md` and `mem`.
