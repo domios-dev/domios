@@ -25,6 +25,21 @@ User says: «сделай релиз», «выпусти vX.Y.Z», «ship it», 
 
 For just **building locally** (no release), use `prod-build`. For **just** the macOS x86_64 cross-compile gotchas, see `macos-x86_64-release`. This skill ties all three targets + upload + brew in one flow.
 
+## Release-pipeline secrets backup
+
+Stored in Bitwarden vault (retrieve via `codeterm mem secret get --name <slug>` on any machine with BW unlocked):
+
+| Bitwarden slug | Restore to | Notes |
+|---|---|---|
+| `codeterm-apple-notary-env` | `~/.claude/.secrets/apple-notary.env` (`chmod 600`) | Then `source <file>; xcrun notarytool store-credentials codeterm --apple-id $APPLE_ID --team-id $APPLE_TEAM_ID --password $APPLE_APP_SPECIFIC_PASSWORD` |
+| `codeterm-tauri-minisign-private-key` | `~/.tauri/codeterm.key` (`chmod 600`) | Empty password. Used by `tauri signer sign` for updater artifacts |
+| `codeterm-tauri-minisign-public-key` | `~/.tauri/codeterm.key.pub` (`chmod 644`) | Same value already baked into `src-tauri/tauri.conf.json::plugins.updater.pubkey` |
+
+**NOT in the vault** (live only in macOS Login Keychain):
+- `Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)` certificate + private key. Back up via: Keychain Access → find by name → File → Export as `.p12` with passphrase → save `.p12` + passphrase to mem secret as `codeterm-apple-developer-id-p12`.
+
+`codeterm mem secret status` must show `unlocked`; `codeterm mem secret list` shows everything.
+
 ## Prereqs (verify once per machine)
 
 - Apple signing identity `Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)` in login keychain. Check: `security find-identity -v -p codesigning | grep ANDREY`.
