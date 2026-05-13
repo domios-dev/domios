@@ -398,33 +398,35 @@ pub fn add_alias(conn: &Connection, alias_id: &str, canonical_id: &str) -> Resul
         return Err("alias cannot equal canonical".into());
     }
     let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
+    let tx = conn.unchecked_transaction().map_err(|e| format!("add_alias transaction: {}", e))?;
+    tx.execute(
         "INSERT OR REPLACE INTO entity_aliases (alias_id, canonical_id, created_at) VALUES (?1, ?2, ?3)",
         params![alias_id, canonical_id, &now],
     ).map_err(|e| format!("add_alias: {}", e))?;
 
     // Rewire relations: any relation pointing to alias → point to canonical
-    conn.execute(
+    tx.execute(
         "UPDATE OR IGNORE relations SET from_id = ?1 WHERE from_id = ?2",
         params![canonical_id, alias_id],
     ).map_err(|e| format!("rewire from: {}", e))?;
-    conn.execute(
+    tx.execute(
         "UPDATE OR IGNORE relations SET to_id = ?1 WHERE to_id = ?2",
         params![canonical_id, alias_id],
     ).map_err(|e| format!("rewire to: {}", e))?;
 
     // Delete the duplicate row relations that couldn't be rewired
-    conn.execute(
+    tx.execute(
         "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
         params![alias_id],
     ).map_err(|e| format!("cleanup alias relations: {}", e))?;
 
     // Remove the alias entity itself (keeping canonical)
-    conn.execute(
+    tx.execute(
         "DELETE FROM entities WHERE id = ?1",
         params![alias_id],
     ).map_err(|e| format!("delete alias entity: {}", e))?;
 
+    tx.commit().map_err(|e| format!("add_alias commit: {}", e))?;
     Ok(())
 }
 
@@ -775,6 +777,23 @@ mod tests {
 
         let all = timeline(&conn, "e_a", true).unwrap();
         assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn add_alias_rewires_relations() {
+        let conn = fresh();
+        let now = "2026-01-01T00:00:00Z";
+        insert_entity(&conn, &Entity { id: "alias".into(), entity_type: "Person".into(), scope: "global".into(), properties: serde_json::Value::Null }).unwrap();
+        insert_entity(&conn, &Entity { id: "canonical".into(), entity_type: "Person".into(), scope: "global".into(), properties: serde_json::Value::Null }).unwrap();
+        conn.execute("INSERT INTO relations (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, created_at) VALUES ('alias', 'knows', 'other', 'global', ?1, NULL, 1.0, '{}', ?1)", rusqlite::params![now]).unwrap();
+
+        add_alias(&conn, "alias", "canonical").unwrap();
+
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM entities WHERE id = 'alias'", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0, "alias entity should be deleted");
+
+        let from: String = conn.query_row("SELECT from_id FROM relations WHERE relation_type = 'knows'", [], |r| r.get(0)).unwrap();
+        assert_eq!(from, "canonical", "relation should be rewired to canonical");
     }
 
     #[test]
