@@ -63,21 +63,20 @@ Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 
 `mem/seed.rs` ships a handful of baseline `NewMemItem` rows (bundled rules and the codeterm skill stub) inserted on fresh install. These are Rust literals, not LLM prompts — they live in the mem store and are surfaced to agents only via `codeterm mem search`/`get`.
 
-## Agent definitions as prompts
+## Role definitions live in `codeterm mem`, not `.claude/agents/`
 
-Files under `.claude/agents/*.md` are both **role documentation** and **spawn-time prompts**. When you call `Agent(subagent_type="backend-dev", ...)` or `codeterm agent spawn claude --task "Read .claude/agents/backend-dev.md ..."`, the agent loads that file as its role brief.
+CodeTerm dogfoods its own mem as the single source of truth for role-specific guidance (see "We dogfood..." section in `CLAUDE.md`). When you spawn a worker, the task prompt instructs it to `codeterm mem get <role_skill_id>` BEFORE doing the concrete work.
 
-Current agent definitions:
+Current role skills in mem:
 
-- `backend-dev.md` — Rust / `src-tauri/` work
-- `frontend-dev.md` — React / TypeScript / `src/` work
-- `code-reviewer.md` — read-only review
-- `docs.md` — documentation sync
-- `prompt-evaluator.md` — A/B and regression testing for prompt files
+- `skill_backend_dev_role_rust_src_tauri_for_codeterm` — Rust / `src-tauri/` work
+- `skill_frontend_dev_role_react_typescript_src_for_codeterm` — React / TypeScript / `src/` work
+- `skill_code_reviewer_role_read_only_review_for_codeterm` — read-only diff review
+- `skill_docs_sync_role_keep_docs_in_sync_with_code_for_codeterm` — documentation sync
+- `skill_prompt_evaluator_role_a_b_and_regression_testing_for_codeterm` — A/B / regression testing for prompt files
+- `skill_end_to_end_github_release_for_codeterm` — full release pipeline
 
-Releases/builds have no specialized agent — the procedure lives in mem as `skill_end_to_end_github_release_for_codeterm`. Any agent can fetch and execute it.
-
-These are **not** included in the binary — they live in the repo and are read from disk at spawn time. Editing them takes effect immediately without rebuild, but only for agents spawned *from this checkout*.
+Mem entries propagate immediately across all CodeTerm instances on the machine. No rebuild, no per-checkout copies. `.claude/skills/` is kept only for skills with runnable code (e.g. `prompt-evaluator/runner.py`); their `SKILL.md` is the entry point the mem skill points to.
 
 ## Loading flow
 

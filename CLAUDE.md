@@ -133,13 +133,35 @@ Verify on macOS, Windows, Linux. Never add platform-specific code without handli
 
 CodeTerm has a 4-level hierarchy: **Orchestrator → Lead → Worker → SubWorker**. Your role comes from `$CODETERM_ROLE` or the spawn task prompt. **No role = Orchestrator.**
 
-- **Orchestrator** — top of the chain. Delegates to specialized workers (`.claude/agents/*.md`).
+- **Orchestrator** — top of the chain. Delegates by spawning generic claude agents with explicit role prompts (see below).
 - **Lead** — has a bounded sub-task, may decompose and spawn Workers.
 - **Worker / SubWorker** — does ONE concrete task, runs `codeterm agent report`, exits. **NEVER spawns other agents.** If decomposition needed → report blocked.
 
-Specialized types: `backend-dev`, `frontend-dev`, `docs`, `code-reviewer`, `prompt-evaluator`. Each is defined in `.claude/agents/<type>.md`. For releases / builds / CI work, no specialized agent — fetch `skill_end_to_end_github_release_for_codeterm` from mem and execute (any Lead/Sonnet worker can do it).
+### We dogfood our own `codeterm mem` instead of `.claude/agents/`
 
-**Full delegation manual** — when to delegate vs DIY, how to spawn (`Agent` tool vs `codeterm agent spawn`), role assignment, recursion limits, proactive `docs` / `prompt-evaluator` / `code-reviewer` hooks: see **`docs/contributing/agents.md`**.
+CodeTerm is the project that builds the mem system — so we **use mem as the single source of truth for role definitions and procedural skills**, instead of `.claude/agents/*.md`. The `.claude/agents/` folder has been emptied on purpose. Reasons:
+
+- One canonical place per role. No drift between an `.md` file and a mem entry.
+- Mem can be fetched **fragmentally** via multiple `mem search` calls — agents pull only what they need, when they need it, instead of pre-loading a giant system prompt.
+- Updates propagate across all CodeTerm instances on this machine automatically (mem is global).
+- Any peer or sub-agent on any mesh peer can pull the same role guidance.
+
+Role skills currently in mem (search by role name or fetch by id):
+
+| Role | Mem id | Use for |
+|------|--------|---------|
+| Backend dev | `skill_backend_dev_role_rust_src_tauri_for_codeterm` | Rust changes in `src-tauri/` |
+| Frontend dev | `skill_frontend_dev_role_react_typescript_src_for_codeterm` | React/TS changes in `src/` |
+| Docs sync | `skill_docs_sync_role_keep_docs_in_sync_with_code_for_codeterm` | Keep docs in sync after backend/frontend work |
+| Code reviewer | `skill_code_reviewer_role_read_only_review_for_codeterm` | Read-only diff review, severity ranking |
+| Prompt evaluator | `skill_prompt_evaluator_role_a_b_and_regression_testing_for_codeterm` | A/B regression test prompt changes via `.claude/skills/prompt-evaluator/runner.py` |
+| End-to-end release | `skill_end_to_end_github_release_for_codeterm` | Full release pipeline (bump→tag→build→sign→notarize→publish→mirror) |
+
+**How to spawn:** instead of `Agent(subagent_type="backend-dev")`, use `Agent(subagent_type="general-purpose", prompt="codeterm mem get skill_backend_dev_role_rust_src_tauri_for_codeterm — that is your role definition. Read it then: <concrete task>")`. Same for `codeterm agent spawn claude --task "first run codeterm mem get <skill_id>, then: <task>"`.
+
+**`.claude/skills/`** still exists for skills with runnable code (e.g. `prompt-evaluator/runner.py`). Mem doesn't store executable scripts — only markdown content. Skills with code stay on disk; their `SKILL.md` is the entry point the role-skill in mem points to.
+
+**Full delegation manual** — when to delegate vs DIY, how to spawn, role assignment, recursion limits, proactive doc/eval/review hooks: see **`docs/contributing/agents.md`**.
 
 ## Code style
 
