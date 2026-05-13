@@ -89,11 +89,29 @@ fn sender_id_from_headers(state: &AppState, headers: &HeaderMap) -> Option<Strin
 fn path_requires_full_access(method: &str, path: &str) -> bool {
     let m = method.to_ascii_uppercase();
     let bare = path.split('?').next().unwrap_or(path);
+    // DELETE /api/mesh/peers/<id> needs starts_with check — matches! can't do that
+    if m == "DELETE" && bare.starts_with("/api/mesh/peers/") {
+        return true;
+    }
     matches!(
         (m.as_str(), bare),
+        // Existing: update/install paths
         ("POST", "/api/update/install")
             | ("POST", "/api/update/channel")
             | ("POST", "/api/mesh/refresh")
+        // Mesh pairing — can't let a partial peer pair new nodes
+            | ("POST", "/api/mesh/pair/request")
+            | ("POST", "/api/mesh/pair/accept")
+            | ("POST", "/api/mesh/introduce")
+        // Agent lifecycle — spawning agents is privileged
+            | ("POST", "/api/agents/spawn")
+        // Hook injection — hooks can approve tool calls
+            | ("POST", "/api/hooks/permission")
+            | ("POST", "/api/hooks/stop")
+            | ("POST", "/api/hooks/session_start")
+        // Config mutation
+            | ("POST", "/api/config")
+            | ("PUT", "/api/config")
     )
 }
 
@@ -246,5 +264,38 @@ mod tests {
         // already requires a paired peer's signed token, and the apply step
         // verifies sender_id matches body.instance_id.
         assert!(!path_requires_full_access("POST", "/api/mesh/announce"));
+    }
+
+    #[test]
+    fn mesh_pairing_endpoints_are_gated() {
+        assert!(path_requires_full_access("POST", "/api/mesh/pair/request"));
+        assert!(path_requires_full_access("POST", "/api/mesh/pair/accept"));
+        assert!(path_requires_full_access("POST", "/api/mesh/introduce"));
+    }
+
+    #[test]
+    fn agent_spawn_is_gated() {
+        assert!(path_requires_full_access("POST", "/api/agents/spawn"));
+    }
+
+    #[test]
+    fn hook_endpoints_are_gated() {
+        assert!(path_requires_full_access("POST", "/api/hooks/permission"));
+        assert!(path_requires_full_access("POST", "/api/hooks/stop"));
+        assert!(path_requires_full_access("POST", "/api/hooks/session_start"));
+    }
+
+    #[test]
+    fn config_mutation_is_gated() {
+        assert!(path_requires_full_access("POST", "/api/config"));
+        assert!(path_requires_full_access("PUT", "/api/config"));
+        assert!(!path_requires_full_access("GET", "/api/config"));
+    }
+
+    #[test]
+    fn peer_delete_is_gated() {
+        assert!(path_requires_full_access("DELETE", "/api/mesh/peers/some-uuid"));
+        assert!(path_requires_full_access("DELETE", "/api/mesh/peers/peer-abc-123"));
+        assert!(!path_requires_full_access("GET", "/api/mesh/peers/some-uuid"));
     }
 }
