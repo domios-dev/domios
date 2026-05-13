@@ -369,9 +369,10 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 std::process::exit(1);
             }
             let pane_id = resolve_pane(client, pane);
-            let cmd = format!("/model {}\n", name);
+            // raw: bypass bracket paste so the TUI parses /model as a slash command, not chat input.
+            let cmd = format!("/model {}", name);
             match http.post(format!("{}/api/panes/{}/send", base, pane_id))
-                .json(&serde_json::json!({"text": cmd}))
+                .json(&serde_json::json!({"text": cmd, "raw": true}))
                 .send()
             {
                 Ok(_) => { println!("Sent /model {} to {}", name, pane_id); }
