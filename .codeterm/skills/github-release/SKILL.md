@@ -93,16 +93,25 @@ git push origin develop
 
 ### 2. Merge to master + tag + checkout tag
 
+**Always via PR on GitHub** — don't direct-push develop to master. This avoids merge-commit collisions when multiple machines operate on master.
+
 ```bash
+# On GitHub: open PR develop → master, merge via "Create a merge commit"
+# Then locally:
 git checkout master
-git pull origin master --no-rebase
-git merge --no-ff develop -m "merge: v$VER from develop"
+git pull origin master --no-rebase   # get the merge commit GitHub created
 git tag -a v$VER -m "v$VER — <one-liner summary>"
-git push origin master
 git push origin v$VER
 ```
 
-If push to master is rejected (non-fast-forward), always `git pull origin master --no-rebase --no-edit` first, then push again.
+If you need to merge post-release develop commits to master (docs, skills, etc.) after the tag:
+```bash
+git checkout master && git pull origin master --no-rebase
+git merge --no-ff origin/develop --no-edit
+git push origin master
+```
+
+If push to master is rejected: always `git pull origin master --no-rebase --no-edit` first — origin/master may already have a merge commit from a GitHub PR that your local doesn't have yet.
 
 ### 3. Create GitHub release (draft)
 
