@@ -161,6 +161,24 @@ Role skills currently in mem (search by role name or fetch by id):
 
 **`.claude/skills/`** still exists for skills with runnable code (e.g. `prompt-evaluator/runner.py`). Mem doesn't store executable scripts — only markdown content. Skills with code stay on disk; their `SKILL.md` is the entry point the role-skill in mem points to.
 
+### Where the codeterm-specific skill folders live
+
+CodeTerm-project skills (release pipeline, prod build, Windows self-install) live in **`<repo>/.codeterm/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs. Currently:
+
+- `.codeterm/skills/github-release/` — release pipeline procedure
+- `.codeterm/skills/prod-build/` — local prod build
+- `.codeterm/skills/self-install-local/` — Windows local NSIS install
+
+On a fresh clone, register them with mem so the Librarian indexes them:
+
+```bash
+for s in .codeterm/skills/*/; do codeterm mem skill add "$(pwd)/$s"; done
+```
+
+This is one-time per machine. After registration, the Librarian re-indexes whenever a `SKILL.md` changes — edits flow through mem search automatically.
+
+User-scoped or cross-project skills (not codeterm-specific) live in `~/.codeterm/skills/` (canonical watcher path that auto-mirrors to `~/.claude/skills/` and `~/.agents/skills/`).
+
 **Full delegation manual** — when to delegate vs DIY, how to spawn, role assignment, recursion limits, proactive doc/eval/review hooks: see **`docs/contributing/agents.md`**.
 
 ## Code style
