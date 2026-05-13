@@ -337,6 +337,8 @@ impl AgentProvider for CodexProvider {
         Some("/exit")
     }
 
+    // Codex /model is an interactive picker, not arg-based — model_switch_command stays None.
+
     fn has_event_markers(&self, chunk: &str) -> bool {
         chunk.contains("Would you like")
             || chunk.contains("approve")
