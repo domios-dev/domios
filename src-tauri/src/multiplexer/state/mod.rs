@@ -6,6 +6,7 @@ use uuid::Uuid;
 use super::types::{AgentRole, Pane, PaneType, SplitNode, Tab, TitleLevel, Workspace};
 
 mod alias;
+mod names;
 mod pane;
 mod role;
 mod snapshot;
@@ -107,7 +108,7 @@ impl MultiplexerState {
 
         let tab = Tab {
             id: tab_id.clone(),
-            title: "Tab 1".to_string(),
+            title: names::generate_tab_name(),
             split_tree: SplitNode::Leaf {
                 pane_id: pane_id.clone(),
             },

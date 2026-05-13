@@ -495,6 +495,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_PANE_TITLE", paneId, title, level });
   }, []);
 
+  const setTabTitle = useCallback((workspaceId: string, tabId: string, title: string) => {
+    dispatch({ type: "SET_TAB_TITLE", workspaceId, tabId, title });
+  }, []);
+
   const setAgentType = useCallback((paneId: string, agentType: string | null) => {
     dispatch({ type: "SET_AGENT_TYPE", paneId, agentType });
   }, []);
@@ -524,6 +528,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     clearNotifications,
     dismissToast,
     setPaneTitle,
+    setTabTitle,
     setAgentType,
     updatePaneStatus,
     spawnClaudeTab,

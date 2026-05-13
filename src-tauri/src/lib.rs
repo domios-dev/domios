@@ -171,6 +171,7 @@ pub fn run() {
             multiplexer::commands::mux_create_tab,
             multiplexer::commands::mux_close_tab,
             multiplexer::commands::mux_set_active_tab,
+            multiplexer::commands::mux_rename_tab,
             multiplexer::commands::mux_close_pane,
             multiplexer::commands::mux_set_focused_pane,
             multiplexer::commands::mux_link_pty,

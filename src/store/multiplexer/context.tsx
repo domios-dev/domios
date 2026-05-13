@@ -24,6 +24,7 @@ export interface MultiplexerContextType {
   clearNotifications: () => void;
   dismissToast: (id: string) => void;
   setPaneTitle: (paneId: string, title: string, level?: TitleLevel) => void;
+  setTabTitle: (workspaceId: string, tabId: string, title: string) => void;
   setAgentType: (paneId: string, agentType: string | null) => void;
   updatePaneStatus: (paneId: string, status: PaneStatus) => void;
   spawnClaudeTab: (workspaceId: string, skipPermissions: boolean, cwd?: string) => void;
