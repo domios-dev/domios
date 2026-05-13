@@ -119,6 +119,17 @@ pub fn mux_set_active_tab(
     svc.set_active_tab(&workspace_id, &tab_id)
 }
 
+/// Rename a tab. Only path that changes a tab's title — pane renames don't propagate.
+#[tauri::command]
+pub fn mux_rename_tab(
+    svc: State<'_, ServiceState>,
+    workspace_id: String,
+    tab_id: String,
+    title: String,
+) -> Result<(), String> {
+    svc.rename_tab(&workspace_id, &tab_id, &title)
+}
+
 /// Close a pane and kill its PTY (cascade-closes children).
 #[tauri::command]
 pub fn mux_close_pane(

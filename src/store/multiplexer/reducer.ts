@@ -12,7 +12,6 @@ import {
   collectPaneIds,
   highestTitleLevel,
   removeLeaf,
-  shortenTitle,
   splitLeaf,
   updateRatio,
   type ExtendedState,
@@ -51,6 +50,7 @@ export type Action =
   | { type: "CLEAR_NOTIFICATIONS" }
   | { type: "DISMISS_TOAST"; id: string }
   | { type: "SET_PANE_TITLE"; paneId: string; title: string; level?: TitleLevel }
+  | { type: "SET_TAB_TITLE"; workspaceId: string; tabId: string; title: string }
   | { type: "SET_AGENT_TYPE"; paneId: string; agentType: string | null }
   | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus };
 
@@ -333,26 +333,32 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const newLevel = action.level || TitleLevel.Auto;
       const curLevel = pane.title_level || TitleLevel.Default;
       if (levels.indexOf(newLevel) < levels.indexOf(curLevel)) return state;
-      const displayTitle = shortenTitle(action.title);
-      const updatedPanes = {
-        ...state.panes,
-        [action.paneId]: {
-          ...pane,
-          title: action.title,
-          title_level: newLevel,
+      return {
+        ...state,
+        panes: {
+          ...state.panes,
+          [action.paneId]: {
+            ...pane,
+            title: action.title,
+            title_level: newLevel,
+          },
         },
       };
-      const updatedWorkspaces = state.workspaces.map((ws) => ({
-        ...ws,
-        tabs: ws.tabs.map((tab) => {
-          const ids = collectPaneIds(tab.split_tree);
-          if (ids.includes(action.paneId)) {
-            return { ...tab, title: displayTitle };
-          }
-          return tab;
+    }
+
+    case "SET_TAB_TITLE": {
+      return {
+        ...state,
+        workspaces: state.workspaces.map((ws) => {
+          if (ws.id !== action.workspaceId) return ws;
+          return {
+            ...ws,
+            tabs: ws.tabs.map((tab) =>
+              tab.id === action.tabId ? { ...tab, title: action.title } : tab
+            ),
+          };
         }),
-      }));
-      return { ...state, panes: updatedPanes, workspaces: updatedWorkspaces };
+      };
     }
 
     case "UPDATE_SPLIT_RATIO": {

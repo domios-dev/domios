@@ -109,4 +109,10 @@ impl ServiceContext {
         self.emit_state_changed();
         Ok(())
     }
+
+    pub fn rename_tab(&self, workspace_id: &str, tab_id: &str, title: &str) -> Result<(), String> {
+        self.mux.lock().rename_tab(workspace_id, tab_id, title)?;
+        self.emit_state_changed();
+        Ok(())
+    }
 }
