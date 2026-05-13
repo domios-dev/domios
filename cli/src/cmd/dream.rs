@@ -100,7 +100,13 @@ fn run_diary(limit: usize) -> ! {
 /// behaviour as `mem dream run --phase`).
 fn run_dream_phase(phase: &str) -> ! {
     let (base, token) = crate::read_api_config();
-    let http = crate::build_http(&token);
+    let http = match crate::build_http(&token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
     let url = format!("{}/api/mem/dream?phase={}", base, urlencoding::encode(phase));
     let resp = http.post(&url).json(&serde_json::json!({})).send();
     match resp {

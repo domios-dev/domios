@@ -142,7 +142,13 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
     }
 
     let (base, token) = super::read_api_config();
-    let http = super::build_http(&token);
+    let http = match super::build_http(&token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     // `update --apply` over mesh is a two-step (force-check then install) flow,
     // not a single relay call.
