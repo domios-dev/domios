@@ -135,6 +135,14 @@ pub async fn mesh_unpair(
     let sender_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()))?;
 
+    // Replay prevention
+    {
+        let mut mesh = state.mesh.lock();
+        if let Err(e) = mesh.check_and_record_nonce(token) {
+            return Err((StatusCode::UNAUTHORIZED, e));
+        }
+    }
+
     log::info!("[mesh/unpair] sender={} removing {}", sender_id, instance_id);
     if sender_id != our_id && sender_id != instance_id {
         let mesh_guard = state.mesh.lock();

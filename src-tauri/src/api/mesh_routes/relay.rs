@@ -101,19 +101,24 @@ fn path_requires_full_access(method: &str, path: &str) -> bool {
 fn check_mesh_relay_auth(state: &AppState, headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
     let auth = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
     let token = auth.strip_prefix("Bearer ").unwrap_or("");
-    let mesh = state.mesh.lock();
-    let mut known_keys = mesh.known_public_keys();
-    if let Some(ref pk) = mesh.ident.identity.public_key {
-        known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
-    }
-    let our_id = mesh.ident.identity.instance_id.clone();
+    let (known_keys, our_id) = {
+        let mesh = state.mesh.lock();
+        let mut known_keys = mesh.known_public_keys();
+        if let Some(ref pk) = mesh.ident.identity.public_key {
+            known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
+        }
+        (known_keys, mesh.ident.identity.instance_id.clone())
+    };
     let peer_id = crate::mesh::crown::verify_signed_request(token, &known_keys)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid or unknown signature".to_string()))?;
     if peer_id == our_id { return Ok("local".to_string()); }
 
+    let mut mesh = state.mesh.lock();
     if !mesh.paired_peers.contains_key(&peer_id) {
         return Err((StatusCode::UNAUTHORIZED, format!("Peer {} not paired", peer_id)));
     }
+    mesh.check_and_record_nonce(token)
+        .map_err(|e| (StatusCode::UNAUTHORIZED, e))?;
     Ok(peer_id)
 }
 
