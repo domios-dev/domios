@@ -10,7 +10,7 @@ pub fn list_dir_completions(cwd: String, prefix: String) -> Result<Vec<DirComple
 
     let entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
     for entry in entries.flatten() {
-        let ft = entry.file_type().unwrap_or_else(|_| panic!());
+        let Ok(ft) = entry.file_type() else { continue; };
         if !ft.is_dir() { continue; }
 
         let name = entry.file_name().to_string_lossy().to_string();
@@ -45,4 +45,18 @@ fn subsequence_match(text: &str, query: &str) -> bool {
         if qi.peek().is_none() { return true; }
     }
     qi.peek().is_none()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_dir_completions_with_inaccessible_entry_does_not_panic() {
+        let result = list_dir_completions(
+            std::env::temp_dir().to_string_lossy().to_string(),
+            String::new(),
+        );
+        assert!(result.is_ok(), "should return Ok, not panic");
+    }
 }
