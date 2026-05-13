@@ -184,15 +184,6 @@ impl MultiplexerState {
         }
         pane.title = title.to_string();
         pane.title_level = level;
-
-        for ws in &mut self.workspaces {
-            for tab in &mut ws.tabs {
-                let ids = tab.split_tree.collect_pane_ids();
-                if ids.contains(&pane_id.to_string()) {
-                    tab.title = title.to_string();
-                }
-            }
-        }
         Ok(())
     }
 

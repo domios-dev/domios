@@ -1,4 +1,4 @@
-use super::{short_id, MultiplexerState};
+use super::{names, short_id, MultiplexerState};
 use crate::multiplexer::types::{SplitNode, Tab};
 
 impl MultiplexerState {
@@ -7,18 +7,13 @@ impl MultiplexerState {
         let pane_id = self.create_pane();
         let tab_id = short_id();
 
-        let tab_number = {
-            let ws = self
-                .workspaces
-                .iter()
-                .find(|w| w.id == workspace_id)
-                .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
-            ws.tabs.len() + 1
-        };
+        if !self.workspaces.iter().any(|w| w.id == workspace_id) {
+            return Err(format!("Workspace not found: {}", workspace_id));
+        }
 
         let tab = Tab {
             id: tab_id.clone(),
-            title: format!("Tab {}", tab_number),
+            title: names::generate_tab_name(),
             split_tree: SplitNode::Leaf {
                 pane_id: pane_id.clone(),
             },
@@ -86,6 +81,26 @@ impl MultiplexerState {
         }
 
         Ok(pty_ids)
+    }
+
+    pub fn rename_tab(
+        &mut self,
+        workspace_id: &str,
+        tab_id: &str,
+        title: &str,
+    ) -> Result<(), String> {
+        let ws = self
+            .workspaces
+            .iter_mut()
+            .find(|w| w.id == workspace_id)
+            .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
+        let tab = ws
+            .tabs
+            .iter_mut()
+            .find(|t| t.id == tab_id)
+            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
+        tab.title = title.to_string();
+        Ok(())
     }
 
     pub fn set_active_tab(&mut self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
