@@ -1,3 +1,12 @@
+---
+title: Prod Build — CodeTerm production binary
+area: build
+tags: [build, prod, deploy]
+owner: mac
+scope: shared
+source: git
+---
+
 # Prod Build — CodeTerm production binary
 
 Build and deploy a prod CodeTerm binary on the developer's machine. Different host OS = different gotchas; record what you learn.
