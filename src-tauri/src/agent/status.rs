@@ -201,6 +201,20 @@ mod tests {
     }
 
     #[test]
+    fn test_update_output_returns_true_on_content_change() {
+        let mut tracker = PaneStatusTracker::new();
+        assert!(tracker.update_output("pty-1", [1u8; 32]));
+        assert!(tracker.update_output("pty-1", [2u8; 32]));
+    }
+
+    #[test]
+    fn test_update_output_returns_false_on_same_hash() {
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-1", [1u8; 32]);
+        assert!(!tracker.update_output("pty-1", [1u8; 32]));
+    }
+
+    #[test]
     fn test_waiting_not_affected_by_idle_check() {
         let mut tracker = PaneStatusTracker::new();
         tracker.update_output("pty-1", [1u8; 32]);
