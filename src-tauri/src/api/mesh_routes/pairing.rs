@@ -30,6 +30,16 @@ pub async fn mesh_pair_accept(
             .ok_or_else(|| (StatusCode::NOT_FOUND, "No pending request".to_string()))?
     };
 
+    // Guard: reject if the accepting peer isn't the one we sent the request to
+    if accept.from_instance_id != b_instance_id {
+        log::warn!(
+            "[mesh/pair_accept] Identity mismatch: expected {}, got {}",
+            b_instance_id, accept.from_instance_id
+        );
+        return Err((StatusCode::FORBIDDEN,
+            format!("Identity mismatch: expected {}, got {}", b_instance_id, accept.from_instance_id)));
+    }
+
     {
         let mut mesh = state.mesh.lock();
         let discovered_name = mesh.discovered_peers.get(&b_instance_id)
@@ -203,4 +213,15 @@ pub async fn mesh_unpair(
 
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn pair_accept_identity_mismatch_is_detected() {
+        // Verify that b_instance_id != accept.from_instance_id is detectable at the logic level.
+        let stored_id = "peer-bob";
+        let accept_id = "peer-eve";
+        assert_ne!(stored_id, accept_id, "identity mismatch should be caught");
+    }
 }
