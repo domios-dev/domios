@@ -18,7 +18,14 @@ pub(crate) fn setup_window_styling(window: &tauri::WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
         use objc2_app_kit::{NSWindow, NSWindowStyleMask, NSWindowTitleVisibility};
-        let ns_win = window.ns_window().unwrap() as *mut objc2::runtime::AnyObject;
+        let ns_win_raw = match window.ns_window() {
+            Ok(h) => h,
+            Err(_) => {
+                log::warn!("[window] ns_window() failed — skipping macOS styling");
+                return;
+            }
+        };
+        let ns_win = ns_win_raw as *mut objc2::runtime::AnyObject;
         unsafe {
             let ns_window: &NSWindow = &*(ns_win as *const NSWindow);
             let mut mask = ns_window.styleMask();
