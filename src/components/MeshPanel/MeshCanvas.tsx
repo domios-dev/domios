@@ -39,8 +39,10 @@ const MIN_SCALE = 0.25;
 const MAX_SCALE = 2.5;
 const ZOOM_STEP = 0.06;
 const FIT_PADDING = 80;
-const CARD_HALF_WIDTH = 130;
+const CARD_HALF_WIDTH = 180;
 const CARD_HALF_HEIGHT = 80;
+const CARD_GAP = 60;
+const CARD_FULL_WIDTH = CARD_HALF_WIDTH * 2;
 
 export function MeshCanvas({
   thisMachine,
@@ -56,8 +58,9 @@ export function MeshCanvas({
   const layout = useMemo<PeerLayout[]>(() => {
     const cx = width / 2;
     const cy = height / 2;
-    const cardSpacing = 322;
-    const minRadius = 266;
+    const cardSpacing = CARD_FULL_WIDTH + CARD_GAP;
+    // Clear the center "this machine" card horizontally: half-center + half-peer + gap.
+    const minRadius = CARD_FULL_WIDTH + CARD_GAP;
     const dynamicRadius = peers.length > 0 ? cardSpacing / (2 * Math.sin(Math.PI / Math.max(peers.length, 3))) : minRadius;
     const radius = Math.max(minRadius, dynamicRadius);
     const items: PeerLayout[] = [

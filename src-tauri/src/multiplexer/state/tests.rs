@@ -555,12 +555,27 @@ fn test_rename_pane_pins_title() {
 }
 
 #[test]
-fn test_rename_pane_updates_tab_title() {
+fn test_rename_pane_does_not_change_tab_title() {
     let (mut state, pane_id) = MultiplexerState::new();
-    state.rename_pane(&pane_id, "My Tab").unwrap();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let original = state.get_workspace(&ws_id).unwrap().tabs[0].title.clone();
 
-    let ws = state.get_active_workspace().unwrap();
-    assert_eq!(ws.tabs[0].title, "My Tab");
+    state.rename_pane(&pane_id, "My Pane").unwrap();
+
+    let ws = state.get_workspace(&ws_id).unwrap();
+    assert_eq!(ws.tabs[0].title, original, "tab title must be stable across pane renames");
+}
+
+#[test]
+fn test_rename_tab_changes_title() {
+    let (mut state, _) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let tab_id = state.get_workspace(&ws_id).unwrap().tabs[0].id.clone();
+
+    state.rename_tab(&ws_id, &tab_id, "Renamed").unwrap();
+
+    let ws = state.get_workspace(&ws_id).unwrap();
+    assert_eq!(ws.tabs[0].title, "Renamed");
 }
 
 #[test]

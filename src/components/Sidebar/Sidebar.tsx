@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
-import { TitleLevel } from "../../lib/types";
 import type { Tab, SplitNode, PaneStatus, Pane, AppConfig } from "../../lib/types";
 import { Plus } from "lucide-react";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon } from "../Icons";
@@ -74,7 +73,7 @@ export function Sidebar({
     createTab,
     closeTab,
     setActiveTab,
-    setPaneTitle,
+    setTabTitle,
     spawnClaudeTab,
     spawnAgentTab,
   } = useMultiplexer();
@@ -464,12 +463,8 @@ export function Sidebar({
                               )}
                               status={aggregateStatus(tabPids, state.paneStatuses)}
                               onRename={(title) => {
-                                if (tabPids[0]) {
-                                  setPaneTitle(tabPids[0], title, TitleLevel.User);
-                                  invoke("mux_rename_pane", { paneId: tabPids[0], title }).then(() => {
-                                  }).catch((_e) => {
-                                  });
-                                }
+                                setTabTitle(ws.id, tab.id, title);
+                                invoke("mux_rename_tab", { workspaceId: ws.id, tabId: tab.id, title }).catch(() => {});
                               }}
                               pane={firstPane}
                               orchestrators={wsOrchestrators}
@@ -533,10 +528,8 @@ export function Sidebar({
                         )}
                         status={aggregateStatus(atPids, state.paneStatuses)}
                         onRename={(title) => {
-                          if (atPids[0]) {
-                            setPaneTitle(atPids[0], title, TitleLevel.User);
-                            invoke("mux_rename_pane", { paneId: atPids[0], title });
-                          }
+                          setTabTitle(ws.id, activeTab.id, title);
+                          invoke("mux_rename_tab", { workspaceId: ws.id, tabId: activeTab.id, title }).catch(() => {});
                         }}
                         pane={atFirstPane}
                         orchestrators={wsOrchestrators}

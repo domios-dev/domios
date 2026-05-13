@@ -100,6 +100,23 @@ pub async fn move_tab(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct RenameTabBody {
+    title: String,
+}
+
+pub async fn rename_tab(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((workspace_id, tab_id)): Path<(String, String)>,
+    Json(body): Json<RenameTabBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state.svc.rename_tab(&workspace_id, &tab_id, &body.title)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found"))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 pub async fn create_tab(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

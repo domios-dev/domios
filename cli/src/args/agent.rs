@@ -87,9 +87,9 @@ pub enum AgentAction {
         #[arg(long, default_value = "10")]
         grace_secs: u64,
     },
-    /// Switch agent model (sends /model to Claude)
+    /// Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead.
     Model {
-        /// Model name: sonnet, haiku, opus
+        /// Model name (Claude: sonnet, haiku, opus). Run `agent models claude` to list.
         name: String,
         /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
         #[arg(long)]
