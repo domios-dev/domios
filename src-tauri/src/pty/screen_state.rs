@@ -46,6 +46,7 @@ impl PromptSignal {
 pub struct ScreenState {
     parsers: HashMap<String, vt100::Parser>,
     prompt_signals: HashMap<String, Arc<PromptSignal>>,
+    agent_signals: HashMap<String, Arc<PromptSignal>>,
 }
 
 impl ScreenState {
@@ -53,6 +54,7 @@ impl ScreenState {
         Self {
             parsers: HashMap::new(),
             prompt_signals: HashMap::new(),
+            agent_signals: HashMap::new(),
         }
     }
 
@@ -63,8 +65,15 @@ impl ScreenState {
             .or_insert_with(|| vt100::Parser::new(50, 120, 500));
         parser.process(data);
 
+        let screen = parser.screen().contents();
+
         if let Some(signal) = self.prompt_signals.get(pty_id) {
-            if !signal.is_ready() && screen_has_shell_prompt(&parser.screen().contents()) {
+            if !signal.is_ready() && screen_has_shell_prompt(&screen) {
+                signal.mark_ready();
+            }
+        }
+        if let Some(signal) = self.agent_signals.get(pty_id) {
+            if !signal.is_ready() && screen_has_agent_tui(&screen) {
                 signal.mark_ready();
             }
         }
@@ -145,9 +154,33 @@ impl ScreenState {
         signal
     }
 
+    /// Arm a one-shot signal that fires as soon as `screen_has_agent_tui` is true
+    /// for this PTY. Fires immediately if a TUI is already on screen at arm-time.
+    /// Mirrors `arm_prompt_signal`; callers block with `signal.wait(timeout)`.
+    pub fn arm_agent_signal(&mut self, pty_id: &str) -> Arc<PromptSignal> {
+        let signal = self
+            .agent_signals
+            .entry(pty_id.to_string())
+            .or_insert_with(PromptSignal::new)
+            .clone();
+
+        if !signal.is_ready() {
+            if let Some(parser) = self.parsers.get(pty_id) {
+                if screen_has_agent_tui(&parser.screen().contents()) {
+                    signal.mark_ready();
+                }
+            }
+        }
+
+        signal
+    }
+
     pub fn remove(&mut self, pty_id: &str) {
         self.parsers.remove(pty_id);
         if let Some(sig) = self.prompt_signals.remove(pty_id) {
+            sig.mark_ready();
+        }
+        if let Some(sig) = self.agent_signals.remove(pty_id) {
             sig.mark_ready();
         }
     }
