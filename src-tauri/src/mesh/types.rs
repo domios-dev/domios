@@ -237,6 +237,10 @@ pub struct PairingRequest {
     pub timestamp: u64,
     #[serde(default = "default_pairing_status")]
     pub status: PairingStatus,
+    /// Instance ID of the peer that introduced this request (via /api/mesh/introduce).
+    /// None for direct pair requests. Used by the UI to show "Introduced by X".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub introduced_by: Option<String>,
 }
 
 fn default_pairing_status() -> PairingStatus {

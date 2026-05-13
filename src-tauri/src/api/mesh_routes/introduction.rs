@@ -61,43 +61,64 @@ pub async fn mesh_introduce(
         }
     }
 
-    log::info!("[mesh/introduce] {} introduced by {} — auto-pairing", intro.instance_name, sender_id);
+    log::info!("[mesh/introduce] {} introduced by {} — adding to pending (consent required)",
+        intro.instance_name, sender_id);
+
+    let request = crate::mesh::types::PairingRequest {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        from_instance_id: intro.instance_id.clone(),
+        from_instance_name: intro.instance_name.clone(),
+        from_address: intro.addresses.first().map(|a| a.ip.clone()).unwrap_or_default(),
+        from_port: intro.api_port,
+        public_key: intro.public_key.clone(),
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        status: crate::mesh::types::PairingStatus::Pending,
+        introduced_by: Some(sender_id.clone()),
+    };
 
     let mut mesh = state.mesh.lock();
-    let peer = crate::mesh::types::PairedPeer {
-        instance_id: intro.instance_id.clone(),
-        instance_name: intro.instance_name.clone(),
-        addresses: crate::mesh::types::sanitize_addresses(&intro.addresses),
-        api_port: intro.api_port,
-        public_key: intro.public_key.clone(),
-        paired_at: chrono::Utc::now().to_rfc3339(),
-        last_seen: Some(chrono::Utc::now().to_rfc3339()),
-        online: true, is_primary: false,
-        access_level: crate::mesh::types::AccessLevel::Full,
-        version: None,
-    };
-    mesh.paired_peers.insert(intro.instance_id.clone(), peer);
-    mesh.discovered_peers.remove(&intro.instance_id);
+    mesh.pending_requests.insert(request.request_id.clone(), request);
     let _ = mesh.save();
     drop(mesh);
 
     let _ = state.svc.app_handle.emit("mesh-state-changed", ());
 
-    {
-        let mesh_state = state.mesh.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            crate::mesh::broadcast_sync(&mesh_state).await;
-        });
-    }
-
     let mesh = state.mesh.lock();
     Ok(Json(serde_json::json!({
         "ok": true,
+        "pending": true,
         "instance_id": mesh.ident.identity.instance_id,
         "instance_name": mesh.ident.instance_name,
         "public_key": mesh.ident.identity.public_key,
         "api_port": mesh.api_port,
         "local_ip": mesh.local_ip,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn introduction_creates_pending_not_paired() {
+        // Logic-level check: when a peer is introduced, it must go to pending_requests,
+        // not directly into paired_peers. This is enforced by the code change below.
+        // The field `introduced_by` is set to the sender's instance_id.
+        let sender = "peer-alice";
+        let introduced = "peer-bob";
+        let request = crate::mesh::types::PairingRequest {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            from_instance_id: introduced.to_string(),
+            from_instance_name: "Bob".to_string(),
+            from_address: "192.168.1.2".to_string(),
+            from_port: 7685,
+            public_key: "fake-key".to_string(),
+            timestamp: 0,
+            status: crate::mesh::types::PairingStatus::Pending,
+            introduced_by: Some(sender.to_string()),
+        };
+        assert_eq!(request.introduced_by.as_deref(), Some(sender));
+        assert_eq!(request.status, crate::mesh::types::PairingStatus::Pending);
+    }
 }

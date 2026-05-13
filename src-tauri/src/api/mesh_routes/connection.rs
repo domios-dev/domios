@@ -46,6 +46,7 @@ pub async fn mesh_connect_peer(
             public_key,
             timestamp: now,
             status: crate::mesh::types::PairingStatus::Pending,
+            introduced_by: None,
         };
         (request, addr.ip.clone(), peer.api_port)
     };
