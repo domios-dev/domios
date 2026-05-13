@@ -44,6 +44,8 @@ pub struct MeshManager {
     /// in-memory and would otherwise pollute the real `~/.codeterm/mesh/`
     /// directory. Production code never sets this.
     pub disk_persist: bool,
+    /// Nonces seen within the last 310s — used to reject replayed signed requests.
+    pub seen_nonces: HashMap<String, u64>,
 }
 
 impl MeshManager {
@@ -76,6 +78,7 @@ impl MeshManager {
             mdns_service_fullname: None,
             udp_started: false,
             disk_persist: true,
+            seen_nonces: HashMap::new(),
         }
     }
 
@@ -88,6 +91,23 @@ impl MeshManager {
         }
         peers::save_peers(&self.paired_peers)?;
         peers::save_revocation_list(&self.revocation_list)?;
+        Ok(())
+    }
+
+    /// Check that `token`'s nonce has not been seen, record it, purge expired nonces.
+    /// Call this AFTER `verify_signed_request` succeeds. Returns Err on replay.
+    pub fn check_and_record_nonce(&mut self, token: &str) -> Result<(), String> {
+        let nonce = crate::mesh::crown::nonce_from_token(token)?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        if self.seen_nonces.contains_key(&nonce) {
+            return Err(format!("Replay detected: nonce {} already used", nonce));
+        }
+        self.seen_nonces.insert(nonce, now);
+        // Purge nonces older than 310s (just past the 300s validity window)
+        self.seen_nonces.retain(|_, &mut ts| now.saturating_sub(ts) <= 310);
         Ok(())
     }
 
@@ -611,6 +631,24 @@ pub fn refresh_local_addresses(mesh: &MeshState) -> bool {
 mod tests {
     use super::*;
     use types::{PairedPeer, PeerAddress, PeerAnnounce};
+
+    #[test]
+    fn check_and_record_nonce_rejects_replay() {
+        let mut mgr = MeshManager::new("test-node".to_string(), 7777);
+        mgr.disk_persist = false;
+
+        let (priv_key, pub_key) = crate::mesh::crown::generate_peer_keypair();
+        mgr.ident.identity.private_key = Some(priv_key.clone());
+        mgr.ident.identity.public_key = Some(pub_key.clone());
+        let instance_id = mgr.ident.identity.instance_id.clone();
+
+        let token = crate::mesh::crown::sign_request(&priv_key, &instance_id).unwrap();
+
+        // First use: should succeed
+        assert!(mgr.check_and_record_nonce(&token).is_ok(), "first use should succeed");
+        // Second use of same token: should fail
+        assert!(mgr.check_and_record_nonce(&token).is_err(), "replay should be rejected");
+    }
 
     fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
         let mut m = MeshManager::new("test-host".into(), 7685);
