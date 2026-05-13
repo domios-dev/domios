@@ -315,6 +315,8 @@ impl ServiceContext {
         launch_agent_in_background(
             self.clone(),
             pane_id.clone(),
+            tab_id.clone(),
+            ws_id.clone(),
             launch_cmd,
             agent_cmd.clone(),
             role_suffixed_task,
