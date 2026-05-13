@@ -363,12 +363,21 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
         }
         AgentAction::Model { name, pane } => {
-            let valid = ["sonnet", "haiku", "opus"];
-            if !valid.contains(&name.as_str()) {
-                eprintln!("Invalid model: {}. Use: sonnet, haiku, opus", name);
+            let pane_id = resolve_pane(client, pane);
+            let agent_type = http.get(format!("{}/api/panes", base))
+                .send()
+                .ok()
+                .and_then(|r| r.json::<serde_json::Value>().ok())
+                .and_then(|v| v.as_array().map(|arr| {
+                    arr.iter().find(|p| p.get("id").and_then(|i| i.as_str()) == Some(&pane_id))
+                        .and_then(|p| p.get("agent_type").and_then(|t| t.as_str()).map(String::from))
+                }).flatten());
+            if matches!(agent_type.as_deref(), Some("codex")) {
+                eprintln!("Error: Codex /model is an interactive picker, not scriptable.");
+                eprintln!("hint: kill the pane and respawn with the model:");
+                eprintln!("      codeterm agent spawn codex --model {}", name);
                 std::process::exit(1);
             }
-            let pane_id = resolve_pane(client, pane);
             // raw: bypass bracket paste so the TUI parses /model as a slash command, not chat input.
             let cmd = format!("/model {}", name);
             match http.post(format!("{}/api/panes/{}/send", base, pane_id))
