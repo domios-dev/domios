@@ -15,7 +15,13 @@ fn handle_resp(
 
 pub fn handle_mesh(json: bool, action: MeshAction) {
     let (base, token) = read_api_config();
-    let http = build_http(&token);
+    let http = match build_http(&token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
     match action {
         MeshAction::Status => {
             match http.get(format!("{}/api/mesh/status", base))

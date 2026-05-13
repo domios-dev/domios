@@ -72,7 +72,13 @@ fn mem_post_request(
 pub fn handle_mem(json_mode: bool, action: MemAction) {
     use std::io::Read;
     let (base, token) = read_api_config();
-    let http = build_http(&token);
+    let http = match build_http(&token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     let result: Result<serde_json::Value, String> = match action {
         MemAction::Search { query, kind, area, scope, limit, rerank } => {
