@@ -70,7 +70,13 @@ pub fn handle_update(
     after_update: Option<String>,
 ) {
     let (base_url, token) = read_api_config();
-    let http = build_http(&token);
+    let http = match build_http(&token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     let resolved = if let Some(ch) = channel {
         Some(UpdateAction::Channel {
