@@ -50,7 +50,7 @@ export interface Pane {
   agent_type?: string | null;
   agent_session_id?: string | null;
   agent_session_name?: string | null;
-  agent_session_model?: { id: string; label: string } | null;
+  agent_session_model?: string | null;
   role?: AgentRole | null;
   parent_pane_id?: string | null;
   can_spawn?: boolean;

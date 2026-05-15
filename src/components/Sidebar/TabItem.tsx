@@ -177,13 +177,12 @@ export function TabItem({
             {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
           </span>
         )}
-        {/* Model badge — provider supplies the label, frontend stays vendor-agnostic */}
-        {pane?.agent_session_model?.label && (
+        {pane?.agent_session_model && (
           <span
             className="shrink-0 px-1 py-0 text-[9px] leading-tight rounded font-mono uppercase tracking-wider border border-[var(--ct-border)] text-[var(--ct-muted-fg)]"
-            title={pane.agent_session_model.id}
+            title={pane.agent_session_model}
           >
-            {pane.agent_session_model.label}
+            {pane.agent_session_model}
           </span>
         )}
         {/* Connected services */}

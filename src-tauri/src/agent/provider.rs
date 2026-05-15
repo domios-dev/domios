@@ -97,13 +97,6 @@ pub struct SessionMessage {
     pub is_meta: bool,
 }
 
-/// Live model on a session — raw id + provider-supplied short label.
-/// Provider owns formatting so the frontend stays vendor-agnostic.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SessionModel {
-    pub id: String,
-    pub label: String,
-}
 
 // `ProviderDescriptor` is the wire format every plugin reports through
 // `AgentProvider::describe()`; the frontend renders Settings, Sidebar,
@@ -550,11 +543,8 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Read the current model from the session file — provider owns the
-    /// label so the frontend has zero Claude/Codex/etc. knowledge.
-    /// Returns the raw id ("claude-opus-4-7") + a short display label
-    /// ("Opus"). Polled periodically. (#tab-model-badge)
-    fn detect_session_model(&self, _cwd: &str, _session_id: &str) -> Option<SessionModel> {
+    /// Current model family on the live session — short label only.
+    fn detect_session_model(&self, _cwd: &str, _session_id: &str) -> Option<String> {
         None
     }
 
