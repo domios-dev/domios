@@ -91,6 +91,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 let p = pane.as_deref().unwrap_or("general");
                 ("GET".into(), format!("/api/panes/{}/status", p), None)
             }
+            crate::PaneAction::Find { .. } => {
+                // pane find runs entirely on the CLI side off `/api/panes`;
+                // mesh just relays the list. The fuzzy ranking happens
+                // locally so the response shape stays the same as `pane list`.
+                ("GET".into(), "/api/panes".into(), None)
+            }
         },
         Commands::Agent { action } => match action {
             crate::AgentAction::List => ("GET".into(), "/api/agents".into(), None),

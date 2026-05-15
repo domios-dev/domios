@@ -533,6 +533,15 @@ pub trait AgentProvider: Send + Sync {
         steps
     }
 
+    /// Extract the agent's human-readable session display name from the
+    /// current screen — e.g. Claude Code prints "vivid-bhabha-1234" in its
+    /// TUI banner. Captured once per agent run and stored on the pane so
+    /// `codeterm pane find <pattern>` can locate panes by friendly name.
+    /// Default returns None; providers that emit a stable handle override.
+    fn extract_session_name(&self, _screen: &str) -> Option<String> {
+        None
+    }
+
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
     fn is_output_noise(&self, text: &str) -> bool { let _ = text; false }
 

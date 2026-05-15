@@ -118,8 +118,72 @@ impl ServiceContext {
         if let Some(new_type) = next {
             if prev.as_deref() != Some(new_type.as_str()) {
                 self.kick_off_session_detection(pane_id, &new_type);
+                self.kick_off_session_name_detection(pane_id, &new_type);
+            }
+        } else {
+            // Agent cleared — drop the cached session name so a future agent
+            // run can capture a fresh one. The lock+session_id behaviour is
+            // unchanged; we only clear our own friendly-name annotation.
+            let mut mux = self.mux.lock();
+            if let Some(pane) = mux.get_pane_mut(pane_id) {
+                pane.agent_session_name = None;
             }
         }
+    }
+
+    /// Poll the screen for the provider's session display name once the agent
+    /// is settled. Stops as soon as a name is found (or after a budget) so
+    /// the regex doesn't spin on every output chunk. See AgentProvider::
+    /// extract_session_name; Claude returns "vivid-bhabha-1234" etc. (#99).
+    fn kick_off_session_name_detection(&self, pane_id: &str, agent_id: &str) {
+        if pane_id.is_empty() || agent_id.is_empty() {
+            return;
+        }
+        let svc = self.clone();
+        let pane_id = pane_id.to_string();
+        let agent_id = agent_id.to_string();
+        std::thread::spawn(move || {
+            let step = std::time::Duration::from_millis(750);
+            // 30 attempts × 750ms = ~22s — same magnitude as readiness
+            // strategy, long enough for the splash to settle on slow hosts.
+            for _ in 0..30u32 {
+                std::thread::sleep(step);
+                let (pty_id, already, current_agent) = {
+                    let mux = svc.mux.lock();
+                    let Some(p) = mux.get_pane(&pane_id) else { return };
+                    (
+                        p.pty_id.clone(),
+                        p.agent_session_name.clone(),
+                        p.agent_type.clone(),
+                    )
+                };
+                if already.is_some() { return; }
+                if current_agent.as_deref() != Some(agent_id.as_str()) { return; }
+                let Some(pty_id) = pty_id else { continue };
+                let screen = svc.screen_state.lock().get_screen_text(&pty_id).unwrap_or_default();
+                if screen.is_empty() { continue; }
+                let name = svc.agent_registry
+                    .with_provider(&agent_id, |p| p.extract_session_name(&screen))
+                    .flatten();
+                if let Some(name) = name {
+                    let mut mux = svc.mux.lock();
+                    if let Some(p) = mux.get_pane_mut(&pane_id) {
+                        if p.agent_type.as_deref() == Some(agent_id.as_str())
+                            && p.agent_session_name.is_none()
+                        {
+                            log::info!(
+                                "[session-name] pane={} captured {} (provider={})",
+                                pane_id, name, agent_id,
+                            );
+                            p.agent_session_name = Some(name);
+                            drop(mux);
+                            svc.emit_state_changed();
+                        }
+                    }
+                    return;
+                }
+            }
+        });
     }
 
     fn replay_inbound_buffer(&self, pane_id: &str, new_type: &str) {
