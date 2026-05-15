@@ -109,7 +109,18 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     }
                     buf
                 } else if let Some(path) = from_file.as_ref() {
-                    std::fs::read_to_string(path).unwrap_or_else(|_| body.clone())
+                    // Surface the read error explicitly — the local path
+                    // exits 1 on failure (cmd/paste.rs), the mesh path used
+                    // to silently fall back to `body` (typically empty) and
+                    // then trip the empty-body guard below with a misleading
+                    // message. Same UX both paths.
+                    match std::fs::read_to_string(path) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            eprintln!("Error: failed to read --from-file {}: {}", path, e);
+                            std::process::exit(1);
+                        }
+                    }
                 } else {
                     body.clone()
                 };
@@ -119,7 +130,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 let mut payload = serde_json::json!({"body": resolved});
                 if let Some(spec) = ttl.as_deref() {
-                    if let Some(ms) = parse_duration_ms_relay(spec) {
+                    if let Some(ms) = crate::cmd::paste::parse_duration_ms(spec) {
                         payload["ttl_ms"] = serde_json::json!(ms);
                     }
                 }
@@ -658,31 +669,3 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
     }
 }
 
-/// Local copy of the duration parser — keeps the relay arm self-contained
-/// without dragging cli/cmd/paste internals into args/mesh code.
-fn parse_duration_ms_relay(s: &str) -> Option<u64> {
-    let s = s.trim();
-    if s.is_empty() { return None; }
-    let mut total: u64 = 0;
-    let mut num = String::new();
-    for c in s.chars() {
-        if c.is_ascii_digit() {
-            num.push(c);
-        } else {
-            let n: u64 = num.parse().ok()?;
-            num.clear();
-            total += match c {
-                's' => n * 1_000,
-                'm' => n * 60 * 1_000,
-                'h' => n * 60 * 60 * 1_000,
-                'd' => n * 24 * 60 * 60 * 1_000,
-                _ => return None,
-            };
-        }
-    }
-    if !num.is_empty() {
-        let n: u64 = num.parse().ok()?;
-        total += n * 60 * 1_000;
-    }
-    if total == 0 { None } else { Some(total) }
-}

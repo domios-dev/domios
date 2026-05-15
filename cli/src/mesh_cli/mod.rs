@@ -154,6 +154,16 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         }
     }
 
+    // pane find needs the peer's list ranked by the local fuzzy matcher —
+    // a plain relay would print every pane on the peer with no ranking,
+    // ignoring the user's pattern entirely. Fetch raw, then rank.
+    if let Commands::Pane { action: super::PaneAction::Find { pattern } } = &cli.command {
+        let panes = relay::mesh_relay_fetch_json(&http, &base, &token, target, "GET", "/api/panes", None);
+        let arr = panes.as_array().cloned().unwrap_or_default();
+        crate::cmd::pane::print_pane_find_results(cli.json, pattern, &arr);
+        return;
+    }
+
     let (method, path, body) = api_map::cli_command_to_api(&cli.command);
     relay::mesh_relay_generic(&http, &base, &token, target, &method, &path, body.as_deref(), cli.json);
 }

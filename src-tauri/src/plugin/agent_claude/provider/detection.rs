@@ -50,9 +50,12 @@ pub(super) fn extract_session_name(screen: &str) -> Option<String> {
 
     // Bare handle: short lowercase adjective-noun-digits handle on its own
     // line (or surrounded by whitespace). Bounded length so we don't pick
-    // up arbitrary "two-word-1234" text from prose.
+    // up arbitrary "error-code-404" / "tab-key-200" text from prose — the
+    // tokens have to look like the actual Claude convention (4-10 chars
+    // each, 4-digit number) and live on their own line, not embedded in
+    // prose. Trades a few false negatives for far fewer false positives.
     let bare = BARE.get_or_init(|| {
-        regex::Regex::new(r"(?m)(?:^|\s)([a-z]{3,12}-[a-z]{3,12}-\d{2,6})(?:\s|$)")
+        regex::Regex::new(r"(?m)^\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*$")
             .expect("static regex")
     });
     bare.captures(screen)
@@ -144,8 +147,8 @@ mod tests {
     #[test]
     fn extract_session_name_bare_handle() {
         // Bare handle on its own line, no "Session:" label.
-        let screen = "Resuming previous session\n\n  brave-tiger-42\n\nReady.";
-        assert_eq!(extract_session_name(screen).as_deref(), Some("brave-tiger-42"));
+        let screen = "Resuming previous session\n\n  brave-tiger-4242\n\nReady.";
+        assert_eq!(extract_session_name(screen).as_deref(), Some("brave-tiger-4242"));
     }
 
     #[test]
@@ -155,13 +158,11 @@ mod tests {
     }
 
     #[test]
-    fn extract_session_name_ignores_arbitrary_word_word_number_in_prose() {
-        // The bare-handle regex requires both halves to be short lowercase
-        // adjective/noun-shaped tokens, so "user-name-100" passes; that's
-        // the same shape as a real handle and a false positive we can live
-        // with (the explicit "Session:" form is preferred when present).
-        // Hyphenated-but-too-long words should NOT match.
-        let screen = "some really-really-extraordinarilylongword-name-99999999 in prose";
+    fn extract_session_name_ignores_inline_prose_with_hyphens() {
+        // The bare regex requires the handle on its OWN line and rejects
+        // it embedded in prose — protects against "error-code-1234" style
+        // false positives that look syntactically similar.
+        let screen = "we hit error-code-1234 while parsing — see error-code-5678 elsewhere";
         assert!(extract_session_name(screen).is_none());
     }
 

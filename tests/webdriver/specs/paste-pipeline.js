@@ -27,62 +27,52 @@ async function focusVisiblePane() {
     async () => browser.execute(() => document.querySelector('.xterm-helper-textarea') !== null),
     { timeout: 10000, timeoutMsg: 'no rendered xterm pane in DOM' },
   );
-  const focused = await browser.execute(() => {
+  const result = await browser.execute(() => {
+    const root = document.querySelector('[data-pane-id]');
+    const id = root?.getAttribute('data-pane-id') || null;
     const ta = document.querySelector('.xterm-helper-textarea');
-    ta.focus();
-    return { ok: document.activeElement === ta };
+    ta?.focus();
+    return { ok: document.activeElement === ta, paneId: id };
   });
-  if (!focused.ok) throw new Error(`could not focus xterm: ${JSON.stringify(focused)}`);
+  if (!result.ok || !result.paneId) {
+    throw new Error(`could not focus xterm: ${JSON.stringify(result)}`);
+  }
+  return result.paneId;
 }
 
-async function clearAllOutputs() {
-  // Sentinel must appear AFTER the action under test. The send-text endpoint
-  // writes a clear-screen byte (\f / Ctrl+L) to the visible pane — but since
-  // sentinel check is over ALL panes, we just rely on the sentinel being
-  // unique per test (Date.now()-suffixed). The clearScreen step on the focused
-  // pane is best-effort.
+async function refocusXterm() {
   await browser.execute(() => {
     const ta = document.querySelector('.xterm-helper-textarea');
     ta?.focus();
   });
 }
 
-async function waitForSentinelAnywhere(timeoutMs = 5000, baseline = {}) {
-  // Claude TUI eats bracketed-paste and shows it as `[Pasted text #N]` —
-  // SENTINEL itself never appears on screen in that case. So we accept
-  // either the literal sentinel (shell pane echo path) OR a NEW
-  // "[Pasted text #N]" placeholder that wasn't there in `baseline`.
+// Wait for the sentinel (or a fresh "[Pasted text #N]" placeholder above
+// the per-pane baseline) to appear on the SPECIFIC pane the action targeted.
+// "Any pane anywhere" is too loose — a placeholder bump in a sibling
+// Claude pane could satisfy the assertion even if our path never fired.
+async function waitForSentinelOnPane(paneId, baselineForPane, timeoutMs = 5000) {
   const placeholderRe = /\[Pasted text #(\d+)/g;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const panes = await api('GET', '/panes');
-    for (const p of panes) {
-      if (!p.pty_id) continue;
-      const out = await api('GET', `/panes/${p.id}/output?offset=0&strip_ansi=true`);
-      const text = out.output || '';
-      if (text.includes(SENTINEL)) return { paneId: p.id, kind: 'sentinel' };
-      const placeholders = [...text.matchAll(placeholderRe)].map((m) => Number(m[1]));
-      const baselineMax = baseline[p.id] ?? -1;
-      const fresh = placeholders.filter((n) => n > baselineMax);
-      if (fresh.length > 0) return { paneId: p.id, kind: 'placeholder', n: Math.max(...fresh) };
-    }
+    const out = await api('GET', `/panes/${paneId}/output?offset=0&strip_ansi=true`);
+    const text = out.output || '';
+    if (text.includes(SENTINEL)) return { kind: 'sentinel' };
+    const placeholders = [...text.matchAll(placeholderRe)].map((m) => Number(m[1]));
+    const fresh = placeholders.filter((n) => n > baselineForPane);
+    if (fresh.length > 0) return { kind: 'placeholder', n: Math.max(...fresh) };
     await browser.pause(200);
   }
   return null;
 }
 
-async function snapshotPlaceholders() {
-  const out = {};
-  const panes = await api('GET', '/panes');
-  for (const p of panes) {
-    if (!p.pty_id) continue;
-    const r = await api('GET', `/panes/${p.id}/output?offset=0&strip_ansi=true`);
-    const text = r.output || '';
-    const ns = [...text.matchAll(/\[Pasted text #(\d+)/g)].map((m) => Number(m[1]));
-    out[p.id] = ns.length ? Math.max(...ns) : -1;
-  }
-  return out;
+async function focusedPaneBaseline(paneId) {
+  const out = await api('GET', `/panes/${paneId}/output?offset=0&strip_ansi=true`);
+  const text = out.output || '';
+  const ns = [...text.matchAll(/\[Pasted text #(\d+)/g)].map((m) => Number(m[1]));
+  return ns.length ? Math.max(...ns) : -1;
 }
+
 
 async function writeClipboard(text) {
   // executeAsync resolves the Promise on the page; plain `execute` returns
@@ -103,41 +93,40 @@ async function sendChord(keys) {
 }
 
 describe('paste pipeline (#102)', () => {
+  let focusedPaneId;
+
   before(async () => {
     // Force a hard reload so the frontend re-fetches pane state from the
-    // backend instead of rendering a stale React snapshot. Without this,
-    // Tauri WebView keeps the previous dev session's component tree alive
-    // across daemon restarts — DOM pane ids drift away from API truth.
+    // backend instead of rendering a stale React snapshot.
     await browser.refresh();
     await browser.pause(2000);
-    await focusVisiblePane();
+    focusedPaneId = await focusVisiblePane();
     const wrote = await writeClipboard(SENTINEL);
     expect(wrote).toBe(true);
   });
 
-  it('Ctrl+V → sentinel lands in some PTY', async () => {
-    const baseline = await snapshotPlaceholders();
-    await clearAllOutputs();
+  it('Ctrl+V → sentinel lands in the focused PTY', async () => {
+    const baseline = await focusedPaneBaseline(focusedPaneId);
+    await refocusXterm();
     await sendChord(['Control', 'v']);
-    const hit = await waitForSentinelAnywhere(6000, baseline);
+    const hit = await waitForSentinelOnPane(focusedPaneId, baseline, 6000);
     expect(hit).not.toBeNull();
   });
 
   it('Ctrl+Shift+V uses the same canonical pipeline', async () => {
-    const baseline = await snapshotPlaceholders();
-    await clearAllOutputs();
+    const baseline = await focusedPaneBaseline(focusedPaneId);
+    await refocusXterm();
     await sendChord(['Control', 'Shift', 'v']);
-    const hit = await waitForSentinelAnywhere(6000, baseline);
+    const hit = await waitForSentinelOnPane(focusedPaneId, baseline, 6000);
     expect(hit).not.toBeNull();
   });
 
   it('right-click → Paste menu routes through the same handler', async () => {
-    const baseline = await snapshotPlaceholders();
-    await clearAllOutputs();
-    await browser.execute(() => {
-      const el = document.querySelector('[data-pane-id]');
+    const baseline = await focusedPaneBaseline(focusedPaneId);
+    await browser.execute((pid) => {
+      const el = document.querySelector(`[data-pane-id="${pid}"]`);
       el?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }));
-    });
+    }, focusedPaneId);
     // ContextMenu defers its listener via requestAnimationFrame.
     await browser.pause(300);
     const clicked = await browser.execute(() => {
@@ -147,15 +136,14 @@ describe('paste pipeline (#102)', () => {
       return false;
     });
     expect(clicked).toBe(true);
-    const hit = await waitForSentinelAnywhere(6000, baseline);
+    const hit = await waitForSentinelOnPane(focusedPaneId, baseline, 6000);
     expect(hit).not.toBeNull();
   });
 
   it('drag text → sentinel lands via the plain-text drop path', async () => {
-    const baseline = await snapshotPlaceholders();
-    await clearAllOutputs();
-    const dropped = await browser.execute((payload) => {
-      const el = document.querySelector('[data-pane-id]');
+    const baseline = await focusedPaneBaseline(focusedPaneId);
+    const dropped = await browser.execute((pid, payload) => {
+      const el = document.querySelector(`[data-pane-id="${pid}"]`);
       if (!el) return false;
       const dt = new DataTransfer();
       dt.setData('text/plain', payload);
@@ -163,9 +151,9 @@ describe('paste pipeline (#102)', () => {
         bubbles: true, cancelable: true, dataTransfer: dt,
       }));
       return true;
-    }, SENTINEL);
+    }, focusedPaneId, SENTINEL);
     expect(dropped).toBe(true);
-    const hit = await waitForSentinelAnywhere(6000, baseline);
+    const hit = await waitForSentinelOnPane(focusedPaneId, baseline, 6000);
     expect(hit).not.toBeNull();
   });
 });
