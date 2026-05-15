@@ -333,3 +333,35 @@ fn update_rejects_invalid_tz() {
     });
     assert!(r.is_err());
 }
+
+/// Regression for issue #97: editing only `schedule` (no tz, no jitter) must
+/// recompute `next_run`, not leave it anchored to the previous schedule.
+#[test]
+fn update_schedule_only_recomputes_next_run() {
+    let mut store = temp_store();
+    let job = store.create(CronCreateParams {
+        tz: Some("Europe/Riga".into()),
+        jitter_max_ms: Some(0),
+        ..make_params("DailyCron", "ws", "0 6 * * *")
+    }).unwrap();
+    let before = job.next_run.expect("created cron must have next_run");
+
+    let updated = store.update(&job.id, CronUpdateParams {
+        name: None, description: None,
+        schedule: Some("0 3 * * *".into()),
+        task: None, cwd: None, role: None,
+        enabled: None, max_history: None, agent: None, model: None,
+        jitter_max_ms: None,
+        tz: None,
+        timeout_seconds: None,
+    }).unwrap();
+
+    assert_eq!(updated.schedule, "0 3 * * *");
+    assert_eq!(updated.tz.as_deref(), Some("Europe/Riga"));
+    let after = updated.next_run.expect("next_run must remain set after edit");
+    assert_ne!(
+        before, after,
+        "schedule-only edit must move next_run off the old schedule (was {}, still {})",
+        before, after
+    );
+}
