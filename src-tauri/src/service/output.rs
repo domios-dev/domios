@@ -71,11 +71,21 @@ impl ServiceContext {
             if count % 50 == 0 { // Check every ~50 chunks
                 // Grace period: skip exit detection for 30s after agent_type was set.
                 // Prevents false "agent exited" during startup (shell prompt visible before agent launches).
-                let in_grace = self.mux.lock().get_pane(pid)
-                    .and_then(|p| p.agent_set_at)
-                    .map(|t| t.elapsed().as_secs() < 30)
-                    .unwrap_or(false);
-                if in_grace {
+                // Locked panes (explicit spawn intent) bypass output-based clearing entirely:
+                // a slow-starting agent (e.g. Claude over mesh on Windows) can leave the shell
+                // prompt visible past the grace window even though the agent is alive and
+                // processing — see issue #100.
+                let (in_grace, locked) = {
+                    let mux = self.mux.lock();
+                    let pane = mux.get_pane(pid);
+                    let grace = pane
+                        .and_then(|p| p.agent_set_at)
+                        .map(|t| t.elapsed().as_secs() < 30)
+                        .unwrap_or(false);
+                    let locked = pane.map(|p| p.agent_type_locked).unwrap_or(false);
+                    (grace, locked)
+                };
+                if in_grace || locked {
                     agent_type
                 } else {
                     let screen = self.screen_state.lock().get_screen_text(pty_id).unwrap_or_default();
