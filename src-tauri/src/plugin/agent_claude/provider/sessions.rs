@@ -51,6 +51,67 @@ pub(super) fn session_file_path(cwd: &str, session_id: &str) -> Option<PathBuf> 
     Some(dir.join(format!("{}.jsonl", session_id)))
 }
 
+/// Scan a session file from the bottom for the most recent
+/// `message.model` value. Claude logs the model on every message, so a
+/// mid-session `/model opus` is observable within a tick of the poller.
+pub(super) fn detect_session_model(cwd: &str, session_id: &str) -> Option<provider::SessionModel> {
+    let path = session_file_path(cwd, session_id)?;
+    let text = std::fs::read_to_string(&path).ok()?;
+    for line in text.lines().rev() {
+        if line.is_empty() { continue; }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(m) = v
+                .get("message")
+                .and_then(|m| m.get("model"))
+                .and_then(|m| m.as_str())
+            {
+                if !m.is_empty() && m != "<synthetic>" {
+                    return Some(provider::SessionModel {
+                        id: m.to_string(),
+                        label: claude_model_short_label(m),
+                    });
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Map a raw Claude model id to a short display label. Pure string
+/// transform — no IO, no lookups against the registered model catalog
+/// (that would couple display logic to runtime registration order).
+fn claude_model_short_label(model_id: &str) -> String {
+    let m = model_id.to_ascii_lowercase();
+    if m.contains("opus") { return "Opus".into(); }
+    if m.contains("sonnet") { return "Sonnet".into(); }
+    if m.contains("haiku") { return "Haiku".into(); }
+    // Strip "claude-" prefix and trailing dashed version, capitalize.
+    let body = m.strip_prefix("claude-").unwrap_or(&m);
+    let name = body.split('-').next().unwrap_or(body);
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => model_id.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod model_label_tests {
+    use super::*;
+
+    #[test]
+    fn claude_short_labels_canonical() {
+        assert_eq!(claude_model_short_label("claude-opus-4-7"), "Opus");
+        assert_eq!(claude_model_short_label("claude-sonnet-4-6"), "Sonnet");
+        assert_eq!(claude_model_short_label("claude-haiku-4-5-20251001"), "Haiku");
+    }
+
+    #[test]
+    fn claude_short_label_unknown_family_falls_back_to_capitalized_root() {
+        assert_eq!(claude_model_short_label("claude-uranium-5-0"), "Uranium");
+    }
+}
+
 pub(super) fn enumerate_sessions() -> Vec<SessionMetadata> {
     let Some(home) = dirs::home_dir() else { return Vec::new() };
     let projects_root = home.join(".claude").join("projects");

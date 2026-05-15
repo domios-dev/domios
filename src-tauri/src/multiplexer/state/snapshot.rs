@@ -155,6 +155,9 @@ impl MultiplexerState {
                         // Friendly session name is captured from the TUI banner
                         // post-restart; not persisted across snapshots (#99).
                         agent_session_name: None,
+                        // Same lifecycle as session_name — re-derived from
+                        // session file post-restart.
+                        agent_session_model: None,
                         role: parsed_role,
                         parent_pane_id: parent_pane_id.clone(),
                         can_spawn: *can_spawn,
