@@ -525,6 +525,21 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
     }
 }
 
+const DREAMING_TELEGRAM_STEP_ENABLED: &str = r#"Then push the INSIGHT (only the insight prose, not the log block) to
+telegram so the vault talks back. OK if it errors — the diary in mem
+is the durable artifact:
+
+    codeterm mem search "telegram chat id" --limit 1
+    # extract the chat id, then:
+    codeterm bridge send --to <chat_id> --service telegram \
+      "🧠 Dreamer brief\n\n<just the insight, no <insight> tags, no log>"
+    # If no fact found or bridge errors, skip — telegram is nice-to-have."#;
+
+const DREAMING_TELEGRAM_STEP_DISABLED: &str = "Telegram notification is DISABLED \
+    (memory.dreaming_telegram_notify=false). Skip the bridge send step entirely — \
+    do NOT search for a chat id and do NOT call `codeterm bridge send`. The diary \
+    in mem is the artifact; the user has opted out of the nightly Telegram ping.";
+
 /// Spawn a headless dreaming worker for REM phase (dedup, classify, insights, diary).
 /// Called after the supervisor runs the SQL phases.
 pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
@@ -543,10 +558,22 @@ pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
     };
     let model = crate::agent::models::canonicalize_short(&raw_model).to_string();
 
+    // Substitute the conditional telegram-notify step. When the config flag
+    // is enabled (default), the dreamer pushes its one-line insight to the
+    // Telegram bridge after writing the diary. When disabled, the dreamer
+    // is instructed to skip the step entirely — the diary in mem stays the
+    // durable record either way.
+    let telegram_step = if mem_cfg.dreaming_telegram_notify {
+        DREAMING_TELEGRAM_STEP_ENABLED
+    } else {
+        DREAMING_TELEGRAM_STEP_DISABLED
+    };
+    let prompt = crate::prompts::DREAMING_REM.replace("{telegram_notify_step}", telegram_step);
+
     match super::workers::spawn_headless(
         svc,
         format!("{}rem", super::workers::DREAMING_INTENT_PREFIX),
-        crate::prompts::DREAMING_REM.to_string(),
+        prompt,
         "system:dreaming".into(),
         agent,
         model,
@@ -837,6 +864,47 @@ mod tests {
 
         let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
         assert_eq!(job.schedule, "0 6 * * *", "legacy 3am must be auto-migrated to 6am");
+    }
+
+    #[test]
+    fn dreaming_telegram_step_substitution() {
+        // Enabled (default): the placeholder must expand to the real bridge-send
+        // instructions so the dreamer pushes its 🧠 brief to Telegram.
+        let enabled = crate::prompts::DREAMING_REM.replace(
+            "{telegram_notify_step}",
+            super::DREAMING_TELEGRAM_STEP_ENABLED,
+        );
+        assert!(
+            enabled.contains("codeterm bridge send"),
+            "enabled prompt must instruct bridge send"
+        );
+        assert!(
+            enabled.contains("🧠 Dreamer brief"),
+            "enabled prompt must keep the brief tag"
+        );
+        assert!(
+            !enabled.contains("{telegram_notify_step}"),
+            "placeholder must be substituted, not literal"
+        );
+
+        // Disabled: the placeholder expands to an explicit "skip" directive
+        // and the bridge-send command must NOT appear in the final prompt.
+        let disabled = crate::prompts::DREAMING_REM.replace(
+            "{telegram_notify_step}",
+            super::DREAMING_TELEGRAM_STEP_DISABLED,
+        );
+        assert!(
+            !disabled.contains("codeterm bridge send"),
+            "disabled prompt must NOT mention bridge send anywhere"
+        );
+        assert!(
+            disabled.contains("DISABLED"),
+            "disabled prompt must explicitly flag opt-out"
+        );
+        assert!(
+            disabled.contains("dreaming_telegram_notify"),
+            "disabled prompt must cite the config key so user knows what to flip"
+        );
     }
 
     #[test]

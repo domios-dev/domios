@@ -110,7 +110,7 @@ reference material for *what* each step means. The walkthrough shows
         → mem update <diary_id> with CALIBRATION line.
 11. Build the FINAL <insight> prose now that you've seen everything.
 12. mem update <diary_id> with the final body (insight + completed log).
-13. codeterm bridge send --to <chat_id> ...    # telegram (insight only)
+13. (telegram notify — conditional on memory.dreaming_telegram_notify config)
 14. codeterm mem worker report "Hubs: …. Islands: …. Diary saved."
 ```
 
@@ -519,15 +519,7 @@ The summary is a teaser of the insight, not a stat dump:
       --summary "<one sentence — what the dream noticed, in the dream's own voice>" \
       --tags dream-diary --area _dreams --skip-extract "<the full body with both blocks>"
 
-Then push the INSIGHT (only the insight prose, not the log block) to
-telegram so the vault talks back. OK if it errors — the diary in mem
-is the durable artifact:
-
-    codeterm mem search "telegram chat id" --limit 1
-    # extract the chat id, then:
-    codeterm bridge send --to <chat_id> --service telegram \
-      "🧠 Dreamer brief\n\n<just the insight, no <insight> tags, no log>"
-    # If no fact found or bridge errors, skip — telegram is nice-to-have.
+{telegram_notify_step}
 
 ## B.2 — Worker report
 
