@@ -201,6 +201,11 @@ pub struct Pane {
     /// AgentProvider::extract_session_name. Searchable via `codeterm pane find`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_session_name: Option<String>,
+    /// Current model on the live session — raw id + provider-supplied short
+    /// label. Polled from the session file so a mid-session `/model opus`
+    /// reflects within a few seconds. Shown as a tag on the tab.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_session_model: Option<crate::agent::provider::SessionModel>,
     /// Orchestration role (orchestrator / lead / worker).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,

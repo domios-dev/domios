@@ -119,16 +119,61 @@ impl ServiceContext {
             if prev.as_deref() != Some(new_type.as_str()) {
                 self.kick_off_session_detection(pane_id, &new_type);
                 self.kick_off_session_name_detection(pane_id, &new_type);
+                self.kick_off_session_model_polling(pane_id, &new_type);
             }
         } else {
-            // Agent cleared — drop the cached session name so a future agent
-            // run can capture a fresh one. The lock+session_id behaviour is
-            // unchanged; we only clear our own friendly-name annotation.
             let mut mux = self.mux.lock();
             if let Some(pane) = mux.get_pane_mut(pane_id) {
                 pane.agent_session_name = None;
+                pane.agent_session_model = None;
             }
         }
+    }
+
+    /// Periodically poll the session file for the current model. Runs
+    /// every 5s for the lifetime of the agent — `/model opus` mid-session
+    /// reflects within one tick. (#tab-model-badge)
+    fn kick_off_session_model_polling(&self, pane_id: &str, agent_id: &str) {
+        if pane_id.is_empty() || agent_id.is_empty() {
+            return;
+        }
+        let svc = self.clone();
+        let pane_id = pane_id.to_string();
+        let agent_id = agent_id.to_string();
+        std::thread::spawn(move || {
+            let step = std::time::Duration::from_secs(5);
+            loop {
+                std::thread::sleep(step);
+                let (cwd, session_id, current_agent, current_model) = {
+                    let mux = svc.mux.lock();
+                    let Some(p) = mux.get_pane(&pane_id) else { return };
+                    (
+                        p.cwd.clone(),
+                        p.agent_session_id.clone(),
+                        p.agent_type.clone(),
+                        p.agent_session_model.clone(),
+                    )
+                };
+                if current_agent.as_deref() != Some(agent_id.as_str()) { return; }
+                let (Some(cwd), Some(sid)) = (cwd, session_id) else { continue };
+                let model = svc.agent_registry
+                    .with_provider(&agent_id, |p| p.detect_session_model(&cwd, &sid))
+                    .flatten();
+                if model == current_model { continue; }
+                let mut mux = svc.mux.lock();
+                if let Some(p) = mux.get_pane_mut(&pane_id) {
+                    if p.agent_type.as_deref() == Some(agent_id.as_str()) {
+                        log::info!(
+                            "[session-model] pane={} {:?} -> {:?}",
+                            pane_id, p.agent_session_model, model
+                        );
+                        p.agent_session_model = model;
+                        drop(mux);
+                        svc.emit_state_changed();
+                    }
+                }
+            }
+        });
     }
 
     /// Poll the screen for the provider's session display name once the agent

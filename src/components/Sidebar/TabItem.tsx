@@ -177,6 +177,15 @@ export function TabItem({
             {hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title}
           </span>
         )}
+        {/* Model badge — provider supplies the label, frontend stays vendor-agnostic */}
+        {pane?.agent_session_model?.label && (
+          <span
+            className="shrink-0 px-1 py-0 text-[9px] leading-tight rounded font-mono uppercase tracking-wider border border-[var(--ct-border)] text-[var(--ct-muted-fg)]"
+            title={pane.agent_session_model.id}
+          >
+            {pane.agent_session_model.label}
+          </span>
+        )}
         {/* Connected services */}
         {pane?.connected_services?.includes("telegram") && (
           <span className="shrink-0 text-[var(--ct-muted-fg)]/50">

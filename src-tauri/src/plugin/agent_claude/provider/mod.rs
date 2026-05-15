@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use crate::agent::provider::{
     AgentLaunchParams, AgentProvider, ModelInfo, ReadinessStrategy, SessionIdInjection,
-    SessionMessage, SessionMetadata, SettingField, TaskDelivery, UsageSnapshot,
+    SessionMessage, SessionMetadata, SessionModel, SettingField, TaskDelivery, UsageSnapshot,
     VerifySubmitStrategy,
 };
 
@@ -117,6 +117,10 @@ impl AgentProvider for ClaudeProvider {
         max_age: Option<Duration>,
     ) -> Option<String> {
         sessions::detect_session_id(cwd, exclude, max_age)
+    }
+
+    fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<SessionModel> {
+        sessions::detect_session_model(cwd, session_id)
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
