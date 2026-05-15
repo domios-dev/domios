@@ -106,6 +106,12 @@ pub enum MeshAction {
         #[command(subcommand)]
         action: MeshPeerAction,
     },
+    /// Go offline: stop pinging peers, stop announcing, stop refreshing
+    /// local addresses (which keeps Tailscale alive). The daemon stays up;
+    /// peers will time out our presence on their side. Local-only command.
+    Offline,
+    /// Come back online — resume mesh activity. Local-only.
+    Online,
 }
 
 #[derive(Subcommand)]
@@ -133,7 +139,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
             MeshAction::Connect { .. } | MeshAction::Approve { .. } |
             MeshAction::Reject { .. } | MeshAction::Disconnect { .. } |
             MeshAction::Discover | MeshAction::Broadcast | MeshAction::StopBroadcast |
-            MeshAction::Peer { .. } => {
+            MeshAction::Peer { .. } | MeshAction::Offline | MeshAction::Online => {
                 eprintln!("Error: mesh management commands are local-only and cannot be relayed via --mesh");
                 std::process::exit(1);
             }

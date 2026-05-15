@@ -3,6 +3,30 @@
   "description": "Evaluates the CodeTerm General Agent system prompt for correct behavioral responses",
   "evals": [
     {
+      "id": 102,
+      "name": "go-invisible-uses-mesh-offline",
+      "prompt": "[Telegram: 123456789] Уйди в инвиз — выруби меня из mesh, не хочу чтоб кто-то видел этот комп сейчас. Тейлскейл не трогай.",
+      "expected_output": "Agent runs `codeterm mesh offline` to flip the local mesh switch — does NOT stop Tailscale, does NOT unpair peers, does NOT mass-disconnect.",
+      "expectations": [
+        "Uses `codeterm mesh offline` to flip the local mesh-enabled flag",
+        "Does NOT run `tailscale down` or any Tailscale CLI — Tailscale stays untouched",
+        "Does NOT run `codeterm mesh disconnect` on any peer (that's permanent un-pairing, not invisibility)",
+        "Eventually replies to the Telegram user confirming the switch via bridge send"
+      ]
+    },
+    {
+      "id": 101,
+      "name": "disable-dreamer-telegram-toggle",
+      "prompt": "[Telegram: 123456789] Отключи телеграм-уведомления у дримера, не хочу больше получать его ночные брифы — диарю в меме оставь как есть.",
+      "expected_output": "Agent flips `memory.dreaming_telegram_notify` to false via config edit (codeterm config or PATCH /api/config), preserving everything else.",
+      "expectations": [
+        "Flips `memory.dreaming_telegram_notify` to false — via `codeterm config set`, PATCH /api/config, or direct config.toml edit",
+        "Does NOT disable the dreaming cron itself (`codeterm cron disable mem-dreaming-auto`) — only the telegram leg",
+        "Touches only `memory.dreaming_telegram_notify`. Does NOT also flip `memory.auto_extract`, `memory.librarian_enabled`, or any unrelated memory setting in the same response.",
+        "Eventually replies to the Telegram user confirming the change"
+      ]
+    },
+    {
       "id": 100,
       "name": "cross-mesh-handoff-uses-paste",
       "prompt": "I need to dispatch a long autonomous task to the claude agent on ROG. The task body is roughly 3 screens of prose with code blocks. Spawn the agent and give it the task.",

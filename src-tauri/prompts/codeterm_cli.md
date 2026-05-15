@@ -123,6 +123,15 @@ codeterm workspace create "CI" --mesh PEER
 
 Flow: `mesh peers` → find paired peer → `pane list --mesh PEER` → interact. Only paired peers accept commands. Mesh pairing (`mesh connect|approve|reject|disconnect`) is local to each machine and typically managed by the General Agent there.
 
+### Going invisible — `mesh offline` / `mesh online`
+
+```bash
+codeterm mesh offline    # stop pinging peers, stop announcing, stop refreshing local addrs
+codeterm mesh online     # resume
+```
+
+Hot-reload (≤15s, no daemon restart). Use when user wants to disappear from the network or stop CodeTerm from pinging Tailscale interfaces (which can keep the daemon's tun device alive). Tailscale itself is left untouched. Peers will time us out on their side. Dreamer's telegram ping is a separate toggle (`memory.dreaming_telegram_notify`).
+
 ### Cross-mesh handoff — `paste` (don't inline long `--task` over mesh)
 
 ```bash
