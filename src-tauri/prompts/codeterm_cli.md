@@ -123,6 +123,16 @@ codeterm workspace create "CI" --mesh PEER
 
 Flow: `mesh peers` → find paired peer → `pane list --mesh PEER` → interact. Only paired peers accept commands. Mesh pairing (`mesh connect|approve|reject|disconnect`) is local to each machine and typically managed by the General Agent there.
 
+### Pair a new device — `mesh broadcast`
+
+To let a brand new device discover this machine for pairing, **start a broadcast** (visible for ~5 min):
+
+```bash
+codeterm mesh broadcast    # be discoverable so a new device can find + pair you
+```
+
+Broadcast requires `mesh online`. If the user is currently offline, switch them online first AND broadcast — and tell them you did both. Just going online without broadcasting won't make a brand-new device find you.
+
 ### Going invisible — `mesh offline` / `mesh online`
 
 ```bash

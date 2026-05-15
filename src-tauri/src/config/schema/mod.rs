@@ -641,7 +641,7 @@ pub struct MeshConfig {
 impl Default for MeshConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             instance_name: hostname::get()
                 .map(|h| {
                     let name = h.to_string_lossy().to_string();
