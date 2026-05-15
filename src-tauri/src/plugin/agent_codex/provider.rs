@@ -169,6 +169,13 @@ impl AgentProvider for CodexProvider {
         codex_usage::read_from_path(&path)
     }
 
+    fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
+        let path = self.session_file_path(cwd, session_id)?;
+        let model = scan_tail_for_model(&path, 64 * 1024)
+            .or_else(|| scan_tail_for_model(&path, 512 * 1024))?;
+        Some(codex_short_label(&model))
+    }
+
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
         let Some(root) = Self::sessions_root() else { return Vec::new(); };
         let mut out = Vec::new();
@@ -621,6 +628,51 @@ fn read_session_meta(path: &std::path::Path) -> Option<(Option<String>, Option<S
     Some((id, cwd))
 }
 
+
+/// Tail-scan a codex jsonl for the latest `turn_context.payload.model`.
+/// Codex writes a fresh turn_context every interaction, so the last one is
+/// the active model — including post-`/model` swap.
+fn scan_tail_for_model(path: &std::path::Path, tail_bytes: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    if len == 0 { return None; }
+    let start = len.saturating_sub(tail_bytes);
+    f.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = Vec::with_capacity((len - start) as usize);
+    f.read_to_end(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if start > 0 && !lines.is_empty() { lines.remove(0); }
+    for line in lines.iter().rev() {
+        if line.is_empty() { continue; }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        if v.get("type").and_then(|t| t.as_str()) != Some("turn_context") { continue; }
+        let m = v.get("payload").and_then(|p| p.get("model")).and_then(|m| m.as_str())?;
+        if !m.is_empty() { return Some(m.to_string()); }
+    }
+    None
+}
+
+/// Short tab-badge label for a codex model id ("gpt-5-codex" → "Codex",
+/// "gpt-5" → "Gpt", "o3-mini" → "O3"). Known families collapse; anything
+/// else keeps the first dash-segment so the badge stays readable.
+fn codex_short_label(model_id: &str) -> String {
+    let m = model_id.to_ascii_lowercase();
+    if m.contains("codex") { return "Codex".into(); }
+    for fam in ["opus", "sonnet", "haiku", "gemini"] {
+        if m.contains(fam) {
+            let mut c = fam.chars();
+            return c.next().unwrap().to_ascii_uppercase().to_string() + c.as_str();
+        }
+    }
+    if m.starts_with("gpt") { return "GPT".into(); }
+    if let Some(first) = m.split('-').next() {
+        let mut c = first.chars();
+        return c.next().map(|x| x.to_ascii_uppercase()).into_iter().collect::<String>() + c.as_str();
+    }
+    model_id.to_string()
+}
 
 #[cfg(test)]
 #[path = "provider_tests.rs"]

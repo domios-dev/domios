@@ -133,18 +133,27 @@ impl OpenCodeProvider {
         None
     }
 
-    /// modelID of the most recent assistant message — drives the tab badge.
-    fn db_latest_assistant_model(session_id: &str) -> Option<String> {
+    /// modelID of the most recent assistant message across every session
+    /// rooted at `cwd` — drives the tab badge. Opencode spawns a fresh
+    /// session on model swap, so the pane's cached session_id goes stale;
+    /// scanning by cwd makes the badge follow the active workspace instead.
+    fn db_latest_assistant_model(cwd: &str) -> Option<String> {
         let path = Self::db_path()?;
         let conn = rusqlite::Connection::open_with_flags(
             &path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         ).ok()?;
+        let cwd_fwd = cwd.replace('\\', "/");
+        let cwd_bwd = cwd.replace('/', "\\");
         let mut stmt = conn.prepare(
-            "SELECT data FROM message WHERE session_id = ?1 \
-             ORDER BY time_created DESC LIMIT 20",
+            "SELECT m.data FROM message m \
+             JOIN session s ON s.id = m.session_id \
+             WHERE (s.directory = ?1 OR s.directory = ?2) \
+             ORDER BY m.time_created DESC LIMIT 50",
         ).ok()?;
-        let rows = stmt.query_map(rusqlite::params![session_id], |row| row.get::<_, String>(0)).ok()?;
+        let rows = stmt
+            .query_map(rusqlite::params![cwd_fwd, cwd_bwd], |row| row.get::<_, String>(0))
+            .ok()?;
         for raw in rows.flatten() {
             let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
             if v.get("role").and_then(|r| r.as_str()) != Some("assistant") { continue }
@@ -303,8 +312,8 @@ impl AgentProvider for OpenCodeProvider {
             .unwrap_or(false)
     }
 
-    fn detect_session_model(&self, _cwd: &str, session_id: &str) -> Option<String> {
-        let id = Self::db_latest_assistant_model(session_id)?;
+    fn detect_session_model(&self, cwd: &str, _session_id: &str) -> Option<String> {
+        let id = Self::db_latest_assistant_model(cwd)?;
         Some(opencode_short_label(&id))
     }
 
@@ -729,10 +738,17 @@ impl AgentProvider for OpenCodeProvider {
 /// stay as-is — that's how opencode itself shows them.
 fn opencode_short_label(model_id: &str) -> String {
     let m = model_id.to_ascii_lowercase();
-    for fam in ["opus", "sonnet", "haiku", "codex", "gemini", "gpt"] {
+    for fam in [
+        "opus", "sonnet", "haiku",
+        "codex", "gemini", "gpt",
+        "deepseek", "qwen", "llama", "mistral", "grok",
+    ] {
         if m.contains(fam) { return capitalize_family(fam); }
     }
-    model_id.to_string()
+    // opencode-zen codenames (big-pickle, small-cucumber, …): keep first
+    // two segments at most so the badge stays compact.
+    let trimmed: String = model_id.split('-').take(2).collect::<Vec<_>>().join("-");
+    if trimmed.len() <= 14 { trimmed } else { model_id.split('-').next().unwrap_or(model_id).to_string() }
 }
 
 fn capitalize_family(s: &str) -> String {
