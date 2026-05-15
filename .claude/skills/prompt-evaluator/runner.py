@@ -101,7 +101,21 @@ def load_prompt(reference: str) -> str:
     path = Path(reference)
     if not path.exists():
         raise SystemExit(f"prompt file not found: {reference}")
-    return path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8")
+    return _expand_placeholders(text)
+
+
+# Mirror the substitutions service/general_agent/instructions.rs performs so
+# evals see what the live agent sees. Right now only {codeterm_cli} matters —
+# without it, an eval of general_agent.md gets the literal placeholder string
+# and fails on any behaviour documented in the shared CLI reference.
+def _expand_placeholders(text: str) -> str:
+    if "{codeterm_cli}" not in text:
+        return text
+    cli_md = Path(__file__).resolve().parents[3] / "src-tauri" / "prompts" / "codeterm_cli.md"
+    if not cli_md.exists():
+        return text
+    return text.replace("{codeterm_cli}", cli_md.read_text(encoding="utf-8"))
 
 
 # ── Eval set loading ───────────────────────────────────────────────

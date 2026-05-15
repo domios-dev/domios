@@ -3,6 +3,18 @@
   "description": "Evaluates the CodeTerm General Agent system prompt for correct behavioral responses",
   "evals": [
     {
+      "id": 100,
+      "name": "cross-mesh-handoff-uses-paste",
+      "prompt": "I need to dispatch a long autonomous task to the claude agent on ROG. The task body is roughly 3 screens of prose with code blocks. Spawn the agent and give it the task.",
+      "expected_output": "Agent stashes the task body on ROG via `codeterm paste put --mesh ROG` first, then spawns claude with a short `--task` pointing at the paste slug — NOT inlining the long body in `--task`.",
+      "expectations": [
+        "Uses `codeterm paste put --mesh ROG` (with --from-stdin or --from-file) to stash the task body and get a paste slug",
+        "Spawns the remote agent via `codeterm agent spawn claude --mesh ROG` with a SHORT --task that references the paste slug (e.g. `codeterm paste pop $ID`)",
+        "Does NOT pass the full 3-screen task body inline as the --task argument",
+        "Does NOT reach for `codeterm mem save` to stash the ephemeral task body (mem is for durable facts, not handoffs)"
+      ]
+    },
+    {
       "id": 1,
       "name": "implicit-request-ask-not-act",
       "prompt": "[Telegram: 123456789] как там мой проект на workstation, все ок?",
