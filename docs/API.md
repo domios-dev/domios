@@ -85,6 +85,16 @@ Then: `Authorization: Bearer your-secret-token`
 |--------|------|------|-------------|
 | POST | `/api/batch` | `{commands: [{method, params, id?}]}` | Execute multiple commands sequentially (see below) |
 
+#### Pasteboard (cross-mesh ephemeral payloads, #98)
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/pasteboard` | `{body, content_type?, ttl_ms?, pop_on_read?}` | Stash a payload. Returns `{id: "paste:NNNNNN", expires_at}`. TTL default 1h, max 24h. 20-entry cap with oldest-first eviction. |
+| GET | `/api/pasteboard/{id}` | — | Fetch body. `?pop=true` deletes after read. Returns 404 if expired/unknown. |
+| DELETE | `/api/pasteboard/{id}` | — | Explicit delete. |
+| GET | `/api/pasteboard` | — | List local pastes (id, size, ttl_remaining_ms, content_type). |
+
+No disk persistence — restart wipes every paste. Correct semantics for "drop a payload, get a slug, let any peer fetch it, then forget."
+
 ### Pane Fields
 
 Fields returned by `GET /api/panes` for each pane:
@@ -1196,4 +1206,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 45 -->
+<!-- revision: 46 -->

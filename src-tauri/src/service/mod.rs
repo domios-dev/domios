@@ -91,6 +91,9 @@ pub struct ServiceContext {
     pub mux_emit_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::services::store::ServicesStore>,
     pub tokens: Arc<crate::services::tokens::TokenStore>,
+    /// Ephemeral cross-mesh pastebin. In-memory only; daemon restart wipes
+    /// all pastes. 20-entry cap, oldest-first eviction, TTL≤24h. (#98)
+    pub pasteboard: crate::pasteboard::PasteboardState,
     /// Watches bytes about to be written to PTYs; promotes typed `claude/codex/
     /// opencode ...<Enter>` lines to a locked `agent_type` on the pane.
     pub input_parser: Arc<input_parser::InputParser>,

@@ -14,6 +14,7 @@ pub mod mem;
 pub mod mesh;
 pub mod multiplexer;
 mod notification;
+pub mod pasteboard;
 pub mod paths;
 pub mod plugin;
 pub mod prompts;
@@ -411,6 +412,7 @@ pub fn run() {
                     .expect("services.db init"),
                 ),
                 tokens: Arc::new(crate::services::tokens::TokenStore::new()),
+                pasteboard: crate::pasteboard::PasteboardState::new(),
                 input_parser,
                 usage_store: crate::usage::UsageStore::open(&crate::paths::data_dir())
                     .expect("usage.db init"),

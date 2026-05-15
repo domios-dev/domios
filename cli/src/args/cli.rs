@@ -8,7 +8,7 @@ use super::mem::MemAction;
 use super::service::ServiceAction;
 use super::misc::{
     BridgeAction, BrowserAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction,
-    ThemeAction, WorkspaceAction,
+    PasteAction, ThemeAction, WorkspaceAction,
 };
 use super::sessions::SessionsAction;
 use super::system::SystemAction;
@@ -94,6 +94,12 @@ pub enum Commands {
     Browser {
         #[command(subcommand)]
         action: BrowserAction,
+    },
+
+    /// Cross-mesh ephemeral pastebin — stash payloads with short ids (#98)
+    Paste {
+        #[command(subcommand)]
+        action: PasteAction,
     },
 
     /// Send a notification
