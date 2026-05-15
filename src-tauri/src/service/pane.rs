@@ -119,61 +119,88 @@ impl ServiceContext {
             if prev.as_deref() != Some(new_type.as_str()) {
                 self.kick_off_session_detection(pane_id, &new_type);
                 self.kick_off_session_name_detection(pane_id, &new_type);
-                self.kick_off_session_model_polling(pane_id, &new_type);
+                self.refresh_session_model_once(pane_id, &new_type);
             }
         } else {
+            // Drop friendly name on agent clear; keep the last-seen model
+            // so the tab doesn't flicker blank between sessions.
             let mut mux = self.mux.lock();
             if let Some(pane) = mux.get_pane_mut(pane_id) {
                 pane.agent_session_name = None;
-                pane.agent_session_model = None;
             }
         }
     }
 
-    /// Periodically poll the session file for the current model. Runs
-    /// every 5s for the lifetime of the agent — `/model opus` mid-session
-    /// reflects within one tick. (#tab-model-badge)
-    fn kick_off_session_model_polling(&self, pane_id: &str, agent_id: &str) {
-        if pane_id.is_empty() || agent_id.is_empty() {
-            return;
+    /// Boot path: refresh model once for every pane that already has an
+    /// agent_type. Snapshot restore brings these back without a fresh
+    /// `set_pane_agent_type` transition, so the per-set hook never fires.
+    /// Also kicks the global focused-pane model poller — one thread total.
+    pub fn kick_off_pollers_for_existing_agents(&self) {
+        let restored: Vec<(String, String)> = {
+            let mux = self.mux.lock();
+            mux.snapshot()
+                .panes
+                .values()
+                .filter_map(|p| p.agent_type.clone().map(|t| (p.id.clone(), t)))
+                .collect()
+        };
+        for (pane_id, agent_id) in restored {
+            self.kick_off_session_name_detection(&pane_id, &agent_id);
+            self.refresh_session_model_once(&pane_id, &agent_id);
         }
+        self.start_focused_pane_model_poller();
+    }
+
+    /// Single thread that refreshes the model on every claude-typed pane
+    /// each tick. Badge is rendered on all sidebar tabs at once, so polling
+    /// only the focused pane leaves the rest stale. Tail-read is ~64 KB
+    /// per pane — cheap even with 20+ tabs.
+    fn start_focused_pane_model_poller(&self) {
         let svc = self.clone();
-        let pane_id = pane_id.to_string();
-        let agent_id = agent_id.to_string();
         std::thread::spawn(move || {
-            let step = std::time::Duration::from_secs(5);
+            let step = if cfg!(debug_assertions) {
+                std::time::Duration::from_secs(3)
+            } else {
+                std::time::Duration::from_secs(15)
+            };
             loop {
                 std::thread::sleep(step);
-                let (cwd, session_id, current_agent, current_model) = {
+                let agents: Vec<(String, String)> = {
                     let mux = svc.mux.lock();
-                    let Some(p) = mux.get_pane(&pane_id) else { return };
-                    (
-                        p.cwd.clone(),
-                        p.agent_session_id.clone(),
-                        p.agent_type.clone(),
-                        p.agent_session_model.clone(),
-                    )
+                    mux.snapshot().panes.values()
+                        .filter_map(|p| p.agent_type.clone().map(|t| (p.id.clone(), t)))
+                        .collect()
                 };
-                if current_agent.as_deref() != Some(agent_id.as_str()) { return; }
-                let (Some(cwd), Some(sid)) = (cwd, session_id) else { continue };
-                let model = svc.agent_registry
-                    .with_provider(&agent_id, |p| p.detect_session_model(&cwd, &sid))
-                    .flatten();
-                if model == current_model { continue; }
-                let mut mux = svc.mux.lock();
-                if let Some(p) = mux.get_pane_mut(&pane_id) {
-                    if p.agent_type.as_deref() == Some(agent_id.as_str()) {
-                        log::info!(
-                            "[session-model] pane={} {:?} -> {:?}",
-                            pane_id, p.agent_session_model, model
-                        );
-                        p.agent_session_model = model;
-                        drop(mux);
-                        svc.emit_state_changed();
-                    }
+                for (pid, at) in agents {
+                    svc.refresh_session_model_once(&pid, &at);
                 }
             }
         });
+    }
+
+    fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
+        let (cwd, session_id, current_model) = {
+            let mux = self.mux.lock();
+            let Some(p) = mux.get_pane(pane_id) else { return };
+            (p.cwd.clone(), p.agent_session_id.clone(), p.agent_session_model.clone())
+        };
+        let (Some(cwd), Some(sid)) = (cwd, session_id) else { return };
+        let model = self.agent_registry
+            .with_provider(agent_id, |p| p.detect_session_model(&cwd, &sid))
+            .flatten();
+        if model == current_model { return; }
+        let mut mux = self.mux.lock();
+        if let Some(p) = mux.get_pane_mut(pane_id) {
+            if p.agent_type.as_deref() == Some(agent_id) {
+                log::info!(
+                    "[session-model] pane={} {:?} -> {:?}",
+                    pane_id, p.agent_session_model, model
+                );
+                p.agent_session_model = model;
+                drop(mux);
+                self.emit_state_changed();
+            }
+        }
     }
 
     /// Poll the screen for the provider's session display name once the agent

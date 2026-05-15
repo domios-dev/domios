@@ -422,6 +422,12 @@ pub fn run() {
             let service_state: ServiceState = Arc::new(svc_ctx);
             app.manage(service_state.clone());
 
+            // Re-kick session-name + model pollers for panes restored from
+            // snapshot: set_pane_agent_type fires on transitions, but a
+            // restore brings agent_type back already-set so no transition
+            // ever happens. Walk the restored panes once at boot.
+            service_state.kick_off_pollers_for_existing_agents();
+
             {
                 let store = service_state.services_store.clone();
                 let activity = crate::services::activity::ActivityWriter::new(store.conn());
