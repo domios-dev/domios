@@ -35,6 +35,7 @@ impl ServiceContext {
     pub fn focus_pane(&self, pane_id: &str) -> Result<(), String> {
         self.mux.lock().set_focused_pane(pane_id)?;
         self.emit_pane_focus_changed(pane_id);
+        self.refresh_focused_pane_model();
         Ok(())
     }
 
@@ -151,10 +152,6 @@ impl ServiceContext {
         self.start_focused_pane_model_poller();
     }
 
-    /// Single thread that refreshes the model on every claude-typed pane
-    /// each tick. Badge is rendered on all sidebar tabs at once, so polling
-    /// only the focused pane leaves the rest stale. Tail-read is ~64 KB
-    /// per pane — cheap even with 20+ tabs.
     fn start_focused_pane_model_poller(&self) {
         let svc = self.clone();
         std::thread::spawn(move || {
@@ -165,17 +162,36 @@ impl ServiceContext {
             };
             loop {
                 std::thread::sleep(step);
-                let agents: Vec<(String, String)> = {
+                let target = {
                     let mux = svc.mux.lock();
-                    mux.snapshot().panes.values()
-                        .filter_map(|p| p.agent_type.clone().map(|t| (p.id.clone(), t)))
-                        .collect()
+                    let focused = mux.snapshot().focused_pane_id;
+                    focused.and_then(|id| {
+                        mux.get_pane(&id)
+                            .and_then(|p| p.agent_type.clone())
+                            .map(|t| (id, t))
+                    })
                 };
-                for (pid, at) in agents {
+                if let Some((pid, at)) = target {
                     svc.refresh_session_model_once(&pid, &at);
                 }
             }
         });
+    }
+
+    /// Bam-refresh model on the newly focused pane so the badge updates the
+    /// instant the user switches tabs, instead of waiting up to one tick.
+    pub fn refresh_focused_pane_model(&self) {
+        let target: Option<(String, String)> = {
+            let mux = self.mux.lock();
+            mux.snapshot().focused_pane_id.and_then(|id| {
+                mux.get_pane(&id)
+                    .and_then(|p| p.agent_type.clone())
+                    .map(|t| (id, t))
+            })
+        };
+        if let Some((pid, at)) = target {
+            self.refresh_session_model_once(&pid, &at);
+        }
     }
 
     fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
