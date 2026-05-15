@@ -97,10 +97,14 @@ impl OpenCodeProvider {
         // newly-spawned opencode pane should pick up only sessions that were
         // *created* during this detection window. Order by `time_created DESC`
         // for the same reason.
+        // Pane stores cwd with forward slashes; opencode db keeps native
+        // separators (\ on Windows). Match both.
+        let cwd_fwd = cwd.replace('\\', "/");
+        let cwd_bwd = cwd.replace('/', "\\");
         let mut stmt = conn
             .prepare(
                 "SELECT id, time_created FROM session \
-                 WHERE directory = ?1 AND time_archived IS NULL \
+                 WHERE (directory = ?1 OR directory = ?2) AND time_archived IS NULL \
                  ORDER BY time_created DESC LIMIT 50",
             )
             .ok()?;
@@ -110,7 +114,7 @@ impl OpenCodeProvider {
             .unwrap_or(0);
         let cutoff_ms = max_age.map(|d| now_ms - d.as_millis() as i64);
         let rows = stmt
-            .query_map(rusqlite::params![cwd], |row| {
+            .query_map(rusqlite::params![cwd_fwd, cwd_bwd], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
             })
             .ok()?;
@@ -125,6 +129,28 @@ impl OpenCodeProvider {
                 }
             }
             return Some(id);
+        }
+        None
+    }
+
+    /// modelID of the most recent assistant message — drives the tab badge.
+    fn db_latest_assistant_model(session_id: &str) -> Option<String> {
+        let path = Self::db_path()?;
+        let conn = rusqlite::Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ).ok()?;
+        let mut stmt = conn.prepare(
+            "SELECT data FROM message WHERE session_id = ?1 \
+             ORDER BY time_created DESC LIMIT 20",
+        ).ok()?;
+        let rows = stmt.query_map(rusqlite::params![session_id], |row| row.get::<_, String>(0)).ok()?;
+        for raw in rows.flatten() {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
+            if v.get("role").and_then(|r| r.as_str()) != Some("assistant") { continue }
+            if let Some(m) = v.get("modelID").and_then(|m| m.as_str()) {
+                if !m.is_empty() { return Some(m.to_string()); }
+            }
         }
         None
     }
@@ -275,6 +301,11 @@ impl AgentProvider for OpenCodeProvider {
         self.session_file_path(_cwd, session_id)
             .map(|p| p.exists())
             .unwrap_or(false)
+    }
+
+    fn detect_session_model(&self, _cwd: &str, session_id: &str) -> Option<String> {
+        let id = Self::db_latest_assistant_model(session_id)?;
+        Some(opencode_short_label(&id))
     }
 
     fn read_usage(&self, _cwd: &str, session_id: &str) -> Option<UsageSnapshot> {
@@ -692,6 +723,25 @@ impl AgentProvider for OpenCodeProvider {
 }
 
 // ── Internal helpers ────────────────────────────────────────────────
+
+/// Tab-badge label for an opencode modelID. Known families collapse to
+/// a single word; opencode-zen codenames ("big-pickle", "small-cucumber")
+/// stay as-is — that's how opencode itself shows them.
+fn opencode_short_label(model_id: &str) -> String {
+    let m = model_id.to_ascii_lowercase();
+    for fam in ["opus", "sonnet", "haiku", "codex", "gemini", "gpt"] {
+        if m.contains(fam) { return capitalize_family(fam); }
+    }
+    model_id.to_string()
+}
+
+fn capitalize_family(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_ascii_uppercase().to_string() + &chars.as_str().to_ascii_lowercase(),
+        None => String::new(),
+    }
+}
 
 /// Resolve the XDG data directory the same way opencode does:
 ///   $XDG_DATA_HOME or fallback to $HOME/.local/share
