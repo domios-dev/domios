@@ -51,17 +51,32 @@ export function useTerminalInput({
     // Wait for PTY connection
     if (!connectedPtyRef.current) return;
 
-    // Smart Ctrl+C / Cmd+C: copy if text selected, interrupt if not
-    // Leave Ctrl/Cmd+V to the native browser/xterm paste path. The custom
-    // clipboard pipeline is still exposed via explicit Paste actions
-    // (Ctrl+Shift+V/context menu) for file/image-aware paste into the PTY.
+    // Issue #102: route Ctrl+V / Cmd+V (and Ctrl+Shift+V) through the
+    // canonical pasteClipboardToPty handler. Previously this was delegated
+    // to "the native browser/xterm paste path" — but xterm.js doesn't
+    // wire browser paste in Tauri's WebView, so Ctrl+V silently did nothing.
     // Read connectedPtyRef.current dynamically in handlers — PTY ID can change
     // when backend replaces the auto-spawned shell (e.g. General Agent lifecycle).
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       const mod = isMac ? e.metaKey : e.ctrlKey;
-      if (!mod || e.shiftKey || e.altKey) return true;
-      if (isMac && e.ctrlKey) return true;
+      if (!mod || e.altKey) return true;
+      if (isMac && e.ctrlKey && e.metaKey) return true;
+
+      // Paste — Ctrl+V, Cmd+V, Ctrl+Shift+V all funnel through the same
+      // file/image/path-aware pipeline. Old code returned true here and
+      // hoped xterm.js would handle it; in Tauri WebView nothing did.
+      if (e.code === "KeyV") {
+        const ptyId = connectedPtyRef.current;
+        if (ptyId) {
+          pasteClipboardToPty(ptyId).catch(() => {});
+        }
+        return false;
+      }
+
+      // Shift modifier was already rejected for Copy in the original
+      // implementation; preserve that — Ctrl+Shift+C was never wired here.
+      if (e.shiftKey) return true;
 
       if (e.code === "KeyC") {
         const sel = term.getSelection();
