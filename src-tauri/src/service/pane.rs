@@ -195,12 +195,51 @@ impl ServiceContext {
     }
 
     fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
-        let (cwd, session_id, current_model) = {
+        let (cwd, session_id, current_model, exclude) = {
             let mux = self.mux.lock();
             let Some(p) = mux.get_pane(pane_id) else { return };
-            (p.cwd.clone(), p.agent_session_id.clone(), p.agent_session_model.clone())
+            (
+                p.cwd.clone(),
+                p.agent_session_id.clone(),
+                p.agent_session_model.clone(),
+                mux.other_session_ids(pane_id),
+            )
         };
-        let (Some(cwd), Some(sid)) = (cwd, session_id) else { return };
+        let Some(cwd) = cwd else { return };
+        let sid = match session_id {
+            Some(s) => s,
+            None => {
+                let detected = self
+                    .agent_registry
+                    .with_provider(agent_id, |p| p.detect_session_id(&cwd, &exclude, None))
+                    .flatten();
+                let Some(sid) = detected else { return };
+                let claimed = {
+                    let mut mux = self.mux.lock();
+                    if mux.other_session_ids(pane_id).contains(&sid) {
+                        false
+                    } else if let Some(p) = mux.get_pane_mut(pane_id) {
+                        if p.agent_session_id.is_none()
+                            && p.agent_type.as_deref() == Some(agent_id)
+                        {
+                            p.agent_session_id = Some(sid.clone());
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                };
+                if !claimed { return; }
+                log::info!(
+                    "[session-detect] focused-poller claimed {} for pane {} ({})",
+                    sid, pane_id, agent_id,
+                );
+                self.emit_state_changed();
+                sid
+            }
+        };
         let model = self.agent_registry
             .with_provider(agent_id, |p| p.detect_session_model(&cwd, &sid))
             .flatten();
