@@ -53,7 +53,13 @@ pub(super) fn session_file_path(cwd: &str, session_id: &str) -> Option<PathBuf> 
 
 pub(super) fn detect_session_model(cwd: &str, session_id: &str) -> Option<String> {
     let path = session_file_path(cwd, session_id)?;
-    scan_tail(&path, 64 * 1024).or_else(|| scan_tail(&path, 512 * 1024))
+    // Climb the tail in tiers — most sessions resolve from 64K, but resumed
+    // sessions that haven't received a new assistant turn yet can have many
+    // hundreds of KB of file-backup/tool-call metadata trailing the last
+    // message. 4MB is plenty without hitting the disk hard.
+    scan_tail(&path, 64 * 1024)
+        .or_else(|| scan_tail(&path, 512 * 1024))
+        .or_else(|| scan_tail(&path, 4 * 1024 * 1024))
 }
 
 fn scan_tail(path: &Path, tail_bytes: u64) -> Option<String> {

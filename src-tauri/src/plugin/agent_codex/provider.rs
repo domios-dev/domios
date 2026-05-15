@@ -666,7 +666,12 @@ fn codex_short_label(model_id: &str) -> String {
             return c.next().unwrap().to_ascii_uppercase().to_string() + c.as_str();
         }
     }
-    if m.starts_with("gpt") { return "GPT".into(); }
+    // GPT family: keep version + variant suffix so the badge can distinguish
+    // gpt-5 from gpt-4o / gpt-5-mini / etc. Cap at the first two segments.
+    if m.starts_with("gpt") {
+        let head: String = m.split('-').take(2).collect::<Vec<_>>().join("-");
+        return format!("GPT{}", head.trim_start_matches("gpt"));
+    }
     if let Some(first) = m.split('-').next() {
         let mut c = first.chars();
         return c.next().map(|x| x.to_ascii_uppercase()).into_iter().collect::<String>() + c.as_str();

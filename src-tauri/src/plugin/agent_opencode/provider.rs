@@ -133,27 +133,45 @@ impl OpenCodeProvider {
         None
     }
 
-    /// modelID of the most recent assistant message across every session
-    /// rooted at `cwd` — drives the tab badge. Opencode spawns a fresh
-    /// session on model swap, so the pane's cached session_id goes stale;
-    /// scanning by cwd makes the badge follow the active workspace instead.
-    fn db_latest_assistant_model(cwd: &str) -> Option<String> {
+    /// modelID of the most recent assistant message for this pane's session.
+    /// Falls back to a cwd-wide scan when the specific session has no
+    /// assistant messages yet — that happens right after a `/model` swap
+    /// where opencode spawns a brand-new session row, but the focused-pane
+    /// poller hasn't yet swapped the pane's cached session_id over.
+    fn db_latest_assistant_model(cwd: &str, session_id: &str) -> Option<String> {
         let path = Self::db_path()?;
         let conn = rusqlite::Connection::open_with_flags(
             &path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         ).ok()?;
+        if !session_id.is_empty() {
+            if let Some(model) = Self::scan_messages(
+                &conn,
+                "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+                rusqlite::params![session_id],
+            ) {
+                return Some(model);
+            }
+        }
         let cwd_fwd = cwd.replace('\\', "/");
         let cwd_bwd = cwd.replace('/', "\\");
-        let mut stmt = conn.prepare(
+        Self::scan_messages(
+            &conn,
             "SELECT m.data FROM message m \
              JOIN session s ON s.id = m.session_id \
              WHERE (s.directory = ?1 OR s.directory = ?2) \
              ORDER BY m.time_created DESC LIMIT 50",
-        ).ok()?;
-        let rows = stmt
-            .query_map(rusqlite::params![cwd_fwd, cwd_bwd], |row| row.get::<_, String>(0))
-            .ok()?;
+            rusqlite::params![cwd_fwd, cwd_bwd],
+        )
+    }
+
+    fn scan_messages(
+        conn: &rusqlite::Connection,
+        sql: &str,
+        params: impl rusqlite::Params,
+    ) -> Option<String> {
+        let mut stmt = conn.prepare(sql).ok()?;
+        let rows = stmt.query_map(params, |row| row.get::<_, String>(0)).ok()?;
         for raw in rows.flatten() {
             let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
             if v.get("role").and_then(|r| r.as_str()) != Some("assistant") { continue }
@@ -312,8 +330,8 @@ impl AgentProvider for OpenCodeProvider {
             .unwrap_or(false)
     }
 
-    fn detect_session_model(&self, cwd: &str, _session_id: &str) -> Option<String> {
-        let id = Self::db_latest_assistant_model(cwd)?;
+    fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
+        let id = Self::db_latest_assistant_model(cwd, session_id)?;
         Some(opencode_short_label(&id))
     }
 
