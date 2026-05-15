@@ -81,18 +81,13 @@ pub enum Commands {
         ///   codeterm send-text --pane X --from-stdin <<'EOF'
         ///   any `backticks`, $vars, etc — zero interpolation
         ///   EOF
+        ///
+        /// send-text is fire-and-forget: the call returns as soon as bytes
+        /// have been written to the PTY. For "wait for the agent to process
+        /// my message", a future `codeterm agent send` primitive will hook
+        /// into the provider's request/response cycle.
         #[arg(long)]
         from_stdin: bool,
-
-        /// Wait for server-side echo+submit verification before returning.
-        /// Off by default: `send-text` is fire-and-forget unless you opt in.
-        #[arg(long, default_value_t = false)]
-        verify: bool,
-
-        /// Deprecated compatibility flag. `send-text` is already fire-and-forget
-        /// by default, so this flag is now a no-op.
-        #[arg(long, default_value_t = false)]
-        no_wait: bool,
     },
 
     /// Open a canvas panel (localhost, data URLs, HTML visualizations)

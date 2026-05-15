@@ -18,7 +18,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             let p = pane.as_deref().unwrap_or("general");
             ("GET".into(), format!("/api/panes/{}/output?lines={}&strip_ansi=true", p, lines), None)
         }
-        Commands::SendText { text, pane, from_file, from_stdin, verify, no_wait } => {
+        Commands::SendText { text, pane, from_file, from_stdin } => {
             let p = pane.as_deref().unwrap_or("general");
             let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
             let body_text = if *from_stdin {
@@ -40,12 +40,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 eprintln!("      try --from-file <path> with a real tempfile.");
                 std::process::exit(2);
             }
-            let mut body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
-            if *verify {
-                body["verify"] = serde_json::json!(true);
-            } else if *no_wait {
-                body["verify"] = serde_json::json!(false);
-            }
+            let body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
             ("POST".into(), format!("/api/panes/{}/send", p), Some(body.to_string()))
         }
         Commands::Notify { title, body, level } => {

@@ -242,34 +242,20 @@ fn mem_local_only_falls_back_to_stats() {
 }
 
 #[test]
-fn send_text_defaults_to_fire_and_forget_on_mesh() {
+fn send_text_is_fire_and_forget_on_mesh() {
     let cmd = Commands::SendText {
         text: "ping".into(),
         pane: Some("abc123".into()),
         from_file: None,
         from_stdin: false,
-        verify: false,
-        no_wait: false,
     };
     let (m, p, b) = cli_command_to_api(&cmd);
     assert_eq!(m, "POST");
     assert_eq!(p, "/api/panes/abc123/send");
     let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
     assert_eq!(body["text"], "ping");
-    assert!(body.get("verify").is_none(), "default path should omit verify and let server use fire-and-forget");
-}
-
-#[test]
-fn send_text_verify_true_is_forwarded_on_mesh() {
-    let cmd = Commands::SendText {
-        text: "ping".into(),
-        pane: Some("abc123".into()),
-        from_file: None,
-        from_stdin: false,
-        verify: true,
-        no_wait: false,
-    };
-    let (_, _, b) = cli_command_to_api(&cmd);
-    let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
-    assert_eq!(body["verify"], true);
+    assert!(
+        body.get("verify").is_none(),
+        "send-text must never carry verify — the flag has been removed (#101)"
+    );
 }

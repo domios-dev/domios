@@ -45,7 +45,6 @@ fn strip_fenced_code_blocks(text: &str) -> String {
 #[derive(Debug, PartialEq, Eq)]
 pub enum SendTextOutcome {
     Success(String),
-    Advisory(String),
     Error { msg: String, exit_code: i32 },
     Other,
 }
@@ -54,29 +53,10 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
     if let Some(err) = value.get("error").and_then(|v| v.as_str()) {
         return SendTextOutcome::Error { msg: err.to_string(), exit_code: 2 };
     }
-    if value.get("fire_and_forget").and_then(|v| v.as_bool()).unwrap_or(false) {
-        return SendTextOutcome::Success(
-            "OK (sent; fire-and-forget, verification skipped)".to_string(),
-        );
+    if value.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+        return SendTextOutcome::Success("OK (sent)".to_string());
     }
-    if value.get("pty_echo_seen").is_none() {
-        return SendTextOutcome::Other;
-    }
-    let elapsed = value.get("elapsed_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-    let echo = value.get("echo_observed").and_then(|v| v.as_bool()).unwrap_or(false);
-    let submit = value.get("submit_observed").and_then(|v| v.as_bool()).unwrap_or(false);
-    let pty_echo_seen = value.get("pty_echo_seen").and_then(|v| v.as_bool()).unwrap_or(false);
-    if pty_echo_seen {
-        SendTextOutcome::Success(format!(
-            "OK (sent in {}ms; echo={}, submit={})",
-            elapsed, echo, submit
-        ))
-    } else {
-        SendTextOutcome::Advisory(format!(
-            "OK (sent in {}ms; pty_echo_seen=false advisory — echo={}, submit={}; bytes written, verifier could not confirm via screen state)",
-            elapsed, echo, submit
-        ))
-    }
+    SendTextOutcome::Other
 }
 
 pub fn handle_send_text_result(json: bool, result: Result<serde_json::Value, String>) {
@@ -87,9 +67,7 @@ pub fn handle_send_text_result(json: bool, result: Result<serde_json::Value, Str
                 return;
             }
             match analyze_send_text_response(&value) {
-                SendTextOutcome::Success(msg) | SendTextOutcome::Advisory(msg) => {
-                    println!("{}", msg);
-                }
+                SendTextOutcome::Success(msg) => println!("{}", msg),
                 SendTextOutcome::Error { msg, exit_code } => {
                     eprintln!("Error: {}", msg);
                     std::process::exit(exit_code);
@@ -111,8 +89,6 @@ pub fn handle_send_text(
     text: String,
     from_file: Option<String>,
     from_stdin: bool,
-    verify: bool,
-    no_wait: bool,
 ) {
     let (resolved_text, source) = if from_stdin {
         use std::io::Read;
@@ -162,13 +138,6 @@ pub fn handle_send_text(
             params["source_pane"] = serde_json::json!(my_pane);
         }
     }
-    if verify {
-        params["verify"] = serde_json::json!(true);
-    } else if no_wait {
-        // Deprecated compatibility path: keep accepting `--no-wait`, but the
-        // default is already fire-and-forget so there is nothing to override.
-        params["verify"] = serde_json::json!(false);
-    }
     let result = client.call("pane.send_text", Some(params));
     handle_send_text_result(json, result);
 }
@@ -178,36 +147,18 @@ mod tests {
     use super::{analyze_send_text_response, guard_against_shell_mangle, SendTextOutcome};
 
     #[test]
-    fn pty_echo_seen_true_is_success() {
-        let v = serde_json::json!({
-            "ok": true, "pty_echo_seen": true,
-            "echo_observed": true, "submit_observed": true, "elapsed_ms": 42,
-        });
+    fn ok_response_is_success() {
+        let v = serde_json::json!({ "ok": true });
         match analyze_send_text_response(&v) {
-            SendTextOutcome::Success(msg) => assert!(msg.contains("echo=true")),
+            SendTextOutcome::Success(_) => {}
             other => panic!("expected Success, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn pty_echo_seen_false_without_error_is_advisory_not_failure() {
-        let v = serde_json::json!({
-            "ok": true, "pty_echo_seen": false,
-            "echo_observed": false, "submit_observed": true, "elapsed_ms": 12000,
-        });
-        match analyze_send_text_response(&v) {
-            SendTextOutcome::Advisory(msg) => assert!(msg.contains("advisory")),
-            other => panic!(
-                "pty_echo_seen=false without error must be advisory (post-v1.1.20), got {:?}",
-                other
-            ),
         }
     }
 
     #[test]
     fn explicit_error_field_exits_two() {
         let v = serde_json::json!({
-            "ok": false, "pty_echo_seen": false,
+            "ok": false,
             "error": "PTY closed mid-write",
         });
         match analyze_send_text_response(&v) {
@@ -218,20 +169,6 @@ mod tests {
             other => panic!("expected Error, got {:?}", other),
         }
     }
-
-    #[test]
-    fn fire_and_forget_response_is_success() {
-        let v = serde_json::json!({
-            "ok": true,
-            "fire_and_forget": true,
-            "verified": false,
-        });
-        match analyze_send_text_response(&v) {
-            SendTextOutcome::Success(msg) => assert!(msg.contains("fire-and-forget")),
-            other => panic!("expected Success, got {:?}", other),
-        }
-    }
-
 
     #[test]
     fn legitimate_text_passes() {
