@@ -4,6 +4,7 @@
   "scripts": {
     "test": "wdio run wdio.conf.js --spec specs/prompt-approval.js",
     "test:core": "wdio run wdio.conf.js --spec specs/core-flow.js",
+    "test:paste": "wdio run wdio.conf.js --spec specs/paste-pipeline.js",
     "test:all": "wdio run wdio.conf.js"
   },
   "devDependencies": {
