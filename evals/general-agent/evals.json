@@ -3,6 +3,18 @@
   "description": "Evaluates the CodeTerm General Agent system prompt for correct behavioral responses",
   "evals": [
     {
+      "id": 103,
+      "name": "broadcast-requires-online-presence",
+      "prompt": "[Telegram: 123456789] Включи бродкаст чтоб новый ноут увидел меня. Сейчас я в оффлайне у себя в mesh switcher'е стоит offline.",
+      "expected_output": "Agent flips mesh online first (mesh.enabled=true) because broadcasting from an offline state is contradictory, THEN starts broadcast. Explains the auto-online to the user.",
+      "expectations": [
+        "Turns mesh online before / together with starting broadcast — either `codeterm mesh online` or PATCH /api/config setting mesh.enabled=true",
+        "Starts broadcast via `codeterm mesh broadcast` or `mesh_start_broadcast`",
+        "Explicitly mentions to the user that mesh was brought online (so they understand why their switcher state changed)",
+        "Does NOT silently switch online without telling them, and does NOT refuse with a generic 'mesh is offline' error"
+      ]
+    },
+    {
       "id": 102,
       "name": "go-invisible-uses-mesh-offline",
       "prompt": "[Telegram: 123456789] Уйди в инвиз — выруби меня из mesh, не хочу чтоб кто-то видел этот комп сейчас. Тейлскейл не трогай.",

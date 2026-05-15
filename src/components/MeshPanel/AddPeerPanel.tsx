@@ -13,6 +13,8 @@ export default function AddPeerPanel() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [meshOnline, setMeshOnline] = useState<boolean | null>(null);
+
   const fetchPeers = useCallback(async () => {
     try {
       const p = await invoke<MeshPeersResponse>("mesh_list_peers");
@@ -20,14 +22,37 @@ export default function AddPeerPanel() {
     } catch {}
   }, []);
 
+  const fetchMeshState = useCallback(async () => {
+    try {
+      const cfg = await invoke<{ mesh: { enabled: boolean } }>("get_config");
+      setMeshOnline(cfg.mesh.enabled);
+    } catch {}
+  }, []);
+
+  const enableMesh = useCallback(async () => {
+    try {
+      const cfg = await invoke<{ mesh: { enabled: boolean }; [k: string]: unknown }>("get_config");
+      await invoke("update_config", {
+        config: { ...cfg, mesh: { ...cfg.mesh, enabled: true } },
+      });
+      setMeshOnline(true);
+    } catch (e) {
+      console.error("Enable mesh failed:", e);
+    }
+  }, []);
+
   useEffect(() => {
     invoke("mesh_refresh_discovery").catch(() => {});
     fetchPeers();
-    pollRef.current = setInterval(fetchPeers, 2000);
+    fetchMeshState();
+    pollRef.current = setInterval(() => {
+      fetchPeers();
+      fetchMeshState();
+    }, 2000);
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [fetchPeers]);
+  }, [fetchPeers, fetchMeshState]);
 
   useEffect(() => {
     if (!connecting) {
@@ -97,6 +122,19 @@ export default function AddPeerPanel() {
 
   return (
     <div className="flex flex-col gap-3">
+      {meshOnline === false && (
+        <div className="text-[11px] bg-[var(--ct-titlebar-bg)] border border-[var(--ct-border)] rounded p-2.5 flex items-center justify-between gap-3">
+          <span className="text-[var(--ct-muted-fg)]">
+            You're offline — broadcasting peers won't show up here.
+          </span>
+          <button
+            onClick={enableMesh}
+            className="text-[10px] uppercase tracking-wider px-2.5 py-1 rounded border border-[var(--ct-accent)]/40 text-[var(--ct-accent)] hover:bg-[var(--ct-accent)]/10 transition-colors flex-shrink-0"
+          >
+            Go online
+          </button>
+        </div>
+      )}
       {error && (
         <div className="text-[10px] text-[var(--ct-red)] bg-[var(--ct-bg)] border border-[var(--ct-red)] rounded p-2 break-all">
           {error}
