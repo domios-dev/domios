@@ -113,6 +113,13 @@ pub enum PaneAction {
         #[arg(long, alias = "id")]
         pane: Option<String>,
     },
+    /// Find pane(s) by fuzzy match across id-prefix, title, agent_session_name, and tab name.
+    /// Returns one or more matches ranked by relevance so the result can be piped into
+    /// send-text, pane close, etc. Use `--mesh PEER` to search a paired peer (#99).
+    Find {
+        /// Substring or short pattern to match
+        pattern: String,
+    },
 }
 
 #[derive(Subcommand)]

@@ -137,6 +137,57 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 Err(e) => { eprintln!("Exec request failed: {}", e); std::process::exit(1); }
             }
         }
+        PaneAction::Find { pattern } => {
+            let result = client.call("pane.list", None);
+            match result {
+                Ok(value) => {
+                    let arr = value.as_array().cloned().unwrap_or_default();
+                    let needle = pattern.to_lowercase();
+                    let needle_compact: String = needle.chars()
+                        .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_')
+                        .collect();
+                    let mut scored: Vec<(i32, &serde_json::Value)> = arr.iter()
+                        .filter_map(|p| {
+                            let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                            let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                            let sname = p.get("agent_session_name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                            let agent = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+                            let sname_compact: String = sname.chars()
+                                .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_')
+                                .collect();
+                            let mut score = 0i32;
+                            if id.starts_with(&needle) { score += 100; }
+                            if sname == needle { score += 80; }
+                            if sname.contains(&needle) { score += 50; }
+                            if !needle_compact.is_empty() && sname_compact.contains(&needle_compact) {
+                                score += 40;
+                            }
+                            if title == needle { score += 35; }
+                            if title.contains(&needle) { score += 20; }
+                            if agent.contains(&needle) { score += 10; }
+                            if score > 0 { Some((score, p)) } else { None }
+                        })
+                        .collect();
+                    scored.sort_by(|a, b| b.0.cmp(&a.0));
+                    if json {
+                        let out: Vec<&serde_json::Value> = scored.iter().map(|(_, p)| *p).collect();
+                        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+                    } else if scored.is_empty() {
+                        println!("No panes match: {}", pattern);
+                    } else {
+                        for (_, p) in &scored {
+                            let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                            let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                            let agent = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
+                            let sname = p.get("agent_session_name").and_then(|v| v.as_str()).unwrap_or("");
+                            let extra = if sname.is_empty() { String::new() } else { format!("  session={}", sname) };
+                            println!("{}  {} [{}]{}", id, title, agent, extra);
+                        }
+                    }
+                }
+                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+            }
+        }
         PaneAction::Status { pane } => {
             let pane_id = resolve_pane(client, pane);
             let (api_url, api_token) = read_api_config();

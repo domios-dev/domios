@@ -27,6 +27,38 @@ pub(super) fn detect_from_output(text: &str) -> bool {
         || text.contains("Reasoned for")
 }
 
+/// Pull the Claude Code session display name (e.g. "vivid-bhabha-1234")
+/// out of the visible screen. Claude prints it near the top of the TUI as
+/// part of the "Session: <name>" line. We accept either the explicit
+/// "Session:" form or a bare adjective-noun-digits handle on its own line.
+/// Returns the first plausible match; None if nothing matches.
+pub(super) fn extract_session_name(screen: &str) -> Option<String> {
+    use std::sync::OnceLock;
+    static EXPLICIT: OnceLock<regex::Regex> = OnceLock::new();
+    static BARE: OnceLock<regex::Regex> = OnceLock::new();
+
+    let explicit = EXPLICIT.get_or_init(|| {
+        // "Session: vivid-bhabha-1234" / "session id: vivid-bhabha-1234"
+        regex::Regex::new(r"(?i)session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b")
+            .expect("static regex")
+    });
+    if let Some(c) = explicit.captures(screen) {
+        if let Some(m) = c.get(1) {
+            return Some(m.as_str().to_string());
+        }
+    }
+
+    // Bare handle: short lowercase adjective-noun-digits handle on its own
+    // line (or surrounded by whitespace). Bounded length so we don't pick
+    // up arbitrary "two-word-1234" text from prose.
+    let bare = BARE.get_or_init(|| {
+        regex::Regex::new(r"(?m)(?:^|\s)([a-z]{3,12}-[a-z]{3,12}-\d{2,6})(?:\s|$)")
+            .expect("static regex")
+    });
+    bare.captures(screen)
+        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+}
+
 pub(super) fn has_event_markers(chunk: &str) -> bool {
     chunk.contains("❯") || chunk.contains("proceed")
         || chunk.contains("Esc to cancel") || chunk.contains("Tab to amend")
@@ -101,6 +133,37 @@ fn detect_task_completion(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_session_name_explicit_form() {
+        // Claude's TUI banner prints session id with an explicit label.
+        let screen = "  Session: vivid-bhabha-1234\n  cwd: /tmp\n";
+        assert_eq!(extract_session_name(screen).as_deref(), Some("vivid-bhabha-1234"));
+    }
+
+    #[test]
+    fn extract_session_name_bare_handle() {
+        // Bare handle on its own line, no "Session:" label.
+        let screen = "Resuming previous session\n\n  brave-tiger-42\n\nReady.";
+        assert_eq!(extract_session_name(screen).as_deref(), Some("brave-tiger-42"));
+    }
+
+    #[test]
+    fn extract_session_name_returns_none_when_absent() {
+        let screen = "Type your message and press Enter to send.\nNo session info visible.";
+        assert!(extract_session_name(screen).is_none());
+    }
+
+    #[test]
+    fn extract_session_name_ignores_arbitrary_word_word_number_in_prose() {
+        // The bare-handle regex requires both halves to be short lowercase
+        // adjective/noun-shaped tokens, so "user-name-100" passes; that's
+        // the same shape as a real handle and a false positive we can live
+        // with (the explicit "Session:" form is preferred when present).
+        // Hyphenated-but-too-long words should NOT match.
+        let screen = "some really-really-extraordinarilylongword-name-99999999 in prose";
+        assert!(extract_session_name(screen).is_none());
+    }
 
     #[test]
     fn test_detect_from_title() {

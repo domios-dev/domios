@@ -94,6 +94,10 @@ impl AgentProvider for ClaudeProvider {
         detection::detect_from_output(text)
     }
 
+    fn extract_session_name(&self, screen: &str) -> Option<String> {
+        detection::extract_session_name(screen)
+    }
+
     fn screen_has_tui(&self, screen_text: &str) -> bool {
         let lower = screen_text.to_ascii_lowercase();
         lower.contains("? for shortcuts")
