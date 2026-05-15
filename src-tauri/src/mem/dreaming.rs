@@ -598,12 +598,27 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
                 // record_run then anchors the next fire to today's 06:00
                 // window — producing the double-fire pattern reported as #96.
                 if j.enabled && !j.oneshot {
-                    if let Ok(nr) = crate::cron::store::compute_next_run_jittered_in(
+                    // Only overwrite next_run when compute returned a concrete
+                    // Some(_). Ok(None) means no future occurrence exists for
+                    // this schedule — clearing next_run silently would stop
+                    // the job firing, which is exactly the failure mode #96
+                    // was fixing. Log + keep the old value in that case.
+                    match crate::cron::store::compute_next_run_jittered_in(
                         &j.schedule,
                         j.jitter_max_ms,
                         j.tz.as_deref(),
                     ) {
-                        j.next_run = nr;
+                        Ok(Some(nr)) => j.next_run = Some(nr),
+                        Ok(None) => log::warn!(
+                            "[dreaming] schedule {:?} has no upcoming occurrence; \
+                             leaving next_run={:?} unchanged",
+                            j.schedule, j.next_run,
+                        ),
+                        Err(e) => log::warn!(
+                            "[dreaming] recompute next_run after migration failed: {}; \
+                             leaving next_run={:?} unchanged",
+                            e, j.next_run,
+                        ),
                     }
                 }
                 let _ = cron_store.save();

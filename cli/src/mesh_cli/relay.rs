@@ -69,6 +69,49 @@ pub fn mesh_relay_cmd(http: &reqwest::blocking::Client, base: &str, token: &Opti
     mesh_relay_generic(http, base, token, target, method, &path, body_str.as_deref(), json_mode);
 }
 
+/// Fetch a relayed API response as a JSON value without printing — used by
+/// callers that need to post-process the peer's response (e.g. `pane find`
+/// runs the fuzzy ranker on the peer's pane list before printing).
+pub fn mesh_relay_fetch_json(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    token: &Option<String>,
+    target: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> serde_json::Value {
+    let peer_url = match resolve_peer_url(http, base, token, target) {
+        Some(u) => u,
+        None => {
+            eprintln!("Peer '{}' not found", target);
+            std::process::exit(1);
+        }
+    };
+    let signed_token = match crate::read_mesh_signed_token() {
+        Some(t) => t,
+        None => {
+            eprintln!(
+                "Error: cannot sign mesh request — no identity at {:?}.",
+                dirs::home_dir().unwrap_or_default().join(data_dir_name()).join("mesh/identity.json")
+            );
+            std::process::exit(1);
+        }
+    };
+    match relay_call(http, &peer_url, &signed_token, method, path, body) {
+        Ok(val) => {
+            if let Some(err) = val.get("error").and_then(|v| v.as_str()) {
+                if val.get("ok").and_then(|v| v.as_bool()) == Some(false) {
+                    eprintln!("Error: {}", err);
+                    std::process::exit(1);
+                }
+            }
+            val.get("data").cloned().unwrap_or(serde_json::Value::Null)
+        }
+        Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+    }
+}
+
 /// Generic relay — send any API call through mesh to a remote peer.
 pub fn mesh_relay_generic(http: &reqwest::blocking::Client, base: &str, token: &Option<String>, target: &str, method: &str, path: &str, body: Option<&str>, json_mode: bool) {
     let mut peers_json = fetch_peers(http, base, token);

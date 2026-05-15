@@ -146,8 +146,9 @@ fn read_stdin_or_die(source: &str) -> String {
 
 /// Parse a short duration spec like "30m", "1h", "1h30m", "24h", "90s" into
 /// milliseconds. Returns None if the input is unparseable so the caller falls
-/// back to the server default.
-fn parse_duration_ms(s: &str) -> Option<u64> {
+/// back to the server default. Shared with the mesh-relay arg map so both
+/// paths interpret `--ttl` the same way.
+pub fn parse_duration_ms(s: &str) -> Option<u64> {
     let s = s.trim();
     if s.is_empty() { return None; }
     let mut total: u64 = 0;

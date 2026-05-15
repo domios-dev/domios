@@ -96,7 +96,10 @@ def load_prompt(reference: str) -> str:
             raise SystemExit(
                 f"failed to resolve git reference '{reference}': {e.stderr.strip()}"
             ) from e
-        return proc.stdout
+        # Expand placeholders here too — A/B comparisons against a historical
+        # revision must see the same shape the live agent sees, or every eval
+        # regresses against the literal "{codeterm_cli}" string.
+        return _expand_placeholders(proc.stdout)
 
     path = Path(reference)
     if not path.exists():
