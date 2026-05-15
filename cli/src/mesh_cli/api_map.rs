@@ -98,6 +98,49 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("GET".into(), "/api/panes".into(), None)
             }
         },
+        Commands::Paste { action } => match action {
+            crate::PasteAction::Put { body, from_file, from_stdin, ttl, content_type, pop } => {
+                let resolved = if *from_stdin {
+                    use std::io::Read;
+                    let mut buf = String::new();
+                    if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
+                        eprintln!("Error: failed to read --from-stdin: {}", e);
+                        std::process::exit(1);
+                    }
+                    buf
+                } else if let Some(path) = from_file.as_ref() {
+                    std::fs::read_to_string(path).unwrap_or_else(|_| body.clone())
+                } else {
+                    body.clone()
+                };
+                if resolved.trim().is_empty() {
+                    eprintln!("Error: paste put (mesh) body is empty");
+                    std::process::exit(2);
+                }
+                let mut payload = serde_json::json!({"body": resolved});
+                if let Some(spec) = ttl.as_deref() {
+                    if let Some(ms) = parse_duration_ms_relay(spec) {
+                        payload["ttl_ms"] = serde_json::json!(ms);
+                    }
+                }
+                if let Some(ct) = content_type.as_deref() {
+                    payload["content_type"] = serde_json::json!(ct);
+                }
+                if *pop {
+                    payload["pop_on_read"] = serde_json::json!(true);
+                }
+                ("POST".into(), "/api/pasteboard".into(), Some(payload.to_string()))
+            }
+            crate::PasteAction::Get { id, pop } => {
+                let q = if *pop { "?pop=true" } else { "" };
+                ("GET".into(), format!("/api/pasteboard/{}{}", id, q), None)
+            }
+            crate::PasteAction::Pop { id } => {
+                ("GET".into(), format!("/api/pasteboard/{}?pop=true", id), None)
+            }
+            crate::PasteAction::List => ("GET".into(), "/api/pasteboard".into(), None),
+            crate::PasteAction::Rm { id } => ("DELETE".into(), format!("/api/pasteboard/{}", id), None),
+        },
         Commands::Agent { action } => match action {
             crate::AgentAction::List => ("GET".into(), "/api/agents".into(), None),
             crate::AgentAction::Hierarchy => ("GET".into(), "/api/agents/hierarchy".into(), None),
@@ -613,4 +656,33 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
             ("GET".into(), path, None)
         }
     }
+}
+
+/// Local copy of the duration parser — keeps the relay arm self-contained
+/// without dragging cli/cmd/paste internals into args/mesh code.
+fn parse_duration_ms_relay(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if s.is_empty() { return None; }
+    let mut total: u64 = 0;
+    let mut num = String::new();
+    for c in s.chars() {
+        if c.is_ascii_digit() {
+            num.push(c);
+        } else {
+            let n: u64 = num.parse().ok()?;
+            num.clear();
+            total += match c {
+                's' => n * 1_000,
+                'm' => n * 60 * 1_000,
+                'h' => n * 60 * 60 * 1_000,
+                'd' => n * 24 * 60 * 60 * 1_000,
+                _ => return None,
+            };
+        }
+    }
+    if !num.is_empty() {
+        let n: u64 = num.parse().ok()?;
+        total += n * 60 * 1_000;
+    }
+    if total == 0 { None } else { Some(total) }
 }
