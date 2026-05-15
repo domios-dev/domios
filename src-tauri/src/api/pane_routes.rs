@@ -59,9 +59,6 @@ pub(crate) struct SendTextBody {
     /// Use for keystrokes that need to be interpreted by TUI (e.g. vim j/k navigation).
     #[serde(default)]
     raw: bool,
-    /// When `Some(true)`, block until echo + submit are observed.
-    /// Default is fire-and-forget when the caller omits the field.
-    verify: Option<bool>,
     /// Sender's pane id when CLI is invoked from inside CodeTerm. Daemon
     /// prepends `[from <title> pane=<id>] ` so the recipient knows the
     /// return-address. Mirrors `[Mesh: PEER pane=ID]` for mesh hops and
@@ -165,43 +162,11 @@ pub async fn send_text(
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
-    let verify = body.verify.unwrap_or(false);
-    if verify {
-        let pty_id = state.svc.resolve_pty_id(&pane_id)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-        let opts = crate::service::inject_verify::VerifyOpts::default();
-        let strategy = crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
-            timeout: std::time::Duration::from_secs(10),
-        };
-        let text_owned = prepend(&body.text.clone().unwrap_or_default());
-        return match state.svc.send_text_verified(&pty_id, &text_owned, body.enter, strategy, opts) {
-            Ok(r) => {
-                record_push_activity(&state, &svc_token_match, &pane_id, &text_owned);
-                Ok(Json(serde_json::json!({
-                    "ok": true,
-                    "pty_echo_seen": r.echo_observed && (!body.enter || r.submit_observed),
-                    "echo_observed": r.echo_observed,
-                    "submit_observed": r.submit_observed,
-                    "elapsed_ms": r.elapsed.as_millis() as u64,
-                })))
-            }
-            Err(e) => Ok(Json(serde_json::json!({
-                "ok": false,
-                "pty_echo_seen": false,
-                "error": format!("{}", e),
-            }))),
-        };
-    }
-
     let text = prepend(&body.text.unwrap_or_default());
     state.svc.send_text(&pane_id, &text, body.enter)
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     record_push_activity(&state, &svc_token_match, &pane_id, &text);
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "fire_and_forget": true,
-        "verified": false,
-    })))
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 pub async fn focus_pane(
@@ -695,28 +660,14 @@ mod tests_send_text_body {
         assert!(default_true());
     }
 
+    /// send-text is always fire-and-forget — the `verify` field was removed in #101
+    /// because TUI agents intercept input and don't echo per-character, making
+    /// verification unreliable (especially over mesh). Deserialization must
+    /// accept legacy clients that still send the field by ignoring it.
     #[test]
-    fn send_text_body_verify_defaults_to_none() {
-        let json = r#"{"text":"hi"}"#;
-        let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.verify, None);
-        assert_eq!(body.verify.unwrap_or(false), false,
-            "absent verify resolves to fire-and-forget by default");
-    }
-
-    #[test]
-    fn send_text_body_verify_explicit_false() {
-        let json = r#"{"text":"hi","verify":false}"#;
-        let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.verify, Some(false));
-        assert_eq!(body.verify.unwrap_or(false), false,
-            "explicit verify=false keeps fire-and-forget path");
-    }
-
-    #[test]
-    fn send_text_body_verify_explicit_true() {
+    fn send_text_body_ignores_legacy_verify_field() {
         let json = r#"{"text":"hi","verify":true}"#;
         let body: SendTextBody = serde_json::from_str(json).unwrap();
-        assert_eq!(body.verify, Some(true));
+        assert_eq!(body.text.as_deref(), Some("hi"));
     }
 }
