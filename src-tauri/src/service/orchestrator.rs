@@ -497,25 +497,15 @@ pub(crate) fn launch_agent_in_background(
             }
         }
 
-        // 3. Send launch command (verified). Shell prompt was already polled in step 2,
-        //    so require_prompt_first=false avoids a redundant wait.
-        let launch_opts = crate::service::inject_verify::VerifyOpts {
-            require_prompt_first: false,
-            verify_echo: true,
-            verify_submit: true,
-            prompt_timeout: std::time::Duration::from_secs(0),
-            echo_timeout: std::time::Duration::from_secs(3),
-            submit_timeout: std::time::Duration::from_secs(15),
-        };
-        // Use the provider's submit strategy: TUI providers (claude/codex/opencode)
-        // hand the shell off to a TUI on launch, so a "new shell prompt" never
-        // appears — TuiInputDrained is the right signal there.
-        let launch_strategy = registry
-            .with_provider(&agent_cmd, |p| p.verify_submit_strategy())
-            .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
-                timeout: std::time::Duration::from_secs(15),
-            });
-        if let Err(e) = svc.send_text_verified(&pty_id, &launch_cmd, true, launch_strategy, launch_opts) {
+        // 3. Send launch command. This is a SHELL-LEVEL command (the agent
+        //    binary is invoked from bash/cmd), so it must NOT go through
+        //    bracketed-paste — bash 3.2 (macOS Intel system shell) leaks the
+        //    `\x1b[200~` markers as literal `00~` / `01~` text and breaks the
+        //    launch. send_shell_spawn writes the cmd to a temp script and
+        //    execs `bash <path>` instead (see pty_io::build_spawn_dispatch).
+        //    Issue #93 regressed this when the async spawn_agent path was
+        //    added; the sync path in service/spawn.rs already does it right.
+        if let Err(e) = svc.send_shell_spawn(&pty_id, &launch_cmd) {
             log::error!(
                 "launch_agent: launch_cmd failed for pane {} (pty {}): {}",
                 pane_id, pty_id, e
