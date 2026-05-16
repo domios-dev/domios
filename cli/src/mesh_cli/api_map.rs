@@ -373,7 +373,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if let Some(e) = enabled { path.push(sep); let _ = sep; path.push_str(&format!("enabled={}", e)); }
                 ("GET".into(), path, None)
             }
-            ServiceAction::Add { name, kind, health_mode, url, host, port, process_label, script_path, health_path, health_interval, description, push } => {
+            ServiceAction::Add { name, kind, health_mode, url, host, port, process_label, script_path, health_path, health_json_field, health_ok_values, health_degraded_values, health_interval, description, push } => {
                 let mut body = serde_json::json!({
                     "name": name,
                     "kind": kind,
@@ -387,14 +387,21 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if let Some(v) = process_label { body["process_label"] = serde_json::json!(v); }
                 if let Some(v) = script_path { body["script_path"] = serde_json::json!(v); }
                 if let Some(v) = health_path { body["health_path"] = serde_json::json!(v); }
+                if let Some(v) = health_json_field { body["health_json_field"] = serde_json::json!(v); }
+                if let Some(v) = health_ok_values { body["health_ok_values"] = serde_json::json!(v); }
+                if let Some(v) = health_degraded_values { body["health_degraded_values"] = serde_json::json!(v); }
                 if let Some(v) = description { body["description"] = serde_json::json!(v); }
                 ("POST".into(), "/api/services".into(), Some(body.to_string()))
             }
             ServiceAction::Show { id } => ("GET".into(), format!("/api/services/{}", urlencoding::encode(id)), None),
-            ServiceAction::Edit { id, name, url, enabled } => {
+            ServiceAction::Edit { id, name, url, health_path, health_json_field, health_ok_values, health_degraded_values, enabled } => {
                 let mut body = serde_json::json!({});
                 if let Some(v) = name { body["name"] = serde_json::json!(v); }
                 if let Some(v) = url { body["url"] = serde_json::json!(v); }
+                if let Some(v) = health_path { body["health_path"] = serde_json::json!(v); }
+                if let Some(v) = health_json_field { body["health_json_field"] = serde_json::json!(v); }
+                if let Some(v) = health_ok_values { body["health_ok_values"] = serde_json::json!(v); }
+                if let Some(v) = health_degraded_values { body["health_degraded_values"] = serde_json::json!(v); }
                 if let Some(v) = enabled { body["enabled"] = serde_json::json!(v); }
                 ("PUT".into(), format!("/api/services/{}", urlencoding::encode(id)), Some(body.to_string()))
             }

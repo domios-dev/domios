@@ -6,7 +6,7 @@ mod tests;
 mod types;
 
 pub use cron_view::list_local;
-pub use schema::{init_schema, SCHEMA_VERSION};
+pub use schema::{init_schema, migrate_schema, SCHEMA_VERSION};
 pub use types::*;
 
 use parking_lot::Mutex;
@@ -23,6 +23,7 @@ impl ServicesStore {
         let conn = Connection::open(path)?;
         conn.execute("PRAGMA foreign_keys = ON", [])?;
         init_schema(&conn)?;
+        migrate_schema(&conn)?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
