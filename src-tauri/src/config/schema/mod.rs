@@ -533,23 +533,14 @@ pub struct SecretsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BitwardenSettings {
-    /// Bitwarden / Vaultwarden server URL. Default `https://vault.bitwarden.com`.
     #[serde(default = "default_bitwarden_server_url")]
     pub server_url: String,
-    /// When true, the master password is saved in the OS keychain on
-    /// successful unlock so the daemon can auto-unlock after restart.
-    /// Default false (user re-types each fresh daemon). Trade-off:
-    /// convenient + no surprise prompts vs. plaintext-on-disk in dev
-    /// builds where the keychain is a 0600 JSON file.
-    #[serde(default)]
-    pub persist_master_password: bool,
 }
 
 impl Default for BitwardenSettings {
     fn default() -> Self {
         Self {
             server_url: default_bitwarden_server_url(),
-            persist_master_password: false,
         }
     }
 }
