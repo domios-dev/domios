@@ -28,7 +28,7 @@ setup_env() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
     MSVC_VER="14.44.35207"
     BT_BASE="C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools"
-    SDK_VER="10.0.22621.0"
+    SDK_VER="10.0.26100.0"
     SDK_BASE="C:/Program Files (x86)/Windows Kits/10"
     export CC="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/bin/Hostx64/x64/cl.exe"
     export CXX="$BT_BASE/VC/Tools/MSVC/$MSVC_VER/bin/Hostx64/x64/cl.exe"
