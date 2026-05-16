@@ -207,7 +207,6 @@ codeterm theme apply dracula
 codeterm notify "Title" --level info --body "Details"
 codeterm notifications --unread
 codeterm notifications clear
-codeterm browser open file:///tmp/viz.html         # canvas panel — also accepts data: URLs and http://localhost:PORT
 ```
 
 `Cmd+K` / `Ctrl+K` opens the command palette for quick tab/workspace/theme access.

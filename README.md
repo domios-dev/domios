@@ -43,17 +43,15 @@
 
 CodeTerm is a cross-platform terminal multiplexer designed from the ground up for AI-assisted development. It combines the power of a terminal multiplexer (like tmux) with first-class support for AI coding agents like Claude Code.
 
-**Key difference from other terminals:** CodeTerm exposes a full REST API, CLI, and Socket API — so AI agents can create workspaces, split panes, run commands, read output, and manage the entire terminal programmatically. Your AI assistant becomes a first-class citizen in your terminal workflow.
+**Key difference from other terminals:** CodeTerm exposes a full REST API, CLI, and Socket API — so AI agents can create workspaces, open tabs, run commands, read output, and manage the entire terminal programmatically. Your AI assistant becomes a first-class citizen in your terminal workflow.
 
 Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 
 ## Features
 
 ### Terminal Multiplexer
-- **Workspaces & tabs** — organize projects into separate workspaces, each with multiple tabs
-- **Pane splitting** — split horizontally and vertically with draggable dividers
-- **Session persistence** — workspaces, tabs, pane layout, and working directories are saved and restored across restarts
-- **Spatial pane navigation** — move between panes with Alt+Arrow keys
+- **Workspaces & tabs** — organize projects into separate workspaces, each with multiple tabs (one terminal per tab)
+- **Session persistence** — workspaces, tabs, and working directories are saved and restored across restarts
 
 ### AI Agent Integration
 - **Agent detection** — automatically detects Claude Code running in a pane (orange indicator)
@@ -229,9 +227,6 @@ codeterm get-output PANE_ID --lines 50
 
 # Notifications
 codeterm notify "Build complete" --level info
-
-# Browser
-codeterm browser open "http://localhost:3000"
 ```
 
 ### Environment Variables
