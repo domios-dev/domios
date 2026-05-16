@@ -49,6 +49,12 @@ pub(crate) fn start_background_tasks(
             rt.block_on(async {
                 let mut last_sync_secs: std::collections::HashMap<String, u64> =
                     std::collections::HashMap::new();
+                // instance_id → last auto-pair attempt timestamp (secs). Retry
+                // after AUTO_PAIR_RETRY_SECS so an offline vouched peer that
+                // comes back online still gets paired without restart.
+                let mut auto_pair_attempted: std::collections::HashMap<String, u64> =
+                    std::collections::HashMap::new();
+                const AUTO_PAIR_RETRY_SECS: u64 = 60;
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                     if !cfg.lock().mesh.enabled {
@@ -174,6 +180,97 @@ pub(crate) fn start_background_tasks(
                         last_sync_secs.retain(|id, _| paired_ids.contains(id));
                         if changed {
                             let _ = app_h.emit("mesh-state-changed", ());
+                        }
+
+                        // Auto-pair: for any vouched discovered peer not yet paired,
+                        // send a pair request. The remote auto-approves if we're
+                        // also vouched on their side. Failed attempts retry after
+                        // AUTO_PAIR_RETRY_SECS so an offline peer eventually pairs
+                        // when it comes back online.
+                        let attempt_now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default().as_secs();
+                        let auto_pair_candidates: Vec<_> = {
+                            let m = mesh.lock();
+                            m.discovered_peers
+                                .values()
+                                .filter(|p| {
+                                    !p.vouched_by.is_empty()
+                                        && !m.paired_peers.contains_key(&p.instance_id)
+                                        && auto_pair_attempted.get(&p.instance_id)
+                                            .map(|&last| attempt_now.saturating_sub(last) >= AUTO_PAIR_RETRY_SECS)
+                                            .unwrap_or(true)
+                                        && !m.pending_requests.values().any(|r| {
+                                            r.from_instance_id == p.instance_id
+                                        })
+                                })
+                                .map(|p| (p.instance_id.clone(), p.addresses.clone(), p.api_port))
+                                .collect()
+                        };
+                        for (target_id, addresses, target_port) in auto_pair_candidates {
+                            auto_pair_attempted.insert(target_id.clone(), attempt_now);
+                            let mesh2 = mesh.clone();
+                            let app_h2 = app_h.clone();
+                            tokio::spawn(async move {
+                                let (request, target_addr) = {
+                                    let mut m = mesh2.lock();
+                                    let addr = addresses
+                                        .iter()
+                                        .find(|a| a.is_tailscale)
+                                        .or_else(|| addresses.first())
+                                        .map(|a| a.ip.clone());
+                                    let Some(addr) = addr else { return };
+                                    let local_addr = m.tailscale_ip.clone()
+                                        .or_else(|| m.local_ip.clone())
+                                        .unwrap_or_else(|| "127.0.0.1".to_string());
+                                    let Some(pk) = m.ident.identity.public_key.clone() else { return };
+                                    let now = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default().as_secs();
+                                    let req = crate::mesh::types::PairingRequest {
+                                        request_id: uuid::Uuid::new_v4().to_string(),
+                                        from_instance_id: m.ident.identity.instance_id.clone(),
+                                        from_instance_name: m.ident.instance_name.clone(),
+                                        from_address: local_addr,
+                                        from_port: m.api_port,
+                                        public_key: pk,
+                                        timestamp: now,
+                                        status: crate::mesh::types::PairingStatus::Pending,
+                                        introduced_by: None,
+                                    };
+                                    // Store so the accept handler can resolve target on callback
+                                    m.pairing_targets.insert(
+                                        req.request_id.clone(),
+                                        (addr.clone(), target_port, target_id.clone()),
+                                    );
+                                    m.pending_requests.insert(req.request_id.clone(), req.clone());
+                                    (req, addr)
+                                };
+                                let client = reqwest::Client::builder()
+                                    .timeout(std::time::Duration::from_secs(5))
+                                    .build().unwrap_or_default();
+                                let url = format!("http://{}:{}/api/mesh/pair/request", target_addr, target_port);
+                                log::info!("[mesh] Auto-pairing vouched peer {} at {}", target_id, url);
+                                match client.post(&url).json(&request).send().await {
+                                    Ok(r) if r.status().is_success() => {
+                                        log::info!("[mesh] Auto-pair request sent to {}", target_id);
+                                        let _ = app_h2.emit("mesh-state-changed", ());
+                                    }
+                                    Ok(r) => {
+                                        log::warn!("[mesh] Auto-pair {} rejected: {}", target_id, r.status());
+                                        // Drop the stored request so we don't hold a dead entry
+                                        let mut m = mesh2.lock();
+                                        m.pending_requests.remove(&request.request_id);
+                                        m.pairing_targets.remove(&request.request_id);
+                                    }
+                                    Err(e) => {
+                                        log::warn!("[mesh] Auto-pair {} failed: {}", target_id, e);
+                                        let mut m = mesh2.lock();
+                                        m.pending_requests.remove(&request.request_id);
+                                        m.pairing_targets.remove(&request.request_id);
+                                    }
+                                }
+                            });
                         }
                     }
                 });

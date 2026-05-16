@@ -77,17 +77,37 @@ export function NetworkTab({ data, triggerRefresh }: Props) {
                   <li key={peer.instance_id} className="p-3">
                     <SettingsRow>
                       <div className="flex items-center gap-2 min-w-0">
-                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${peer.online ? "bg-[var(--ct-green)]" : "bg-[var(--ct-muted)]"}`} />
-                        <span className="text-xs font-medium text-[var(--ct-fg)] truncate">{peer.name}</span>
+                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                          peer.pending
+                            ? "border border-dashed border-[var(--ct-muted)] bg-transparent"
+                            : peer.online
+                              ? "bg-[var(--ct-green)]"
+                              : "bg-[var(--ct-muted)]"
+                        }`} />
+                        <span className={`text-xs font-medium truncate ${
+                          peer.pending ? "text-[var(--ct-muted-fg)]" : "text-[var(--ct-fg)]"
+                        }`}>{peer.name}</span>
                         <span className="text-[10px] text-[var(--ct-muted)] font-mono flex-shrink-0">{peer.ip}</span>
-                        <SettingsPill tone="muted">{peer.access_level}</SettingsPill>
+                        {peer.pending ? (
+                          <SettingsPill tone="muted">auto-pairs when online</SettingsPill>
+                        ) : (
+                          <SettingsPill tone="muted">{peer.access_level}</SettingsPill>
+                        )}
                       </div>
-                      <button
-                        onClick={() => handleForget(peer.instance_id)}
-                        className="text-[10px] px-2 py-1 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors flex-shrink-0"
-                      >
-                        Forget
-                      </button>
+                      {peer.pending ? (
+                        <span className="text-[10px] text-[var(--ct-muted)] italic flex-shrink-0">
+                          {peer.vouched_by_names && peer.vouched_by_names.length > 0
+                            ? `vouched by ${peer.vouched_by_names.join(", ")}`
+                            : "waiting"}
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleForget(peer.instance_id)}
+                          className="text-[10px] px-2 py-1 rounded text-[var(--ct-red)]/70 hover:text-[var(--ct-red)] hover:bg-[var(--ct-red)]/10 transition-colors flex-shrink-0"
+                        >
+                          Forget
+                        </button>
+                      )}
                     </SettingsRow>
                   </li>
                 ))}
