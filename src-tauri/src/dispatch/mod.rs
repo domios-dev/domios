@@ -184,12 +184,10 @@ pub(crate) fn build_pane_list_json(
         std::collections::HashMap::new();
     for ws in &snapshot.workspaces {
         for tab in &ws.tabs {
-            for pane_id in tab.split_tree.collect_pane_ids() {
-                tab_index.insert(
-                    pane_id,
-                    (tab.id.clone(), tab.title.clone(), ws.id.clone(), ws.name.clone()),
-                );
-            }
+            tab_index.insert(
+                tab.pane_id.clone(),
+                (tab.id.clone(), tab.title.clone(), ws.id.clone(), ws.name.clone()),
+            );
         }
     }
     snapshot.panes.values()

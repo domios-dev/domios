@@ -52,7 +52,7 @@ impl MultiplexerState {
         let pane_ids: Vec<String> = ws
             .tabs
             .iter()
-            .flat_map(|t| t.split_tree.collect_pane_ids())
+            .map(|t| t.pane_id.clone())
             .collect();
         Some(WorkspaceInfo {
             id: ws.id.clone(),
@@ -96,7 +96,7 @@ impl MultiplexerState {
         let pane_ids: Vec<String> = workspace
             .tabs
             .iter()
-            .flat_map(|tab| tab.split_tree.collect_pane_ids())
+            .map(|tab| tab.pane_id.clone())
             .collect();
 
         let pty_ids: Vec<String> = pane_ids
@@ -191,7 +191,7 @@ impl MultiplexerState {
             .iter()
             .map(|w| {
                 let pane_ids: Vec<String> = w.tabs.iter()
-                    .flat_map(|t| t.split_tree.collect_pane_ids())
+                    .map(|t| t.pane_id.clone())
                     .collect();
                 WorkspaceInfo {
                     id: w.id.clone(),

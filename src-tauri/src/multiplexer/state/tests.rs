@@ -80,49 +80,10 @@ fn test_create_tab_invalid_workspace() {
     assert!(result.is_err());
 }
 
-#[test]
-fn test_split_pane() {
-    let (mut state, initial_pane_id) = MultiplexerState::new();
-    let result = state.split_pane(&initial_pane_id, Orientation::Horizontal);
-    assert!(result.is_ok());
-
-    let new_pane_id = result.unwrap();
-    assert!(state.get_pane(&new_pane_id).is_some());
-
-    let ws = state.get_active_workspace().unwrap();
-    let tab = &ws.tabs[0];
-    let pane_ids = tab.split_tree.collect_pane_ids();
-    assert_eq!(pane_ids.len(), 2);
-    assert!(pane_ids.contains(&initial_pane_id));
-    assert!(pane_ids.contains(&new_pane_id));
-}
-
-#[test]
-fn test_split_pane_not_found() {
-    let (mut state, _) = MultiplexerState::new();
-    let result = state.split_pane("nonexistent", Orientation::Horizontal);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_close_pane_collapses_split() {
-    let (mut state, initial_pane_id) = MultiplexerState::new();
-
-    let new_pane_id = state
-        .split_pane(&initial_pane_id, Orientation::Horizontal)
-        .unwrap();
-
-    let result = state.close_pane(&new_pane_id);
-    assert!(result.is_ok());
-
-    let ws = state.get_active_workspace().unwrap();
-    let tab = &ws.tabs[0];
-    let pane_ids = tab.split_tree.collect_pane_ids();
-    assert_eq!(pane_ids.len(), 1);
-    assert_eq!(pane_ids[0], initial_pane_id);
-
-    assert!(state.get_pane(&new_pane_id).is_none());
-}
+// split_pane removed — every tab now owns exactly one pane. The
+// regression tests that exercised split tree construction / collapse
+// went with it; close_pane behavior is now covered by close_tab tests
+// further down.
 
 #[test]
 fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() {
@@ -154,11 +115,9 @@ fn test_close_pane_preserves_active_tab_when_unrelated_single_leaf_tab_closes() 
 
 #[test]
 fn test_close_pane_returns_pty_id() {
-    let (mut state, initial_pane_id) = MultiplexerState::new();
-
-    let new_pane_id = state
-        .split_pane(&initial_pane_id, Orientation::Horizontal)
-        .unwrap();
+    let (mut state, _initial_pane_id) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (_tab, new_pane_id) = state.create_tab(&ws_id).unwrap();
     state.link_pty(&new_pane_id, "pty-123".to_string());
 
     let result = state.close_pane(&new_pane_id).unwrap();
@@ -169,10 +128,9 @@ fn test_close_pane_returns_pty_id() {
 fn test_close_pane_clears_focus_when_no_general() {
     // No `general` alias registered → fallback finds nothing → focus drops to None.
     // Matches old behavior so existing callers without General are unaffected.
-    let (mut state, initial_pane_id) = MultiplexerState::new();
-    let new_pane_id = state
-        .split_pane(&initial_pane_id, Orientation::Horizontal)
-        .unwrap();
+    let (mut state, _initial_pane_id) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (_tab, new_pane_id) = state.create_tab(&ws_id).unwrap();
 
     state.set_focused_pane(&new_pane_id).unwrap();
     assert_eq!(state.get_focused_pane_id(), Some(new_pane_id.as_str()));
@@ -188,9 +146,8 @@ fn test_close_pane_falls_back_to_general() {
     let (mut state, general_pane_id) = MultiplexerState::new();
     state.register_alias("general", &general_pane_id);
 
-    let other_pane_id = state
-        .split_pane(&general_pane_id, Orientation::Horizontal)
-        .unwrap();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (_tab, other_pane_id) = state.create_tab(&ws_id).unwrap();
     state.set_focused_pane(&other_pane_id).unwrap();
 
     state.close_pane(&other_pane_id).unwrap();
@@ -240,7 +197,7 @@ fn test_fallback_focus_to_general_sets_focus() {
     state.register_alias("general", &general_pane_id);
 
     // Clear focus first to make the assignment observable.
-    let other = state.split_pane(&general_pane_id, Orientation::Horizontal).unwrap();
+    let other = state.create_pane();
     state.set_focused_pane(&other).unwrap();
 
     let result = state.fallback_focus_to_general();
@@ -299,9 +256,7 @@ fn test_close_tab() {
 #[test]
 fn test_set_focused_pane() {
     let (mut state, initial_pane_id) = MultiplexerState::new();
-    let new_pane_id = state
-        .split_pane(&initial_pane_id, Orientation::Horizontal)
-        .unwrap();
+    let new_pane_id = state.create_pane();
 
     assert!(state.set_focused_pane(&new_pane_id).is_ok());
     assert_eq!(state.get_focused_pane_id(), Some(new_pane_id.as_str()));
@@ -312,26 +267,6 @@ fn test_set_focused_pane_not_found() {
     let (mut state, _) = MultiplexerState::new();
     let result = state.set_focused_pane("nonexistent");
     assert!(result.is_err());
-}
-
-#[test]
-fn test_nested_splits() {
-    let (mut state, initial_pane_id) = MultiplexerState::new();
-
-    let pane_2 = state
-        .split_pane(&initial_pane_id, Orientation::Horizontal)
-        .unwrap();
-
-    let pane_3 = state
-        .split_pane(&pane_2, Orientation::Vertical)
-        .unwrap();
-
-    let ws = state.get_active_workspace().unwrap();
-    let pane_ids = ws.tabs[0].split_tree.collect_pane_ids();
-    assert_eq!(pane_ids.len(), 3);
-    assert!(pane_ids.contains(&initial_pane_id));
-    assert!(pane_ids.contains(&pane_2));
-    assert!(pane_ids.contains(&pane_3));
 }
 
 #[test]
@@ -390,9 +325,7 @@ fn test_worker_requires_orchestrator_parent() {
     state
         .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let worker_id = state
-        .split_pane(&orch_id, Orientation::Horizontal)
-        .unwrap();
+    let worker_id = state.create_pane();
     state
         .set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id))
         .unwrap();
@@ -407,9 +340,7 @@ fn test_worker_requires_orchestrator_parent() {
 #[test]
 fn test_worker_parent_must_be_orchestrator() {
     let (mut state, pane_id) = MultiplexerState::new();
-    let other_id = state
-        .split_pane(&pane_id, Orientation::Horizontal)
-        .unwrap();
+    let other_id = state.create_pane();
     let result = state.set_pane_role(&pane_id, AgentRole::Worker, Some(&other_id));
     assert!(result.is_err());
 }
@@ -422,9 +353,7 @@ fn test_worker_parent_must_allow_spawn() {
         .unwrap();
     state.set_can_spawn(&orch_id, false).unwrap();
 
-    let worker_id = state
-        .split_pane(&orch_id, Orientation::Horizontal)
-        .unwrap();
+    let worker_id = state.create_pane();
     let result = state.set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id));
     assert!(result.is_err());
 }
@@ -435,10 +364,10 @@ fn test_subworker_requires_worker_parent() {
     let (mut state, orch_id) = MultiplexerState::new();
     state.set_pane_role(&orch_id, AgentRole::Orchestrator, None).unwrap();
 
-    let lead_id = state.split_pane(&orch_id, Orientation::Horizontal).unwrap();
+    let lead_id = state.create_pane();
     state.set_pane_role(&lead_id, AgentRole::Lead, Some(&orch_id)).unwrap();
 
-    let worker_id = state.split_pane(&lead_id, Orientation::Vertical).unwrap();
+    let worker_id = state.create_pane();
     state.set_pane_role(&worker_id, AgentRole::Worker, Some(&lead_id)).unwrap();
 
     let worker = state.get_pane(&worker_id).unwrap();
@@ -453,15 +382,11 @@ fn test_get_children_ids() {
     state
         .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let w1 = state
-        .split_pane(&orch_id, Orientation::Horizontal)
-        .unwrap();
+    let w1 = state.create_pane();
     state
         .set_pane_role(&w1, AgentRole::Worker, Some(&orch_id))
         .unwrap();
-    let w2 = state
-        .split_pane(&orch_id, Orientation::Horizontal)
-        .unwrap();
+    let w2 = state.create_pane();
     state
         .set_pane_role(&w2, AgentRole::Worker, Some(&orch_id))
         .unwrap();
@@ -478,9 +403,7 @@ fn test_clear_role_orphans_children() {
     state
         .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let worker_id = state
-        .split_pane(&orch_id, Orientation::Horizontal)
-        .unwrap();
+    let worker_id = state.create_pane();
     state
         .set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id))
         .unwrap();
@@ -500,14 +423,13 @@ fn test_clear_role_orphans_children() {
 #[test]
 fn test_close_pane_cascades_children() {
     let (mut state, orch_id) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
     state
         .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
         .unwrap();
     state.link_pty(&orch_id, "pty-orch".to_string());
 
-    let worker_id = state
-        .split_pane(&orch_id, Orientation::Horizontal)
-        .unwrap();
+    let (_tab, worker_id) = state.create_tab(&ws_id).unwrap();
     state
         .set_pane_role(&worker_id, AgentRole::Worker, Some(&orch_id))
         .unwrap();
@@ -820,12 +742,11 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
 #[test]
 fn test_session_snapshot_preserves_hierarchy() {
     let (mut state, cond_id) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
     state
         .set_pane_role(&cond_id, AgentRole::Orchestrator, None)
         .unwrap();
-    let worker_id = state
-        .split_pane(&cond_id, Orientation::Horizontal)
-        .unwrap();
+    let (_tab, worker_id) = state.create_tab(&ws_id).unwrap();
     state
         .set_pane_role(&worker_id, AgentRole::Worker, Some(&cond_id))
         .unwrap();
@@ -875,7 +796,7 @@ fn test_protected_workspace_cannot_close() {
 #[test]
 fn test_protected_pane_cannot_close() {
     let (mut state, initial_pane_id) = MultiplexerState::new();
-    let new_pane_id = state.split_pane(&initial_pane_id, Orientation::Horizontal).unwrap();
+    let new_pane_id = state.create_pane();
     state.get_pane_mut(&new_pane_id).unwrap().protected = true;
 
     let result = state.close_pane(&new_pane_id);
@@ -919,8 +840,9 @@ fn test_alias_unregister() {
 
 #[test]
 fn test_alias_to_deleted_pane_returns_none() {
-    let (mut state, initial_pane_id) = MultiplexerState::new();
-    let new_pane_id = state.split_pane(&initial_pane_id, Orientation::Horizontal).unwrap();
+    let (mut state, _initial_pane_id) = MultiplexerState::new();
+    let ws_id = state.list_workspaces()[0].id.clone();
+    let (_tab, new_pane_id) = state.create_tab(&ws_id).unwrap();
     state.register_alias("ephemeral", &new_pane_id);
 
     state.close_pane(&new_pane_id).unwrap();

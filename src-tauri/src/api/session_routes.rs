@@ -118,7 +118,7 @@ pub async fn resume_session_api(
             let snap = mux.snapshot();
             let (ws_id, tab_id) = snap.workspaces.iter()
                 .find_map(|w| {
-                    let tab = w.tabs.iter().find(|t| t.split_tree.contains_pane(&pane_id))?;
+                    let tab = w.tabs.iter().find(|t| t.pane_id == pane_id)?;
                     Some((w.id.clone(), tab.id.clone()))
                 })
                 .unwrap_or_default();

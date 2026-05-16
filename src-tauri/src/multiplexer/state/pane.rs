@@ -1,5 +1,5 @@
 use super::{short_id, MultiplexerState};
-use crate::multiplexer::types::{Orientation, Pane, PaneType, SplitNode, Tab, TitleLevel};
+use crate::multiplexer::types::{Pane, PaneType, TitleLevel};
 
 impl MultiplexerState {
     /// Create a new terminal pane and register it. Returns the pane ID.
@@ -117,10 +117,8 @@ impl MultiplexerState {
     /// Find which workspace contains a given pane.
     pub fn find_workspace_for_pane(&self, pane_id: &str) -> Option<String> {
         for ws in &self.workspaces {
-            for tab in &ws.tabs {
-                if tab.split_tree.contains_pane(pane_id) {
-                    return Some(ws.id.clone());
-                }
+            if ws.tabs.iter().any(|t| t.pane_id == pane_id) {
+                return Some(ws.id.clone());
             }
         }
         None
@@ -129,10 +127,8 @@ impl MultiplexerState {
     /// Find which tab contains a given pane.
     pub fn find_tab_for_pane(&self, pane_id: &str) -> Option<String> {
         for ws in &self.workspaces {
-            for tab in &ws.tabs {
-                if tab.split_tree.contains_pane(pane_id) {
-                    return Some(tab.id.clone());
-                }
+            if let Some(tab) = ws.tabs.iter().find(|t| t.pane_id == pane_id) {
+                return Some(tab.id.clone());
             }
         }
         None
@@ -147,14 +143,12 @@ impl MultiplexerState {
     pub fn display_label_for_pane(&self, pane_id: &str) -> String {
         let pane_title = self.get_pane(pane_id).map(|p| p.title.clone()).unwrap_or_default();
         for ws in &self.workspaces {
-            for tab in &ws.tabs {
-                if tab.split_tree.contains_pane(pane_id) {
-                    let t = tab.title.trim();
-                    if !t.is_empty() && t != pane_title.trim() {
-                        return t.to_string();
-                    }
-                    break;
+            if let Some(tab) = ws.tabs.iter().find(|t| t.pane_id == pane_id) {
+                let t = tab.title.trim();
+                if !t.is_empty() && t != pane_title.trim() {
+                    return t.to_string();
                 }
+                break;
             }
         }
         if !pane_title.trim().is_empty() {
@@ -164,35 +158,8 @@ impl MultiplexerState {
         }
     }
 
-    /// Split an existing pane. Creates a new pane next to it.
-    /// Returns the new pane ID.
-    pub fn split_pane(
-        &mut self,
-        pane_id: &str,
-        orientation: Orientation,
-    ) -> Result<String, String> {
-        if !self.panes.contains_key(pane_id) {
-            return Err(format!("Pane not found: {}", pane_id));
-        }
-
-        let new_pane_id = self.create_pane();
-
-        let found = self.workspaces.iter_mut().any(|ws| {
-            ws.tabs
-                .iter_mut()
-                .any(|tab| tab.split_tree.split_leaf(pane_id, &new_pane_id, orientation))
-        });
-
-        if !found {
-            self.panes.remove(&new_pane_id);
-            return Err(format!("Pane {} not found in any split tree", pane_id));
-        }
-
-        Ok(new_pane_id)
-    }
-
-    /// Close a pane: remove from split tree and pane registry.
-    /// Cascade-closes all children. Returns all pty_ids that should be killed.
+    /// Close a pane: remove from the workspace tree and pane registry.
+    /// Cascade-closes all children. Returns pty_ids that should be killed.
     pub fn close_pane(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
         if let Some(pane) = self.panes.get(pane_id) {
             if pane.protected {
@@ -227,13 +194,11 @@ impl MultiplexerState {
         Ok(pty_ids)
     }
 
-    /// Remove a pane from its tab's split tree. Removes the tab entirely if it was the only leaf.
+    /// Remove the tab that owns a given pane. Single-pane-per-tab makes this
+    /// a direct delete with no tree walking.
     fn remove_pane_from_tree(&mut self, pane_id: &str) -> Result<(), String> {
         for ws in &mut self.workspaces {
-            let tab_idx = ws.tabs.iter().position(|tab| {
-                matches!(&tab.split_tree, SplitNode::Leaf { pane_id: pid } if pid == pane_id)
-            });
-            if let Some(idx) = tab_idx {
+            if let Some(idx) = ws.tabs.iter().position(|tab| tab.pane_id == pane_id) {
                 let closed_tab_id = ws.tabs[idx].id.clone();
                 ws.tabs.remove(idx);
                 if ws.active_tab_id.as_deref() == Some(&closed_tab_id) {
@@ -241,11 +206,8 @@ impl MultiplexerState {
                 }
                 return Ok(());
             }
-            if ws.tabs.iter_mut().any(|tab| tab.split_tree.remove_leaf(pane_id)) {
-                return Ok(());
-            }
         }
-        Err(format!("Pane {} not found in any split tree", pane_id))
+        Err(format!("Pane {} not found in any tab", pane_id))
     }
 }
 
