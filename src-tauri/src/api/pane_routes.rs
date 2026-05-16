@@ -39,7 +39,11 @@ pub async fn create_shell_pane(
         command: PaneCommand::Shell,
         ..Default::default()
     }).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    // Mirror `pane_id` as `id` so the conventional CRUD idiom (`jq '.id'`,
+    // resp.get("id")) reaches the new pane without anyone having to learn
+    // our per-resource naming. Both fields hold the same value.
     Ok(Json(serde_json::json!({
+        "id": handle.pane_id,
         "pane_id": handle.pane_id,
         "workspace_id": handle.workspace_id,
         "tab_id": handle.tab_id,

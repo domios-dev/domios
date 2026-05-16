@@ -17,6 +17,7 @@ Commands default to the **current focused pane** when no id is given. Reference 
 ```bash
 codeterm pane list
 codeterm pane search "<pattern>"                   # fuzzy across tab name, model, agent, id — cross-script (Далтон → Dalton)
+codeterm pane new --workspace WS_ID                # creates plain shell pane → returns {id, pane_id, tab_id, workspace_id}
 codeterm pane rename "title"                       # your tab; no --pane needed
 codeterm pane focus PANE_ID
 codeterm pane close PANE_ID
