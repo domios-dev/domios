@@ -109,7 +109,7 @@ export function WorkspaceItem({
   return (
     <div
       className={`
-        group flex items-center justify-between px-1 py-1.5 cursor-pointer transition-colors
+        group flex items-center justify-between px-1 py-2 cursor-pointer transition-colors
         ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
         ${hasWaiting ? "bg-[var(--ct-yellow)]/10" : ""}
         ${dragOver ? "bg-[var(--ct-accent)]/20" : ""}
