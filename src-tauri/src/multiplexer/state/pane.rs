@@ -1,5 +1,5 @@
 use super::{short_id, MultiplexerState};
-use crate::multiplexer::types::{Orientation, Pane, PaneType, SplitNode, Tab, TitleLevel};
+use crate::multiplexer::types::{Pane, PaneType, TitleLevel};
 
 impl MultiplexerState {
     /// Create a new terminal pane and register it. Returns the pane ID.
@@ -37,83 +37,6 @@ impl MultiplexerState {
         };
         self.panes.insert(pane_id.clone(), pane);
         pane_id
-    }
-
-    /// Create a new browser pane and register it. Returns the pane ID.
-    pub fn create_browser_pane(&mut self, url: Option<String>) -> String {
-        let pane_id = short_id();
-        let pane = Pane {
-            id: pane_id.clone(),
-            pty_id: None,
-            pane_type: PaneType::Browser,
-            title: "Browser".to_string(),
-            cwd: None,
-            url,
-            agent_type: None,
-            agent_type_locked: false,
-            agent_session_id: None,
-            agent_session_name: None,
-            agent_session_model: None,
-            role: None,
-            parent_pane_id: None,
-            can_spawn: false,
-            depth: 0,
-            report_target_pane_id: None,
-            spawned_by_pane_id: None,
-            title_level: TitleLevel::Default,
-            chat_view: false,
-            pending_prompt: None,
-            auto_approve: false,
-            protected: false,
-            connected_services: vec![],
-            agent_set_at: None,
-            hidden: false,
-            show_in_tabbar: true,
-            worker_id: None,
-            restored_from_snapshot: false,
-        };
-        self.panes.insert(pane_id.clone(), pane);
-        pane_id
-    }
-
-    /// Open a browser pane next to the focused pane or in a new tab.
-    /// `activate` opts in to focusing the new tab.
-    pub fn open_browser(&mut self, url: Option<String>, activate: bool) -> Result<String, String> {
-        let new_pane_id = self.create_browser_pane(url);
-
-        if let Some(ref focused_id) = self.focused_pane_id.clone() {
-            let found = self.workspaces.iter_mut().any(|ws| {
-                ws.tabs
-                    .iter_mut()
-                    .any(|tab| tab.split_tree.split_leaf(focused_id, &new_pane_id, Orientation::Horizontal))
-            });
-            if found {
-                return Ok(new_pane_id);
-            }
-        }
-
-        let ws_id = self.active_workspace_id.clone()
-            .ok_or_else(|| "No active workspace".to_string())?;
-
-        let tab_id = short_id();
-        let tab = Tab {
-            id: tab_id.clone(),
-            title: "Browser".to_string(),
-            split_tree: SplitNode::Leaf {
-                pane_id: new_pane_id.clone(),
-            },
-        };
-
-        let workspace = self.workspaces.iter_mut()
-            .find(|w| w.id == ws_id)
-            .ok_or_else(|| "Active workspace not found".to_string())?;
-
-        workspace.tabs.push(tab);
-        if activate || workspace.active_tab_id.is_none() {
-            workspace.active_tab_id = Some(tab_id);
-        }
-
-        Ok(new_pane_id)
     }
 
     pub fn get_pane(&self, id: &str) -> Option<&Pane> {
@@ -194,10 +117,8 @@ impl MultiplexerState {
     /// Find which workspace contains a given pane.
     pub fn find_workspace_for_pane(&self, pane_id: &str) -> Option<String> {
         for ws in &self.workspaces {
-            for tab in &ws.tabs {
-                if tab.split_tree.contains_pane(pane_id) {
-                    return Some(ws.id.clone());
-                }
+            if ws.tabs.iter().any(|t| t.pane_id == pane_id) {
+                return Some(ws.id.clone());
             }
         }
         None
@@ -206,44 +127,39 @@ impl MultiplexerState {
     /// Find which tab contains a given pane.
     pub fn find_tab_for_pane(&self, pane_id: &str) -> Option<String> {
         for ws in &self.workspaces {
-            for tab in &ws.tabs {
-                if tab.split_tree.contains_pane(pane_id) {
-                    return Some(tab.id.clone());
-                }
+            if let Some(tab) = ws.tabs.iter().find(|t| t.pane_id == pane_id) {
+                return Some(tab.id.clone());
             }
         }
         None
     }
 
-    /// Split an existing pane. Creates a new pane next to it.
-    /// Returns the new pane ID.
-    pub fn split_pane(
-        &mut self,
-        pane_id: &str,
-        orientation: Orientation,
-    ) -> Result<String, String> {
-        if !self.panes.contains_key(pane_id) {
-            return Err(format!("Pane not found: {}", pane_id));
+    /// Best label for cross-pane attribution (send-text source prefix,
+    /// hierarchy report header, etc.). Tabs carry the friendly sidebar
+    /// name (Dalton/Lagrange/Fibonacci); the underlying pane.title may be
+    /// something the user never sees ("MY-CUSTOM-TITLE", "claude-with-text").
+    /// Prefer tab.title when it's set and not just a placeholder copy of the
+    /// pane.title. Falls back to pane.title, then to a short id.
+    pub fn display_label_for_pane(&self, pane_id: &str) -> String {
+        let pane_title = self.get_pane(pane_id).map(|p| p.title.clone()).unwrap_or_default();
+        for ws in &self.workspaces {
+            if let Some(tab) = ws.tabs.iter().find(|t| t.pane_id == pane_id) {
+                let t = tab.title.trim();
+                if !t.is_empty() && t != pane_title.trim() {
+                    return t.to_string();
+                }
+                break;
+            }
         }
-
-        let new_pane_id = self.create_pane();
-
-        let found = self.workspaces.iter_mut().any(|ws| {
-            ws.tabs
-                .iter_mut()
-                .any(|tab| tab.split_tree.split_leaf(pane_id, &new_pane_id, orientation))
-        });
-
-        if !found {
-            self.panes.remove(&new_pane_id);
-            return Err(format!("Pane {} not found in any split tree", pane_id));
+        if !pane_title.trim().is_empty() {
+            pane_title
+        } else {
+            pane_id.chars().take(8).collect()
         }
-
-        Ok(new_pane_id)
     }
 
-    /// Close a pane: remove from split tree and pane registry.
-    /// Cascade-closes all children. Returns all pty_ids that should be killed.
+    /// Close a pane: remove from the workspace tree and pane registry.
+    /// Cascade-closes all children. Returns pty_ids that should be killed.
     pub fn close_pane(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
         if let Some(pane) = self.panes.get(pane_id) {
             if pane.protected {
@@ -278,13 +194,11 @@ impl MultiplexerState {
         Ok(pty_ids)
     }
 
-    /// Remove a pane from its tab's split tree. Removes the tab entirely if it was the only leaf.
+    /// Remove the tab that owns a given pane. Single-pane-per-tab makes this
+    /// a direct delete with no tree walking.
     fn remove_pane_from_tree(&mut self, pane_id: &str) -> Result<(), String> {
         for ws in &mut self.workspaces {
-            let tab_idx = ws.tabs.iter().position(|tab| {
-                matches!(&tab.split_tree, SplitNode::Leaf { pane_id: pid } if pid == pane_id)
-            });
-            if let Some(idx) = tab_idx {
+            if let Some(idx) = ws.tabs.iter().position(|tab| tab.pane_id == pane_id) {
                 let closed_tab_id = ws.tabs[idx].id.clone();
                 ws.tabs.remove(idx);
                 if ws.active_tab_id.as_deref() == Some(&closed_tab_id) {
@@ -292,71 +206,47 @@ impl MultiplexerState {
                 }
                 return Ok(());
             }
-            if ws.tabs.iter_mut().any(|tab| tab.split_tree.remove_leaf(pane_id)) {
-                return Ok(());
-            }
         }
-        Err(format!("Pane {} not found in any split tree", pane_id))
+        Err(format!("Pane {} not found in any tab", pane_id))
     }
 }
 
 #[cfg(test)]
-mod open_browser_tests {
+mod display_label_tests {
     use super::*;
 
-    // Exercises the new-tab branch of `open_browser` (no focused pane to
-    // split into). The split-into-focused-pane branch never touches
-    // `active_tab_id`, so focus-on-spawn is irrelevant there.
-    fn fresh_state_with_no_focus() -> (MultiplexerState, String, String) {
-        let (mut state, _initial_pane_id) = MultiplexerState::new();
-        state.focused_pane_id = None;
-        let ws_id = state
-            .workspaces
-            .first()
-            .map(|w| w.id.clone())
-            .expect("default workspace");
-        // Force a non-None active_tab_id pointing at a *second* tab so the
-        // test can detect a switch (the first tab gets activated
-        // unconditionally because the workspace started empty — that's
-        // the `tab.rs:36` branch we explicitly left alone).
-        let (extra_tab, _extra_pane) = state.create_tab(&ws_id).unwrap();
-        state.set_active_tab(&ws_id, &extra_tab).unwrap();
-        (state, ws_id, extra_tab)
+    #[test]
+    fn display_label_prefers_tab_title_over_pane_title() {
+        // Regression: `[from MY-CUSTOM-TITLE pane=2503fbce]` showed the raw
+        // pane.title instead of the sidebar's friendly tab name. Recipients
+        // had no way to map the prefix back to the tab they could see.
+        let (mut state, pane_id) = MultiplexerState::new();
+        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
+        let tab_id = state.find_tab_for_pane(&pane_id).unwrap();
+        state.rename_tab(&ws_id, &tab_id, "Fibonacci").unwrap();
+        state.rename_pane(&pane_id, "MY-CUSTOM-TITLE").unwrap();
+        assert_eq!(state.display_label_for_pane(&pane_id), "Fibonacci");
     }
 
     #[test]
-    fn open_browser_activate_true_switches_active_tab() {
-        let (mut state, ws_id, original_active_tab) = fresh_state_with_no_focus();
-        let new_pane_id = state
-            .open_browser(Some("https://example.com".into()), true)
-            .unwrap();
-
-        let active = state
-            .get_workspace(&ws_id)
-            .and_then(|w| w.active_tab_id.clone())
-            .expect("workspace has active tab");
-        assert_ne!(
-            active, original_active_tab,
-            "activate=true must switch focus to the new browser tab"
-        );
-        assert!(state.get_pane(&new_pane_id).is_some());
+    fn display_label_falls_back_to_pane_title_when_tab_matches() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
+        let tab_id = state.find_tab_for_pane(&pane_id).unwrap();
+        state.rename_tab(&ws_id, &tab_id, "Same").unwrap();
+        state.rename_pane(&pane_id, "Same").unwrap();
+        // Tab and pane title are identical — no point parroting the same word,
+        // fall back to pane.title so the resulting string isn't double-empty.
+        assert_eq!(state.display_label_for_pane(&pane_id), "Same");
     }
 
     #[test]
-    fn open_browser_activate_false_keeps_active_tab() {
-        let (mut state, ws_id, original_active_tab) = fresh_state_with_no_focus();
-        let new_pane_id = state
-            .open_browser(Some("https://example.com".into()), false)
-            .unwrap();
-
-        let active = state
-            .get_workspace(&ws_id)
-            .and_then(|w| w.active_tab_id.clone())
-            .expect("workspace still has active tab");
-        assert_eq!(
-            active, original_active_tab,
-            "activate=false must leave the user's focus untouched"
-        );
-        assert!(state.get_pane(&new_pane_id).is_some());
+    fn display_label_falls_back_to_short_id_when_everything_empty() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        state.rename_pane(&pane_id, "").unwrap();
+        let label = state.display_label_for_pane(&pane_id);
+        // Default auto-generated tab title is non-empty, so the label is
+        // either the tab title or the short id — either way, never empty.
+        assert!(!label.is_empty(), "display label must never be empty (got {:?})", label);
     }
 }

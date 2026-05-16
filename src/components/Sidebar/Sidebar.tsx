@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
-import type { Tab, SplitNode, PaneStatus, Pane, AppConfig } from "../../lib/types";
+import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
 import { Plus } from "lucide-react";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
@@ -12,21 +12,20 @@ import { TabItem } from "./TabItem";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
 
-function collectPaneIdsRaw(node: SplitNode): string[] {
-  if (node.type === "Leaf") return [node.pane_id];
-  return node.children.flatMap(collectPaneIdsRaw);
-}
-
+/**
+ * One pane per tab — surfaces the tab's pane_id, filtered out if the pane is
+ * hidden (worker panes that live in the memory panel). Kept signature-compatible
+ * with the old SplitNode-walking version so call sites stayed identical.
+ */
 function collectPaneIds(
-  node: SplitNode,
+  tab: Tab,
   panes?: Record<string, Pane>,
 ): string[] {
-  const ids = collectPaneIdsRaw(node);
-  if (!panes) return ids;
-  return ids.filter((id) => {
-    const p = panes[id];
-    return p && !p.hidden;
-  });
+  if (panes) {
+    const p = panes[tab.pane_id];
+    return p && !p.hidden ? [tab.pane_id] : [];
+  }
+  return [tab.pane_id];
 }
 
 /** Returns the "worst" status among a set of pane statuses. */
@@ -261,13 +260,7 @@ export function Sidebar({
     const ws = state.workspaces.find((w) => w.id === wsId);
     const tab = ws?.tabs.find((t) => t.id === tabId);
     if (tab) {
-      const collectPaneIdsLocal = (node: typeof tab.split_tree): string[] => {
-        if (node.type === "Leaf") return [node.pane_id];
-        return node.children.flatMap(collectPaneIdsLocal);
-      };
-      for (const pid of collectPaneIdsLocal(tab.split_tree)) {
-        invoke("mux_close_pane", { paneId: pid }).catch(() => {});
-      }
+      invoke("mux_close_pane", { paneId: tab.pane_id }).catch(() => {});
     }
     setClosingTabs((prev) => {
       const next = new Map(prev);
@@ -331,7 +324,7 @@ export function Sidebar({
                       <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
                     </button>
                     {isExpanded && ws.tabs.map((tab) => {
-                      const tabPaneIds = collectPaneIds(tab.split_tree, state.panes);
+                      const tabPaneIds = collectPaneIds(tab, state.panes);
                       const isTabActive = isActiveVisual && tab.id === ws.active_tab_id;
                       return (
                         <button
@@ -362,7 +355,7 @@ export function Sidebar({
               })}
             </div>
           ) : state.workspaces.map((ws) => {
-            const allPaneIds = ws.tabs.flatMap((t) => collectPaneIds(t.split_tree, state.panes));
+            const allPaneIds = ws.tabs.flatMap((t) => collectPaneIds(t, state.panes));
             const wsStatus = aggregateStatus(allPaneIds, state.paneStatuses);
             const hasWaiting = allPaneIds.some(
               (pid) => state.paneStatuses[pid] === "Waiting",
@@ -416,25 +409,25 @@ export function Sidebar({
                       // Build pane→tab lookup and find which tabs are children
                       const paneToTab: Record<string, typeof ws.tabs[0]> = {};
                       for (const tab of ws.tabs) {
-                        const pids = collectPaneIds(tab.split_tree, state.panes);
+                        const pids = collectPaneIds(tab, state.panes);
                         if (pids[0]) paneToTab[pids[0]] = tab;
                       }
                       // Set of pane IDs that are children (have a parent) — skip at top level
                       const childPaneIds = new Set<string>();
                       for (const tab of ws.tabs) {
-                        const pids = collectPaneIds(tab.split_tree, state.panes);
+                        const pids = collectPaneIds(tab, state.panes);
                         const pane = pids[0] ? state.panes[pids[0]] : null;
                         if (pane?.parent_pane_id) childPaneIds.add(pids[0]);
                       }
 
                       // Render a tab + its children recursively
                       const renderTab = (tab: Tab, index: number, depth: number): React.ReactNode => {
-                        const tabPids = collectPaneIds(tab.split_tree, state.panes);
+                        const tabPids = collectPaneIds(tab, state.panes);
                         const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
                         // Find child tabs (tabs whose pane.parent_pane_id === this pane)
                         const childTabs = firstPane
                           ? ws.tabs.filter((t) => {
-                              const tPids = collectPaneIds(t.split_tree, state.panes);
+                              const tPids = collectPaneIds(t, state.panes);
                               const tPane = tPids[0] ? state.panes[tPids[0]] : null;
                               return tPane?.parent_pane_id === firstPane.id;
                             })
@@ -479,7 +472,7 @@ export function Sidebar({
                       // Only render top-level tabs (not children)
                       return ws.tabs
                         .filter((tab) => {
-                          const pids = collectPaneIds(tab.split_tree, state.panes);
+                          const pids = collectPaneIds(tab, state.panes);
                           if (pids.length === 0) return false;
                           if (childPaneIds.has(pids[0])) return false;
                           return true;
@@ -511,7 +504,7 @@ export function Sidebar({
                   (() => {
                     const activeTab = ws.tabs.find((t) => t.id === ws.active_tab_id);
                     if (!activeTab) return null;
-                    const atPids = collectPaneIds(activeTab.split_tree, state.panes);
+                    const atPids = collectPaneIds(activeTab, state.panes);
                     const atFirstPane = atPids[0] ? state.panes[atPids[0]] : null;
                     return (
                       <TabItem
