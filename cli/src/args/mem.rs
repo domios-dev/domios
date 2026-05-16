@@ -411,6 +411,14 @@ pub enum MemSecretAction {
     Lock,
     /// Sign out — also drops persisted creds (OS keychain entry).
     Logout,
+    /// Save the master password to ~/.codeterm/secrets/bitwarden-master.env
+    /// (mode 0600). Daemon then auto-unlocks JIT on every operation — no
+    /// further prompts. Reads value from stdin (preferred — out of shell
+    /// history) or --password.
+    SaveMasterPassword {
+        #[arg(long)]
+        password: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

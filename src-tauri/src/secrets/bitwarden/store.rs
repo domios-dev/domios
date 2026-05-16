@@ -162,7 +162,14 @@ impl BitwardenStore {
         args: Vec<&str>,
         stdin: Option<String>,
     ) -> Result<serde_json::Value, SecretError> {
-        let session = self.current_session().await?;
+        let session = match self.current_session().await {
+            Ok(s) => s,
+            Err(SecretError::Locked) => {
+                self.try_unlock_from_file().await;
+                self.current_session().await?
+            }
+            Err(e) => return Err(e),
+        };
         let resp = self
             .exec
             .run(BwRunCtx {
@@ -174,6 +181,31 @@ impl BitwardenStore {
             .await
             .map_err(|e| SecretError::Backend { message: e })?;
         resp.into_data()
+    }
+
+    /// JIT auto-unlock: read ~/.codeterm/secrets/bitwarden-master.env on every
+    /// locked op so the agent never has to see/think about unlock.
+    pub(super) async fn try_unlock_from_file(&self) {
+        if self.unavailable_reason.is_some() { return; }
+        let path = match super::master_password_file_path() {
+            Some(p) => p,
+            None => return,
+        };
+        let master = match super::read_master_password_file(&path) {
+            Some(s) if !s.is_empty() => s,
+            _ => return,
+        };
+        let email = self.keychain.get(BW_KEYRING_LOGIN_EMAIL).ok();
+        let creds = crate::secrets::UnlockCredentials {
+            master_password: SecretString::from(master),
+            two_factor_token: None,
+            email,
+            api_key_client_id: None,
+            api_key_client_secret: None,
+        };
+        if let Err(e) = self.unlock(creds).await {
+            log::warn!("[secrets/bw] JIT unlock from {} failed: {}", path.display(), e);
+        }
     }
 
     pub(super) async fn run_no_session(
