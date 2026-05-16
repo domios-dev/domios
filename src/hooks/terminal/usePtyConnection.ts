@@ -61,12 +61,7 @@ export function usePtyConnection({
       const predictedId = ptyId || crypto.randomUUID();
       connectedPtyRef.current = predictedId;
 
-      // Restore the full output history first so xterm rebuilds its
-      // scrollback by interpreting the original ANSI stream. Otherwise a
-      // remount (tab switch, hot reload, terminal re-init) starts xterm
-      // empty and only catches live deltas — the user can't scroll past
-      // whatever came in after mount. Falls back to the formatted screen
-      // dump if the buffer endpoint isn't available.
+      // Replay full ANSI history on mount so scrollback survives remounts.
       if (ptyId) {
         let restored = false;
         try {
@@ -94,8 +89,6 @@ export function usePtyConnection({
             } catch { /* ignore */ }
           }
         }
-        // Force TUI redraw after the restore replay so the final cursor
-        // state and cursor-visible flag match the freshly-rendered screen.
         requestAnimationFrame(() => {
           try {
             fitAddonRef.current?.fit();

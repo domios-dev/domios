@@ -17,16 +17,9 @@ interface TabContentProps {
   theme?: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
-  /** Per-provider usage-tracking toggle, resolved once by the parent. */
   usageEnabledByProvider?: Record<string, boolean>;
 }
 
-/**
- * Renders the single pane that lives inside one tab. Split layouts and the
- * browser pane variant were removed — every tab now has exactly one terminal,
- * so this is just a thin wrapper that handles focus pulse + materialize
- * animation on mount.
- */
 export function TabContent({
   pane,
   isFocused,
@@ -78,8 +71,6 @@ function PaneWrapper({ paneId, isFocused, children }: PaneWrapperProps) {
   const [focusPulse, setFocusPulse] = useState(false);
   const prevFocused = useRef(isFocused);
 
-  // Tiny pulse when focus enters this pane — used to be tied to split layouts
-  // but the visual cue is still nice when switching tabs.
   useEffect(() => {
     if (isFocused && !prevFocused.current) {
       setFocusPulse(true);

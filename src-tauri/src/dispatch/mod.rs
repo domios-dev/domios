@@ -174,9 +174,7 @@ fn cmd_pane_list(ctx: &ServiceContext) -> Result<CommandResult, String> {
     Ok(CommandResult::Json(serde_json::json!(panes)))
 }
 
-/// Walk the snapshot once, attach `tab_id` / `tab_title` / `workspace_id` /
-/// `workspace_name` to every pane JSON entry. Pure helper so tests can run
-/// without standing up a ServiceContext.
+/// Enrich pane JSON with tab + workspace identifiers.
 pub(crate) fn build_pane_list_json(
     snapshot: &crate::multiplexer::state::MultiplexerSnapshot,
 ) -> Vec<serde_json::Value> {

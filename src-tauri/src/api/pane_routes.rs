@@ -128,10 +128,7 @@ pub async fn send_text(
         return Err((StatusCode::NOT_FOUND, "Pane not found or PTY did not start within 3s"));
     }
 
-    // Only attach the [from X pane=Y] return-address when the recipient is
-    // an agent — plain shells just execute the bytes we send, so the prefix
-    // is noise the shell tries to parse. Skipping it here lets `send-text`
-    // double as a "type these characters" primitive for shell panes.
+    // Source-prefix only for agent recipients; shells just execute the bytes.
     let target_has_agent = state.svc.mux.lock().get_pane(&pane_id)
         .map(|p| p.agent_type.is_some())
         .unwrap_or(false);

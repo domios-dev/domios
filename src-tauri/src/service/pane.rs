@@ -19,9 +19,7 @@ impl ServiceContext {
     }
 
     pub fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String> {
-        // Sync the containing tab's title too — one pane per tab post-split
-        // removal, so the user-visible sidebar label always matches the
-        // pane's title without divergence.
+        // Sync tab.title so the sidebar label matches.
         let tab_sync = {
             let mux = self.mux.lock();
             let mut sync = None;
@@ -158,10 +156,6 @@ impl ServiceContext {
         for (pane_id, agent_id, needs_session) in restored {
             self.kick_off_session_name_detection(&pane_id, &agent_id);
             self.refresh_session_model_once(&pane_id, &agent_id);
-            // Restored pane with agent_type but no session_id: the agent CLI is
-            // still booting and will write its rollout/JSONL after first input.
-            // Without this, focused-poller is the only catch-up path — meaning
-            // unfocused panes never get a badge until the user clicks them.
             if needs_session {
                 self.kick_off_session_detection(&pane_id, &agent_id);
             }
@@ -484,9 +478,6 @@ impl ServiceContext {
                                 "[session-detect] auto-saved {} for pane {} (provider={})",
                                 sid, pane_id, agent_id,
                             );
-                            // Stage-1: now that the session is claimed, run
-                            // model detection once so the badge populates
-                            // without waiting for the user to focus this tab.
                             svc.refresh_session_model_once(&pane_id, &agent_id);
                             svc.emit_state_changed();
                             return;

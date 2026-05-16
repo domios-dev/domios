@@ -12,11 +12,6 @@ import { TabItem } from "./TabItem";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
 
-/**
- * One pane per tab — surfaces the tab's pane_id, filtered out if the pane is
- * hidden (worker panes that live in the memory panel). Kept signature-compatible
- * with the old SplitNode-walking version so call sites stayed identical.
- */
 function collectPaneIds(
   tab: Tab,
   panes?: Record<string, Pane>,
