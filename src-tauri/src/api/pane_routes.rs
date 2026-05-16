@@ -289,25 +289,6 @@ pub async fn exec_in_pane(
     Ok(Json(resp))
 }
 
-#[derive(Deserialize)]
-pub(crate) struct OpenBrowserBody {
-    url: String,
-    #[serde(default)]
-    activate: Option<bool>,
-}
-
-pub async fn open_browser(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<OpenBrowserBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let activate = body.activate.unwrap_or(false);
-    let new_pane_id = state.svc.open_browser(body.url.clone(), activate)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to open browser"))?;
-    Ok(Json(serde_json::json!({"pane_id": new_pane_id, "url": body.url})))
-}
-
 pub async fn close_pane(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

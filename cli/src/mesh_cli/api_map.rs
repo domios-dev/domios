@@ -178,10 +178,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             let qs = if *unread { "?unread=true" } else { "" };
             ("GET".into(), format!("/api/notifications{}", qs), None)
         }
-        Commands::Browser { action } => match action {
-            crate::BrowserAction::Open { url } => ("POST".into(), "/api/browser/open".into(),
-                Some(serde_json::json!({"url": url}).to_string())),
-        },
         Commands::Cron { action } => match action {
             crate::CronAction::List { .. } => ("GET".into(), "/api/crons".into(), None),
             crate::CronAction::Create { name, schedule, task, workspace, agent, model, cwd, description, .. } => {

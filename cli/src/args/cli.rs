@@ -7,7 +7,7 @@ use super::cron::CronAction;
 use super::mem::MemAction;
 use super::service::ServiceAction;
 use super::misc::{
-    BridgeAction, BrowserAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction,
+    BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction,
     PasteAction, ThemeAction, WorkspaceAction,
 };
 use super::sessions::SessionsAction;
@@ -88,12 +88,6 @@ pub enum Commands {
         /// into the provider's request/response cycle.
         #[arg(long)]
         from_stdin: bool,
-    },
-
-    /// Open a canvas panel (localhost, data URLs, HTML visualizations)
-    Browser {
-        #[command(subcommand)]
-        action: BrowserAction,
     },
 
     /// Cross-mesh ephemeral pastebin — stash payloads with short ids (#98)

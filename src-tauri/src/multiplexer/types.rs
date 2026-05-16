@@ -284,9 +284,13 @@ impl Default for TitleLevel {
 }
 
 /// Type of content displayed in a pane.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum PaneType {
+    #[default]
     Terminal,
+    /// Legacy: present only so old snapshots from before the browser pane was
+    /// removed still deserialize. Panes loaded with this variant are silently
+    /// dropped at restore time — see snapshot.rs.
     Browser,
 }
 
