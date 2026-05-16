@@ -136,6 +136,12 @@ pub fn load_config() -> AppConfig {
             Ok(contents) => match toml::from_str::<AppConfig>(&contents) {
                 Ok(mut config) => {
                     resolve_theme(&mut config);
+                    // Mesh tab disabled → force offline. Tab is the on/off
+                    // switch for the whole subsystem; flag is the runtime
+                    // presence state.
+                    if !config.ui.mesh_tab_enabled {
+                        config.mesh.enabled = false;
+                    }
                     log::info!("Config loaded from {}", path.display());
                     ensure_api_token(config, Some(&path))
                 }

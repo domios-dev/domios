@@ -51,6 +51,154 @@ pub(super) fn session_file_path(cwd: &str, session_id: &str) -> Option<PathBuf> 
     Some(dir.join(format!("{}.jsonl", session_id)))
 }
 
+pub(super) fn detect_session_model(cwd: &str, session_id: &str) -> Option<String> {
+    let path = session_file_path(cwd, session_id)?;
+    // Climb the tail in tiers — most sessions resolve from 64K, but resumed
+    // sessions that haven't received a new assistant turn yet can have many
+    // hundreds of KB of file-backup/tool-call metadata trailing the last
+    // message. 4MB is plenty without hitting the disk hard.
+    scan_tail(&path, 64 * 1024)
+        .or_else(|| scan_tail(&path, 512 * 1024))
+        .or_else(|| scan_tail(&path, 4 * 1024 * 1024))
+}
+
+fn scan_tail(path: &Path, tail_bytes: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    if len == 0 { return None; }
+    let start = len.saturating_sub(tail_bytes);
+    f.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = Vec::with_capacity((len - start) as usize);
+    f.read_to_end(&mut buf).ok()?;
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if start > 0 && !lines.is_empty() { lines.remove(0); }
+    for line in lines.iter().rev() {
+        if line.is_empty() { continue; }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        // /model X writes "Set model to X" before the next assistant turn.
+        if let Some(content) = v.get("message").and_then(|m| m.get("content")) {
+            let raw = content_to_text(content);
+            if let Some(fam) = extract_set_model_family(&raw) {
+                return Some(fam);
+            }
+        }
+        // Last assistant turn carries the authoritative model id.
+        if let Some(m) = v.get("message").and_then(|m| m.get("model")).and_then(|m| m.as_str()) {
+            if !m.is_empty() && m != "<synthetic>" {
+                return Some(family_from_model_id(m));
+            }
+        }
+    }
+    None
+}
+
+fn content_to_text(c: &serde_json::Value) -> String {
+    match c {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(arr) => arr.iter()
+            .filter_map(|c| c.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join(" "),
+        _ => String::new(),
+    }
+}
+
+fn extract_set_model_family(raw: &str) -> Option<String> {
+    let idx = raw.find("Set model to ")?;
+    let after = &raw[idx + "Set model to ".len()..];
+    let cleaned = strip_ansi(after);
+    let family: String = cleaned.trim_start().chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect();
+    if family.is_empty() { return None; }
+    Some(capitalize_family(&family))
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            while let Some(c) = chars.next() {
+                if c.is_ascii_alphabetic() { break; }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn family_from_model_id(id: &str) -> String {
+    let m = id.to_ascii_lowercase();
+    for fam in ["opus", "sonnet", "haiku"] {
+        if m.contains(fam) { return capitalize_family(fam); }
+    }
+    let body = m.strip_prefix("claude-").unwrap_or(&m);
+    let head = body.split('-').next().unwrap_or(body);
+    capitalize_family(head)
+}
+
+fn capitalize_family(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_ascii_uppercase().to_string() + &chars.as_str().to_ascii_lowercase(),
+        None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod model_label_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn family_from_model_id_known() {
+        assert_eq!(family_from_model_id("claude-opus-4-7"), "Opus");
+        assert_eq!(family_from_model_id("claude-sonnet-4-6"), "Sonnet");
+        assert_eq!(family_from_model_id("claude-haiku-4-5-20251001"), "Haiku");
+    }
+
+    #[test]
+    fn family_from_model_id_unknown_falls_back() {
+        assert_eq!(family_from_model_id("claude-uranium-5-0"), "Uranium");
+    }
+
+    #[test]
+    fn extract_set_model_strips_ansi_bold() {
+        // Real Claude stdout: "Set model to \x1b[1mOpus 4.7\x1b[22m"
+        let raw = "<local-command-stdout>Set model to \u{1b}[1mOpus 4.7\u{1b}[22m</local-command-stdout>";
+        assert_eq!(extract_set_model_family(raw).as_deref(), Some("Opus"));
+    }
+
+    #[test]
+    fn tail_scan_finds_latest_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, r#"{{"message":{{"model":"claude-sonnet-4-6"}}}}"#).unwrap();
+        writeln!(f, r#"{{"message":{{"model":"claude-opus-4-7"}}}}"#).unwrap();
+        drop(f);
+        assert_eq!(scan_tail(&path, 64 * 1024).as_deref(), Some("Opus"));
+    }
+
+    #[test]
+    fn tail_scan_picks_set_model_over_older_message_model() {
+        // user runs /model opus AFTER an assistant turn on sonnet — the
+        // newer Set-model command must win.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, r#"{{"type":"assistant","message":{{"model":"claude-sonnet-4-6"}}}}"#).unwrap();
+        writeln!(f, r#"{{"type":"user","message":{{"content":"<local-command-stdout>Set model to \u001b[1mOpus 4.7\u001b[22m</local-command-stdout>"}}}}"#).unwrap();
+        drop(f);
+        assert_eq!(scan_tail(&path, 64 * 1024).as_deref(), Some("Opus"));
+    }
+}
+
 pub(super) fn enumerate_sessions() -> Vec<SessionMetadata> {
     let Some(home) = dirs::home_dir() else { return Vec::new() };
     let projects_root = home.join(".claude").join("projects");

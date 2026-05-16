@@ -32,31 +32,33 @@ pub(crate) fn start_background_tasks(
         });
     }
 
-    // Mesh: periodic health check + stale peer cleanup
+    // Mesh: periodic health check + stale peer cleanup. Loop is ALWAYS
+    // spawned; the body re-reads `mesh.enabled` on every tick so a CLI
+    // toggle to offline takes effect without restart (and dropping the
+    // process back to online resumes work). See `codeterm mesh offline`.
     {
         let mesh = states.mesh.clone();
-        let mesh_enabled = states.config.lock().mesh.enabled;
-        if mesh_enabled {
-            let app_h = app_handle.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(10));
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("Failed to create mesh health runtime");
-                rt.block_on(async {
-                    // Per-peer last successful sync timestamp (Unix secs).
-                    // Used by should_proactive_sync to decide when to refresh
-                    // gossip view from a still-online paired peer. Lives across
-                    // loop iterations so periodic sync interval is honored.
-                    let mut last_sync_secs: std::collections::HashMap<String, u64> =
-                        std::collections::HashMap::new();
-                    loop {
-                        tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-                        // Clean up stale discovered peers
-                        mesh::discovery::cleanup_stale_peers(&mesh);
-                        // Clean up expired pairing requests
-                        mesh.lock().cleanup_expired_requests();
+        let cfg = states.config.clone();
+        let app_h = app_handle.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create mesh health runtime");
+            rt.block_on(async {
+                let mut last_sync_secs: std::collections::HashMap<String, u64> =
+                    std::collections::HashMap::new();
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                    if !cfg.lock().mesh.enabled {
+                        // Offline / invisible: don't poll peers, don't cleanup
+                        // — peers will time us out on their side via their own
+                        // ping scheduler. The Tailscale daemon is left alone.
+                        continue;
+                    }
+                    mesh::discovery::cleanup_stale_peers(&mesh);
+                    mesh.lock().cleanup_expired_requests();
                         // Ping all paired peers
                         let (peers, sync_payload, signed_token) = {
                             let m = mesh.lock();
@@ -176,7 +178,6 @@ pub(crate) fn start_background_tasks(
                     }
                 });
             });
-        }
     }
 
     // Periodic + event-driven announce — push our current addresses to every
@@ -195,17 +196,18 @@ pub(crate) fn start_background_tasks(
     //      move to dislodge our cache on their side.
     {
         let mesh = states.mesh.clone();
-        let mesh_enabled = states.config.lock().mesh.enabled;
-        if mesh_enabled {
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(10));
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("Failed to create mesh announce runtime");
-                rt.block_on(async {
-                    use std::time::Duration;
-                    // Startup burst.
+        let cfg = states.config.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create mesh announce runtime");
+            rt.block_on(async {
+                use std::time::Duration;
+                // Startup burst — only fires if mesh is currently enabled.
+                // Going offline pre-startup-burst skips it cleanly.
+                if cfg.lock().mesh.enabled {
                     let _ = mesh::refresh_local_addresses(&mesh);
                     let report = mesh::broadcast_announce(&mesh, None).await;
                     log::info!(
@@ -213,38 +215,42 @@ pub(crate) fn start_background_tasks(
                         report.sent, report.ok,
                         report.stale_peers.len(), report.errors.len()
                     );
+                }
 
-                    let mut last_heartbeat = std::time::Instant::now();
-                    loop {
-                        // 15s base + 0..5s jitter — fast enough to feel
-                        // realtime when Tailscale comes back up, slow
-                        // enough not to thrash the discovery CLI.
-                        let jitter = (std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .subsec_nanos() % 5) as u64;
-                        tokio::time::sleep(Duration::from_secs(15 + jitter)).await;
-
-                        let changed = mesh::refresh_local_addresses(&mesh);
-                        let heartbeat_due =
-                            last_heartbeat.elapsed() >= Duration::from_secs(90);
-                        if !changed && !heartbeat_due {
-                            continue;
-                        }
-                        let report = mesh::broadcast_announce(&mesh, None).await;
-                        last_heartbeat = std::time::Instant::now();
-                        let kind = if changed { "addr-change" } else { "heartbeat" };
-                        if report.sent > 0 {
-                            log::info!(
-                                "[mesh/announce.{}] sent={} ok={} stale={} errors={}",
-                                kind, report.sent, report.ok,
-                                report.stale_peers.len(), report.errors.len()
-                            );
-                        }
+                let mut last_heartbeat = std::time::Instant::now();
+                loop {
+                    let jitter = (std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .subsec_nanos() % 5) as u64;
+                    tokio::time::sleep(Duration::from_secs(15 + jitter)).await;
+                    // Re-check on every tick so `codeterm mesh offline`
+                    // takes effect without a daemon restart. While offline
+                    // we explicitly do NOT call refresh_local_addresses —
+                    // that's what pokes Tailscale CLI / interface scan and
+                    // can keep the daemon's tun device alive.
+                    if !cfg.lock().mesh.enabled {
+                        continue;
                     }
-                });
+                    let changed = mesh::refresh_local_addresses(&mesh);
+                    let heartbeat_due =
+                        last_heartbeat.elapsed() >= Duration::from_secs(90);
+                    if !changed && !heartbeat_due {
+                        continue;
+                    }
+                    let report = mesh::broadcast_announce(&mesh, None).await;
+                    last_heartbeat = std::time::Instant::now();
+                    let kind = if changed { "addr-change" } else { "heartbeat" };
+                    if report.sent > 0 {
+                        log::info!(
+                            "[mesh/announce.{}] sent={} ok={} stale={} errors={}",
+                            kind, report.sent, report.ok,
+                            report.stale_peers.len(), report.errors.len()
+                        );
+                    }
+                }
             });
-        }
+        });
     }
 
     // Background update check (5s delay to not slow startup)

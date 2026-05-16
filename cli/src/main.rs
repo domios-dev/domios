@@ -155,7 +155,7 @@ pub use args::agent::AgentAction;
 pub use args::cron::CronAction;
 pub use args::service::ServiceAction;
 pub use args::update::UpdateAction;
-pub use args::misc::{WorkspaceAction, PaneAction, BrowserAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction};
+pub use args::misc::{WorkspaceAction, PaneAction, PasteAction, BrowserAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction};
 
 /// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
 ///
@@ -402,6 +402,11 @@ fn main() {
             return;
         }
 
+        Commands::Paste { action } => {
+            cmd::paste::handle_paste(cli.json, action);
+            return;
+        }
+
         Commands::GetOutput { pane, lines } => {
             let pane_id = resolve_pane(&mut client, pane);
             let max_bytes = (lines as u64) * 80;
@@ -427,7 +432,7 @@ fn main() {
             }
         }
 
-        Commands::SendText { pane, text, from_file, from_stdin, verify, no_wait } => {
+        Commands::SendText { pane, text, from_file, from_stdin } => {
             cmd::send_text::handle_send_text(
                 &mut client,
                 cli.json,
@@ -435,8 +440,6 @@ fn main() {
                 text,
                 from_file,
                 from_stdin,
-                verify,
-                no_wait,
             );
             return;
         }

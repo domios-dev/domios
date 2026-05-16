@@ -9,6 +9,7 @@ pub mod mem;
 pub mod mem_secret;
 pub mod mesh;
 pub mod pane;
+pub mod paste;
 pub mod print;
 pub mod repair;
 pub mod send_text;

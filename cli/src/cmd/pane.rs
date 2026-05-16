@@ -155,6 +155,16 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 Err(e) => { eprintln!("Exec request failed: {}", e); std::process::exit(1); }
             }
         }
+        PaneAction::Find { pattern } => {
+            let result = client.call("pane.list", None);
+            match result {
+                Ok(value) => {
+                    let arr = value.as_array().cloned().unwrap_or_default();
+                    print_pane_find_results(json, &pattern, &arr);
+                }
+                Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+            }
+        }
         PaneAction::Status { pane } => {
             let pane_id = resolve_pane(client, pane);
             let (api_url, api_token) = read_api_config();
@@ -187,5 +197,136 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 Err(e) => { eprintln!("Status request failed: {}", e); std::process::exit(1); }
             }
         }
+    }
+}
+
+/// Rank and print pane-find results. Shared between the local socket path
+/// (handle_pane) and the mesh-relayed path (main.rs intercepts `--mesh
+/// pane find` so the ranker runs over the peer's list).
+pub fn print_pane_find_results(json: bool, pattern: &str, panes: &[serde_json::Value]) {
+    let needle = pattern.to_lowercase();
+    let needle_compact: String = needle.chars()
+        .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_')
+        .collect();
+    let mut scored: Vec<(i32, &serde_json::Value)> = panes.iter()
+        .filter_map(|p| {
+            let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let sname = p.get("agent_session_name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let agent = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let sname_compact: String = sname.chars()
+                .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_')
+                .collect();
+            let mut score = 0i32;
+            // id prefix only counts at ≥4 chars — one-letter needles like "a"
+            // otherwise match ~6% of all UUIDs and drown the real result.
+            if needle.len() >= 4 && id.starts_with(&needle) { score += 100; }
+            if !sname.is_empty() && sname == needle { score += 80; }
+            if !sname.is_empty() && sname.contains(&needle) { score += 50; }
+            if !needle_compact.is_empty()
+                && !sname_compact.is_empty()
+                && sname_compact.contains(&needle_compact)
+            {
+                score += 40;
+            }
+            if !title.is_empty() && title == needle { score += 35; }
+            if !title.is_empty() && title.contains(&needle) { score += 20; }
+            if !agent.is_empty() && agent.contains(&needle) { score += 10; }
+            if score > 0 { Some((score, p)) } else { None }
+        })
+        .collect();
+    // Stable tie-break by id so identical scores keep a deterministic order.
+    scored.sort_by(|a, b| {
+        b.0.cmp(&a.0).then_with(|| {
+            let ai = a.1.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let bi = b.1.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            ai.cmp(bi)
+        })
+    });
+    if json {
+        let out: Vec<&serde_json::Value> = scored.iter().map(|(_, p)| *p).collect();
+        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    } else if scored.is_empty() {
+        println!("No panes match: {}", pattern);
+    } else {
+        for (_, p) in &scored {
+            let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+            let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("");
+            let agent = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
+            let sname = p.get("agent_session_name").and_then(|v| v.as_str()).unwrap_or("");
+            let extra = if sname.is_empty() { String::new() } else { format!("  session={}", sname) };
+            println!("{}  {} [{}]{}", id, title, agent, extra);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_pane(id: &str, title: &str, agent: Option<&str>, sname: Option<&str>) -> serde_json::Value {
+        let mut p = json!({"id": id, "title": title});
+        if let Some(a) = agent { p["agent_type"] = json!(a); }
+        if let Some(n) = sname { p["agent_session_name"] = json!(n); }
+        p
+    }
+
+    fn rank_ids(needle: &str, panes: &[serde_json::Value]) -> Vec<String> {
+        let mut scored: Vec<(i32, String)> = panes.iter().filter_map(|p| {
+            let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let sname = p.get("agent_session_name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let agent = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let n = needle.to_lowercase();
+            let mut score = 0i32;
+            if n.len() >= 4 && id.starts_with(&n) { score += 100; }
+            if !sname.is_empty() && sname == n { score += 80; }
+            if !sname.is_empty() && sname.contains(&n) { score += 50; }
+            if !title.is_empty() && title == n { score += 35; }
+            if !title.is_empty() && title.contains(&n) { score += 20; }
+            if !agent.is_empty() && agent.contains(&n) { score += 10; }
+            if score > 0 {
+                Some((score, p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string()))
+            } else { None }
+        }).collect();
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        scored.into_iter().map(|(_, id)| id).collect()
+    }
+
+    #[test]
+    fn short_needle_does_not_match_id_prefix() {
+        // Pre-fix: needle "a" would match every UUID starting with 'a' at score 100
+        // and drown the exact title match. With the ≥4-char gate, "a" only hits
+        // via title/agent/session_name fields.
+        let panes = vec![
+            make_pane("aaaaa1", "OtherPane", Some("claude"), None),
+            make_pane("bbbb22", "a", None, None), // exact title match
+        ];
+        let ranked = rank_ids("a", &panes);
+        assert_eq!(ranked.first().map(String::as_str), Some("bbbb22"),
+            "exact title match must beat id-prefix when needle is short");
+    }
+
+    #[test]
+    fn long_needle_id_prefix_still_wins() {
+        let panes = vec![
+            make_pane("abcd1234", "ignored", None, None),
+            make_pane("ffffffff", "abcd", None, None), // title contains, score 20
+        ];
+        let ranked = rank_ids("abcd", &panes);
+        assert_eq!(ranked.first().map(String::as_str), Some("abcd1234"),
+            "id-prefix dominates at needle length ≥ 4");
+    }
+
+    #[test]
+    fn tie_break_is_stable_by_id() {
+        let panes = vec![
+            make_pane("zzzz9999", "foo-bar", None, None),
+            make_pane("aaaa1111", "foo-baz", None, None),
+        ];
+        let ranked = rank_ids("foo", &panes);
+        // Both match title-contains (score 20); tie-break by id ascending.
+        assert_eq!(ranked, vec!["aaaa1111".to_string(), "zzzz9999".to_string()]);
     }
 }

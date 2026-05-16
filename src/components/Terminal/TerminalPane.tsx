@@ -1,5 +1,4 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useMultiplexer } from "../../store/multiplexer";
 import {
@@ -12,7 +11,7 @@ import {
   useAgentDetection,
   useTauriFileDrop,
 } from "../../hooks/terminal";
-import { sendFilePathsToPty } from "../../lib/clipboardPaste";
+import { sendFilePathsToPty, sendPlainTextToPty } from "../../lib/clipboardPaste";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
@@ -173,15 +172,15 @@ export function TerminalPane({
       onDrop={(e) => {
         // File drops are handled by Tauri's native drag-drop event (useTauriFileDrop).
         // This handler only covers plain-text drops (e.g. drag a selection from another
-        // app and drop it into the terminal).
+        // app and drop it into the terminal). Routes through sendPlainTextToPty so the
+        // bracketed-paste envelope matches every other paste path (#102).
         e.preventDefault();
         e.stopPropagation();
         const currentPtyId = connectedPtyRef.current;
         if (!currentPtyId) return;
         const text = e.dataTransfer.getData("text/plain");
         if (text) {
-          const bracketedPaste = `\x1b[200~${text}\x1b[201~`;
-          invoke("write_pty_string", { ptyId: currentPtyId, data: bracketedPaste });
+          sendPlainTextToPty(currentPtyId, text).catch(() => {});
         }
       }}
     >

@@ -51,7 +51,7 @@ Then: `Authorization: Bearer your-secret-token`
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/panes` | — | List all panes |
-| POST | `/api/panes/{id}/send` | `{text?, enter?, verify?, batch?: [{text, enter?, delay_ms?}]}` | Send text to PTY. Default is fire-and-forget (`{ok:true, fire_and_forget:true}`); opt into screen-echo verification with `verify:true`. Verified response: `{ok, pty_echo_seen, echo_observed, submit_observed, elapsed_ms}` — `pty_echo_seen` (renamed from `verified` in v1.2.1) is `echo_observed && (!enter || submit_observed)`. |
+| POST | `/api/panes/{id}/send` | `{text?, enter?, raw?, batch?: [{text, enter?, delay_ms?}], source_pane?}` | Send text to PTY. Fire-and-forget — returns `{ok:true}` as soon as bytes are written. Verification fields were removed in v1.2.3 (#101): TUI agents (Claude/Codex) intercept input and don't echo per-character, so the old `verify` flag couldn't deliver on its name. For agent request/response, a future `codeterm agent send` will hook into provider semantics. |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
 | GET | `/api/panes/{id}/output` | `?offset=N&strip_ansi=true` | Get output buffer (cursor-based) |
 | GET | `/api/panes/{id}/text` | `?formatted=false` | Visible terminal text (VT100-parsed, alternate buffer included). Served from the backend — no frontend roundtrip, works for hidden panes. Response: `{"text": "...", "formatted": false, "pane_id": "..."}`. With `?formatted=true` the `text` contains raw ANSI escape codes preserving colors, cursor position, and cursor visibility (used on pane remount to restore TUI apps like Claude that hide the cursor via DECTCEM). |
@@ -84,6 +84,16 @@ Then: `Authorization: Bearer your-secret-token`
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | POST | `/api/batch` | `{commands: [{method, params, id?}]}` | Execute multiple commands sequentially (see below) |
+
+#### Pasteboard (cross-mesh ephemeral payloads, #98)
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| POST | `/api/pasteboard` | `{body, content_type?, ttl_ms?, pop_on_read?}` | Stash a payload. Returns `{id: "paste:NNNNNN", expires_at}`. TTL default 1h, max 24h. 20-entry cap with oldest-first eviction. |
+| GET | `/api/pasteboard/{id}` | — | Fetch body. `?pop=true` deletes after read. Returns 404 if expired/unknown. |
+| DELETE | `/api/pasteboard/{id}` | — | Explicit delete. |
+| GET | `/api/pasteboard` | — | List local pastes (id, size, ttl_remaining_ms, content_type). |
+
+No disk persistence — restart wipes every paste. Correct semantics for "drop a payload, get a slug, let any peer fetch it, then forget."
 
 ### Pane Fields
 
@@ -1196,4 +1206,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 44 -->
+<!-- revision: 46 -->

@@ -44,12 +44,14 @@ fn capitalize(word: &str) -> String {
     }
 }
 
-/// Generate a Title Case mnemonic name like "Nostalgic Curie".
+/// Generate a single-word Title Case mnemonic name like "Curie" or "Newton".
+/// Adjectives stay around as a fallback when the scientist list is exhausted.
 pub fn generate_tab_name() -> String {
     let mut rng = rand::thread_rng();
-    let adj = ADJECTIVES.choose(&mut rng).copied().unwrap_or("Nameless");
-    let sci = SCIENTISTS.choose(&mut rng).copied().unwrap_or("Tab");
-    format!("{} {}", capitalize(adj), capitalize(sci))
+    let sci = SCIENTISTS.choose(&mut rng).copied()
+        .or_else(|| ADJECTIVES.choose(&mut rng).copied())
+        .unwrap_or("Tab");
+    capitalize(sci)
 }
 
 #[cfg(test)]
@@ -57,16 +59,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generated_name_is_title_case_with_space() {
+    fn generated_name_is_single_capitalized_word() {
         for _ in 0..20 {
             let name = generate_tab_name();
-            let parts: Vec<&str> = name.split(' ').collect();
-            assert_eq!(parts.len(), 2, "expected two words: '{}'", name);
-            for p in &parts {
-                assert!(!p.is_empty());
-                let first = p.chars().next().unwrap();
-                assert!(first.is_uppercase(), "expected capitalized: '{}'", p);
-            }
+            assert!(!name.contains(' '), "expected single word: '{}'", name);
+            assert!(!name.is_empty());
+            let first = name.chars().next().unwrap();
+            assert!(first.is_uppercase(), "expected capitalized: '{}'", name);
         }
     }
 

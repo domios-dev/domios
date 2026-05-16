@@ -404,6 +404,13 @@ pub struct MemoryConfig {
     pub librarian_enabled: bool,
     #[serde(default = "default_l1_budget_tokens")]
     pub l1_budget_tokens: usize,
+    /// Whether the nightly dreamer pushes its one-line "🧠 Dreamer brief"
+    /// insight to the Telegram bridge after writing the diary. Default
+    /// `true` (preserves existing behaviour). Flip to `false` if you find
+    /// the nightly Telegram ping noisy — the diary in mem stays the
+    /// durable record either way.
+    #[serde(default = "default_true")]
+    pub dreaming_telegram_notify: bool,
 }
 
 impl Default for MemoryConfig {
@@ -423,6 +430,7 @@ impl Default for MemoryConfig {
             file_sync_interval_minutes: default_file_sync_interval(),
             librarian_enabled: true,
             l1_budget_tokens: default_l1_budget_tokens(),
+            dreaming_telegram_notify: true,
         }
     }
 }
@@ -633,7 +641,7 @@ pub struct MeshConfig {
 impl Default for MeshConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             instance_name: hostname::get()
                 .map(|h| {
                     let name = h.to_string_lossy().to_string();

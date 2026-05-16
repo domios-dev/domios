@@ -18,7 +18,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             let p = pane.as_deref().unwrap_or("general");
             ("GET".into(), format!("/api/panes/{}/output?lines={}&strip_ansi=true", p, lines), None)
         }
-        Commands::SendText { text, pane, from_file, from_stdin, verify, no_wait } => {
+        Commands::SendText { text, pane, from_file, from_stdin } => {
             let p = pane.as_deref().unwrap_or("general");
             let source = std::env::var("CODETERM_PANE_ID").unwrap_or_else(|_| "unknown".to_string());
             let body_text = if *from_stdin {
@@ -40,12 +40,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 eprintln!("      try --from-file <path> with a real tempfile.");
                 std::process::exit(2);
             }
-            let mut body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
-            if *verify {
-                body["verify"] = serde_json::json!(true);
-            } else if *no_wait {
-                body["verify"] = serde_json::json!(false);
-            }
+            let body = serde_json::json!({"text": body_text, "enter": true, "source_pane": source});
             ("POST".into(), format!("/api/panes/{}/send", p), Some(body.to_string()))
         }
         Commands::Notify { title, body, level } => {
@@ -96,6 +91,66 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 let p = pane.as_deref().unwrap_or("general");
                 ("GET".into(), format!("/api/panes/{}/status", p), None)
             }
+            crate::PaneAction::Find { .. } => {
+                // pane find runs entirely on the CLI side off `/api/panes`;
+                // mesh just relays the list. The fuzzy ranking happens
+                // locally so the response shape stays the same as `pane list`.
+                ("GET".into(), "/api/panes".into(), None)
+            }
+        },
+        Commands::Paste { action } => match action {
+            crate::PasteAction::Put { body, from_file, from_stdin, ttl, content_type, pop } => {
+                let resolved = if *from_stdin {
+                    use std::io::Read;
+                    let mut buf = String::new();
+                    if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
+                        eprintln!("Error: failed to read --from-stdin: {}", e);
+                        std::process::exit(1);
+                    }
+                    buf
+                } else if let Some(path) = from_file.as_ref() {
+                    // Surface the read error explicitly — the local path
+                    // exits 1 on failure (cmd/paste.rs), the mesh path used
+                    // to silently fall back to `body` (typically empty) and
+                    // then trip the empty-body guard below with a misleading
+                    // message. Same UX both paths.
+                    match std::fs::read_to_string(path) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            eprintln!("Error: failed to read --from-file {}: {}", path, e);
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    body.clone()
+                };
+                if resolved.trim().is_empty() {
+                    eprintln!("Error: paste put (mesh) body is empty");
+                    std::process::exit(2);
+                }
+                let mut payload = serde_json::json!({"body": resolved});
+                if let Some(spec) = ttl.as_deref() {
+                    if let Some(ms) = crate::cmd::paste::parse_duration_ms(spec) {
+                        payload["ttl_ms"] = serde_json::json!(ms);
+                    }
+                }
+                if let Some(ct) = content_type.as_deref() {
+                    payload["content_type"] = serde_json::json!(ct);
+                }
+                if *pop {
+                    payload["pop_on_read"] = serde_json::json!(true);
+                }
+                ("POST".into(), "/api/pasteboard".into(), Some(payload.to_string()))
+            }
+            crate::PasteAction::Get { id, pop } => {
+                let q = if *pop { "?pop=true" } else { "" };
+                ("GET".into(), format!("/api/pasteboard/{}{}", id, q), None)
+            }
+            crate::PasteAction::Pop { id } => {
+                ("GET".into(), format!("/api/pasteboard/{}?pop=true", id), None)
+            }
+            crate::PasteAction::List => ("GET".into(), "/api/pasteboard".into(), None),
+            crate::PasteAction::Rm { id } => ("DELETE".into(), format!("/api/pasteboard/{}", id), None),
         },
         Commands::Agent { action } => match action {
             crate::AgentAction::List => ("GET".into(), "/api/agents".into(), None),
@@ -613,3 +668,4 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
         }
     }
 }
+
