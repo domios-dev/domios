@@ -20,7 +20,8 @@ codeterm pane search "<pattern>"                   # fuzzy across tab name, mode
 codeterm pane rename "title"                       # your tab; no --pane needed
 codeterm pane focus PANE_ID
 codeterm pane close PANE_ID
-codeterm send-text "command" --pane PANE_ID
+codeterm send-text "text" --pane PANE_ID            # types text into the pane (agent prompt or shell)
+codeterm pane exec "<cmd>" --pane PANE_ID           # run a shell command headlessly; returns stdout
 codeterm get-output --pane PANE_ID
 
 codeterm workspace list
