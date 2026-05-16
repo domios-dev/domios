@@ -193,7 +193,7 @@ mod model_label_tests {
         let path = dir.path().join("s.jsonl");
         let mut f = std::fs::File::create(&path).unwrap();
         writeln!(f, r#"{{"type":"assistant","message":{{"model":"claude-sonnet-4-6"}}}}"#).unwrap();
-        writeln!(f, r#"{{"type":"user","message":{{"content":"<local-command-stdout>Set model to [1mOpus 4.7[22m</local-command-stdout>"}}}}"#).unwrap();
+        writeln!(f, r#"{{"type":"user","message":{{"content":"<local-command-stdout>Set model to \u001b[1mOpus 4.7\u001b[22m</local-command-stdout>"}}}}"#).unwrap();
         drop(f);
         assert_eq!(scan_tail(&path, 64 * 1024).as_deref(), Some("Opus"));
     }
