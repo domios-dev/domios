@@ -26,7 +26,31 @@ impl ServiceContext {
     }
 
     pub fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String> {
+        // Rename the pane, and — if the containing tab has exactly one pane —
+        // sync the tab's title too. That's the 99% case (one terminal per tab)
+        // where two divergent titles were just noise the user had to reconcile.
+        // Tabs with multiple panes (split layouts) keep their tab title intact
+        // because there's no one-to-one mapping to follow.
+        let tab_sync = {
+            let mux = self.mux.lock();
+            let mut sync = None;
+            'outer: for ws in mux.snapshot().workspaces.iter() {
+                for tab in &ws.tabs {
+                    let panes = tab.split_tree.collect_pane_ids();
+                    if panes.len() == 1 && panes[0] == pane_id {
+                        sync = Some((ws.id.clone(), tab.id.clone()));
+                        break 'outer;
+                    } else if panes.contains(&pane_id.to_string()) {
+                        break 'outer;
+                    }
+                }
+            }
+            sync
+        };
         self.mux.lock().rename_pane(pane_id, title)?;
+        if let Some((ws_id, tab_id)) = tab_sync {
+            let _ = self.mux.lock().rename_tab(&ws_id, &tab_id, title);
+        }
         self.emit_pane_title_pinned(pane_id, title);
         self.emit_state_changed();
         Ok(())

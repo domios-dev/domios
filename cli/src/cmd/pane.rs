@@ -333,23 +333,20 @@ fn score_field(haystack: &str, needle: &str, needle_translit: &str, exact: i32, 
 /// so the user gets the same info they see in the sidebar.
 pub fn format_pane_row(p: &serde_json::Value) -> String {
     let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-    let tab_title = p.get("tab_title").and_then(|v| v.as_str()).unwrap_or("");
-    let pane_title = p.get("title").and_then(|v| v.as_str()).unwrap_or("");
-    let label = if !tab_title.is_empty() && tab_title != pane_title {
-        format!("{}  ({})", tab_title, pane_title)
-    } else if !tab_title.is_empty() {
-        tab_title.to_string()
-    } else {
-        pane_title.to_string()
+    // One label — the sidebar name. Tab title wins (that's what the user
+    // sees and what `pane rename` updates); falls back to pane.title only
+    // when the tab title is missing.
+    let label = {
+        let tab_title = p.get("tab_title").and_then(|v| v.as_str()).unwrap_or("");
+        let pane_title = p.get("title").and_then(|v| v.as_str()).unwrap_or("");
+        if !tab_title.is_empty() { tab_title } else { pane_title }
     };
     let agent = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
     let model = p.get("agent_session_model").and_then(|v| v.as_str()).unwrap_or("");
     let model_part = if model.is_empty() { String::new() } else { format!("/{}", model) };
-    let sname = p.get("agent_session_name").and_then(|v| v.as_str()).unwrap_or("");
-    let sname_part = if sname.is_empty() { String::new() } else { format!("  session={}", sname) };
     let ws = p.get("workspace_name").and_then(|v| v.as_str()).unwrap_or("");
     let ws_part = if ws.is_empty() { String::new() } else { format!("  ws={}", ws) };
-    format!("{}  {} [{}{}]{}{}", id, label, agent, model_part, sname_part, ws_part)
+    format!("{}  {} [{}{}]{}", id, label, agent, model_part, ws_part)
 }
 
 #[cfg(test)]
