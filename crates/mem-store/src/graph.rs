@@ -281,19 +281,21 @@ pub fn canonicalize_relation_types(
     conn: &Connection,
     synonyms: &[(&str, &str)],
 ) -> MemStoreResult<u64> {
+    let tx = conn.unchecked_transaction()?;
     let mut total: u64 = 0;
     for (from, to) in synonyms {
-        let updated = conn.execute(
+        let updated = tx.execute(
             "UPDATE OR IGNORE relations SET relation_type = ?1 \
              WHERE relation_type = ?2 AND valid_to IS NULL",
             rusqlite::params![to, from],
         )? as u64;
-        let dropped = conn.execute(
+        let dropped = tx.execute(
             "DELETE FROM relations WHERE relation_type = ?1 AND valid_to IS NULL",
             rusqlite::params![from],
         )? as u64;
         total += updated + dropped;
     }
+    tx.commit()?;
     Ok(total)
 }
 
@@ -392,25 +394,27 @@ pub fn add_alias_with_rewire(
         ));
     }
     let now = chrono::Utc::now().to_rfc3339();
-    conn.execute(
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "INSERT OR REPLACE INTO entity_aliases (alias_id, canonical_id, created_at) VALUES (?1, ?2, ?3)",
         rusqlite::params![alias_id, canonical_id, &now],
     )?;
-    conn.execute(
+    tx.execute(
         "UPDATE OR IGNORE relations SET from_id = ?1 WHERE from_id = ?2",
         rusqlite::params![canonical_id, alias_id],
     )?;
-    conn.execute(
+    tx.execute(
         "UPDATE OR IGNORE relations SET to_id = ?1 WHERE to_id = ?2",
         rusqlite::params![canonical_id, alias_id],
     )?;
-    conn.execute(
+    tx.execute(
         "DELETE FROM relations WHERE from_id = ?1 OR to_id = ?1",
         rusqlite::params![alias_id],
     )?;
-    conn.execute(
+    tx.execute(
         "DELETE FROM entities WHERE id = ?1",
         rusqlite::params![alias_id],
     )?;
+    tx.commit()?;
     Ok(())
 }

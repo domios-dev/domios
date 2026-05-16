@@ -395,7 +395,7 @@ impl ServiceContext {
             }
         });
         let launch_cmd = build_agent_command(agent_cmd, &params, bg_task.as_deref(), &self.agent_registry);
-        launch_agent_in_background(self.clone(), pane_id.clone(), launch_cmd, agent_cmd.to_string(), bg_task, ready_tx);
+        launch_agent_in_background(self.clone(), pane_id.clone(), tab_id.clone(), ws_id.clone(), launch_cmd, agent_cmd.to_string(), bg_task, ready_tx);
 
         Ok(SpawnResult {
             pane_id,
@@ -417,6 +417,8 @@ pub(crate) use crate::agent::registry::AgentRegistry;
 pub(crate) fn launch_agent_in_background(
     svc: ServiceContext,
     pane_id: String,
+    tab_id: String,
+    ws_id: String,
     launch_cmd: String,
     agent_cmd: String,
     task: Option<String>,
@@ -465,7 +467,9 @@ pub(crate) fn launch_agent_in_background(
                         break pid;
                     }
                     Err(e) => {
-                        log::error!("launch_agent: backend PTY spawn failed: {}", e);
+                        log::error!("launch_agent: backend PTY spawn failed for pane {}: {}", pane_id, e);
+                        // Clean up the orphaned pane — it has no PTY and is unreachable
+                        let _ = svc.close_tab(&ws_id, &tab_id);
                         if let Some(tx) = ready_tx {
                             let _ = tx.send(Err(format!("backend PTY spawn failed: {}", e)));
                         }
@@ -497,15 +501,28 @@ pub(crate) fn launch_agent_in_background(
             }
         }
 
-        // 3. Send launch command. This is a SHELL-LEVEL command (the agent
-        //    binary is invoked from bash/cmd), so it must NOT go through
-        //    bracketed-paste — bash 3.2 (macOS Intel system shell) leaks the
-        //    `\x1b[200~` markers as literal `00~` / `01~` text and breaks the
-        //    launch. send_shell_spawn writes the cmd to a temp script and
-        //    execs `bash <path>` instead (see pty_io::build_spawn_dispatch).
-        //    Issue #93 regressed this when the async spawn_agent path was
-        //    added; the sync path in service/spawn.rs already does it right.
-        if let Err(e) = svc.send_shell_spawn(&pty_id, &launch_cmd) {
+        // 3. Send launch command (verified). Shell prompt was already polled in step 2,
+        //    so require_prompt_first=false avoids a redundant wait.
+        let launch_opts = crate::service::inject_verify::VerifyOpts {
+            require_prompt_first: false,
+            verify_echo: true,
+            verify_submit: true,
+            prompt_timeout: std::time::Duration::from_secs(0),
+            echo_timeout: std::time::Duration::from_secs(3),
+            submit_timeout: std::time::Duration::from_secs(15),
+        };
+        // Use the provider's submit strategy: TUI providers (claude/codex/opencode)
+        // hand the shell off to a TUI on launch, so a "new shell prompt" never
+        // appears — TuiInputDrained is the right signal there.
+        let launch_strategy = registry
+            .with_provider(&agent_cmd, |p| p.verify_submit_strategy())
+            .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+                timeout: std::time::Duration::from_secs(15),
+            });
+        // Use shell dispatch (bash script on Unix, bracketed paste on Windows) so
+        // bash 3.2 hosts (macOS Intel system shell) never see raw ESC markers
+        // (#93 — keeps shell-level launch off the bracketed-paste path).
+        if let Err(e) = svc.send_shell_spawn_verified(&pty_id, &launch_cmd, launch_strategy, launch_opts) {
             log::error!(
                 "launch_agent: launch_cmd failed for pane {} (pty {}): {}",
                 pane_id, pty_id, e

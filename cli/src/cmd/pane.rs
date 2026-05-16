@@ -10,7 +10,13 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
         }
         PaneAction::New { workspace, cwd, title, cmd } => {
             let (base, token) = read_api_config();
-            let http = build_http(&token);
+            let http = match build_http(&token) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    std::process::exit(1);
+                }
+            };
             let mut body = serde_json::json!({});
             if let Some(w) = workspace { body["workspace_id"] = serde_json::Value::String(w); }
             if let Some(c) = cwd { body["cwd"] = serde_json::Value::String(c); }
@@ -88,7 +94,13 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
         PaneAction::GetText { pane, formatted } => {
             let pane_id = resolve_pane(client, pane);
             let (api_url, api_token) = read_api_config();
-            let http = build_http(&api_token);
+            let http = match build_http(&api_token) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    std::process::exit(1);
+                }
+            };
             let url = format!("{}/api/panes/{}/text?formatted={}", api_url, pane_id, formatted);
             match http.get(url).send() {
                 Ok(resp) => {
@@ -115,7 +127,13 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
         PaneAction::Exec { pane, command, timeout } => {
             let pane_id = resolve_pane(client, pane);
             let (api_url, api_token) = read_api_config();
-            let http = build_http(&api_token);
+            let http = match build_http(&api_token) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    std::process::exit(1);
+                }
+            };
             match http.post(format!("{}/api/panes/{}/exec", api_url, pane_id))
                 .json(&serde_json::json!({
                     "command": command,
@@ -150,7 +168,13 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
         PaneAction::Status { pane } => {
             let pane_id = resolve_pane(client, pane);
             let (api_url, api_token) = read_api_config();
-            let http = build_http(&api_token);
+            let http = match build_http(&api_token) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Error: failed to build HTTP client: {}", e);
+                    std::process::exit(1);
+                }
+            };
             match http.get(format!("{}/api/panes", api_url)).send() {
                 Ok(resp) => {
                     if let Ok(panes) = resp.json::<Vec<serde_json::Value>>() {

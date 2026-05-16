@@ -39,15 +39,20 @@ impl ServiceContext {
         let exclude_rows = agent_type.as_deref()
             .map(|at| self.agent_registry.status_bar_rows(at))
             .unwrap_or(0);
-        let prev_status = {
+        let (prev_status, screen_changed) = {
             let screen_hash = self.screen_state.lock()
                 .get_content_hash(pty_id, exclude_rows)
                 .unwrap_or([0u8; 32]);
             let mut t = self.agent_tracker.lock();
             let prev = t.get_status(pty_id);
-            t.update_output(pty_id, screen_hash);
-            prev
+            let changed = t.update_output(pty_id, screen_hash);
+            (prev, changed)
         };
+        if screen_changed {
+            if let Some(ref pid) = pane_id {
+                self.usage_activity.mark(pid);
+            }
+        }
         let current_status = self.agent_tracker.lock().get_status(pty_id);
         if current_status != prev_status {
             log::info!("[status] {} {:?} -> {:?}", &pty_id[..pty_id.len().min(8)], prev_status, current_status);

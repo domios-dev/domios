@@ -163,8 +163,8 @@ async fn backend_read_loop(
 
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
 fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
-    svc.agent_tracker.lock().set_dead(pty_id);
     let pane_id = svc.mux.lock().pane_id_for_pty(pty_id);
+    svc.agent_tracker.lock().set_dead(pty_id);
 
     if let Some(ref pid) = pane_id {
         let _ = svc.app_handle.emit(
