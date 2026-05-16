@@ -127,9 +127,8 @@ pub async fn send_text(
     let source_prefix: Option<String> = body.source_pane.as_deref()
         .filter(|s| !s.is_empty() && *s != pane_id)
         .map(|src| {
-            let title = state.svc.mux.lock().get_pane(src).map(|p| p.title.clone()).unwrap_or_default();
+            let label = state.svc.mux.lock().display_label_for_pane(src);
             let short: String = src.chars().take(8).collect();
-            let label = if title.is_empty() { short.clone() } else { title };
             format!("[from {} pane={}] ", label, short)
         });
     let prepend = |s: &str| -> String {
