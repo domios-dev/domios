@@ -44,10 +44,13 @@ export default function AddPeerPanel() {
 
   const handleScan = useCallback(async () => {
     setScanning(true);
+    const start = Date.now();
     try {
       await invoke("mesh_scan_peers");
       await fetchPeers();
     } catch {}
+    const elapsed = Date.now() - start;
+    if (elapsed < 800) await new Promise((r) => setTimeout(r, 800 - elapsed));
     setScanning(false);
   }, [fetchPeers]);
 
