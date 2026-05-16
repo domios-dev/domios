@@ -536,8 +536,8 @@ is the durable artifact:
     # If no fact found or bridge errors, skip — telegram is nice-to-have."#;
 
 const DREAMING_TELEGRAM_STEP_DISABLED: &str = "Telegram notification is DISABLED \
-    (memory.dreaming_telegram_notify=false). Skip the bridge send step entirely — \
-    do NOT search for a chat id and do NOT call `codeterm bridge send`. The diary \
+    (memory.dreaming_telegram_notify=false). Skip any outbound notification — \
+    do not search for chat ids, do not invoke the bridge command. The diary \
     in mem is the artifact; the user has opted out of the nightly Telegram ping.";
 
 /// Spawn a headless dreaming worker for REM phase (dedup, classify, insights, diary).
