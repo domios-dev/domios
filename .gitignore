@@ -21,3 +21,8 @@ src-tauri/.fastembed_cache/
 src-tauri/bundled-embed-libs/
 .fastembed_cache/
 .superpowers/
+
+# .claude — agent runtime; ignore everything except the allowlisted bits below.
+/.claude/*
+!/.claude/skills/
+!/.claude/settings.local.json
