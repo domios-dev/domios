@@ -4,8 +4,7 @@ You are running inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `
 
 **Environment variables** (set automatically in every CodeTerm pane):
 - `$CODETERM_PANE_ID` — your pane's 8-char hex id
-- `$CODETERM_ROLE` — `Orchestrator`, `Lead`, `Worker`, or empty
-- `$CODETERM_PARENT_PANE_ID` — parent pane id (empty if Orchestrator)
+- `$CODETERM_PARENT_PANE_ID` — the pane that spawned you (empty if you weren't spawned by another pane)
 - `$CODETERM_WORKSPACE_ID` — current workspace
 - `$CODETERM_SOCKET_PATH` — IPC socket
 - `$CODETERM` — always `1` inside CodeTerm
@@ -33,49 +32,40 @@ codeterm workspace close ID
 codeterm workspace move-tab TAB FROM TO
 ```
 
-## Agent hierarchy & roles
+## Spawning sub-panes
 
-Three roles, enforced by the backend:
+A sub-pane is a child agent you own. Spawn one when a piece of the work feels like it belongs to you — your context, your responsibility, you'll get the report back — but you want it to run in its own pane: parallel work, isolated context, separate workspace, or a step the user should see live.
 
-```
-Orchestrator (top, no parent, can spawn)
-  ├── Lead       (parent MUST be Orchestrator, can spawn Workers)
-  │    └── Worker (leaf, CANNOT spawn anything)
-  └── Worker     (leaf, CANNOT spawn anything)
-```
+| Situation | How |
+|-----------|-----|
+| Sub-task you own (parent = you) | `codeterm agent spawn claude --task "... when done: codeterm agent report 'summary'"` |
+| Independent task with its own workspace | add `--workspace $WS` (no implicit parent) |
+| Task on another machine | add `--mesh PEER` (the peer runs it standalone) |
 
-| Situation | Spawn as | Parent |
-|-----------|----------|--------|
-| Fresh independent task in its own workspace | `Orchestrator` | none (`--workspace $WS`) |
-| Sub-coordinator that will spawn ≥2 workers | `Lead` | Orchestrator only |
-| Single concrete leaf task | `Worker` | Orchestrator or Lead |
-| Remote task on another machine | `Orchestrator` | `--mesh PEER` (never Lead/Worker over mesh) |
-
-Backend rejects: Lead under Lead, Worker under Worker, Orchestrator with `--parent`, `set-conductor` from non-Orchestrator. Don't try.
+Sub-panes don't spawn further sub-panes — keep the tree one level deep. For multi-step work, plan the steps yourself and dispatch them as siblings (use `batch` if you want to fire several at once).
 
 ```bash
 codeterm agent list
-codeterm agent hierarchy                           # tree view
-codeterm agent spawn claude --title T --role R [--parent ID] [--can-spawn] [--task TEXT] [--workspace WS] [--cwd PATH]
-codeterm agent report "summary"                    # report to parent
-codeterm agent reports                             # read child reports (Orchestrator/Lead only)
+codeterm agent hierarchy                           # tree view of your sub-panes
+codeterm agent spawn claude --task "..." [--title T] [--workspace WS] [--mesh PEER] [--cwd PATH]
+codeterm agent report "summary"                    # report to your parent (when you ARE a sub-pane)
+codeterm agent reports                             # read your sub-panes' reports
 codeterm agent status [--pane ID]
 codeterm agent compact [--pane ID]                 # /compact
 codeterm agent model sonnet|haiku|opus [--pane ID]
-codeterm agent restart --pane ID [--force] [--grace-secs N]   # graceful /exit + auto-resume; --force kills hung PTY
+codeterm agent restart --pane ID [--force]         # graceful /exit + auto-resume; --force kills hung PTY
 ```
 
-**Worker task template — always include the report command:**
+**Always include `codeterm agent report '...'` in the task body** — without it the sub-pane finishes silently and you never hear back:
+
 ```bash
-codeterm agent spawn claude --title "Scout" --role Worker --parent $CODETERM_PANE_ID \
-  --task "Read .claude/agents/backend-dev.md. TASK: list files in ./src. When done: codeterm agent report 'found N files: ...'"
+codeterm agent spawn claude --title "Scout" \
+  --task "List files in ./src. When done: codeterm agent report 'found N files: ...'"
 ```
 
-Without `codeterm agent report` in the task body, the worker finishes silently and you never hear back.
+Reports auto-inject as `[Report from PANE_ID]` lines into your pane. React when they arrive — don't sleep/poll. Chase silent ones via `codeterm agent status` or `get-output --pane ID`.
 
-**Reports are auto-injected** as `[Report from PANE_ID]` lines. Never sleep/poll — react when reports arrive. Chase silent workers via `codeterm agent status` or `get-output --pane ID`.
-
-**Don't over-spawn.** Trivial recon (single grep/ls/cat/git/file read) — do it yourself. Spawn only for isolation, parallelism, own workspace, or visible work the user wants to watch.
+**Don't over-spawn.** Trivial recon (single grep/ls/cat/git/file read) — do it yourself. Spawn only for isolation, parallelism, separate workspace, or visible work the user wants to watch.
 
 ## Message routing — the prefix is the return address
 
@@ -119,7 +109,7 @@ codeterm mesh peers                                # paired + discovered
 codeterm pane list --mesh PEER
 codeterm send-text "cmd" --pane ID --mesh PEER
 codeterm get-output --pane ID --mesh PEER
-codeterm agent spawn claude --task "..." --mesh PEER --role Orchestrator
+codeterm agent spawn claude --task "..." --mesh PEER
 codeterm workspace create "CI" --mesh PEER
 ```
 
