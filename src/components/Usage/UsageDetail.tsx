@@ -90,6 +90,7 @@ export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: Usag
         avgWeekendSpend: projection.weekly.avg_weekend_spend,
         dowEstimates: projection.weekly.dow_estimates,
         restOfTodayEst: projection.weekly.rest_of_today_est,
+        dayActuals: projection.weekly.day_actuals,
       }
     : null;
   const buckets = useMemo(
