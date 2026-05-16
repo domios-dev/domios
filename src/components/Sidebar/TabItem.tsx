@@ -6,7 +6,6 @@ import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { TelegramIcon, TerminalIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import type { Pane, PaneStatus, Tab } from "../../lib/types";
-import { ROLE_ICONS } from "./HierarchyTree";
 
 interface TabItemProps {
   tab: Tab;
@@ -43,6 +42,10 @@ export function TabItem({
   isClosing,
 }: TabItemProps) {
   const agentProvider = getAgentProvider(pane?.agent_type);
+  // Sub-pane = anything spawned under another pane. Whether the spawn used
+  // explicit --parent (parent_pane_id) or relied on the spawned_by fallback
+  // (depth > 0), both end up here.
+  const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
   const tabRef = useRef<HTMLDivElement>(null);
@@ -131,22 +134,19 @@ export function TabItem({
         />
       )}
       <div className="flex items-center gap-2 min-w-0 relative z-[1]">
-        {/* Icon — Lead/Worker role icon > orange sparkle for Claude Code (spins when working) > terminal icon */}
-        {/* Orchestrator uses standard icon (Claude sparkle or terminal) — it's just a user tab */}
-        {pane?.role && pane.role !== "Orchestrator" && pane.role !== "Conductor" ? (
-          <span
-            className={`shrink-0 text-[11px] leading-none text-[var(--ct-muted-fg)] ${status === "Working" ? "animate-pulse" : ""}`}
-            title={`${pane.role}${status === "Working" ? " — working" : ""}`}
-          >{ROLE_ICONS[pane.role]}</span>
-        ) : hasAgent ? (
+        {/* Same icon family for every pane — provider AgentIcon when an
+            agent is running, plain terminal icon otherwise. Sub-panes
+            (anything with a parent) render a notch smaller so the tree
+            depth reads at a glance without dragging in a separate icon set. */}
+        {hasAgent ? (
           <AgentIcon
             providerId={agentProvider?.id ?? "claude"}
             working={status === "Working"}
-            className="shrink-0 text-[12px] leading-none"
+            className={`shrink-0 leading-none ${isSubPane ? "text-[10px]" : "text-[12px]"}`}
             title={status === "Working" ? `${agentProvider?.displayName || "Agent"} working...` : status === "Waiting" ? `${agentProvider?.displayName || "Agent"} — waiting for input` : agentProvider?.displayName || "Agent"}
           />
         ) : (
-          <TerminalIcon className="shrink-0" />
+          <TerminalIcon className={`shrink-0 ${isSubPane ? "scale-90" : ""}`} />
         )}
         {editing ? (
           <input
