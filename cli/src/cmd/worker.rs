@@ -306,6 +306,14 @@ fn worker_dreaming_normalize(conn: &rusqlite::Connection) -> Result<serde_json::
         conn, &now,
     ).map_err(|e| format!("broken invalidate: {}", e))?;
 
+    // Symmetric pass: revive edges whose targets reappeared. SQL guards on
+    // both endpoints existing in entities/mem_items, so this is never blind —
+    // only edges whose collateral cause is gone come back.
+    let revive_report = codeterm_mem_store::graph::revive_broken(
+        conn,
+        codeterm_mem_store::graph::ReviveBrokenOptions { since: None, dry_run: false },
+    ).map_err(|e| format!("broken revive: {}", e))?;
+
     Ok(serde_json::json!({
         "phase": "normalize",
         "merged": merged,
@@ -313,6 +321,7 @@ fn worker_dreaming_normalize(conn: &rusqlite::Connection) -> Result<serde_json::
         "relations_canonicalized": relations_canonicalized,
         "orphans_deleted": orphans_deleted,
         "broken_relations_invalidated": broken_relations_invalidated,
+        "broken_relations_revived": revive_report.revived,
     }))
 }
 
