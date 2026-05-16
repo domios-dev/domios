@@ -442,6 +442,10 @@ impl ServiceContext {
                                 "[session-detect] auto-saved {} for pane {} (provider={})",
                                 sid, pane_id, agent_id,
                             );
+                            // Stage-1: now that the session is claimed, run
+                            // model detection once so the badge populates
+                            // without waiting for the user to focus this tab.
+                            svc.refresh_session_model_once(&pane_id, &agent_id);
                             svc.emit_state_changed();
                             return;
                         }
