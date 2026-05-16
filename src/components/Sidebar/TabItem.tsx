@@ -115,7 +115,7 @@ export function TabItem({
         e.dataTransfer.effectAllowed = "move";
       }}
       className={`
-        sidebar-tab group flex items-center justify-between pl-8 pr-2 py-1 cursor-pointer transition-colors relative
+        sidebar-tab group flex items-center justify-between pl-4 pr-2 py-1.5 cursor-pointer transition-colors relative
         ${animClass}
         ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
