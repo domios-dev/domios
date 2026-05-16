@@ -62,9 +62,9 @@ Stored in Bitwarden vault (retrieve via `codeterm mem secret get --name <slug>` 
 
 ### Agent model
 
-When delegating this skill to an agent (release Lead or ROG worker), **spawn with `--model haiku`**. The pipeline is mostly orchestration + bash + git/gh — Haiku is fast and cheap enough; Sonnet/Opus is overkill and doubles wall time on thinking phases.
+When delegating this skill to an agent (release coordinator or ROG worker), **spawn with `--model haiku`**. The pipeline is mostly orchestration + bash + git/gh — Haiku is fast and cheap enough; Sonnet/Opus is overkill and doubles wall time on thinking phases.
 
-Caveat: `codeterm agent spawn claude --role Lead --can-spawn ...` currently does NOT honor `--role` or `--can-spawn` flags — the spawned pane comes up role=(none), can_spawn=false. Follow up with `codeterm agent set-conductor --pane <id>` to promote it before it tries to spawn the ROG worker. (Tracked bug — once fixed, drop this note.)
+Spawn with `codeterm agent spawn claude --task "..." --model haiku`. Parent is inferred from `$CODETERM_PANE_ID`; reports route back to you automatically (Orchestrator + sub-pane model, no `--role` flag needed).
 
 ### 0. Kill any running dev
 
@@ -328,7 +328,7 @@ ROG-specific gotchas (verified v1.2.1):
 - BLACKSTAR fallback: workspace at `C:\\Developer\\codeterm` (no `amigo` user). Same flow otherwise.
 
 Alternative coordination paths:
-- **Send to existing General Agent instead of spawning a fresh Lead.** `codeterm --mesh ROG send-text --pane <general_pane> --from-file <msg.txt>`. Bypasses agent_spawn pipeline (resilient to PowerShell argv-split bugs on Windows), uses existing GA context, reports auto-route back through the bridge. Find the General pane via `codeterm --mesh ROG pane list --json | jq '.[] | select(.cwd | contains(".codeterm/general"))'`.
+- **Send to existing General Agent instead of spawning a fresh sub-pane.** `codeterm --mesh ROG send-text --pane <general_pane> --from-file <msg.txt>`. Bypasses agent_spawn pipeline (resilient to PowerShell argv-split bugs on Windows), uses existing GA context, reports auto-route back through the bridge. Find the General pane via `codeterm --mesh ROG pane list --json | jq '.[] | select(.cwd | contains(".codeterm/general"))'`.
 - **Parallel shell pane for tactical interventions.** Agent does the long compile; a separate `codeterm --mesh ROG pane new` handles 7z / gh upload / verify steps — seconds instead of minutes-per-agent-prompt.
 
 Wall times (ROG, cold): ~5min per successful build, +2min per failed retry (node version, SDK). Cache-warm: ~3min.
@@ -428,7 +428,7 @@ Force-retag pre-publish is unilaterally allowed per `rule_blackstar_mac_release_
 | Windows: `sqlite-sys` cc-rs → "malloc.h not found" | `build.sh`'s `SDK_VER` (10.0.22621.0) ≠ installed Windows Kit | check `ls "/c/Program Files (x86)/Windows Kits/10/Include"` then `export SDK_VER=<found-version>` (e.g. 10.0.26100.0 on ROG) |
 | `gh release upload ...` → "no matches found" on Windows | MSYS git-bash + stale cd + relative paths | `cd` back to repo root before upload, or use absolute paths |
 | `git rev-parse v$VER` returns a SHA that doesn't appear in `git log` | annotated tag (`-a`) creates a tag object that points to the commit (one level of indirection) | use `git rev-parse v$VER^{commit}` for the commit SHA, or `gh release view v$VER --json targetCommitish` |
-| `codeterm mesh send` → "prompt never became ready after 10s" | target pane is busy (claude TUI thinking); mesh send waits for shell-prompt-ready | use `codeterm send-text --no-wait` (added 2026-05-12) for inter-agent text drops where prompt readiness isn't meaningful |
+| `codeterm mesh send` → "prompt never became ready after 10s" | target pane is busy (claude TUI thinking); mesh send waits for shell-prompt-ready | use `codeterm send-text --mesh PEER --pane ID "..."` — send-text is fire-and-forget by design, no readiness check |
 | SSH to BLACKSTAR: `cd /c/…` fails | `bash -lc` runs a login shell that re-homes | use `bash -c` (non-login) |
 | `scp User@blackstar:/c/…` fails | remote shell is cmd.exe, doesn't grok the path | stage the file to `C:\Users\User\` on BLACKSTAR first, then `scp User@blackstar:filename` |
 | Public `curl` of release asset → 404 | repo private, CDN rejects unauthenticated | use `gh release download`, or make repo public |
