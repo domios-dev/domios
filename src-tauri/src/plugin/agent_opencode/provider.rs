@@ -133,6 +133,26 @@ impl OpenCodeProvider {
         None
     }
 
+    /// Session id whose latest assistant message is most recent for `cwd`.
+    /// Used by `detect_active_session` to roll a stale pane onto the new
+    /// session opencode spawned after a `/model` swap.
+    fn db_newest_session_for_cwd(cwd: &str) -> Option<String> {
+        let path = Self::db_path()?;
+        let conn = rusqlite::Connection::open_with_flags(
+            &path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ).ok()?;
+        let cwd_fwd = cwd.replace('\\', "/");
+        let cwd_bwd = cwd.replace('/', "\\");
+        let mut stmt = conn.prepare(
+            "SELECT m.session_id FROM message m \
+             JOIN session s ON s.id = m.session_id \
+             WHERE (s.directory = ?1 OR s.directory = ?2) AND s.time_archived IS NULL \
+             ORDER BY m.time_created DESC LIMIT 1",
+        ).ok()?;
+        stmt.query_row(rusqlite::params![cwd_fwd, cwd_bwd], |row| row.get::<_, String>(0)).ok()
+    }
+
     /// modelID of the most recent assistant message for this pane's session.
     /// Falls back to a cwd-wide scan when the specific session has no
     /// assistant messages yet — that happens right after a `/model` swap
@@ -333,6 +353,15 @@ impl AgentProvider for OpenCodeProvider {
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
         let id = Self::db_latest_assistant_model(cwd, session_id)?;
         Some(opencode_short_label(&id))
+    }
+
+    fn detect_active_session(&self, cwd: &str, current_sid: &str) -> Option<String> {
+        // Opencode-zen spawns a fresh session row on `/model` swap. If the db
+        // holds a session for this cwd whose latest assistant message is
+        // newer than anything the pane's current_sid has produced, hand back
+        // that newer sid so the focused-poller can claim it.
+        let latest = Self::db_newest_session_for_cwd(cwd)?;
+        if latest == current_sid { None } else { Some(latest) }
     }
 
     fn read_usage(&self, _cwd: &str, session_id: &str) -> Option<UsageSnapshot> {

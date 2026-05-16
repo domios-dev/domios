@@ -217,6 +217,42 @@ impl ServiceContext {
             )
         };
         let Some(cwd) = cwd else { return };
+        // If the provider rolled the live session out from under us (opencode
+        // /model swap), point the pane at the new sid before scanning models.
+        if let Some(ref current) = session_id {
+            if let Some(new_sid) = self
+                .agent_registry
+                .with_provider(agent_id, |p| p.detect_active_session(&cwd, current))
+                .flatten()
+            {
+                let claimed = {
+                    let mut mux = self.mux.lock();
+                    if mux.other_session_ids(pane_id).contains(&new_sid) {
+                        false
+                    } else if let Some(p) = mux.get_pane_mut(pane_id) {
+                        if p.agent_type.as_deref() == Some(agent_id) {
+                            p.agent_session_id = Some(new_sid.clone());
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                };
+                if claimed {
+                    log::info!(
+                        "[session-detect] rolled pane {} from {} → {} ({})",
+                        pane_id, current, new_sid, agent_id,
+                    );
+                    self.emit_state_changed();
+                }
+            }
+        }
+        let session_id = {
+            let mux = self.mux.lock();
+            mux.get_pane(pane_id).and_then(|p| p.agent_session_id.clone())
+        };
         let sid = match session_id {
             Some(s) => s,
             None => {

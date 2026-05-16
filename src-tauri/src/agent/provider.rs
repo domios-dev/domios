@@ -548,6 +548,15 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// When the TUI silently rolls into a new on-disk session (opencode does
+    /// this on `/model` swap), the pane's cached `session_id` goes stale and
+    /// `detect_session_model` keeps returning the previous model. Providers
+    /// that support this override to point the pane at the live session —
+    /// return `Some(new_sid)` when one exists, else `None`.
+    fn detect_active_session(&self, _cwd: &str, _current_sid: &str) -> Option<String> {
+        None
+    }
+
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
     fn is_output_noise(&self, text: &str) -> bool { let _ = text; false }
 
