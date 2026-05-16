@@ -180,6 +180,9 @@ pub struct PairedPeer {
     #[serde(default)]
     pub access_level: AccessLevel,
     pub version: Option<String>,
+    /// Runtime-only miss counter; not persisted to disk or sent over API.
+    #[serde(skip)]
+    pub consecutive_misses: u8,
 }
 
 // ── Access levels ──────────────────────────────────────────────────

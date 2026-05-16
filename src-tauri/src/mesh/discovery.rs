@@ -272,6 +272,65 @@ pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
     log::debug!("[mesh] Tailscale not available");
 }
 
+/// Return Tailscale peer IPs: union of paired-peer addresses (from mesh store)
+/// and all peers visible to the local `tailscale` daemon (via `status --json`).
+/// UDP broadcast doesn't traverse Tailscale VPN, so we unicast to each one.
+fn tailscale_peer_ips(mesh: &Arc<Mutex<MeshManager>>) -> Vec<String> {
+    let mut ips: std::collections::HashSet<String> = mesh
+        .lock()
+        .paired_peers
+        .values()
+        .flat_map(|p| p.addresses.iter().map(|a| a.ip.clone()))
+        .filter(|ip| is_tailscale_ip(ip))
+        .collect();
+
+    // Also ask the local Tailscale daemon so we find non-paired machines too.
+    for ip in tailscale_status_peer_ips() {
+        ips.insert(ip);
+    }
+    ips.into_iter().collect()
+}
+
+fn is_tailscale_ip(ip: &str) -> bool {
+    ip.parse::<std::net::Ipv4Addr>()
+        .map(|a| { let o = a.octets(); o[0] == 100 && (64..=127).contains(&o[1]) })
+        .unwrap_or(false)
+}
+
+/// Run `tailscale status --json` and extract peer IPv4 addresses.
+/// Uses no_window_std so it doesn't flash a console on Windows.
+fn tailscale_status_peer_ips() -> Vec<String> {
+    let candidates = [
+        "tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        "/opt/homebrew/bin/tailscale",
+        "/usr/local/bin/tailscale",
+        "/usr/bin/tailscale",
+    ];
+    for cmd in &candidates {
+        let mut c = std::process::Command::new(cmd);
+        c.args(["status", "--json"]);
+        crate::process_util::no_window_std(&mut c);
+        let Some((true, raw)) = run_with_timeout(&mut c, std::time::Duration::from_secs(3))
+        else { continue };
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
+        let peers = val.get("Peer").and_then(|v| v.as_object());
+        let Some(peers) = peers else { return vec![] };
+        return peers
+            .values()
+            .flat_map(|p| {
+                p.get("TailscaleIPs")
+                    .and_then(|v| v.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|v| v.as_str().map(String::from))
+            })
+            .filter(|ip| is_tailscale_ip(ip))
+            .collect();
+    }
+    vec![]
+}
+
 /// Scan local network interfaces for an IPv4 address in the Tailscale
 /// CGNAT range (100.64.0.0/10). Avoids spawning the `tailscale` CLI,
 /// which on Windows briefly flashes a console window every time it runs.
@@ -509,8 +568,13 @@ pub fn start_udp_threads(mesh: Arc<Mutex<MeshManager>>) -> Result<(), String> {
                     let mut packet = Vec::with_capacity(BROADCAST_MAGIC.len() + json.len());
                     packet.extend_from_slice(BROADCAST_MAGIC);
                     packet.extend_from_slice(&json);
+                    // LAN broadcast
                     if let Err(e) = sock.send_to(&packet, format!("255.255.255.255:{}", api_port)) {
-                        log::debug!("[mesh/udp] Send failed: {}", e);
+                        log::debug!("[mesh/udp] Broadcast send failed: {}", e);
+                    }
+                    // Unicast to Tailscale peers (broadcast doesn't cross VPN)
+                    for ip in tailscale_peer_ips(&mesh_for_sender) {
+                        let _ = sock.send_to(&packet, format!("{}:{}", ip, api_port));
                     }
                 }
             }
@@ -652,6 +716,52 @@ pub fn stop_broadcast(mesh: &Arc<Mutex<MeshManager>>) {
     }
     unregister_mdns_service(mesh);
     log::info!("[mesh] Broadcast stopped manually");
+}
+
+/// Send one UDP beacon immediately, regardless of broadcast_active state.
+/// Sends LAN broadcast + unicast to every known Tailscale peer IP so the
+/// beacon reaches peers over VPN too.
+pub fn send_immediate_beacon(mesh: &Arc<Mutex<MeshManager>>) {
+    let (instance_id, instance_name, api_port, mesh_id) = {
+        let m = mesh.lock();
+        let mesh_id = if m.paired_peers.is_empty() {
+            None
+        } else {
+            Some(m.ident.identity.instance_id.clone())
+        };
+        (
+            m.ident.identity.instance_id.clone(),
+            m.ident.instance_name.clone(),
+            m.api_port,
+            mesh_id,
+        )
+    };
+    let ts_ips = tailscale_peer_ips(mesh);
+    let beacon = Beacon {
+        id: instance_id,
+        name: instance_name,
+        port: api_port,
+        dev: cfg!(debug_assertions),
+        mesh_id,
+    };
+    let Ok(json) = serde_json::to_vec(&beacon) else { return };
+    let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") else { return };
+    let _ = sock.set_broadcast(true);
+    let mut packet = Vec::with_capacity(BROADCAST_MAGIC.len() + json.len());
+    packet.extend_from_slice(BROADCAST_MAGIC);
+    packet.extend_from_slice(&json);
+    // LAN broadcast
+    if let Err(e) = sock.send_to(&packet, format!("255.255.255.255:{}", api_port)) {
+        log::debug!("[mesh/udp] Immediate beacon broadcast failed: {}", e);
+    }
+    // Unicast to each Tailscale peer (broadcast doesn't cross VPN)
+    for ip in &ts_ips {
+        if let Err(e) = sock.send_to(&packet, format!("{}:{}", ip, api_port)) {
+            log::debug!("[mesh/udp] Immediate beacon unicast to {} failed: {}", ip, e);
+        } else {
+            log::debug!("[mesh/udp] Immediate beacon unicast → {}", ip);
+        }
+    }
 }
 
 #[cfg(test)]

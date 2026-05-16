@@ -139,7 +139,7 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
             }
         }
-        ServiceAction::Add { name, kind, health_mode, url, host, port, process_label, script_path, health_path, health_interval, description, push } => {
+        ServiceAction::Add { name, kind, health_mode, url, host, port, process_label, script_path, health_path, health_json_field, health_ok_values, health_degraded_values, health_interval, description, push } => {
             let mut params = serde_json::json!({
                 "name": name,
                 "kind": kind,
@@ -153,6 +153,9 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
             if let Some(v) = process_label { params["process_label"] = serde_json::json!(v); }
             if let Some(v) = script_path { params["script_path"] = serde_json::json!(v); }
             if let Some(v) = health_path { params["health_path"] = serde_json::json!(v); }
+            if let Some(v) = health_json_field { params["health_json_field"] = serde_json::json!(v); }
+            if let Some(v) = health_ok_values { params["health_ok_values"] = serde_json::json!(v); }
+            if let Some(v) = health_degraded_values { params["health_degraded_values"] = serde_json::json!(v); }
             if let Some(v) = description { params["description"] = serde_json::json!(v); }
             match client.call("services.create", Some(params)) {
                 Ok(val) => {
@@ -192,11 +195,15 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                 Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
             }
         }
-        ServiceAction::Edit { id, name, url, enabled } => {
+        ServiceAction::Edit { id, name, url, health_path, health_json_field, health_ok_values, health_degraded_values, enabled } => {
             let id = resolve_service_id(client, &id);
             let mut params = serde_json::json!({"id": id});
             if let Some(v) = name { params["name"] = serde_json::json!(v); }
             if let Some(v) = url { params["url"] = serde_json::json!(v); }
+            if let Some(v) = health_path { params["health_path"] = serde_json::json!(v); }
+            if let Some(v) = health_json_field { params["health_json_field"] = serde_json::json!(v); }
+            if let Some(v) = health_ok_values { params["health_ok_values"] = serde_json::json!(v); }
+            if let Some(v) = health_degraded_values { params["health_degraded_values"] = serde_json::json!(v); }
             if let Some(v) = enabled { params["enabled"] = serde_json::json!(v); }
             match client.call("services.update", Some(params)) {
                 Ok(val) => {

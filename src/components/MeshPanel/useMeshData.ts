@@ -11,6 +11,15 @@ export interface PeerStatus {
   api_port: number;
   online: boolean;
   access_level: string;
+  last_seen: string | null;
+}
+
+const LAST_SEEN_GRACE_MS = 90_000;
+
+function withinGrace(lastSeen: string | null | undefined): boolean {
+  if (!lastSeen) return false;
+  const t = Date.parse(lastSeen);
+  return !isNaN(t) && Date.now() - t <= LAST_SEEN_GRACE_MS;
 }
 
 export interface MeshData {
@@ -91,11 +100,12 @@ export function useMeshData(refreshKey: number): MeshDataResult {
           api_port: p.api_port,
           online: p.online,
           access_level: p.access_level,
+          last_seen: p.last_seen,
         }),
       );
 
       const remotePromises = paired
-        .filter((p) => p.online && p.ip)
+        .filter((p) => p.ip && (p.online || withinGrace(p.last_seen)))
         .map(async (p) => {
           try {
             const arr = await invoke<Service[]>("mesh_peer_services_list", {
