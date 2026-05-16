@@ -10,7 +10,6 @@ Use `codeterm` to control panes, workspaces, agents, mesh peers, mem, and system
 - `codeterm mem worker spawn --intent "enrich" --task "..."` — spawn a headless graph worker for custom enrichment
 - `codeterm mem sync` — trigger librarian file sync for source-tracked items
 - `codeterm notify "Done" --level info` — system / in-app notification
-- `codeterm browser open file:///path` — open in canvas panel (not `start`/`open`)
 - `codeterm keepawake start --duration-secs N [--display]` / `stop` / `status` — prevent sleep cross-platform (do NOT call `caffeinate`, `powercfg`, `systemd-inhibit`)
 
 Always use the CLI from inside CodeTerm via Bash. Do not curl the REST API directly.

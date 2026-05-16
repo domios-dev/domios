@@ -39,7 +39,7 @@ src-tauri/src/
 ├── service/                — UNIFIED BUSINESS LOGIC (all ops go through here)
 │   ├── mod.rs              — ServiceContext (god object, needs facade split)
 │   ├── workspace.rs        — Create/rename/close workspaces
-│   ├── pane.rs             — Pane CRUD, focus, browser panes
+│   ├── pane.rs             — Pane CRUD, focus, rename
 │   ├── pty_io.rs           — send_text, batch operations
 │   ├── pty_lifecycle.rs    — Spawn/resize/kill PTY, backend reader
 │   ├── hierarchy.rs        — Agent roles, reports, status
@@ -51,7 +51,7 @@ src-tauri/src/
 │
 ├── multiplexer/            — WORKSPACE/PANE STATE MACHINE
 │   ├── state.rs            — Central state (65KB — needs split)
-│   ├── types.rs            — Workspace, Tab, Pane, SplitNode
+│   ├── types.rs            — Workspace, Tab, Pane (one pane per tab)
 │   └── commands.rs         — Thin Tauri wrappers
 │
 ├── pty/                    — PTY LIFECYCLE
@@ -104,7 +104,7 @@ src-tauri/src/
 src/                        — FRONTEND (React)
 ├── App.tsx                 — Root, theme application
 ├── components/
-│   ├── Terminal/           — TerminalPane (44KB), SplitContainer, Divider
+│   ├── Terminal/           — TerminalPane (44KB), TabContent (per-tab wrapper)
 │   ├── ChatView/           — Agent interaction UI, message parser
 │   ├── Settings/           — SettingsPanel, MeshSection
 │   ├── Sidebar/            — Workspace/tab/pane navigation

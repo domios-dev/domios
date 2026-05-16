@@ -24,7 +24,6 @@ Tool-call narration in pane is fine. Conversational reply is not.
 - "in terminal" / "в терминале" / "в консоли" → CodeTerm workspace/pane, NOT filesystem
 - "create project X" → `codeterm workspace create "X"`
 - "run tests there" → `codeterm send-text PANE_ID "command"`
-- Any visual content (diagrams, dashboards) → `codeterm browser open file:///path`
 - Notify on completion → `codeterm notify "Done" --level info`
 - "don't let the computer sleep" / "keep awake" / "prevent sleep for N minutes/hours" → `codeterm keepawake start --duration-secs N [--display]`. Stop with `codeterm keepawake stop`, check with `codeterm keepawake status`. Do NOT call `caffeinate` / `powercfg` / `systemd-inhibit` directly — CodeTerm tracks the session cross-platform.
 
@@ -84,7 +83,6 @@ Rules:
 
 ### Do NOT
 
-- Do NOT use `start` or `open` for browser — use `codeterm browser open`
 - Do NOT create filesystem directories when user says "create project" — create a workspace
 - Do NOT use raw `curl` for CodeTerm API — always use `codeterm` CLI commands
 - Do NOT use `/api/mesh/peers` or other REST endpoints directly — use `codeterm mesh peers`

@@ -165,11 +165,10 @@ Response: `{"ok": true, "changed": true}` when the persisted id changed, `{"ok":
 
 `/api/panes/*/hook/*` and `/api/mem/flush` require the standard Bearer token — there is no auth-exempt loopback path. CodeTerm injects `CODETERM_API_TOKEN` into every PTY (alongside `CODETERM_API_PORT` and `CODETERM_PANE_ID`), and the installed Claude hook commands reference `${CODETERM_API_TOKEN}` directly. External callers wiring custom hooks must set the same header.
 
-#### Canvas (Visualizations)
+#### File serving
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| POST | `/api/browser/open` | `{url}` | Open canvas panel (localhost, data URLs, HTML) |
-| GET | `/api/serve-file` | `?path=...` | Serve local file for canvas |
+| GET | `/api/serve-file` | `?path=...` | Serve a local file (assets, screenshots, etc.) |
 
 #### Notifications
 | Method | Path | Body | Description |
@@ -870,7 +869,6 @@ Newline-delimited JSON:
 | `pane.send_text` | `{pane_id, text, enter?}` | Send text to PTY (`enter` defaults to `true`, appends `\r`) |
 | `pane.get_output` | `{pane_id, max_bytes?}` | Read terminal output |
 | `pane.rename` | `{pane_id, title}` | Rename pane (pinned) |
-| `browser.open` | `{url}` | Open canvas panel (localhost, data URLs) |
 | `notification.create` | `{title, body?, level?, pane_id?}` | Create notification |
 | `notification.list` | `{unread_only?}` | List notifications |
 | `notification.clear` | `{id?}` | Clear notifications |
@@ -933,9 +931,6 @@ codeterm pane rename "title" [--pane ID] [--id ID]  # Rename tab (default: curre
 # Terminal I/O
 codeterm send-text "command" [--pane ID] [--id ID]  # Send text (default: current, --id alias for --pane)
 codeterm get-output [--pane ID] [--id ID] [--lines 50]  # Read output (default: current, --id alias for --pane)
-
-# Canvas (visualizations)
-codeterm browser open URL                       # Open canvas panel (localhost, data URLs)
 
 # Notifications
 codeterm notify "Title" [--body "..."] [--level info|warning|error]
