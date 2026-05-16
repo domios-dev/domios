@@ -60,18 +60,29 @@ pub(crate) struct ServeFileQuery {
 }
 
 pub async fn serve_file(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
     Query(query): Query<ServeFileQuery>,
 ) -> Result<axum::response::Response, (StatusCode, &'static str)> {
-    let path = std::path::Path::new(&query.path);
+    check_auth(&state, &headers)?;
 
-    if !path.exists() {
+    // Path guard: only serve files inside the CodeTerm data directory
+    let requested = std::path::Path::new(&query.path)
+        .canonicalize()
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Invalid path"))?;
+    let allowed_prefix = crate::paths::data_dir();
+    if !requested.starts_with(&allowed_prefix) {
+        return Err((StatusCode::FORBIDDEN, "Path not allowed"));
+    }
+
+    if !requested.exists() {
         return Err((StatusCode::NOT_FOUND, "File not found"));
     }
 
-    let bytes = std::fs::read(path)
+    let bytes = std::fs::read(&requested)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to read file"))?;
 
-    let content_type = match path.extension().and_then(|e| e.to_str()) {
+    let content_type = match requested.extension().and_then(|e| e.to_str()) {
         Some("html" | "htm") => "text/html; charset=utf-8",
         Some("css") => "text/css",
         Some("js" | "mjs") => "application/javascript",
@@ -89,4 +100,25 @@ pub async fn serve_file(
         .header("Content-Type", content_type)
         .body(axum::body::Body::from(bytes))
         .unwrap())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn serve_file_path_guard_rejects_outside_data_dir() {
+        let allowed = crate::paths::data_dir();
+        let outside = std::path::Path::new("/etc/passwd");
+        let canonical_outside = std::fs::canonicalize(outside).unwrap_or(outside.to_path_buf());
+        assert!(
+            !canonical_outside.starts_with(&allowed),
+            "/etc/passwd should not be inside the data dir"
+        );
+    }
+
+    #[test]
+    fn serve_file_path_guard_accepts_inside_data_dir() {
+        let allowed = crate::paths::data_dir();
+        let inside = allowed.join("config.toml");
+        assert!(inside.starts_with(&allowed));
+    }
 }

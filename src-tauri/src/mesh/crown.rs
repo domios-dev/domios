@@ -132,6 +132,19 @@ pub fn verify_signed_request(
     Ok(req.from_instance_id)
 }
 
+/// Extract nonce from a signed request token without verifying the signature.
+/// Used by replay-prevention code after `verify_signed_request` already passed.
+pub fn nonce_from_token(token: &str) -> Result<String, String> {
+    let parts: Vec<&str> = token.splitn(2, '.').collect();
+    if parts.len() != 2 {
+        return Err("Invalid token format".to_string());
+    }
+    let payload_bytes = B64.decode(parts[0]).map_err(|e| format!("Bad payload: {}", e))?;
+    let req: SignedRequest = serde_json::from_slice(&payload_bytes)
+        .map_err(|e| format!("Bad claims: {}", e))?;
+    Ok(req.nonce)
+}
+
 // ── Tests ───────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -182,5 +195,17 @@ mod tests {
     fn public_key_from_private_rejects_garbage() {
         assert!(public_key_from_private("not-base64!").is_err());
         assert!(public_key_from_private(&B64.encode([0u8; 16])).is_err());
+    }
+
+    #[test]
+    fn nonce_from_token_roundtrip() {
+        let (priv_key, _) = generate_peer_keypair();
+        let token = sign_request(&priv_key, "peer-abc").unwrap();
+        let nonce = nonce_from_token(&token).unwrap();
+        assert!(!nonce.is_empty(), "nonce should be a non-empty UUID");
+        // Two different tokens have different nonces
+        let token2 = sign_request(&priv_key, "peer-abc").unwrap();
+        let nonce2 = nonce_from_token(&token2).unwrap();
+        assert_ne!(nonce, nonce2, "each sign produces a unique nonce");
     }
 }

@@ -60,6 +60,12 @@ Stored in Bitwarden vault (retrieve via `codeterm mem secret get --name <slug>` 
 
 ## Steps
 
+### Agent model
+
+When delegating this skill to an agent (release Lead or ROG worker), **spawn with `--model haiku`**. The pipeline is mostly orchestration + bash + git/gh — Haiku is fast and cheap enough; Sonnet/Opus is overkill and doubles wall time on thinking phases.
+
+Caveat: `codeterm agent spawn claude --role Lead --can-spawn ...` currently does NOT honor `--role` or `--can-spawn` flags — the spawned pane comes up role=(none), can_spawn=false. Follow up with `codeterm agent set-conductor --pane <id>` to promote it before it tries to spawn the ROG worker. (Tracked bug — once fixed, drop this note.)
+
 ### 0. Kill any running dev
 
 Rust builds share the target dir — concurrent `tauri build` + `tauri dev` fight and one silently fails:
@@ -285,6 +291,7 @@ codeterm --mesh ROG agent spawn claude \
   --workspace "$WORKSPACE_ID" \
   --title "v$VER windows release" \
   --role Orchestrator \
+  --model haiku \
   --task "You are on ROG (Windows 11) via mesh. Build CodeTerm v$VER Windows release.
 
 Steps:
@@ -339,11 +346,17 @@ gh release view v$VER --json assets --jq '.assets[] | "\(.name)  \(.size)B"'
 curl -sIL https://github.com/rollacode/codeterm-releases/releases/latest/download/latest.json | grep '^HTTP' | tail -1
 ```
 
-### 10. Return to develop
+### 10. Sync develop with master + return to develop
+
+After the release commit + tag land on master, `develop` is behind by the release/merge commits (and any docs/skill tweaks the release agent committed directly on master during the run). Fast-forward develop and push so the next release doesn't start from a stale base.
 
 ```bash
 git checkout develop
+git pull --ff-only origin master   # fast-forward; master == develop + release commits
+git push origin develop
 ```
+
+If `--ff-only` refuses (someone committed to develop during the release window), `git merge --no-ff origin/master --no-edit && git push origin develop`. **Don't skip this** — v1.2.1 forgot it and the next release had to re-discover the missing commits manually.
 
 ### 11. Bump Homebrew cask (optional, repos still private)
 

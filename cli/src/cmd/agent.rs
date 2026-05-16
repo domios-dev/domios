@@ -4,7 +4,13 @@ use crate::client::SocketClient;
 
 pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) {
     let (base, token) = read_api_config();
-    let http = build_http(&token);
+    let http = match build_http(&token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
     match action {
         AgentAction::List => {
             match http.get(format!("{}/api/agents", base)).send() {
