@@ -168,7 +168,7 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 Err(e) => { eprintln!("Exec request failed: {}", e); std::process::exit(1); }
             }
         }
-        PaneAction::Find { pattern } => {
+        PaneAction::Search { pattern } => {
             let result = client.call("pane.list", None);
             match result {
                 Ok(value) => {
