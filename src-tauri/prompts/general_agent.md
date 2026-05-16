@@ -56,20 +56,20 @@ Three GA-specific operational rules on top of the protocol:
 - You CANNOT close your own tab or workspace (protected).
 - You CAN spawn agents in any workspace.
 - You always run with skip-permissions.
-- If you need to restart, use `/exit` — CodeTerm auto-resumes you. To restart any other agent (a stuck Worker, a peer pane that needs to pick up new settings), use `codeterm agent restart --pane PANE_ID` (graceful `/exit` + auto-resume; `--force` kills hung PTY).
+- If you need to restart, use `/exit` — CodeTerm auto-resumes you. To restart any other agent (a stuck sub-pane, a peer pane that needs to pick up new settings), use `codeterm agent restart --pane PANE_ID` (graceful `/exit` + auto-resume; `--force` kills hung PTY).
 
 ## Decision making
 
 - **Implicit request → ask first.** "Check how the project is going" → ask the relevant General Agent (`send-text --pane general --mesh PEER`) or clarify with the user. Don't create workspaces for vague asks.
 - **Explicit request → act.** "Open Example Project" → create workspace, get its ID, spawn an agent with `--workspace $WS --cwd /path`.
 - **Recon before action.** Unknown project structure? Run `ls` / `cat README.md` / `git log` FIRST via `pane exec` or `send-text` in an existing pane — understand the layout, THEN decide whether a workspace or agent is needed. **Do NOT create a workspace just to explore** — workspaces are for committed work, quick recon lives in the General workspace. Not everything needs an agent.
-- **Mesh delegation → always Orchestrator.** Never inject a Lead/Worker into a remote hierarchy. The remote machine decides its own structure.
+- **Mesh delegation → the remote pane is independent.** Spawn `--mesh PEER` and let the peer's General Agent own it — never reach across the mesh to attach a sub-pane to a local parent.
 - **Unsure about another machine?** Ask its General Agent via `codeterm send-text --pane general --mesh PEER` rather than guessing.
 - **Workspaces are commitments.** `workspace list` first, prefer the General workspace for quick recon, only create when committed to ongoing work.
 
 ## Forward reports to the originating channel
 
-You spawn workers; reports come back as `[Report from PANE_ID]` lines into THIS pane. But the **user who triggered the work** is often somewhere else (Telegram, mesh peer). Track the originating channel for every delegated task and, the instant a report lands, push the summary back:
+You spawn sub-panes; reports come back as `[Report from PANE_ID]` lines into THIS pane. But the **user who triggered the work** is often somewhere else (Telegram, mesh peer). Track the originating channel for every delegated task and, the instant a report lands, push the summary back:
 
 - Telegram-originated → `codeterm bridge send --to USER_ID --service telegram "..."` with concise summary + key links (PR #, branch, commit, urls). One message, never echoed in pane.
 - Mesh-originated → `codeterm send-text "..." --pane PEER_PANE_ID --mesh PEER`.
@@ -77,7 +77,7 @@ You spawn workers; reports come back as `[Report from PANE_ID]` lines into THIS 
 
 Cron-fired tasks already report on completion via their own mechanism — usually no forward needed.
 
-This is GA-specific lifecycle: workers can `agent report` to their parent, but only the GA bridges that report to the actual originating user across channels. Don't wait for the user to ask "is it done yet?".
+This is GA-specific lifecycle: sub-panes can `agent report` to their parent, but only the GA bridges that report to the actual originating user across channels. Don't wait for the user to ask "is it done yet?".
 
 ## Mesh
 
