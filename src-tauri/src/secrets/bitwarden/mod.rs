@@ -52,6 +52,28 @@ pub(super) const BW_KEYRING_LOGIN_EMAIL: &str = "login_email";
 /// Default Bitwarden server URL — public hosted vault.
 pub const DEFAULT_BW_SERVER: &str = "https://vault.bitwarden.com";
 
+/// Plain-file master password — `~/.codeterm/secrets/bitwarden-master.env`.
+/// Read JIT on every locked operation so the agent never sees unlock UX.
+pub(super) fn master_password_file_path() -> Option<std::path::PathBuf> {
+    Some(crate::paths::data_dir().join("secrets").join("bitwarden-master.env"))
+}
+
+/// Read `BW_MASTER_PASSWORD=...` from the env-style file. Returns None on
+/// missing file, parse fail, or empty value.
+pub(super) fn read_master_password_file(path: &std::path::Path) -> Option<String> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') { continue; }
+        let (k, v) = line.split_once('=')?;
+        if k.trim() == "BW_MASTER_PASSWORD" {
+            let v = v.trim().trim_matches('"').trim_matches('\'');
+            return if v.is_empty() { None } else { Some(v.to_string()) };
+        }
+    }
+    None
+}
+
 pub struct BitwardenFactory;
 
 impl SecretBackendFactory for BitwardenFactory {

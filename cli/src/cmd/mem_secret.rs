@@ -236,5 +236,43 @@ pub fn handle_mem_secret(
             );
             print_or_exit(status, body);
         }
+        MemSecretAction::SaveMasterPassword { password } => {
+            let pw = match password {
+                Some(p) => p,
+                None => read_stdin().trim().to_string(),
+            };
+            if pw.is_empty() {
+                eprintln!("Error: master password is empty");
+                std::process::exit(1);
+            }
+            let dir = match dirs::home_dir() {
+                Some(h) => h.join(".codeterm").join("secrets"),
+                None => { eprintln!("Error: HOME not set"); std::process::exit(1); }
+            };
+            if let Err(e) = std::fs::create_dir_all(&dir) {
+                eprintln!("Error: create {}: {}", dir.display(), e);
+                std::process::exit(1);
+            }
+            let path = dir.join("bitwarden-master.env");
+            let body = format!("BW_MASTER_PASSWORD={}\n", pw);
+            if let Err(e) = std::fs::write(&path, body) {
+                eprintln!("Error: write {}: {}", path.display(), e);
+                std::process::exit(1);
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+            println!("Saved to {} (mode 0600).", path.display());
+            println!("Daemon will auto-unlock JIT on every secret operation.");
+        }
     }
+}
+
+fn read_stdin() -> String {
+    use std::io::Read;
+    let mut buf = String::new();
+    let _ = std::io::stdin().read_to_string(&mut buf);
+    buf
 }
