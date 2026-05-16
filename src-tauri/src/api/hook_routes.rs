@@ -154,11 +154,11 @@ pub async fn hook_stop(
         }));
     }
 
-    // Skip for protected panes (General Agent) — agent_type is permanent there.
-    let is_protected = state.svc.mux.lock().get_pane(&pane_id).map(|p| p.protected).unwrap_or(false);
-    if !is_protected {
-        state.svc.set_pane_agent_type(&pane_id, None);
-    }
+    // Don't clear agent_type — Stop fires on every turn end, not on agent
+    // exit. The TUI is still running and waiting for the next user input;
+    // clearing here was hiding the model badge mid-session (e.g. user runs
+    // /model opus and sees the badge disappear until they type again).
+    // agent_type drops naturally when the PTY closes via the output watcher.
     state.svc.prompt_detector.lock().clear(&pane_id);
     {
         let mut mux = state.svc.mux.lock();
