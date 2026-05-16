@@ -61,19 +61,17 @@ function isWeekend(ms: number): boolean {
   return day === 0 || day === 6;
 }
 
-/**
- * Bucket the cycle into days. For each past day → actual delta from prior cumulative.
- * For today → actual delta so far + a `target` based on the budget that was set at
- * today's start (i.e. recalculated from yesterday's end-of-day cumulative).
- * For future days → `target` based on the current cumulative (so today's
- * over/under-spend ripples into the remaining days automatically).
- */
+export interface DayActualInput {
+  day_start_ms: number;
+  pct: number | null;
+}
+
 export interface BucketProjection {
   avgWeekdaySpend: number;
   avgWeekendSpend: number;
-  /** Per day-of-week projected spend (0=Sun..6=Sat). Overrides avg* when present. */
   dowEstimates?: number[];
   restOfTodayEst: number;
+  dayActuals?: DayActualInput[];
 }
 
 export function buildWeekBuckets(
@@ -85,24 +83,26 @@ export function buildWeekBuckets(
   const now = Date.now();
   const todayStart = localStartOfDay(now);
   const dayStart = localStartOfDay(cycleStart);
-  // Only samples in the CURRENT cycle count toward the bar's height — samples
-  // from a previous cycle that happen to land on the same calendar day (cycle
-  // boundary days like the start Sunday) would otherwise leak in.
-  const cycleRows = rows.filter(
-    (r) => r.weekly_resets_at == null || r.weekly_resets_at === cycleEnd,
-  );
+
+  const actualByDay = new Map<number, number | null>();
+  if (projection?.dayActuals) {
+    for (const a of projection.dayActuals) {
+      actualByDay.set(localStartOfDay(a.day_start_ms), a.pct);
+    }
+  } else {
+    fallbackDeltas(rows, cycleEnd, dayStart, todayStart, actualByDay);
+  }
+
   const buckets: Bucket[] = [];
   for (let d = dayStart; d < cycleEnd; d += DAY) {
     const dayEnd = d + DAY;
-    const inDay = cycleRows.filter(
-      (r) => r.parsed_ok && r.captured_at >= d && r.captured_at < dayEnd && r.weekly_pct != null,
-    );
     const label = new Date(d).toLocaleDateString(undefined, { weekday: "short" });
     const isToday = d === todayStart;
     const isFuture = d > todayStart;
+    const pct = isFuture ? null : (actualByDay.get(d) ?? null);
     buckets.push({
       label,
-      pct: inDay.length > 0 ? Math.max(...inDay.map((r) => r.weekly_pct!)) : null,
+      pct,
       target: null,
       projected: false,
       current: isToday,
@@ -112,34 +112,6 @@ export function buildWeekBuckets(
       isFuture,
     });
   }
-
-  // Cumulative → delta conversion. Walk forward, tracking the last known cumulative.
-  // Past days where pct is null inherit prev (no spend recorded that day).
-  let prev = 0;
-  let yesterdayEndCumulative = 0;
-  for (const b of buckets) {
-    if (b.isFuture) continue;
-    if (b.pct == null) {
-      if (!b.current) b.pct = null;
-      else b.pct = 0;
-    } else {
-      const cumulative = b.pct;
-      b.pct = Math.max(0, cumulative - prev);
-      prev = cumulative;
-    }
-    if (b.current) {
-      // freeze "yesterday's end" so today's target uses the budget plan at midnight
-      // — we already walked past, so prev now equals today's cumulative max. Subtract today's delta back.
-      yesterdayEndCumulative = prev - (b.pct ?? 0);
-    }
-  }
-
-  const currentCumulative = (() => {
-    const past = rows
-      .filter((r) => r.parsed_ok && r.weekly_pct != null && r.captured_at <= now)
-      .sort((a, b) => b.captured_at - a.captured_at);
-    return past[0]?.weekly_pct ?? prev;
-  })();
 
   const dayBaseline = (b: Bucket): number => {
     if (!projection) return 0;
@@ -156,8 +128,11 @@ export function buildWeekBuckets(
       const todaySoFar = todayBucket.pct ?? 0;
       todayBucket.target = todaySoFar + Math.max(0, projection.restOfTodayEst);
     } else {
+      const pastCum = buckets
+        .filter((b) => !b.current && !b.isFuture)
+        .reduce((sum, b) => sum + (b.pct ?? 0), 0);
       const remainingDays = buckets.filter((b) => b.current || b.isFuture).length;
-      const remainingAtMidnight = Math.max(0, 100 - yesterdayEndCumulative);
+      const remainingAtMidnight = Math.max(0, 100 - pastCum);
       todayBucket.target = remainingDays > 0 ? remainingAtMidnight / remainingDays : null;
     }
   }
@@ -171,8 +146,11 @@ export function buildWeekBuckets(
       b.projected = true;
     }
   } else {
+    const allKnownCum = buckets
+      .filter((b) => !b.isFuture)
+      .reduce((sum, b) => sum + (b.pct ?? 0), 0);
     const futureBudget =
-      futureBuckets.length > 0 ? Math.max(0, 100 - currentCumulative) / futureBuckets.length : 0;
+      futureBuckets.length > 0 ? Math.max(0, 100 - allKnownCum) / futureBuckets.length : 0;
     for (const b of futureBuckets) {
       b.pct = futureBudget;
       b.target = futureBudget;
@@ -181,6 +159,41 @@ export function buildWeekBuckets(
   }
 
   return buckets;
+}
+
+// Mirrors backend day_delta_for_window — used until the projection lands.
+function fallbackDeltas(
+  rows: UsageSnapshot[],
+  cycleEnd: number,
+  dayStart: number,
+  todayStart: number,
+  out: Map<number, number | null>,
+) {
+  const cycleRows = rows
+    .filter((r) => r.parsed_ok && r.weekly_pct != null)
+    .filter((r) => r.weekly_resets_at == null || r.weekly_resets_at === cycleEnd)
+    .sort((a, b) => a.captured_at - b.captured_at);
+  const MAX_BRIDGE_GAP_MS = 2 * 60 * 60 * 1000;
+  for (let d = dayStart; d < cycleEnd; d += DAY) {
+    if (d > todayStart) break;
+    const dayEnd = d + DAY;
+    const inDay = cycleRows.filter((r) => r.captured_at >= d && r.captured_at < dayEnd);
+    if (inDay.length === 0) {
+      out.set(d, null);
+      continue;
+    }
+    let total = 0;
+    const prevBefore = cycleRows.filter((r) => r.captured_at < d).pop();
+    if (prevBefore && d - prevBefore.captured_at <= MAX_BRIDGE_GAP_MS) {
+      const first = inDay[0].weekly_pct!;
+      if (prevBefore.weekly_pct! <= first) total += first - prevBefore.weekly_pct!;
+    }
+    for (let i = 1; i < inDay.length; i++) {
+      const delta = inDay[i].weekly_pct! - inDay[i - 1].weekly_pct!;
+      if (delta > 0) total += delta;
+    }
+    out.set(d, total);
+  }
 }
 
 export function buildMonthBuckets(rows: UsageSnapshot[], now: number): Bucket[] {
