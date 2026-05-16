@@ -59,6 +59,7 @@ pub async fn mesh_pair_accept(
             online: true, is_primary: false,
             access_level: crate::mesh::types::AccessLevel::Full,
             version: None,
+            consecutive_misses: 0,
         };
         mesh.paired_peers.insert(accept.from_instance_id.clone(), peer);
         mesh.pending_requests.remove(&accept.request_id);

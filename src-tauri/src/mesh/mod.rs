@@ -665,6 +665,7 @@ mod tests {
             is_primary: false,
             access_level: types::AccessLevel::Full,
             version: None,
+            consecutive_misses: 0,
         };
         m.paired_peers.insert(peer_id.into(), peer);
         m
@@ -794,6 +795,7 @@ mod tests {
             is_primary: false,
             access_level: types::AccessLevel::Full,
             version: None,
+            consecutive_misses: 0,
         };
         m.paired_peers.insert("peer-A".into(), peer);
 
