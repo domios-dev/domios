@@ -49,8 +49,12 @@ pub(crate) fn start_background_tasks(
             rt.block_on(async {
                 let mut last_sync_secs: std::collections::HashMap<String, u64> =
                     std::collections::HashMap::new();
-                let mut auto_pair_attempted: std::collections::HashSet<String> =
-                    std::collections::HashSet::new();
+                // instance_id → last auto-pair attempt timestamp (secs). Retry
+                // after AUTO_PAIR_RETRY_SECS so an offline vouched peer that
+                // comes back online still gets paired without restart.
+                let mut auto_pair_attempted: std::collections::HashMap<String, u64> =
+                    std::collections::HashMap::new();
+                const AUTO_PAIR_RETRY_SECS: u64 = 60;
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                     if !cfg.lock().mesh.enabled {
@@ -178,9 +182,14 @@ pub(crate) fn start_background_tasks(
                             let _ = app_h.emit("mesh-state-changed", ());
                         }
 
-                        // Auto-pair: for any vouched discovered peer we haven't
-                        // tried yet, send a pair request. The remote will auto-
-                        // approve if we're also vouched on their side.
+                        // Auto-pair: for any vouched discovered peer not yet paired,
+                        // send a pair request. The remote auto-approves if we're
+                        // also vouched on their side. Failed attempts retry after
+                        // AUTO_PAIR_RETRY_SECS so an offline peer eventually pairs
+                        // when it comes back online.
+                        let attempt_now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default().as_secs();
                         let auto_pair_candidates: Vec<_> = {
                             let m = mesh.lock();
                             m.discovered_peers
@@ -188,7 +197,9 @@ pub(crate) fn start_background_tasks(
                                 .filter(|p| {
                                     !p.vouched_by.is_empty()
                                         && !m.paired_peers.contains_key(&p.instance_id)
-                                        && !auto_pair_attempted.contains(&p.instance_id)
+                                        && auto_pair_attempted.get(&p.instance_id)
+                                            .map(|&last| attempt_now.saturating_sub(last) >= AUTO_PAIR_RETRY_SECS)
+                                            .unwrap_or(true)
                                         && !m.pending_requests.values().any(|r| {
                                             r.from_instance_id == p.instance_id
                                         })
@@ -197,7 +208,7 @@ pub(crate) fn start_background_tasks(
                                 .collect()
                         };
                         for (target_id, addresses, target_port) in auto_pair_candidates {
-                            auto_pair_attempted.insert(target_id.clone());
+                            auto_pair_attempted.insert(target_id.clone(), attempt_now);
                             let mesh2 = mesh.clone();
                             let app_h2 = app_h.clone();
                             tokio::spawn(async move {
