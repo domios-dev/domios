@@ -24,10 +24,7 @@ pub async fn get_pane_output(
         .to_string())
 }
 
-/// Raw PTY history with ANSI sequences intact. Used by the frontend on
-/// pane (re)mount so xterm.js can replay the byte stream and rebuild its
-/// scrollback — feeding ANSI-stripped text instead would leave scrollback
-/// empty after a remount.
+/// Raw PTY history with ANSI intact — frontend feeds it back to xterm on remount.
 #[tauri::command]
 pub async fn get_pane_history_raw(
     svc: tauri::State<'_, ServiceState>,

@@ -230,13 +230,7 @@ pub fn print_pane_find_results(json: bool, pattern: &str, panes: &[serde_json::V
     }
 }
 
-/// Pure scoring function — separated so tests can exercise without IO.
-/// Searches id-prefix, agent_session_name (friendly), tab.title (workspace-
-/// tree label), pane.title, agent_type, and agent_session_model. tab.title
-/// is the canonical name the user sees in the sidebar. Cross-script search
-/// via `deunicode`: typing "далтон" / "далтон" matches "Dalton", and a Latin
-/// needle still hits a Cyrillic-titled tab — only one of the two has to be
-/// ASCII for a match to land.
+/// Fuzzy ranker over id / tab.title / session name / pane.title / agent / model. Cross-script via deunicode.
 pub fn rank_panes<'a>(pattern: &str, panes: &'a [serde_json::Value]) -> Vec<(i32, &'a serde_json::Value)> {
     let needle = pattern.to_lowercase();
     let needle_translit = translit(&needle);

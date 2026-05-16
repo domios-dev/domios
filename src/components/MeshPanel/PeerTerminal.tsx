@@ -11,8 +11,6 @@ interface Props {
   pairedDuration?: string;
   services: Service[];
   onClick?: () => void;
-  /** Dim the card + show a "Go online" sticker. Only meaningful on the
-   * self card when mesh broadcasting is disabled. */
   offline?: boolean;
   onGoOnline?: () => void;
 }

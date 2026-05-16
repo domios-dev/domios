@@ -31,8 +31,6 @@ interface Props {
   width: number;
   height: number;
   onAddPeerClick?: () => void;
-  /** True when `mesh.enabled` is on (broadcasting to peers). When false the
-   * self-node renders dimmed with a Go online sticker. */
   meshEnabled?: boolean;
   onGoOnline?: () => void;
 }

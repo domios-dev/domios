@@ -14,9 +14,7 @@ pub struct Workspace {
     pub protected: bool,
 }
 
-/// A tab holds exactly one pane. The split-tree model (multiple panes
-/// per tab via horizontal/vertical splits) was removed — every tab is
-/// now a single pane.
+/// A tab holds exactly one pane.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
     pub id: String,
@@ -24,9 +22,7 @@ pub struct Tab {
     pub pane_id: String,
 }
 
-/// Legacy alias preserved so older serialized blobs that mention
-/// `Orientation` deserialize without exploding. The CodeTerm runtime
-/// never constructs one.
+/// Legacy — kept only for old snapshot deserialization.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum Orientation {
     Horizontal,
@@ -185,15 +181,10 @@ impl Default for TitleLevel {
     fn default() -> Self { Self::Default }
 }
 
-/// Type of content displayed in a pane.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum PaneType {
     #[default]
     Terminal,
-    /// Legacy: present only so old snapshots from before the browser pane was
-    /// removed still deserialize. Panes loaded with this variant are silently
-    /// dropped at restore time — see snapshot.rs.
+    /// Legacy — old snapshots only.
     Browser,
 }
-
-// SplitNode tests removed alongside the data structure.

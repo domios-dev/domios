@@ -42,9 +42,6 @@ export function TabItem({
   isClosing,
 }: TabItemProps) {
   const agentProvider = getAgentProvider(pane?.agent_type);
-  // Sub-pane = anything spawned under another pane. Whether the spawn used
-  // explicit --parent (parent_pane_id) or relied on the spawned_by fallback
-  // (depth > 0), both end up here.
   const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(tab.title);
@@ -134,10 +131,6 @@ export function TabItem({
         />
       )}
       <div className="flex items-center gap-2 min-w-0 relative z-[1]">
-        {/* Same icon family for every pane — provider AgentIcon when an
-            agent is running, plain terminal icon otherwise. Sub-panes
-            (anything with a parent) render a notch smaller so the tree
-            depth reads at a glance without dragging in a separate icon set. */}
         {hasAgent ? (
           <AgentIcon
             providerId={agentProvider?.id ?? "claude"}

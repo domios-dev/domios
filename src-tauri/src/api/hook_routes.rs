@@ -154,11 +154,7 @@ pub async fn hook_stop(
         }));
     }
 
-    // Don't clear agent_type — Stop fires on every turn end, not on agent
-    // exit. The TUI is still running and waiting for the next user input;
-    // clearing here was hiding the model badge mid-session (e.g. user runs
-    // /model opus and sees the badge disappear until they type again).
-    // agent_type drops naturally when the PTY closes via the output watcher.
+    // Stop = turn boundary, not exit — agent_type stays; PTY-close clears it.
     state.svc.prompt_detector.lock().clear(&pane_id);
     {
         let mut mux = state.svc.mux.lock();

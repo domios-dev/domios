@@ -46,11 +46,7 @@ pub enum WorkspaceAction {
 pub enum PaneAction {
     /// List all panes
     List,
-    /// Create a plain shell pane in a workspace. Use this for terminals
-    /// running scripts/servers/long-running processes (`--cmd "..."`).
-    /// For an AI agent pane, use `codeterm agent spawn <provider>` instead —
-    /// that path launches the agent CLI, wires reports, and lets you `--task`
-    /// the first message.
+    /// Plain shell pane. For an AI pane use `codeterm agent spawn` instead.
     New {
         /// Target workspace id (default: current focused)
         #[arg(long)]

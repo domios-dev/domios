@@ -134,12 +134,7 @@ impl MultiplexerState {
         None
     }
 
-    /// Best label for cross-pane attribution (send-text source prefix,
-    /// hierarchy report header, etc.). Tabs carry the friendly sidebar
-    /// name (Dalton/Lagrange/Fibonacci); the underlying pane.title may be
-    /// something the user never sees ("MY-CUSTOM-TITLE", "claude-with-text").
-    /// Prefer tab.title when it's set and not just a placeholder copy of the
-    /// pane.title. Falls back to pane.title, then to a short id.
+    /// Sidebar label for a pane — tab.title, falling back to pane.title, then short id.
     pub fn display_label_for_pane(&self, pane_id: &str) -> String {
         let pane_title = self.get_pane(pane_id).map(|p| p.title.clone()).unwrap_or_default();
         for ws in &self.workspaces {

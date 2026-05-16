@@ -65,10 +65,7 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .filter(|s| !s.is_empty() && s != &pane_id);
-            // Skip the [from X pane=Y] prefix when the target is a plain
-            // shell — it would otherwise be interpreted by the shell and
-            // turn `send-text "ls"` into noise. Agents that expect the
-            // return-address still get it.
+            // Source-prefix only for agent recipients; shells just execute the bytes.
             let target_has_agent = mux.lock().get_pane(&pane_id)
                 .map(|p| p.agent_type.is_some())
                 .unwrap_or(false);
