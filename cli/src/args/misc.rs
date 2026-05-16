@@ -113,10 +113,11 @@ pub enum PaneAction {
         #[arg(long, alias = "id")]
         pane: Option<String>,
     },
-    /// Find pane(s) by fuzzy match across id-prefix, title, agent_session_name, and tab name.
-    /// Returns one or more matches ranked by relevance so the result can be piped into
-    /// send-text, pane close, etc. Use `--mesh PEER` to search a paired peer (#99).
-    Find {
+    /// Fuzzy search panes by id-prefix, tab title, friendly session name, pane title,
+    /// agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add
+    /// `--mesh PEER` to search a paired peer (#99). `find` kept as alias.
+    #[command(alias = "find")]
+    Search {
         /// Substring or short pattern to match
         pattern: String,
     },
@@ -169,15 +170,6 @@ pub enum PasteAction {
     Rm {
         /// Paste id.
         id: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum BrowserAction {
-    /// Open a URL in the canvas panel
-    Open {
-        /// URL to open
-        url: String,
     },
 }
 

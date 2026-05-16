@@ -4,7 +4,7 @@ Use `codeterm` to control panes, workspaces, agents, mesh peers, mem, and system
 
 - `codeterm pane list` — list panes
 - `codeterm send-text "..." --pane ID` — type into a pane
-- `codeterm agent spawn claude --task "..." --role Worker --parent $CODETERM_PANE_ID` — spawn a worker
+- `codeterm agent spawn claude --task "..."` — spawn a sub-pane you own (parent = you, auto)
 - `codeterm mesh peers` — list mesh peers
 - `codeterm mem search/get/save/wake-up` — unified memory (search runs FTS + embeddings hybrid in one call)
 - `codeterm mem worker spawn --intent "enrich" --task "..."` — spawn a headless graph worker for custom enrichment

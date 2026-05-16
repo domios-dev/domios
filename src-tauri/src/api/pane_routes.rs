@@ -39,7 +39,11 @@ pub async fn create_shell_pane(
         command: PaneCommand::Shell,
         ..Default::default()
     }).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    // Mirror `pane_id` as `id` so the conventional CRUD idiom (`jq '.id'`,
+    // resp.get("id")) reaches the new pane without anyone having to learn
+    // our per-resource naming. Both fields hold the same value.
     Ok(Json(serde_json::json!({
+        "id": handle.pane_id,
         "pane_id": handle.pane_id,
         "workspace_id": handle.workspace_id,
         "tab_id": handle.tab_id,
@@ -124,12 +128,19 @@ pub async fn send_text(
         return Err((StatusCode::NOT_FOUND, "Pane not found or PTY did not start within 3s"));
     }
 
+    // Only attach the [from X pane=Y] return-address when the recipient is
+    // an agent — plain shells just execute the bytes we send, so the prefix
+    // is noise the shell tries to parse. Skipping it here lets `send-text`
+    // double as a "type these characters" primitive for shell panes.
+    let target_has_agent = state.svc.mux.lock().get_pane(&pane_id)
+        .map(|p| p.agent_type.is_some())
+        .unwrap_or(false);
     let source_prefix: Option<String> = body.source_pane.as_deref()
         .filter(|s| !s.is_empty() && *s != pane_id)
+        .filter(|_| target_has_agent)
         .map(|src| {
-            let title = state.svc.mux.lock().get_pane(src).map(|p| p.title.clone()).unwrap_or_default();
+            let label = state.svc.mux.lock().display_label_for_pane(src);
             let short: String = src.chars().take(8).collect();
-            let label = if title.is_empty() { short.clone() } else { title };
             format!("[from {} pane={}] ", label, short)
         });
     let prepend = |s: &str| -> String {
@@ -276,25 +287,6 @@ pub async fn exec_in_pane(
     let mut resp = serde_json::json!({"output": output, "offset": offset});
     if timed_out { resp["timeout"] = serde_json::json!(true); }
     Ok(Json(resp))
-}
-
-#[derive(Deserialize)]
-pub(crate) struct OpenBrowserBody {
-    url: String,
-    #[serde(default)]
-    activate: Option<bool>,
-}
-
-pub async fn open_browser(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<OpenBrowserBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let activate = body.activate.unwrap_or(false);
-    let new_pane_id = state.svc.open_browser(body.url.clone(), activate)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to open browser"))?;
-    Ok(Json(serde_json::json!({"pane_id": new_pane_id, "url": body.url})))
 }
 
 pub async fn close_pane(

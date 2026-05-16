@@ -24,4 +24,7 @@ urlencoding = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 sqlite-vec = "0.1.9"
 chrono = "0.4"
+# Transliteration for `pane find` — lets users search "далтон" → "Dalton"
+# without minding the input language.
+deunicode = "1"
 codeterm-mem-store = { path = "../crates/mem-store" }

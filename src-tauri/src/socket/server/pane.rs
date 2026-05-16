@@ -65,14 +65,20 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .filter(|s| !s.is_empty() && s != &pane_id);
+            // Skip the [from X pane=Y] prefix when the target is a plain
+            // shell — it would otherwise be interpreted by the shell and
+            // turn `send-text "ls"` into noise. Agents that expect the
+            // return-address still get it.
+            let target_has_agent = mux.lock().get_pane(&pane_id)
+                .map(|p| p.agent_type.is_some())
+                .unwrap_or(false);
             let text = match source_pane.as_deref() {
-                Some(src) => {
-                    let title = mux.lock().get_pane(src).map(|p| p.title.clone()).unwrap_or_default();
+                Some(src) if target_has_agent => {
+                    let label = mux.lock().display_label_for_pane(src);
                     let short = src.chars().take(8).collect::<String>();
-                    let label = if title.is_empty() { short.clone() } else { title };
                     format!("[from {} pane={}] {}", label, short, raw_text)
                 }
-                None => raw_text,
+                _ => raw_text,
             };
             svc.as_ref().send_text(&pane_id, &text, enter)
                 .map_err(|e| JsonRpcError { code: -32603, message: e })?;
@@ -146,24 +152,6 @@ pub(super) fn dispatch(
             )
             .map(|r| r.into_json())
             .map_err(|e| JsonRpcError { code: -32603, message: e })
-        }
-
-        "browser.open" => {
-            let url = get_string_param(params, "url")?;
-            let activate = params
-                .as_ref()
-                .and_then(|p| p.get("activate"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let new_pane_id = {
-                let mut mux = mux.lock();
-                mux.open_browser(Some(url.clone()), activate).map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                })?
-            };
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
-            Ok(serde_json::json!({"pane_id": new_pane_id, "url": url}))
         }
 
         _ => Err(JsonRpcError {
