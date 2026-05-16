@@ -137,17 +137,28 @@ impl ServiceContext {
     /// `set_pane_agent_type` transition, so the per-set hook never fires.
     /// Also kicks the global focused-pane model poller — one thread total.
     pub fn kick_off_pollers_for_existing_agents(&self) {
-        let restored: Vec<(String, String)> = {
+        let restored: Vec<(String, String, bool)> = {
             let mux = self.mux.lock();
             mux.snapshot()
                 .panes
                 .values()
-                .filter_map(|p| p.agent_type.clone().map(|t| (p.id.clone(), t)))
+                .filter_map(|p| {
+                    p.agent_type
+                        .clone()
+                        .map(|t| (p.id.clone(), t, p.agent_session_id.is_none()))
+                })
                 .collect()
         };
-        for (pane_id, agent_id) in restored {
+        for (pane_id, agent_id, needs_session) in restored {
             self.kick_off_session_name_detection(&pane_id, &agent_id);
             self.refresh_session_model_once(&pane_id, &agent_id);
+            // Restored pane with agent_type but no session_id: the agent CLI is
+            // still booting and will write its rollout/JSONL after first input.
+            // Without this, focused-poller is the only catch-up path — meaning
+            // unfocused panes never get a badge until the user clicks them.
+            if needs_session {
+                self.kick_off_session_detection(&pane_id, &agent_id);
+            }
         }
         self.start_focused_pane_model_poller();
     }
