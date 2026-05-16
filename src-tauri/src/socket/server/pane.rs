@@ -67,9 +67,8 @@ pub(super) fn dispatch(
                 .filter(|s| !s.is_empty() && s != &pane_id);
             let text = match source_pane.as_deref() {
                 Some(src) => {
-                    let title = mux.lock().get_pane(src).map(|p| p.title.clone()).unwrap_or_default();
+                    let label = mux.lock().display_label_for_pane(src);
                     let short = src.chars().take(8).collect::<String>();
-                    let label = if title.is_empty() { short.clone() } else { title };
                     format!("[from {} pane={}] {}", label, short, raw_text)
                 }
                 None => raw_text,

@@ -215,6 +215,32 @@ impl MultiplexerState {
         None
     }
 
+    /// Best label for cross-pane attribution (send-text source prefix,
+    /// hierarchy report header, etc.). Tabs carry the friendly sidebar
+    /// name (Dalton/Lagrange/Fibonacci); the underlying pane.title may be
+    /// something the user never sees ("MY-CUSTOM-TITLE", "claude-with-text").
+    /// Prefer tab.title when it's set and not just a placeholder copy of the
+    /// pane.title. Falls back to pane.title, then to a short id.
+    pub fn display_label_for_pane(&self, pane_id: &str) -> String {
+        let pane_title = self.get_pane(pane_id).map(|p| p.title.clone()).unwrap_or_default();
+        for ws in &self.workspaces {
+            for tab in &ws.tabs {
+                if tab.split_tree.contains_pane(pane_id) {
+                    let t = tab.title.trim();
+                    if !t.is_empty() && t != pane_title.trim() {
+                        return t.to_string();
+                    }
+                    break;
+                }
+            }
+        }
+        if !pane_title.trim().is_empty() {
+            pane_title
+        } else {
+            pane_id.chars().take(8).collect()
+        }
+    }
+
     /// Split an existing pane. Creates a new pane next to it.
     /// Returns the new pane ID.
     pub fn split_pane(
@@ -358,5 +384,45 @@ mod open_browser_tests {
             "activate=false must leave the user's focus untouched"
         );
         assert!(state.get_pane(&new_pane_id).is_some());
+    }
+}
+
+#[cfg(test)]
+mod display_label_tests {
+    use super::*;
+
+    #[test]
+    fn display_label_prefers_tab_title_over_pane_title() {
+        // Regression: `[from MY-CUSTOM-TITLE pane=2503fbce]` showed the raw
+        // pane.title instead of the sidebar's friendly tab name. Recipients
+        // had no way to map the prefix back to the tab they could see.
+        let (mut state, pane_id) = MultiplexerState::new();
+        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
+        let tab_id = state.find_tab_for_pane(&pane_id).unwrap();
+        state.rename_tab(&ws_id, &tab_id, "Fibonacci").unwrap();
+        state.rename_pane(&pane_id, "MY-CUSTOM-TITLE").unwrap();
+        assert_eq!(state.display_label_for_pane(&pane_id), "Fibonacci");
+    }
+
+    #[test]
+    fn display_label_falls_back_to_pane_title_when_tab_matches() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
+        let tab_id = state.find_tab_for_pane(&pane_id).unwrap();
+        state.rename_tab(&ws_id, &tab_id, "Same").unwrap();
+        state.rename_pane(&pane_id, "Same").unwrap();
+        // Tab and pane title are identical — no point parroting the same word,
+        // fall back to pane.title so the resulting string isn't double-empty.
+        assert_eq!(state.display_label_for_pane(&pane_id), "Same");
+    }
+
+    #[test]
+    fn display_label_falls_back_to_short_id_when_everything_empty() {
+        let (mut state, pane_id) = MultiplexerState::new();
+        state.rename_pane(&pane_id, "").unwrap();
+        let label = state.display_label_for_pane(&pane_id);
+        // Default auto-generated tab title is non-empty, so the label is
+        // either the tab title or the short id — either way, never empty.
+        assert!(!label.is_empty(), "display label must never be empty (got {:?})", label);
     }
 }
