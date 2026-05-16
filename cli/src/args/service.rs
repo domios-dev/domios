@@ -38,6 +38,15 @@ pub enum ServiceAction {
         /// HTTP health path (default: /healthz)
         #[arg(long)]
         health_path: Option<String>,
+        /// JSON field to read for status (default: "status")
+        #[arg(long)]
+        health_json_field: Option<String>,
+        /// Comma-separated values that map to healthy (default: ok,healthy,UP)
+        #[arg(long, value_delimiter = ',')]
+        health_ok_values: Option<Vec<String>>,
+        /// Comma-separated values that map to degraded (default: degraded,STARTING)
+        #[arg(long, value_delimiter = ',')]
+        health_degraded_values: Option<Vec<String>>,
         /// Probe interval in seconds (default: 30)
         #[arg(long, default_value = "30")]
         health_interval: u32,
@@ -61,6 +70,14 @@ pub enum ServiceAction {
         name: Option<String>,
         #[arg(long)]
         url: Option<String>,
+        #[arg(long)]
+        health_path: Option<String>,
+        #[arg(long)]
+        health_json_field: Option<String>,
+        #[arg(long, value_delimiter = ',')]
+        health_ok_values: Option<Vec<String>>,
+        #[arg(long, value_delimiter = ',')]
+        health_degraded_values: Option<Vec<String>>,
         #[arg(long)]
         enabled: Option<bool>,
     },
