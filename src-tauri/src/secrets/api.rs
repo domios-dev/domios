@@ -78,9 +78,12 @@ pub async fn status(
     check_auth(&state, &headers)?;
     let store = state.svc.secrets.read().await;
     let st = store.status().await;
+    let master_password_saved =
+        store.id() == "bitwarden" && crate::secrets::bitwarden::master_password_file_exists();
     Ok(Json(serde_json::json!({
         "backend": store.id(),
         "status": st,
+        "master_password_saved": master_password_saved,
     })))
 }
 
