@@ -96,7 +96,10 @@ function normalizeTab(t: unknown): MeshTab {
   return "map";
 }
 
-export function MeshPanel({ onClose }: Props) {
+export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
+  const goOnline = async () => {
+    await onConfigUpdate({ ...config, mesh: { ...config.mesh, enabled: true } });
+  };
   const [activeTab, setActiveTab] = useState<MeshTab>(() => normalizeTab("map"));
   const [refreshKey, setRefreshKey] = useState(0);
   const data = useMeshData(refreshKey);
@@ -212,6 +215,8 @@ export function MeshPanel({ onClose }: Props) {
                 width={mapWidth}
                 height={mapHeight}
                 onAddPeerClick={() => setActiveTab("network")}
+                meshEnabled={config.mesh.enabled}
+                onGoOnline={goOnline}
               />
             </div>
             <CollapsibleTablesDrawer
