@@ -211,7 +211,24 @@ body {
    Sidebar animations
    ========================================================================= */
 
-/* Tab close button — hidden by default, animated on hover */
+/* Sidebar tab uses inline-size container so the model badge can hide on
+   narrow tabs without JS. */
+.sidebar-tab {
+  container-type: inline-size;
+}
+
+/* Model badge — visible by default, fades out on tab hover so the
+   3-dot menu can take its slot without shifting layout. */
+.sidebar-tab-badge {
+  opacity: 1;
+  transition: opacity 150ms ease;
+}
+.sidebar-tab:hover .sidebar-tab-badge {
+  opacity: 0;
+}
+
+/* Tab close (3-dot menu) — hidden by default, fades in on hover and
+   overlays the badge slot via absolute positioning in the right cell. */
 .sidebar-tab-close {
   opacity: 0;
   transform: scale(0.8);
@@ -227,6 +244,15 @@ body {
   opacity: 1 !important;
   transform: scale(1) !important;
   background-color: rgba(239, 68, 68, 0.15);
+}
+
+/* When the tab is too narrow to fit a comfortable badge alongside the
+   title, hide the badge so the title doesn't get squeezed. ⋮ menu still
+   appears on hover (overlay). */
+@container (max-width: 140px) {
+  .sidebar-tab-badge {
+    display: none;
+  }
 }
 
 /* Tab appear animation */
