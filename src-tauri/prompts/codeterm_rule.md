@@ -90,4 +90,4 @@ Rules:
 - Do NOT save secrets to plaintext files / `.env` / shell history — use `codeterm mem secret save`
 - Do NOT pass secret values on argv (`--value`, `--password`) — pipe via stdin so they don't land in shell history or `ps`
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
