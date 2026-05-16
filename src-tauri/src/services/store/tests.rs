@@ -37,6 +37,9 @@ fn create_and_get_daemon_service() {
             health_interval: Some(30),
             field_mapping: None,
             push_enabled: Some(true),
+            health_json_field: None,
+            health_ok_values: None,
+            health_degraded_values: None,
         })
         .unwrap();
 
@@ -142,6 +145,9 @@ fn list_local_includes_cron_jobs_as_virtual_services() {
             health_interval: None,
             field_mapping: None,
             push_enabled: None,
+            health_json_field: None,
+            health_ok_values: None,
+            health_degraded_values: None,
         })
         .unwrap();
 
@@ -178,5 +184,8 @@ fn make_input(name: &str) -> ServiceCreate {
         health_interval: None,
         field_mapping: None,
         push_enabled: None,
+        health_json_field: None,
+        health_ok_values: None,
+        health_degraded_values: None,
     }
 }
