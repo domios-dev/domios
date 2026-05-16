@@ -301,9 +301,7 @@ mod tests {
         worker_title: &str,
     ) -> (MultiplexerState, String, String) {
         let (mut mux, orch) = MultiplexerState::new();
-        let worker = mux
-            .split_pane(&orch, Orientation::Horizontal)
-            .expect("split orchestrator pane");
+        let worker = mux.create_pane();
         mux.set_pane_role(&worker, AgentRole::Worker, Some(&orch))
             .expect("attach worker to orchestrator");
         mux.rename_pane(&worker, worker_title)
@@ -356,11 +354,11 @@ mod tests {
     #[test]
     fn lead_to_worker_cascade_targets_lead_not_orchestrator() {
         let (mut mux, orch) = MultiplexerState::new();
-        let lead = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
+        let lead = mux.create_pane();
         mux.set_pane_role(&lead, AgentRole::Lead, Some(&orch))
             .unwrap();
         mux.rename_pane(&lead, "Lead-1").unwrap();
-        let worker = mux.split_pane(&lead, Orientation::Horizontal).unwrap();
+        let worker = mux.create_pane();
         mux.set_pane_role(&worker, AgentRole::Worker, Some(&lead))
             .unwrap();
         mux.rename_pane(&worker, "Worker-Sub").unwrap();
@@ -385,7 +383,7 @@ mod tests {
     #[test]
     fn cron_report_target_is_used_when_no_parent() {
         let (mut mux, orch) = MultiplexerState::new();
-        let cron_pane = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
+        let cron_pane = mux.create_pane();
         // Cron-spawned panes carry an explicit report_target_pane_id but no role.
         if let Some(pane) = mux.get_pane_mut(&cron_pane) {
             pane.report_target_pane_id = Some(orch.clone());
@@ -400,8 +398,8 @@ mod tests {
     #[test]
     fn parent_pane_id_takes_priority_over_other_targets() {
         let (mut mux, orch, worker) = build_orchestrator_with_worker("Worker-Pri");
-        let other = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
-        let spawner = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
+        let other = mux.create_pane();
+        let spawner = mux.create_pane();
         if let Some(pane) = mux.get_pane_mut(&worker) {
             pane.report_target_pane_id = Some(other.clone());
             pane.spawned_by_pane_id = Some(spawner.clone());
@@ -419,7 +417,7 @@ mod tests {
     fn orchestrator_falls_back_to_spawned_by_when_no_parent() {
         let (mut mux, orch) = MultiplexerState::new();
         // Simulate the spawning agent — it lives in its own pane elsewhere.
-        let spawner = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
+        let spawner = mux.create_pane();
         // Top-level orchestrator has no parent and no report_target,
         // but `agent spawn` recorded who asked for it.
         if let Some(pane) = mux.get_pane_mut(&orch) {
@@ -470,8 +468,8 @@ mod tests {
     #[test]
     fn spawned_by_used_only_when_parent_and_report_target_missing() {
         let (mut mux, orch) = MultiplexerState::new();
-        let spawner = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
-        let report_target = mux.split_pane(&orch, Orientation::Horizontal).unwrap();
+        let spawner = mux.create_pane();
+        let report_target = mux.create_pane();
         if let Some(pane) = mux.get_pane_mut(&orch) {
             pane.report_target_pane_id = Some(report_target.clone());
             pane.spawned_by_pane_id = Some(spawner.clone());

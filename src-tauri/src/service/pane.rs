@@ -1,15 +1,8 @@
-//! Pane lifecycle: split, close, rename, focus, browser.
+//! Pane lifecycle: close, rename, focus.
 
-use crate::multiplexer::types::Orientation;
 use super::ServiceContext;
 
 impl ServiceContext {
-    pub fn split_pane(&self, pane_id: &str, orientation: Orientation) -> Result<String, String> {
-        let new_pane_id = self.mux.lock().split_pane(pane_id, orientation)?;
-        self.emit_state_changed();
-        Ok(new_pane_id)
-    }
-
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
         let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.lock().close_pane(pane_id)?;
@@ -26,21 +19,16 @@ impl ServiceContext {
     }
 
     pub fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String> {
-        // Rename the pane, and — if the containing tab has exactly one pane —
-        // sync the tab's title too. That's the 99% case (one terminal per tab)
-        // where two divergent titles were just noise the user had to reconcile.
-        // Tabs with multiple panes (split layouts) keep their tab title intact
-        // because there's no one-to-one mapping to follow.
+        // Sync the containing tab's title too — one pane per tab post-split
+        // removal, so the user-visible sidebar label always matches the
+        // pane's title without divergence.
         let tab_sync = {
             let mux = self.mux.lock();
             let mut sync = None;
             'outer: for ws in mux.snapshot().workspaces.iter() {
                 for tab in &ws.tabs {
-                    let panes = tab.split_tree.collect_pane_ids();
-                    if panes.len() == 1 && panes[0] == pane_id {
+                    if tab.pane_id == pane_id {
                         sync = Some((ws.id.clone(), tab.id.clone()));
-                        break 'outer;
-                    } else if panes.contains(&pane_id.to_string()) {
                         break 'outer;
                     }
                 }

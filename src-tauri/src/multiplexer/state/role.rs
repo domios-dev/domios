@@ -139,10 +139,8 @@ mod tests {
     use super::*;
 
     fn fresh() -> (MultiplexerState, String) {
-        let (mut mux, root) = MultiplexerState::new();
-        let pane = mux
-            .split_pane(&root, crate::multiplexer::types::Orientation::Horizontal)
-            .expect("split pane for role test");
+        let (mut mux, _root) = MultiplexerState::new();
+        let pane = mux.create_pane();
         (mux, pane)
     }
 
