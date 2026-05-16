@@ -155,7 +155,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Agent { action } => match action {
             crate::AgentAction::List => ("GET".into(), "/api/agents".into(), None),
             crate::AgentAction::Hierarchy => ("GET".into(), "/api/agents/hierarchy".into(), None),
-            crate::AgentAction::Spawn { agent, title, task, role, parent, workspace, can_spawn, cwd, args, model, no_wait } => {
+            crate::AgentAction::Spawn { agent, title, task, role, parent, workspace, can_spawn, cwd, args, model } => {
                 let agent_name = agent.as_str();
                 let mut body = serde_json::json!({
                     "agent": agent_name,
@@ -169,7 +169,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if let Some(c) = cwd { body["cwd"] = serde_json::json!(c); }
                 if let Some(a) = args { if !a.is_empty() { body["args"] = serde_json::json!(a); } }
                 if let Some(m) = model { body["model"] = serde_json::json!(m); }
-                if *no_wait { body["wait_ready_secs"] = serde_json::json!(0); }
                 ("POST".into(), "/api/agents/spawn".into(), Some(body.to_string()))
             }
             _ => ("GET".into(), "/api/agents".into(), None),
