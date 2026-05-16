@@ -321,6 +321,18 @@ impl ServiceContext {
         let (tab_id, pane_id) = {
             let mut mux = self.mux.lock();
             let result = mux.create_tab(&ws_id)?;
+            // If the spawner supplied an explicit `--title`, push it into the
+            // tab right away. create_tab seeds tab.title with an auto-generated
+            // friendly name (Mirzakhani / Einstein) — the downstream
+            // rename_pane sync handles pane.title and (when wired) tab.title
+            // again, but doing it here too means a `--title "Crypto Ticker"`
+            // shows up correctly the instant the tab renders, even if the
+            // rename_pane path mid-flow gets pre-empted.
+            if let Some(ref t) = params.title {
+                if !t.trim().is_empty() {
+                    let _ = mux.rename_tab(&ws_id, &result.0, t);
+                }
+            }
             if let Some(ref dir) = params.cwd {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.cwd = Some(dir.clone());
