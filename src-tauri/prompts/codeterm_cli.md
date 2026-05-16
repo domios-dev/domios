@@ -15,10 +15,8 @@ You are running inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `
 Commands default to the **current focused pane** when no id is given. Reference your own pane via `$CODETERM_PANE_ID` — `pane current` returns the *focused* pane, which may be someone else's.
 
 ```bash
-codeterm pane list                                 # id | tab_title (pane_title) [agent/model] session=NAME ws=WORKSPACE
-codeterm pane find "Dalton"                        # fuzzy: tab_title (sidebar label) | id-prefix | session name | pane.title | agent_type | model
-codeterm pane find "sonnet"                        # also matches by current model — "which tabs are running sonnet?"
-codeterm pane find "Dalton" --mesh ROG             # same fuzzy ranker, runs on a remote peer's pane list
+codeterm pane list
+codeterm pane search "<pattern>"                   # fuzzy across tab name, model, agent, id — cross-script (Далтон → Dalton)
 codeterm pane rename "title"                       # your tab; no --pane needed
 codeterm pane focus PANE_ID
 codeterm pane close PANE_ID
@@ -32,8 +30,6 @@ codeterm workspace rename ID "New Name"
 codeterm workspace close ID
 codeterm workspace move-tab TAB FROM TO
 ```
-
-`pane list` and `pane find` rows surface the **sidebar label** (`tab_title`) — the friendly name the user sees (Dalton, Thomson, Lagrange, Fibonacci, …). They also show the live `agent_type/agent_session_model` badge so you can ask "which pane is running Opus?" with one grep. The fuzzy ranker scores tab_title, agent_session_name, pane.title, agent_type, model, and workspace name — finding panes via any of them.
 
 ## Agent hierarchy & roles
 
