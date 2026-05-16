@@ -135,6 +135,7 @@ pub fn run() {
             commands::write_pty,
             commands::write_pty_string,
             commands::get_pane_output,
+            commands::get_pane_history_raw,
             commands::get_pane_text,
             commands::list_agent_providers,
             commands::wait_shell_ready,
