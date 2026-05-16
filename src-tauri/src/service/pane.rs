@@ -1,15 +1,8 @@
-//! Pane lifecycle: split, close, rename, focus, browser.
+//! Pane lifecycle: close, rename, focus.
 
-use crate::multiplexer::types::Orientation;
 use super::ServiceContext;
 
 impl ServiceContext {
-    pub fn split_pane(&self, pane_id: &str, orientation: Orientation) -> Result<String, String> {
-        let new_pane_id = self.mux.lock().split_pane(pane_id, orientation)?;
-        self.emit_state_changed();
-        Ok(new_pane_id)
-    }
-
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
         let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
         let pty_ids = self.mux.lock().close_pane(pane_id)?;
@@ -26,7 +19,26 @@ impl ServiceContext {
     }
 
     pub fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String> {
+        // Sync the containing tab's title too — one pane per tab post-split
+        // removal, so the user-visible sidebar label always matches the
+        // pane's title without divergence.
+        let tab_sync = {
+            let mux = self.mux.lock();
+            let mut sync = None;
+            'outer: for ws in mux.snapshot().workspaces.iter() {
+                for tab in &ws.tabs {
+                    if tab.pane_id == pane_id {
+                        sync = Some((ws.id.clone(), tab.id.clone()));
+                        break 'outer;
+                    }
+                }
+            }
+            sync
+        };
         self.mux.lock().rename_pane(pane_id, title)?;
+        if let Some((ws_id, tab_id)) = tab_sync {
+            let _ = self.mux.lock().rename_tab(&ws_id, &tab_id, title);
+        }
         self.emit_pane_title_pinned(pane_id, title);
         self.emit_state_changed();
         Ok(())
@@ -37,12 +49,6 @@ impl ServiceContext {
         self.emit_pane_focus_changed(pane_id);
         self.refresh_focused_pane_model();
         Ok(())
-    }
-
-    pub fn open_browser(&self, url: String, activate: bool) -> Result<String, String> {
-        let pane_id = self.mux.lock().open_browser(Some(url), activate)?;
-        self.emit_state_changed();
-        Ok(pane_id)
     }
 
     pub fn link_pty(&self, pane_id: &str, pty_id: String) {

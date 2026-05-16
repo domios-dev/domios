@@ -2,7 +2,13 @@ use crate::{build_http, read_api_config, PasteAction};
 
 pub fn handle_paste(json: bool, action: PasteAction) {
     let (base, token) = read_api_config();
-    let http = build_http(&token);
+    let http = match build_http(&token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
     match action {
         PasteAction::Put { body, from_file, from_stdin, ttl, content_type, pop } => {
             let resolved_body = if from_stdin {

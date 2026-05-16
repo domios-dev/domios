@@ -155,7 +155,7 @@ pub use args::agent::AgentAction;
 pub use args::cron::CronAction;
 pub use args::service::ServiceAction;
 pub use args::update::UpdateAction;
-pub use args::misc::{WorkspaceAction, PaneAction, PasteAction, BrowserAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction};
+pub use args::misc::{WorkspaceAction, PaneAction, PasteAction, NotificationAction, KeepAwakeAction, ThemeAction, BridgeAction, ConfigAction};
 
 /// Resolve pane ID: explicit arg > $CODETERM_PANE_ID env var > focused pane from server.
 ///
@@ -388,12 +388,6 @@ fn main() {
                     "from_workspace_id": from,
                     "to_workspace_id": to
                 })))
-            }
-        },
-
-        Commands::Browser { action } => match action {
-            BrowserAction::Open { url } => {
-                client.call("browser.open", Some(serde_json::json!({ "url": url })))
             }
         },
 

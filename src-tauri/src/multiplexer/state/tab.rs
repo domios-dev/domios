@@ -1,5 +1,5 @@
 use super::{names, short_id, MultiplexerState};
-use crate::multiplexer::types::{SplitNode, Tab};
+use crate::multiplexer::types::Tab;
 
 impl MultiplexerState {
     /// Create a new tab in the given workspace. Returns (tab_id, new_pane_id).
@@ -14,9 +14,7 @@ impl MultiplexerState {
         let tab = Tab {
             id: tab_id.clone(),
             title: names::generate_tab_name(),
-            split_tree: SplitNode::Leaf {
-                pane_id: pane_id.clone(),
-            },
+            pane_id: pane_id.clone(),
         };
 
         let workspace = self
@@ -53,7 +51,7 @@ impl MultiplexerState {
             .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
 
         let tab = workspace.tabs.remove(tab_idx);
-        let pane_ids = tab.split_tree.collect_pane_ids();
+        let pane_ids = vec![tab.pane_id.clone()];
 
         let pty_ids: Vec<String> = pane_ids
             .iter()

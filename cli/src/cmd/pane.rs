@@ -6,7 +6,20 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
     match action {
         PaneAction::List => {
             let result = client.call("pane.list", None);
-            handle_result(json, result);
+            match result {
+                Ok(value) if !json => {
+                    if let Some(arr) = value.as_array() {
+                        if arr.is_empty() {
+                            println!("(no panes)");
+                        } else {
+                            for p in arr { println!("{}", format_pane_row(p)); }
+                        }
+                    } else {
+                        handle_result(false, Ok(value));
+                    }
+                }
+                other => handle_result(json, other),
+            }
         }
         PaneAction::New { workspace, cwd, title, cmd } => {
             let (base, token) = read_api_config();
@@ -155,7 +168,7 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 Err(e) => { eprintln!("Exec request failed: {}", e); std::process::exit(1); }
             }
         }
-        PaneAction::Find { pattern } => {
+        PaneAction::Search { pattern } => {
             let result = client.call("pane.list", None);
             match result {
                 Ok(value) => {
@@ -204,34 +217,69 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
 /// (handle_pane) and the mesh-relayed path (main.rs intercepts `--mesh
 /// pane find` so the ranker runs over the peer's list).
 pub fn print_pane_find_results(json: bool, pattern: &str, panes: &[serde_json::Value]) {
+    let scored = rank_panes(pattern, panes);
+    if json {
+        let out: Vec<&serde_json::Value> = scored.iter().map(|(_, p)| *p).collect();
+        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    } else if scored.is_empty() {
+        println!("No panes match: {}", pattern);
+    } else {
+        for (_, p) in &scored {
+            println!("{}", format_pane_row(p));
+        }
+    }
+}
+
+/// Pure scoring function — separated so tests can exercise without IO.
+/// Searches id-prefix, agent_session_name (friendly), tab.title (workspace-
+/// tree label), pane.title, agent_type, and agent_session_model. tab.title
+/// is the canonical name the user sees in the sidebar. Cross-script search
+/// via `deunicode`: typing "далтон" / "далтон" matches "Dalton", and a Latin
+/// needle still hits a Cyrillic-titled tab — only one of the two has to be
+/// ASCII for a match to land.
+pub fn rank_panes<'a>(pattern: &str, panes: &'a [serde_json::Value]) -> Vec<(i32, &'a serde_json::Value)> {
     let needle = pattern.to_lowercase();
-    let needle_compact: String = needle.chars()
-        .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_')
-        .collect();
+    let needle_translit = translit(&needle);
+    let needle_compact = strip_separators(&needle);
+    let needle_translit_compact = strip_separators(&needle_translit);
     let mut scored: Vec<(i32, &serde_json::Value)> = panes.iter()
         .filter_map(|p| {
-            let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            let sname = p.get("agent_session_name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            let agent = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            let sname_compact: String = sname.chars()
-                .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_')
-                .collect();
+            let id = field(p, "id");
+            let title = field(p, "title");
+            let tab_title = field(p, "tab_title");
+            let ws_name = field(p, "workspace_name");
+            let sname = field(p, "agent_session_name");
+            let agent = field(p, "agent_type");
+            let model = field(p, "agent_session_model");
             let mut score = 0i32;
             // id prefix only counts at ≥4 chars — one-letter needles like "a"
             // otherwise match ~6% of all UUIDs and drown the real result.
             if needle.len() >= 4 && id.starts_with(&needle) { score += 100; }
-            if !sname.is_empty() && sname == needle { score += 80; }
-            if !sname.is_empty() && sname.contains(&needle) { score += 50; }
-            if !needle_compact.is_empty()
-                && !sname_compact.is_empty()
-                && sname_compact.contains(&needle_compact)
-            {
-                score += 40;
+            score += score_field(&sname, &needle, &needle_translit, 80, 50);
+            score += score_field(&tab_title, &needle, &needle_translit, 75, 45);
+            if !needle_compact.is_empty() || !needle_translit_compact.is_empty() {
+                let sname_c = strip_separators(&sname);
+                let sname_c_translit = strip_separators(&translit(&sname));
+                if !sname_c.is_empty() && (
+                    (!needle_compact.is_empty() && sname_c.contains(&needle_compact))
+                    || (!needle_translit_compact.is_empty() && sname_c_translit.contains(&needle_translit_compact))
+                ) { score += 40; }
+                let tab_c = strip_separators(&tab_title);
+                let tab_c_translit = strip_separators(&translit(&tab_title));
+                if !tab_c.is_empty() && (
+                    (!needle_compact.is_empty() && tab_c.contains(&needle_compact))
+                    || (!needle_translit_compact.is_empty() && tab_c_translit.contains(&needle_translit_compact))
+                ) { score += 38; }
             }
-            if !title.is_empty() && title == needle { score += 35; }
-            if !title.is_empty() && title.contains(&needle) { score += 20; }
+            score += score_field(&title, &needle, &needle_translit, 35, 20);
+            if !ws_name.is_empty() {
+                let ws_translit = translit(&ws_name);
+                if ws_name.contains(&needle) || ws_translit.contains(&needle_translit) {
+                    score += 15;
+                }
+            }
             if !agent.is_empty() && agent.contains(&needle) { score += 10; }
+            if !model.is_empty() && model.contains(&needle) { score += 10; }
             if score > 0 { Some((score, p)) } else { None }
         })
         .collect();
@@ -243,21 +291,62 @@ pub fn print_pane_find_results(json: bool, pattern: &str, panes: &[serde_json::V
             ai.cmp(bi)
         })
     });
-    if json {
-        let out: Vec<&serde_json::Value> = scored.iter().map(|(_, p)| *p).collect();
-        println!("{}", serde_json::to_string_pretty(&out).unwrap());
-    } else if scored.is_empty() {
-        println!("No panes match: {}", pattern);
-    } else {
-        for (_, p) in &scored {
-            let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-            let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("");
-            let agent = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
-            let sname = p.get("agent_session_name").and_then(|v| v.as_str()).unwrap_or("");
-            let extra = if sname.is_empty() { String::new() } else { format!("  session={}", sname) };
-            println!("{}  {} [{}]{}", id, title, agent, extra);
-        }
-    }
+    scored
+}
+
+fn field(v: &serde_json::Value, key: &str) -> String {
+    v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_lowercase()
+}
+
+fn strip_separators(s: &str) -> String {
+    // Apostrophes get inserted by `deunicode` for Cyrillic soft signs
+    // (Дальтон → Dal'ton); strip them so the compact match still hits a
+    // plain "Dalton" tab. Same for whitespace / dash / underscore which
+    // commonly differ between user input and stored titles.
+    s.chars()
+        .filter(|c| !c.is_whitespace() && *c != '-' && *c != '_' && *c != '\'')
+        .collect()
+}
+
+/// ASCII-lowercase transliteration. `deunicode` already handles Cyrillic →
+/// Latin (Далтон → Dalton), Greek, Japanese, etc. Returns the lowered form
+/// so the result is symmetric with `needle.to_lowercase()`.
+fn translit(s: &str) -> String {
+    deunicode::deunicode(s).to_lowercase()
+}
+
+/// Score one haystack field with both exact-match (high) and contains
+/// (medium) tiers, falling back to the transliterated form if the raw
+/// match misses. Returning 0 means no contribution.
+fn score_field(haystack: &str, needle: &str, needle_translit: &str, exact: i32, contains: i32) -> i32 {
+    if haystack.is_empty() { return 0; }
+    if haystack == needle { return exact; }
+    let h_translit = translit(haystack);
+    if h_translit == needle_translit && !needle_translit.is_empty() { return exact; }
+    if haystack.contains(needle) { return contains; }
+    if !needle_translit.is_empty() && h_translit.contains(needle_translit) { return contains; }
+    0
+}
+
+/// One-line human row used by both `pane list` (when we switch off the
+/// default kv printer) and `pane find`. Shows id  tab/title  [provider/model]
+/// so the user gets the same info they see in the sidebar.
+pub fn format_pane_row(p: &serde_json::Value) -> String {
+    let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+    // One label — the sidebar name. Tab title wins (that's what the user
+    // sees and what `pane rename` updates); falls back to pane.title only
+    // when the tab title is missing.
+    let label = {
+        let tab_title = p.get("tab_title").and_then(|v| v.as_str()).unwrap_or("");
+        let pane_title = p.get("title").and_then(|v| v.as_str()).unwrap_or("");
+        if !tab_title.is_empty() { tab_title } else { pane_title }
+    };
+    let agent = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
+    let model = p.get("agent_session_model").and_then(|v| v.as_str()).unwrap_or("");
+    let model_part = if model.is_empty() { String::new() } else { format!("/{}", model) };
+    let ws = p.get("workspace_name").and_then(|v| v.as_str()).unwrap_or("");
+    let ws_part = if ws.is_empty() { String::new() } else { format!("  ws={}", ws) };
+    format!("{}  {} [{}{}]{}", id, label, agent, model_part, ws_part)
 }
 
 #[cfg(test)]
@@ -273,35 +362,17 @@ mod tests {
     }
 
     fn rank_ids(needle: &str, panes: &[serde_json::Value]) -> Vec<String> {
-        let mut scored: Vec<(i32, String)> = panes.iter().filter_map(|p| {
-            let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            let sname = p.get("agent_session_name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            let agent = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
-            let n = needle.to_lowercase();
-            let mut score = 0i32;
-            if n.len() >= 4 && id.starts_with(&n) { score += 100; }
-            if !sname.is_empty() && sname == n { score += 80; }
-            if !sname.is_empty() && sname.contains(&n) { score += 50; }
-            if !title.is_empty() && title == n { score += 35; }
-            if !title.is_empty() && title.contains(&n) { score += 20; }
-            if !agent.is_empty() && agent.contains(&n) { score += 10; }
-            if score > 0 {
-                Some((score, p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string()))
-            } else { None }
-        }).collect();
-        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-        scored.into_iter().map(|(_, id)| id).collect()
+        rank_panes(needle, panes)
+            .into_iter()
+            .map(|(_, p)| p.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string())
+            .collect()
     }
 
     #[test]
     fn short_needle_does_not_match_id_prefix() {
-        // Pre-fix: needle "a" would match every UUID starting with 'a' at score 100
-        // and drown the exact title match. With the ≥4-char gate, "a" only hits
-        // via title/agent/session_name fields.
         let panes = vec![
             make_pane("aaaaa1", "OtherPane", Some("claude"), None),
-            make_pane("bbbb22", "a", None, None), // exact title match
+            make_pane("bbbb22", "a", None, None),
         ];
         let ranked = rank_ids("a", &panes);
         assert_eq!(ranked.first().map(String::as_str), Some("bbbb22"),
@@ -312,7 +383,7 @@ mod tests {
     fn long_needle_id_prefix_still_wins() {
         let panes = vec![
             make_pane("abcd1234", "ignored", None, None),
-            make_pane("ffffffff", "abcd", None, None), // title contains, score 20
+            make_pane("ffffffff", "abcd", None, None),
         ];
         let ranked = rank_ids("abcd", &panes);
         assert_eq!(ranked.first().map(String::as_str), Some("abcd1234"),
@@ -326,7 +397,101 @@ mod tests {
             make_pane("aaaa1111", "foo-baz", None, None),
         ];
         let ranked = rank_ids("foo", &panes);
-        // Both match title-contains (score 20); tie-break by id ascending.
         assert_eq!(ranked, vec!["aaaa1111".to_string(), "zzzz9999".to_string()]);
+    }
+
+    #[test]
+    fn tab_title_matches_friendly_name() {
+        // Regression: user searches "dalton" (workspace-tree label), expects
+        // the matching pane back. Before tab_title was wired in, the matcher
+        // ignored it and returned "No panes match".
+        let panes = vec![
+            json!({"id": "11111111", "title": "claude-with-text", "tab_title": "Dalton"}),
+            json!({"id": "22222222", "title": "silent-claude",    "tab_title": "Thomson"}),
+        ];
+        let ranked = rank_ids("dalton", &panes);
+        assert_eq!(ranked.first().map(String::as_str), Some("11111111"),
+            "tab_title must be searched — that's the name the user sees");
+    }
+
+    #[test]
+    fn tab_title_contains_outranks_title_contains() {
+        // Tab title is more user-facing than the raw pane.title; "fib" should
+        // hit Fibonacci's tab over a pane that just has "fib" in its title.
+        let panes = vec![
+            json!({"id": "aa11", "title": "ignore-me-fib"}),
+            json!({"id": "bb22", "title": "claude", "tab_title": "Fibonacci"}),
+        ];
+        let ranked = rank_ids("fib", &panes);
+        assert_eq!(ranked.first().map(String::as_str), Some("bb22"));
+    }
+
+    #[test]
+    fn model_field_is_searchable() {
+        // Asking for "sonnet" or "haiku" finds panes currently running that
+        // model — covers the "which tabs have opus available?" workflow.
+        let panes = vec![
+            json!({"id": "p1111111", "title": "t1", "agent_type": "claude",  "agent_session_model": "Sonnet"}),
+            json!({"id": "p2222222", "title": "t2", "agent_type": "opencode","agent_session_model": "Deepseek"}),
+        ];
+        let ranked = rank_ids("sonnet", &panes);
+        assert_eq!(ranked.first().map(String::as_str), Some("p1111111"));
+    }
+
+    #[test]
+    fn human_row_shows_tab_title_with_model() {
+        let p = json!({
+            "id": "abcd1234",
+            "title": "claude-with-text",
+            "tab_title": "Dalton",
+            "agent_type": "claude",
+            "agent_session_model": "Sonnet",
+            "workspace_name": "WS-claude-renamed",
+        });
+        let row = format_pane_row(&p);
+        assert!(row.contains("Dalton"), "row missing tab_title: {}", row);
+        assert!(row.contains("(claude-with-text)"), "row missing pane.title: {}", row);
+        assert!(row.contains("claude"), "row missing agent: {}", row);
+        assert!(row.contains("Sonnet"), "row missing model: {}", row);
+        assert!(row.contains("ws=WS-claude-renamed"), "row missing workspace: {}", row);
+    }
+
+    #[test]
+    fn cyrillic_needle_matches_latin_tab_title() {
+        // User types tab name in Russian — should still find the Dalton tab.
+        let panes = vec![
+            json!({"id": "11111111", "title": "claude", "tab_title": "Dalton"}),
+            json!({"id": "22222222", "title": "claude", "tab_title": "Thomson"}),
+        ];
+        let ranked = rank_ids("Далтон", &panes);
+        assert_eq!(ranked.first().map(String::as_str), Some("11111111"),
+            "cyrillic 'Далтон' must transliterate to 'Dalton' and match");
+    }
+
+    #[test]
+    fn latin_needle_matches_cyrillic_tab_title() {
+        // Reverse direction: pane name is Cyrillic, user types Latin needle.
+        // deunicode renders Андрей → "Andrei" (Library of Congress style), so
+        // the test uses that romanization.
+        let panes = vec![
+            json!({"id": "33333333", "title": "claude", "tab_title": "Андрей"}),
+            json!({"id": "44444444", "title": "claude", "tab_title": "Misha"}),
+        ];
+        let ranked = rank_ids("andrei", &panes);
+        assert_eq!(ranked.first().map(String::as_str), Some("33333333"),
+            "latin 'andrei' must match the transliterated form of 'Андрей'");
+    }
+
+    #[test]
+    fn human_row_collapses_when_tab_title_equals_pane_title() {
+        let p = json!({
+            "id": "abcd1234",
+            "title": "Main",
+            "tab_title": "Main",
+            "agent_type": "claude",
+        });
+        let row = format_pane_row(&p);
+        // No "(Main)" duplicate — single label only.
+        assert!(!row.contains("(Main)"), "duplicate label in row: {}", row);
     }
 }

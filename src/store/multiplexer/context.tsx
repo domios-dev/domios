@@ -15,9 +15,7 @@ export interface MultiplexerContextType {
   setActiveTab: (workspaceId: string, tabId: string) => void;
   closePane: (paneId: string) => void;
   setFocusedPane: (paneId: string) => void;
-  openBrowser: (url: string) => void;
   setPanePty: (paneId: string, ptyId: string) => void;
-  updateSplitRatio: (workspaceId: string, tabId: string, path: number[], ratio: number) => void;
   addNotification: (notif: Omit<Notification, "id" | "timestamp" | "read">) => void;
   markRead: (id: string) => void;
   markAllRead: () => void;
