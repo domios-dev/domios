@@ -16,6 +16,7 @@ Commands default to the **current focused pane** when no id is given. Reference 
 
 ```bash
 codeterm pane list
+codeterm pane find "vivid bhabha"                  # fuzzy match id-prefix / title / agent_session_name
 codeterm pane rename "title"                       # your tab; no --pane needed
 codeterm pane focus PANE_ID
 codeterm pane close PANE_ID
@@ -121,6 +122,37 @@ codeterm workspace create "CI" --mesh PEER
 ```
 
 Flow: `mesh peers` → find paired peer → `pane list --mesh PEER` → interact. Only paired peers accept commands. Mesh pairing (`mesh connect|approve|reject|disconnect`) is local to each machine and typically managed by the General Agent there.
+
+### Pair a new device — `mesh broadcast`
+
+To let a brand new device discover this machine for pairing, **start a broadcast** (visible for ~5 min):
+
+```bash
+codeterm mesh broadcast    # be discoverable so a new device can find + pair you
+```
+
+Broadcast requires `mesh online`. If the user is currently offline, switch them online first AND broadcast — and tell them you did both. Just going online without broadcasting won't make a brand-new device find you.
+
+### Going invisible — `mesh offline` / `mesh online`
+
+```bash
+codeterm mesh offline    # stop pinging peers, stop announcing, stop refreshing local addrs
+codeterm mesh online     # resume
+```
+
+Hot-reload (≤15s, no daemon restart). Use when user wants to disappear from the network or stop CodeTerm from pinging Tailscale interfaces (which can keep the daemon's tun device alive). Tailscale itself is left untouched. Peers will time us out on their side. Dreamer's telegram ping is a separate toggle (`memory.dreaming_telegram_notify`).
+
+### Cross-mesh handoff — `paste` (don't inline long `--task` over mesh)
+
+```bash
+ID=$(cat task.md | codeterm paste put --mesh ROG --pop --from-stdin)   # paste:a3f9k2
+codeterm agent spawn claude --mesh ROG --workspace WS \
+  --task "task is in $ID. Run: codeterm paste pop $ID"
+```
+
+In-memory only, 20 entries max, TTL 1h default / 24h max, restart wipes. Not `mem save` — that pollutes the vector index.
+
+`paste get|pop|list|rm` — `--pop` reads + deletes. `--mesh PEER` works on every subcommand.
 
 ## Periodic tasks (cron)
 

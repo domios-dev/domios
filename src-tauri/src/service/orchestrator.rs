@@ -520,7 +520,8 @@ pub(crate) fn launch_agent_in_background(
                 timeout: std::time::Duration::from_secs(15),
             });
         // Use shell dispatch (bash script on Unix, bracketed paste on Windows) so
-        // bash 3.2 hosts (macOS Intel system shell) never see raw ESC markers.
+        // bash 3.2 hosts (macOS Intel system shell) never see raw ESC markers
+        // (#93 — keeps shell-level launch off the bracketed-paste path).
         if let Err(e) = svc.send_shell_spawn_verified(&pty_id, &launch_cmd, launch_strategy, launch_opts) {
             log::error!(
                 "launch_agent: launch_cmd failed for pane {} (pty {}): {}",

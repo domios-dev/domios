@@ -525,6 +525,21 @@ pub fn prepare_rem_data(mem: &MemManager) -> Result<String, String> {
     }
 }
 
+const DREAMING_TELEGRAM_STEP_ENABLED: &str = r#"Then push the INSIGHT (only the insight prose, not the log block) to
+telegram so the vault talks back. OK if it errors — the diary in mem
+is the durable artifact:
+
+    codeterm mem search "telegram chat id" --limit 1
+    # extract the chat id, then:
+    codeterm bridge send --to <chat_id> --service telegram \
+      "🧠 Dreamer brief\n\n<just the insight, no <insight> tags, no log>"
+    # If no fact found or bridge errors, skip — telegram is nice-to-have."#;
+
+const DREAMING_TELEGRAM_STEP_DISABLED: &str = "Telegram notification is DISABLED \
+    (memory.dreaming_telegram_notify=false). Skip any outbound notification — \
+    do not search for chat ids, do not invoke the bridge command. The diary \
+    in mem is the artifact; the user has opted out of the nightly Telegram ping.";
+
 /// Spawn a headless dreaming worker for REM phase (dedup, classify, insights, diary).
 /// Called after the supervisor runs the SQL phases.
 pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
@@ -543,10 +558,22 @@ pub fn spawn_rem_worker(svc: &std::sync::Arc<crate::service::ServiceContext>) {
     };
     let model = crate::agent::models::canonicalize_short(&raw_model).to_string();
 
+    // Substitute the conditional telegram-notify step. When the config flag
+    // is enabled (default), the dreamer pushes its one-line insight to the
+    // Telegram bridge after writing the diary. When disabled, the dreamer
+    // is instructed to skip the step entirely — the diary in mem stays the
+    // durable record either way.
+    let telegram_step = if mem_cfg.dreaming_telegram_notify {
+        DREAMING_TELEGRAM_STEP_ENABLED
+    } else {
+        DREAMING_TELEGRAM_STEP_DISABLED
+    };
+    let prompt = crate::prompts::DREAMING_REM.replace("{telegram_notify_step}", telegram_step);
+
     match super::workers::spawn_headless(
         svc,
         format!("{}rem", super::workers::DREAMING_INTENT_PREFIX),
-        crate::prompts::DREAMING_REM.to_string(),
+        prompt,
         "system:dreaming".into(),
         agent,
         model,
@@ -590,6 +617,37 @@ pub fn ensure_dreaming_cron(cron_store: &mut crate::cron::store::CronStore) -> R
                 if agent_changed { j.agent = desired_agent; }
                 if legacy_schedule_match { j.schedule = "0 6 * * *".into(); }
                 if legacy_jitter_match { j.jitter_max_ms = Some(1_800_000); }
+                // Issue #96: recompute next_run after schedule/jitter migration.
+                // Without this, the on-disk next_run still reflects the legacy
+                // "0 3 * * *" + 90-min-jitter window, which is in the past
+                // relative to the new "0 6" window. On daemon startup the
+                // scheduler sees the stale value, fires a "recovery" run, and
+                // record_run then anchors the next fire to today's 06:00
+                // window — producing the double-fire pattern reported as #96.
+                if j.enabled && !j.oneshot {
+                    // Only overwrite next_run when compute returned a concrete
+                    // Some(_). Ok(None) means no future occurrence exists for
+                    // this schedule — clearing next_run silently would stop
+                    // the job firing, which is exactly the failure mode #96
+                    // was fixing. Log + keep the old value in that case.
+                    match crate::cron::store::compute_next_run_jittered_in(
+                        &j.schedule,
+                        j.jitter_max_ms,
+                        j.tz.as_deref(),
+                    ) {
+                        Ok(Some(nr)) => j.next_run = Some(nr),
+                        Ok(None) => log::warn!(
+                            "[dreaming] schedule {:?} has no upcoming occurrence; \
+                             leaving next_run={:?} unchanged",
+                            j.schedule, j.next_run,
+                        ),
+                        Err(e) => log::warn!(
+                            "[dreaming] recompute next_run after migration failed: {}; \
+                             leaving next_run={:?} unchanged",
+                            e, j.next_run,
+                        ),
+                    }
+                }
                 let _ = cron_store.save();
             }
         }
@@ -665,6 +723,7 @@ pub fn remove_legacy_librarian_cron(cron_store: &mut crate::cron::store::CronSto
 mod tests {
     use super::*;
     use crate::mem::store::{MemKind, MemScope, NewMemItem};
+    use chrono::Timelike;
 
     #[tokio::test]
     async fn light_phase_promotes_accessed_learnings() {
@@ -805,6 +864,92 @@ mod tests {
 
         let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
         assert_eq!(job.schedule, "0 6 * * *", "legacy 3am must be auto-migrated to 6am");
+    }
+
+    #[test]
+    fn dreaming_telegram_step_substitution() {
+        // Enabled (default): the placeholder must expand to the real bridge-send
+        // instructions so the dreamer pushes its 🧠 brief to Telegram.
+        let enabled = crate::prompts::DREAMING_REM.replace(
+            "{telegram_notify_step}",
+            super::DREAMING_TELEGRAM_STEP_ENABLED,
+        );
+        assert!(
+            enabled.contains("codeterm bridge send"),
+            "enabled prompt must instruct bridge send"
+        );
+        assert!(
+            enabled.contains("🧠 Dreamer brief"),
+            "enabled prompt must keep the brief tag"
+        );
+        assert!(
+            !enabled.contains("{telegram_notify_step}"),
+            "placeholder must be substituted, not literal"
+        );
+
+        // Disabled: the placeholder expands to an explicit "skip" directive
+        // and the bridge-send command must NOT appear in the final prompt.
+        let disabled = crate::prompts::DREAMING_REM.replace(
+            "{telegram_notify_step}",
+            super::DREAMING_TELEGRAM_STEP_DISABLED,
+        );
+        assert!(
+            !disabled.contains("codeterm bridge send"),
+            "disabled prompt must NOT mention bridge send anywhere"
+        );
+        assert!(
+            disabled.contains("DISABLED"),
+            "disabled prompt must explicitly flag opt-out"
+        );
+        assert!(
+            disabled.contains("dreaming_telegram_notify"),
+            "disabled prompt must cite the config key so user knows what to flip"
+        );
+    }
+
+    #[test]
+    fn legacy_schedule_migration_recomputes_next_run() {
+        // Issue #96: migrating "0 3 * * *" -> "0 6 * * *" must also reset
+        // next_run, else the on-disk value points at the OLD schedule's
+        // window and the scheduler fires a recovery run on startup.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crons.json");
+        std::mem::forget(dir);
+        let mut store = crate::cron::store::CronStore::new_with_path(path);
+
+        ensure_dreaming_cron(&mut store).unwrap();
+        let id = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap().id.clone();
+
+        // Simulate legacy state: stale next_run from the old "0 3 * * *" cadence.
+        let stale_legacy_next = crate::cron::store::compute_next_run_jittered_in(
+            "0 3 * * *", Some(5_400_000), None,
+        ).unwrap().unwrap();
+        if let Some(j) = store.get_mut(&id) {
+            j.schedule = "0 3 * * *".into();
+            j.jitter_max_ms = Some(5_400_000);
+            j.next_run = Some(stale_legacy_next);
+        }
+        let _ = store.save();
+
+        ensure_dreaming_cron(&mut store).unwrap();
+
+        let job = store.list().iter().find(|j| j.name == DREAMING_CRON_NAME).unwrap();
+        assert_eq!(job.schedule, "0 6 * * *");
+        assert_eq!(job.jitter_max_ms, Some(1_800_000));
+        // next_run must have moved off the legacy schedule.
+        let new_next = job.next_run.expect("next_run must be set after migration");
+        assert_ne!(
+            new_next, stale_legacy_next,
+            "migration must recompute next_run, not leave it anchored to the old schedule",
+        );
+        // And the new value must fit the new "0 6 * * *" cadence: minute-of-hour=0
+        // plus 0..30min jitter window relative to UTC.
+        let new_dt = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(new_next as i64).unwrap();
+        let minute = new_dt.minute();
+        assert!(
+            minute <= 30,
+            "post-migration next_run must land in the 06:00..06:30 jitter window, got minute={minute}",
+        );
     }
 
     #[test]

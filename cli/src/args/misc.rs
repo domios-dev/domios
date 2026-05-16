@@ -113,6 +113,63 @@ pub enum PaneAction {
         #[arg(long, alias = "id")]
         pane: Option<String>,
     },
+    /// Find pane(s) by fuzzy match across id-prefix, title, agent_session_name, and tab name.
+    /// Returns one or more matches ranked by relevance so the result can be piped into
+    /// send-text, pane close, etc. Use `--mesh PEER` to search a paired peer (#99).
+    Find {
+        /// Substring or short pattern to match
+        pattern: String,
+    },
+}
+
+/// Cross-mesh ephemeral pastebin (#98). In-memory; daemon restart wipes
+/// every paste. 20-entry cap, oldest-first eviction. Use for handing
+/// payloads between machines: stash a blob with `paste put --mesh PEER`,
+/// reference the slug in the next CLI call, let the peer `paste pop` it.
+#[derive(Subcommand)]
+pub enum PasteAction {
+    /// Stash a payload. Body from positional / --from-file / stdin.
+    Put {
+        /// Body (positional). Omit and use --from-file or --from-stdin.
+        #[arg(default_value = "")]
+        body: String,
+        /// Read body from a file instead.
+        #[arg(long, value_name = "PATH")]
+        from_file: Option<String>,
+        /// Read body from stdin.
+        #[arg(long)]
+        from_stdin: bool,
+        /// TTL — e.g. "30m", "1h", "24h". Default 1h. Max 24h.
+        #[arg(long)]
+        ttl: Option<String>,
+        /// MIME hint (default text/plain).
+        #[arg(long)]
+        content_type: Option<String>,
+        /// One-shot — paste self-deletes after first fetch.
+        #[arg(long)]
+        pop: bool,
+    },
+    /// Print a paste body to stdout. Does NOT delete unless --pop or the
+    /// paste was created with --pop.
+    Get {
+        /// Paste id (e.g. "paste:a3f9k2").
+        id: String,
+        /// Delete after fetching (one-shot read).
+        #[arg(long)]
+        pop: bool,
+    },
+    /// Get + delete in one call. Sugar for `paste get <id> --pop`.
+    Pop {
+        /// Paste id.
+        id: String,
+    },
+    /// List local (or --mesh <peer>) pastes — id, size, ttl_remaining.
+    List,
+    /// Explicit delete.
+    Rm {
+        /// Paste id.
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]

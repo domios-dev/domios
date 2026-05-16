@@ -94,6 +94,10 @@ impl AgentProvider for ClaudeProvider {
         detection::detect_from_output(text)
     }
 
+    fn extract_session_name(&self, screen: &str) -> Option<String> {
+        detection::extract_session_name(screen)
+    }
+
     fn screen_has_tui(&self, screen_text: &str) -> bool {
         let lower = screen_text.to_ascii_lowercase();
         lower.contains("? for shortcuts")
@@ -113,6 +117,10 @@ impl AgentProvider for ClaudeProvider {
         max_age: Option<Duration>,
     ) -> Option<String> {
         sessions::detect_session_id(cwd, exclude, max_age)
+    }
+
+    fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
+        sessions::detect_session_model(cwd, session_id)
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {

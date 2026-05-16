@@ -97,6 +97,7 @@ pub struct SessionMessage {
     pub is_meta: bool,
 }
 
+
 // `ProviderDescriptor` is the wire format every plugin reports through
 // `AgentProvider::describe()`; the frontend renders Settings, Sidebar,
 // and command palette entries from the list with no per-provider JS.
@@ -531,6 +532,29 @@ pub trait AgentProvider: Send + Sync {
         }
         steps.push(b"\r".to_vec()); // Enter
         steps
+    }
+
+    /// Extract the agent's human-readable session display name from the
+    /// current screen — e.g. Claude Code prints "vivid-bhabha-1234" in its
+    /// TUI banner. Captured once per agent run and stored on the pane so
+    /// `codeterm pane find <pattern>` can locate panes by friendly name.
+    /// Default returns None; providers that emit a stable handle override.
+    fn extract_session_name(&self, _screen: &str) -> Option<String> {
+        None
+    }
+
+    /// Current model family on the live session — short label only.
+    fn detect_session_model(&self, _cwd: &str, _session_id: &str) -> Option<String> {
+        None
+    }
+
+    /// When the TUI silently rolls into a new on-disk session (opencode does
+    /// this on `/model` swap), the pane's cached `session_id` goes stale and
+    /// `detect_session_model` keeps returning the previous model. Providers
+    /// that support this override to point the pane at the live session —
+    /// return `Some(new_sid)` when one exists, else `None`.
+    fn detect_active_session(&self, _cwd: &str, _current_sid: &str) -> Option<String> {
+        None
     }
 
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).

@@ -9,8 +9,8 @@ use tower_http::cors::CorsLayer;
 use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, health_routes, hook_routes,
     logs_routes, mem_routes, mesh_routes, network_routes, notification_routes, pane_routes,
-    services_routes, session_routes, theme_routes, updater_routes, usage_routes, webhook_routes,
-    workspace_routes,
+    pasteboard_routes, services_routes, session_routes, theme_routes, updater_routes,
+    usage_routes, webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -98,6 +98,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/services/{id}", get(services_routes::get_service).put(services_routes::update_service).delete(services_routes::delete_service))
         .route("/api/services/{id}/regenerate-token", post(services_routes::regenerate_token))
         .route("/api/activity", get(services_routes::list_activity))
+        .route(
+            "/api/pasteboard",
+            get(pasteboard_routes::paste_list).post(pasteboard_routes::paste_create),
+        )
+        .route(
+            "/api/pasteboard/{id}",
+            get(pasteboard_routes::paste_get).delete(pasteboard_routes::paste_delete),
+        )
         .route("/api/config", get(config_routes::get_config_api).patch(config_routes::patch_config_api))
         .route("/api/update/check", get(updater_routes::check_update))
         .route("/api/update/status", get(updater_routes::update_status))

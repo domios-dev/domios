@@ -208,21 +208,31 @@ export function TabItem({
           </span>
         )}
       </div>
-      {/* 3-dot menu — visible on hover */}
-      {canClose && (
-        <DropdownMenu
-          items={menuItems}
-          className="sidebar-tab-close shrink-0 relative z-[1]"
-          trigger={
-            <button
-              className="w-5 h-5 flex items-center justify-center rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] transition-colors"
-              title="Tab actions"
-            >
-              <span className="text-[13px] leading-none font-bold">⋮</span>
-            </button>
-          }
-        />
-      )}
+      {/* Right slot: model badge by default, 3-dot menu on hover (layered) */}
+      <div className="shrink-0 relative z-[1] flex items-center">
+        {pane?.agent_session_model && (
+          <span
+            className="sidebar-tab-badge px-1 py-0 text-[8px] leading-tight rounded font-mono uppercase tracking-wider border border-[var(--ct-border)] text-[var(--ct-muted-fg)]"
+            title={pane.agent_session_model}
+          >
+            {pane.agent_session_model}
+          </span>
+        )}
+        {canClose && (
+          <DropdownMenu
+            items={menuItems}
+            className="sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
+            trigger={
+              <button
+                className="w-5 h-5 flex items-center justify-center rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] transition-colors"
+                title="Tab actions"
+              >
+                <span className="text-[13px] leading-none font-bold">⋮</span>
+              </button>
+            }
+          />
+        )}
+      </div>
     </div>
   );
 }

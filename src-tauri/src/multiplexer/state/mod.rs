@@ -87,6 +87,8 @@ impl MultiplexerState {
             agent_type: None,
             agent_type_locked: false,
             agent_session_id: None,
+            agent_session_name: None,
+            agent_session_model: None,
             role: Some(AgentRole::Orchestrator),
             parent_pane_id: None,
             can_spawn: true,
