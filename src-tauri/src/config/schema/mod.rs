@@ -244,7 +244,6 @@ pub struct KeybindingsConfig {
     pub zoom_in: String,
     pub zoom_out: String,
     pub zoom_reset: String,
-    pub open_browser: String,
     pub open_settings: String,
 }
 
@@ -267,7 +266,6 @@ impl Default for KeybindingsConfig {
             zoom_in: "Ctrl+=".to_string(),
             zoom_out: "Ctrl+-".to_string(),
             zoom_reset: "Ctrl+0".to_string(),
-            open_browser: "Ctrl+Shift+B".to_string(),
             open_settings: "Ctrl+,".to_string(),
         }
     }

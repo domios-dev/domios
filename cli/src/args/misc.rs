@@ -174,15 +174,6 @@ pub enum PasteAction {
 }
 
 #[derive(Subcommand)]
-pub enum BrowserAction {
-    /// Open a URL in the canvas panel
-    Open {
-        /// URL to open
-        url: String,
-    },
-}
-
-#[derive(Subcommand)]
 pub enum NotificationAction {
     /// Clear all notifications
     Clear,

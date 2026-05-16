@@ -48,7 +48,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/usage", get(pane_routes::get_pane_usage))
         .route("/api/panes/{id}/exec", post(pane_routes::exec_in_pane))
         .route("/api/panes/{id}/resize", post(pane_routes::resize_pane))
-        .route("/api/browser/open", post(pane_routes::open_browser))
         .route("/api/serve-file", get(notification_routes::serve_file))
         .route("/api/notifications", get(notification_routes::list_notifications).post(notification_routes::create_notification))
         .route("/api/notifications/clear", post(notification_routes::clear_notifications))

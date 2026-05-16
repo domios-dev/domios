@@ -154,24 +154,6 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError { code: -32603, message: e })
         }
 
-        "browser.open" => {
-            let url = get_string_param(params, "url")?;
-            let activate = params
-                .as_ref()
-                .and_then(|p| p.get("activate"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let new_pane_id = {
-                let mut mux = mux.lock();
-                mux.open_browser(Some(url.clone()), activate).map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                })?
-            };
-            { let h = app.clone(); std::thread::spawn(move || { let _ = h.emit("mux-state-changed", ()); }); }
-            Ok(serde_json::json!({"pane_id": new_pane_id, "url": url}))
-        }
-
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),

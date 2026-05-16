@@ -63,12 +63,6 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub fn open_browser(&self, url: String, activate: bool) -> Result<String, String> {
-        let pane_id = self.mux.lock().open_browser(Some(url), activate)?;
-        self.emit_state_changed();
-        Ok(pane_id)
-    }
-
     pub fn link_pty(&self, pane_id: &str, pty_id: String) {
         if let Some(orphan) = self.mux.lock().link_pty(pane_id, pty_id) {
             log::warn!("[link_pty] pane {} relinked — killing orphan pty {}", pane_id, &orphan[..orphan.len().min(8)]);

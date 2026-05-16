@@ -843,15 +843,6 @@ fn test_session_snapshot_preserves_hierarchy() {
 }
 
 #[test]
-fn test_browser_pane() {
-    let (mut state, _) = MultiplexerState::new();
-    let pane_id = state.create_browser_pane(Some("https://example.com".to_string()));
-    let pane = state.get_pane(&pane_id).unwrap();
-    assert_eq!(pane.pane_type, PaneType::Browser);
-    assert_eq!(pane.url.as_deref(), Some("https://example.com"));
-}
-
-#[test]
 fn test_set_active_tab() {
     let (mut state, _) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
