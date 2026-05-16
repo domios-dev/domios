@@ -14,6 +14,7 @@ export default function AddPeerPanel() {
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [meshOnline, setMeshOnline] = useState<boolean | null>(null);
+  const [scanning, setScanning] = useState(false);
 
   const fetchPeers = useCallback(async () => {
     try {
@@ -41,8 +42,16 @@ export default function AddPeerPanel() {
     }
   }, []);
 
+  const handleScan = useCallback(async () => {
+    setScanning(true);
+    try {
+      await invoke("mesh_scan_peers");
+      await fetchPeers();
+    } catch {}
+    setScanning(false);
+  }, [fetchPeers]);
+
   useEffect(() => {
-    invoke("mesh_refresh_discovery").catch(() => {});
     fetchPeers();
     fetchMeshState();
     pollRef.current = setInterval(() => {
@@ -155,11 +164,30 @@ export default function AddPeerPanel() {
         </Section>
       )}
 
-      <Section label={`Discovered nearby${peers ? "" : " · scanning…"}`}>
+      <Section
+        label="Discovered nearby"
+        action={
+          <button
+            onClick={handleScan}
+            disabled={scanning}
+            title="Scan for peers now"
+            className="text-[9px] uppercase tracking-wider text-[var(--ct-muted)] hover:text-[var(--ct-fg)] transition-colors disabled:opacity-40 flex items-center gap-1"
+          >
+            {scanning ? (
+              <span className="w-2.5 h-2.5 border border-[var(--ct-accent)] border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M13.5 2.5A6.5 6.5 0 1 1 2.5 8" strokeLinecap="round" />
+                <path d="M13.5 2.5V6h-3.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+            {scanning ? "Scanning…" : "Refresh"}
+          </button>
+        }
+      >
         {discovered.length === 0 ? (
-          <div className="p-3 text-[10px] text-[var(--ct-muted)] italic flex items-center gap-2">
-            <span className="w-2.5 h-2.5 border border-[var(--ct-accent)] border-t-transparent rounded-full animate-spin" />
-            Scanning for peers…
+          <div className="p-3 text-[10px] text-[var(--ct-muted)] italic">
+            No peers found nearby
           </div>
         ) : (
           discovered.map((peer) => (
@@ -217,10 +245,13 @@ export default function AddPeerPanel() {
   );
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function Section({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-[10px] text-[var(--ct-muted)] uppercase tracking-wide">{label}</div>
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] text-[var(--ct-muted)] uppercase tracking-wide">{label}</div>
+        {action}
+      </div>
       <div className="rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] divide-y divide-[var(--ct-border)]">
         {children}
       </div>

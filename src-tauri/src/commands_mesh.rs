@@ -372,6 +372,18 @@ pub fn mesh_stop_broadcast(
     Ok(())
 }
 
+/// Active scan: clean up stale discovered peers, send one immediate UDP beacon,
+/// and return the current discovered list. Called by the UI Refresh button.
+#[tauri::command]
+pub fn mesh_scan_peers(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+) -> Result<serde_json::Value, String> {
+    crate::mesh::discovery::cleanup_stale_peers(&mesh);
+    crate::mesh::discovery::send_immediate_beacon(&mesh);
+    let discovered: Vec<_> = mesh.lock().discovered_peers.values().cloned().collect();
+    serde_json::to_value(discovered).map_err(|e| e.to_string())
+}
+
 /// Set access level for a paired peer.
 #[tauri::command]
 pub fn mesh_set_access(

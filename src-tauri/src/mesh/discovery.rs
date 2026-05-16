@@ -654,6 +654,43 @@ pub fn stop_broadcast(mesh: &Arc<Mutex<MeshManager>>) {
     log::info!("[mesh] Broadcast stopped manually");
 }
 
+/// Send one UDP beacon immediately, regardless of broadcast_active state.
+/// Used by the scan/refresh action so peers see us instantly on demand.
+pub fn send_immediate_beacon(mesh: &Arc<Mutex<MeshManager>>) {
+    let (instance_id, instance_name, api_port, mesh_id) = {
+        let m = mesh.lock();
+        let mesh_id = if m.paired_peers.is_empty() {
+            None
+        } else {
+            Some(m.ident.identity.instance_id.clone())
+        };
+        (
+            m.ident.identity.instance_id.clone(),
+            m.ident.instance_name.clone(),
+            m.api_port,
+            mesh_id,
+        )
+    };
+    let beacon = Beacon {
+        id: instance_id,
+        name: instance_name,
+        port: api_port,
+        dev: cfg!(debug_assertions),
+        mesh_id,
+    };
+    let Ok(json) = serde_json::to_vec(&beacon) else { return };
+    let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") else { return };
+    let _ = sock.set_broadcast(true);
+    let mut packet = Vec::with_capacity(BROADCAST_MAGIC.len() + json.len());
+    packet.extend_from_slice(BROADCAST_MAGIC);
+    packet.extend_from_slice(&json);
+    if let Err(e) = sock.send_to(&packet, format!("255.255.255.255:{}", api_port)) {
+        log::debug!("[mesh/udp] Immediate beacon send failed: {}", e);
+    } else {
+        log::debug!("[mesh/udp] Immediate beacon sent");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_first_ip;
