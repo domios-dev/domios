@@ -18,9 +18,6 @@ import type {
   PaneStatus,
 } from "../../lib/types";
 import {
-  collectPaneIds,
-  makeBrowserPane,
-  makeTab,
   type ExtendedState,
 } from "./tree";
 import { reducer } from "./reducer";
@@ -206,7 +203,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     (paneId: string) => {
       for (const ws of state.workspaces) {
         for (const tab of ws.tabs) {
-          const ids = collectPaneIds(tab.split_tree);
+          const ids = [tab.pane_id];
           if (ids.includes(paneId)) {
             return { workspaceId: ws.id, tabId: tab.id };
           }
@@ -276,7 +273,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       const ws = state.workspaces.find((w) => w.id === id);
       if (ws) {
-        const paneIds = ws.tabs.flatMap((t) => collectPaneIds(t.split_tree));
+        const paneIds = ws.tabs.flatMap((t) => [t.pane_id]);
         for (const pid of paneIds) {
           const pane = state.panes[pid];
           if (pane?.pty_id) {
@@ -337,7 +334,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const ws = state.workspaces.find((w) => w.id === workspaceId);
       const tab = ws?.tabs.find((t) => t.id === tabId);
       if (!tab) return;
-      const removedPaneIds = collectPaneIds(tab.split_tree);
+      const removedPaneIds = [tab.pane_id];
       for (const pid of removedPaneIds) {
         invoke("mux_close_pane", { paneId: pid }).catch(() => {});
       }
@@ -374,7 +371,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const ws = state.workspaces.find((w) => w.id === ctx.workspaceId);
       const tab = ws?.tabs.find((t) => t.id === ctx.tabId);
       if (tab) {
-        const allPanes = collectPaneIds(tab.split_tree);
+        const allPanes = [tab.pane_id];
         if (allPanes.length <= 1) {
           invoke("mux_close_tab", { workspaceId: ctx.workspaceId, tabId: ctx.tabId }).catch(() => {});
           dispatch({
@@ -399,66 +396,17 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     [findContext, state],
   );
 
-  const openBrowser = useCallback(
-    (url: string) => {
-      const s = stateRef.current;
-      const activeWs = s.workspaces.find((ws) => ws.id === s.active_workspace_id);
-      if (!activeWs) return;
-
-      const focusedId = s.focused_pane_id;
-      const browserPane = makeBrowserPane(url);
-
-      if (focusedId) {
-        const ctx = (() => {
-          for (const ws of s.workspaces) {
-            for (const tab of ws.tabs) {
-              const ids = collectPaneIds(tab.split_tree);
-              if (ids.includes(focusedId)) {
-                return { workspaceId: ws.id, tabId: tab.id };
-              }
-            }
-          }
-          return null;
-        })();
-
-        if (ctx) {
-          dispatch({
-            type: "SPLIT_PANE",
-            workspaceId: ctx.workspaceId,
-            tabId: ctx.tabId,
-            targetPaneId: focusedId,
-            newPane: browserPane,
-            orientation: "Horizontal",
-          });
-          return;
-        }
-      }
-
-      const tab = makeTab(browserPane);
-      dispatch({ type: "ADD_TAB", workspaceId: activeWs.id, tab, pane: browserPane });
-    },
-    [],
-  );
-
   const setFocusedPane = useCallback((paneId: string) => {
     // Optimistic local update for snappy click feedback.
     dispatch({ type: "SET_FOCUSED_PANE", paneId });
     // Authoritative — backend re-emits `pane-focused` (idempotent if same id).
-    // Keeps backend-side `focused_pane_id` in sync with the user's selection so
-    // CLI / REST / `open_browser` / mesh consumers see the same truth.
+    // Keeps backend-side `focused_pane_id` in sync with the user's selection.
     invoke("mux_set_focused_pane", { paneId }).catch(() => {});
   }, []);
 
   const setPanePty = useCallback((paneId: string, ptyId: string) => {
     dispatch({ type: "SET_PANE_PTY", paneId, ptyId });
   }, []);
-
-  const updateSplitRatio = useCallback(
-    (workspaceId: string, tabId: string, path: number[], ratio: number) => {
-      dispatch({ type: "UPDATE_SPLIT_RATIO", workspaceId, tabId, path, ratio });
-    },
-    [],
-  );
 
   const addNotification = useCallback(
     (notif: Omit<Notification, "id" | "timestamp" | "read">) => {
@@ -519,9 +467,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     setActiveTab,
     closePane,
     setFocusedPane,
-    openBrowser,
     setPanePty,
-    updateSplitRatio,
     addNotification,
     markRead,
     markAllRead,

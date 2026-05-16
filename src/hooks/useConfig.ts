@@ -63,7 +63,6 @@ const DEFAULT_CONFIG: AppConfig = {
     zoom_in: "Ctrl+=",
     zoom_out: "Ctrl+-",
     zoom_reset: "Ctrl+0",
-    open_browser: "Ctrl+Shift+B",
     open_settings: "Ctrl+,",
   },
   socket: { path: null },
