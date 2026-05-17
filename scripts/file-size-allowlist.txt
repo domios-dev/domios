@@ -7,5 +7,6 @@
 #
 # Adding a new line to this list = admitting we shipped a >1000 file. Don't.
 
-# Grew +66 in feat(mem): 6am dreamer schedule + migration (73004af); real code, no dead weight
-src-tauri/src/mem/dreaming.rs	1095
+# Grew +66 in feat(mem): 6am dreamer schedule + migration (73004af), then
+# +145 across e4f5ad5/ab7dade/970d71c/83ea841 (telegram toggle, prompt fix). Real code.
+src-tauri/src/mem/dreaming.rs	1240
