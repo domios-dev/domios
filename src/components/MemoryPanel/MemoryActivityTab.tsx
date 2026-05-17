@@ -16,7 +16,7 @@ import { colorForSource } from "./useActivityPulses";
 import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
 import { useGraphWorkers } from "./useGraphWorkers";
 import { MemorySpawnWorkerDialog } from "./MemorySpawnWorkerDialog";
-import { WorkerLogPopup } from "./WorkerLogPopup";
+import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 
 interface Props {
   api: ApiConfig;
@@ -484,7 +484,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
         />
       )}
       {logWorker && (
-        <WorkerLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
+        <AgentRunLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
       )}
     </div>
   );
