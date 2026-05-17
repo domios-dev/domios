@@ -646,3 +646,35 @@ fn repair_orphan_vectors_no_orphans_is_noop() {
     let audits: i64 = conn.query_row("SELECT COUNT(*) FROM graph_purge_log", [], |r| r.get(0)).unwrap();
     assert_eq!(audits, 0, "no orphans → no audit row");
 }
+
+#[test]
+fn repair_orphan_blobs_finds_unreferenced_files() {
+    let conn = fresh_conn();
+    let tmp = tempfile::tempdir().unwrap();
+    let blobs_dir = tmp.path();
+
+    // Seed the dir with three CAS-named files and two random ones.
+    std::fs::write(blobs_dir.join("sha256_referenced.txt"), "real").unwrap();
+    std::fs::write(blobs_dir.join("sha256_orphan_a.txt"), "ghost1").unwrap();
+    std::fs::write(blobs_dir.join("sha256_orphan_b.txt"), "ghost2").unwrap();
+    std::fs::write(blobs_dir.join("other.txt"), "not a blob").unwrap();
+
+    // Tell the DB about the referenced one.
+    conn.execute(
+        "INSERT INTO mem_items (id, uid, kind, scope, title, body_blob_path, created_at, updated_at, accessed_at, importance)
+         VALUES ('m1','u1','note','global','t','sha256_referenced.txt','2026-01-01','2026-01-01','2026-01-01',0.0)",
+        [],
+    ).unwrap();
+
+    let dry = repair_orphan_blobs(&conn, blobs_dir, true, "test").unwrap();
+    assert!(dry.dry_run);
+    assert_eq!(dry.deleted, 0);
+    assert_eq!(dry.orphan_files.len(), 2);
+
+    let report = repair_orphan_blobs(&conn, blobs_dir, false, "test").unwrap();
+    assert_eq!(report.deleted, 2);
+    assert!(blobs_dir.join("sha256_referenced.txt").exists(), "referenced blob stays");
+    assert!(!blobs_dir.join("sha256_orphan_a.txt").exists(), "orphan deleted");
+    assert!(!blobs_dir.join("sha256_orphan_b.txt").exists(), "orphan deleted");
+    assert!(blobs_dir.join("other.txt").exists(), "non-CAS file untouched");
+}

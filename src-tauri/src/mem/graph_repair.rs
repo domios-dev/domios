@@ -372,6 +372,69 @@ pub struct RepairOrphanVectorsReport {
     pub dry_run: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepairOrphanBlobsReport {
+    pub orphan_files: Vec<String>,
+    pub deleted: u64,
+    pub dry_run: bool,
+}
+
+pub fn repair_orphan_blobs(
+    conn: &Connection,
+    blobs_dir: &std::path::Path,
+    dry_run: bool,
+    actor: &str,
+) -> Result<RepairOrphanBlobsReport, String> {
+    let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT body_blob_path FROM mem_items WHERE body_blob_path IS NOT NULL"
+    ).map_err(|e| e.to_string())?;
+    for row in stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())? {
+        if let Ok(p) = row { referenced.insert(p); }
+    }
+    drop(stmt);
+
+    let mut orphan_files = Vec::new();
+    if blobs_dir.is_dir() {
+        for entry in std::fs::read_dir(blobs_dir).map_err(|e| format!("read blobs_dir: {}", e))? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with("sha256_") { continue; }
+            if !referenced.contains(&name) {
+                orphan_files.push(name);
+            }
+        }
+    }
+
+    if dry_run || orphan_files.is_empty() {
+        return Ok(RepairOrphanBlobsReport {
+            deleted: 0,
+            orphan_files,
+            dry_run,
+        });
+    }
+
+    let mut deleted = 0u64;
+    for name in &orphan_files {
+        if std::fs::remove_file(blobs_dir.join(name)).is_ok() {
+            deleted += 1;
+        }
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let details = serde_json::json!({
+        "op": "repair_orphan_blobs",
+        "orphan_files": orphan_files,
+    }).to_string();
+    conn.execute(
+        "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
+         VALUES (?1, ?2, NULL, NULL, NULL, ?3, ?4)",
+        params![now, deleted as i64, actor, details],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(RepairOrphanBlobsReport { orphan_files, deleted, dry_run: false })
+}
+
 pub fn repair_orphan_vectors(
     conn: &Connection,
     dry_run: bool,

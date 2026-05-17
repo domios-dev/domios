@@ -771,6 +771,16 @@ pub enum MemGraphAction {
         #[arg(long, default_value = "user")]
         actor: String,
     },
+    /// Find and (optionally) delete sha256_*.txt blob files in the mem blobs
+    /// directory that no mem_item references. CAS-aware sweep (refcount = 0).
+    #[clap(name = "repair-orphan-blobs")]
+    RepairOrphanBlobs {
+        /// Print orphans without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
     /// Delete an entity by id (audited). Refuses if it has active relations
     /// unless --force, in which case those relations are cascade-deleted too.
     #[clap(name = "delete-entity")]
