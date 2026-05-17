@@ -1,0 +1,12 @@
+{
+  "id": "provider-codex",
+  "kind": "provider",
+  "provider_id": "codex",
+  "displayName": "Codex",
+  "engine": ">=1.3.0",
+  "entry": "src/index.ts",
+  "permissions": {
+    "transport_events": ["pty"],
+    "send_text": true
+  }
+}

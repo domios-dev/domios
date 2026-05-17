@@ -6,6 +6,7 @@
 //! trait impl, which delegates each method to the right child.
 
 mod detection;
+mod integration;
 mod launch;
 mod schemas;
 mod sessions;
@@ -249,6 +250,30 @@ impl AgentProvider for ClaudeProvider {
 
     fn uninstall_bridge_rule(&self) -> Result<(), String> {
         schemas::uninstall_bridge_rule()
+    }
+
+    fn check_integration(&self) -> serde_json::Value {
+        integration::check_integration()
+    }
+
+    fn install_integration(&self, api_port: u16) -> Result<(), String> {
+        integration::install_integration(api_port)
+    }
+
+    fn uninstall_integration(&self) -> Result<(), String> {
+        integration::uninstall_integration()
+    }
+
+    fn ensure_integration_on_startup(&self, api_port: u16) {
+        integration::ensure_integration_on_startup(api_port);
+    }
+
+    fn check_rule_status(&self) -> serde_json::Value {
+        integration::check_rule_status()
+    }
+
+    fn install_rule(&self) -> Result<(), String> {
+        integration::install_rule()
     }
 }
 

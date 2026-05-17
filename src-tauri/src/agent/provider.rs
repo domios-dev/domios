@@ -244,21 +244,30 @@ pub enum SettingField {
         open: PathOpenKind,
     },
     /// Polled status badge: frontend invokes `query_command` and renders
-    /// the variant whose `id` matches the returned value.
+    /// the variant whose `id` matches the returned value. `query_args`
+    /// is an optional name → value map forwarded as the invoke arguments
+    /// (snake_case keys are remapped to camelCase by Tauri automatically).
     Badge {
         query_command: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        query_args: Option<serde_json::Value>,
         variants: Vec<BadgeVariant>,
     },
 
     // ── Actions ──────────────────────────────────────────────────
     /// Button that invokes a backend command. Optional `state_query`
     /// turns it into a multi-state button (Install / Reinstall / Update).
+    /// Both `command` and `state_query` use the same `args` payload —
+    /// pass `provider_id` here for generic dispatchers that target a
+    /// specific provider.
     Action {
         id: String,
         label: String,
         command: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         state_query: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        args: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         confirm: Option<String>,
         #[serde(default = "ActionStyle::default_primary")]
@@ -647,6 +656,52 @@ pub trait AgentProvider: Send + Sync {
         Ok(())
     }
 
+    // ── CodeTerm integration (hooks / callbacks / native notification wiring) ──
+    //
+    // Some providers (Claude) need explicit configuration in their own
+    // settings file to call back into CodeTerm on permission prompts and
+    // task completion. Other providers (Codex, Opencode) are observed
+    // entirely through PTY parsing and need no configuration. The trait
+    // exposes a uniform surface so commands/* can dispatch generically.
+
+    /// Status of CodeTerm's notification integration with this provider —
+    /// returned as opaque JSON so each provider shapes it for its own UI.
+    /// Default: providers without external integration report `status: "ok"`
+    /// and the Badge renders "available".
+    fn check_integration(&self) -> serde_json::Value {
+        serde_json::json!({ "status": "ok" })
+    }
+
+    /// Install CodeTerm's notification integration. `api_port` is the local
+    /// CodeTerm HTTP port that callbacks should target. Default no-op.
+    fn install_integration(&self, _api_port: u16) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn uninstall_integration(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Idempotent auto-install on startup. Called once per registered
+    /// provider during boot. Default no-op.
+    fn ensure_integration_on_startup(&self, _api_port: u16) {}
+
+    // ── Project rule (provider-specific instruction file) ──
+    //
+    // Claude reads `~/.claude/rules/codeterm.md`; other providers either
+    // embed equivalent instructions into the system prompt directly or
+    // simply don't have a project-rule concept yet. Returning "installed"
+    // by default means providers without a rule file are considered
+    // good-to-go (no UI nag).
+
+    fn check_rule_status(&self) -> serde_json::Value {
+        serde_json::json!({ "installed": true, "update_available": false })
+    }
+
+    fn install_rule(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     // Self-presentation: frontend reads provider tabs, models, and
     // settings purely from these + `describe()`. Defaults stay empty.
 
@@ -837,11 +892,13 @@ mod tests {
                     label: "Do Thing".into(),
                     command: "test_command".into(),
                     state_query: Some("query_state".into()),
+                    args: None,
                     confirm: None,
                     style: ActionStyle::Primary,
                 },
                 SettingField::Badge {
                     query_command: "check_state".into(),
+                    query_args: None,
                     variants: vec![BadgeVariant {
                         id: "ok".into(),
                         label: "OK".into(),

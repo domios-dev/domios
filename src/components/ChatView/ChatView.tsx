@@ -4,8 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { useTauriFileDrop } from "../../hooks/terminal";
 import { extractFilePathsFromClipboard } from "../../lib/clipboardPaste";
-import { MessageBubble } from "./MessageBubble";
-import type { ChatMessage } from "./parser";
+import { MessageBubble } from "@codeterm/provider-claude/src/MessageBubble";
+import type { ChatMessage } from "@codeterm/provider-claude/src/parser";
 import { AlertTriangle, File } from "lucide-react";
 import { SendIcon, ChevronUpIcon } from "../Icons";
 

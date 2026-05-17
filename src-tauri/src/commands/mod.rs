@@ -7,24 +7,6 @@ pub struct DirCompletion {
     pub score: i32,
 }
 
-#[derive(serde::Serialize)]
-pub struct RuleStatus {
-    pub installed: bool,
-    pub update_available: bool,
-    pub revision: u32,
-    pub installed_revision: u32,
-}
-
-#[derive(serde::Serialize)]
-pub struct ClaudeHooksStatus {
-    pub settings_exists: bool,
-    pub hooks_installed: bool,
-    pub notification_hook: bool,
-    pub stop_hook: bool,
-    pub precompact_hook: bool,
-    pub session_start_hook: bool,
-}
-
 mod agent;
 mod clipboard;
 mod completions;

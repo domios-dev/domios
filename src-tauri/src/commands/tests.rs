@@ -1,6 +1,10 @@
-use super::hooks::CODETERM_HOOK_MARKER;
 use super::skills::extract_revision;
 use std::fs;
+
+// Mirror of the constant in plugin::agent_claude::provider::integration —
+// kept inline here so the legacy "$ escaping" defence stays exercised
+// without depending on the integration module's private items.
+const CODETERM_HOOK_MARKER: &str = "codeterm-hook-v2";
 
 #[test]
 fn test_extract_revision_valid() {
@@ -44,14 +48,14 @@ fn test_hook_commands_preserve_dollar_sign() {
 
 #[test]
 fn test_install_hooks_to_temp_file() {
-    // Test install_claude_hooks logic against a temporary settings file
+    // Test integration::install_integration logic against a temporary file
     let tmp = tempfile::tempdir().unwrap();
     let settings_path = tmp.path().join("settings.json");
 
     // Write empty settings
     fs::write(&settings_path, "{}").unwrap();
 
-    // Build hook commands (same logic as install_claude_hooks)
+    // Build hook commands (same logic as integration::install_integration)
     let port = 7686u16;
     let null_dev = crate::shell::ShellSyntax::NULL_DEV;
     let notify_cmd = format!(

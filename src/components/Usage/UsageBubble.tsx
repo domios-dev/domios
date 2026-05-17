@@ -6,7 +6,9 @@ import { UsageDetail } from "./UsageDetail";
 import { UsageHistoryModal } from "./UsageHistoryModal";
 
 interface UsageBubbleProps {
-  provider?: string;
+  /** Provider id — required, no default. The component is hosted by a
+      pane that already knows its provider via `usageProvider`. */
+  provider: string;
   accountId?: string | null;
   /// Pass-through from a single top-level `useConfig()` so every pane's
   /// bubble doesn't re-fetch + re-listen on its own. Default `false`
@@ -17,7 +19,7 @@ interface UsageBubbleProps {
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const STALE_MS = 20 * 60 * 1000;
 
-export function UsageBubble({ provider = "claude", accountId = null, trackingEnabled = false }: UsageBubbleProps) {
+export function UsageBubble({ provider, accountId = null, trackingEnabled = false }: UsageBubbleProps) {
   const { snapshot, refresh, refetch } = useUsageSnapshot({ provider, accountId });
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);

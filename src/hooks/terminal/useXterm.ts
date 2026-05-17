@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { invoke } from "@tauri-apps/api/core";
 import { mapCursorStyle, buildXtermTheme } from "../../components/Terminal/helpers";
 import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
@@ -84,6 +85,22 @@ export function useXterm({
     term.unicode.activeVersion = "11";
 
     term.open(containerRef.current);
+
+    // WebGL renderer — load AFTER term.open() so the canvas exists.
+    // The default DOM renderer drops subtle TUI background colors used
+    // by Codex / Opencode TUIs (gray-tinted input + message blocks).
+    // WebGL renders 24-bit truecolor backgrounds per-cell correctly
+    // and is 10x faster on top of it.
+    //
+    // If WebGL context creation fails (some Linux GPUs, headless),
+    // fall back silently to the DOM renderer — xterm.js's default.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch (e) {
+      console.warn("[useXterm] WebGL renderer unavailable, falling back to DOM:", e);
+    }
 
     // Copy on select
     term.onSelectionChange(() => {

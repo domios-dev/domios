@@ -8,6 +8,15 @@ importers:
 
   .:
     dependencies:
+      '@codeterm/provider-claude':
+        specifier: workspace:*
+        version: link:plugins/provider-claude
+      '@codeterm/provider-codex':
+        specifier: workspace:*
+        version: link:plugins/provider-codex
+      '@codeterm/provider-opencode':
+        specifier: workspace:*
+        version: link:plugins/provider-opencode
       '@sigma/edge-curve':
         specifier: ^3.1.0
         version: 3.1.0(sigma@3.0.2(graphology-types@0.24.8))
@@ -87,6 +96,24 @@ importers:
       vite:
         specifier: ^8.0.0
         version: 8.0.0(jiti@2.6.1)
+
+  plugins/provider-claude:
+    dependencies:
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+
+  plugins/provider-codex:
+    dependencies:
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+
+  plugins/provider-opencode:
+    dependencies:
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
 
 packages:
 
