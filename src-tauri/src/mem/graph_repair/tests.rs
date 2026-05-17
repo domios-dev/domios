@@ -145,3 +145,73 @@ fn delete_relations_by_rowids_nonexistent_rowid_is_audited_as_zero() {
     let parsed: serde_json::Value = serde_json::from_str(&details).unwrap();
     assert_eq!(parsed["payload"].as_array().unwrap().len(), 0);
 }
+
+#[test]
+fn merge_relations_carries_over_max_confidence_and_merged_properties() {
+    let conn = fresh_conn();
+    // UNIQUE(from,rel,to,valid_from) means same (a,knows,b) needs different valid_from values
+    conn.execute(
+        "INSERT INTO relations (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, created_at)
+         VALUES ('a','knows','b','global','2026-01-01T00:00:00Z',NULL,0.7,'{\"src\":\"x\",\"shared\":1}','2026-01-01T00:00:00Z'),
+                ('a','knows','b','global','2026-01-02T00:00:00Z',NULL,0.9,'{\"src\":\"y\",\"extra\":2}','2026-01-02T00:00:00Z'),
+                ('a','knows','b','global','2026-01-03T00:00:00Z',NULL,0.5,'{\"shared\":99}','2026-01-03T00:00:00Z')",
+        [],
+    ).unwrap();
+    let ids: Vec<i64> = conn.prepare("SELECT id FROM relations ORDER BY id").unwrap()
+        .query_map([], |r| r.get(0)).unwrap()
+        .collect::<Result<_, _>>().unwrap();
+
+    let report = merge_relations(&conn, ids[0], &[ids[1], ids[2]], "test").unwrap();
+    assert_eq!(report.merged_into, ids[0]);
+    assert_eq!(report.deleted_rowids, vec![ids[1], ids[2]]);
+    assert!((report.final_confidence - 0.9).abs() < 1e-6);
+
+    let (conf, props_json): (f64, String) = conn.query_row(
+        "SELECT confidence, properties_json FROM relations WHERE id = ?1",
+        rusqlite::params![ids[0]], |r| Ok((r.get(0)?, r.get(1)?))
+    ).unwrap();
+    assert!((conf - 0.9).abs() < 1e-6, "confidence should be max(0.7, 0.9, 0.5) = 0.9");
+
+    let props: serde_json::Value = serde_json::from_str(&props_json).unwrap();
+    assert_eq!(props["src"], "x", "kept-side wins on key collision");
+    assert_eq!(props["shared"], 1, "kept-side wins on collision");
+    assert_eq!(props["extra"], 2, "non-colliding keys are carried over");
+
+    let remaining: i64 = conn.query_row("SELECT COUNT(*) FROM relations", [], |r| r.get(0)).unwrap();
+    assert_eq!(remaining, 1);
+
+    let (count, actor, details): (i64, String, String) = conn.query_row(
+        "SELECT count, actor, details_json FROM graph_purge_log ORDER BY id DESC LIMIT 1",
+        [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    ).unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(actor, "test");
+    let parsed: serde_json::Value = serde_json::from_str(&details).unwrap();
+    assert_eq!(parsed["op"], "merge_relations");
+    assert_eq!(parsed["kept"], ids[0]);
+}
+
+#[test]
+fn merge_relations_empty_merge_list_errors() {
+    let conn = fresh_conn();
+    insert_relation(&conn, &rel("a","knows","b","2026-01-01T00:00:00Z")).unwrap();
+    let err = merge_relations(&conn, 1, &[], "test").unwrap_err();
+    assert!(err.contains("merge"), "error should mention merge list, got: {}", err);
+}
+
+#[test]
+fn merge_relations_keep_in_merge_list_errors() {
+    let conn = fresh_conn();
+    insert_relation(&conn, &rel("a","knows","b","2026-01-01T00:00:00Z")).unwrap();
+    insert_relation(&conn, &rel("a","knows","b","2026-01-02T00:00:00Z")).unwrap();
+    let err = merge_relations(&conn, 1, &[1, 2], "test").unwrap_err();
+    assert!(err.contains("keep"), "error should mention keep, got: {}", err);
+}
+
+#[test]
+fn merge_relations_missing_rowid_errors() {
+    let conn = fresh_conn();
+    insert_relation(&conn, &rel("a","knows","b","2026-01-01T00:00:00Z")).unwrap();
+    let err = merge_relations(&conn, 1, &[999], "test").unwrap_err();
+    assert!(!err.is_empty(), "should error when a rowid doesn't exist");
+}
