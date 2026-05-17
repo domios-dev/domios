@@ -21,6 +21,8 @@ pub struct GraphRelateBody {
     pub scope: Option<String>,
     #[serde(default)]
     pub confidence: Option<f64>,
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 pub async fn mem_graph_relate(
@@ -38,6 +40,7 @@ pub async fn mem_graph_relate(
         valid_to: b.valid_to,
         confidence: b.confidence.unwrap_or(1.0),
         properties: serde_json::json!({}),
+        reason: b.reason,
     };
     state.svc.mem.graph_relate(&r).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "ok": true })))

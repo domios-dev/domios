@@ -63,13 +63,10 @@ mutation work.
                                                  # island's members as --sources and a topic_<theme>
                                                  # as --topic-id, with --anchor pointing at a real
                                                  # central entity (project_*, area's main topic_*).
-  codeterm mem graph relate --from A --rel R --to B
+  codeterm mem graph relate --from A --rel R --to B --reason "..."
                                                  # single edge — used for bridging a SMALL
                                                  # island (2-3 members) into an existing topic
                                                  # without inventing a new one.
-                                                 # NOTE: --reason is NOT supported on `relate`
-                                                 # (only on `route` and `introduce-topic`).
-                                                 # For bridge audit, log in your diary entry.
   codeterm mem graph invalidate --from F --rel R --to T   # close one relation
   codeterm mem graph alias --alias <less> --canonical <better>
                                                  # merges entities, rewires edges, deletes the alias.

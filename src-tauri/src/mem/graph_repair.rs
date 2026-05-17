@@ -354,16 +354,16 @@ pub fn augment_entity(
 }
 
 pub fn load_relation_by_rowid(conn: &Connection, rowid: i64) -> Result<Relation, String> {
-    let (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, props_json):
-        (String, String, String, String, String, Option<String>, f64, String) = conn.query_row(
-            "SELECT from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json
+    let (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, props_json, reason):
+        (String, String, String, String, String, Option<String>, f64, String, Option<String>) = conn.query_row(
+            "SELECT from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, reason
              FROM relations WHERE id = ?1",
             params![rowid],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?)),
         ).map_err(|e| format!("load relation {}: {}", rowid, e))?;
     let properties = serde_json::from_str(&props_json)
         .map_err(|e| format!("parse properties for rowid {}: {}", rowid, e))?;
-    Ok(Relation { from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties })
+    Ok(Relation { from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties, reason })
 }
 
 #[cfg(test)] mod tests;
