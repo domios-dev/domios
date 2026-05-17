@@ -19,10 +19,12 @@ type LaunchParams = {
   sessionId: string | null;
 };
 
-function shellQuote(s: string): string {
-  // POSIX single-quote escape: ' -> '\''
-  return "'" + s.replace(/'/g, `'\\''`) + "'";
-}
+// Host APIs available to plugin code at runtime. (Sketch — the codeterm
+// docs ship a richer .d.ts; this minimal shape is enough for autocomplete
+// here.)
+declare const host: {
+  shell: { quote(s: string): string };
+};
 
 const TITLE_RE = /\b(cursor[- ]?agent|cursor cli)\b/i;
 
@@ -90,7 +92,7 @@ export default {
 
     if (params.headless && params.task) {
       parts.push("-p");
-      parts.push(shellQuote(params.task));
+      parts.push(host.shell.quote(params.task));
       parts.push("--output-format", "text");
     }
 
@@ -99,14 +101,14 @@ export default {
     }
 
     if (params.args && params.args.length > 0) {
-      for (const a of params.args) parts.push(shellQuote(a));
+      for (const a of params.args) parts.push(host.shell.quote(a));
     }
 
     return parts.join(" ");
   },
 
   buildResumeCommand(sessionId: string, skipPermissions: boolean): string {
-    const parts = ["agent", "--resume", shellQuote(sessionId)];
+    const parts = ["agent", "--resume", host.shell.quote(sessionId)];
     if (skipPermissions) parts.push("--sandbox", "disabled");
     return parts.join(" ");
   },

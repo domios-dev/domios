@@ -139,6 +139,15 @@ impl JsProvider {
         }
     }
 
+    /// Call a plugin method expected to return `{ok: bool, error?: string}`.
+    /// Returns `None` when the plugin doesn't export the method (so the
+    /// caller can fall back to a manifest-driven default); returns
+    /// `Some(Ok)` / `Some(Err)` once the plugin replies.
+    fn try_call_result(&self, method: &str, args: &[Value]) -> Option<Result<(), String>> {
+        self.try_call::<serde_json::Value>(method, args)
+            .map(|v| result_from_js(&v))
+    }
+
     fn sessions_dir(&self, cwd: &str) -> Option<PathBuf> {
         let cfg = self.manifest.sessions.as_ref()?;
         let root = PluginManifest::expand_home(&cfg.root_dir)?;
@@ -599,41 +608,31 @@ impl AgentProvider for JsProvider {
     fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {
         // Plugin returns { ok: true } or { ok: false, error: "..." }.
         // If the plugin doesn't export `installBridgeRule`, fall back to
-        // writing to manifest.rule.path when present — keeps the trait
-        // contract honest for the common case ("declared a path, didn't
-        // bother to write code").
-        if let Some(v) =
-            self.try_call::<serde_json::Value>("installBridgeRule", &[serde_json::json!(payload)])
-        {
-            return result_from_js(&v);
+        // writing manifest.rule.path when present — keeps the contract
+        // honest for plugins that declared the path but skipped the JS.
+        if let Some(r) = self.try_call_result("installBridgeRule", &[json!(payload)]) {
+            return r;
         }
-        if let Some(rule) = self.manifest.rule.as_ref() {
-            let Some(path) = PluginManifest::expand_home(&rule.path) else {
-                return Err("rule.path: home dir not resolvable".into());
-            };
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| format!("create {}: {e}", parent.display()))?;
-            }
-            std::fs::write(&path, payload).map_err(|e| format!("write {}: {e}", path.display()))?;
-            return Ok(());
+        let Some(rule) = self.manifest.rule.as_ref() else { return Ok(()) };
+        let path = PluginManifest::expand_home(&rule.path)
+            .ok_or_else(|| "rule.path: home dir not resolvable".to_string())?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("create {}: {e}", parent.display()))?;
         }
-        Ok(())
+        std::fs::write(&path, payload).map_err(|e| format!("write {}: {e}", path.display()))
     }
 
     fn uninstall_bridge_rule(&self) -> Result<(), String> {
-        if let Some(v) = self.try_call::<serde_json::Value>("uninstallBridgeRule", &[]) {
-            return result_from_js(&v);
+        if let Some(r) = self.try_call_result("uninstallBridgeRule", &[]) {
+            return r;
         }
-        if let Some(rule) = self.manifest.rule.as_ref() {
-            if let Some(path) = PluginManifest::expand_home(&rule.path) {
-                if path.exists() {
-                    std::fs::remove_file(&path)
-                        .map_err(|e| format!("remove {}: {e}", path.display()))?;
-                }
-            }
+        let Some(rule) = self.manifest.rule.as_ref() else { return Ok(()) };
+        let Some(path) = PluginManifest::expand_home(&rule.path) else { return Ok(()) };
+        if !path.exists() {
+            return Ok(());
         }
-        Ok(())
+        std::fs::remove_file(&path).map_err(|e| format!("remove {}: {e}", path.display()))
     }
 
     fn check_integration(&self) -> serde_json::Value {
@@ -642,39 +641,32 @@ impl AgentProvider for JsProvider {
     }
 
     fn install_integration(&self, api_port: u16) -> Result<(), String> {
-        if let Some(v) = self.try_call::<serde_json::Value>(
-            "installIntegration",
-            &[serde_json::json!(api_port)],
-        ) {
-            return result_from_js(&v);
-        }
-        Ok(())
+        self.try_call_result("installIntegration", &[json!(api_port)])
+            .unwrap_or(Ok(()))
     }
 
     fn uninstall_integration(&self) -> Result<(), String> {
-        if let Some(v) = self.try_call::<serde_json::Value>("uninstallIntegration", &[]) {
-            return result_from_js(&v);
-        }
-        Ok(())
+        self.try_call_result("uninstallIntegration", &[])
+            .unwrap_or(Ok(()))
     }
 
     fn ensure_integration_on_startup(&self, api_port: u16) {
-        // Defer to plugin if it implements this method; otherwise use the
-        // generic check-then-install dance. Either way, swallow errors —
-        // missing hooks shouldn't block startup.
-        if let Some(v) = self.try_call::<serde_json::Value>(
+        // Plugin owns the dance if it implements `ensureIntegrationOnStartup`;
+        // otherwise check-then-install. Either way, swallow errors — a
+        // missing or failed hook install must not block startup.
+        if let Some(r) = self.try_call_result(
             "ensureIntegrationOnStartup",
-            &[serde_json::json!(api_port)],
+            &[json!(api_port)],
         ) {
-            let _ = result_from_js(&v);
+            let _ = r;
             return;
         }
-        let status = self.check_integration();
-        let already = status
+        let installed = self
+            .check_integration()
             .get("hooks_installed")
             .and_then(|b| b.as_bool())
             .unwrap_or(false);
-        if already {
+        if installed {
             return;
         }
         if let Err(e) = self.install_integration(api_port) {

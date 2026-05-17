@@ -1,11 +1,6 @@
-// Codex provider plugin — pure-logic surface. Session file enumeration
-// + rollout JSONL fan-out stay in the native Rust provider because
-// codex stores sessions in a YYYY/MM/DD tree that needs recursive
-// directory walking (cheaper in Rust than JSON-serializing per file).
-
-function shellQuote(s) {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'";
-}
+// Codex provider plugin. Detection + slash commands + rollout-tree
+// session enumeration via host.fs.walkDir + host.fs.sqliteQuery for
+// the modern sqlite-backed install.
 
 var TITLE_RE = /codex/i;
 var OUTPUT_FINGERPRINTS = [
@@ -93,7 +88,7 @@ module.exports.default = {
       parts.push("-c");
       parts.push("'shell_environment_policy.inherit=all'");
       parts.push("--skip-git-repo-check");
-      parts.push(shellQuote(p.task));
+      parts.push(host.shell.quote(p.task));
     } else {
       parts.push("codex");
       if (p.skipPermissions) {
@@ -114,7 +109,7 @@ module.exports.default = {
     // session_id may be a UUID OR a rollout filename stem; native impl
     // extracts the UUID. We do the same so callers can pass either.
     var uuid = extractSessionUuid(sessionId) || sessionId;
-    parts.push(shellQuote(uuid));
+    parts.push(host.shell.quote(uuid));
     return parts.join(" ");
   },
 

@@ -2,10 +2,6 @@
 // Loaded by codeterm's embedded QuickJS runtime. No imports allowed;
 // everything must be a single self-contained CommonJS file.
 
-function shellQuote(s) {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'";
-}
-
 var TITLE_RE = /\b(cursor[- ]?agent|cursor cli)\b/i;
 
 var OUTPUT_FINGERPRINTS = [
@@ -65,7 +61,7 @@ module.exports.default = {
     var parts = ["agent"];
     if (p.headless && p.task) {
       parts.push("-p");
-      parts.push(shellQuote(p.task));
+      parts.push(host.shell.quote(p.task));
       parts.push("--output-format");
       parts.push("text");
     }
@@ -74,13 +70,13 @@ module.exports.default = {
       parts.push("disabled");
     }
     if (p.args && p.args.length > 0) {
-      for (var i = 0; i < p.args.length; i++) parts.push(shellQuote(p.args[i]));
+      for (var i = 0; i < p.args.length; i++) parts.push(host.shell.quote(p.args[i]));
     }
     return parts.join(" ");
   },
 
   buildResumeCommand: function (sessionId, skipPermissions) {
-    var parts = ["agent", "--resume", shellQuote(sessionId)];
+    var parts = ["agent", "--resume", host.shell.quote(sessionId)];
     if (skipPermissions) {
       parts.push("--sandbox");
       parts.push("disabled");
