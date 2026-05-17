@@ -771,6 +771,11 @@ pub enum MemGraphAction {
         /// Cascade-delete active relations referencing this entity.
         #[arg(long)]
         force: bool,
+        /// Also hard-delete invalidated (historical) relations referencing this entity.
+        /// Default false: history is preserved as ghost rows for `revive-broken` and
+        /// timeline queries. Set this when you're sure the entity is gone for good.
+        #[arg(long)]
+        purge_history: bool,
         #[arg(long, default_value = "user")]
         actor: String,
     },
