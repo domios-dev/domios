@@ -141,25 +141,30 @@ git checkout v$VER
 
 You're now in detached HEAD on the exact tagged commit. All builds below use this tree.
 
-### 5. Build arm64 + notarize + staple
-
-`./build.sh build` signs the inner `.app` and notarizes it, but **does NOT notarize the DMG wrapper itself**. Staple the DMG manually:
+### 5+6. Build + notarize + pack updater bundles (both archs)
 
 ```bash
-./build.sh build
-ARM=src-tauri/target/release/bundle/dmg/CodeTerm_${VER}_aarch64.dmg
-xcrun notarytool submit "$ARM" --keychain-profile codeterm --wait
-xcrun stapler staple "$ARM"
-spctl -a -t open --context context:primary-signature -vv "$ARM"  # must print "accepted, Notarized Developer ID"
+WORK=/tmp/codeterm-${VER}-mirror
+mkdir -p "$WORK"
+HELPERS=.codeterm/skills/github-release/scripts
+ARM_SIG=$("$HELPERS/mac-bundle.sh" "$VER" arm64   "$WORK")
+X64_SIG=$("$HELPERS/mac-bundle.sh" "$VER" x86_64 "$WORK")
 ```
 
-### 6. Build x86_64 (full script handles notarize+staple)
+`mac-bundle.sh` does the whole arch-pipeline per call:
+1. `build-mac.sh` — sources `~/.claude/.secrets/apple-notary.env`, kills any running dev, runs the build, verifies the resulting `.app` was signed with `Developer ID Application` + `flags=0x10000(runtime)`. Failing this sanity check beats discovering an ad-hoc-signed binary half an hour into Apple's notarize queue. (Hard-learned 2026-05-17 v1.3.0.)
+2. `notarize-dmg.sh` — submits, waits (quiet mode: dot-spam suppressed), staples, runs `spctl`. On rejection prints Apple's detailed issues to stderr.
+3. `pack-mac-updater.sh` — `tar --no-mac-metadata` (required: without it Tauri's Rust tar lib materializes `._CodeTerm.app` AppleDouble shadows on extract and the updater rejects with "failed to unpack `._CodeTerm.app`"), Python-extract sanity check, minisign-sign. Echoes the base64 signature to stdout.
+
+The captured `ARM_SIG` / `X64_SIG` go straight into latest.json below.
+
+### Status dashboard (any time during the flow)
 
 ```bash
-bash scripts/release-macos-x86_64.sh
-X64=src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/CodeTerm_${VER}_x64.dmg
-spctl -a -t open --context context:primary-signature -vv "$X64"   # must print accepted
+.codeterm/skills/github-release/scripts/release-status.sh "$VER"
 ```
+
+Compact one-shot view of: private/public assets, latest.json manifest plat coverage, and per-platform CI run state. Replaces 3-4 separate `gh` queries.
 
 Cross-compile detail (why this script exists): `macos-x86_64-release` skill.
 
@@ -184,11 +189,9 @@ Pointing `latest.json` at `.dmg` / `.exe` URLs makes `codeterm update --apply` f
 WORK=/tmp/codeterm-${VER}-mirror
 mkdir -p "$WORK" && cp "$ARM" "$X64" "$WORK/"
 
-# 1. Tar+gzip the .app bundles for the auto-updater (in addition to the .dmg files we already have).
-tar -czf "$WORK/CodeTerm_${VER}_aarch64.app.tar.gz" \
-  -C src-tauri/target/release/bundle/macos CodeTerm.app
-tar -czf "$WORK/CodeTerm_${VER}_x64.app.tar.gz" \
-  -C src-tauri/target/x86_64-apple-darwin/release/bundle/macos CodeTerm.app
+# 1. Mac updater bundles + signatures came out of `mac-bundle.sh` above as
+#    $ARM_SIG / $X64_SIG. The .tar.gz files are in $WORK; .sig files are
+#    persisted alongside for archive but NOT uploaded to the release.
 
 # 2. Sign each updater artifact with the minisign key (key file at ~/.tauri/codeterm.key,
 # base64-encoded minisign secret, password empty for the local-dev key). The .sig is
@@ -277,7 +280,30 @@ codeterm update --apply     # → must NOT fail with 'invalid gzip header'.
 
 If the Windows build is still pending when you mirror, leave the `windows-x86_64.signature` placeholder ("") and update the manifest after BLACKSTAR uploads its signed `.nsis.zip.sig` (re-upload `latest.json` with `--clobber`). Same flow applies if BLACKSTAR delivers `.nsis.zip` AFTER you have already published the public mirror — just re-upload `latest.json` with the corrected windows signature.
 
-### 8. Kick Windows build on ROG via mesh (BLACKSTAR fallback)
+### 8. Windows build
+
+**Preferred path: CI** (`.github/workflows/release-windows.yml`, runs automatically on tag push). Block on it with:
+
+```bash
+.codeterm/skills/github-release/scripts/wait-ci.sh latest release-windows.yml
+```
+
+The helper wraps `gh run watch --exit-status` so the caller gets exactly one notification when the run finishes — no token-burning poll loop.
+
+If CI fails the "Publish per-platform updater fragment" step (it has happened: Tauri's NSIS bundler sometimes skips `.nsis.zip` next to the `.exe`), do the manual workaround:
+
+```bash
+WORK=/tmp/codeterm-${VER}-mirror
+gh release download v$VER --pattern "CodeTerm_${VER}_x64-setup.exe" --dir "$WORK"
+(cd "$WORK" && zip -0 CodeTerm_${VER}_x64-setup.nsis.zip CodeTerm_${VER}_x64-setup.exe)
+KEY_B64=$(cat ~/.tauri/codeterm.key | tr -d '\n')
+TAURI_SIGNING_PRIVATE_KEY="$KEY_B64" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" \
+  npx --yes @tauri-apps/cli signer sign "$WORK/CodeTerm_${VER}_x64-setup.nsis.zip"
+WIN_SIG=$(cat "$WORK/CodeTerm_${VER}_x64-setup.nsis.zip.sig" | tr -d '\n')
+# Patch latest.json then `gh release upload v$VER --repo ${MIRROR} ... --clobber` the .exe, .nsis.zip, latest.json.
+```
+
+**Fallback path: build on ROG via mesh** (manual orchestration, slower but unblocks if CI runner has an outage). Walks below for completeness.
 
 **Default builder = ROG** (Windows 11, primary workstation as of 2026-05-12). Fallback = BLACKSTAR.
 
