@@ -1,327 +1,453 @@
-# 20 — Provider plugins (TypeScript)
+# 20 — Provider plugins (TypeScript, embedded JS runtime)
 
-> **Scope:** make provider-specific knowledge (Claude, Codex, Opencode,
-> future ones) shippable as standalone TypeScript packages — parser,
-> detection, renderer, actions — that load into the WebView and (later)
-> into a server-side JS runtime. Hot-reloadable in dev, replaceable in
-> prod without rebuilding the Rust binary.
+> **Scope:** make a provider plugin a single TypeScript bundle dropped
+> into a folder, with **zero Rust code per provider**. CodeTerm's
+> Rust core embeds a JavaScript runtime; plugin functions run there
+> when called from headless code paths and in the WebView when called
+> from the UI. Adding a new provider means writing TS + JSON manifest,
+> no `cargo build` ever.
 
-Parent: [00-vision.md](00-vision.md). Amends:
-[plugin-architecture.md](../plugin-architecture.md).
+Parent: [00-vision.md](00-vision.md). Supersedes the v1 draft of this
+doc which left half the provider in Rust — that was wrong and is the
+reason this rewrite exists.
 Blocked by: [10-pane-transport-protocol.md](10-pane-transport-protocol.md)
-(plugins consume the transport's events stream).
+(plugins consume transport events; transport is independent of plugin
+shape but the contract for events is shared).
 
-## 1. Why this exists
+## 1. The mistake we're fixing
 
-The current state (read by inspection on `docs/relay-plan` branch):
+The first pass extracted parser + renderer + status mapping into TS
+plugins under `plugins/provider-*/`. Everything else — title detection,
+PTY output detection, permission-prompt parsing, session-name extraction,
+TUI noise filtering, slash-command literals, model lists, settings
+schemas, icon SVG, hook installer logic — stayed in Rust under
+`src-tauri/src/plugin/agent_<id>/`. That meant:
 
-- **Rust side** has a real plugin skeleton in `src-tauri/src/plugin/`
-  with `Plugin` trait, `PluginManifest`, `PluginManager`, three tiers
-  (Native / Process / Wasm). All three current providers
-  (`agent_claude`, `agent_codex`, `agent_opencode`) are Native — i.e.
-  compiled into the binary. Process and Wasm are stubs.
-- **Frontend side** has zero plugin abstraction.
-  `src/components/ChatView/parser.ts` is a hardcoded Claude JSONL parser
-  (`parseJsonlSession`, `STATUS_MARKER = "✱"`, `parseClaudeOutput`).
-  Codex and Opencode panes get **no fancy chat at all** today, just raw
-  xterm.
+- A plugin author **could not add a new provider** without writing a
+  Rust `AgentProvider` trait impl. The "TS plugin" promise was
+  half-true at best.
+- TS-side `detect()` / `titlePattern` were declared on the plugin
+  contract but **nobody called them in production code**. Dead
+  duplication, drift risk.
+- The Rust plugin loader still had hardcoded
+  `mod agent_claude; mod agent_codex; mod agent_opencode;` —
+  recompile-required for every new provider.
 
-The gap: the Rust trait is fat (~70 methods, file paths, lifetimes,
-locks) and cannot be exposed as-is to a TS plugin author. Meanwhile the
-chat UI is single-provider and stuck.
+This plan replaces all of that with one architecture: **TS plugins are
+the source of truth, Rust core runs them via an embedded JS engine for
+headless code paths and via the WebView for UI code paths.**
 
-This plan **does not throw out the Rust skeleton.** It splits the
-"provider" concept into two halves:
-
-- **Backend half (stays in Rust):** PTY spawn, file I/O on session
-  files, OS-level process introspection. Owned by the existing plugin
-  tiers; very few people will ever write this.
-- **Behaviour half (moves to TS):** PTY-byte detection patterns,
-  JSONL parsing, renderer component, action handlers, status mapping.
-  This is what changes often, what plugin authors actually want to
-  customise, and what must run in the WebView anyway.
-
-## 2. What a TS provider plugin is
-
-A directory shipped as an npm-style package:
+## 2. The architecture
 
 ```
-@codeterm/provider-claude/
-├── package.json          name, version, codeterm engine range
-├── plugin.json           CodeTerm-specific manifest (capabilities, schemas)
+   ┌─────────────────────────────────────────────────────────────┐
+   │  codeterm core (Rust)                                       │
+   │                                                              │
+   │  ┌────────────────────────────────────────────────────┐    │
+   │  │ Generic JsProvider : AgentProvider                  │    │
+   │  │ Implements every trait method by either:            │    │
+   │  │  (a) reading a config field from plugin.json, OR    │    │
+   │  │  (b) calling a function in plugin.js via PluginVm   │    │
+   │  └────────────────────────────────────────────────────┘    │
+   │                       │                                      │
+   │                       ▼                                      │
+   │  ┌────────────────────────────────────────────────────┐    │
+   │  │ PluginVm (rquickjs)                                 │    │
+   │  │ • Loads plugin.js into a QuickJS context            │    │
+   │  │ • Exposes call("methodName", json_args) → JsValue   │    │
+   │  │ • One VM per plugin, init at startup, hot-swap on   │    │
+   │  │   reload                                            │    │
+   │  └────────────────────────────────────────────────────┘    │
+   │                                                              │
+   │  ┌────────────────────────────────────────────────────┐    │
+   │  │ Plugin loader                                        │    │
+   │  │ Scans:                                              │    │
+   │  │  - <repo>/plugins/<id>/dist/plugin.js   (bundled)   │    │
+   │  │  - ~/.codeterm/plugins/<id>/dist/plugin.js (user)   │    │
+   │  │ For each: parse plugin.json + load plugin.js + wrap │    │
+   │  │ in JsProvider + register in AgentRegistry           │    │
+   │  └────────────────────────────────────────────────────┘    │
+   └─────────────────────────────────────────────────────────────┘
+
+   ┌─────────────────────────────────────────────────────────────┐
+   │  WebView (React)                                            │
+   │  Same plugin.js loaded via dynamic import.                  │
+   │  Calls plugin.Renderer for chat UI, plugin.actions for      │
+   │  pane chrome, plugin.detect() if it needs to fingerprint    │
+   │  locally (e.g. mobile/relay-only path).                     │
+   │  Bundles share modules — no duplicate work.                 │
+   └─────────────────────────────────────────────────────────────┘
+```
+
+Two runtimes, **one source code** — `plugin.js`. QuickJS runs the
+headless half (detection, parsing, status) in the Rust daemon; the
+WebView runs the full module (including the React renderer) using the
+same bundle. There is no Rust code per provider — only the generic
+`JsProvider` driver and the `PluginVm` wrapper.
+
+## 3. Plugin layout
+
+```
+plugins/provider-foo/                ← bundled in-repo
+├── package.json                     # workspace package, deps for build
+├── plugin.json                      # manifest read by Rust
 ├── src/
-│   ├── detect.ts         pty fingerprint → boolean
-│   ├── parser.ts         jsonl line → ProviderEvent
-│   ├── renderer.tsx      React component, consumes ProviderEvent[]
-│   ├── actions.ts        { id, label, run } — buttons in pane chrome
-│   └── status.ts         ProviderEvent → PaneStatus mapping
-├── tests/
-│   └── snapshots/        captured real-Claude JSONL fixtures
+│   ├── index.ts                     # default export: ProviderPlugin
+│   ├── detect.ts                    # detection logic (pure)
+│   ├── parser.ts                    # JSONL/session parser (pure)
+│   ├── status.ts                    # event → PaneStatus mapping (pure)
+│   ├── sessions.ts                  # session enumeration helpers (pure)
+│   ├── renderer.tsx                 # React component (WebView only)
+│   └── MessageBubble.tsx            # per-message UI
+├── tests/                           # vitest, run in node (no Rust needed)
 └── dist/
-    └── plugin.js         single esbuild bundle, what gets shipped
+    └── plugin.js                    # esbuild output, single file
 ```
 
-`plugin.json` (extends, doesn't replace, the existing Rust manifest
-shape — see §6):
+When a user installs a third-party plugin, they drop the same shape
+into `~/.codeterm/plugins/provider-foo/` (typically just the `plugin.json`
+and `dist/plugin.js` — the source folder isn't required at runtime).
+
+## 4. The plugin.json manifest
+
+Pure data — Rust reads it once at load time. **Anything that's a
+literal constant lives here**; logic-bearing fields live in plugin.js.
 
 ```jsonc
 {
-  "id": "provider-claude",
-  "kind": "provider",
-  "provider_id": "claude",         // the agent_type it claims
+  "id": "claude",
+  "version": "0.1.0",
   "displayName": "Claude Code",
-  "engine": ">=1.3.0",             // codeterm version range
-  "entry": "dist/plugin.js",
+  "engine": ">=1.3.0",
+
+  // Identity / UI
+  "iconHint": "✳",
+  "iconColor": "#d97757",
+  "iconSvg": "<svg viewBox=...>...</svg>",
+  "binaryName": "claude",
+
+  // Spawn semantics (drives Rust state machine — no behaviour, just config)
+  "spawn": {
+    "readinessStrategy": { "kind": "poll_shell_prompt", "timeoutSecs": 30 },
+    "taskDelivery": "inline_flag",
+    "taskInputWarmupMs": 0,
+    "verifySubmit": {
+      "kind": "tui_input_drained",
+      "timeoutSecs": 15,
+      "idleAfterDrainMs": 800
+    },
+    "sessionIdInjection": "fresh_and_fork",
+    "statusBarRows": 3,
+    "preservesContextOnResume": true,
+    "supportsLazySkills": true,
+    "hasHooks": true
+  },
+
+  // Session storage (Rust uses these paths for file I/O, plugin has
+  // pure parser functions for the contents).
+  "sessions": {
+    "rootDir": "~/.claude/projects",
+    "cwdEncoding": "encode_path_dashes",
+    "fileExtension": "jsonl"
+  },
+
+  // Hooks / integration installer (Rust writes the file; plugin
+  // doesn't need to know about FS I/O).
+  "integration": {
+    "kind": "claude_settings_json",
+    "settingsPath": "~/.claude/settings.json",
+    "hooks": ["Notification", "Stop", "PreCompact", "SessionStart"]
+  },
+
+  // Project rule installer (the codeterm rule file)
+  "rule": {
+    "path": "~/.claude/rules/codeterm.md"
+  },
+
+  // Models (Rust reads as available_models, plugin doesn't compute)
+  "models": [
+    {
+      "id": "opus",
+      "displayName": "Claude Opus 4.7 (1M context)",
+      "description": "Most capable for complex work."
+    },
+    /* ... */
+  ],
+  "defaultModel": "sonnet",
+
+  // Per-platform installer commands
+  "installer": {
+    "macos": "curl -fsSL https://claude.ai/install.sh | bash",
+    "linux": "curl -fsSL https://claude.ai/install.sh | bash",
+    "windows": "powershell -Command \"irm https://claude.ai/install.ps1 | iex\""
+  },
+
+  // Slash commands / control literals
+  "commands": {
+    "compact": "/compact",
+    "exit": "/exit",
+    "modelSwitchFormat": "/model {model}",
+    "autoApproveFlags": ["--dangerously-skip-permissions"],
+    "modelLaunchArgsFormat": ["--model", "{model}"]
+  },
+
+  // Permissions the plugin needs (transport, etc)
   "permissions": {
-    "transport_events": ["pty", "events"],
-    "send_text": true
+    "transportEvents": ["pty", "events"],
+    "sendText": true
   }
 }
 ```
 
-## 3. Runtime model
+## 5. plugin.js — the contract Rust calls into
 
-### MVP (M3): WebView only
-
-- The plugin bundle is loaded at app start with `import(pluginUrl)`.
-- It exports a default object satisfying the `ProviderPlugin` interface
-  (§4).
-- The frontend's `<PaneView pane={p}>` looks up
-  `getPlugin(p.agent_type)`. If found → renders
-  `<plugin.Renderer events={…} />`. If not → falls back to xterm
-  passthrough (always available, never broken).
-- Detection in the WebView: when a new pane shows up without
-  `agent_type`, the frontend feeds early PTY bytes through every
-  registered plugin's `detect()` and pins the first match. Cheap
-  because we only do it for ambiguous panes in the first few seconds.
-
-### Later (M4+): server-side via embedded QuickJS
-
-Some plugin code must run when no WebView is open — e.g. mobile relay
-case: a phone backgrounded for hours wakes up, asks for a snapshot,
-needs `status` populated correctly even though no desktop UI has been
-running. For that we host a tiny **QuickJS** runtime inside the Rust
-daemon and load the *same* plugin bundle's `detect`, `parser`, and
-`status` exports (not `renderer` — no React on the server).
-
-This is deliberately deferred. M3 (WebView-only) is enough for desktop
-and for the relay's hosted SPA (it's a WebView too). Mobile native apps
-can call the peer's REST endpoints that internally invoke the plugin —
-i.e. the peer hosting the pane runs the plugin server-side. That's
-exactly what QuickJS enables.
-
-## 4. The plugin interface
-
-The contract a TS plugin satisfies. Stable across minor versions.
+`plugin.js` is an ES module (esbuild target: `esm`). Its default export
+implements the `ProviderPlugin` interface:
 
 ```ts
-import type { ReactNode } from "react";
-
-/**
- * One provider plugin's surface. Pure data + functions — no
- * stateful classes, no host references. Anything the plugin needs
- * from the host is passed in arguments.
- */
 export interface ProviderPlugin {
-  meta: {
-    id: string;                    // matches plugin.json provider_id
-    displayName: string;
-  };
+  // ── Detection ──────────────────────────────────────────────
+  detectFromTitle(title: string): boolean;
+  detectFromOutput(text: string): boolean;
+  screenHasTui(text: string): boolean;
+  hasEventMarkers(chunk: string): boolean;             // fast pre-filter
+  detectEvents(text: string): AgentEvent[];            // structural
+  extractSessionName(screen: string): string | null;
+  isOutputNoise(text: string): boolean;
 
-  /** Cheap structural check on PTY bytes. Called repeatedly on fresh
-      panes; must be fast. No I/O. */
-  detect(sample: { bytes: string; title?: string }): boolean;
-
-  /** Parse one JSONL session line into structured events. May emit
-      zero or many. The host calls this per line received over
-      transport. */
-  parseLine(line: string): ProviderEvent[];
-
-  /** Map a parsed event to a coarse pane status. Returning `null`
-      means "no status change". */
+  // ── Session parsing (called per-line by Rust) ──────────────
+  parseSessionMessages(jsonl: string): SessionMessage[];
+  parseLine(line: string): ProviderEvent[];            // for UI
   statusOf(event: ProviderEvent): PaneStatus | null;
 
-  /** React component rendering the chat view. Consumes the event
-      stream and the live PTY (for fallback / raw view toggle). */
-  Renderer: (props: RendererProps) => ReactNode;
+  // ── Build command bytes / strings ──────────────────────────
+  buildLaunchCommand(params: AgentLaunchParams): string;
+  buildResumeCommand(sessionId: string, skipPermissions: boolean): string | null;
+  buildPromptResponse(optionIndex: number): Uint8Array[];
+  parsePrompt(text: string): { question: string; options: [string, string][] } | null;
 
-  /** Buttons/menu items the plugin contributes to pane chrome.
-      Each action's `run` returns text to send via transport
-      `send_text`, or null to cancel. */
-  actions: ProviderAction[];
+  // ── Settings schema (declarative, but with conditional logic) ─
+  settingsSchema(): SettingField[];
+  notificationsSchema(): SettingField[];
+
+  // ── UI-only (called in WebView, NOT in Rust QuickJS) ───────
+  Renderer?: (props: RendererProps) => ReactNode;
+  actions?: ProviderAction[];
+
+  // ── Meta (mostly read from plugin.json, but exposed for symmetry) ─
+  meta(): { id: string; displayName: string };
 }
-
-export interface ProviderEvent {
-  kind: string;                     // "user_message" | "assistant" | "tool_call" | ...
-  ts?: number;
-  payload: unknown;                 // plugin-defined
-}
-
-export interface RendererProps {
-  events: ProviderEvent[];
-  raw: () => ReactNode;             // mount xterm.js on the raw pty
-  send: (text: string) => Promise<void>;
-  status: PaneStatus;
-}
-
-export interface ProviderAction {
-  id: string;
-  label: string;
-  run: (ctx: { events: ProviderEvent[] }) => string | null;
-}
-
-export type PaneStatus =
-  | { kind: "idle" }
-  | { kind: "agent_working" }
-  | { kind: "agent_waiting_input"; question?: string }
-  | { kind: "agent_done" }
-  | { kind: "agent_error"; message?: string }
-  | { kind: "exited"; code: number };
 ```
 
-Two things to notice:
+**Method-by-method contract:**
 
-- The plugin **does not own state**. The host keeps the event list and
-  pane status; the plugin is a set of pure transforms + a React
-  component. This is what makes hot-reload trivial — replace the
-  module, re-render, done.
-- The plugin **does not see PTY directly except via `raw()`**. The
-  fancy renderer consumes structured events. If the plugin's parser
-  hasn't seen events yet (e.g. a brand new pane), the renderer simply
-  mounts `raw()` and the user sees terminal output until parser data
-  flows in.
+| Method | Pure? | Where Rust calls it | Notes |
+|---|---|---|---|
+| `detectFromTitle` | Yes | OSC 0/2 handler, screen poller | Replaces Rust `detect_from_title` |
+| `detectFromOutput` | Yes | PTY byte stream, screen poller | Replaces Rust `detect_from_output` |
+| `screenHasTui` | Yes | Restart logic | Was `screen_has_tui` |
+| `hasEventMarkers` | Yes | Pre-filter before `detectEvents` | Performance hot path |
+| `detectEvents` | Yes | Screen state tracker | Permission prompts + task completion |
+| `extractSessionName` | Yes | Pane session-name capture | |
+| `isOutputNoise` | Yes | Activity log filter | |
+| `parseSessionMessages` | Yes | Cross-provider session search | Stateless JSONL parser |
+| `parseLine` | Yes | WebView chat renderer | Same code as above but per-line |
+| `statusOf` | Yes | Status badge + push events | |
+| `buildLaunchCommand` | Yes | Spawn (Rust executes the returned string) | |
+| `buildResumeCommand` | Yes | Resume on restart | |
+| `buildPromptResponse` | Yes | Permission-prompt auto-answer | |
+| `parsePrompt` | Yes | Permission-prompt parsing | |
+| `settingsSchema` | Yes | Settings UI render | Returns declarative shape |
+| `notificationsSchema` | Yes | Settings UI render | |
+| `Renderer` | UI-only | WebView ChatView | NOT loaded in QuickJS — React-dependent |
+| `actions` | UI-only | WebView pane chrome | |
 
-## 5. Migration path — extract Claude first
+**What stays in Rust core (NOT per-plugin):**
 
-Concrete first delivery for M3:
+- The `JsProvider` driver — generic, knows how to call into a plugin
+- The `PluginVm` (QuickJS wrapper)
+- Filesystem helpers — session enumeration via `walkdir`, file reads
+  for parser to consume, manifest path resolution. **These USE the
+  plugin's pure functions** (e.g. Rust reads `~/.claude/projects/*/*.jsonl`,
+  passes each file's content to `plugin.parseSessionMessages()`).
+- Process spawn — `tokio::process::Command::new` driven by the string
+  returned from `buildLaunchCommand`.
+- Settings file writes for `install_integration` / `install_rule` —
+  Rust does the FS write, parameters come from `plugin.json`
+  (`integration.settingsPath`, `rule.path`).
 
-1. Create `plugins/provider-claude/` in the repo (top-level, sibling to
-   `src/` and `src-tauri/`).
-2. Move:
-   - `src/components/ChatView/parser.ts` → `provider-claude/src/parser.ts`
-   - `src/components/ChatView/MessageBubble.tsx` parts that are
-     Claude-specific → `provider-claude/src/renderer.tsx`
-   - Hardcoded constants (`STATUS_MARKER`, slash command list) into
-     the plugin
-3. Leave `src/components/ChatView/ChatView.tsx` as the **host
-   container** that picks a plugin by `pane.agent_type` and mounts
-   `<plugin.Renderer />`. Falls back to xterm if no plugin matches.
-4. Write `tests/snapshots/*` from real recent Claude sessions on dev
-   machines. Run them in plugin CI.
-5. Ship as workspace package; the build step bundles it into the
-   app's static dir for now (later: load from
-   `~/.codeterm/plugins/<id>/dist/plugin.js`).
+## 6. PluginVm — the Rust ↔ JS bridge
 
-This is also the dogfood for the plugin API — if any current Claude
-behaviour can't be expressed via the interface above, the interface is
-wrong and we adjust before publishing.
+Built on `rquickjs` (small embeddable QuickJS-based JS engine — ~2 MB
+binary cost, no native deps beyond what rust-ld provides). Per-plugin
+instance.
 
-## 6. Relationship to existing Rust plugin system
+```rust
+pub struct PluginVm {
+    rt: rquickjs::Runtime,
+    ctx: rquickjs::Context,
+    plugin_id: String,
+    // Cached `default` export of the loaded module
+    module_handle: PersistentValue,
+}
 
-The existing `src-tauri/src/plugin/` system stays. The relationship:
+impl PluginVm {
+    pub fn load(plugin_id: &str, plugin_js_path: &Path) -> Result<Self, VmError>;
+    pub fn call<R: DeserializeOwned>(
+        &self,
+        method: &str,
+        args: &[serde_json::Value],
+    ) -> Result<R, VmError>;
+    pub fn reload(&mut self, plugin_js_path: &Path) -> Result<(), VmError>;
+}
+```
 
-- A **bundled provider** like Claude currently registers a Rust
-  `Plugin` that contributes an `AgentProvider` (process spawn, session
-  file paths, etc.). That stays for the **backend half**.
-- The new TS plugin bundles the **behaviour half** and ships as part of
-  the same logical "Claude provider". For bundled providers (the three
-  we ship) the TS plugin lives in the repo and is loaded from a
-  built-in URL. For third-party providers, both halves can be shipped
-  by the same author — the TS plugin in npm, the Rust plugin via the
-  existing Process or Wasm tier when those land.
-- **Practical v1:** all three current providers keep their Rust half as
-  Native. Only the TS half becomes pluggable. We are not asking anyone
-  to write Rust to add Claude renderer improvements.
+The VM is single-threaded per plugin (QuickJS isn't `Send`); calls
+from Rust are dispatched through a per-plugin actor (mpsc channel +
+dedicated tokio task). The actor serializes requests, runs them on
+the JS context, returns results.
 
-## 7. Hot reload (dev)
+**Memory budget:** per-plugin VM at ~500 KB resident (a fresh QuickJS
+context + a small bundle). With three bundled providers + a user
+provider, total overhead is single-digit MB. Acceptable.
 
-In `./build.sh dev` mode:
+**Hot reload:** when `plugin.js` changes on disk, the loader sends
+the actor a `Reload` message; the actor re-imports the module and
+swaps the handle. In-flight calls complete on the old handle (we
+don't kill mid-request).
 
-- Vite watches `plugins/*/src/**`.
-- On change, Vite re-bundles the affected plugin and HMR-pushes the new
-  module to the WebView.
-- The host's plugin loader unregisters the old plugin, registers the
-  new one, and forces a re-render of any pane currently using it.
-- **Plugin state survives** because state lives in the host (events,
-  status) — only the function references change.
+## 7. UI side — WebView shares the same bundle
 
-In prod, plugins are versioned bundles fetched from a CDN or the
-peer's local plugins dir; updates happen on app launch by checking
-`engine` compat and the published version.
+The WebView already loads `plugin.js` from `plugins/*/src/index.ts`
+via Vite's `import.meta.glob`. After this refactor it loads from
+`plugins/*/dist/plugin.js` (esbuild output) instead, the same artifact
+the Rust side uses. Same source code, two runtimes:
 
-## 8. Snapshot testing against real CLIs
+- **QuickJS in Rust**: parser, detection, status, spawn-string
+  building, settings schema. Lightweight, no DOM, no React.
+- **V8 in WebView**: full module including React renderer. Imports
+  React from the host's bundle, doesn't ship its own.
 
-Each plugin owns its own drift defence:
+The renderer (`Renderer`, `actions`) is **excluded from the QuickJS
+call surface** — Rust never asks the plugin to render React; that's
+WebView's job. The bundle is structured so the heavy React-using
+parts tree-shake out of the QuickJS code path (or just throw if
+called, since Rust never calls them).
 
-- `tests/snapshots/` holds JSONL fixtures captured from real provider
-  runs (`tests/snapshots/claude-2026-05-17/session.jsonl`).
-- Nightly CI:
-  1. Spawn a fresh container with the latest provider CLI installed.
-  2. Run a scripted scenario (ask a question, run a tool, cancel, ...).
-  3. Capture the resulting JSONL.
-  4. Run plugin against it, diff against last-known-good event stream.
-  5. On diff: open a PR with the new fixture + the failing diff.
-- A plugin only publishes a new version when its own CI is green.
-  CodeTerm pulls the latest *compatible* (per `engine`) version.
+## 8. Plugin discovery
 
-This is the contract-test pattern. It moves the burden of "Claude
-changed their format" from the codeterm release cycle to the plugin's
-own cycle, which is a much faster loop.
+```rust
+fn discover_all_plugins() -> Vec<PluginManifest> {
+    let mut out = Vec::new();
+    // Bundled: shipped in app data dir
+    for entry in std::fs::read_dir(bundled_plugins_dir())?.flatten() {
+        if let Ok(m) = PluginManifest::load(&entry.path().join("plugin.json")) {
+            out.push(m);
+        }
+    }
+    // User: third-party + overrides
+    for entry in std::fs::read_dir(user_plugins_dir())?.flatten() {
+        if let Ok(m) = PluginManifest::load(&entry.path().join("plugin.json")) {
+            out.push(m);
+        }
+    }
+    // User wins on id collision (user can override a bundled plugin)
+    dedup_by_id_preferring_later(out)
+}
+```
 
-## 9. Distribution and discovery
+`user_plugins_dir()` = `~/.codeterm/plugins/` (cross-platform via
+`dirs::data_dir()` on each OS).
 
-- **Bundled plugins** (Claude/Codex/Opencode for now): shipped in-tree,
-  loaded from app static files. No user action.
-- **User plugins**: dropped into `~/.codeterm/plugins/<id>/` (manually
-  or via a `codeterm plugin install <name>` CLI). The daemon discovers
-  on startup, validates `plugin.json`, makes them available.
-- **Auto-update for bundled**: a tiny manifest at a known URL lists
-  newest plugin versions compatible with the current codeterm build.
-  On app start, codeterm fetches, compares, downloads if newer. No
-  app rebuild. This is the win the user cares about — Claude changes
-  their format Tuesday, a new plugin ships Wednesday, every codeterm
-  user has it by Thursday without a release.
+`bundled_plugins_dir()` = directory shipped with the app — typically
+`<resource_dir>/plugins/` in production, `<repo>/plugins/` in dev.
 
-## 10. Acceptance criteria for M3
+## 9. Plugin authoring workflow (the validation use case)
 
-- [ ] `plugins/provider-claude/` package builds standalone (`pnpm
-      build` inside the dir produces `dist/plugin.js`).
-- [ ] Desktop CodeTerm loads it at startup; Claude panes render via
-      the plugin renderer (the same fancy chat as today).
-- [ ] Hot reload: editing `provider-claude/src/parser.ts` updates a
-      live Claude pane in under a second, no daemon restart.
-- [ ] Snapshot tests pass against ≥3 real Claude session captures.
-- [ ] Codex pane still works (raw xterm fallback — no Codex plugin
-      yet, but nothing should break).
-- [ ] No reference to "claude" / "STATUS_MARKER" / Claude-specific
-      strings remains in `src/components/ChatView/` outside the
-      plugin host shell.
+Goal: I (an independent developer) write a Cursor CLI plugin in 30
+minutes, drop it into `~/.codeterm/plugins/provider-cursor/`, restart
+codeterm, the Cursor CLI tab is auto-detected with icon + chat.
 
-## 11. Open questions
+1. `mkdir ~/.codeterm/plugins/provider-cursor && cd $_`
+2. `npm init -y` + add `esbuild`, `@codeterm/plugin-types` (devDep with
+   `ProviderPlugin` interface for autocomplete; small types-only pkg)
+3. Write `plugin.json` with cursor's id, display name, binary, icon,
+   spawn config, model list
+4. Write `src/index.ts` exporting default `ProviderPlugin`
+5. `pnpm build` → `dist/plugin.js`
+6. Restart `./build.sh dev` (no Rust rebuild needed in production —
+   restart picks up the manifest), open a cursor pane → tab gets
+   the cursor icon and detection works
 
-1. **QuickJS or Boa or rquickjs for server-side runtime?** Decide at
-   M4 when actually building it. rquickjs has the nicest Rust API.
-2. **Plugin sandboxing in WebView.** WebView already isolates from
-   filesystem. We expose a narrow host API
-   (`host.transport.send(...)`, `host.config.get(...)`) and forbid
-   arbitrary `fetch()` to non-tailnet origins. Enforcement: CSP +
-   reviewed host API surface.
-3. **Settings UI per plugin.** Reuse the existing declarative
-   `SettingField` schema from `agent/provider.rs`? Or let TS plugins
-   ship a React settings component? Lean: schema-driven for
-   consistency, escape hatch later.
-4. **Versioning the `ProviderPlugin` interface.** Use a `host_api`
-   version field; plugins declare which versions they support; host
-   refuses to load if mismatched. Same pattern as protocol version
-   in transport.
+That's it. No Rust knowledge, no codeterm forking, no PR.
 
-## 12. First step
+## 10. Migration plan from current state
 
-Inside `plugins/provider-claude/`, set up the package skeleton and
-move `parser.ts` and the `STATUS_MARKER` constant. Get
-`pnpm build` producing `dist/plugin.js`. Don't wire into the host
-yet — just prove the extraction shape. Then in a follow-up:
-write the host loader in `src/lib/plugins/` and switch `ChatView` to
-use it.
+Tracked in tasks #17–#24. Sequence:
 
-<!-- revision: 1 -->
+1. **#17** (this doc) ← you are here
+2. **#18** — add `rquickjs` + write `PluginVm` smoke test
+3. **#19** — write `JsProvider` implementing every trait method via
+   manifest reads or `PluginVm.call(...)` dispatches
+4. **#20** — write plugin loader, wire into existing `AgentRegistry`
+   registration in `lib.rs`. Remove static `mod agent_claude;` etc.
+5. **#21** — Claude: move `agent_claude/{detection,launch,sessions,
+   schemas,usage,integration,usage_tui}.rs` into
+   `plugins/provider-claude/src/*.ts` + populate `plugin.json`. Delete
+   `src-tauri/src/plugin/agent_claude/` entirely.
+6. **#22** — same for Codex and Opencode
+7. **#23** — validation: write Cursor plugin from scratch
+8. **#24** — final E2E + push
+
+## 11. Acceptance criteria
+
+- [ ] `src-tauri/src/plugin/agent_*/` directories no longer exist
+- [ ] `lib.rs` has no provider names hardcoded anywhere
+- [ ] Three bundled provider plugins (claude/codex/opencode) work in
+      dev: detection, fancy chat, sessions enumerate, hooks install,
+      tab icons render, settings panel renders
+- [ ] Cursor plugin written from scratch by following only this doc +
+      `plugin.json` schema works in dev with full feature parity
+- [ ] Symlinking a bundled plugin into `~/.codeterm/plugins/<id>/`
+      loads it (user-folder loading verified)
+- [ ] `cargo test --lib` still passes (1217+ tests)
+- [ ] All plugin tests pass via `pnpm test:plugins`
+- [ ] Adding a fifth provider requires only TS + JSON, zero Rust
+      changes verified by reverting the Cursor plugin folder
+
+## 12. Open questions (resolve while building)
+
+1. **Bundling size** — rquickjs adds ~2 MB. Acceptable; measure on
+   release build.
+2. **Settings schema validation** — currently the trait returns typed
+   `SettingField` enum; with JS plugins, the return is `serde_json::Value`
+   that has to validate against the schema. Lean: keep `SettingField`
+   as Rust enum, deserialize plugin output strictly, fail-loud on
+   malformed schemas during load (not at render time).
+3. **Snapshot tests for JS<->Rust roundtrip** — every plugin contract
+   method needs a Rust test that loads a mock plugin.js, calls the
+   method, asserts the result. Built once, reused per plugin.
+4. **Performance** — `detectFromOutput` runs on every PTY chunk in the
+   screen-state poller. QuickJS function call is ~microseconds; should
+   be fine. If hotspot appears, add a Rust-side substring-bloom
+   pre-filter built from `plugin.json` (data, not code).
+5. **Plugin error isolation** — a plugin throwing in `detectFromOutput`
+   shouldn't crash codeterm. `PluginVm.call` returns `Result`; loader
+   logs and treats the call as `Err` (degrades to "no detection" for
+   that plugin until next call).
+
+## 13. Out of scope (explicit non-goals for v1)
+
+- **Third-party plugin marketplace.** Just drop a folder for now.
+- **Plugin sandboxing.** QuickJS plugin can't escape the JS context
+  but it has access to `console.log` / stdout. No filesystem or
+  network access from JS — Rust mediates everything. Sufficient for
+  v1; tighten later if abuse appears.
+- **Type-safe RPC.** Plugin contract is JSON-serialized; if plugin
+  returns wrong shape, we get a deserialization error at the Rust
+  boundary. Adding tsc-side type assertion is a follow-up.
+- **JIT.** QuickJS is bytecode-interpreted. Fine for codeterm's call
+  volume (sub-Hz on most methods, kHz on hot path which is still
+  trivial).
+
+<!-- revision: 2 -->

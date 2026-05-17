@@ -13,6 +13,7 @@ pub mod agent_claude;
 pub mod agent_codex;
 pub mod agent_opencode;
 pub mod common;
+pub mod js_runtime;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
