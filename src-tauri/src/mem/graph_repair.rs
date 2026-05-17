@@ -86,6 +86,60 @@ pub fn find_duplicate_relations(
     Ok(out)
 }
 
+pub fn delete_relations_by_rowids(
+    conn: &Connection,
+    rowids: &[i64],
+    actor: &str,
+) -> Result<u64, String> {
+    if rowids.is_empty() {
+        return Ok(0);
+    }
+
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
+    let placeholders = std::iter::repeat("?").take(rowids.len()).collect::<Vec<_>>().join(",");
+    let payload_sql = format!(
+        "SELECT id, from_id, relation_type, to_id, scope, valid_from, valid_to,
+                confidence, properties_json, created_at
+         FROM relations WHERE id IN ({})",
+        placeholders
+    );
+    let mut stmt = tx.prepare(&payload_sql).map_err(|e| e.to_string())?;
+    let bind: Vec<&dyn rusqlite::ToSql> = rowids.iter().map(|i| i as &dyn rusqlite::ToSql).collect();
+    let payload: Vec<Value> = stmt.query_map(rusqlite::params_from_iter(bind.iter()), |r| {
+        Ok(serde_json::json!({
+            "id": r.get::<_, i64>(0)?,
+            "from_id": r.get::<_, String>(1)?,
+            "relation_type": r.get::<_, String>(2)?,
+            "to_id": r.get::<_, String>(3)?,
+            "scope": r.get::<_, String>(4)?,
+            "valid_from": r.get::<_, String>(5)?,
+            "valid_to": r.get::<_, Option<String>>(6)?,
+            "confidence": r.get::<_, f64>(7)?,
+            "properties_json": r.get::<_, String>(8)?,
+            "created_at": r.get::<_, String>(9)?,
+        }))
+    }).map_err(|e| e.to_string())?
+      .collect::<Result<_, _>>().map_err(|e| e.to_string())?;
+    drop(stmt);
+
+    let del_sql = format!("DELETE FROM relations WHERE id IN ({})", placeholders);
+    let bind: Vec<&dyn rusqlite::ToSql> = rowids.iter().map(|i| i as &dyn rusqlite::ToSql).collect();
+    let deleted = tx.execute(&del_sql, rusqlite::params_from_iter(bind.iter()))
+        .map_err(|e| e.to_string())? as u64;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let details = serde_json::json!({"op": "delete_relations_by_rowids", "payload": payload}).to_string();
+    tx.execute(
+        "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
+         VALUES (?1, ?2, NULL, NULL, NULL, ?3, ?4)",
+        params![now, deleted as i64, actor, details],
+    ).map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(deleted)
+}
+
 pub fn load_relation_by_rowid(conn: &Connection, rowid: i64) -> Result<Relation, String> {
     let (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, props_json):
         (String, String, String, String, String, Option<String>, f64, String) = conn.query_row(
