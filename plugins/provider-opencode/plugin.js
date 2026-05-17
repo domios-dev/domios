@@ -110,4 +110,104 @@ module.exports.default = {
     var parts = ["opencode", "--session", shellQuote(sessionId)];
     return parts.join(" ");
   },
+
+  // ── Sqlite-backed session detection (opencode.db) ───────────────────
+  //
+  // Modern opencode keeps sessions in `<XDG_DATA_HOME|~/.local/share>/
+  // opencode/opencode.db`. Each session row has `directory` (cwd it
+  // started in, normalised to native path separators), `time_created`
+  // ms epoch, and `time_archived` (NULL when live). We surface only
+  // live sessions for the requested cwd, newest-first.
+
+  detectSessionId: function (cwd, exclude, maxAgeMs) {
+    var db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    var rows = host.fs.sqliteQuery(
+      db,
+      "SELECT id, time_created FROM session " +
+        "WHERE (directory = ?1 OR directory = ?2) AND time_archived IS NULL " +
+        "ORDER BY time_created DESC LIMIT 50",
+      [cwd.replace(/\\/g, "/"), cwd.replace(/\//g, "\\")]
+    );
+    var nowMs = host.unixNowMs();
+    var cutoff = maxAgeMs > 0 ? nowMs - maxAgeMs : null;
+    var excluded = exclude || [];
+    for (var i = 0; i < rows.length; i++) {
+      var id = rows[i].id;
+      if (excluded.indexOf(id) !== -1) continue;
+      if (cutoff !== null && rows[i].time_created < cutoff) continue;
+      return id;
+    }
+    return null;
+  },
+
+  sessionExists: function (_cwd, sessionId) {
+    var db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return false;
+    var rows = host.fs.sqliteQuery(
+      db,
+      "SELECT 1 AS one FROM session WHERE id = ?1 LIMIT 1",
+      [sessionId]
+    );
+    return rows.length > 0;
+  },
+
+  detectActiveSession: function (cwd, _currentSid) {
+    var db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    var rows = host.fs.sqliteQuery(
+      db,
+      "SELECT m.session_id AS session_id FROM message m " +
+        "JOIN session s ON s.id = m.session_id " +
+        "WHERE (s.directory = ?1 OR s.directory = ?2) AND s.time_archived IS NULL " +
+        "ORDER BY m.time_created DESC LIMIT 1",
+      [cwd.replace(/\\/g, "/"), cwd.replace(/\//g, "\\")]
+    );
+    return rows.length > 0 ? rows[0].session_id : null;
+  },
+
+  detectSessionModel: function (cwd, sessionId) {
+    var db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    // Prefer the most recent assistant model for the explicit session;
+    // fall back to the latest assistant model in the cwd when the
+    // session hasn't produced an assistant turn yet (post-/model swap).
+    if (sessionId) {
+      var model = scanMessagesForModel(db,
+        "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+        [sessionId]);
+      if (model) return model;
+    }
+    return scanMessagesForModel(db,
+      "SELECT m.data AS data FROM message m " +
+        "JOIN session s ON s.id = m.session_id " +
+        "WHERE (s.directory = ?1 OR s.directory = ?2) " +
+        "ORDER BY m.time_created DESC LIMIT 50",
+      [cwd.replace(/\\/g, "/"), cwd.replace(/\//g, "\\")]);
+  },
 };
+
+function opencodeDbPath() {
+  var base = host.envGet("XDG_DATA_HOME");
+  if (!base) base = host.expandHome("~/.local/share");
+  if (!base) return null;
+  var sep = host.platform() === "windows" ? "\\" : "/";
+  return base + sep + "opencode" + sep + "opencode.db";
+}
+
+function scanMessagesForModel(db, sql, params) {
+  var rows = host.fs.sqliteQuery(db, sql, params);
+  for (var i = 0; i < rows.length; i++) {
+    var raw = rows[i].data;
+    if (!raw) continue;
+    try {
+      var v = JSON.parse(raw);
+      if (v && v.role === "assistant" && typeof v.modelID === "string" && v.modelID) {
+        return v.modelID;
+      }
+    } catch (_) {
+      // skip malformed row
+    }
+  }
+  return null;
+}

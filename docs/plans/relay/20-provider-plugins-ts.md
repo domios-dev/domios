@@ -443,20 +443,54 @@ everything themselves through generic Rust primitives):
       the plugin. Parity test runs the whole flow into a temp dir
       through `JsProvider`.
 
-**Still to migrate** (each one is now a TS-only port, no Rust needed —
-the host API surface covers what every native impl does today):
+**Native flow ports — all four shipped via host APIs, parity-tested
+end-to-end through `JsProvider`:**
 
-- [ ] Claude `.claude/settings.json` integration (hooks install /
-      check / uninstall) — `host.readFile` + JSON patch in plugin +
-      `host.writeFile`.
-- [ ] Claude stdin-pipe headless launch — `host.writeTempFile` +
-      `host.shellQuoteFor(platform)` for the per-OS pipe prefix.
-- [ ] Opencode sqlite session detection — `host.sqliteQueryAllJson`
-      (already exercised in tests against a synthetic sqlite db).
-- [ ] Codex rollout YYYY/MM/DD walk — `host.walkDirJson` (already
-      tested at depth 1 and depth 5).
-- [ ] Native code path deletion after each migration ships and parity
-      tests stay green for a week of dogfood.
+- [x] Claude `.claude/settings.json` integration — `installIntegration`,
+      `uninstallIntegration`, `checkIntegration`, `ensureIntegrationOnStartup`
+      in `plugins/provider-claude/plugin.js`. Reads/writes settings.json
+      via `host.fs.readJson`/`writeJson`, builds OS-correct curl commands
+      from `host.platform()`. 5 parity tests cover install/uninstall/
+      preservation of unrelated fields/replacement of stale entries/
+      idempotency.
+- [x] Claude stdin-pipe headless launch — `buildLaunchCommand` writes
+      the task file via `host.fs.writeTempFile` (with manual `﻿`
+      BOM on Windows) and builds the per-OS `Get-Content|cat ... |`
+      pipe prefix. Native vs JS produce byte-identical commands for
+      the no-task case; structural parity tests cover the headless
+      flags + temp-file body round-trip.
+- [x] Opencode sqlite session detection — `detectSessionId`,
+      `sessionExists`, `detectSessionModel`, `detectActiveSession` via
+      `host.fs.sqliteQuery` against `<XDG_DATA_HOME|~/.local/share>/
+      opencode/opencode.db`. Parity test stands up a synthetic sqlite
+      with the real schema (session + message tables, archived rows,
+      time-based filtering, cwd direction normalisation).
+- [x] Codex YYYY/MM/DD rollout walk — `enumerateSessions`,
+      `detectSessionId`, `sessionFilePath` via `host.fs.walkDir` into
+      `<CODETERM_CODEX_SESSIONS_ROOT|~/.codex/sessions/>`. Parity test
+      builds a real rollout tree with three sessions and asserts
+      enumeration, age-based detection, exclusion filter, UUID
+      resolution.
+
+**Collision rule flipped:** JS plugins are now authoritative when
+discovered. The native bundled providers (`agent_claude/`,
+`agent_codex/`, `agent_opencode/`) stay in the binary as an emergency
+rollback — set `CODETERM_NATIVE_PROVIDERS=<id>[,id]|all` to pin the
+native impl for one or more ids if a JS plugin regresses.
+
+**Plugin-author UX layer (preamble):** `host.fs`, `host.shell`,
+`host.manifest` wrap the raw `*Json` returns with parsed objects so
+plugin authors write `host.fs.readDir(p)` instead of
+`JSON.parse(host.readDirJson(p))`. Loaded into every VM before plugin
+code evaluates; raw forms stay reachable for escape hatches.
+
+**Still TODO** before deleting native code:
+- [ ] One week of dogfood with `CODETERM_NATIVE_PROVIDERS` unset (JS
+      authoritative).
+- [ ] Delete `src-tauri/src/plugin/agent_claude/`, `agent_codex/`,
+      `agent_opencode/` and untangle the ~20 source files that
+      reference `ClaudeProvider`/etc directly.
+- [ ] Drop the env-override safety net.
 - [ ] `~/.codeterm/plugins/<id>/` user-drop verified end-to-end with a
       restarted dev daemon. Code path exists; needs a manual smoke test
       next time someone is at the machine.
@@ -499,4 +533,4 @@ the host API surface covers what every native impl does today):
   volume (sub-Hz on most methods, kHz on hot path which is still
   trivial).
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

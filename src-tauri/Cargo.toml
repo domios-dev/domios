@@ -94,6 +94,7 @@ clipboard-win = "5"
 [dev-dependencies]
 tempfile = "3"
 mockito = "1"
+filetime = "0.2.29"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

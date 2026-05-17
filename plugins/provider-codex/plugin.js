@@ -111,10 +111,88 @@ module.exports.default = {
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
     }
-    // session_id should be a UUID; native Rust extracts it from
-    // rollout filename stems when needed. JS plugin assumes UUID.
-    parts.push(shellQuote(sessionId));
+    // session_id may be a UUID OR a rollout filename stem; native impl
+    // extracts the UUID. We do the same so callers can pass either.
+    var uuid = extractSessionUuid(sessionId) || sessionId;
+    parts.push(shellQuote(uuid));
     return parts.join(" ");
+  },
+
+  // ── Rollout-tree session detection ─────────────────────────────────
+  //
+  // Codex stores sessions as `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`.
+  // Each file's first line is `session_meta` with the authoritative
+  // session UUID + cwd. We walk the tree once per call and lazily
+  // peek each candidate's header — cheap enough for the volumes
+  // observed in practice (hundreds of sessions, not thousands).
+
+  sessionFilePath: function (_cwd, sessionId) {
+    var root = codexSessionsRoot();
+    if (!root) return null;
+    var hit = null;
+    var files = host.fs.walkDir(root, 5);
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      if (!f.isFile || !endsWith(f.name, ".jsonl")) continue;
+      var stem = f.name.substring(0, f.name.length - 6);
+      if (stem === sessionId || extractSessionUuid(stem) === sessionId) {
+        hit = f.path;
+        break;
+      }
+    }
+    return hit;
+  },
+
+  detectSessionId: function (cwd, exclude, maxAgeMs) {
+    var root = codexSessionsRoot();
+    if (!root || !host.fs.fileExists(root)) return null;
+    var nowMs = host.unixNowMs();
+    var cutoff = maxAgeMs > 0 ? nowMs - maxAgeMs : null;
+    var excluded = exclude || [];
+    var candidates = [];
+    var files = host.fs.walkDir(root, 5);
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      if (!f.isFile || !endsWith(f.name, ".jsonl")) continue;
+      if (cutoff !== null && f.modifiedMs !== null && f.modifiedMs < cutoff) continue;
+      var meta = readSessionMeta(f.path);
+      if (!meta) continue;
+      if (meta.cwd && meta.cwd !== cwd) continue;
+      var stem = f.name.substring(0, f.name.length - 6);
+      var sid = meta.sessionId || extractSessionUuid(stem);
+      if (!sid) continue;
+      if (excluded.indexOf(sid) !== -1) continue;
+      candidates.push({ sid: sid, ts: f.modifiedMs || f.createdMs || 0 });
+    }
+    if (candidates.length === 0) return null;
+    candidates.sort(function (a, b) { return b.ts - a.ts; });
+    return candidates[0].sid;
+  },
+
+  enumerateSessions: function () {
+    var root = codexSessionsRoot();
+    if (!root || !host.fs.fileExists(root)) return [];
+    var out = [];
+    var files = host.fs.walkDir(root, 5);
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      if (!f.isFile || !endsWith(f.name, ".jsonl")) continue;
+      var stem = f.name.substring(0, f.name.length - 6);
+      var meta = readSessionMeta(f.path);
+      var sid = (meta && meta.sessionId) || extractSessionUuid(stem);
+      if (!sid) continue;
+      out.push({
+        sessionId: sid,
+        provider: "codex",
+        projectPath: meta && meta.cwd ? meta.cwd : null,
+        title: null,
+        summary: null,
+        filePath: f.path,
+        createdTs: f.createdMs ? Math.floor(f.createdMs / 1000) : null,
+        modifiedTs: f.modifiedMs ? Math.floor(f.modifiedMs / 1000) : null,
+      });
+    }
+    return out;
   },
 
   // Mirrors native parse_session_messages: response_item type with
@@ -155,8 +233,53 @@ module.exports.default = {
         var d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1000);
       }
-      out.push({ role: role, text: text2, ts: ts, is_meta: false });
+      out.push({ role: role, text: text2, ts: ts, isMeta: false });
     }
     return out;
   },
+};
+
+// Function expressions (not declarations) — keep QuickJS strict-mode
+// parser happy and avoid the "function declarations can't appear in
+// single-statement context" error when bundlers re-wrap our source.
+var endsWith = function (s, suffix) {
+  return s.length >= suffix.length
+    && s.substring(s.length - suffix.length) === suffix;
+};
+
+var codexSessionsRoot = function () {
+  var override = host.envGet("CODETERM_CODEX_SESSIONS_ROOT");
+  if (override) return override;
+  var home = host.homeDir();
+  if (!home) return null;
+  var sep = host.platform() === "windows" ? "\\" : "/";
+  return home + sep + ".codex" + sep + "sessions";
+};
+
+// rollout-YYYY-MM-DDTHH-MM-SS-<uuid> → uuid
+var extractSessionUuid = function (stem) {
+  if (typeof stem !== "string") return null;
+  var prefix = "rollout-";
+  if (stem.indexOf(prefix) !== 0) return null;
+  var rest = stem.substring(prefix.length);
+  if (rest.length <= 20) return null;
+  if (rest.charAt(19) !== "-") return null;
+  return rest.substring(20);
+};
+
+// Read first line, parse as JSON, return {sessionId, cwd} when the
+// header is a session_meta record. Returns null otherwise.
+var readSessionMeta = function (path) {
+  var contents = host.fs.readFile(path);
+  if (!contents) return null;
+  var firstNl = contents.indexOf("\n");
+  var line = firstNl === -1 ? contents : contents.substring(0, firstNl);
+  var v;
+  try { v = JSON.parse(line.trim()); } catch (_) { return null; }
+  if (!v || v.type !== "session_meta") return null;
+  var p = v.payload || {};
+  return {
+    sessionId: typeof p.id === "string" ? p.id : null,
+    cwd: typeof p.cwd === "string" ? p.cwd : null,
+  };
 };

@@ -171,23 +171,59 @@ module.exports.default = {
     return steps;
   },
 
-  // Simple launch — Rust native provider handles stdin-pipe tasks +
-  // per-OS env quoting. JS form is enough for the interactive launch
-  // path; opt-in via CODETERM_JS_PROVIDERS=claude to use it.
+  // Full launch parity with native: env preamble + per-OS stdin-pipe
+  // for headless task delivery + task-file inline for visible mode.
+  //
+  // Stays portable across macOS/Linux/Windows via host.platform()
+  // selection of NULL_DEV, shell quoting, and the BOM prefix that
+  // PowerShell needs to parse the temp file as UTF-8.
   buildLaunchCommand: function (params) {
     var p = params || {};
-    var parts = ["claude"];
-    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-    if (p.task && !p.headless) {
-      parts.push(shellQuote(p.task));
+    var win = host.platform() === "windows";
+    var unset = win
+      ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
+        + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
+        + "[System.Text.Encoding]::UTF8; "
+        + "$PSNativeCommandArgumentPassing = 'Standard';"
+      : "unset CLAUDECODE &&";
+    var parts = [unset];
+
+    var useStdinPipe = !!(p.headless && p.task);
+    if (useStdinPipe) {
+      var path = writeTaskTempFile(p.task);
+      var prefix = win
+        ? "Get-Content '" + path + "' -Raw -Encoding UTF8 |"
+        : "cat '" + path + "' |";
+      parts.push(prefix);
+      parts.push("claude");
+      if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
+      parts.push("-p");
+      parts.push("--output-format");
+      parts.push("stream-json");
+      parts.push("--verbose");
+      parts.push("--include-partial-messages");
+      parts.push("--allowedTools");
+      parts.push("Bash");
+    } else {
+      parts.push("claude");
+      if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
+      if (p.task) {
+        var visiblePath = writeTaskTempFile(p.task);
+        parts.push(win
+          ? "\"$(Get-Content '" + visiblePath + "' -Raw -Encoding UTF8)\""
+          : "\"$(cat " + visiblePath + ")\"");
+      }
     }
+
     if (p.agentName) {
       parts.push("--agent");
-      parts.push(shellQuote(p.agentName));
+      parts.push(host.shell.quoteFor(p.agentName, host.platform()));
     }
-    if (p.sessionId && !p.headless) {
+    // --session-id is silently ignored by claude in -p mode; only emit
+    // it for visible launches.
+    if (!useStdinPipe && p.sessionId) {
       parts.push("--session-id");
-      parts.push(shellQuote(p.sessionId));
+      parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
     if (p.args && p.args.length > 0) {
       for (var i = 0; i < p.args.length; i++) parts.push(p.args[i]);
@@ -196,10 +232,17 @@ module.exports.default = {
   },
 
   buildResumeCommand: function (sessionId, skipPermissions) {
-    var parts = ["claude"];
+    var win = host.platform() === "windows";
+    var unset = win
+      ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
+        + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
+        + "[System.Text.Encoding]::UTF8; "
+        + "$PSNativeCommandArgumentPassing = 'Standard';"
+      : "unset CLAUDECODE &&";
+    var parts = [unset, "claude"];
     if (skipPermissions) parts.push("--dangerously-skip-permissions");
     parts.push("--resume");
-    parts.push(shellQuote(sessionId));
+    parts.push(host.shell.quoteFor(sessionId, host.platform()));
     return parts.join(" ");
   },
 
@@ -242,9 +285,7 @@ module.exports.default = {
         var d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1000);
       }
-      // Rust SessionMessage uses snake_case field names — return is_meta,
-      // not isMeta, or serde will default it to false on deserialize.
-      out.push({ role: msgType, text: text2, ts: ts, is_meta: isMeta });
+      out.push({ role: msgType, text: text2, ts: ts, isMeta: isMeta });
     }
     return out;
   },
@@ -277,4 +318,205 @@ module.exports.default = {
     }
     return { ok: false, error: "removeFile failed for " + expanded };
   },
+
+  // ── ~/.claude/settings.json hooks integration ───────────────────────
+  //
+  // Claude POSTs back to CodeTerm on Notification / Stop / PreCompact /
+  // SessionStart events. We write curl-based hook entries into the
+  // user's settings.json, tagged with `_source: "codeterm-hook-v2"`
+  // so we can recognise our own entries on re-install or uninstall.
+  //
+  // All paths come from manifest.integration.settingsPath; the per-OS
+  // NULL_DEV comes from host.platform(). Plugin is 100% portable across
+  // OSes — no Rust-side helpers required.
+
+  checkIntegration: function () {
+    var m = manifest();
+    var path = host.expandHome((m && m.integration && m.integration.settingsPath)
+      || "~/.claude/settings.json");
+    if (!path || !host.fileExists(path)) {
+      return {
+        settings_exists: false,
+        hooks_installed: false,
+        notification_hook: false,
+        stop_hook: false,
+        precompact_hook: false,
+        session_start_hook: false,
+      };
+    }
+    var json = host.fs.readJson(path);
+    if (!json) {
+      return { settings_exists: true, hooks_installed: false };
+    }
+    function present(key) {
+      var arr = json.hooks && json.hooks[key];
+      if (!Array.isArray(arr)) return false;
+      for (var i = 0; i < arr.length; i++) {
+        var entry = arr[i];
+        var hooks = entry && entry.hooks;
+        if (!Array.isArray(hooks)) continue;
+        for (var j = 0; j < hooks.length; j++) {
+          if (hooks[j] && hooks[j]._source === CODETERM_HOOK_MARKER) return true;
+        }
+      }
+      return false;
+    }
+    var n = present("Notification");
+    var s = present("Stop");
+    var pc = present("PreCompact");
+    var ss = present("SessionStart");
+    return {
+      settings_exists: true,
+      hooks_installed: n && s && pc && ss,
+      notification_hook: n,
+      stop_hook: s,
+      precompact_hook: pc,
+      session_start_hook: ss,
+    };
+  },
+
+  installIntegration: function (apiPort) {
+    var m = manifest();
+    var path = host.expandHome((m && m.integration && m.integration.settingsPath)
+      || "~/.claude/settings.json");
+    if (!path) return { ok: false, error: "could not expand settingsPath" };
+
+    var json = host.fileExists(path) ? (host.fs.readJson(path) || {}) : {};
+    if (!json.hooks || typeof json.hooks !== "object") json.hooks = {};
+
+    var nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
+    var port = apiPort | 0;
+    var authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
+    var portExpr = "${CODETERM_API_PORT:-" + port + "}";
+
+    var notifyCmd = "curl -s -X POST http://localhost:" + portExpr
+      + "/api/panes/$CODETERM_PANE_ID/hook/permission "
+      + "-H 'Content-Type: application/json' " + authH + " -d '{}' > " + nullDev + " 2>&1 || true";
+    var stopCmd = "curl -s -X POST http://localhost:" + portExpr
+      + "/api/panes/$CODETERM_PANE_ID/hook/stop "
+      + "-H 'Content-Type: application/json' " + authH + " -d '{}' > " + nullDev + " 2>&1 || true";
+    var precompactCmd = "curl -s -X POST http://localhost:" + portExpr
+      + "/api/mem/flush -H 'Content-Type: application/json' " + authH
+      + ' -d \'{"pane":"\'"$CODETERM_PANE_ID"\'","title":"pre-compact"}\' > '
+      + nullDev + " 2>&1 || true";
+    var sessionStartCmd = "curl -s -X POST http://localhost:" + portExpr
+      + "/api/panes/$CODETERM_PANE_ID/hook/session_start "
+      + "-H 'Content-Type: application/json' " + authH + " --data-binary @- > "
+      + nullDev + " 2>&1 || true";
+
+    function newEntry(matcher, cmd, timeout) {
+      return {
+        matcher: matcher,
+        hooks: [{
+          type: "command",
+          command: cmd,
+          timeout: timeout,
+          _source: CODETERM_HOOK_MARKER,
+        }],
+      };
+    }
+    var newHooks = {
+      Notification:  newEntry("permission_prompt", notifyCmd, 5000),
+      Stop:          newEntry("", stopCmd, 5000),
+      PreCompact:    newEntry("", precompactCmd, 10000),
+      SessionStart:  newEntry("", sessionStartCmd, 5000),
+    };
+
+    // Drop any prior codeterm-installed entries (any version) before
+    // appending the current ones — keeps the file from accumulating
+    // pre-v2 stragglers.
+    var keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (!Array.isArray(json.hooks[k])) json.hooks[k] = [];
+      json.hooks[k] = json.hooks[k].filter(function (entry) {
+        return !isCodetermHook(entry);
+      });
+      json.hooks[k].push(newHooks[k]);
+    }
+
+    var ok = host.fs.writeJson(path, json);
+    if (ok) {
+      host.log("info", "[claude-plugin] hooks installed at " + path);
+      return { ok: true };
+    }
+    return { ok: false, error: "writeJson failed for " + path };
+  },
+
+  uninstallIntegration: function () {
+    var m = manifest();
+    var path = host.expandHome((m && m.integration && m.integration.settingsPath)
+      || "~/.claude/settings.json");
+    if (!path || !host.fileExists(path)) return { ok: true };
+    var json = host.fs.readJson(path);
+    if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: true };
+    // Native impl only drops Notification + Stop on uninstall (keeps
+    // PreCompact + SessionStart alone — historical behaviour for mem
+    // continuity). Mirror that.
+    var keys = ["Notification", "Stop"];
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (!Array.isArray(json.hooks[k])) continue;
+      json.hooks[k] = json.hooks[k].filter(function (entry) {
+        return !isCodetermHook(entry);
+      });
+    }
+    var ok = host.fs.writeJson(path, json);
+    if (ok) {
+      host.log("info", "[claude-plugin] hooks removed from " + path);
+      return { ok: true };
+    }
+    return { ok: false, error: "writeJson failed for " + path };
+  },
 };
+
+// ── Task-file helpers ─────────────────────────────────────────────────
+//
+// Native ShellSyntax::write_task_temp uses a short uuid suffix and on
+// Windows prefixes the file with a UTF-8 BOM so PowerShell parses the
+// content as UTF-8 regardless of system locale. host.fs.writeTempFile
+// gives us the path; we control the bytes inside.
+function writeTaskTempFile(task) {
+  var suffix = ".ct-task-" + randomShortHex(8);
+  var win = host.platform() === "windows";
+  // Windows PowerShell parses files as UTF-8 only when they start
+  // with the U+FEFF byte-order mark — prepend it so non-ASCII task
+  // bodies survive the round-trip through `Get-Content -Encoding UTF8`.
+  var body = win ? "﻿" + task : task;
+  return host.fs.writeTempFile(body, suffix);
+}
+
+function randomShortHex(len) {
+  var hex = "0123456789abcdef";
+  var out = "";
+  for (var i = 0; i < len; i++) out += hex.charAt((Math.random() * 16) | 0);
+  return out;
+}
+
+// ── Hook recognition helpers ──────────────────────────────────────────
+var CODETERM_HOOK_MARKER = "codeterm-hook-v2";
+
+function isCodetermHook(entry) {
+  var hooks = entry && entry.hooks;
+  if (!Array.isArray(hooks)) return false;
+  for (var i = 0; i < hooks.length; i++) {
+    var h = hooks[i];
+    if (!h) continue;
+    if (typeof h._source === "string"
+        && (h._source.indexOf("codeterm-hook") === 0 || h._source === "codeterm")) {
+      return true;
+    }
+    var cmd = h.command;
+    if (typeof cmd === "string") {
+      var isUrl = cmd.indexOf("7685") !== -1 || cmd.indexOf("7686") !== -1;
+      var isPath = cmd.indexOf("/api/notifications") !== -1
+        || cmd.indexOf("/api/panes/") !== -1
+        || cmd.indexOf("/hook/permission") !== -1
+        || cmd.indexOf("/hook/stop") !== -1
+        || cmd.indexOf("/hook/session_start") !== -1
+        || cmd.indexOf("/api/mem/flush") !== -1;
+      if (isUrl && isPath) return true;
+    }
+  }
+  return false;
+}

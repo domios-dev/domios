@@ -5,6 +5,55 @@ use std::path::Path;
 use parking_lot::Mutex;
 use rquickjs::{CatchResultExt, Context, Function, Runtime, Value};
 
+/// Convenience layer wrapped around the raw `host` API. Loaded into
+/// every plugin VM right after `host_api::install` and before the
+/// plugin's own code, so plugin authors get parsed objects out of
+/// readDir/walkDir/sqliteQuery/manifest without writing JSON.parse
+/// boilerplate at every call site.
+///
+/// Keep `host.readDirJson` / `host.walkDirJson` / `host.sqliteQueryAllJson`
+/// / `host.manifestJson` reachable as raw escape hatches; the preamble
+/// only **adds** properties, never shadows the raw ones.
+const PLUGIN_PREAMBLE: &str = r#"
+(function() {
+  if (typeof host !== "object" || host === null) return;
+  function parseJson(s) {
+    if (s === null || s === undefined) return null;
+    try { return JSON.parse(s); } catch (_) { return null; }
+  }
+  host.fs = {
+    readFile:      host.readFile,
+    writeFile:     host.writeFile,
+    removeFile:    host.removeFile,
+    makeDirs:      host.makeDirs,
+    fileExists:    host.fileExists,
+    expandHome:    host.expandHome,
+    writeTempFile: host.writeTempFile,
+    readDir: function (p) { return parseJson(host.readDirJson(p)) || []; },
+    walkDir: function (p, maxDepth) {
+      var d = (maxDepth === undefined || maxDepth === null) ? 8 : (maxDepth | 0);
+      return parseJson(host.walkDirJson(p, d)) || [];
+    },
+    sqliteQuery: function (db, sql, params) {
+      var pj = (params === undefined || params === null) ? null : JSON.stringify(params);
+      return parseJson(host.sqliteQueryAllJson(db, sql, pj)) || [];
+    },
+    readJson: function (p) {
+      var s = host.readFile(p);
+      return s === null || s === undefined ? null : parseJson(s);
+    },
+    writeJson: function (p, value) {
+      return host.writeFile(p, JSON.stringify(value, null, 2));
+    },
+  };
+  host.shell = {
+    quote:    host.shellQuote,
+    quoteFor: host.shellQuoteFor,
+  };
+  host.manifest = function () { return parseJson(host.manifestJson()); };
+})();
+"#;
+
 #[derive(Debug)]
 pub enum VmError {
     ReadFile { path: String, source: std::io::Error },
@@ -144,6 +193,9 @@ impl PluginVm {
         let manifest_for_install = manifest_json.clone();
         ctx.with(|ctx| -> Result<(), VmError> {
             super::host_api::install(&ctx, manifest_for_install.as_deref())?;
+            ctx.eval::<(), _>(PLUGIN_PREAMBLE)
+                .catch(&ctx)
+                .map_err(|e| VmError::Script(format!("preamble: {e:?}")))?;
             ctx.eval::<(), _>(bootstrap.clone())
                 .catch(&ctx)
                 .map_err(|e| VmError::Script(format!("{e:?}")))?;
@@ -188,6 +240,9 @@ impl PluginVm {
         let manifest_for_install = inner.manifest_json.clone();
         ctx.with(|ctx| -> Result<(), VmError> {
             super::host_api::install(&ctx, manifest_for_install.as_deref())?;
+            ctx.eval::<(), _>(PLUGIN_PREAMBLE)
+                .catch(&ctx)
+                .map_err(|e| VmError::Script(format!("preamble: {e:?}")))?;
             ctx.eval::<(), _>(bootstrap)
                 .catch(&ctx)
                 .map_err(|e| VmError::Script(format!("{e:?}")))?;
@@ -402,6 +457,44 @@ mod tests {
         );
         let out: String = call_json(&vm, "hello", &[]).unwrap();
         assert_eq!(out, "world");
+    }
+
+    #[test]
+    fn preamble_exposes_host_fs_and_host_manifest() {
+        // Plugin uses ONLY the convenience surface — no JSON.parse,
+        // no raw *Json suffix calls. If the preamble didn't load,
+        // host.fs / host.manifest would be undefined and these
+        // calls would throw TypeError.
+        let vm = PluginVm::from_source_with(
+            "test",
+            r#"
+            module.exports.default = {
+                listNames(p) { return host.fs.readDir(p).map(e => e.name).sort(); },
+                getManifestId() {
+                    var m = host.manifest();
+                    return m ? m.id : null;
+                },
+                wrap(s) { return host.shell.quote(s); }
+            };
+            "#
+            .to_string(),
+            Some(r#"{"id":"X","version":"0","displayName":"X","spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}}"#.to_string()),
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a"), "1").unwrap();
+        std::fs::write(dir.path().join("b"), "2").unwrap();
+        let names: Vec<String> = call_json(
+            &vm,
+            "listNames",
+            &[json!(dir.path().to_string_lossy())],
+        )
+        .unwrap();
+        assert_eq!(names, vec!["a".to_string(), "b".to_string()]);
+        let id: Option<String> = call_json(&vm, "getManifestId", &[]).unwrap();
+        assert_eq!(id.as_deref(), Some("X"));
+        let q: String = call_json(&vm, "wrap", &[json!("can't")]).unwrap();
+        assert_eq!(q, "'can'\\''t'");
     }
 
     #[test]

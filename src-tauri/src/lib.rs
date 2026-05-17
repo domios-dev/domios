@@ -341,12 +341,12 @@ pub fn run() {
             // workspace (`<repo>/plugins/`, only present in dev/source
             // builds) and the per-user drop-in dir (`~/.codeterm/plugins/`).
             //
-            // Collision rule: native bundled providers (claude, codex,
-            // opencode) are authoritative by default. A JS plugin with the
-            // same id is dropped unless explicitly opted-in via the
-            // `CODETERM_JS_PROVIDERS` env var — a comma-separated allowlist
-            // of ids that should let the JS bundle shadow the native one.
-            // Use `CODETERM_JS_PROVIDERS=all` to flip every collision.
+            // Collision rule (current default): **JS plugins are
+            // authoritative** — they overwrite the native bundled provider
+            // when both define the same id. Native code stays in the
+            // binary as an emergency rollback: set
+            // `CODETERM_NATIVE_PROVIDERS=<id>[,id]|all` to pin the native
+            // impl for one or more providers.
             {
                 use crate::agent::provider::AgentProvider;
                 use std::collections::HashSet;
@@ -372,22 +372,28 @@ pub fn run() {
                         }
                     }
                 }
-                let override_list: HashSet<String> = std::env::var("CODETERM_JS_PROVIDERS")
+                let keep_native: HashSet<String> = std::env::var("CODETERM_NATIVE_PROVIDERS")
                     .unwrap_or_default()
                     .split(',')
                     .map(|s| s.trim().to_lowercase())
                     .filter(|s| !s.is_empty())
                     .collect();
-                let allow_all = override_list.contains("all");
+                let keep_all_native = keep_native.contains("all");
                 for p in providers {
                     let id = p.id().to_string();
-                    if allow_all || override_list.contains(&id) {
-                        agent_registry.register_provider(Box::new(p));
-                    } else if !agent_registry.register_provider_if_absent(Box::new(p)) {
+                    if keep_all_native || keep_native.contains(&id) {
+                        if !agent_registry.register_provider_if_absent(Box::new(p)) {
+                            log::info!(
+                                "[js-plugin] {id} held back — \
+                                CODETERM_NATIVE_PROVIDERS pins the native impl"
+                            );
+                        }
+                    } else {
                         log::info!(
-                            "[js-plugin] {id} not registered — native provider is authoritative; \
-                            set CODETERM_JS_PROVIDERS={id} to override"
+                            "[js-plugin] {id} registered as authoritative \
+                            (set CODETERM_NATIVE_PROVIDERS={id} to rollback)"
                         );
+                        agent_registry.register_provider(Box::new(p));
                     }
                 }
             }
