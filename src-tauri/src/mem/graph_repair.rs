@@ -310,6 +310,49 @@ pub fn find_duplicate_entities(
     }
 }
 
+pub fn augment_entity(
+    conn: &Connection,
+    entity_id: &str,
+    patch: Map<String, Value>,
+    actor: &str,
+) -> Result<(), String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
+    let existing: String = tx.query_row(
+        "SELECT properties_json FROM entities WHERE id = ?1",
+        params![entity_id], |r| r.get(0),
+    ).map_err(|e| format!("entity {} not found: {}", entity_id, e))?;
+
+    let mut props: Map<String, Value> = serde_json::from_str::<Value>(&existing)
+        .map_err(|e| format!("parse existing props for {}: {}", entity_id, e))?
+        .as_object().cloned().unwrap_or_default();
+    for (k, v) in &patch {
+        props.insert(k.clone(), v.clone());
+    }
+    let merged = serde_json::to_string(&Value::Object(props.clone()))
+        .map_err(|e| e.to_string())?;
+    let now = chrono::Utc::now().to_rfc3339();
+    tx.execute(
+        "UPDATE entities SET properties_json = ?1, updated_at = ?2 WHERE id = ?3",
+        params![merged, &now, entity_id],
+    ).map_err(|e| e.to_string())?;
+
+    let details = serde_json::json!({
+        "op": "augment_entity",
+        "entity_id": entity_id,
+        "patch": Value::Object(patch),
+        "result": Value::Object(props),
+    }).to_string();
+    tx.execute(
+        "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
+         VALUES (?1, 0, NULL, NULL, NULL, ?2, ?3)",
+        params![now, actor, details],
+    ).map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn load_relation_by_rowid(conn: &Connection, rowid: i64) -> Result<Relation, String> {
     let (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, props_json):
         (String, String, String, String, String, Option<String>, f64, String) = conn.query_row(
