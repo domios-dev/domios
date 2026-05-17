@@ -83,3 +83,65 @@ fn find_duplicate_relations_respects_limit() {
     assert_eq!(groups.len(), 1, "limit=1 should yield only top group");
     assert_eq!(groups[0].count, 3, "ORDER BY count DESC should put (c,knows,d) first");
 }
+
+#[test]
+fn delete_relations_by_rowids_audits_payload() {
+    let conn = fresh_conn();
+    let now = "2026-01-01T00:00:00Z";
+    conn.execute(
+        "INSERT INTO relations (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, created_at)
+         VALUES ('a','knows','b','global',?1,NULL,1.0,'{}',?1),
+                ('a','knows','b','global',?2,NULL,0.9,'{\"k\":1}',?1)",
+        rusqlite::params![now, "2026-01-02T00:00:00Z"],
+    ).unwrap();
+
+    let rowids: Vec<i64> = conn.prepare("SELECT id FROM relations ORDER BY id").unwrap()
+        .query_map([], |r| r.get(0)).unwrap()
+        .collect::<Result<_, _>>().unwrap();
+    assert_eq!(rowids.len(), 2);
+
+    let deleted = delete_relations_by_rowids(&conn, &[rowids[1]], "test").unwrap();
+    assert_eq!(deleted, 1);
+
+    let remaining: i64 = conn.query_row("SELECT COUNT(*) FROM relations", [], |r| r.get(0)).unwrap();
+    assert_eq!(remaining, 1);
+
+    let (count, actor, details): (i64, String, String) = conn.query_row(
+        "SELECT count, actor, details_json FROM graph_purge_log ORDER BY id DESC LIMIT 1",
+        [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    ).unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(actor, "test");
+    let parsed: serde_json::Value = serde_json::from_str(&details).unwrap();
+    assert!(parsed["payload"].is_array(), "audit must include payload for reversibility");
+    assert_eq!(parsed["payload"][0]["properties_json"], "{\"k\":1}");
+}
+
+#[test]
+fn delete_relations_by_rowids_empty_list_is_noop() {
+    let conn = fresh_conn();
+    insert_relation(&conn, &rel("a","knows","b","2026-01-01T00:00:00Z")).unwrap();
+    let deleted = delete_relations_by_rowids(&conn, &[], "test").unwrap();
+    assert_eq!(deleted, 0);
+
+    let remaining: i64 = conn.query_row("SELECT COUNT(*) FROM relations", [], |r| r.get(0)).unwrap();
+    assert_eq!(remaining, 1);
+
+    let audits: i64 = conn.query_row("SELECT COUNT(*) FROM graph_purge_log", [], |r| r.get(0)).unwrap();
+    assert_eq!(audits, 0, "empty list should not write an audit entry");
+}
+
+#[test]
+fn delete_relations_by_rowids_nonexistent_rowid_is_audited_as_zero() {
+    let conn = fresh_conn();
+    let deleted = delete_relations_by_rowids(&conn, &[999_999], "test").unwrap();
+    assert_eq!(deleted, 0);
+
+    let (count, details): (i64, String) = conn.query_row(
+        "SELECT count, details_json FROM graph_purge_log ORDER BY id DESC LIMIT 1",
+        [], |r| Ok((r.get(0)?, r.get(1)?))
+    ).unwrap();
+    assert_eq!(count, 0);
+    let parsed: serde_json::Value = serde_json::from_str(&details).unwrap();
+    assert_eq!(parsed["payload"].as_array().unwrap().len(), 0);
+}
