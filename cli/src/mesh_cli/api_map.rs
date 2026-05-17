@@ -608,13 +608,19 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 let payload = json!({"keep": keep, "merge": merge_vec, "actor": actor});
                 ("POST".into(), "/api/mem/graph/repair/merge-relations".into(), Some(payload.to_string()))
             }
-            MemGraphAction::FindDuplicateEntities { strategy, limit } => {
-                let strategy_kind = match strategy.as_str() {
-                    "exact-name" | "exact_name" => "exact_name",
-                    "alias-chain" | "alias_chain" => "alias_chain",
-                    _ => "exact_name",
+            MemGraphAction::FindDuplicateEntities { strategy, threshold, entity_type, limit } => {
+                let strategy_value = match strategy.as_str() {
+                    "alias-chain" | "alias_chain" => json!({"kind": "alias_chain"}),
+                    "vector" => {
+                        let mut v = json!({"kind": "vector", "threshold": threshold});
+                        if let Some(et) = entity_type.clone() {
+                            v["entity_type"] = serde_json::Value::String(et);
+                        }
+                        v
+                    }
+                    _ => json!({"kind": "exact_name"}),
                 };
-                let payload = json!({"strategy": {"kind": strategy_kind}, "limit": limit});
+                let payload = json!({"strategy": strategy_value, "limit": limit});
                 ("POST".into(), "/api/mem/graph/repair/find-entities".into(), Some(payload.to_string()))
             }
             MemGraphAction::AugmentEntity { id, patch, actor } => {
@@ -622,8 +628,16 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 let payload = json!({"id": id, "patch": patch_val, "actor": actor});
                 ("POST".into(), "/api/mem/graph/repair/augment-entity".into(), Some(payload.to_string()))
             }
-            MemGraphAction::DeleteEntity { id, force, actor } => {
-                let payload = json!({"id": id, "force": force, "actor": actor});
+            MemGraphAction::RepairOrphanVectors { dry_run, actor } => {
+                let payload = json!({"dry_run": dry_run, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/orphan-vectors".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::RepairOrphanBlobs { dry_run, actor } => {
+                let payload = json!({"dry_run": dry_run, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/orphan-blobs".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::DeleteEntity { id, force, purge_history, actor } => {
+                let payload = json!({"id": id, "force": force, "purge_history": purge_history, "actor": actor});
                 ("POST".into(), "/api/mem/graph/repair/delete-entity".into(), Some(payload.to_string()))
             }
             // Local-only graph mutations: no mesh relay. Fall through to

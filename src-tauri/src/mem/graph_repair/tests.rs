@@ -363,7 +363,7 @@ fn delete_entity_no_relations_succeeds() {
         properties: serde_json::json!({"name": "Orphan"}),
     }).unwrap();
 
-    let report = delete_entity_by_id(&conn, "person_orphan", false, "dreamer").unwrap();
+    let report = delete_entity_by_id(&conn, "person_orphan", false, false, "dreamer").unwrap();
     assert_eq!(report.entity_id, "person_orphan");
     assert_eq!(report.cascaded_relations, 0);
 
@@ -399,7 +399,7 @@ fn delete_entity_with_active_relations_errors_without_force() {
     }).unwrap();
     insert_relation(&conn, &rel("person_a", "knows", "person_b", "2026-01-01T00:00:00Z")).unwrap();
 
-    let err = delete_entity_by_id(&conn, "person_a", false, "dreamer").unwrap_err();
+    let err = delete_entity_by_id(&conn, "person_a", false, false, "dreamer").unwrap_err();
     assert!(err.contains("active relations"), "error should mention active relations, got: {}", err);
 
     let count: i64 = conn.query_row(
@@ -423,7 +423,7 @@ fn delete_entity_force_cascades_relations() {
     insert_relation(&conn, &rel("person_a", "knows", "person_b", "2026-01-01T00:00:00Z")).unwrap();
     insert_relation(&conn, &rel("person_b", "knows", "person_a", "2026-01-01T00:00:00Z")).unwrap();
 
-    let report = delete_entity_by_id(&conn, "person_a", true, "dreamer").unwrap();
+    let report = delete_entity_by_id(&conn, "person_a", true, false, "dreamer").unwrap();
     assert_eq!(report.cascaded_relations, 2);
 
     let ent: i64 = conn.query_row(
@@ -449,7 +449,7 @@ fn delete_entity_force_cascades_relations() {
 #[test]
 fn delete_entity_missing_errors() {
     let conn = fresh_conn();
-    let err = delete_entity_by_id(&conn, "nonexistent", false, "dreamer").unwrap_err();
+    let err = delete_entity_by_id(&conn, "nonexistent", false, false, "dreamer").unwrap_err();
     assert!(err.contains("nonexistent") || err.contains("not found"),
             "should reference missing entity, got: {}", err);
 }
@@ -470,7 +470,7 @@ fn delete_entity_cleans_mem_vectors() {
         [],
     ).unwrap();
 
-    delete_entity_by_id(&conn, "person_x", false, "dreamer").unwrap();
+    delete_entity_by_id(&conn, "person_x", false, false, "dreamer").unwrap();
 
     let remaining: i64 = conn.query_row(
         "SELECT COUNT(*) FROM mem_vectors WHERE mem_id = 'person_x' OR mem_id LIKE 'person_x_chunk_%'",
@@ -506,7 +506,7 @@ fn delete_entity_cleans_entity_aliases() {
         rusqlite::params![now],
     ).unwrap();
 
-    delete_entity_by_id(&conn, "canonical", false, "dreamer").unwrap();
+    delete_entity_by_id(&conn, "canonical", false, false, "dreamer").unwrap();
 
     let touching_canonical: i64 = conn.query_row(
         "SELECT COUNT(*) FROM entity_aliases WHERE alias_id = 'canonical' OR canonical_id = 'canonical'",
@@ -519,4 +519,195 @@ fn delete_entity_cleans_entity_aliases() {
         [], |r| r.get(0)
     ).unwrap();
     assert_eq!(untouched, 1, "unrelated alias rows must stay");
+}
+
+// augment_entity re-embeds via embeddings::index after the property UPDATE
+// (live behavior). Embedder model isn't loaded in unit tests, so end-to-end
+// re-embed verification lives in evals/dreamer-repair (live dev).
+
+#[test]
+fn delete_entity_purge_history_cascades_invalidated_relations() {
+    let conn = fresh_conn();
+    use crate::mem::graph::{insert_entity, Entity};
+    insert_entity(&conn, &Entity {
+        id: "person_x".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({}),
+    }).unwrap();
+    insert_entity(&conn, &Entity {
+        id: "person_y".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({}),
+    }).unwrap();
+    let now = "2026-01-01T00:00:00Z";
+    let later = "2026-01-02T00:00:00Z";
+    conn.execute(
+        "INSERT INTO relations (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, created_at)
+         VALUES ('person_x','knows','person_y','global',?1,?2,1.0,'{}',?1),
+                ('person_x','old_rel','person_y','global',?1,?2,1.0,'{}',?1)",
+        rusqlite::params![now, later],
+    ).unwrap();
+
+    let active_before: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE valid_to IS NULL AND (from_id='person_x' OR to_id='person_x')",
+        [], |r| r.get(0)
+    ).unwrap();
+    assert_eq!(active_before, 0, "test setup: only invalidated relations seeded");
+
+    let report = delete_entity_by_id(&conn, "person_x", false, true, "test").unwrap();
+    assert_eq!(report.cascaded_relations, 0);
+    assert_eq!(report.cascaded_history, 2);
+
+    let remaining_history: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='person_x' OR to_id='person_x'",
+        [], |r| r.get(0)
+    ).unwrap();
+    assert_eq!(remaining_history, 0, "invalidated relations must be purged with purge_history=true");
+}
+
+#[test]
+fn delete_entity_default_keeps_history() {
+    let conn = fresh_conn();
+    use crate::mem::graph::{insert_entity, Entity};
+    insert_entity(&conn, &Entity {
+        id: "person_x".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({}),
+    }).unwrap();
+    let now = "2026-01-01T00:00:00Z";
+    let later = "2026-01-02T00:00:00Z";
+    conn.execute(
+        "INSERT INTO relations (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, properties_json, created_at)
+         VALUES ('person_x','knows','other','global',?1,?2,1.0,'{}',?1)",
+        rusqlite::params![now, later],
+    ).unwrap();
+
+    let report = delete_entity_by_id(&conn, "person_x", false, false, "test").unwrap();
+    assert_eq!(report.cascaded_history, 0);
+
+    let ghosts: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM relations WHERE from_id='person_x'",
+        [], |r| r.get(0)
+    ).unwrap();
+    assert_eq!(ghosts, 1, "default: history preserved as ghost rows");
+}
+
+#[test]
+fn repair_orphan_vectors_finds_and_deletes() {
+    let conn = fresh_conn();
+    conn.execute_batch("CREATE TABLE mem_vectors (mem_id TEXT, embedding BLOB)").unwrap();
+    use crate::mem::graph::{insert_entity, Entity};
+    insert_entity(&conn, &Entity {
+        id: "person_real".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({}),
+    }).unwrap();
+    conn.execute(
+        "INSERT INTO mem_vectors VALUES
+            ('person_real', X''),
+            ('person_real_chunk_1', X''),
+            ('person_ghost', X''),
+            ('person_ghost_chunk_2', X'')",
+        [],
+    ).unwrap();
+
+    let dry = repair_orphan_vectors(&conn, true, "test").unwrap();
+    assert!(dry.dry_run);
+    assert_eq!(dry.deleted, 0);
+    assert_eq!(dry.orphan_ids.len(), 2);
+    assert!(dry.orphan_ids.contains(&"person_ghost".to_string()));
+
+    let report = repair_orphan_vectors(&conn, false, "test").unwrap();
+    assert_eq!(report.deleted, 2);
+    assert_eq!(report.orphan_ids.len(), 2);
+
+    let remaining: i64 = conn.query_row("SELECT COUNT(*) FROM mem_vectors", [], |r| r.get(0)).unwrap();
+    assert_eq!(remaining, 2, "only person_real's vectors should remain");
+
+    let (count, actor): (i64, String) = conn.query_row(
+        "SELECT count, actor FROM graph_purge_log ORDER BY id DESC LIMIT 1",
+        [], |r| Ok((r.get(0)?, r.get(1)?))
+    ).unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(actor, "test");
+}
+
+#[test]
+fn repair_orphan_vectors_no_orphans_is_noop() {
+    let conn = fresh_conn();
+    conn.execute_batch("CREATE TABLE mem_vectors (mem_id TEXT, embedding BLOB)").unwrap();
+    use crate::mem::graph::{insert_entity, Entity};
+    insert_entity(&conn, &Entity {
+        id: "person_real".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({}),
+    }).unwrap();
+    conn.execute("INSERT INTO mem_vectors VALUES ('person_real', X'')", []).unwrap();
+
+    let report = repair_orphan_vectors(&conn, false, "test").unwrap();
+    assert_eq!(report.deleted, 0);
+    assert!(report.orphan_ids.is_empty());
+
+    let audits: i64 = conn.query_row("SELECT COUNT(*) FROM graph_purge_log", [], |r| r.get(0)).unwrap();
+    assert_eq!(audits, 0, "no orphans → no audit row");
+}
+
+#[test]
+fn repair_orphan_blobs_finds_unreferenced_files() {
+    let conn = fresh_conn();
+    let tmp = tempfile::tempdir().unwrap();
+    let blobs_dir = tmp.path();
+
+    // Seed the dir with three CAS-named files and two random ones.
+    std::fs::write(blobs_dir.join("sha256_referenced.txt"), "real").unwrap();
+    std::fs::write(blobs_dir.join("sha256_orphan_a.txt"), "ghost1").unwrap();
+    std::fs::write(blobs_dir.join("sha256_orphan_b.txt"), "ghost2").unwrap();
+    std::fs::write(blobs_dir.join("other.txt"), "not a blob").unwrap();
+
+    // Tell the DB about the referenced one.
+    conn.execute(
+        "INSERT INTO mem_items (id, uid, kind, scope, title, body_blob_path, created_at, updated_at, accessed_at, importance)
+         VALUES ('m1','u1','note','global','t','sha256_referenced.txt','2026-01-01','2026-01-01','2026-01-01',0.0)",
+        [],
+    ).unwrap();
+
+    let dry = repair_orphan_blobs(&conn, blobs_dir, true, "test").unwrap();
+    assert!(dry.dry_run);
+    assert_eq!(dry.deleted, 0);
+    assert_eq!(dry.orphan_files.len(), 2);
+
+    let report = repair_orphan_blobs(&conn, blobs_dir, false, "test").unwrap();
+    assert_eq!(report.deleted, 2);
+    assert!(blobs_dir.join("sha256_referenced.txt").exists(), "referenced blob stays");
+    assert!(!blobs_dir.join("sha256_orphan_a.txt").exists(), "orphan deleted");
+    assert!(!blobs_dir.join("sha256_orphan_b.txt").exists(), "orphan deleted");
+    assert!(blobs_dir.join("other.txt").exists(), "non-CAS file untouched");
+}
+
+#[test]
+fn find_duplicate_entities_vector_threshold_validates() {
+    let conn = fresh_conn();
+    let err = find_duplicate_entities(
+        &conn,
+        EntitySimilarityStrategy::Vector { threshold: 1.5, entity_type: None },
+        10,
+    ).unwrap_err();
+    assert!(err.contains("threshold"), "out-of-range threshold should error, got: {}", err);
+}
+
+#[test]
+fn find_duplicate_entities_vector_empty_when_no_vectors() {
+    // Without mem_vectors table loaded, vector strategy is a quiet no-op.
+    let conn = fresh_conn();
+    use crate::mem::graph::{insert_entity, Entity};
+    insert_entity(&conn, &Entity {
+        id: "p_a".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "A"}),
+    }).unwrap();
+    insert_entity(&conn, &Entity {
+        id: "p_b".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "A"}),
+    }).unwrap();
+
+    let groups = find_duplicate_entities(
+        &conn,
+        EntitySimilarityStrategy::Vector { threshold: 0.85, entity_type: None },
+        10,
+    ).unwrap();
+    assert!(groups.is_empty(), "no mem_vectors → no candidates surfaced");
 }

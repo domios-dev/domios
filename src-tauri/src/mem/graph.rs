@@ -457,6 +457,11 @@ pub fn add_alias(conn: &Connection, alias_id: &str, canonical_id: &str) -> Resul
         params![alias_id],
     ).map_err(|e| format!("delete alias entity: {}", e))?;
 
+    let _ = tx.execute(
+        "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
+        params![alias_id, format!("{}_chunk_%", alias_id)],
+    );
+
     tx.commit().map_err(|e| format!("add_alias commit: {}", e))?;
     Ok(())
 }
@@ -865,6 +870,37 @@ mod tests {
         assert_eq!(parsed["name"], "Andrey");
         assert_eq!(parsed["alt_name"], "Dyusha", "non-colliding alias props must carry over");
         assert_eq!(parsed["shared"], "canonical_wins", "canonical wins on collision");
+    }
+
+    #[test]
+    fn add_alias_cleans_alias_vectors() {
+        let conn = fresh();
+        conn.execute_batch("CREATE TABLE mem_vectors (mem_id TEXT, embedding BLOB)").unwrap();
+        insert_entity(&conn, &Entity {
+            id: "alias".into(), entity_type: "Person".into(),
+            scope: "global".into(), properties: serde_json::Value::Null,
+        }).unwrap();
+        insert_entity(&conn, &Entity {
+            id: "canonical".into(), entity_type: "Person".into(),
+            scope: "global".into(), properties: serde_json::Value::Null,
+        }).unwrap();
+        conn.execute(
+            "INSERT INTO mem_vectors VALUES ('alias', X''), ('alias_chunk_1', X''), ('canonical', X'')",
+            [],
+        ).unwrap();
+
+        add_alias(&conn, "alias", "canonical").unwrap();
+
+        let alias_vecs: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM mem_vectors WHERE mem_id = 'alias' OR mem_id LIKE 'alias_chunk_%'",
+            [], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(alias_vecs, 0, "alias vectors (incl. chunks) must be deleted");
+        let canonical_vecs: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM mem_vectors WHERE mem_id = 'canonical'",
+            [], |r| r.get(0)
+        ).unwrap();
+        assert_eq!(canonical_vecs, 1, "canonical vectors must stay");
     }
 
     #[test]

@@ -243,6 +243,17 @@ pub enum EntitySimilarityStrategy {
     ExactName,
     /// Entities that resolve to the same canonical via existing aliases.
     AliasChain,
+    /// Vector-similarity pairs: same entity_type, cosine_sim >= threshold.
+    /// Only surfaces entities whose embedded text is close — Dreamer
+    /// confirms before merging via `mem graph alias`.
+    Vector {
+        /// Cosine similarity cutoff (0.0-1.0). Audit recommends 0.85+ as
+        /// review-worthy, 0.90+ as strong-merge candidate.
+        threshold: f64,
+        /// Optional filter: only compare entities of this type to each other.
+        #[serde(default)]
+        entity_type: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,7 +318,92 @@ pub fn find_duplicate_entities(
             }).map_err(|e| e.to_string())?;
             rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
         }
+        EntitySimilarityStrategy::Vector { threshold, entity_type } => {
+            find_similar_entities_by_vector(conn, threshold, entity_type.as_deref(), limit)
+        }
     }
+}
+
+fn find_similar_entities_by_vector(
+    conn: &Connection,
+    threshold: f64,
+    entity_type_filter: Option<&str>,
+    limit: usize,
+) -> Result<Vec<DuplicateEntityGroup>, String> {
+    if !(0.0..=1.0).contains(&threshold) {
+        return Err(format!("threshold must be in [0,1], got {}", threshold));
+    }
+    // cosine_sim = 1 - distance² / 2  ⇒  distance ≤ sqrt(2 * (1 - threshold))
+    let max_distance = (2.0 * (1.0 - threshold)).sqrt();
+
+    let entities: Vec<(String, String)> = {
+        let mut stmt = if entity_type_filter.is_some() {
+            conn.prepare("SELECT id, entity_type FROM entities WHERE entity_type = ?1")
+        } else {
+            conn.prepare("SELECT id, entity_type FROM entities")
+        }.map_err(|e| e.to_string())?;
+        let rows: Vec<(String, String)> = if let Some(et) = entity_type_filter {
+            stmt.query_map(params![et], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+                .map_err(|e| e.to_string())?
+                .filter_map(Result::ok).collect()
+        } else {
+            stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+                .map_err(|e| e.to_string())?
+                .filter_map(Result::ok).collect()
+        };
+        rows
+    };
+
+    let mut seen_pairs: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    let mut groups: Vec<DuplicateEntityGroup> = Vec::new();
+
+    for (eid, etype) in &entities {
+        let qvec: Option<Vec<u8>> = conn.query_row(
+            "SELECT embedding FROM mem_vectors WHERE mem_id = ?1",
+            params![eid], |r| r.get::<_, Vec<u8>>(0),
+        ).ok();
+        let Some(qvec) = qvec else { continue; };
+
+        let mut neighbor_stmt = match conn.prepare(
+            "SELECT mem_id, distance FROM mem_vectors
+             WHERE embedding MATCH ?1 AND k = 6 ORDER BY distance"
+        ) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let neighbors: Vec<(String, f64)> = neighbor_stmt.query_map(params![qvec], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+        }).map_err(|e| e.to_string())?
+          .filter_map(Result::ok).collect();
+        drop(neighbor_stmt);
+
+        for (nid_raw, dist) in neighbors {
+            // Strip _chunk_N suffix.
+            let nid = if let Some(pos) = nid_raw.rfind("_chunk_") { &nid_raw[..pos] } else { &nid_raw[..] };
+            if nid == eid { continue; }
+            if dist > max_distance { continue; }
+
+            let neighbor_type: Option<String> = conn.query_row(
+                "SELECT entity_type FROM entities WHERE id = ?1",
+                params![nid], |r| r.get(0),
+            ).ok();
+            let Some(neighbor_type) = neighbor_type else { continue; };
+            if neighbor_type != *etype { continue; }
+
+            let (a, b) = if eid.as_str() < nid { (eid.clone(), nid.to_string()) } else { (nid.to_string(), eid.clone()) };
+            if !seen_pairs.insert((a.clone(), b.clone())) { continue; }
+
+            let cosine_sim = 1.0 - (dist * dist) / 2.0;
+            groups.push(DuplicateEntityGroup {
+                canonical_hint: a.clone(),
+                member_ids: vec![a, b],
+                entity_type: etype.clone(),
+                reason: format!("vector_sim:{:.3}", cosine_sim),
+            });
+            if groups.len() >= limit { return Ok(groups); }
+        }
+    }
+    Ok(groups)
 }
 
 pub fn augment_entity(
@@ -318,9 +414,9 @@ pub fn augment_entity(
 ) -> Result<(), String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
-    let existing: String = tx.query_row(
-        "SELECT properties_json FROM entities WHERE id = ?1",
-        params![entity_id], |r| r.get(0),
+    let (entity_type, existing): (String, String) = tx.query_row(
+        "SELECT entity_type, properties_json FROM entities WHERE id = ?1",
+        params![entity_id], |r| Ok((r.get(0)?, r.get(1)?)),
     ).map_err(|e| format!("entity {} not found: {}", entity_id, e))?;
 
     let mut props: Map<String, Value> = serde_json::from_str::<Value>(&existing)
@@ -336,6 +432,11 @@ pub fn augment_entity(
         "UPDATE entities SET properties_json = ?1, updated_at = ?2 WHERE id = ?3",
         params![merged, &now, entity_id],
     ).map_err(|e| e.to_string())?;
+
+    let text = super::embeddings::embeddable_text_for_entity(entity_id, &entity_type, &merged);
+    if let Err(err) = super::embeddings::index(&tx, entity_id, &text) {
+        log::warn!("[augment_entity] re-embed {} failed: {}", entity_id, err);
+    }
 
     let details = serde_json::json!({
         "op": "augment_entity",
@@ -357,12 +458,137 @@ pub fn augment_entity(
 pub struct DeleteEntityReport {
     pub entity_id: String,
     pub cascaded_relations: u64,
+    pub cascaded_history: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepairOrphanVectorsReport {
+    pub orphan_ids: Vec<String>,
+    pub deleted: u64,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepairOrphanBlobsReport {
+    pub orphan_files: Vec<String>,
+    pub deleted: u64,
+    pub dry_run: bool,
+}
+
+pub fn repair_orphan_blobs(
+    conn: &Connection,
+    blobs_dir: &std::path::Path,
+    dry_run: bool,
+    actor: &str,
+) -> Result<RepairOrphanBlobsReport, String> {
+    let mut referenced: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT body_blob_path FROM mem_items WHERE body_blob_path IS NOT NULL"
+    ).map_err(|e| e.to_string())?;
+    for row in stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())? {
+        if let Ok(p) = row { referenced.insert(p); }
+    }
+    drop(stmt);
+
+    let mut orphan_files = Vec::new();
+    if blobs_dir.is_dir() {
+        for entry in std::fs::read_dir(blobs_dir).map_err(|e| format!("read blobs_dir: {}", e))? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with("sha256_") { continue; }
+            if !referenced.contains(&name) {
+                orphan_files.push(name);
+            }
+        }
+    }
+
+    if dry_run || orphan_files.is_empty() {
+        return Ok(RepairOrphanBlobsReport {
+            deleted: 0,
+            orphan_files,
+            dry_run,
+        });
+    }
+
+    let mut deleted = 0u64;
+    for name in &orphan_files {
+        if std::fs::remove_file(blobs_dir.join(name)).is_ok() {
+            deleted += 1;
+        }
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let details = serde_json::json!({
+        "op": "repair_orphan_blobs",
+        "orphan_files": orphan_files,
+    }).to_string();
+    conn.execute(
+        "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
+         VALUES (?1, ?2, NULL, NULL, NULL, ?3, ?4)",
+        params![now, deleted as i64, actor, details],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(RepairOrphanBlobsReport { orphan_files, deleted, dry_run: false })
+}
+
+pub fn repair_orphan_vectors(
+    conn: &Connection,
+    dry_run: bool,
+    actor: &str,
+) -> Result<RepairOrphanVectorsReport, String> {
+    let sql = "SELECT mem_id FROM mem_vectors v
+               WHERE NOT EXISTS (
+                 SELECT 1 FROM mem_items
+                 WHERE id = v.mem_id
+                    OR id = substr(v.mem_id, 1, instr(v.mem_id, '_chunk_') - 1)
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM entities
+                 WHERE id = v.mem_id
+                    OR id = substr(v.mem_id, 1, instr(v.mem_id, '_chunk_') - 1)
+               )";
+    let mut stmt = conn.prepare(sql).map_err(|e| format!("orphan-vectors prepare: {}", e))?;
+    let orphan_ids: Vec<String> = stmt.query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>().map_err(|e| e.to_string())?;
+    drop(stmt);
+
+    if dry_run || orphan_ids.is_empty() {
+        return Ok(RepairOrphanVectorsReport {
+            deleted: 0,
+            orphan_ids,
+            dry_run,
+        });
+    }
+
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let placeholders = std::iter::repeat("?").take(orphan_ids.len()).collect::<Vec<_>>().join(",");
+    let bind: Vec<&dyn rusqlite::ToSql> = orphan_ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let deleted = tx.execute(
+        &format!("DELETE FROM mem_vectors WHERE mem_id IN ({})", placeholders),
+        rusqlite::params_from_iter(bind.iter()),
+    ).map_err(|e| e.to_string())? as u64;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let details = serde_json::json!({
+        "op": "repair_orphan_vectors",
+        "orphan_ids": orphan_ids,
+    }).to_string();
+    tx.execute(
+        "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
+         VALUES (?1, ?2, NULL, NULL, NULL, ?3, ?4)",
+        params![now, deleted as i64, actor, details],
+    ).map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(RepairOrphanVectorsReport { orphan_ids, deleted, dry_run: false })
 }
 
 pub fn delete_entity_by_id(
     conn: &Connection,
     entity_id: &str,
     force: bool,
+    purge_history: bool,
     actor: &str,
 ) -> Result<DeleteEntityReport, String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
@@ -417,6 +643,13 @@ pub fn delete_entity_by_id(
         Vec::new()
     };
 
+    let cascaded_history: u64 = if purge_history {
+        tx.execute(
+            "DELETE FROM relations WHERE valid_to IS NOT NULL AND (from_id = ?1 OR to_id = ?1)",
+            params![entity_id],
+        ).map_err(|e| e.to_string())? as u64
+    } else { 0 };
+
     tx.execute("DELETE FROM entities WHERE id = ?1", params![entity_id])
         .map_err(|e| e.to_string())?;
 
@@ -440,18 +673,21 @@ pub fn delete_entity_by_id(
             "properties_json": properties_json,
         },
         "cascaded_relations": cascaded_rels,
+        "cascaded_history": cascaded_history,
         "force": force,
+        "purge_history": purge_history,
     }).to_string();
     tx.execute(
         "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
          VALUES (?1, ?2, NULL, NULL, NULL, ?3, ?4)",
-        params![now, (1 + cascaded_rels.len()) as i64, actor, details],
+        params![now, (1 + cascaded_rels.len() + cascaded_history as usize) as i64, actor, details],
     ).map_err(|e| e.to_string())?;
 
     tx.commit().map_err(|e| e.to_string())?;
     Ok(DeleteEntityReport {
         entity_id: entity_id.to_string(),
         cascaded_relations: cascaded_rels.len() as u64,
+        cascaded_history,
     })
 }
 

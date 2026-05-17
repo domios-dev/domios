@@ -740,12 +740,19 @@ pub enum MemGraphAction {
         #[arg(long, default_value = "user")]
         actor: String,
     },
-    /// Find duplicate entities (exact name match or alias chain).
+    /// Find duplicate entities (exact name match, alias chain, or vector similarity).
     #[clap(name = "find-duplicate-entities")]
     FindDuplicateEntities {
-        /// Strategy: exact-name | alias-chain
+        /// Strategy: exact-name | alias-chain | vector
         #[arg(long, default_value = "exact-name")]
         strategy: String,
+        /// Cosine similarity threshold for `vector` strategy (0.0-1.0).
+        /// 0.90+ = strong-merge candidate, 0.85+ = review-worthy.
+        #[arg(long, default_value_t = 0.85)]
+        threshold: f64,
+        /// Restrict `vector` strategy to entities of this type (Person, Tech, Project, ...).
+        #[arg(long)]
+        entity_type: Option<String>,
         #[arg(long, default_value_t = 50)]
         limit: usize,
     },
@@ -761,6 +768,26 @@ pub enum MemGraphAction {
         #[arg(long, default_value = "user")]
         actor: String,
     },
+    /// Find and (optionally) delete orphan rows in mem_vectors — vectors whose
+    /// mem_id has no matching mem_items / entities row. One-shot legacy cleanup.
+    #[clap(name = "repair-orphan-vectors")]
+    RepairOrphanVectors {
+        /// Print orphans without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
+    /// Find and (optionally) delete sha256_*.txt blob files in the mem blobs
+    /// directory that no mem_item references. CAS-aware sweep (refcount = 0).
+    #[clap(name = "repair-orphan-blobs")]
+    RepairOrphanBlobs {
+        /// Print orphans without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
     /// Delete an entity by id (audited). Refuses if it has active relations
     /// unless --force, in which case those relations are cascade-deleted too.
     #[clap(name = "delete-entity")]
@@ -771,6 +798,11 @@ pub enum MemGraphAction {
         /// Cascade-delete active relations referencing this entity.
         #[arg(long)]
         force: bool,
+        /// Also hard-delete invalidated (historical) relations referencing this entity.
+        /// Default false: history is preserved as ghost rows for `revive-broken` and
+        /// timeline queries. Set this when you're sure the entity is gone for good.
+        #[arg(long)]
+        purge_history: bool,
         #[arg(long, default_value = "user")]
         actor: String,
     },

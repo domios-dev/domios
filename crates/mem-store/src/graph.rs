@@ -183,6 +183,12 @@ pub fn revive_broken(conn: &Connection, opts: ReviveBrokenOptions) -> MemStoreRe
     Ok(ReviveBrokenReport { revived: count, dry_run: opts.dry_run })
 }
 
+/// NOTE on embeddings: this function creates the topic entity row but does NOT
+/// embed it into `mem_vectors` (this crate has no access to the embedder).
+/// Callers running outside the daemon (CLI local dispatch) should follow up with
+/// `codeterm mem reembed --scope entities` to backfill the new topic's vector,
+/// or rely on the daemon's startup `backfill_entity_embeddings`. The Dreamer's
+/// A.2 playbook does this automatically at the end of each cycle.
 pub fn introduce_topic(
     conn: &Connection,
     opts: IntroduceTopicOptions,
@@ -415,6 +421,10 @@ pub fn add_alias_with_rewire(
         "DELETE FROM entities WHERE id = ?1",
         rusqlite::params![alias_id],
     )?;
+    let _ = tx.execute(
+        "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
+        rusqlite::params![alias_id, format!("{}_chunk_%", alias_id)],
+    );
     tx.commit()?;
     Ok(())
 }
