@@ -419,6 +419,17 @@ pub async fn mem_graph_repair_orphan_vectors(
     Ok(Json(serde_json::json!({ "report": report })))
 }
 
+pub async fn mem_graph_repair_orphan_blobs(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<RepairOrphanVectorsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let report = state.svc.mem.graph_repair_orphan_blobs(b.dry_run, &b.actor)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "report": report })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::validate_canonical;
