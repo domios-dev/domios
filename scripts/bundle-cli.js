@@ -8,7 +8,10 @@ const isWindows = process.platform === "win32";
 const isMacOS = process.platform === "darwin";
 const repoRoot = path.resolve(__dirname, "..");
 const binName = isWindows ? "codeterm.exe" : "codeterm";
-const src = path.join(repoRoot, "cli", "target", "release", binName);
+// Honor cross-build target so the bundled CLI matches the .app arch.
+const target = process.env.CARGO_BUILD_TARGET || "";
+const targetDir = target ? path.join("cli", "target", target, "release") : path.join("cli", "target", "release");
+const src = path.join(repoRoot, targetDir, binName);
 const destDir = path.join(repoRoot, "src-tauri", "bundled-cli");
 const dest = path.join(destDir, binName);
 
