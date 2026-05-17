@@ -236,6 +236,80 @@ pub fn merge_relations(
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum EntitySimilarityStrategy {
+    /// Same entity_type + same `properties_json.name` (case-insensitive trim).
+    ExactName,
+    /// Entities that resolve to the same canonical via existing aliases.
+    AliasChain,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DuplicateEntityGroup {
+    pub canonical_hint: String,
+    pub member_ids: Vec<String>,
+    pub entity_type: String,
+    pub reason: String,
+}
+
+pub fn find_duplicate_entities(
+    conn: &Connection,
+    strategy: EntitySimilarityStrategy,
+    limit: usize,
+) -> Result<Vec<DuplicateEntityGroup>, String> {
+    match strategy {
+        EntitySimilarityStrategy::ExactName => {
+            let sql = "
+                SELECT entity_type,
+                       LOWER(TRIM(json_extract(properties_json, '$.name'))) AS norm_name,
+                       GROUP_CONCAT(id) AS ids,
+                       COUNT(*) AS c
+                FROM entities
+                WHERE json_extract(properties_json, '$.name') IS NOT NULL
+                GROUP BY entity_type, norm_name
+                HAVING c > 1
+                ORDER BY c DESC
+                LIMIT ?1";
+            let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map(params![limit as i64], |r| {
+                let entity_type: String = r.get(0)?;
+                let norm_name: String = r.get(1)?;
+                let ids_csv: String = r.get(2)?;
+                Ok(DuplicateEntityGroup {
+                    canonical_hint: norm_name,
+                    member_ids: ids_csv.split(',').map(String::from).collect(),
+                    entity_type,
+                    reason: "exact_name".into(),
+                })
+            }).map_err(|e| e.to_string())?;
+            rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+        }
+        EntitySimilarityStrategy::AliasChain => {
+            let sql = "
+                SELECT canonical_id, GROUP_CONCAT(alias_id) AS aliases, COUNT(*) AS c
+                FROM entity_aliases
+                GROUP BY canonical_id
+                ORDER BY c DESC
+                LIMIT ?1";
+            let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map(params![limit as i64], |r| {
+                let canonical: String = r.get(0)?;
+                let aliases_csv: String = r.get(1)?;
+                let mut members: Vec<String> = aliases_csv.split(',').map(String::from).collect();
+                members.push(canonical.clone());
+                Ok(DuplicateEntityGroup {
+                    canonical_hint: canonical,
+                    member_ids: members,
+                    entity_type: "Unknown".into(),
+                    reason: "alias_chain".into(),
+                })
+            }).map_err(|e| e.to_string())?;
+            rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
+        }
+    }
+}
+
 pub fn load_relation_by_rowid(conn: &Connection, rowid: i64) -> Result<Relation, String> {
     let (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, props_json):
         (String, String, String, String, String, Option<String>, f64, String) = conn.query_row(
