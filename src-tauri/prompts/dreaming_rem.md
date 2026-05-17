@@ -63,10 +63,13 @@ mutation work.
                                                  # island's members as --sources and a topic_<theme>
                                                  # as --topic-id, with --anchor pointing at a real
                                                  # central entity (project_*, area's main topic_*).
-  codeterm mem graph relate --from A --rel R --to B --reason "..."
+  codeterm mem graph relate --from A --rel R --to B
                                                  # single edge — used for bridging a SMALL
                                                  # island (2-3 members) into an existing topic
                                                  # without inventing a new one.
+                                                 # NOTE: --reason is NOT supported on `relate`
+                                                 # (only on `route` and `introduce-topic`).
+                                                 # For bridge audit, log in your diary entry.
   codeterm mem graph invalidate --from F --rel R --to T   # close one relation
   codeterm mem graph alias --alias <less> --canonical <better>
                                                  # merges entities, rewires edges, deletes the alias.
@@ -391,7 +394,22 @@ payload to `graph_purge_log` so it can be reconstructed if needed.
 ### A.4a Find and resolve duplicate relations
 
     codeterm mem graph find-duplicate-relations \
-        --group-by from_id,relation_type,to_id,valid_from --limit 100
+        --group-by from_id,relation_type,to_id,valid_from --limit 100 --json
+
+Response shape (note: grouped fields live under `.key`, not the top
+level — don't try `g["from_id"]`, use `g["key"]["from_id"]`):
+
+    {
+      "groups": [
+        {
+          "key":    {"from_id": "...", "relation_type": "...", "to_id": "..."},
+          "count":  3,
+          "rowids": [982, 1192, 1347],
+          "sample": { full relation object — confidence, properties, valid_from, ... }
+        },
+        ...
+      ]
+    }
 
 Read each group's `rowids` and `sample`. Decide per group:
 
