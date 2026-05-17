@@ -374,7 +374,7 @@ fn find_similar_entities_by_vector(
         let neighbors: Vec<(String, f64)> = neighbor_stmt.query_map(params![qvec], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
         }).map_err(|e| e.to_string())?
-          .filter_map(Result::ok).collect();
+          .collect::<Result<_, _>>().map_err(|e| e.to_string())?;
         drop(neighbor_stmt);
 
         for (nid_raw, dist) in neighbors {
@@ -412,6 +412,9 @@ pub fn augment_entity(
     patch: Map<String, Value>,
     actor: &str,
 ) -> Result<(), String> {
+    if patch.is_empty() {
+        return Ok(());
+    }
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
     let (entity_type, existing): (String, String) = tx.query_row(
@@ -540,12 +543,12 @@ pub fn repair_orphan_vectors(
                WHERE NOT EXISTS (
                  SELECT 1 FROM mem_items
                  WHERE id = v.mem_id
-                    OR id = substr(v.mem_id, 1, instr(v.mem_id, '_chunk_') - 1)
+                    OR (instr(v.mem_id, '_chunk_') > 0 AND id = substr(v.mem_id, 1, instr(v.mem_id, '_chunk_') - 1))
                )
                AND NOT EXISTS (
                  SELECT 1 FROM entities
                  WHERE id = v.mem_id
-                    OR id = substr(v.mem_id, 1, instr(v.mem_id, '_chunk_') - 1)
+                    OR (instr(v.mem_id, '_chunk_') > 0 AND id = substr(v.mem_id, 1, instr(v.mem_id, '_chunk_') - 1))
                )";
     let mut stmt = conn.prepare(sql).map_err(|e| format!("orphan-vectors prepare: {}", e))?;
     let orphan_ids: Vec<String> = stmt.query_map([], |r| r.get::<_, String>(0))
