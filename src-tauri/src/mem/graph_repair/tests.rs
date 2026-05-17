@@ -520,3 +520,7 @@ fn delete_entity_cleans_entity_aliases() {
     ).unwrap();
     assert_eq!(untouched, 1, "unrelated alias rows must stay");
 }
+
+// augment_entity re-embeds via embeddings::index after the property UPDATE
+// (live behavior). Embedder model isn't loaded in unit tests, so end-to-end
+// re-embed verification lives in evals/dreamer-repair (live dev).

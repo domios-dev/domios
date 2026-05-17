@@ -318,9 +318,9 @@ pub fn augment_entity(
 ) -> Result<(), String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
 
-    let existing: String = tx.query_row(
-        "SELECT properties_json FROM entities WHERE id = ?1",
-        params![entity_id], |r| r.get(0),
+    let (entity_type, existing): (String, String) = tx.query_row(
+        "SELECT entity_type, properties_json FROM entities WHERE id = ?1",
+        params![entity_id], |r| Ok((r.get(0)?, r.get(1)?)),
     ).map_err(|e| format!("entity {} not found: {}", entity_id, e))?;
 
     let mut props: Map<String, Value> = serde_json::from_str::<Value>(&existing)
@@ -336,6 +336,11 @@ pub fn augment_entity(
         "UPDATE entities SET properties_json = ?1, updated_at = ?2 WHERE id = ?3",
         params![merged, &now, entity_id],
     ).map_err(|e| e.to_string())?;
+
+    let text = super::embeddings::embeddable_text_for_entity(entity_id, &entity_type, &merged);
+    if let Err(err) = super::embeddings::index(&tx, entity_id, &text) {
+        log::warn!("[augment_entity] re-embed {} failed: {}", entity_id, err);
+    }
 
     let details = serde_json::json!({
         "op": "augment_entity",
