@@ -1,13 +1,16 @@
-// Claude Code provider plugin — pure-logic surface only.
+// Claude Code provider plugin.
 //
-// Filesystem-touching parts (session files, .claude/settings.json
-// integration, bridge rule install) stay in the native Rust provider
-// for now; the JS plugin ships parity for everything that's a pure
-// function of strings: detection, slash commands, schemas, simple
-// launch + resume command building.
+// Pure logic (detection, parsing, slash commands) plus host-API-driven
+// I/O (bridge rule install via host.writeFile). Filesystem helpers come
+// from the embedded `host` global injected by the JS runtime — see
+// docs/plans/relay/20-provider-plugins-ts.md.
 //
 // Activate with CODETERM_JS_PROVIDERS=claude to let this shadow the
 // native provider; default is native.
+
+function manifest() {
+  try { return JSON.parse(host.manifestJson() || "null"); } catch (e) { return null; }
+}
 
 function shellQuote(s) {
   // Cross-platform shim: single-quote for POSIX, the Rust-side
@@ -244,5 +247,34 @@ module.exports.default = {
       out.push({ role: msgType, text: text2, ts: ts, is_meta: isMeta });
     }
     return out;
+  },
+
+  // Writes `~/.claude/rules/codeterm.md` (path declared in manifest.rule.path).
+  // Pure plugin code — Rust only provides host.expandHome + host.writeFile.
+  installBridgeRule: function (payload) {
+    var m = manifest();
+    var rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md";
+    var expanded = host.expandHome(rulePath);
+    if (!expanded) return { ok: false, error: "could not expand " + rulePath };
+    var ok = host.writeFile(expanded, payload);
+    if (ok) {
+      host.log("info", "[claude-plugin] bridge rule installed to " + expanded);
+      return { ok: true };
+    }
+    return { ok: false, error: "writeFile failed for " + expanded };
+  },
+
+  uninstallBridgeRule: function () {
+    var m = manifest();
+    var rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md";
+    var expanded = host.expandHome(rulePath);
+    if (!expanded) return { ok: true }; // nothing to do
+    if (!host.fileExists(expanded)) return { ok: true };
+    var ok = host.removeFile(expanded);
+    if (ok) {
+      host.log("info", "[claude-plugin] bridge rule removed from " + expanded);
+      return { ok: true };
+    }
+    return { ok: false, error: "removeFile failed for " + expanded };
   },
 };

@@ -101,7 +101,9 @@ pub fn load_one(manifest_path: &Path) -> Result<JsProvider, String> {
             entry.display()
         ));
     }
-    let vm = PluginVm::load(&manifest.id, &entry)
+    let manifest_json = serde_json::to_string(&manifest)
+        .map_err(|e| format!("serialize manifest for {}: {e}", manifest.id))?;
+    let vm = PluginVm::load_with_manifest(&manifest.id, &entry, manifest_json)
         .map_err(|e| format!("VM init for {}: {e}", manifest.id))?;
     Ok(JsProvider::new(manifest, Arc::new(vm)))
 }

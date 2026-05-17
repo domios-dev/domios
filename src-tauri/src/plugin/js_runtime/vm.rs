@@ -60,6 +60,10 @@ struct Inner {
     // the bundle's exports live as globals (`__plugin__.detectFromTitle`,
     // ...) after the initial load. `call` reads them on demand.
     bundle_source: String,
+    // Manifest JSON string returned to the plugin via `host.manifest()`.
+    // Preserved across reload so the post-reload plugin still sees its
+    // declared paths.
+    manifest_json: Option<String>,
 }
 
 impl PluginVm {
@@ -78,9 +82,35 @@ impl PluginVm {
         Self::from_source(plugin_id, source)
     }
 
+    /// Same as `load` but with the manifest JSON also installed so the
+    /// plugin can read its own declared paths via `host.manifest()`.
+    pub fn load_with_manifest(
+        plugin_id: &str,
+        plugin_js_path: &Path,
+        manifest_json: String,
+    ) -> Result<Self, VmError> {
+        let source = std::fs::read_to_string(plugin_js_path).map_err(|e| VmError::ReadFile {
+            path: plugin_js_path.display().to_string(),
+            source: e,
+        })?;
+        Self::from_source_with(plugin_id, source, Some(manifest_json))
+    }
+
     /// Same as `load` but takes the source string directly — used in
     /// tests and by the in-repo bundled plugin loader.
     pub fn from_source(plugin_id: &str, bundle_source: String) -> Result<Self, VmError> {
+        Self::from_source_with(plugin_id, bundle_source, None)
+    }
+
+    /// Same as `from_source`, plus a manifest JSON string the plugin can
+    /// read back at runtime through `host.manifest()`. Lets plugin
+    /// functions resolve their own declared paths (rule.path, sessions.rootDir,
+    /// etc.) without us threading those through every call site.
+    pub fn from_source_with(
+        plugin_id: &str,
+        bundle_source: String,
+        manifest_json: Option<String>,
+    ) -> Result<Self, VmError> {
         let rt = Runtime::new().map_err(|e| VmError::RuntimeInit(e.to_string()))?;
         let ctx = Context::full(&rt).map_err(|e| VmError::RuntimeInit(e.to_string()))?;
 
@@ -111,7 +141,9 @@ impl PluginVm {
             source = bundle_source
         );
 
+        let manifest_for_install = manifest_json.clone();
         ctx.with(|ctx| -> Result<(), VmError> {
+            super::host_api::install(&ctx, manifest_for_install.as_deref())?;
             ctx.eval::<(), _>(bootstrap.clone())
                 .catch(&ctx)
                 .map_err(|e| VmError::Script(format!("{e:?}")))?;
@@ -123,6 +155,7 @@ impl PluginVm {
                 _ctx: ctx,
                 _rt: rt,
                 bundle_source,
+                manifest_json,
             }),
             plugin_id: plugin_id.to_string(),
         })
@@ -152,7 +185,9 @@ impl PluginVm {
             "#,
             source = new_source
         );
+        let manifest_for_install = inner.manifest_json.clone();
         ctx.with(|ctx| -> Result<(), VmError> {
+            super::host_api::install(&ctx, manifest_for_install.as_deref())?;
             ctx.eval::<(), _>(bootstrap)
                 .catch(&ctx)
                 .map_err(|e| VmError::Script(format!("{e:?}")))?;

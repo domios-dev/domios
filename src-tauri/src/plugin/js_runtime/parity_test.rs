@@ -200,6 +200,58 @@ mod claude {
         assert!(cmd.contains("--dangerously-skip-permissions"));
     }
 
+    /// Bridge-rule install: native impl writes to `~/.claude/rules/codeterm.md`
+    /// via `dirs::home_dir()`. The JS plugin gets the SAME functional
+    /// guarantee using only `host.expandHome` + `host.writeFile`. Test
+    /// builds a synthetic plugin whose `rule.path` points into a temp
+    /// dir, then runs `installBridgeRule` through `JsProvider` (same
+    /// trait method native uses) and asserts the file landed.
+    #[test]
+    fn bridge_rule_install_via_host_writes_file() {
+        if !ws_exists() { return; }
+        let dir = tempfile::tempdir().unwrap();
+        let rule_path = dir.path().join("rules").join("codeterm.md");
+        // Synthetic plugin: same plugin.js as bundled claude, but a
+        // manifest whose rule.path points into our tempdir. Skip the
+        // workspace one to avoid touching real ~/.claude.
+        let plugin_js = std::fs::read_to_string(
+            workspace_plugins_root().join("provider-claude").join("plugin.js"),
+        )
+        .unwrap();
+        let manifest_json = format!(
+            r#"{{
+                "id":"claude-test","version":"0.1.0","displayName":"X",
+                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
+                         "taskDelivery":"pty_input",
+                         "verifySubmit":{{"kind":"none"}}}},
+                "rule":{{"path":"{rp}"}}
+            }}"#,
+            rp = rule_path.to_string_lossy().replace('\\', "/")
+        );
+        let manifest: crate::plugin::js_runtime::PluginManifest =
+            serde_json::from_str(&manifest_json).unwrap();
+        let vm = crate::plugin::js_runtime::vm::PluginVm::from_source_with(
+            "claude-test",
+            plugin_js,
+            Some(manifest_json),
+        )
+        .unwrap();
+        let provider = JsProvider::new(manifest, std::sync::Arc::new(vm));
+
+        provider
+            .install_bridge_rule("PROTOCOL PAYLOAD v1")
+            .expect("install ok");
+        let written = std::fs::read_to_string(&rule_path).expect("file written");
+        assert_eq!(written, "PROTOCOL PAYLOAD v1");
+        assert!(
+            rule_path.parent().unwrap().exists(),
+            "host.writeFile must create parent dirs"
+        );
+
+        provider.uninstall_bridge_rule().expect("uninstall ok");
+        assert!(!rule_path.exists(), "uninstall removes the file");
+    }
+
     #[test]
     fn launch_command_simple_interactive_form() {
         if !ws_exists() { return; }

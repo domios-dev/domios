@@ -425,16 +425,38 @@ Tracked in tasks #17–#24. Sequence:
       (1254 baseline + 47 new), 0 regressions, 0 ignored beyond
       pre-existing.
 
-**Deferred to a future pass** (intentional, documented as Rust-side
-host responsibilities rather than per-provider Rust):
+**Host API for plugin-side I/O** (the architectural fix — plugins do
+everything themselves through generic Rust primitives):
 
-- [ ] Native provider deletion. Native `agent_claude/`, `agent_codex/`,
-      `agent_opencode/` stay authoritative for the parts that legitimately
-      belong in Rust: stdin-pipe headless launch (Claude), sqlite session
-      enumeration (Opencode), recursive YYYY/MM/DD rollout walk (Codex),
-      OS-specific shell quoting (`ShellSyntax`). The JS plugins prove the
-      pure-logic surface is portable; the I/O surface stays Rust until a
-      generic plugin-side "task-file request" API lands.
+- [x] `host` global injected into every plugin VM (see
+      `src-tauri/src/plugin/js_runtime/host_api.rs`). Surface:
+      `platform`, `homeDir`, `expandHome`, `envGet`, `unixNow{,Ms}`,
+      `fileExists`, `readFile`, `writeFile`, `removeFile`, `makeDirs`,
+      `readDirJson`, `walkDirJson`, `shellQuote`, `shellQuoteFor`,
+      `writeTempFile`, `sqliteQueryAllJson`, `log`, `manifestJson`.
+      Synchronous, JSON-on-the-wire for complex returns. 15 unit tests
+      cover round-trip + edge cases (sqlite missing db, walk depth,
+      shell-quote for Windows vs POSIX, etc.).
+- [x] Bridge-rule install ported as proof: `plugins/provider-claude/
+      plugin.js#installBridgeRule` writes via `host.writeFile`. Same
+      `AgentProvider::install_bridge_rule` trait method dispatches into
+      the plugin. Parity test runs the whole flow into a temp dir
+      through `JsProvider`.
+
+**Still to migrate** (each one is now a TS-only port, no Rust needed —
+the host API surface covers what every native impl does today):
+
+- [ ] Claude `.claude/settings.json` integration (hooks install /
+      check / uninstall) — `host.readFile` + JSON patch in plugin +
+      `host.writeFile`.
+- [ ] Claude stdin-pipe headless launch — `host.writeTempFile` +
+      `host.shellQuoteFor(platform)` for the per-OS pipe prefix.
+- [ ] Opencode sqlite session detection — `host.sqliteQueryAllJson`
+      (already exercised in tests against a synthetic sqlite db).
+- [ ] Codex rollout YYYY/MM/DD walk — `host.walkDirJson` (already
+      tested at depth 1 and depth 5).
+- [ ] Native code path deletion after each migration ships and parity
+      tests stay green for a week of dogfood.
 - [ ] `~/.codeterm/plugins/<id>/` user-drop verified end-to-end with a
       restarted dev daemon. Code path exists; needs a manual smoke test
       next time someone is at the machine.
@@ -477,4 +499,4 @@ host responsibilities rather than per-provider Rust):
   volume (sub-Hz on most methods, kHz on hot path which is still
   trivial).
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
