@@ -171,6 +171,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/graph/repair/find-entities", post(mem_routes::mem_graph_repair_find_entities))
         .route("/api/mem/graph/repair/augment-entity", post(mem_routes::mem_graph_repair_augment_entity))
         .route("/api/mem/graph/repair/delete-entity", post(mem_routes::mem_graph_repair_delete_entity))
+        .route("/api/mem/graph/repair/orphan-vectors", post(mem_routes::mem_graph_repair_orphan_vectors))
         .route("/api/mem/learn", post(mem_routes::mem_learn))
         .route("/api/mem/promote/{id}", post(mem_routes::mem_promote))
         .route("/api/mem/flush", post(mem_routes::mem_flush))

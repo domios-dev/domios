@@ -622,6 +622,10 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 let payload = json!({"id": id, "patch": patch_val, "actor": actor});
                 ("POST".into(), "/api/mem/graph/repair/augment-entity".into(), Some(payload.to_string()))
             }
+            MemGraphAction::RepairOrphanVectors { dry_run, actor } => {
+                let payload = json!({"dry_run": dry_run, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/orphan-vectors".into(), Some(payload.to_string()))
+            }
             MemGraphAction::DeleteEntity { id, force, purge_history, actor } => {
                 let payload = json!({"id": id, "force": force, "purge_history": purge_history, "actor": actor});
                 ("POST".into(), "/api/mem/graph/repair/delete-entity".into(), Some(payload.to_string()))

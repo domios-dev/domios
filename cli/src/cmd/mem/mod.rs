@@ -566,6 +566,10 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/repair/augment-entity", base), &payload)
             }
+            MemGraphAction::RepairOrphanVectors { dry_run, actor } => {
+                let payload = serde_json::json!({"dry_run": dry_run, "actor": actor});
+                mem_post_request(&http, &format!("{}/api/mem/graph/repair/orphan-vectors", base), &payload)
+            }
             MemGraphAction::DeleteEntity { id, force, purge_history, actor } => {
                 let payload = serde_json::json!({
                     "id": id,

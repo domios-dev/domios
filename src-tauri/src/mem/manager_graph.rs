@@ -151,6 +151,15 @@ impl MemManager {
         crate::mem::graph_repair::delete_entity_by_id(&conn, entity_id, force, purge_history, actor)
     }
 
+    pub fn graph_repair_orphan_vectors(
+        &self,
+        dry_run: bool,
+        actor: &str,
+    ) -> Result<crate::mem::graph_repair::RepairOrphanVectorsReport, String> {
+        let conn = self.conn.lock();
+        crate::mem::graph_repair::repair_orphan_vectors(&conn, dry_run, actor)
+    }
+
     pub fn graph_merge_relations(
         &self,
         keep: i64,

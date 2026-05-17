@@ -365,6 +365,66 @@ pub struct DeleteEntityReport {
     pub cascaded_history: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepairOrphanVectorsReport {
+    pub orphan_ids: Vec<String>,
+    pub deleted: u64,
+    pub dry_run: bool,
+}
+
+pub fn repair_orphan_vectors(
+    conn: &Connection,
+    dry_run: bool,
+    actor: &str,
+) -> Result<RepairOrphanVectorsReport, String> {
+    let sql = "SELECT mem_id FROM mem_vectors v
+               WHERE NOT EXISTS (
+                 SELECT 1 FROM mem_items
+                 WHERE id = v.mem_id
+                    OR id = substr(v.mem_id, 1, instr(v.mem_id, '_chunk_') - 1)
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM entities
+                 WHERE id = v.mem_id
+                    OR id = substr(v.mem_id, 1, instr(v.mem_id, '_chunk_') - 1)
+               )";
+    let mut stmt = conn.prepare(sql).map_err(|e| format!("orphan-vectors prepare: {}", e))?;
+    let orphan_ids: Vec<String> = stmt.query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>().map_err(|e| e.to_string())?;
+    drop(stmt);
+
+    if dry_run || orphan_ids.is_empty() {
+        return Ok(RepairOrphanVectorsReport {
+            deleted: 0,
+            orphan_ids,
+            dry_run,
+        });
+    }
+
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let placeholders = std::iter::repeat("?").take(orphan_ids.len()).collect::<Vec<_>>().join(",");
+    let bind: Vec<&dyn rusqlite::ToSql> = orphan_ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    let deleted = tx.execute(
+        &format!("DELETE FROM mem_vectors WHERE mem_id IN ({})", placeholders),
+        rusqlite::params_from_iter(bind.iter()),
+    ).map_err(|e| e.to_string())? as u64;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let details = serde_json::json!({
+        "op": "repair_orphan_vectors",
+        "orphan_ids": orphan_ids,
+    }).to_string();
+    tx.execute(
+        "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
+         VALUES (?1, ?2, NULL, NULL, NULL, ?3, ?4)",
+        params![now, deleted as i64, actor, details],
+    ).map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(RepairOrphanVectorsReport { orphan_ids, deleted, dry_run: false })
+}
+
 pub fn delete_entity_by_id(
     conn: &Connection,
     entity_id: &str,

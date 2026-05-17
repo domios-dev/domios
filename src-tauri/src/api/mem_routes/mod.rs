@@ -23,8 +23,8 @@ pub use graph::{
     mem_graph_relate, mem_graph_related, mem_graph_repair_augment_entity,
     mem_graph_repair_delete_entity, mem_graph_repair_delete_relations,
     mem_graph_repair_find_entities, mem_graph_repair_find_relations,
-    mem_graph_repair_merge_relations, mem_graph_timeline, mem_graph_traverse,
-    mem_graph_tunnels,
+    mem_graph_repair_merge_relations, mem_graph_repair_orphan_vectors,
+    mem_graph_timeline, mem_graph_traverse, mem_graph_tunnels,
 };
 pub use items::{
     mem_activity_recent, mem_check_duplicate, mem_delete, mem_flush, mem_forget_area, mem_get,
