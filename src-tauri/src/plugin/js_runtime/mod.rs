@@ -18,6 +18,7 @@
 //! because QuickJS evaluations are sub-millisecond for the kind of
 //! string work plugins do.
 
+mod host_api;
 pub mod loader;
 pub mod manifest;
 mod provider;

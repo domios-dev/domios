@@ -479,6 +479,58 @@ impl AgentProvider for JsProvider {
         self.try_call::<Vec<SettingField>>("notificationsSchema", &[])
             .unwrap_or_default()
     }
+
+    fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {
+        // Plugin returns { ok: true } or { ok: false, error: "..." }.
+        // If the plugin doesn't export `installBridgeRule`, fall back to
+        // writing to manifest.rule.path when present — keeps the trait
+        // contract honest for the common case ("declared a path, didn't
+        // bother to write code").
+        if let Some(v) =
+            self.try_call::<serde_json::Value>("installBridgeRule", &[serde_json::json!(payload)])
+        {
+            return result_from_js(&v);
+        }
+        if let Some(rule) = self.manifest.rule.as_ref() {
+            let Some(path) = PluginManifest::expand_home(&rule.path) else {
+                return Err("rule.path: home dir not resolvable".into());
+            };
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("create {}: {e}", parent.display()))?;
+            }
+            std::fs::write(&path, payload).map_err(|e| format!("write {}: {e}", path.display()))?;
+            return Ok(());
+        }
+        Ok(())
+    }
+
+    fn uninstall_bridge_rule(&self) -> Result<(), String> {
+        if let Some(v) = self.try_call::<serde_json::Value>("uninstallBridgeRule", &[]) {
+            return result_from_js(&v);
+        }
+        if let Some(rule) = self.manifest.rule.as_ref() {
+            if let Some(path) = PluginManifest::expand_home(&rule.path) {
+                if path.exists() {
+                    std::fs::remove_file(&path)
+                        .map_err(|e| format!("remove {}: {e}", path.display()))?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn result_from_js(v: &serde_json::Value) -> Result<(), String> {
+    let ok = v.get("ok").and_then(|b| b.as_bool()).unwrap_or(false);
+    if ok {
+        return Ok(());
+    }
+    let err = v
+        .get("error")
+        .and_then(|e| e.as_str())
+        .unwrap_or("plugin returned ok=false");
+    Err(err.to_string())
 }
 
 #[cfg(test)]
