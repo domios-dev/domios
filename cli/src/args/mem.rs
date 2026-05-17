@@ -761,6 +761,16 @@ pub enum MemGraphAction {
         #[arg(long, default_value = "user")]
         actor: String,
     },
+    /// Find and (optionally) delete orphan rows in mem_vectors — vectors whose
+    /// mem_id has no matching mem_items / entities row. One-shot legacy cleanup.
+    #[clap(name = "repair-orphan-vectors")]
+    RepairOrphanVectors {
+        /// Print orphans without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
     /// Delete an entity by id (audited). Refuses if it has active relations
     /// unless --force, in which case those relations are cascade-deleted too.
     #[clap(name = "delete-entity")]

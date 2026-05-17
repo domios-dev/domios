@@ -588,3 +588,61 @@ fn delete_entity_default_keeps_history() {
     ).unwrap();
     assert_eq!(ghosts, 1, "default: history preserved as ghost rows");
 }
+
+#[test]
+fn repair_orphan_vectors_finds_and_deletes() {
+    let conn = fresh_conn();
+    conn.execute_batch("CREATE TABLE mem_vectors (mem_id TEXT, embedding BLOB)").unwrap();
+    use crate::mem::graph::{insert_entity, Entity};
+    insert_entity(&conn, &Entity {
+        id: "person_real".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({}),
+    }).unwrap();
+    conn.execute(
+        "INSERT INTO mem_vectors VALUES
+            ('person_real', X''),
+            ('person_real_chunk_1', X''),
+            ('person_ghost', X''),
+            ('person_ghost_chunk_2', X'')",
+        [],
+    ).unwrap();
+
+    let dry = repair_orphan_vectors(&conn, true, "test").unwrap();
+    assert!(dry.dry_run);
+    assert_eq!(dry.deleted, 0);
+    assert_eq!(dry.orphan_ids.len(), 2);
+    assert!(dry.orphan_ids.contains(&"person_ghost".to_string()));
+
+    let report = repair_orphan_vectors(&conn, false, "test").unwrap();
+    assert_eq!(report.deleted, 2);
+    assert_eq!(report.orphan_ids.len(), 2);
+
+    let remaining: i64 = conn.query_row("SELECT COUNT(*) FROM mem_vectors", [], |r| r.get(0)).unwrap();
+    assert_eq!(remaining, 2, "only person_real's vectors should remain");
+
+    let (count, actor): (i64, String) = conn.query_row(
+        "SELECT count, actor FROM graph_purge_log ORDER BY id DESC LIMIT 1",
+        [], |r| Ok((r.get(0)?, r.get(1)?))
+    ).unwrap();
+    assert_eq!(count, 2);
+    assert_eq!(actor, "test");
+}
+
+#[test]
+fn repair_orphan_vectors_no_orphans_is_noop() {
+    let conn = fresh_conn();
+    conn.execute_batch("CREATE TABLE mem_vectors (mem_id TEXT, embedding BLOB)").unwrap();
+    use crate::mem::graph::{insert_entity, Entity};
+    insert_entity(&conn, &Entity {
+        id: "person_real".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({}),
+    }).unwrap();
+    conn.execute("INSERT INTO mem_vectors VALUES ('person_real', X'')", []).unwrap();
+
+    let report = repair_orphan_vectors(&conn, false, "test").unwrap();
+    assert_eq!(report.deleted, 0);
+    assert!(report.orphan_ids.is_empty());
+
+    let audits: i64 = conn.query_row("SELECT COUNT(*) FROM graph_purge_log", [], |r| r.get(0)).unwrap();
+    assert_eq!(audits, 0, "no orphans → no audit row");
+}

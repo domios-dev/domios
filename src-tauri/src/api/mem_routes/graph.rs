@@ -400,6 +400,25 @@ pub async fn mem_graph_repair_delete_entity(
     Ok(Json(serde_json::json!({ "report": report })))
 }
 
+#[derive(Deserialize)]
+pub struct RepairOrphanVectorsBody {
+    #[serde(default)]
+    pub dry_run: bool,
+    #[serde(default = "default_actor")]
+    pub actor: String,
+}
+
+pub async fn mem_graph_repair_orphan_vectors(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(b): Json<RepairOrphanVectorsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let report = state.svc.mem.graph_repair_orphan_vectors(b.dry_run, &b.actor)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "report": report })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::validate_canonical;
