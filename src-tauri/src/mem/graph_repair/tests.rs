@@ -678,3 +678,36 @@ fn repair_orphan_blobs_finds_unreferenced_files() {
     assert!(!blobs_dir.join("sha256_orphan_b.txt").exists(), "orphan deleted");
     assert!(blobs_dir.join("other.txt").exists(), "non-CAS file untouched");
 }
+
+#[test]
+fn find_duplicate_entities_vector_threshold_validates() {
+    let conn = fresh_conn();
+    let err = find_duplicate_entities(
+        &conn,
+        EntitySimilarityStrategy::Vector { threshold: 1.5, entity_type: None },
+        10,
+    ).unwrap_err();
+    assert!(err.contains("threshold"), "out-of-range threshold should error, got: {}", err);
+}
+
+#[test]
+fn find_duplicate_entities_vector_empty_when_no_vectors() {
+    // Without mem_vectors table loaded, vector strategy is a quiet no-op.
+    let conn = fresh_conn();
+    use crate::mem::graph::{insert_entity, Entity};
+    insert_entity(&conn, &Entity {
+        id: "p_a".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "A"}),
+    }).unwrap();
+    insert_entity(&conn, &Entity {
+        id: "p_b".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "A"}),
+    }).unwrap();
+
+    let groups = find_duplicate_entities(
+        &conn,
+        EntitySimilarityStrategy::Vector { threshold: 0.85, entity_type: None },
+        10,
+    ).unwrap();
+    assert!(groups.is_empty(), "no mem_vectors → no candidates surfaced");
+}

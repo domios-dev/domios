@@ -608,13 +608,19 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 let payload = json!({"keep": keep, "merge": merge_vec, "actor": actor});
                 ("POST".into(), "/api/mem/graph/repair/merge-relations".into(), Some(payload.to_string()))
             }
-            MemGraphAction::FindDuplicateEntities { strategy, limit } => {
-                let strategy_kind = match strategy.as_str() {
-                    "exact-name" | "exact_name" => "exact_name",
-                    "alias-chain" | "alias_chain" => "alias_chain",
-                    _ => "exact_name",
+            MemGraphAction::FindDuplicateEntities { strategy, threshold, entity_type, limit } => {
+                let strategy_value = match strategy.as_str() {
+                    "alias-chain" | "alias_chain" => json!({"kind": "alias_chain"}),
+                    "vector" => {
+                        let mut v = json!({"kind": "vector", "threshold": threshold});
+                        if let Some(et) = entity_type.clone() {
+                            v["entity_type"] = serde_json::Value::String(et);
+                        }
+                        v
+                    }
+                    _ => json!({"kind": "exact_name"}),
                 };
-                let payload = json!({"strategy": {"kind": strategy_kind}, "limit": limit});
+                let payload = json!({"strategy": strategy_value, "limit": limit});
                 ("POST".into(), "/api/mem/graph/repair/find-entities".into(), Some(payload.to_string()))
             }
             MemGraphAction::AugmentEntity { id, patch, actor } => {
