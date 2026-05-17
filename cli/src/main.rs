@@ -325,6 +325,17 @@ fn main() {
         return;
     }
 
+    // `docs` reads embedded markdown bundled at compile time — no daemon
+    // dependency. Short-circuit so agents can read references even when the
+    // daemon is wedged or restarting.
+    if matches!(cli.command, Commands::Docs { .. }) {
+        match cli.command {
+            Commands::Docs { name } => cmd::docs::handle(name),
+            _ => unreachable!(),
+        }
+        return;
+    }
+
     let socket_path = match discover_socket() {
         Ok(p) => p,
         Err(e) => {
