@@ -588,6 +588,39 @@ fn mem_to_api(action: &crate::MemAction) -> (String, String, Option<String>) {
                 ("GET".into(), path, None)
             }
             MemGraphAction::Alias { .. } => ("POST".into(), "/api/mem/graph/alias".into(), None),
+            MemGraphAction::FindDuplicateRelations { group_by, limit } => {
+                let group_by_vec: Vec<&str> = group_by.split(',').map(|s| s.trim()).collect();
+                let payload = json!({"group_by": group_by_vec, "limit": limit});
+                ("POST".into(), "/api/mem/graph/repair/find-relations".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::DeleteRelations { rowids, actor } => {
+                let rowids_vec: Vec<i64> = rowids.split(',')
+                    .filter_map(|s| s.trim().parse::<i64>().ok())
+                    .collect();
+                let payload = json!({"rowids": rowids_vec, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/delete-relations".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::MergeRelations { keep, merge, actor } => {
+                let merge_vec: Vec<i64> = merge.split(',')
+                    .filter_map(|s| s.trim().parse::<i64>().ok())
+                    .collect();
+                let payload = json!({"keep": keep, "merge": merge_vec, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/merge-relations".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::FindDuplicateEntities { strategy, limit } => {
+                let strategy_kind = match strategy.as_str() {
+                    "exact-name" | "exact_name" => "exact_name",
+                    "alias-chain" | "alias_chain" => "alias_chain",
+                    _ => "exact_name",
+                };
+                let payload = json!({"strategy": {"kind": strategy_kind}, "limit": limit});
+                ("POST".into(), "/api/mem/graph/repair/find-entities".into(), Some(payload.to_string()))
+            }
+            MemGraphAction::AugmentEntity { id, patch, actor } => {
+                let patch_val: serde_json::Value = serde_json::from_str(patch).unwrap_or(json!({}));
+                let payload = json!({"id": id, "patch": patch_val, "actor": actor});
+                ("POST".into(), "/api/mem/graph/repair/augment-entity".into(), Some(payload.to_string()))
+            }
             // Local-only graph mutations: no mesh relay. Fall through to
             // /stats so the call still returns valid JSON if a caller
             // somehow routes it across the wire.

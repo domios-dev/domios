@@ -706,4 +706,56 @@ pub enum MemGraphAction {
         #[arg(long)]
         db_path: Option<String>,
     },
+    /// Find duplicate relations grouped by selected columns.
+    /// Read-only diagnostic — does not mutate the graph.
+    #[clap(name = "find-duplicate-relations")]
+    FindDuplicateRelations {
+        /// Comma-separated columns from: from_id,relation_type,to_id,scope,valid_from
+        #[arg(long, default_value = "from_id,relation_type,to_id,valid_from")]
+        group_by: String,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    /// Delete relations by explicit rowids (audited to graph_purge_log).
+    #[clap(name = "delete-relations")]
+    DeleteRelations {
+        /// Comma-separated rowids (e.g. "42,87,103")
+        #[arg(long)]
+        rowids: String,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
+    /// Merge relations into `keep`, folding properties/confidence.
+    #[clap(name = "merge-relations")]
+    MergeRelations {
+        /// Rowid of the relation to keep (its properties and rowid survive).
+        #[arg(long)]
+        keep: i64,
+        /// Comma-separated rowids to fold into `keep` (these are deleted).
+        #[arg(long)]
+        merge: String,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
+    /// Find duplicate entities (exact name match or alias chain).
+    #[clap(name = "find-duplicate-entities")]
+    FindDuplicateEntities {
+        /// Strategy: exact-name | alias-chain
+        #[arg(long, default_value = "exact-name")]
+        strategy: String,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    /// Patch properties on an existing entity (audit-logged).
+    #[clap(name = "augment-entity")]
+    AugmentEntity {
+        /// Entity id (e.g. person_andrey)
+        #[arg(long)]
+        id: String,
+        /// JSON object of properties to merge in (e.g. '{"city":"Riga"}')
+        #[arg(long)]
+        patch: String,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
 }
