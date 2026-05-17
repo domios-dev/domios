@@ -140,6 +140,102 @@ pub fn delete_relations_by_rowids(
     Ok(deleted)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MergeReport {
+    pub merged_into: i64,
+    pub deleted_rowids: Vec<i64>,
+    pub final_confidence: f64,
+}
+
+pub fn merge_relations(
+    conn: &Connection,
+    keep: i64,
+    merge: &[i64],
+    actor: &str,
+) -> Result<MergeReport, String> {
+    if merge.is_empty() {
+        return Err("merge list cannot be empty".into());
+    }
+    if merge.contains(&keep) {
+        return Err("keep rowid cannot appear in merge list".into());
+    }
+
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
+    let mut all_ids = vec![keep];
+    all_ids.extend_from_slice(merge);
+    let placeholders = std::iter::repeat("?").take(all_ids.len()).collect::<Vec<_>>().join(",");
+    let bind: Vec<&dyn rusqlite::ToSql> = all_ids.iter().map(|i| i as &dyn rusqlite::ToSql).collect();
+
+    let mut stmt = tx.prepare(&format!(
+        "SELECT id, confidence, properties_json FROM relations WHERE id IN ({})", placeholders
+    )).map_err(|e| e.to_string())?;
+    let rows: Vec<(i64, f64, String)> = stmt.query_map(rusqlite::params_from_iter(bind.iter()), |r| {
+        Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    }).map_err(|e| e.to_string())?
+      .collect::<Result<_, _>>().map_err(|e| e.to_string())?;
+    drop(stmt);
+
+    if rows.len() != all_ids.len() {
+        return Err(format!("expected {} rows, got {} — some rowids do not exist", all_ids.len(), rows.len()));
+    }
+
+    let keep_row = rows.iter().find(|(id, _, _)| *id == keep)
+        .ok_or_else(|| format!("keep row {} not found", keep))?;
+    let mut keep_props: Map<String, Value> = serde_json::from_str::<Value>(&keep_row.2)
+        .map_err(|e| format!("parse keep props (rowid {}): {}", keep, e))?
+        .as_object().cloned().unwrap_or_default();
+
+    let mut max_conf = keep_row.1;
+    for (id, conf, props_json) in &rows {
+        if *id == keep { continue; }
+        if *conf > max_conf { max_conf = *conf; }
+        let other: Value = serde_json::from_str(props_json)
+            .map_err(|e| format!("parse merge props (rowid {}): {}", id, e))?;
+        if let Some(obj) = other.as_object() {
+            for (k, v) in obj {
+                keep_props.entry(k.clone()).or_insert(v.clone());
+            }
+        }
+    }
+
+    let merged_props_json = serde_json::to_string(&Value::Object(keep_props.clone()))
+        .map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "UPDATE relations SET confidence = ?1, properties_json = ?2 WHERE id = ?3",
+        params![max_conf, merged_props_json, keep],
+    ).map_err(|e| e.to_string())?;
+
+    let merge_placeholders = std::iter::repeat("?").take(merge.len()).collect::<Vec<_>>().join(",");
+    let merge_bind: Vec<&dyn rusqlite::ToSql> = merge.iter().map(|i| i as &dyn rusqlite::ToSql).collect();
+    let deleted = tx.execute(
+        &format!("DELETE FROM relations WHERE id IN ({})", merge_placeholders),
+        rusqlite::params_from_iter(merge_bind.iter()),
+    ).map_err(|e| e.to_string())? as i64;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let details = serde_json::json!({
+        "op": "merge_relations",
+        "kept": keep,
+        "merged_in": merge,
+        "final_confidence": max_conf,
+        "final_properties": Value::Object(keep_props),
+    }).to_string();
+    tx.execute(
+        "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
+         VALUES (?1, ?2, NULL, NULL, NULL, ?3, ?4)",
+        params![now, deleted, actor, details],
+    ).map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(MergeReport {
+        merged_into: keep,
+        deleted_rowids: merge.to_vec(),
+        final_confidence: max_conf,
+    })
+}
+
 pub fn load_relation_by_rowid(conn: &Connection, rowid: i64) -> Result<Relation, String> {
     let (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, props_json):
         (String, String, String, String, String, Option<String>, f64, String) = conn.query_row(
