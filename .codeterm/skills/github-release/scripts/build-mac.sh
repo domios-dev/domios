@@ -51,3 +51,12 @@ echo "$INFO" | grep -q "Authority=Developer ID Application" \
 echo "$INFO" | grep -q "flags=0x10000(runtime)" \
   || { echo "FAIL: hardened runtime not enabled (flags must include 0x10000)" >&2; exit 1; }
 echo "OK: Developer ID + hardened runtime"
+
+# Verify arch of BOTH inner binaries matches the requested build target.
+EXPECT_ARCH=$([ "$ARCH" = "arm64" ] && echo "arm64" || echo "x86_64")
+echo "--- verifying CLI + GUI arch matches $EXPECT_ARCH ---"
+file "$APP/Contents/MacOS/codeterm"        | grep -q "$EXPECT_ARCH" \
+  || { echo "FAIL: $APP/Contents/MacOS/codeterm is not $EXPECT_ARCH: $(file "$APP/Contents/MacOS/codeterm")" >&2; exit 1; }
+file "$APP/Contents/Resources/cli/codeterm" | grep -q "$EXPECT_ARCH" \
+  || { echo "FAIL: $APP/Contents/Resources/cli/codeterm is not $EXPECT_ARCH: $(file "$APP/Contents/Resources/cli/codeterm")" >&2; exit 1; }
+echo "OK: both binaries are $EXPECT_ARCH"
