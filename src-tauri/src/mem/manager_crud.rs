@@ -113,6 +113,7 @@ impl MemManager {
                             valid_to: None,
                             confidence: 0.8,
                             properties: serde_json::json!({}),
+                            reason: None,
                         },
                     );
                 }

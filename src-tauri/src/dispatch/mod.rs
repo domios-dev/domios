@@ -161,7 +161,6 @@ fn cmd_health() -> Result<CommandResult, String> {
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
         "build": env!("BUILD_HASH"),
-        "build_number": env!("BUILD_NUMBER"),
         "name": "CodeTerm",
         "platform": std::env::consts::OS,
     })))

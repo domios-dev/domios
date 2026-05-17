@@ -339,6 +339,15 @@ Capture both numbers — they go in the log block as `ISLANDS_AFTER:`
 and `ORPHANS_AFTER:`. If they didn't drop, your bridging round didn't
 land — re-check what you ran.
 
+If you created any new topic entities via `introduce-topic` this round,
+backfill their embeddings so `mem search` can find them now:
+
+    codeterm mem reembed --scope entities
+
+This is a no-op if every entity already has a vector — safe to call
+unconditionally. Without it, new topics live in the graph but stay
+invisible to semantic search until the next daemon restart.
+
 ## A.3 — Dedup pass
 
 Two flavours; do both.
@@ -380,6 +389,115 @@ Conservative when in doubt: keep both. Wrong merge is worse than a duplicate.
 
 `codeterm mem stats` — entity count should have dropped if you merged
 siblings. Log how many aliases + duplicates you resolved.
+
+## A.4 — Self-repair via typed primitives
+
+The graph_repair API exposes typed primitives for cleaning historical
+pollution that the UNIQUE constraint never blocked. Use ONLY these
+CLI commands — never raw SQL. Every destructive call writes a full
+payload to `graph_purge_log` so it can be reconstructed if needed.
+
+### A.4a Find and resolve duplicate relations
+
+    codeterm mem graph find-duplicate-relations \
+        --group-by from_id,relation_type,to_id,valid_from --limit 100 --json
+
+Response shape (note: grouped fields live under `.key`, not the top
+level — don't try `g["from_id"]`, use `g["key"]["from_id"]`):
+
+    {
+      "groups": [
+        {
+          "key":    {"from_id": "...", "relation_type": "...", "to_id": "..."},
+          "count":  3,
+          "rowids": [982, 1192, 1347],
+          "sample": { full relation object — confidence, properties, valid_from, ... }
+        },
+        ...
+      ]
+    }
+
+Read each group's `rowids` and `sample`. Decide per group:
+
+- **Exact duplicates, identical payload** → drop all but the lowest rowid:
+
+      codeterm mem graph delete-relations --rowids <r2,r3,...> --actor dreamer
+
+- **Same key but different `confidence` or `properties_json`** → fold them
+  into one. Pick the keeper (highest confidence; lowest rowid if tied):
+
+      codeterm mem graph merge-relations --keep <keeper-rowid> --merge <other-rowids> --actor dreamer
+
+  This carries the union of properties (keeper wins on collision) and
+  the `max(confidence)`. The other rowids are deleted.
+
+- **Unsure (semantics ambiguous)** → SKIP and note in diary. Do NOT guess.
+
+### A.4b Find and resolve duplicate entities
+
+    codeterm mem graph find-duplicate-entities --strategy exact-name --limit 50
+    codeterm mem graph find-duplicate-entities --strategy alias-chain --limit 50
+    codeterm mem graph find-duplicate-entities --strategy vector --threshold 0.85 --limit 30
+
+The `vector` strategy surfaces pairs whose embedded text is semantically
+close even when names differ (`tech_postgres` ↔ `tech_postgresql_db`). Same
+entity_type only. For each pair, run `mem graph related --id <a>` +
+`related --id <b>` to confirm same domain before `alias`. Treat scores
+below 0.90 as REVIEW, not auto-merge — wrong merge is worse than a duplicate.
+
+For exact-name groups, pick a canonical id (more relations / better slug),
+then merge each other member into it via the existing alias path:
+
+    codeterm mem graph alias --alias <other> --canonical <chosen>
+
+`alias` now carries over `properties_json` from the alias entity into
+canonical (Task 4) — no info is lost.
+
+### A.4c Augment entities with new facts
+
+If during your night's reading you derived a new factual property about
+an existing entity (city, role, summary text) AND the source is grounded
+in a mem_item, augment the entity:
+
+    codeterm mem graph augment-entity \
+        --id person_owner \
+        --patch '{"city":"Riga","role":"Senior iOS dev"}' \
+        --actor dreamer
+
+Rules:
+- Augment only with facts traceable to a mem_item or graph relation —
+  not inference, not speculation.
+- The patch overwrites colliding keys; be conservative on collisions.
+- Never augment to "fix" a value you simply disagree with; if the
+  existing value is wrong, find the source mem_item and correct it
+  there instead.
+
+### A.4d Housekeeping — orphan vectors and blobs
+
+Always run at the END of A.4, after all deletes/merges/aliases settled.
+Aliasing and deletion can leave behind `mem_vectors` rows whose `mem_id`
+no longer points anywhere, and `body_blob_path` files no `mem_item`
+references. These are wasted space + ghost search hits.
+
+    codeterm mem graph repair-orphan-vectors --dry-run
+    codeterm mem graph repair-orphan-blobs --dry-run
+
+If either reports `count > 0`, re-run WITHOUT `--dry-run` to apply.
+
+    codeterm mem graph repair-orphan-vectors --actor dreamer
+    codeterm mem graph repair-orphan-blobs --actor dreamer
+
+Audit lands in `graph_purge_log` with `op=repair_orphan_vectors` /
+`op=repair_orphan_blobs`. Safe to call unconditionally — a zero-orphan
+run writes no audit row.
+
+### Verify A.4
+
+    codeterm mem graph find-duplicate-relations \
+        --group-by from_id,relation_type,to_id,valid_from --limit 1
+
+Should be empty (or a strictly smaller set than before). Log how many
+delete-relations, merge-relations, augments, and orphan-cleanups ran.
 
 # STAGE B — Diary + worker report (the user-visible output)
 

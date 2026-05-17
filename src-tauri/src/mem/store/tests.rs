@@ -455,6 +455,7 @@ fn graph_full_returns_nodes_and_edges() {
         from_id: a.clone(), relation_type: "has_script".into(), to_id: b.clone(),
         scope: "global".into(), valid_from: chrono::Utc::now().to_rfc3339(),
         valid_to: None, confidence: 1.0, properties: serde_json::json!({}),
+        reason: None,
     }).unwrap();
 
     let dump = graph_full(&conn).unwrap();

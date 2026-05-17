@@ -40,37 +40,42 @@ Run it in the **background** so you can keep working:
 
 ## Verifying the running binary matches your code
 
-`build.sh dev` bumps `BUILD_NUMBER` on every launch. After a restart, check that number — it's the only thing that matters locally:
+`build.sh kill` guarantees the old dev is dead before `build.sh dev` starts the new one — so any `/api/health` response after restart is from the fresh build.
 
 ```bash
-curl -s http://127.0.0.1:7686/api/health | jq '.build_number'
-# → "123"
+curl -s http://127.0.0.1:7686/api/health | jq '.status'
+# → "ok"
 ```
 
-Remember the number you saw before the restart; if it didn't go up, the restart didn't take and you're still talking to the old binary. Kill it explicitly and try again.
+If you need to identify the build, `build` carries the short git commit hash:
 
-**Do NOT compare `build` (git commit hash).** Locally you're building from your working tree — the hash only matters when two different machines are building the same commit. Comparing it during iterative development is noise that gives false negatives (your uncommitted edits still show the previous commit's hash).
+```bash
+curl -s http://127.0.0.1:7686/api/health | jq '.build'
+# → "31c581a"
+```
+
+The hash only changes when you commit. During iterative development it stays the same across restarts (and that's fine — the kill-then-start sequence is your "did the restart take" signal).
 
 ## Polling for readiness (after restart)
 
 **Always poll, never `ScheduleWakeup` a fixed delay** — Rust re-link is unpredictable (5–60s depending on how much changed), and polling returns in milliseconds when it's ready. Fixed `sleep 90` or a 90s wakeup wastes time on a 15s rebuild and misses a 120s one.
 
-Grab the current `build_number` BEFORE the restart, then poll for a higher one:
+Easiest: `./build.sh dev --wait` does this for you (kills, builds, polls /api/health, exits when ready or times out at 300s).
+
+Manual polling:
 
 ```bash
-prev=$(curl -s http://127.0.0.1:7686/api/health 2>/dev/null | jq -r '.build_number // 0')
 ./build.sh kill && ./build.sh dev &   # or run_in_background=true via the Bash tool
 for i in $(seq 1 120); do
-  n=$(curl -s http://127.0.0.1:7686/api/health 2>/dev/null | jq -r '.build_number // 0')
-  if [ -n "$n" ] && [ "$n" != "0" ] && [ "$n" -gt "$prev" ] 2>/dev/null; then
-    echo "ready (#$n) after ${i}s"
+  if curl -fs --max-time 2 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
+    echo "ready after ${i}s"
     break
   fi
   sleep 1
 done
 ```
 
-Runs up to 2 minutes at 1s intervals in the foreground. Returns as soon as a NEW build_number shows up — strictly greater than what you saw before, so you can't be fooled by the old binary still answering.
+Runs up to 2 minutes at 1s intervals. Because `build.sh kill` ran first, the only thing that can answer is the new build.
 
 **What NOT to do:**
 - Don't `ScheduleWakeup` a blind delay for a rebuild — you don't know how long it'll take.
