@@ -215,3 +215,67 @@ fn merge_relations_missing_rowid_errors() {
     let err = merge_relations(&conn, 1, &[999], "test").unwrap_err();
     assert!(!err.is_empty(), "should error when a rowid doesn't exist");
 }
+
+#[test]
+fn find_duplicate_entities_by_exact_name() {
+    let conn = fresh_conn();
+    use crate::mem::graph::{insert_entity, Entity};
+    insert_entity(&conn, &Entity {
+        id: "person_andrey".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "Andrey"}),
+    }).unwrap();
+    insert_entity(&conn, &Entity {
+        id: "person_andreyy".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "andrey "}),
+    }).unwrap();
+    insert_entity(&conn, &Entity {
+        id: "person_other".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "Anna"}),
+    }).unwrap();
+
+    let groups = find_duplicate_entities(&conn, EntitySimilarityStrategy::ExactName, 100).unwrap();
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].entity_type, "Person");
+    assert_eq!(groups[0].member_ids.len(), 2);
+    assert!(groups[0].member_ids.contains(&"person_andrey".to_string()));
+    assert!(groups[0].member_ids.contains(&"person_andreyy".to_string()));
+    assert_eq!(groups[0].reason, "exact_name");
+}
+
+#[test]
+fn find_duplicate_entities_by_alias_chain() {
+    let conn = fresh_conn();
+    use crate::mem::graph::{insert_entity, Entity, add_alias};
+    insert_entity(&conn, &Entity {
+        id: "canonical".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "Andrey"}),
+    }).unwrap();
+    insert_entity(&conn, &Entity {
+        id: "alias1".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "alias1"}),
+    }).unwrap();
+    insert_entity(&conn, &Entity {
+        id: "alias2".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "alias2"}),
+    }).unwrap();
+    add_alias(&conn, "alias1", "canonical").unwrap();
+    add_alias(&conn, "alias2", "canonical").unwrap();
+
+    let groups = find_duplicate_entities(&conn, EntitySimilarityStrategy::AliasChain, 100).unwrap();
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].canonical_hint, "canonical");
+    assert_eq!(groups[0].member_ids.len(), 3, "canonical + 2 aliases");
+    assert!(groups[0].member_ids.contains(&"canonical".to_string()));
+}
+
+#[test]
+fn find_duplicate_entities_empty_when_no_duplicates() {
+    let conn = fresh_conn();
+    use crate::mem::graph::{insert_entity, Entity};
+    insert_entity(&conn, &Entity {
+        id: "person_andrey".into(), entity_type: "Person".into(),
+        scope: "global".into(), properties: serde_json::json!({"name": "Andrey"}),
+    }).unwrap();
+    let groups = find_duplicate_entities(&conn, EntitySimilarityStrategy::ExactName, 100).unwrap();
+    assert!(groups.is_empty());
+}
