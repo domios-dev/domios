@@ -252,35 +252,13 @@ fn codex_settings_schema_round_trips_as_json() {
 }
 
 #[test]
-fn codex_notifications_schema_present() {
-    // Codex has no hook file system, but PTY-output detection always runs.
-    // The schema surfaces that as a read-only "auto-enabled" badge so the
-    // Notifications tab lists Codex alongside Claude.
+fn codex_does_not_contribute_notifications_card() {
+    // Codex notifications fire automatically via the PTY event pipeline
+    // — no user-facing setting to render. Keeping the Notifications tab
+    // free of "auto-enabled, no setup required" cards keeps the UI honest.
     let p = CodexProvider::new();
-    let schema = p.notifications_schema();
-    assert!(!schema.is_empty(), "Codex must contribute notifications");
-    match &schema[0] {
-        crate::agent::provider::SettingField::Section { title, fields, .. } => {
-            assert_eq!(title, "Codex Notifications");
-            let mut saw_badge = false;
-            for f in fields {
-                if let crate::agent::provider::SettingField::Badge { query_command, query_args, .. } = f {
-                    if query_command == "check_provider_integration"
-                        && query_args
-                            .as_ref()
-                            .and_then(|v| v.get("provider_id"))
-                            .and_then(|v| v.as_str())
-                            == Some("codex")
-                    {
-                        saw_badge = true;
-                    }
-                }
-            }
-            assert!(saw_badge, "expected Badge wired to check_provider_integration(codex)");
-        }
-        _ => panic!("expected Section as top-level notifications field"),
-    }
-    assert!(!p.describe().notifications_schema.is_empty());
+    assert!(p.notifications_schema().is_empty());
+    assert!(p.describe().notifications_schema.is_empty());
 }
 
 // Meta filter — these strings are injections CodeTerm writes to a codex

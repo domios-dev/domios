@@ -19,6 +19,7 @@
 //! string work plugins do.
 
 mod host_api;
+pub mod hot_reload;
 pub mod loader;
 pub mod manifest;
 mod provider;
@@ -29,6 +30,7 @@ mod integration_test;
 #[cfg(test)]
 mod parity_test;
 
+pub use hot_reload::HotReloadRegistry;
 pub use loader::{default_roots, load_one, scan_roots, LoadOutcome};
 pub use provider::JsProvider;
 

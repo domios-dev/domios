@@ -227,35 +227,13 @@ fn opencode_settings_schema_round_trips_as_json() {
 }
 
 #[test]
-fn opencode_notifications_schema_present() {
-    // Opencode has no hook file system, but PTY-output detection always runs.
-    // The schema surfaces that as a read-only "auto-enabled" badge so the
-    // Notifications tab lists Opencode alongside Claude.
+fn opencode_does_not_contribute_notifications_card() {
+    // Opencode notifications fire automatically via the PTY event
+    // pipeline — no user-facing setting to render. Keeps the
+    // Notifications tab free of "auto-enabled, no setup required" noise.
     let p = OpenCodeProvider::new();
-    let schema = p.notifications_schema();
-    assert!(!schema.is_empty(), "Opencode must contribute notifications");
-    match &schema[0] {
-        crate::agent::provider::SettingField::Section { title, fields, .. } => {
-            assert_eq!(title, "Opencode Notifications");
-            let mut saw_badge = false;
-            for f in fields {
-                if let crate::agent::provider::SettingField::Badge { query_command, query_args, .. } = f {
-                    if query_command == "check_provider_integration"
-                        && query_args
-                            .as_ref()
-                            .and_then(|v| v.get("provider_id"))
-                            .and_then(|v| v.as_str())
-                            == Some("opencode")
-                    {
-                        saw_badge = true;
-                    }
-                }
-            }
-            assert!(saw_badge, "expected Badge wired to check_provider_integration(opencode)");
-        }
-        _ => panic!("expected Section as top-level notifications field"),
-    }
-    assert!(!p.describe().notifications_schema.is_empty());
+    assert!(p.notifications_schema().is_empty());
+    assert!(p.describe().notifications_schema.is_empty());
 }
 
 #[test]

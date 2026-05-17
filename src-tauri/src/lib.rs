@@ -396,6 +396,25 @@ pub fn run() {
                         agent_registry.register_provider(Box::new(p));
                     }
                 }
+
+                // Hot-reload watcher: polls the same roots every 2s and
+                // (a) discovers new plugin folders dropped into
+                // ~/.codeterm/plugins/, (b) reloads existing plugin VMs
+                // when their plugin.js changes, (c) unregisters plugins
+                // whose folder vanished. The initial state above is the
+                // current registry; from here on the watcher owns it.
+                let watcher = plugin::js_runtime::HotReloadRegistry::new(
+                    roots.clone(),
+                    agent_registry.clone(),
+                );
+                // Seed tracked-state for already-registered plugins so the
+                // first tick doesn't re-register them.
+                watcher.tick();
+                watcher.start();
+                log::info!(
+                    "[js-plugin] hot-reload watcher started on {} roots",
+                    roots.len()
+                );
             }
 
             // All providers have called `model_catalog::register(...)` in their
