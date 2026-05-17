@@ -333,10 +333,15 @@ export function Sidebar({
                           title={tab.title}
                         >
                           {(() => {
-                            const agentPid = tabPaneIds.find((pid) => !!getAgentProvider(state.panes[pid]?.agent_type));
-                            const tabProvider = agentPid ? getAgentProvider(state.panes[agentPid]?.agent_type) : undefined;
-                            return tabProvider ? (
-                              <AgentIcon providerId={tabProvider.id} className="text-[12px]" />
+                            // Any pane with an agent_type set (backend
+                            // already classified) — don't gate on the
+                            // FE-only `getAgentProvider` registry, or
+                            // drop-in plugins without a FE module
+                            // wouldn't surface here.
+                            const agentPid = tabPaneIds.find((pid) => !!state.panes[pid]?.agent_type);
+                            const agentType = agentPid ? state.panes[agentPid]?.agent_type : undefined;
+                            return agentType ? (
+                              <AgentIcon providerId={agentType} className="text-[12px]" />
                             ) : (
                               <TerminalIcon size={11} />
                             );
@@ -447,7 +452,7 @@ export function Sidebar({
                               paneCount={tabPids.length}
                               workspaceId={ws.id}
                               hasAgent={tabPids.some(
-                                (pid) => !!getAgentProvider(state.panes[pid]?.agent_type)
+                                (pid) => !!state.panes[pid]?.agent_type
                               )}
                               status={aggregateStatus(tabPids, state.paneStatuses)}
                               onRename={(title) => {
@@ -512,7 +517,7 @@ export function Sidebar({
                         paneCount={atPids.length}
                         workspaceId={ws.id}
                         hasAgent={atPids.some(
-                          (pid) => !!getAgentProvider(state.panes[pid]?.agent_type)
+                          (pid) => !!state.panes[pid]?.agent_type
                         )}
                         status={aggregateStatus(atPids, state.paneStatuses)}
                         onRename={(title) => {
