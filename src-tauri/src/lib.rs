@@ -337,6 +337,61 @@ pub fn run() {
             }
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
 
+            // Discover and register JS-runtime plugins. Scans the bundled
+            // workspace (`<repo>/plugins/`, only present in dev/source
+            // builds) and the per-user drop-in dir (`~/.codeterm/plugins/`).
+            //
+            // Collision rule: native bundled providers (claude, codex,
+            // opencode) are authoritative by default. A JS plugin with the
+            // same id is dropped unless explicitly opted-in via the
+            // `CODETERM_JS_PROVIDERS` env var — a comma-separated allowlist
+            // of ids that should let the JS bundle shadow the native one.
+            // Use `CODETERM_JS_PROVIDERS=all` to flip every collision.
+            {
+                use crate::agent::provider::AgentProvider;
+                use std::collections::HashSet;
+                use std::path::PathBuf;
+                let workspace_root: Option<PathBuf> = Some(PathBuf::from(
+                    concat!(env!("CARGO_MANIFEST_DIR"), "/..")
+                ));
+                let roots = plugin::js_runtime::default_roots(workspace_root.as_deref());
+                let (providers, report) = plugin::js_runtime::scan_roots(&roots);
+                for outcome in &report {
+                    match outcome {
+                        plugin::js_runtime::LoadOutcome::Loaded { plugin_id, manifest_path } => {
+                            log::info!(
+                                "[js-plugin] loaded {plugin_id} from {}",
+                                manifest_path.display()
+                            );
+                        }
+                        plugin::js_runtime::LoadOutcome::Skipped { path, reason } => {
+                            log::warn!(
+                                "[js-plugin] skipped {}: {reason}",
+                                path.display()
+                            );
+                        }
+                    }
+                }
+                let override_list: HashSet<String> = std::env::var("CODETERM_JS_PROVIDERS")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_lowercase())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                let allow_all = override_list.contains("all");
+                for p in providers {
+                    let id = p.id().to_string();
+                    if allow_all || override_list.contains(&id) {
+                        agent_registry.register_provider(Box::new(p));
+                    } else if !agent_registry.register_provider_if_absent(Box::new(p)) {
+                        log::info!(
+                            "[js-plugin] {id} not registered — native provider is authoritative; \
+                            set CODETERM_JS_PROVIDERS={id} to override"
+                        );
+                    }
+                }
+            }
+
             // All providers have called `model_catalog::register(...)` in their
             // constructors by now — refresh the `<provider>.example.toml`
             // files so users always see the current build's defaults.

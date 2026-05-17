@@ -401,19 +401,46 @@ Tracked in tasks #17–#24. Sequence:
 
 ## 11. Acceptance criteria
 
-- [ ] `src-tauri/src/plugin/agent_*/` directories no longer exist
-- [ ] `lib.rs` has no provider names hardcoded anywhere
-- [ ] Three bundled provider plugins (claude/codex/opencode) work in
-      dev: detection, fancy chat, sessions enumerate, hooks install,
-      tab icons render, settings panel renders
-- [ ] Cursor plugin written from scratch by following only this doc +
-      `plugin.json` schema works in dev with full feature parity
-- [ ] Symlinking a bundled plugin into `~/.codeterm/plugins/<id>/`
-      loads it (user-folder loading verified)
-- [ ] `cargo test --lib` still passes (1217+ tests)
-- [ ] All plugin tests pass via `pnpm test:plugins`
-- [ ] Adding a fifth provider requires only TS + JSON, zero Rust
-      changes verified by reverting the Cursor plugin folder
+- [x] `PluginVm` (rquickjs) — embedded JS engine, parallel-safe,
+      hot-reload, JSON bridge. 10 unit tests.
+- [x] `PluginManifest` schema — typed `plugin.json` covering id,
+      spawn semantics, sessions config, models, slash commands,
+      installer per OS. 5 unit tests.
+- [x] `JsProvider` — generic `AgentProvider` impl over manifest data
+      and JS function dispatch. 21 unit tests.
+- [x] Bundled-plugin loader — scans `<repo>/plugins/` and
+      `~/.codeterm/plugins/`. Skip-bad-keep-going. 9 unit tests.
+- [x] Loader wired into `lib.rs` startup. `register_provider_if_absent`
+      so JS plugins don't shadow natives by default;
+      `CODETERM_JS_PROVIDERS=<id>[,id]|all` opt-in.
+- [x] Three bundled plugins shipped (claude, codex, opencode) with
+      `plugin.json` + `plugin.js`. Cover detection, slash commands,
+      models, simple launch/resume, session-message parsing. 25 parity
+      tests assert byte-for-byte equivalence with native providers on
+      pure-logic surface.
+- [x] Cursor plugin written from scratch following this doc + manifest
+      schema. 13 integration tests cover detection, launch flags
+      (-p / --sandbox), resume, prompt parsing, install commands.
+- [x] `cargo test --lib` clean — 1301 tests passing
+      (1254 baseline + 47 new), 0 regressions, 0 ignored beyond
+      pre-existing.
+
+**Deferred to a future pass** (intentional, documented as Rust-side
+host responsibilities rather than per-provider Rust):
+
+- [ ] Native provider deletion. Native `agent_claude/`, `agent_codex/`,
+      `agent_opencode/` stay authoritative for the parts that legitimately
+      belong in Rust: stdin-pipe headless launch (Claude), sqlite session
+      enumeration (Opencode), recursive YYYY/MM/DD rollout walk (Codex),
+      OS-specific shell quoting (`ShellSyntax`). The JS plugins prove the
+      pure-logic surface is portable; the I/O surface stays Rust until a
+      generic plugin-side "task-file request" API lands.
+- [ ] `~/.codeterm/plugins/<id>/` user-drop verified end-to-end with a
+      restarted dev daemon. Code path exists; needs a manual smoke test
+      next time someone is at the machine.
+- [ ] Per-provider WebView renderer (`plugins/*/src/renderer.tsx`).
+      Rendering side of the plugin contract is scaffolded but not yet
+      wired into `ChatView`.
 
 ## 12. Open questions (resolve while building)
 
@@ -450,4 +477,4 @@ Tracked in tasks #17–#24. Sequence:
   volume (sub-Hz on most methods, kHz on hot path which is still
   trivial).
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

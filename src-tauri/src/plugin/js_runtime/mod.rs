@@ -18,6 +18,23 @@
 //! because QuickJS evaluations are sub-millisecond for the kind of
 //! string work plugins do.
 
+pub mod loader;
+pub mod manifest;
+mod provider;
 mod vm;
 
+#[cfg(test)]
+mod integration_test;
+#[cfg(test)]
+mod parity_test;
+
+pub use loader::{default_roots, load_one, scan_roots, LoadOutcome};
+pub use provider::JsProvider;
+
+pub use manifest::{
+    manifest_settings_sections, CommandsConfig, CwdEncoding, IntegrationConfig, IntegrationKind,
+    PermissionsConfig, PluginManifest, RuleConfig, SerdeModelInfo, SerdeReadinessStrategy,
+    SerdeSessionIdInjection, SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig,
+    SpawnConfig, UsageConfig,
+};
 pub use vm::{call_json, PluginVm, VmError};

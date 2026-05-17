@@ -48,6 +48,27 @@ impl AgentRegistry {
         self.providers.write().insert(id, provider);
     }
 
+    /// Register a provider only if `id` is not already present.
+    /// Returns `true` if it was added, `false` if a provider with the same
+    /// id was already registered (caller's provider is dropped).
+    pub fn register_provider_if_absent(&self, provider: Box<dyn AgentProvider>) -> bool {
+        let id = provider.id().to_string();
+        let mut guard = self.providers.write();
+        if guard.contains_key(&id) {
+            log::info!("[agent-registry] skipping provider {}: already registered", id);
+            return false;
+        }
+        log::info!("[agent-registry] registered provider: {}", id);
+        guard.insert(id, provider);
+        true
+    }
+
+    /// Test-only — number of registered providers.
+    #[cfg(test)]
+    pub fn provider_count(&self) -> usize {
+        self.providers.read().len()
+    }
+
     /// Remove a provider by id. Returns true if it existed.
     pub fn unregister_provider(&self, id: &str) -> bool {
         self.providers.write().remove(id).is_some()
