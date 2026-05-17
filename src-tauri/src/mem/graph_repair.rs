@@ -353,6 +353,108 @@ pub fn augment_entity(
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteEntityReport {
+    pub entity_id: String,
+    pub cascaded_relations: u64,
+}
+
+pub fn delete_entity_by_id(
+    conn: &Connection,
+    entity_id: &str,
+    force: bool,
+    actor: &str,
+) -> Result<DeleteEntityReport, String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+
+    let (entity_type, scope, properties_json): (String, String, String) = tx.query_row(
+        "SELECT entity_type, scope, properties_json FROM entities WHERE id = ?1",
+        params![entity_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    ).map_err(|e| format!("entity {} not found: {}", entity_id, e))?;
+
+    let active_rels: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM relations
+         WHERE valid_to IS NULL AND (from_id = ?1 OR to_id = ?1)",
+        params![entity_id], |r| r.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    if active_rels > 0 && !force {
+        return Err(format!(
+            "entity {} has {} active relations; pass force=true to cascade-delete them",
+            entity_id, active_rels
+        ));
+    }
+
+    let cascaded_rels: Vec<Value> = if active_rels > 0 {
+        let mut stmt = tx.prepare(
+            "SELECT id, from_id, relation_type, to_id, scope, valid_from, valid_to,
+                    confidence, properties_json, created_at, reason
+             FROM relations WHERE valid_to IS NULL AND (from_id = ?1 OR to_id = ?1)"
+        ).map_err(|e| e.to_string())?;
+        let rows: Vec<Value> = stmt.query_map(params![entity_id], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, i64>(0)?,
+                "from_id": r.get::<_, String>(1)?,
+                "relation_type": r.get::<_, String>(2)?,
+                "to_id": r.get::<_, String>(3)?,
+                "scope": r.get::<_, String>(4)?,
+                "valid_from": r.get::<_, String>(5)?,
+                "valid_to": r.get::<_, Option<String>>(6)?,
+                "confidence": r.get::<_, f64>(7)?,
+                "properties_json": r.get::<_, String>(8)?,
+                "created_at": r.get::<_, String>(9)?,
+                "reason": r.get::<_, Option<String>>(10)?,
+            }))
+        }).map_err(|e| e.to_string())?
+          .collect::<Result<_, _>>().map_err(|e| e.to_string())?;
+        drop(stmt);
+        tx.execute(
+            "DELETE FROM relations WHERE valid_to IS NULL AND (from_id = ?1 OR to_id = ?1)",
+            params![entity_id],
+        ).map_err(|e| e.to_string())?;
+        rows
+    } else {
+        Vec::new()
+    };
+
+    tx.execute("DELETE FROM entities WHERE id = ?1", params![entity_id])
+        .map_err(|e| e.to_string())?;
+
+    tx.execute(
+        "DELETE FROM entity_aliases WHERE alias_id = ?1 OR canonical_id = ?1",
+        params![entity_id],
+    ).map_err(|e| e.to_string())?;
+
+    let _ = tx.execute(
+        "DELETE FROM mem_vectors WHERE mem_id = ?1 OR mem_id LIKE ?2",
+        params![entity_id, format!("{}_chunk_%", entity_id)],
+    );
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let details = serde_json::json!({
+        "op": "delete_entity_by_id",
+        "entity": {
+            "id": entity_id,
+            "entity_type": entity_type,
+            "scope": scope,
+            "properties_json": properties_json,
+        },
+        "cascaded_relations": cascaded_rels,
+        "force": force,
+    }).to_string();
+    tx.execute(
+        "INSERT INTO graph_purge_log (purged_at, count, scope, before, reason_filter, actor, details_json)
+         VALUES (?1, ?2, NULL, NULL, NULL, ?3, ?4)",
+        params![now, (1 + cascaded_rels.len()) as i64, actor, details],
+    ).map_err(|e| e.to_string())?;
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(DeleteEntityReport {
+        entity_id: entity_id.to_string(),
+        cascaded_relations: cascaded_rels.len() as u64,
+    })
+}
+
 pub fn load_relation_by_rowid(conn: &Connection, rowid: i64) -> Result<Relation, String> {
     let (from_id, relation_type, to_id, scope, valid_from, valid_to, confidence, props_json, reason):
         (String, String, String, String, String, Option<String>, f64, String, Option<String>) = conn.query_row(
