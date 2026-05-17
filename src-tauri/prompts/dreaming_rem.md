@@ -437,6 +437,13 @@ Read each group's `rowids` and `sample`. Decide per group:
 
     codeterm mem graph find-duplicate-entities --strategy exact-name --limit 50
     codeterm mem graph find-duplicate-entities --strategy alias-chain --limit 50
+    codeterm mem graph find-duplicate-entities --strategy vector --threshold 0.85 --limit 30
+
+The `vector` strategy surfaces pairs whose embedded text is semantically
+close even when names differ (`tech_postgres` ↔ `tech_postgresql_db`). Same
+entity_type only. For each pair, run `mem graph related --id <a>` +
+`related --id <b>` to confirm same domain before `alias`. Treat scores
+below 0.90 as REVIEW, not auto-merge — wrong merge is worse than a duplicate.
 
 For exact-name groups, pick a canonical id (more relations / better slug),
 then merge each other member into it via the existing alias path:

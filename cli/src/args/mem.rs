@@ -740,12 +740,19 @@ pub enum MemGraphAction {
         #[arg(long, default_value = "user")]
         actor: String,
     },
-    /// Find duplicate entities (exact name match or alias chain).
+    /// Find duplicate entities (exact name match, alias chain, or vector similarity).
     #[clap(name = "find-duplicate-entities")]
     FindDuplicateEntities {
-        /// Strategy: exact-name | alias-chain
+        /// Strategy: exact-name | alias-chain | vector
         #[arg(long, default_value = "exact-name")]
         strategy: String,
+        /// Cosine similarity threshold for `vector` strategy (0.0-1.0).
+        /// 0.90+ = strong-merge candidate, 0.85+ = review-worthy.
+        #[arg(long, default_value_t = 0.85)]
+        threshold: f64,
+        /// Restrict `vector` strategy to entities of this type (Person, Tech, Project, ...).
+        #[arg(long)]
+        entity_type: Option<String>,
         #[arg(long, default_value_t = 50)]
         limit: usize,
     },

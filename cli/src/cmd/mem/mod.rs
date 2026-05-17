@@ -537,17 +537,24 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/repair/merge-relations", base), &payload)
             }
-            MemGraphAction::FindDuplicateEntities { strategy, limit } => {
-                let strategy_kind = match strategy.as_str() {
-                    "exact-name" | "exact_name" => "exact_name",
-                    "alias-chain" | "alias_chain" => "alias_chain",
+            MemGraphAction::FindDuplicateEntities { strategy, threshold, entity_type, limit } => {
+                let strategy_value = match strategy.as_str() {
+                    "exact-name" | "exact_name" => serde_json::json!({"kind": "exact_name"}),
+                    "alias-chain" | "alias_chain" => serde_json::json!({"kind": "alias_chain"}),
+                    "vector" => {
+                        let mut v = serde_json::json!({"kind": "vector", "threshold": threshold});
+                        if let Some(et) = entity_type.clone() {
+                            v["entity_type"] = serde_json::Value::String(et);
+                        }
+                        v
+                    }
                     other => {
-                        eprintln!("unknown strategy: {} (use exact-name or alias-chain)", other);
+                        eprintln!("unknown strategy: {} (use exact-name, alias-chain, or vector)", other);
                         std::process::exit(1);
                     }
                 };
                 let payload = serde_json::json!({
-                    "strategy": {"kind": strategy_kind},
+                    "strategy": strategy_value,
                     "limit": limit,
                 });
                 mem_post_request(&http, &format!("{}/api/mem/graph/repair/find-entities", base), &payload)

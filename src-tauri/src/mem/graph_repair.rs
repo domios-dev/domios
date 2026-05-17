@@ -243,6 +243,17 @@ pub enum EntitySimilarityStrategy {
     ExactName,
     /// Entities that resolve to the same canonical via existing aliases.
     AliasChain,
+    /// Vector-similarity pairs: same entity_type, cosine_sim >= threshold.
+    /// Only surfaces entities whose embedded text is close — Dreamer
+    /// confirms before merging via `mem graph alias`.
+    Vector {
+        /// Cosine similarity cutoff (0.0-1.0). Audit recommends 0.85+ as
+        /// review-worthy, 0.90+ as strong-merge candidate.
+        threshold: f64,
+        /// Optional filter: only compare entities of this type to each other.
+        #[serde(default)]
+        entity_type: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,7 +318,92 @@ pub fn find_duplicate_entities(
             }).map_err(|e| e.to_string())?;
             rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
         }
+        EntitySimilarityStrategy::Vector { threshold, entity_type } => {
+            find_similar_entities_by_vector(conn, threshold, entity_type.as_deref(), limit)
+        }
     }
+}
+
+fn find_similar_entities_by_vector(
+    conn: &Connection,
+    threshold: f64,
+    entity_type_filter: Option<&str>,
+    limit: usize,
+) -> Result<Vec<DuplicateEntityGroup>, String> {
+    if !(0.0..=1.0).contains(&threshold) {
+        return Err(format!("threshold must be in [0,1], got {}", threshold));
+    }
+    // cosine_sim = 1 - distance² / 2  ⇒  distance ≤ sqrt(2 * (1 - threshold))
+    let max_distance = (2.0 * (1.0 - threshold)).sqrt();
+
+    let entities: Vec<(String, String)> = {
+        let mut stmt = if entity_type_filter.is_some() {
+            conn.prepare("SELECT id, entity_type FROM entities WHERE entity_type = ?1")
+        } else {
+            conn.prepare("SELECT id, entity_type FROM entities")
+        }.map_err(|e| e.to_string())?;
+        let rows: Vec<(String, String)> = if let Some(et) = entity_type_filter {
+            stmt.query_map(params![et], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+                .map_err(|e| e.to_string())?
+                .filter_map(Result::ok).collect()
+        } else {
+            stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+                .map_err(|e| e.to_string())?
+                .filter_map(Result::ok).collect()
+        };
+        rows
+    };
+
+    let mut seen_pairs: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    let mut groups: Vec<DuplicateEntityGroup> = Vec::new();
+
+    for (eid, etype) in &entities {
+        let qvec: Option<Vec<u8>> = conn.query_row(
+            "SELECT embedding FROM mem_vectors WHERE mem_id = ?1",
+            params![eid], |r| r.get::<_, Vec<u8>>(0),
+        ).ok();
+        let Some(qvec) = qvec else { continue; };
+
+        let mut neighbor_stmt = match conn.prepare(
+            "SELECT mem_id, distance FROM mem_vectors
+             WHERE embedding MATCH ?1 AND k = 6 ORDER BY distance"
+        ) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let neighbors: Vec<(String, f64)> = neighbor_stmt.query_map(params![qvec], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+        }).map_err(|e| e.to_string())?
+          .filter_map(Result::ok).collect();
+        drop(neighbor_stmt);
+
+        for (nid_raw, dist) in neighbors {
+            // Strip _chunk_N suffix.
+            let nid = if let Some(pos) = nid_raw.rfind("_chunk_") { &nid_raw[..pos] } else { &nid_raw[..] };
+            if nid == eid { continue; }
+            if dist > max_distance { continue; }
+
+            let neighbor_type: Option<String> = conn.query_row(
+                "SELECT entity_type FROM entities WHERE id = ?1",
+                params![nid], |r| r.get(0),
+            ).ok();
+            let Some(neighbor_type) = neighbor_type else { continue; };
+            if neighbor_type != *etype { continue; }
+
+            let (a, b) = if eid.as_str() < nid { (eid.clone(), nid.to_string()) } else { (nid.to_string(), eid.clone()) };
+            if !seen_pairs.insert((a.clone(), b.clone())) { continue; }
+
+            let cosine_sim = 1.0 - (dist * dist) / 2.0;
+            groups.push(DuplicateEntityGroup {
+                canonical_hint: a.clone(),
+                member_ids: vec![a, b],
+                entity_type: etype.clone(),
+                reason: format!("vector_sim:{:.3}", cosine_sim),
+            });
+            if groups.len() >= limit { return Ok(groups); }
+        }
+    }
+    Ok(groups)
 }
 
 pub fn augment_entity(
