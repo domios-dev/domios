@@ -144,10 +144,29 @@ impl MemManager {
         &self,
         entity_id: &str,
         force: bool,
+        purge_history: bool,
         actor: &str,
     ) -> Result<crate::mem::graph_repair::DeleteEntityReport, String> {
         let conn = self.conn.lock();
-        crate::mem::graph_repair::delete_entity_by_id(&conn, entity_id, force, actor)
+        crate::mem::graph_repair::delete_entity_by_id(&conn, entity_id, force, purge_history, actor)
+    }
+
+    pub fn graph_repair_orphan_vectors(
+        &self,
+        dry_run: bool,
+        actor: &str,
+    ) -> Result<crate::mem::graph_repair::RepairOrphanVectorsReport, String> {
+        let conn = self.conn.lock();
+        crate::mem::graph_repair::repair_orphan_vectors(&conn, dry_run, actor)
+    }
+
+    pub fn graph_repair_orphan_blobs(
+        &self,
+        dry_run: bool,
+        actor: &str,
+    ) -> Result<crate::mem::graph_repair::RepairOrphanBlobsReport, String> {
+        let conn = self.conn.lock();
+        crate::mem::graph_repair::repair_orphan_blobs(&conn, self.blobs_dir(), dry_run, actor)
     }
 
     pub fn graph_merge_relations(
