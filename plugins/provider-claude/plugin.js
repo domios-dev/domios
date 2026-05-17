@@ -237,6 +237,33 @@ module.exports.default = {
     return parts.join(" ");
   },
 
+  // Walk the session JSONL bottom-up: surface the latest `message.model`
+  // OR a "Set model to X" line written by /model. Tail-only — for a
+  // multi-MB session, reading the whole file each time would burn CPU
+  // on every focused-poll tick.
+  detectSessionModel: function (cwd, sessionId) {
+    var path = claudeSessionFilePath(cwd, sessionId);
+    if (!path || !host.fs.fileExists(path)) return null;
+    var contents = host.fs.readFile(path);
+    if (!contents) return null;
+    var lines = contents.split("\n");
+    for (var i = lines.length - 1; i >= 0; i--) {
+      var line = lines[i];
+      if (!line) continue;
+      var v;
+      try { v = JSON.parse(line); } catch (_) { continue; }
+      if (!v || !v.message) continue;
+      var raw = contentToText(v.message.content);
+      var fam = extractSetModelFamily(raw);
+      if (fam) return fam;
+      var m = v.message.model;
+      if (typeof m === "string" && m && m !== "<synthetic>") {
+        return familyFromModelId(m);
+      }
+    }
+    return null;
+  },
+
   // JSONL → SessionMessage. Mirrors Rust agent_claude::parse_session_messages:
   // - skip lines without `type: "user"|"assistant"`
   // - content may be a string OR an array of `{type, text}` blocks
@@ -460,6 +487,86 @@ module.exports.default = {
     return { ok: false, error: "writeJson failed for " + path };
   },
 };
+
+// ── Session-file / model-label helpers ────────────────────────────────
+//
+// Native parity: `~/.claude/projects/<dash-encoded-cwd>/<sid>.jsonl`.
+// dash_encoded means '/', '\', ':' all become '-'. Matches the native
+// `crate::plugin::js_runtime::manifest::encode_cwd_dashed` path that
+// JsProvider uses for session_file_path.
+function claudeSessionFilePath(cwd, sessionId) {
+  var m = manifest();
+  var root = (m && m.sessions && m.sessions.rootDir) || "~/.claude/projects";
+  var ext = (m && m.sessions && m.sessions.fileExtension) || "jsonl";
+  var expanded = host.expandHome(root);
+  if (!expanded) return null;
+  var encoded = encodeCwdDashed(cwd);
+  var sep = host.platform() === "windows" ? "\\" : "/";
+  return expanded + sep + encoded + sep + sessionId + "." + ext;
+}
+
+function encodeCwdDashed(cwd) {
+  // Native parity: every non-alphanumeric char → '-'. Matches
+  // JsProvider::encode_cwd_dashed exactly.
+  return String(cwd || "").replace(/[^a-zA-Z0-9]/g, "-");
+}
+
+function contentToText(c) {
+  if (typeof c === "string") return c;
+  if (!Array.isArray(c)) return "";
+  var chunks = [];
+  for (var i = 0; i < c.length; i++) {
+    var b = c[i];
+    if (b && typeof b.text === "string") chunks.push(b.text);
+  }
+  return chunks.join(" ");
+}
+
+function extractSetModelFamily(raw) {
+  var idx = raw.indexOf("Set model to ");
+  if (idx === -1) return null;
+  var after = raw.substring(idx + "Set model to ".length);
+  var cleaned = stripAnsi(after).replace(/^\s+/, "");
+  var fam = "";
+  for (var i = 0; i < cleaned.length; i++) {
+    var c = cleaned.charAt(i);
+    if (!/[a-zA-Z]/.test(c)) break;
+    fam += c;
+  }
+  return fam ? capitalize(fam) : null;
+}
+
+function stripAnsi(s) {
+  var out = "";
+  var i = 0;
+  while (i < s.length) {
+    if (s.charCodeAt(i) === 0x1b && s.charAt(i + 1) === "[") {
+      i += 2;
+      while (i < s.length && !/[a-zA-Z]/.test(s.charAt(i))) i++;
+      if (i < s.length) i++;
+    } else {
+      out += s.charAt(i);
+      i++;
+    }
+  }
+  return out;
+}
+
+function familyFromModelId(id) {
+  var m = String(id || "").toLowerCase();
+  var fams = ["opus", "sonnet", "haiku"];
+  for (var i = 0; i < fams.length; i++) {
+    if (m.indexOf(fams[i]) !== -1) return capitalize(fams[i]);
+  }
+  var body = m.indexOf("claude-") === 0 ? m.substring(7) : m;
+  var head = body.split("-")[0] || body;
+  return capitalize(head);
+}
+
+function capitalize(s) {
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.substring(1).toLowerCase();
+}
 
 // ── Task-file helpers ─────────────────────────────────────────────────
 //
